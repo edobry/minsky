@@ -89,16 +89,18 @@ describe("createAsk", () => {
       { label: "A", value: "a" },
       { label: "B", value: "b" },
     ]);
-    // Newly-persisted Asks land in "detected" state per the FakeAskRepository
-    // contract; the routed/closed transitions are not yet persisted (mt#1456
-    // §Persistence semantics).
-    expect(persisted.state).toBe("detected");
+    // direction.decide defaults to serviceStrategy="scheduled" (mt#1488).
+    // createAsk walks the row to "suspended" immediately (mt#1490 R1 B1 fix).
+    expect(persisted.state).toBe("suspended");
   });
 
-  test("returns a RoutedAsk with kind-based fallback for direction.decide (no policy match)", async () => {
+  test("returns a SuspendedAsk for direction.decide (scheduled default, no policy match)", async () => {
+    // direction.decide defaults to serviceStrategy="scheduled" (mt#1488),
+    // so the router suspends it in Phase 3. The Ask waits for the reaper
+    // to dispatch it when the service window opens (mt#1490).
     const repo = new FakeAskRepository();
 
-    const routed = await createAsk(
+    const result = await createAsk(
       repo,
       {
         kind: KIND_DIRECTION_DECIDE,
@@ -108,13 +110,14 @@ describe("createAsk", () => {
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
     );
 
-    // mt#1069's transport-binding matrix: direction.decide → operator/inbox.
-    expect(routed.state).toBe("routed");
-    expect(routed.routingTarget).toBe("operator");
-    expect(routed.transport.kind).toBe("inbox");
-    expect(routed.packagedPayload.question).toBe("Y");
+    // Phase 3 suspends direction.decide (scheduled strategy).
+    expect(result.state).toBe("suspended");
+    // Transport binding is still computed in Phase 2 before suspension.
+    expect(result.routingTarget).toBe("operator");
+    expect(result.transport.kind).toBe("inbox");
+    expect(result.packagedPayload.question).toBe("Y");
     // No policy citation when no policy source covers the Ask.
-    expect(routed.packagedPayload.citation).toBeUndefined();
+    expect(result.packagedPayload.citation).toBeUndefined();
   });
 
   test("returns a RoutedAsk with subagent transport for capability.escalate", async () => {
@@ -310,6 +313,8 @@ describe("createAsk", () => {
   // -------------------------------------------------------------------------
 
   test("dispatches end-to-end through elicitation when an active server is present", async () => {
+    // direction.decide defaults to scheduled; use forceImmediate=true to
+    // bypass windowing and exercise the elicitation transport path.
     const repo = new FakeAskRepository();
 
     // Fake server that accepts the elicitation with a chosen value.
@@ -330,6 +335,9 @@ describe("createAsk", () => {
           { label: "X", value: "x" },
           { label: "Y", value: "y" },
         ],
+        // forceImmediate bypasses Phase 3 windowing so the elicitation transport
+        // path is exercised (mt#1490: scheduled strategy would otherwise suspend).
+        forceImmediate: true,
       },
       {
         workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
@@ -752,6 +760,87 @@ describe("validateAsksCreateParams", () => {
     expect(() => validateAsksCreateParams({})).not.toThrow();
   });
 });
+
+// ---------------------------------------------------------------------------
+// createAsk — window-deferred suspended state persistence (R1 fix, mt#1490)
+// ---------------------------------------------------------------------------
+
+describe("createAsk — scheduled ask lands with state=suspended (R1 fix)", () => {
+  test("direction.decide with default service-window args lands at state=suspended in the repo", async () => {
+    // Production path: no seeded state, no explicit serviceStrategy override.
+    // direction.decide defaults to scheduled/ask-hours via getServiceWindowDefault.
+    // The router (policyFirstRoute) returns a SuspendedAsk in memory; createAsk
+    // must persist state="suspended" on the DB row (R1 B1 fix).
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Which direction should we take?",
+        question: "A or B?",
+        // No serviceStrategy — defaults to scheduled via getServiceWindowDefault.
+        // No capabilityRegistry — no elicitation capability available.
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    // Router returns suspended for direction.decide/scheduled.
+    expect(result.state).toBe("suspended");
+
+    // The persisted row must also be suspended, not "detected".
+    const persisted = await repo.getById(result.id);
+    expect(persisted?.state).toBe("suspended");
+  });
+
+  test("explicit scheduled serviceStrategy also lands at state=suspended in the repo", async () => {
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Scheduled decision",
+        question: "Pick X or Y?",
+        serviceStrategy: "scheduled",
+        windowKey: "ask-hours",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    expect(result.state).toBe("suspended");
+
+    const persisted = await repo.getById(result.id);
+    expect(persisted?.state).toBe("suspended");
+    // Row should reflect the window key used for scheduling.
+    expect(persisted?.windowKey).toBe("ask-hours");
+  });
+
+  test("asap strategy returns routed result (not suspended)", async () => {
+    // Verify the fix doesn't affect asap-path Asks — they must return routed.
+    const repo = new FakeAskRepository();
+
+    const result = await createAsk(
+      repo,
+      {
+        kind: KIND_STUCK_UNBLOCK,
+        title: "Urgent",
+        question: "Help me now",
+        // stuck.unblock defaults to asap
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    // asap Asks are immediately routed, not suspended (in the returned object).
+    expect(result.state).toBe("routed");
+
+    // For async transports (subagent), the persisted row stays at "detected"
+    // per createAsk's persistence contract — downstream adapters own the walk.
+    const persisted = await repo.getById(result.id);
+    expect(persisted?.state).toBe("detected");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // respondToAsk (mt#1458)
 // ---------------------------------------------------------------------------
@@ -1035,8 +1124,10 @@ describe("respondToAsk", () => {
   test("integrates end-to-end with createAsk: produce → suspend → respond → close", async () => {
     const repo = new FakeAskRepository();
 
-    // Producer (mt#1456): createAsk with no elicitation capable, routes to inbox.
-    const routed = await createAsk(
+    // Producer (mt#1456): createAsk with direction.decide defaults to scheduled/
+    // ask-hours (mt#1488). With mt#1490 R1 fix, createAsk persists state=suspended
+    // immediately — no manual transition walk needed.
+    const suspended = await createAsk(
       repo,
       {
         kind: KIND_DIRECTION_DECIDE,
@@ -1052,21 +1143,14 @@ describe("respondToAsk", () => {
       }
     );
 
-    // Per createAsk's contract: async transports stay at "routed" in the
-    // returned object, but the *persisted* row is at "detected" (the router
-    // doesn't write state). mt#454-impl will own the inbox transport's
-    // walk-to-suspended; for the v1 operator CLI integration test we walk
-    // it manually here through the valid transition chain.
-    expect(routed.state).toBe("routed");
-    expect(routed.transport.kind).toBe("inbox");
-    expect(routed.routingTarget).toBe("operator");
-    await repo.transition(routed.id, "classified");
-    await repo.transition(routed.id, "routed");
-    await repo.transition(routed.id, "suspended");
+    // direction.decide is scheduled by default → lands at suspended.
+    expect(suspended.state).toBe("suspended");
+    expect(suspended.transport.kind).toBe("inbox");
+    expect(suspended.routingTarget).toBe("operator");
 
     // Consumer (mt#1458): respondToAsk closes the loop.
     const result = await respondToAsk(repo, {
-      id: routed.id,
+      id: suspended.id,
       message: "go with the first option",
     });
 
@@ -1075,7 +1159,7 @@ describe("respondToAsk", () => {
       message: "go with the first option",
     });
 
-    const persisted = await repo.getById(routed.id);
+    const persisted = await repo.getById(suspended.id);
     expect(persisted?.state).toBe("closed");
   });
 });

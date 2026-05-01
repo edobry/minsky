@@ -20,7 +20,8 @@ import { describe, expect, test } from "bun:test";
 
 import { dispatchToElicitation, _testOnly } from "./elicitation";
 import { FakeAskRepository } from "../repository";
-import { policyFirstRoute } from "../router";
+import { policyFirstRoute, isRoutedAsk } from "../router";
+import type { RoutedAsk } from "../router";
 import type {
   ElicitationCapableServer,
   ElicitInputResult,
@@ -95,7 +96,7 @@ interface BuildArgs {
   question?: string;
 }
 
-async function buildRoutedAsk(repo: FakeAskRepository, args: BuildArgs) {
+async function buildRoutedAsk(repo: FakeAskRepository, args: BuildArgs): Promise<RoutedAsk> {
   const created = await repo.create({
     kind: args.kind,
     classifierVersion: "v1.0.0",
@@ -106,7 +107,13 @@ async function buildRoutedAsk(repo: FakeAskRepository, args: BuildArgs) {
     metadata: {},
   });
 
-  return policyFirstRoute(created, { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT });
+  const result = await policyFirstRoute(created, { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT });
+  if (!isRoutedAsk(result)) {
+    throw new Error(
+      `buildRoutedAsk: expected RoutedAsk but got state="${result.state}" — test fixture created a window-suspended Ask unexpectedly`
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,10 +208,13 @@ describe("dispatchToElicitation — buildPrompt", () => {
       ],
       metadata: {},
     });
-    const routed = await policyFirstRoute(created, {
+    const routerResult = await policyFirstRoute(created, {
       workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
     });
-    const prompt = _testOnly.buildPrompt(routed);
+    if (!isRoutedAsk(routerResult)) {
+      throw new Error("Expected RoutedAsk in buildPrompt test");
+    }
+    const prompt = _testOnly.buildPrompt(routerResult);
     expect(prompt).toContain("Q?");
     expect(prompt).toContain("Context:");
     expect(prompt).toContain("- diff: abc/def — the diff");

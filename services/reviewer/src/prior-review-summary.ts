@@ -289,8 +289,22 @@ export function countAcknowledgedFindings(body: string): number {
   return count;
 }
 
-/** Max total characters the rendered markdown summary may occupy. */
-const MAX_SUMMARY_CHARS = 3000;
+/**
+ * Max total characters the rendered markdown summary may occupy.
+ *
+ * Sized for ~10 round PRs at ~2.5K chars/iteration without truncation. The
+ * original budget was 3000 chars (mt#1189), but the mt#1429 diagnostic showed
+ * that long-iteration PRs (5+ rounds, e.g. PR #732) routinely exceeded it,
+ * dropping the oldest iterations and leaving the model without the original
+ * NON-BLOCKING classifications that the severity-monotonicity rule
+ * (prompt.ts Principle 8) is meant to anchor against. gpt-5's 400K-token
+ * context makes 30K chars (~7.5K tokens, ~2% of context) a trivial fraction
+ * of the prompt budget — far cheaper than the substrate it preserves.
+ *
+ * The cap is still useful as a runaway guard for pathological cases (100+
+ * iterations) but should not bite on normal PR review cycles.
+ */
+const MAX_SUMMARY_CHARS = 30000;
 
 /**
  * Summarize a list of prior bot reviews for prompt injection.
