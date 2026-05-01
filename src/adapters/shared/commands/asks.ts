@@ -601,6 +601,13 @@ export async function createAsk(
   // to "routed" and dispatches when the window opens.
   if (isSuspendedAsk(routed)) {
     await advanceRoutedAskToSuspended(repo, ask.id);
+    // Persist the routing target the router resolved in Phase 3 so the
+    // Ask the reaper reloads at dispatch time carries the necessary
+    // target. Without this, repo.getById returns routingTarget=undefined
+    // and the dispatch callback can't decide where to deliver. R5 fix.
+    if (routed.routingTarget !== undefined) {
+      await repo.updateRoutingTarget(ask.id, routed.routingTarget);
+    }
     return routed;
   }
 

@@ -452,6 +452,11 @@ export class ServiceWindowReaper {
     // here must too, otherwise audit trails see stale counts.
     await this.repo.updateWindowMissedCount(id, newMissCount);
 
+    // Persist forceImmediate=true on the DB row so downstream consumers
+    // (Cockpit, audits, mt#1035 noticer) can observe the escalation
+    // through normal repo reads. R5 fix.
+    await this.repo.updateForceImmediate(id, true);
+
     // Record in the forceImmediate counter store (anti-pattern audit).
     this.counterStore.record(ask.requestor, new Date().toISOString());
 
