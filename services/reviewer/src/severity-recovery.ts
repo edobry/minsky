@@ -122,9 +122,14 @@ export function parsePriorBodyFindings(body: string): FlatPriorFinding[] {
   //   - Line capture: explicit start + optional end so `:171-176` produces
   //     {line: 171, lineEnd: 176} (pre-fix was lossy parseInt(`171-176`)→171).
   //
-  // Path char class: two alternatives.
-  //   (a) Strict: `[A-Za-z0-9@._\-/\\]+` (with optional parenthesized
-  //       continuation) — covers the overwhelming majority of paths.
+  // Path char class: three alternatives.
+  //   (a) Strict no-parens: `[A-Za-z0-9@._\-/\\]+` — covers the
+  //       overwhelming majority of paths including extensionless
+  //       (Dockerfile, Makefile, LICENSE).
+  //   (a') Strict with parens: same chars BUT requires `.`, `/`, or `\`
+  //       in the prefix so prose like "above (see notes)" — which has
+  //       parens but no path-distinctive chars — is rejected.
+  //       PR #922 R21#1 hardening.
   //   (b) Permissive: segment-grammar that allows bare spaces and commas
   //       INSIDE segments but requires either (i) an extension (`.<ext>`)
   //       or (ii) at least one `/`/`\` separator with NO adjacent spaces.
@@ -136,7 +141,7 @@ export function parsePriorBodyFindings(body: string): FlatPriorFinding[] {
   // the dash-boundary alternative requires WHITESPACE around the dash to
   // disambiguate from path-internal hyphens.
   const findingRe =
-    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+((?:[A-Za-z0-9@._\-/\\]+(?:\s*\([^)]+\)[A-Za-z0-9@._\-/\\]*)*)|(?:[A-Za-z0-9@_\-,()]+(?: +[A-Za-z0-9@_\-,()]+)*\.[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*|[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*(?:[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*)*))(?::?(?:(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
+    /(?:\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|(?<!\*)\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))\s+((?:[A-Za-z0-9@._\-/\\]*[./\\][A-Za-z0-9@._\-/\\]*(?:\s*\([^)]+\)[A-Za-z0-9@._\-/\\]*)+|[A-Za-z0-9@._\-/\\]+)|(?:[A-Za-z0-9@_\-,()]+(?: +[A-Za-z0-9@_\-,()]+)*\.[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*|[A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*(?:[/\\][A-Za-z0-9@._\-,()]+(?: +[A-Za-z0-9@._\-,()]+)*)*))(?::?(?:(\d+)(?:-(\d+))?)?\s+[-–—]\s|:(\d+)(?:-(\d+))?)/gi;
 
   for (const match of body.matchAll(findingRe)) {
     // Capture groups (alternation produces parallel sets):

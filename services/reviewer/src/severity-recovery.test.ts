@@ -539,6 +539,14 @@ describe("parsePriorBodyFindings", () => {
     const body = "[BLOCKING] http://example.com/foo.html — broken link";
     expect(parsePriorBodyFindings(body)).toEqual([]);
   });
+
+  test("rejects prose with parens but no path-distinctive chars (PR #922 R21#1)", () => {
+    // `[BLOCKING] above (see notes) — text` previously matched the strict
+    // branch as a path-with-parens. Tightened: parens form requires `.`,
+    // `/`, or `\\` in the prefix.
+    const body = "Conclusion: [BLOCKING] above (see notes) — for context";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
 });
 
 describe("parsePriorReviewFindings", () => {
