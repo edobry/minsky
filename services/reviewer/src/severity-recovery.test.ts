@@ -419,6 +419,16 @@ describe("parsePriorBodyFindings", () => {
     expect(parsePriorBodyFindings(body)).toEqual([]);
   });
 
+  test("parses Windows-style backslash paths (PR #922 R7#2)", () => {
+    // Real bodies may cite paths with backslashes (cross-platform contributors,
+    // pasted Windows output, etc). Pre-fix the path char class excluded `\`.
+    const body = "[BLOCKING] packages\\app\\src\\Foo.ts:10 — broken";
+    const findings = parsePriorBodyFindings(body);
+    expect(findings).toEqual([
+      { file: "packages\\app\\src\\Foo.ts", severity: "BLOCKING", line: 10 },
+    ]);
+  });
+
   test("parses bare-colon path before dash (PR #922 R5#2)", () => {
     // Real bodies sometimes use a bare colon with no line number:
     // "[BLOCKING] LICENSE: — text". Pre-fix the regex required digits

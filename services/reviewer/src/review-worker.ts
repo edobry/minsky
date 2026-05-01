@@ -759,13 +759,19 @@ export async function runReview(
           if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
             return tc;
           }
+          // PR #922 R7 NON-BLOCKING catch: previously appended an
+          // "[mt#1496 monotonicity-recovery: ...]" bracket note to the
+          // user-facing summary, which leaked internal tracker IDs and
+          // implementation detail. Now keep the user-facing summary
+          // clean. The full audit trail (downgrade reasons, prior
+          // severities, pre/post counts) lives in the
+          // reviewer.severity_downgrade and ...summary log events,
+          // queryable by operators without polluting the PR.
           return {
             name: "conclude_review" as const,
             args: {
               event: "COMMENT" as const,
-              summary: `${
-                tc.args.summary
-              }\n\n[mt#1496 monotonicity-recovery: all BLOCKING findings were downgraded to NON-BLOCKING because they cited prior NON-BLOCKING/PRE-EXISTING files without corresponding new code in the diff. Original conclude_review event was REQUEST_CHANGES; overridden to COMMENT to reflect the recovered severities.]`,
+              summary: tc.args.summary,
             },
           };
         })
