@@ -24,28 +24,48 @@ When `github.serviceAccount` is present in the Minsky configuration, `createToke
 
 ## 1. Create the GitHub App
 
-You can create and install the App either via the **automated script** (recommended) or through the GitHub UI. The script covers sections 1–3 (create App, generate key, install on repo, fetch installation ID) in a single browser-driven flow and saves all credentials to `~/.config/minsky/` with correct permissions.
+You can create and install the App either via the **`minsky setup github-app` CLI subcommand** (recommended), the equivalent **`bun scripts/create-github-app.ts` script** (for fresh checkouts before the CLI is installed), or through the GitHub UI as a manual fallback. The CLI/script covers sections 1–3 (create App, generate key, install on repo, fetch installation ID) in a single browser-driven flow and saves all credentials to `~/.config/minsky/` with correct permissions.
 
-### Automated: `scripts/create-github-app.ts`
+### Recommended: `minsky setup github-app`
 
-Run the script with the App name, target repo, and optional permission/event overrides. It starts a local HTTP server, opens your browser to GitHub's "Create App from manifest" page with the manifest pre-filled, captures the redirect, exchanges the code for credentials, and saves them.
+Run the subcommand with the App name and target repo. Minsky renders the manifest, spins up a local callback listener, opens your browser to GitHub's "Create App from manifest" page, captures the redirect, exchanges the code for credentials, and writes them to `~/.config/minsky/<name>.{pem,json}`. A manifest preview is shown before submission so you can confirm exactly what will be created.
 
 Canonical invocations:
 
 ```bash
 # Implementer App (code author, PR creator; no webhook needed):
-bun scripts/create-github-app.ts \
+minsky setup github-app \
   --name minsky-ai \
   --repo <your-owner>/<your-repo> \
   --inactive
 
 # Reviewer App (Chinese-wall adversarial reviewer, mt#1073; webhook-driven):
-bun scripts/create-github-app.ts \
+minsky setup github-app \
   --name minsky-reviewer \
   --repo <your-owner>/<your-repo> \
   --permissions pull_requests:write,contents:read,metadata:read \
   --events pull_request \
   --webhook-url https://minsky-reviewer.example.com/webhook
+
+# Guided wizard fallback (GitHub Enterprise instances, restricted SSO orgs,
+# air-gapped setups — anywhere the manifest flow does not apply):
+minsky setup github-app \
+  --name minsky-reviewer \
+  --repo <your-owner>/<your-repo> \
+  --via wizard
+```
+
+The wizard variant walks you through the manual portal steps interactively, prompts for the App ID / installation ID / PEM contents, and validates the pasted credentials against the GitHub API before saving.
+
+### Alternative: `bun scripts/create-github-app.ts`
+
+Equivalent flag surface; useful before the CLI is installed:
+
+```bash
+bun scripts/create-github-app.ts \
+  --name minsky-ai \
+  --repo <your-owner>/<your-repo> \
+  --inactive
 ```
 
 The script writes:
