@@ -401,6 +401,22 @@ describe("applyReviewStateLabel — exclusivity on failed read", () => {
     expect(state.removeLabelCalls.some((c) => c.name === LABEL_BOT_APPROVED)).toBe(true);
     expect(state.removeLabelCalls.some((c) => c.prNumber === 42)).toBe(true);
   });
+
+  test("APPROVE — removes needs-changes unconditionally when listLabelsOnIssue throws", async () => {
+    // Symmetric test: APPROVE event with LABEL_NEEDS_CHANGES on PR and degraded read.
+    // Even though listLabelsOnIssue throws, removeLabel must be called for
+    // LABEL_NEEDS_CHANGES unconditionally to preserve exclusivity.
+    const state = makeState({ prLabels: { 55: [LABEL_NEEDS_CHANGES] } });
+    state.listLabelsThrows = true;
+    const client = buildFakeClient(state);
+
+    await expect(
+      applyReviewStateLabel(client, "owner", "repo", 55, "APPROVE")
+    ).resolves.toBeUndefined();
+
+    expect(state.removeLabelCalls.some((c) => c.name === LABEL_NEEDS_CHANGES)).toBe(true);
+    expect(state.removeLabelCalls.some((c) => c.prNumber === 55)).toBe(true);
+  });
 });
 
 // ── Pagination (BLOCKING 3) ──────────────────────────────────────────────────

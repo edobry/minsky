@@ -164,9 +164,11 @@ export async function ensureReviewStateLabelsExist(
  * - Adds the label for the review event.
  * - Removes any conflicting labels (e.g., applying `review:bot-approved`
  *   removes `review:needs-changes`).
- * - Idempotent: if the label is already present, no spurious GitHub activity.
- *   When listLabelsOnIssue fails (degraded read), removals are attempted
- *   unconditionally (best-effort) to preserve exclusivity.
+ * - Best-effort idempotency when the label-list read succeeds: if the label
+ *   is already present, the add is skipped and no GitHub activity is emitted.
+ *   In degraded-read mode (listLabelsOnIssue failed), the add is attempted
+ *   unconditionally to preserve exclusivity; this may emit a redundant
+ *   `labeled` timeline event if the label is already present on the PR.
  *
  * Failures are logged but not thrown — callers should treat this as best-effort.
  */
@@ -204,7 +206,8 @@ export async function applyReviewStateLabel(
 
   // Add the target label.
   // Idempotent when the read succeeded: skip if the label is already present.
-  // When the read failed (null), attempt the add (GitHub will no-op if already present).
+  // When the read failed (null), attempt the add unconditionally; GitHub may
+  // emit a redundant labeled event if the label was already present.
   if (currentLabelNames === null || !currentLabelNames.has(targetLabel)) {
     try {
       await octokit.rest.issues.addLabels({
