@@ -412,3 +412,98 @@ describe("loadConfig dynamic import — default export handling (B2 smoke)", () 
     expect(result).toBeNull();
   });
 });
+
+describe("prune path uses buildDeletePatch shape — R8 B1 fix (structural mirror)", () => {
+  // Mirrors the corrected logic in apply.ts run() prune branch:
+  //   const removals = summary.toRemove.map((e) => e.key);
+  //   const removalPatch = buildDeletePatch(config.serviceId, removals);
+  //   applyJsonPatch(removalPatch);
+  //
+  // The old inline construction:
+  //   const nullPatches: Record<string, null> = {};
+  //   for (const key of removals) nullPatches[key] = null;
+  //   const removalPatch = { services: { [config.serviceId]: { variables: nullPatches } } };
+  //
+  // Both must produce an identical object shape. These tests verify buildDeletePatch
+  // emits the correct shape that the prune path now delegates to.
+
+  // Mirrors buildDeletePatch logic imported into apply.ts
+  function buildDeletePatch(serviceId: string, keys: string[]): object {
+    const variables: Record<string, null> = {};
+    for (const key of keys) {
+      variables[key] = null;
+    }
+    return {
+      services: {
+        [serviceId]: {
+          variables,
+        },
+      },
+    };
+  }
+
+  test("prune patch for a single removal key has the correct deletion shape", () => {
+    const removals = ["STALE_VAR"];
+    const patch = buildDeletePatch("svc-abc", removals);
+    expect(patch).toEqual({
+      services: {
+        "svc-abc": {
+          variables: {
+            STALE_VAR: null,
+          },
+        },
+      },
+    });
+  });
+
+  test("prune patch for multiple removals maps every key to null", () => {
+    const removals = ["OLD_A", "OLD_B", "OLD_C"];
+    const patch = buildDeletePatch("svc-xyz", removals);
+    expect(patch).toEqual({
+      services: {
+        "svc-xyz": {
+          variables: {
+            OLD_A: null,
+            OLD_B: null,
+            OLD_C: null,
+          },
+        },
+      },
+    });
+  });
+
+  test("prune patch for empty removal list produces empty variables object", () => {
+    const patch = buildDeletePatch("svc-empty", []);
+    expect(patch).toEqual({
+      services: {
+        "svc-empty": {
+          variables: {},
+        },
+      },
+    });
+  });
+
+  test("prune patch shape matches what the old inline construction produced", () => {
+    // Old inline construction (verbatim from before the R8 fix):
+    const serviceId = "svc-test-123";
+    const removals = ["KEY_X", "KEY_Y"];
+
+    const nullPatches: Record<string, null> = {};
+    for (const key of removals) {
+      nullPatches[key] = null;
+    }
+    const oldInlinePatch = {
+      services: {
+        [serviceId]: {
+          variables: nullPatches,
+        },
+      },
+    };
+
+    // New helper-based construction:
+    const helperPatch = buildDeletePatch(serviceId, removals);
+
+    // Both must be structurally identical.
+    expect(helperPatch).toEqual(oldInlinePatch);
+  });
+});

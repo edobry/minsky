@@ -192,6 +192,25 @@ export function buildJsonPatch(
   };
 }
 
+/**
+ * Builds the deletion patch for a set of variable keys.
+ * Railway's deletion semantic: set a variable to null to delete it.
+ * Produces the same outer envelope as buildJsonPatch for consistency.
+ */
+export function buildDeletePatch(serviceId: string, keys: string[]): object {
+  const variables: Record<string, null> = {};
+  for (const key of keys) {
+    variables[key] = null;
+  }
+  return {
+    services: {
+      [serviceId]: {
+        variables,
+      },
+    },
+  };
+}
+
 export type DiffSummary = {
   toAdd: DiffEntry[];
   toRemove: DiffEntry[];

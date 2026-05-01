@@ -11,6 +11,7 @@ import {
   buildVariablePatches,
   buildAllSecretPatches,
   buildJsonPatch,
+  buildDeletePatch,
   formatDiffOutput,
   summarizeDiff,
 } from "./lib";
@@ -290,17 +291,7 @@ async function run(): Promise<void> {
 
   if (prune && summary.toRemove.length > 0) {
     const removals = summary.toRemove.map((e) => e.key);
-    const nullPatches: Record<string, null> = {};
-    for (const key of removals) {
-      nullPatches[key] = null;
-    }
-    const removalPatch = {
-      services: {
-        [config.serviceId]: {
-          variables: nullPatches,
-        },
-      },
-    };
+    const removalPatch = buildDeletePatch(config.serviceId, removals);
     applyJsonPatch(removalPatch);
     console.log(`  Removed: ${removals.length} variable(s): ${removals.join(", ")}`);
   }

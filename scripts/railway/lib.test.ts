@@ -9,6 +9,7 @@ import {
   buildVariablePatches,
   buildAllSecretPatches,
   buildJsonPatch,
+  buildDeletePatch,
   formatDiffOutput,
   summarizeDiff,
   assertHttpOk,
@@ -239,6 +240,59 @@ describe("buildJsonPatch()", () => {
         },
       },
     });
+  });
+});
+
+describe("buildDeletePatch()", () => {
+  test("empty key array produces variables object with no keys", () => {
+    const result = buildDeletePatch("svc-123", []);
+    expect(result).toEqual({
+      services: {
+        "svc-123": {
+          variables: {},
+        },
+      },
+    });
+  });
+
+  test("single key produces correct deletion shape with null value", () => {
+    const result = buildDeletePatch("svc-456", ["OLD_VAR"]);
+    expect(result).toEqual({
+      services: {
+        "svc-456": {
+          variables: {
+            OLD_VAR: null,
+          },
+        },
+      },
+    });
+  });
+
+  test("multiple keys all map to null", () => {
+    const result = buildDeletePatch("svc-789", ["KEY_A", "KEY_B", "KEY_C"]);
+    expect(result).toEqual({
+      services: {
+        "svc-789": {
+          variables: {
+            KEY_A: null,
+            KEY_B: null,
+            KEY_C: null,
+          },
+        },
+      },
+    });
+  });
+
+  test("outer envelope shape matches buildJsonPatch (services.[id].variables)", () => {
+    const deleteResult = buildDeletePatch("my-svc", ["X"]);
+    const patchResult = buildJsonPatch("my-svc", { Y: { value: "v", isSealed: false } });
+    // Both must have the same outer shape: { services: { "my-svc": { variables: { ... } } } }
+    expect(Object.keys(deleteResult)).toEqual(["services"]);
+    expect(Object.keys(patchResult)).toEqual(["services"]);
+    const deleteSvc = (deleteResult as { services: Record<string, unknown> }).services["my-svc"];
+    const patchSvc = (patchResult as { services: Record<string, unknown> }).services["my-svc"];
+    expect(Object.keys(deleteSvc as object)).toEqual(["variables"]);
+    expect(Object.keys(patchSvc as object)).toEqual(["variables"]);
   });
 });
 
