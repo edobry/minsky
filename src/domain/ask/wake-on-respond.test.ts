@@ -340,4 +340,47 @@ describe("LoggingWakeSignalSink", () => {
       })
     ).not.toThrow();
   });
+
+  // Regression: PR #923 first-round review caught a field-vs-doc mismatch where
+  // operators were told to filter on `event=ask.wake` but the structured field
+  // value was actually `quality.review.responded`. This test pins the documented
+  // contract so any future drift breaks here, not in production logs.
+  test("emits structured payload with event=ask.wake matching the documented filter contract", () => {
+    const calls: Array<{ message: string; fields: Record<string, unknown> }> = [];
+    const recordingLogger = {
+      info(message: string, fields: Record<string, unknown>): void {
+        calls.push({ message, fields });
+      },
+    };
+
+    const sink = new LoggingWakeSignalSink(recordingLogger);
+
+    sink.emit({
+      askId: "ask-1",
+      parentSessionId: "session-1",
+      parentTaskId: "mt#1481",
+      reviewBody: "review body",
+      reviewState: "APPROVED",
+      reviewAuthor: REVIEWER_LOGIN,
+      prNumber: 99,
+    });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.message).toBe("ask.wake");
+
+    const fields = calls[0]?.fields ?? {};
+    // The documented operator-filter contract: event=ask.wake.
+    expect(fields.event).toBe("ask.wake");
+    // The cause field identifies the upstream transition (one of N triggers
+    // we may add later).
+    expect(fields.cause).toBe("quality.review.responded");
+    // All seven payload fields are spread into the log entry.
+    expect(fields.askId).toBe("ask-1");
+    expect(fields.parentSessionId).toBe("session-1");
+    expect(fields.parentTaskId).toBe("mt#1481");
+    expect(fields.reviewBody).toBe("review body");
+    expect(fields.reviewState).toBe("APPROVED");
+    expect(fields.reviewAuthor).toBe(REVIEWER_LOGIN);
+    expect(fields.prNumber).toBe(99);
+  });
 });

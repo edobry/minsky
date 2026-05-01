@@ -64,6 +64,17 @@ export interface WakeSignalSink {
 // ---------------------------------------------------------------------------
 
 /**
+ * Minimal logger interface needed by `LoggingWakeSignalSink`.
+ *
+ * Defining this as a structural subset of the project logger gives tests a
+ * clean DI seam without test-only `as` casts: pass a recording fake whose
+ * shape exactly matches what the sink uses (just `info`).
+ */
+export interface WakeSinkLogger {
+  info(message: string, fields: Record<string, unknown>): void;
+}
+
+/**
  * Default `WakeSignalSink` that writes the wake event to the structured logger.
  *
  * Per mt#1481's transport-availability analysis at the time of shipping:
@@ -75,11 +86,28 @@ export interface WakeSignalSink {
  * sees structured logs and can `tail` / filter on the `event=ask.wake` field.
  * When mt#1001 or mt#1144 lands, replace this default at composition time —
  * no other change required.
+ *
+ * **Field contract** (operators filter on these — do not change without updating
+ * the spec and the regression test in `wake-on-respond.test.ts`):
+ *   - `event`: always `"ask.wake"` — the routing/filtering key
+ *   - `cause`: identifies the upstream transition that triggered the wake;
+ *     `"quality.review.responded"` for the mt#1481 path
+ *   - All seven `WakeSignalPayload` fields are spread into the entry
+ *
+ * Logger is injectable so tests can assert the contract without poking the
+ * global logger mock.
  */
 export class LoggingWakeSignalSink implements WakeSignalSink {
+  private readonly logger: WakeSinkLogger;
+
+  constructor(logger?: WakeSinkLogger) {
+    this.logger = logger ?? log;
+  }
+
   emit(signal: WakeSignalPayload): void {
-    log.info("ask.wake", {
-      event: "quality.review.responded",
+    this.logger.info("ask.wake", {
+      event: "ask.wake",
+      cause: "quality.review.responded",
       ...signal,
     });
   }
