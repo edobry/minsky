@@ -1,4 +1,14 @@
-import { pgTable, text, uuid, timestamp, jsonb, index, check } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  uuid,
+  timestamp,
+  jsonb,
+  index,
+  check,
+  integer,
+  boolean,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { AskKind, AskState, AskOption, ContextRef } from "../../ask/types";
 
@@ -137,6 +147,35 @@ export const asksTable = pgTable(
     closedAt: timestamp("closed_at", { withTimezone: true }),
 
     // -------------------------------------------------------------------------
+    // Service-window fields (mt#1411 spine — mt#1488)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Routing strategy: 'asap' | 'scheduled' | 'deadline-bound'.
+     * NULL treated as 'asap' by the router; backfilled to 'asap' on all
+     * existing rows by migration 0029.
+     */
+    serviceStrategy: text("service_strategy"),
+
+    /**
+     * Named service window (e.g. 'ask-hours'). Only set when
+     * serviceStrategy = 'scheduled'. NULL for asap/deadline-bound.
+     */
+    windowKey: text("window_key"),
+
+    /**
+     * Count of scheduled windows this Ask has missed (router increments).
+     * Defaults to 0.
+     */
+    windowMissedCount: integer("window_missed_count").default(0),
+
+    /**
+     * When true, bypass the window check and route immediately.
+     * Defaults to false.
+     */
+    forceImmediate: boolean("force_immediate").default(false),
+
+    // -------------------------------------------------------------------------
     // Extensibility
     // -------------------------------------------------------------------------
 
@@ -158,6 +197,9 @@ export const asksTable = pgTable(
 
     // Index for fetching all asks belonging to a session
     byParentSession: index("idx_asks_parent_session_id").on(table.parentSessionId),
+
+    // Partial index for window-keyed router/reaper queries (mt#1490).
+    byWindowKey: index("asks_window_idx").on(table.windowKey),
 
     // Enum guard: reject unknown kind values at DB level
     kindCheck: check("chk_asks_kind", kindCheckSql),

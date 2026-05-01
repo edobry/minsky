@@ -37,6 +37,7 @@ import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
+import { getServiceWindowDefault } from "../../../domain/ask/service-window-defaults";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -217,6 +218,27 @@ const asksCreateParams = {
     description: "AgentId of the requestor; defaults to a session-unknown marker",
     required: false,
   },
+  // Service-window fields (mt#1411 spine — mt#1488)
+  serviceStrategy: {
+    schema: z.enum(["asap", "scheduled", "deadline-bound"] as const).optional(),
+    description:
+      "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. " +
+      "When absent, per-kind defaults apply.",
+    required: false,
+  },
+  windowKey: {
+    schema: z.string().optional(),
+    description:
+      "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'.",
+    required: false,
+  },
+  forceImmediate: {
+    schema: z.boolean().optional(),
+    description:
+      "When true, bypass the window check and route immediately. " +
+      "Use only for critical-path unblocking.",
+    required: false,
+  },
 };
 
 /**
@@ -237,6 +259,12 @@ export interface CreateAskParams {
   metadata?: Record<string, unknown>;
   classifierVersion?: string;
   requestor?: string;
+  /** Service-window routing strategy (mt#1411 spine — mt#1488). When absent, per-kind default applies. */
+  serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+  /** Named window to target when strategy is "scheduled". When absent, per-kind default applies. */
+  windowKey?: string;
+  /** Bypass window check and route immediately (default false). */
+  forceImmediate?: boolean;
 }
 
 /**
@@ -316,6 +344,21 @@ export async function createAsk(
   params: CreateAskParams,
   routerOptions: PolicyFirstRouteOptions = {}
 ): Promise<RoutedAsk | ElicitationClosedAsk> {
+  // Apply per-kind service-window defaults when the requestor has not supplied
+  // explicit values. Explicit params always win over defaults (mt#1488 SC4).
+  const kindDefaults = getServiceWindowDefault(params.kind);
+  const resolvedStrategy = params.serviceStrategy ?? kindDefaults.serviceStrategy;
+  // windowKey: requestor-explicit value wins; kind default only applies when
+  // the resolved strategy is "scheduled" (windowKey is meaningless for asap /
+  // deadline-bound and should not be inherited from a "scheduled" default when
+  // the requestor has overridden the strategy to something else).
+  const resolvedWindowKey =
+    params.windowKey !== undefined
+      ? params.windowKey
+      : resolvedStrategy === "scheduled"
+        ? kindDefaults.windowKey
+        : undefined;
+
   const input: CreateAskInput = {
     kind: params.kind,
     classifierVersion: params.classifierVersion ?? "v1.0.0",
@@ -328,6 +371,10 @@ export async function createAsk(
     parentSessionId: params.parentSessionId,
     deadline: params.deadline,
     metadata: params.metadata,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: resolvedStrategy,
+    windowKey: resolvedWindowKey,
+    forceImmediate: params.forceImmediate ?? false,
   };
 
   const ask = await repo.create(input);
@@ -508,6 +555,14 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
             metadata: params.metadata as Record<string, unknown> | undefined,
             classifierVersion: params.classifierVersion as string | undefined,
             requestor: params.requestor as string | undefined,
+            // Service-window fields (mt#1411 spine — mt#1488)
+            serviceStrategy: params.serviceStrategy as
+              | "asap"
+              | "scheduled"
+              | "deadline-bound"
+              | undefined,
+            windowKey: params.windowKey as string | undefined,
+            forceImmediate: params.forceImmediate as boolean | undefined,
           },
           routerOptions
         );

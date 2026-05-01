@@ -58,6 +58,11 @@ function toAsk(row: AskRecord): Ask {
     suspendedAt: row.suspendedAt ? row.suspendedAt.toISOString() : undefined,
     respondedAt: row.respondedAt ? row.respondedAt.toISOString() : undefined,
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: (row.serviceStrategy as Ask["serviceStrategy"]) ?? undefined,
+    windowKey: row.windowKey ?? undefined,
+    windowMissedCount: row.windowMissedCount ?? undefined,
+    forceImmediate: row.forceImmediate ?? undefined,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
@@ -82,6 +87,11 @@ function toInsert(input: CreateAskInput): AskInsert {
     contextRefs: input.contextRefs ?? null,
     response: null,
     deadline: input.deadline ? new Date(input.deadline) : null,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: input.serviceStrategy ?? null,
+    windowKey: input.windowKey ?? null,
+    windowMissedCount: input.windowMissedCount ?? 0,
+    forceImmediate: input.forceImmediate ?? false,
     metadata: input.metadata ?? {},
   };
 }
@@ -104,6 +114,14 @@ export interface CreateAskInput {
   contextRefs?: Ask["contextRefs"];
   deadline?: string;
   metadata?: Record<string, unknown>;
+  /** Service-window routing strategy (mt#1411 spine — mt#1488). */
+  serviceStrategy?: Ask["serviceStrategy"];
+  /** Named window to target when strategy is "scheduled". */
+  windowKey?: string;
+  /** Count of windows already missed (defaults to 0 on insert). */
+  windowMissedCount?: number;
+  /** Bypass window check and route immediately. */
+  forceImmediate?: boolean;
 }
 
 /** Input for closing an Ask (state → "closed"). */
@@ -377,6 +395,11 @@ export class FakeAskRepository implements AskRepository {
       response: undefined,
       deadline: input.deadline,
       createdAt: now,
+      // Service-window fields (mt#1411 spine — mt#1488)
+      serviceStrategy: input.serviceStrategy,
+      windowKey: input.windowKey,
+      windowMissedCount: input.windowMissedCount ?? 0,
+      forceImmediate: input.forceImmediate ?? false,
       metadata: input.metadata ?? {},
     };
     this.store.set(id, ask);
