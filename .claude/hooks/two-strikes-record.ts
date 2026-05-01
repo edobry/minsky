@@ -100,8 +100,11 @@ export function detectOutcome(
 ): ToolOutcome {
   if (!result) return { kind: "unknown" };
 
-  // Bash: exit code is the signal.
-  if (toolName === "Bash") {
+  // Bash: exit code is the signal. Case-insensitive on the tool name so
+  // alternate casings ("bash", "BASH") still hit the Bash branch — Claude
+  // Code uses "Bash" today, but other harnesses or future renames could
+  // emit a different casing. Per PR #926 R4 BLOCKING fix.
+  if (toolName.toLowerCase() === "bash") {
     const exitCode = result.exit_code;
     if (typeof exitCode === "number") {
       if (exitCode === 0) return { kind: "success" };
@@ -155,7 +158,12 @@ export function sanitizeSessionId(raw: string): string {
  *   - Persists the tracker snapshot to per-session state file.
  */
 export function runHook(input: ToolHookInput, deps: HookDeps): void {
-  const rawSessionId = input.session_id ?? "default";
+  // Use truthy default (not nullish-coalescing) so empty-string session_id
+  // also falls back to "default". With `?? "default"`, empty strings would
+  // pass through and produce a `.json` state file colliding across all
+  // empty-id sessions. Per PR #926 R4 BLOCKING fix.
+  const rawSessionId =
+    input.session_id && input.session_id.trim().length > 0 ? input.session_id : "default";
   const sessionId = sanitizeSessionId(rawSessionId);
   const toolName = input.tool_name;
   const toolResult = input.tool_result;

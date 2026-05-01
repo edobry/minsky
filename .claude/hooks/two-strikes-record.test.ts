@@ -119,6 +119,16 @@ describe("detectOutcome", () => {
     expect(detectOutcome(TOOL_BASH, { stdout: "x" })).toEqual({ kind: "unknown" });
   });
 
+  // Regression: PR #926 R4 BLOCKING. Lowercase "bash" should still be
+  // recognised as the Bash branch — case-insensitive comparison.
+  it("Bash: lowercase tool name still hits the Bash branch (case-insensitive)", () => {
+    expect(detectOutcome("bash", { exit_code: 0 })).toEqual({ kind: "success" });
+    expect(detectOutcome("BASH", { exit_code: 1, stderr: "x" })).toEqual({
+      kind: "error",
+      error: "x",
+    });
+  });
+
   it("generic is_error=true returns error", () => {
     expect(detectOutcome(TOOL_EDIT, { is_error: true, error: "file not found" })).toEqual({
       kind: "error",
@@ -313,6 +323,39 @@ describe("runHook — observation mode", () => {
     if (!observationsContent) return;
     const lines = observationsContent.trim().split("\n").filter(Boolean);
     expect(lines).toHaveLength(1);
+  });
+
+  // Regression: PR #926 R4 BLOCKING.
+  // Empty/whitespace session_id must fall back to "default" rather than
+  // collapsing to a `.json` state file shared across all empty-id sessions.
+  it("empty session_id falls back to 'default' (no .json collision)", () => {
+    const deps = buildDeps(fs);
+    runHook(
+      buildInput({
+        toolName: TOOL_BASH,
+        toolResult: { exit_code: 1, stderr: "x" },
+        sessionId: "",
+      }),
+      deps
+    );
+
+    // The sanitized "default" filename is used, not ".json".
+    expect(fs.read(`${STATE_DIR}/default.json`)).toBeDefined();
+    expect(fs.read(`${STATE_DIR}/.json`)).toBeUndefined();
+  });
+
+  it("whitespace-only session_id falls back to 'default'", () => {
+    const deps = buildDeps(fs);
+    runHook(
+      buildInput({
+        toolName: TOOL_BASH,
+        toolResult: { exit_code: 1, stderr: "x" },
+        sessionId: "   ",
+      }),
+      deps
+    );
+
+    expect(fs.read(`${STATE_DIR}/default.json`)).toBeDefined();
   });
 
   // Regression: PR #926 R1 BLOCKING.
