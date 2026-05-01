@@ -164,7 +164,7 @@ export const asksTable = pgTable(
     windowKey: text("window_key"),
 
     /**
-     * Count of scheduled windows this Ask has missed (router increments).
+     * Count of scheduled windows this Ask has missed (reaper increments — mt#1490).
      * Defaults to 0.
      */
     windowMissedCount: integer("window_missed_count").default(0),
@@ -198,8 +198,11 @@ export const asksTable = pgTable(
     // Index for fetching all asks belonging to a session
     byParentSession: index("idx_asks_parent_session_id").on(table.parentSessionId),
 
-    // Partial index for window-keyed router/reaper queries (mt#1490).
-    byWindowKey: index("asks_window_idx").on(table.windowKey),
+    // NOTE: The partial index `asks_window_idx` (WHERE window_key IS NOT NULL) is
+    // declared in raw SQL migration `0029_ask_service_window_columns.sql` because
+    // Drizzle ORM cannot express partial index predicates. Do NOT re-declare it here
+    // — a non-partial Drizzle index with the same name would conflict with the
+    // migration's partial definition, causing schema drift.
 
     // Enum guard: reject unknown kind values at DB level
     kindCheck: check("chk_asks_kind", kindCheckSql),

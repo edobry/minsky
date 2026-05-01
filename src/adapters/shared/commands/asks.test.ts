@@ -613,4 +613,31 @@ describe("createAsk — service-window defaults and overrides", () => {
     expect(persisted.serviceStrategy).toBe("scheduled");
     expect(persisted.windowKey).toBe("custom-window");
   });
+
+  test("windowKey is cleared when caller supplies non-scheduled strategy alongside a windowKey", async () => {
+    // Finding #3 (R1 review): windowKey must only be persisted when strategy is
+    // 'scheduled'. If a caller passes serviceStrategy='asap' and windowKey='ask-hours',
+    // the windowKey must be ignored — storing it would contradict the documented
+    // semantics in types.ts ("Only meaningful when serviceStrategy is 'scheduled'").
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Urgent decision",
+        question: "Must decide now",
+        serviceStrategy: "asap",
+        windowKey: "ask-hours", // Caller incorrectly passes a windowKey with asap strategy
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    expect(persisted.serviceStrategy).toBe("asap");
+    // windowKey must be null/undefined — it should not be stored for non-scheduled strategies
+    expect(persisted.windowKey).toBeUndefined();
+  });
 });

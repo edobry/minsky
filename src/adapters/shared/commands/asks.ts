@@ -239,6 +239,10 @@ const asksCreateParams = {
       "Use only for critical-path unblocking.",
     required: false,
   },
+  // NOTE: `windowMissedCount` is intentionally omitted from this MCP parameter schema.
+  // It is reaper-owned state (mt#1490): the reaper increments it each time a scheduled
+  // window opens and the Ask is still pending. Callers must not set it directly via
+  // asks.create — createAsk always initialises it to 0 for new Asks.
 };
 
 /**
@@ -352,12 +356,12 @@ export async function createAsk(
   // the resolved strategy is "scheduled" (windowKey is meaningless for asap /
   // deadline-bound and should not be inherited from a "scheduled" default when
   // the requestor has overridden the strategy to something else).
+  // windowKey: only meaningful when strategy is "scheduled". If the requestor
+  // supplies a windowKey with a non-scheduled strategy (e.g. "asap"), it is
+  // ignored — persisting it would contradict documented semantics in types.ts
+  // ("Only meaningful when serviceStrategy is 'scheduled'").
   const resolvedWindowKey =
-    params.windowKey !== undefined
-      ? params.windowKey
-      : resolvedStrategy === "scheduled"
-        ? kindDefaults.windowKey
-        : undefined;
+    resolvedStrategy === "scheduled" ? (params.windowKey ?? kindDefaults.windowKey) : undefined;
 
   const input: CreateAskInput = {
     kind: params.kind,
@@ -374,6 +378,10 @@ export async function createAsk(
     // Service-window fields (mt#1411 spine — mt#1488)
     serviceStrategy: resolvedStrategy,
     windowKey: resolvedWindowKey,
+    // windowMissedCount starts at 0 for all new Asks. The reaper (mt#1490)
+    // increments this field as scheduled windows are missed. Callers must not
+    // set this directly — it is reaper-owned state.
+    windowMissedCount: 0,
     forceImmediate: params.forceImmediate ?? false,
   };
 

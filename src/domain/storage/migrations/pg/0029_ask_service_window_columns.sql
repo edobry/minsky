@@ -6,10 +6,14 @@
 --   window_missed_count: how many scheduled windows this Ask has missed (starts 0)
 --   force_immediate:  bypass the window check when true
 --
--- Index: asks_window_idx for window-keyed queries (router + reaper in mt#1490).
+-- Index: asks_window_idx (partial) for window-keyed queries (router + reaper in mt#1490).
+-- CHECK constraints: service_strategy enum guard + window_key/strategy coherence guard.
 -- Backfill: all existing rows get service_strategy='asap' — preserves today's behavior.
+--   The backfill runs BEFORE the CHECK constraint is added so it cannot violate it.
 --
 -- Backout:
+--   ALTER TABLE asks DROP CONSTRAINT IF EXISTS chk_asks_service_strategy;
+--   ALTER TABLE asks DROP CONSTRAINT IF EXISTS chk_asks_window_key_strategy;
 --   DROP INDEX IF EXISTS asks_window_idx;
 --   ALTER TABLE asks
 --     DROP COLUMN IF EXISTS service_strategy,
@@ -31,4 +35,19 @@ CREATE INDEX IF NOT EXISTS "asks_window_idx"
 --> statement-breakpoint
 
 -- Backfill: existing rows get service_strategy='asap', preserving current behavior.
+-- Must run BEFORE CHECK constraints so NULL rows don't violate the enum guard.
 UPDATE "asks" SET "service_strategy" = 'asap' WHERE "service_strategy" IS NULL;
+--> statement-breakpoint
+
+-- CHECK: enum guard — reject unknown service_strategy values at DB level.
+-- NULL is allowed (treated as 'asap' by the router).
+ALTER TABLE "asks"
+  ADD CONSTRAINT "chk_asks_service_strategy"
+  CHECK (service_strategy IS NULL OR service_strategy IN ('asap', 'scheduled', 'deadline-bound'));
+--> statement-breakpoint
+
+-- CHECK: coherence guard — window_key only makes sense for scheduled asks.
+-- Prevents corrupt rows where window_key is set but strategy is asap/deadline-bound.
+ALTER TABLE "asks"
+  ADD CONSTRAINT "chk_asks_window_key_strategy"
+  CHECK (window_key IS NULL OR service_strategy = 'scheduled');
