@@ -28,7 +28,7 @@ export {
 
 // Repository interface + implementations
 export type { AskRepository, CreateAskInput, CloseAskInput, RespondAskInput } from "./repository";
-export { DrizzleAskRepository, FakeAskRepository } from "./repository";
+export { DrizzleAskRepository, FakeAskRepository, ConcurrentTransitionError } from "./repository";
 
 // Reconciler
 export type {
@@ -45,3 +45,7 @@ export { getOpenAskForTask, getOpenAsksByTaskIds } from "./queries";
 // BLOCKED subtype derivation
 export type { BlockedSubtype } from "./blocked-subtype";
 export { deriveBlockedSubtype, formatBlockedStatus } from "./blocked-subtype";
+
+// Service-window defaults (mt#1411 spine — mt#1488)
+export type { ServiceWindowDefault } from "./service-window-defaults";
+export { SERVICE_WINDOW_DEFAULTS, getServiceWindowDefault } from "./service-window-defaults";
