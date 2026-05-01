@@ -499,6 +499,16 @@ describe("countBlockingFindings", () => {
     expect(countBlockingFindings(body)).toBe(1);
   });
 
+  test("strategy 1 returns header-only content when ### Findings is last line without newline (PR #921 R7)", () => {
+    // Pre-fix this returned "" due to a slicing bug where indexOf("\n")
+    // returned -1, the search began at offset 0 and matched the same header,
+    // and slice(0, 0).trim() yielded an empty string.
+    const body = "Some preamble text.\n\n### Findings";
+    const result = extractFindings(body);
+    expect(result).toContain("### Findings");
+    expect(result).not.toBe("");
+  });
+
   test("null-body coalescing: runtime null coalesced to string does not crash and returns 0", () => {
     // fetchPriorReviews maps null → "" via r.body ?? "". Simulate a caller
     // that received null at runtime and coalesced before calling countBlockingFindings.

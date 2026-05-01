@@ -146,11 +146,24 @@ export function extractFindings(body: string): string {
   const findingsHeaderMatch = body.match(/###\s+Findings\b/i);
   if (findingsHeaderMatch && findingsHeaderMatch.index !== undefined) {
     const afterHeader = body.slice(findingsHeaderMatch.index);
-    // Take until the next ### header (or end of string)
-    const nextHeader = afterHeader.slice(afterHeader.indexOf("\n") + 1).search(/^###\s/m);
+    // PR #921 R7 catch: pre-fix this had a silent-data-loss bug when the
+    // `### Findings` line was the last line of the body without a trailing
+    // newline. afterHeader.indexOf("\n") returns -1, +1 yields 0, the
+    // search starts at offset 0 and matches the same `### Findings` header
+    // (nextHeader becomes 0), then slice(0, 0).trim() returns "". Fix:
+    // explicitly handle the no-newline case by returning the full
+    // afterHeader (header to EOF).
+    const headerNewlineIdx = afterHeader.indexOf("\n");
+    if (headerNewlineIdx === -1) {
+      // Header is on the last line with no trailing newline → no body to
+      // extract beyond the header itself. Return the whole afterHeader
+      // (which is just the header line at this point).
+      return afterHeader.trim();
+    }
+    // Search for the next ### header strictly AFTER the header line.
+    const nextHeader = afterHeader.slice(headerNewlineIdx + 1).search(/^###\s/m);
     if (nextHeader >= 0) {
-      // +1 for the newline after the header line
-      const headerLineLen = afterHeader.indexOf("\n") + 1;
+      const headerLineLen = headerNewlineIdx + 1;
       return afterHeader.slice(0, headerLineLen + nextHeader).trim();
     }
     return afterHeader.trim();
