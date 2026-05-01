@@ -240,23 +240,35 @@ Event: REQUEST_CHANGES`;
     expect(result).toContain("[BLOCKING] src/foo.ts:171-176");
   });
 
-  test("strategy 2 does NOT trigger on one-sided bold wrappers (PR #921 R1)", () => {
+  test("strategy 2 does NOT trigger on one-sided bold wrappers (PR #921 R1+R5)", () => {
     // Stray formatting like `**[BLOCKING]` (no closing) or `[BLOCKING]**`
-    // (no opening) is not a valid finding marker. If extractFindings triggered
-    // on these, it would over-capture the body to EOF. The fix uses an
-    // alternation that requires balanced bold OR fully bare.
+    // (no opening) is not a valid finding marker. If extractFindings
+    // triggered on these, it would over-capture the body to EOF.
     //
-    // Body intentionally has no other valid markers — strategies 1 and 2
-    // should both miss, and the fallback should fire.
+    // PR #921 R5 NON-BLOCKING -> R5 BLOCKING (self-reversal): the test
+    // previously asserted toBe(oneSidedOpen) — exact equality. That
+    // couples the test to the fallback policy (truncated-to-1000-chars),
+    // which is implementation detail. R5 flagged this as brittle. Now we
+    // assert SHAPE: (a) no severity-prefixed lines were extracted (i.e.,
+    // strategy 2 did not trigger), (b) for inputs under the fallback
+    // truncation threshold, the output equals the input length.
     const oneSidedOpen = "Findings\n\n**[BLOCKING] src/foo.ts:42 — stray open\n";
     const oneSidedClose = "Findings\n\n[BLOCKING]** src/foo.ts:42 — stray close\n";
-    // With both strategies failing, extractFindings falls through to whole-body
-    // fallback (truncated to 1000 chars). The result is the body verbatim
-    // (or truncated), NOT a structured findings extraction. We assert via the
-    // returned length matching the fallback shape (~= input length, no
-    // line-by-line filtering).
-    expect(extractFindings(oneSidedOpen)).toBe(oneSidedOpen);
-    expect(extractFindings(oneSidedClose)).toBe(oneSidedClose);
+
+    for (const body of [oneSidedOpen, oneSidedClose]) {
+      const result = extractFindings(body);
+      // Shape: result must NOT have a structurally-extracted findings prefix
+      // (which would only appear if strategy 1 or strategy 2 had triggered).
+      // Both strategies must miss on these inputs.
+      expect(result.startsWith("### Findings")).toBe(false);
+      // The bare/balanced finding line itself is permitted in the result
+      // because the fallback returns the whole body — but it must NOT have
+      // been the trigger for strategy 2. Length-based check confirms the
+      // fallback path: under the 1000-char threshold, result length equals
+      // input length (no truncation marker added).
+      expect(body.length).toBeLessThan(1000);
+      expect(result.length).toBe(body.length);
+    }
   });
 });
 
