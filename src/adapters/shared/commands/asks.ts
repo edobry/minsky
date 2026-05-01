@@ -492,18 +492,23 @@ export async function respondToAsk(
     );
   }
 
-  const responder = params.responder ?? "operator";
+  // Trim before constructing the payload so direct programmatic callers
+  // see the same normalized message that CLI/MCP callers do (the schema
+  // applies trim() at the surface). PR #924 R6 NON-BLOCKING: programmatic
+  // path was preserving leading/trailing whitespace while CLI was trimming.
+  const message = params.message.trim();
+  const responder = params.responder?.trim() || "operator";
 
   // Two-stage response payload, matching the Ask.response contract in
   // types.ts: `attentionCost` is filled on close only. The respond stage
   // gets responder + payload; the close stage adds attentionCost.
   const respondPayload = {
     responder,
-    payload: { message: params.message },
+    payload: { message },
   };
   const closePayload = {
     responder,
-    payload: { message: params.message },
+    payload: { message },
     attentionCost: {
       // The operator responded via the inbox/CLI surface. The original
       // transport (which may have been "elicitation" if the Ask was first
