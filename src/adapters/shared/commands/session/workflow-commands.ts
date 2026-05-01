@@ -146,9 +146,12 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
         } catch (err) {
           const { isPreCommit, subprocessOutput } = classifyPreCommitFailure(err);
           if (isPreCommit) {
+            const summaryDetail = subprocessOutput
+              ? `Pre-commit hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+              : "Pre-commit hook blocked the commit";
             throw mcpStructuredError({
               code: McpErrorCode.PRE_COMMIT_FAILED,
-              summary: "Pre-commit hook blocked the commit",
+              summary: summaryDetail,
               subprocessOutput,
             });
           }
