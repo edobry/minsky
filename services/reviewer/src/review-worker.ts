@@ -30,10 +30,12 @@ import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
-import { composeReviewBody } from "./compose-review";
+import { composeReviewBody, type ComposeReviewResult } from "./compose-review";
+import type { ReviewToolCall } from "./output-tools";
 import {
   applyMonotonicityRecovery,
   parsePriorReviewFindings,
+  type DowngradeAuditEntry,
   type FlatPriorFinding,
 } from "./severity-recovery";
 
@@ -337,6 +339,111 @@ export async function defaultForkAccessProbe(
     }
   }
   return false;
+}
+
+/**
+ * Pure helper: apply monotonicity recovery and conclude_review reconciliation
+ * to a list of tool calls, then compose the review body. Extracted from
+ * runReview's outputToolsActive branch so the recovery+reconciliation+
+ * composition flow can be unit-tested without mocking GitHub/OpenAI/MCP.
+ *
+ * PR #922 R7-R13 catch: the bot persistently flagged the lack of unit tests
+ * for the runReview integration path. Full integration tests (mocking
+ * octokit, callReviewer, getAppIdentity, fetchPriorReviews, MCP) are
+ * substantial work deferred to mt#1497. This pure helper covers the
+ * core recovery+reconciliation+composition logic that runReview now
+ * delegates to it, addressing the test gap at the unit level.
+ *
+ * Behavior:
+ *   1. If recoveryEnabled AND priorFindings.length > 0, apply
+ *      applyMonotonicityRecovery to downgrade BLOCKING findings whose file
+ *      matched a prior NON-BLOCKING/PRE-EXISTING finding (per the spec in
+ *      severity-recovery.ts).
+ *   2. Count post-recovery BLOCKING findings.
+ *   3. If recovery crossed zero (BLOCKING > 0 → BLOCKING == 0) AND a
+ *      conclude_review with event=REQUEST_CHANGES was emitted, rewrite that
+ *      conclude_review tool call to event=COMMENT before composition. This
+ *      keeps the body's executive summary and the GitHub event consistent.
+ *   4. Compose the review body from the (possibly reconciled) tool calls.
+ *
+ * Pure function — no I/O, no async, no logging. The caller is responsible
+ * for emitting per-downgrade and summary log events using the returned
+ * `downgrades` array and counts.
+ */
+export interface ComposeWithRecoveryResult {
+  /** The (possibly recovered + reconciled) tool calls used for composition. */
+  toolCalls: ReadonlyArray<ReviewToolCall>;
+  /** The composed review body and event. */
+  composed: ComposeReviewResult;
+  /** Audit log entries for downgrades that fired. Empty when no recovery. */
+  downgrades: ReadonlyArray<DowngradeAuditEntry>;
+  /** BLOCKING count BEFORE recovery (always derived from input toolCalls). */
+  originalBlockingCount: number;
+  /** BLOCKING count AFTER recovery. */
+  postRecoveryBlockingCount: number;
+  /** True when the conclude_review tool call was rewritten REQUEST_CHANGES → COMMENT. */
+  reconcileApplied: boolean;
+}
+
+export function applyRecoveryAndCompose(
+  toolCalls: ReadonlyArray<ReviewToolCall>,
+  priorFindings: ReadonlyArray<FlatPriorFinding>,
+  diffText: string,
+  recoveryEnabled: boolean
+): ComposeWithRecoveryResult {
+  const originalBlockingCount = toolCalls.filter(
+    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+  ).length;
+
+  // Step 1: optionally recover.
+  let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = toolCalls;
+  let downgrades: ReadonlyArray<DowngradeAuditEntry> = [];
+  if (recoveryEnabled && priorFindings.length > 0) {
+    const recovery = applyMonotonicityRecovery(toolCalls, priorFindings, diffText);
+    toolCallsForComposition = recovery.toolCalls;
+    downgrades = recovery.downgrades;
+  }
+
+  // Step 2: count post-recovery BLOCKING.
+  const postRecoveryBlockingCount = toolCallsForComposition.filter(
+    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+  ).length;
+
+  // Step 3: reconcile conclude_review if recovery crossed zero.
+  const shouldReconcile =
+    recoveryEnabled &&
+    postRecoveryBlockingCount === 0 &&
+    toolCallsForComposition.some(
+      (tc) => tc.name === "conclude_review" && tc.args.event === "REQUEST_CHANGES"
+    );
+  let reconcileApplied = false;
+  if (shouldReconcile) {
+    reconcileApplied = true;
+    toolCallsForComposition = toolCallsForComposition.map((tc) => {
+      if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
+        return tc;
+      }
+      return {
+        name: "conclude_review" as const,
+        args: {
+          event: "COMMENT" as const,
+          summary: tc.args.summary,
+        },
+      };
+    });
+  }
+
+  // Step 4: compose.
+  const composed = composeReviewBody(toolCallsForComposition);
+
+  return {
+    toolCalls: toolCallsForComposition,
+    composed,
+    downgrades,
+    originalBlockingCount,
+    postRecoveryBlockingCount,
+    reconcileApplied,
+  };
 }
 
 /**
@@ -649,137 +756,79 @@ export async function runReview(
     // mt#1496 severity-monotonicity recovery: when enabled, downgrade BLOCKING
     // findings whose file matches a prior NON-BLOCKING / PRE-EXISTING finding
     // AND whose cited line range is not touched by new lines in the diff under
-    // review. Pure-functional pass over the tool-call list. Gated on env var
-    // for staged rollout — when disabled, toolCalls pass through unchanged.
-    //
-    // The flag is read per-invocation rather than at boot so operators can
-    // toggle without redeploy. Default-off keeps deployed behavior unchanged
-    // until a deliberate enablement.
+    // review. The flag is read per-invocation rather than at boot so operators
+    // can toggle without redeploy. Default-off keeps deployed behavior
+    // unchanged until a deliberate enablement.
     const monotonicityRecoveryEnabled =
       process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED === "true";
 
-    let toolCallsForComposition = output.toolCalls;
-    if (monotonicityRecoveryEnabled && priorFlatFindings.length > 0) {
-      const recovery = applyMonotonicityRecovery(output.toolCalls, priorFlatFindings, pr.diff);
-      toolCallsForComposition = recovery.toolCalls;
-      // Emit one log event per downgrade so operators can audit the recovery
-      // layer's decisions and identify false positives (legitimate BLOCKING
-      // findings that were over-eagerly downgraded). Aggregated count is also
-      // useful for dashboards.
-      for (const d of recovery.downgrades) {
-        console.log(
-          JSON.stringify({
-            event: "reviewer.severity_downgrade",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            file: d.file,
-            line: d.line,
-            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
-            fromSeverity: d.fromSeverity,
-            toSeverity: d.toSeverity,
-            matchingPriorSeverity: d.matchingPriorSeverity,
-            reason: d.reason,
-          })
-        );
-      }
-      if (recovery.downgrades.length > 0) {
-        // PR #922 R3 catch: pre-fix this mixed pre- and post-recovery bases
-        // for the dashboard counts (totalFindingCount derived from the
-        // pre-recovery output.toolCalls; post-recovery counts derived from
-        // toolCallsForComposition). Now ALL totals are derived from the
-        // SAME basis (post-recovery toolCallsForComposition), with the
-        // pre-recovery BLOCKING count as a separate field for delta math.
-        // Recovery doesn't add or remove findings — it only changes
-        // severity — so totalFindingCount is identical pre- and post-,
-        // but using one basis avoids future drift if the recovery ever
-        // gains a filtering responsibility.
-        const originalBlockingCount = output.toolCalls.filter(
-          (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-        ).length;
-        const postRecoveryFindings = toolCallsForComposition.filter(
-          (tc) => tc.name === "submit_finding"
-        );
-        const totalFindingCount = postRecoveryFindings.length;
-        const postRecoveryBlockingCount = postRecoveryFindings.filter(
-          (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-        ).length;
-        const postRecoveryNonBlockingCount = postRecoveryFindings.filter(
-          (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
-        ).length;
-        const postRecoveryPreExistingCount = postRecoveryFindings.filter(
-          (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
-        ).length;
-        console.log(
-          JSON.stringify({
-            event: "reviewer.severity_downgrade_summary",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            downgradeCount: recovery.downgrades.length,
-            totalFindingCount,
-            originalBlockingCount,
-            postRecoveryBlockingCount,
-            postRecoveryNonBlockingCount,
-            // PR #922 R4 NON-BLOCKING addition: complete the severity
-            // breakdown for dashboard consumers.
-            postRecoveryPreExistingCount,
-            // True when the recovery moved the count past zero, signaling the
-            // composed event will likely change from REQUEST_CHANGES to COMMENT/
-            // APPROVE downstream. Operators reading the audit log can filter on
-            // this to find the highest-impact downgrades.
-            crossedZero: originalBlockingCount > 0 && postRecoveryBlockingCount === 0,
-          })
-        );
-      }
-    }
+    // Delegate the recovery + reconciliation + composition to the pure
+    // helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
+    // persistent "no integration tests" complaint at the unit level — see
+    // applyRecoveryAndCompose tests in review-worker.test.ts).
+    const recoveryResult = applyRecoveryAndCompose(
+      output.toolCalls,
+      priorFlatFindings,
+      pr.diff,
+      monotonicityRecoveryEnabled
+    );
+    const composed = recoveryResult.composed;
+    const blockingCount = recoveryResult.postRecoveryBlockingCount;
 
-    // Structural blockingCount: count submit_finding calls with severity=BLOCKING
-    // AFTER monotonicity recovery, so the downstream convergence-metric and
-    // event-derivation see the corrected values.
-    const blockingCount = toolCallsForComposition.filter(
-      (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
-    ).length;
-
-    // PR #922 R5#1 + R6 catch: when monotonicity recovery downgrades all
-    // BLOCKING findings, BOTH the conclude_review tool call AND the composed
-    // event must reflect the recovered severities. Pre-R6 we overrode just
-    // the event variable, but the conclude_review tool call inside
-    // toolCallsForComposition was preserved as-is, so the composed body's
-    // executive summary could still state REQUEST_CHANGES while the posted
-    // event was COMMENT — a silent body-vs-event incoherence. Now: rewrite
-    // the conclude_review tool call BEFORE composition so the composed
-    // body is internally consistent, then compose, then use composed.event.
-    const shouldOverrideToCommentForRecovery =
-      monotonicityRecoveryEnabled &&
-      blockingCount === 0 &&
-      toolCallsForComposition.some(
-        (tc) => tc.name === "conclude_review" && tc.args.event === "REQUEST_CHANGES"
-      );
-    const reconciledToolCalls = shouldOverrideToCommentForRecovery
-      ? toolCallsForComposition.map((tc) => {
-          if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
-            return tc;
-          }
-          // PR #922 R7 NON-BLOCKING catch: previously appended an
-          // "[mt#1496 monotonicity-recovery: ...]" bracket note to the
-          // user-facing summary, which leaked internal tracker IDs and
-          // implementation detail. Now keep the user-facing summary
-          // clean. The full audit trail (downgrade reasons, prior
-          // severities, pre/post counts) lives in the
-          // reviewer.severity_downgrade and ...summary log events,
-          // queryable by operators without polluting the PR.
-          return {
-            name: "conclude_review" as const,
-            args: {
-              event: "COMMENT" as const,
-              summary: tc.args.summary,
-            },
-          };
+    // Emit one log event per downgrade so operators can audit the recovery
+    // layer's decisions and identify false positives. Aggregated count is
+    // also useful for dashboards.
+    for (const d of recoveryResult.downgrades) {
+      console.log(
+        JSON.stringify({
+          event: "reviewer.severity_downgrade",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          file: d.file,
+          line: d.line,
+          ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+          fromSeverity: d.fromSeverity,
+          toSeverity: d.toSeverity,
+          matchingPriorSeverity: d.matchingPriorSeverity,
+          reason: d.reason,
         })
-      : toolCallsForComposition;
-
-    // Compose the structured review body from (possibly recovered AND
-    // event-reconciled) tool calls.
-    const composed = composeReviewBody(reconciledToolCalls);
+      );
+    }
+    if (recoveryResult.downgrades.length > 0) {
+      // All counts derived from post-recovery toolCalls (PR #922 R3) for
+      // basis consistency. Recovery doesn't add or remove findings (only
+      // changes severity), so totalFindingCount is identical pre- and post-,
+      // but using one basis avoids future drift.
+      const postRecoveryFindings = recoveryResult.toolCalls.filter(
+        (tc) => tc.name === "submit_finding"
+      );
+      const totalFindingCount = postRecoveryFindings.length;
+      const postRecoveryNonBlockingCount = postRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
+      ).length;
+      const postRecoveryPreExistingCount = postRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
+      ).length;
+      console.log(
+        JSON.stringify({
+          event: "reviewer.severity_downgrade_summary",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          downgradeCount: recoveryResult.downgrades.length,
+          totalFindingCount,
+          originalBlockingCount: recoveryResult.originalBlockingCount,
+          postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
+          postRecoveryNonBlockingCount,
+          postRecoveryPreExistingCount,
+          // True when the recovery moved the count past zero, signaling the
+          // composed event will likely change from REQUEST_CHANGES to
+          // COMMENT/APPROVE downstream.
+          crossedZero:
+            recoveryResult.originalBlockingCount > 0 &&
+            recoveryResult.postRecoveryBlockingCount === 0,
+        })
+      );
+    }
 
     // Self-review override: structural event from composeReviewBody (already
     // reconciled with recovery above), but force COMMENT when the reviewer
