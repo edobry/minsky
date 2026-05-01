@@ -13,6 +13,7 @@
 
 import { Octokit } from "@octokit/rest";
 import { MinskyError } from "../../errors/index";
+import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { parseUnifiedDiff } from "../../utils/parse-diff";
 import { validateDiffAnchors } from "./diff-anchor-validator";
@@ -24,6 +25,7 @@ import {
   findPRNumberForBranch,
 } from "./github-pr-operations";
 import type { ReviewListEntry } from "./index";
+import { applyReviewStateLabel } from "./review-state-labels";
 
 export { DiffAnchorError, type DiffAnchorFailure } from "./diff-anchor-validator";
 
@@ -295,6 +297,17 @@ export async function submitReview(
       owner: gh.owner,
       repo: gh.repo,
     });
+
+    // Apply review-state label based on the review event.
+    // Failure is non-fatal: log and continue so the review result is still returned.
+    try {
+      await applyReviewStateLabel(octokit, gh.owner, gh.repo, prNumber, options.event);
+    } catch (labelError) {
+      log.warn(
+        `Failed to apply review-state label for PR #${prNumber} ` +
+          `(event=${options.event}): ${getErrorMessage(labelError)}`
+      );
+    }
 
     return {
       reviewId: review.id,
