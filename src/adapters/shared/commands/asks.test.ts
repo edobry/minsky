@@ -18,7 +18,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createAsk, validateAsksCreateParams } from "./asks";
+import { createAsk, respondToAsk, validateAsksCreateParams } from "./asks";
 import { FakeAskRepository } from "../../../domain/ask/repository";
 import {
   getServiceWindowDefault,
@@ -52,6 +52,9 @@ const KIND_QUALITY_REVIEW = "quality.review" as const;
 const KIND_AUTHORIZATION_APPROVE = "authorization.approve" as const;
 const KIND_STUCK_UNBLOCK = "stuck.unblock" as const;
 const KIND_INFORMATION_RETRIEVE = "information.retrieve" as const;
+
+// Centralized fixture for the agent-id format used in multiple tests.
+const FIXTURE_RESPONDER_ID = "com.anthropic.claude-code:proc:abc123";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -197,7 +200,7 @@ describe("createAsk", () => {
         kind: KIND_DIRECTION_DECIDE,
         title: "X",
         question: "Y",
-        requestor: "com.anthropic.claude-code:proc:abc123",
+        requestor: FIXTURE_RESPONDER_ID,
       },
       { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
     );
@@ -205,7 +208,7 @@ describe("createAsk", () => {
     const persisted = repo.all[0];
     expect(persisted).toBeDefined();
     if (!persisted) return;
-    expect(persisted.requestor).toBe("com.anthropic.claude-code:proc:abc123");
+    expect(persisted.requestor).toBe(FIXTURE_RESPONDER_ID);
   });
 
   test("forwards parentTaskId and parentSessionId through to the persisted Ask", async () => {
@@ -747,5 +750,332 @@ describe("validateAsksCreateParams", () => {
     expect(() => validateAsksCreateParams({ serviceStrategy: "scheduled" })).not.toThrow();
     expect(() => validateAsksCreateParams({ serviceStrategy: "deadline-bound" })).not.toThrow();
     expect(() => validateAsksCreateParams({})).not.toThrow();
+  });
+});
+// ---------------------------------------------------------------------------
+// respondToAsk (mt#1458)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: seed a FakeAskRepository with an Ask in the requested terminal-or-
+ * suspended state. Walks the state machine forward via repo.transition so the
+ * Ask has all the timestamps a real-flow Ask would have.
+ */
+async function seedAskInState(
+  repo: FakeAskRepository,
+  state:
+    | "detected"
+    | "classified"
+    | "routed"
+    | "suspended"
+    | "responded"
+    | "closed"
+    | "cancelled"
+    | "expired",
+  routingTarget: "operator" | "subagent" | "policy" | "peer" = "operator"
+) {
+  const ask = await repo.create({
+    kind: KIND_DIRECTION_DECIDE,
+    classifierVersion: "v1.0.0",
+    requestor: "minsky.agent:test",
+    title: "T",
+    question: "Q",
+    metadata: {},
+  });
+
+  // FakeAskRepository.create doesn't accept routingTarget, so we use the
+  // _seedAtState test seam to overwrite the state and routingTarget atomically.
+  // (Per src/domain/ask/repository.ts: _seedAtState is the test-only bypass.)
+  if (state === "detected" && routingTarget === "operator") {
+    return ask; // Already in the target state with default routing.
+  }
+
+  // Walk through valid transitions for the simple cases.
+  if (state === "suspended") {
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+  } else if (state === "responded" || state === "closed") {
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+    await repo.transition(ask.id, "suspended");
+    await repo.transition(ask.id, "responded");
+    if (state === "closed") {
+      await repo.transition(ask.id, "closed");
+    }
+  } else if (state === "cancelled") {
+    await repo.transition(ask.id, "cancelled");
+  } else if (state === "expired") {
+    await repo.transition(ask.id, "expired");
+  } else if (state === "classified") {
+    await repo.transition(ask.id, "classified");
+  } else if (state === "routed") {
+    await repo.transition(ask.id, "classified");
+    await repo.transition(ask.id, "routed");
+  }
+
+  // Override routingTarget via the seed seam if the caller asked for non-operator.
+  // The FakeAskRepository.create doesn't take routingTarget, but we can set it
+  // by re-seeding. For now, the only test that uses non-operator overrides this
+  // explicitly via _seedAtState below (kept narrow to avoid scope creep).
+  if (routingTarget !== "operator") {
+    const current = await repo.getById(ask.id);
+    if (current) {
+      // _seedAtState bypasses guards — used here ONLY because we need to override
+      // routingTarget which isn't on the create() input shape. The state field is
+      // preserved from the walk above. This is the pattern docstring of
+      // _seedAtState in src/domain/ask/repository.ts.
+      repo._seedAtState({ ...current, routingTarget });
+    }
+  }
+
+  return ask;
+}
+
+describe("respondToAsk", () => {
+  test("walks suspended → responded → closed and writes the response payload", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    const result = await respondToAsk(repo, {
+      id: ask.id,
+      message: "go with X",
+    });
+
+    expect(result.ask.state).toBe("closed");
+    expect(result.ask.response?.responder).toBe("operator");
+    expect(result.ask.response?.payload).toEqual({ message: "go with X" });
+    // PR #924 R1 BLOCKING: attentionCost is present on the closed Ask
+    // (filled on close per the Ask.response contract in types.ts).
+    expect(result.ask.response?.attentionCost?.transport).toBe("inbox");
+    expect(result.ask.response?.attentionCost?.resolvedIn).toBe("inbox");
+
+    // Persisted matches return — single coherent state.
+    const persisted = await repo.getById(ask.id);
+    expect(persisted?.state).toBe("closed");
+    expect(persisted?.response?.payload).toEqual({ message: "go with X" });
+  });
+
+  test("attentionCost is attached on close(), NOT on respond() — Ask.response contract", async () => {
+    // PR #924 R1 BLOCKING regression test: enforce that the respond-stage
+    // payload does NOT carry attentionCost. We probe this by intercepting
+    // repo.respondAndClose (the atomic combined op respondToAsk now calls)
+    // and asserting the respondInput has no attentionCost.
+    const realRepo = new FakeAskRepository();
+    const respondInputs: Array<{
+      responder: string;
+      payload: unknown;
+      attentionCost?: unknown;
+    }> = [];
+
+    const originalRespondAndClose = realRepo.respondAndClose.bind(realRepo);
+    realRepo.respondAndClose = async (id, respondInput, closeInput) => {
+      respondInputs.push(respondInput.response);
+      return await originalRespondAndClose(id, respondInput, closeInput);
+    };
+
+    const ask = await seedAskInState(realRepo, "suspended");
+    await respondToAsk(realRepo, { id: ask.id, message: "ok" });
+
+    expect(respondInputs).toHaveLength(1);
+    const captured = respondInputs[0];
+    expect(captured).toBeDefined();
+    if (!captured) return;
+    // Per Ask.response contract: attentionCost is "filled on close" only.
+    expect(captured.attentionCost).toBeUndefined();
+    expect(captured.responder).toBe("operator");
+    expect(captured.payload).toEqual({ message: "ok" });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #924 R2 BLOCKING — atomicity + input validation
+  // -------------------------------------------------------------------------
+
+  test("atomicity: throws ConcurrentTransitionError when Ask cancelled mid-call", async () => {
+    // Simulate a concurrent transition between getById and respondAndClose:
+    // wrap getById to return a fresh suspended Ask (passing the state check),
+    // then transition the underlying row to "cancelled" before respondAndClose
+    // runs. The atomic check inside respondAndClose surfaces the race.
+    const realRepo = new FakeAskRepository();
+    const ask = await seedAskInState(realRepo, "suspended");
+
+    // Hook: after the state-check getById returns, race the row to cancelled.
+    let raceArmed = true;
+    const originalGetById = realRepo.getById.bind(realRepo);
+    realRepo.getById = async (id: string) => {
+      const result = await originalGetById(id);
+      if (raceArmed && result?.state === "suspended") {
+        raceArmed = false; // Only race once.
+        // Use the test seam to force the underlying row to cancelled,
+        // simulating a concurrent actor.
+        if (result) {
+          realRepo._seedAtState({ ...result, state: "cancelled" });
+        }
+      }
+      return result;
+    };
+
+    // PR #924 R3 BLOCKING #2: race-path error is now normalized to the same
+    // friendly not-suspended message as the pre-check path. Single error
+    // shape for "Ask is not in suspended state" regardless of cause.
+    await expect(respondToAsk(realRepo, { id: ask.id, message: "ok" })).rejects.toThrow(
+      /Ask is in "cancelled" state.*only "suspended" Asks can be responded to.*Concurrent actor/s
+    );
+
+    // Assert the Ask is NOT stuck in responded — race should leave it cancelled.
+    const persisted = await originalGetById(ask.id);
+    expect(persisted?.state).toBe("cancelled");
+    expect(persisted?.response).toBeUndefined();
+  });
+
+  test("validation: rejects empty message", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "" })).rejects.toThrow(
+      /message is required/
+    );
+  });
+
+  test("validation: rejects whitespace-only message", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "   " })).rejects.toThrow(
+      /message is required/
+    );
+  });
+
+  test("validation: rejects empty id", async () => {
+    const repo = new FakeAskRepository();
+
+    await expect(respondToAsk(repo, { id: "", message: "ok" })).rejects.toThrow(/id is required/);
+  });
+
+  test("validation: rejects empty responder if explicitly provided", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "ok", responder: "" })).rejects.toThrow(
+      /responder.*must not be empty/
+    );
+  });
+
+  test("uses 'operator' as default responder when not provided", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    const result = await respondToAsk(repo, { id: ask.id, message: "ok" });
+
+    expect(result.ask.response?.responder).toBe("operator");
+  });
+
+  test("forwards explicit responder identifier through to the response payload", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "suspended");
+
+    const result = await respondToAsk(repo, {
+      id: ask.id,
+      message: "ok",
+      responder: FIXTURE_RESPONDER_ID,
+    });
+
+    expect(result.ask.response?.responder).toBe(FIXTURE_RESPONDER_ID);
+  });
+
+  test("throws when Ask does not exist", async () => {
+    const repo = new FakeAskRepository();
+
+    await expect(respondToAsk(repo, { id: "nonexistent-ask-id", message: "ok" })).rejects.toThrow(
+      /Ask not found/
+    );
+  });
+
+  test("rejects responding to an Ask in pre-suspended state ('detected')", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "detected");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "ok" })).rejects.toThrow(
+      /only "suspended" Asks can be responded to/
+    );
+  });
+
+  test("rejects responding to an Ask in pre-suspended state ('routed')", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "routed");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "ok" })).rejects.toThrow(
+      /only "suspended" Asks can be responded to/
+    );
+  });
+
+  test("rejects responding to a terminal Ask ('closed')", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "closed");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "ok" })).rejects.toThrow(
+      /only "suspended" Asks can be responded to/
+    );
+  });
+
+  test("rejects responding to a cancelled Ask", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedAskInState(repo, "cancelled");
+
+    await expect(respondToAsk(repo, { id: ask.id, message: "ok" })).rejects.toThrow(
+      /only "suspended" Asks can be responded to/
+    );
+  });
+
+  // Note: routingTarget gating is intentionally not enforced at v1.
+  // See respondToAsk's doc comment for the full rationale + mt#454-impl
+  // follow-up. When a non-operator transport starts using suspended state,
+  // add a gate AND a test asserting it rejects non-operator routingTargets.
+
+  test("integrates end-to-end with createAsk: produce → suspend → respond → close", async () => {
+    const repo = new FakeAskRepository();
+
+    // Producer (mt#1456): createAsk with no elicitation capable, routes to inbox.
+    const routed = await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "Test integration",
+        question: "Pick something",
+      },
+      {
+        workspaceRoot: NONEXISTENT_WORKSPACE_ROOT,
+        capabilityRegistry: {
+          hasElicitation: () => false,
+          activeElicitationServer: () => null,
+        },
+      }
+    );
+
+    // Per createAsk's contract: async transports stay at "routed" in the
+    // returned object, but the *persisted* row is at "detected" (the router
+    // doesn't write state). mt#454-impl will own the inbox transport's
+    // walk-to-suspended; for the v1 operator CLI integration test we walk
+    // it manually here through the valid transition chain.
+    expect(routed.state).toBe("routed");
+    expect(routed.transport.kind).toBe("inbox");
+    expect(routed.routingTarget).toBe("operator");
+    await repo.transition(routed.id, "classified");
+    await repo.transition(routed.id, "routed");
+    await repo.transition(routed.id, "suspended");
+
+    // Consumer (mt#1458): respondToAsk closes the loop.
+    const result = await respondToAsk(repo, {
+      id: routed.id,
+      message: "go with the first option",
+    });
+
+    expect(result.ask.state).toBe("closed");
+    expect(result.ask.response?.payload).toEqual({
+      message: "go with the first option",
+    });
+
+    const persisted = await repo.getById(routed.id);
+    expect(persisted?.state).toBe("closed");
   });
 });

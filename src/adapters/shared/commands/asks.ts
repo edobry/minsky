@@ -11,6 +11,10 @@
  *   `AskRepository` and computes routing via mt#1069's `policyFirstRoute`.
  *   The capability-aware extension (sync kinds → elicitation when host
  *   advertises capability) lands in mt#1457. Wired as mt#1456.
+ * - `asks.respond` — operator-facing response surface. Walks a suspended
+ *   Ask through `responded → closed` with the operator's message as the
+ *   response payload. Wired as mt#1458 (per mt#454 slim research: v1 verb
+ *   set is `list` + `respond` only).
  */
 
 import { z } from "zod";
@@ -22,6 +26,7 @@ import {
   type AskRepository,
   type CreateAskInput,
 } from "../../../domain/ask/repository";
+import { ConcurrentTransitionError } from "../../../domain/ask/repository";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "../../../domain/ask/types";
 import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler";
 import {
@@ -145,6 +150,164 @@ async function gatherAsks(
 // ---------------------------------------------------------------------------
 
 const asksReconcileParams = {};
+
+// ---------------------------------------------------------------------------
+// asks.respond — schemas + helper (mt#1458)
+// ---------------------------------------------------------------------------
+
+const asksRespondParams = {
+  id: {
+    schema: z.string().trim().min(1),
+    description: "Ask ID (UUID) to respond to",
+    required: true,
+  },
+  message: {
+    schema: z.string().trim().min(1),
+    description: "Operator response message — becomes response.payload.message",
+    required: true,
+  },
+  responder: {
+    schema: z.string().trim().min(1),
+    description: "AgentId or 'operator' identifier; defaults to 'operator'",
+    required: false,
+    defaultValue: "operator",
+  },
+};
+
+/**
+ * Typed input for `respondToAsk` — the internal helper exposed for testing.
+ */
+export interface RespondToAskParams {
+  id: string;
+  message: string;
+  responder?: string;
+}
+
+/**
+ * Result shape returned by `respondToAsk`. Always reflects the closed Ask
+ * (post `responded → closed` walk) so callers see the final state, not the
+ * intermediate `responded`.
+ */
+export type RespondToAskResult = {
+  ask: Ask;
+};
+
+/**
+ * Validate inputs to `respondToAsk`. Mirrors the zod schema on the
+ * `asks.respond` shared command. The schema applies trim() at the surface;
+ * this helper applies the same enforcement so direct programmatic callers
+ * see the same validation behavior.
+ */
+function validateRespondParams(params: RespondToAskParams): void {
+  if (!params.id || params.id.trim() === "") {
+    throw new Error("asks.respond: id is required and must not be empty");
+  }
+  if (!params.message || params.message.trim() === "") {
+    throw new Error("asks.respond: message is required and must not be empty");
+  }
+  if (params.responder !== undefined && params.responder.trim() === "") {
+    throw new Error("asks.respond: responder, if provided, must not be empty");
+  }
+}
+
+/**
+ * Respond to a suspended Ask via the operator surface.
+ *
+ * Walks the persisted Ask atomically from `"suspended"` to `"closed"` via
+ * `repo.respondAndClose`, recording the operator's message as the response
+ * payload and `attentionCost` on the closed row (per the `Ask.response`
+ * contract in `types.ts` — "`attentionCost` is filled on close").
+ *
+ * Atomicity (concurrency safety): the underlying `respondAndClose` uses
+ * optimistic-concurrency in the Drizzle backend (`WHERE state = 'suspended'`),
+ * so a concurrent cancel/expire/close between read and write surfaces a
+ * `ConcurrentTransitionError` rather than leaving the Ask stuck in a
+ * partially-updated state. The Fake backend mirrors the same precondition.
+ *
+ * Pre-conditions (validated up front; throw clear errors on violation):
+ *   - `params.id` is a non-empty string.
+ *   - `params.message` is a non-empty (post-trim) string.
+ *   - Ask exists (`repo.getById` returns non-null).
+ *   - Ask is in `"suspended"` state. Earlier states (detected/classified/routed)
+ *     mean no transport has dispatched yet; terminal states
+ *     (closed/cancelled/expired) cannot be responded to.
+ *
+ * Note: at v1, `routingTarget === "operator"` is NOT enforced. The router
+ * (`policyFirstRoute`) does not persist `routingTarget`, so the persisted
+ * row keeps `routingTarget = undefined`. By elimination at v1, every Ask
+ * that legitimately reaches `"suspended"` is operator-bound. When a non-
+ * operator transport starts using `"suspended"`, re-introduce a gate here.
+ *
+ * Per mt#454 slim research output (Q3): v1 verb set is `list` + `respond`
+ * only. `claim` / `release` / `close` / `reopen` are deferred to mt#454-impl.
+ */
+export async function respondToAsk(
+  repo: AskRepository,
+  params: RespondToAskParams
+): Promise<RespondToAskResult> {
+  validateRespondParams(params);
+
+  const persisted = await repo.getById(params.id);
+  if (!persisted) {
+    throw new Error(`asks.respond: Ask not found: ${params.id}`);
+  }
+
+  if (persisted.state !== "suspended") {
+    throw new Error(
+      `asks.respond: Ask is in "${persisted.state}" state — only "suspended" Asks can be responded to. ` +
+        `(detected/classified/routed: no transport has dispatched yet; ` +
+        `closed/cancelled/expired: terminal.)`
+    );
+  }
+
+  // Trim before constructing the payload so direct programmatic callers
+  // see the same normalized message that CLI/MCP callers do (the schema
+  // applies trim() at the surface).
+  const message = params.message.trim();
+  const responder = params.responder?.trim() || "operator";
+
+  // Two-stage response payload, matching the Ask.response contract in
+  // types.ts: `attentionCost` is filled on close only. The respond stage
+  // gets responder + payload; the close stage adds attentionCost.
+  const respondPayload = {
+    responder,
+    payload: { message },
+  };
+  const closePayload = {
+    responder,
+    payload: { message },
+    attentionCost: {
+      // The operator responded via the inbox/CLI surface. The original
+      // transport is preserved on the Ask record; the attentionCost.transport
+      // here records the surface that *resolved* it.
+      transport: "inbox" as const,
+      resolvedIn: "inbox" as const,
+      // operatorCost is intentionally absent at v1 — deferred to mt#454-impl
+      // along with claim/release semantics.
+    },
+  };
+
+  // Atomic walk suspended → closed via the repository's combined operation.
+  // Catch ConcurrentTransitionError and re-throw with the same friendly
+  // not-suspended message the pre-check uses, so callers see ONE error shape
+  // for "Ask is not in suspended state" regardless of cause.
+  try {
+    const closed = await repo.respondAndClose(
+      params.id,
+      { response: respondPayload },
+      { response: closePayload }
+    );
+    return { ask: closed };
+  } catch (err) {
+    if (err instanceof ConcurrentTransitionError) {
+      throw new Error(
+        `asks.respond: Ask is in "${err.observedState}" state — only "suspended" Asks can be responded to. ` +
+          `(Concurrent actor transitioned the Ask between read and write.)`
+      );
+    }
+    throw err;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // asks.create — schemas
@@ -380,7 +543,7 @@ async function advanceRoutedAskToSuspended(repo: AskRepository, askId: string): 
  *     after this call always matches the returned object's state.
  *   - Per `Ask.response`'s contract in `types.ts`, `response` is only
  *     populated for `"responded"` / `"closed"` states. The cancelled/
- *     suspended return values intentionally omit it (PR #919 R3 BLOCKING).
+ *     suspended return values intentionally omit it.
  */
 export async function createAsk(
   repo: AskRepository,
@@ -391,10 +554,6 @@ export async function createAsk(
   // explicit values. Explicit params always win over defaults (mt#1488 SC4).
   const kindDefaults = getServiceWindowDefault(params.kind);
   const resolvedStrategy = params.serviceStrategy ?? kindDefaults.serviceStrategy;
-  // windowKey: requestor-explicit value wins; kind default only applies when
-  // the resolved strategy is "scheduled" (windowKey is meaningless for asap /
-  // deadline-bound and should not be inherited from a "scheduled" default when
-  // the requestor has overridden the strategy to something else).
   // windowKey: only meaningful when strategy is "scheduled". If the requestor
   // supplies a windowKey with a non-scheduled strategy (e.g. "asap"), it is
   // ignored — persisting it would contradict documented semantics in types.ts
@@ -525,15 +684,6 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           );
         }
 
-        // Build the token provider from project configuration — the same pattern
-        // used by session-merge-operations and createRepositoryBackend.
-        //
-        // NOTE: reconcile hard-depends on initialized configuration. getConfiguration()
-        // throws if initializeConfiguration() has not been called first (typically done
-        // at process startup via the CLI/MCP adapter entry points). If reconcile is
-        // invoked in a context where configuration is not yet initialised — e.g. a bare
-        // programmatic call or a DI-container-less test harness — the catch block below
-        // surfaces an actionable error rather than letting the raw throw propagate.
         let tokenProvider;
         try {
           const { getConfiguration } = await import("../../../domain/configuration/index");
@@ -561,6 +711,39 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
   sharedCommandRegistry.registerCommand(
     defineCommand({
+      id: "asks.respond",
+      category: CommandCategory.TOOLS,
+      name: "respond",
+      description:
+        "Respond to any suspended Ask (mt#1458, ADR-008). " +
+        "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
+        "Pre-suspended (detected/classified/routed) and terminal " +
+        "(closed/cancelled/expired) states are rejected with a clear error.",
+      // requiresSetup: false — asks.respond depends only on the persistence
+      // provider, not on global Minsky configuration. The execute() closure
+      // surfaces a clear "AskRepository unavailable" error if persistence
+      // is missing (graceful failure mode).
+      requiresSetup: false,
+      parameters: asksRespondParams,
+      execute: async (params): Promise<RespondToAskResult> => {
+        const repo = await buildAskRepository(container);
+        if (!repo) {
+          throw new Error(
+            "asks.respond: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        return respondToAsk(repo, {
+          id: params.id as string,
+          message: params.message as string,
+          responder: params.responder as string | undefined,
+        });
+      },
+    })
+  );
+
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
       id: "asks.create",
       category: CommandCategory.TOOLS,
       name: "create",
@@ -582,9 +765,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         // mt#1457: pull the capability registry from the container so the
         // router consults it and the elicitation transport can dispatch
-        // through the active MCP Server. CLI execution gets the no-op fake
-        // (registered in cli.ts); MCP execution gets MCPClientCapabilityRegistry
-        // (overridden in start-command.ts).
+        // through the active MCP Server.
         const capabilityRegistry =
           container?.has("clientCapabilityRegistry") &&
           (container.get("clientCapabilityRegistry") as ClientCapabilityRegistry);
@@ -593,9 +774,6 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? { capabilityRegistry }
           : {};
 
-        // PR #919 R3: createAsk is the single producer surface — dispatch
-        // for the elicitation transport happens inside it. The MCP command
-        // is a thin parameter-shaping wrapper.
         return await createAsk(
           repo,
           {
