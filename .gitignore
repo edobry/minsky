@@ -67,3 +67,6 @@ supabase/
 # installed agent skills (restore via postinstall)
 .agents/
 .claude/worktrees/
+
+# Per-session ephemeral artifacts (handoff notes, scratch files)
+.minsky/sessions/

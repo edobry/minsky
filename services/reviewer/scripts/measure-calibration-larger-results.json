@@ -1,0 +1,747 @@
+{
+  "runStartedAt": "2026-05-01T13:16:37.606Z",
+  "mode": "larger",
+  "model": "gpt-5",
+  "dryRun": false,
+  "summary": {
+    "mode": "larger",
+    "entriesTested": 5,
+    "attemptsPerEntry": 3,
+    "totalAttempts": 15,
+    "requestChangesRate": 0.9333333333333333,
+    "meanBlockingCount": 2.8666666666666667,
+    "estimatedFalsePositiveRate": 0.9333333333333333
+  },
+  "perEntry": [
+    {
+      "prNumber": 732,
+      "iteration": 1,
+      "notes": "5-round PR; R1 is the baseline first review",
+      "iterationSha": "65dd4ab278b9e07170b15ada83f19b07d6f95836",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 186
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 173
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/adapters/shared/command-registry.ts",
+              "severity": "NON-BLOCKING",
+              "line": 353
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 160
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 160
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 3988,
+          "usage": {
+            "promptTokens": 106787,
+            "completionTokens": 5439,
+            "reasoningTokens": 2752,
+            "totalTokens": 112226
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "COMMENT",
+          "blockingCount": 0,
+          "nonBlockingCount": 4,
+          "preExistingCount": 1,
+          "currentFindings": [
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 13
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 186
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "PRE-EXISTING",
+              "line": 180
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/adapters/shared/command-registry.ts",
+              "severity": "NON-BLOCKING",
+              "line": 341
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 9474,
+          "usage": {
+            "promptTokens": 103344,
+            "completionTokens": 10747,
+            "reasoningTokens": 7616,
+            "totalTokens": 114091
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 3,
+          "preExistingCount": 1,
+          "currentFindings": [
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 186
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "PRE-EXISTING",
+              "line": 176
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "BLOCKING",
+              "line": 199
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 21
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 1
+            },
+            {
+              "file": "src/adapters/mcp/shared-command-integration.ts",
+              "severity": "NON-BLOCKING",
+              "line": 173
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 4043,
+          "usage": {
+            "promptTokens": 104787,
+            "completionTokens": 11087,
+            "reasoningTokens": 8704,
+            "totalTokens": 115874
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 744,
+      "iteration": 1,
+      "notes": "larger PR; R1 baseline",
+      "iterationSha": "1008e337721eb8669448aa356d01acbb9edc6f89",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 4,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 290
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 80
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 93
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.test.ts",
+              "severity": "BLOCKING",
+              "line": 118
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "NON-BLOCKING",
+              "line": 31
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 10525,
+          "usage": {
+            "promptTokens": 133959,
+            "completionTokens": 12219,
+            "reasoningTokens": 5440,
+            "totalTokens": 146178
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 5,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/block-git-gh-cli.test.ts",
+              "severity": "BLOCKING",
+              "line": 138
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "NON-BLOCKING",
+              "line": 31
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 1
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "NON-BLOCKING",
+              "line": 120
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 97
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 180
+            },
+            {
+              "file": ".cursor/rules/mcp-tools.mdc",
+              "severity": "NON-BLOCKING",
+              "line": 38
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 8573,
+          "usage": {
+            "promptTokens": 135386,
+            "completionTokens": 9946,
+            "reasoningTokens": 4032,
+            "totalTokens": 145332
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 288
+            },
+            {
+              "file": ".claude/settings.json",
+              "severity": "NON-BLOCKING",
+              "line": 31
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 120
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 118
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "NON-BLOCKING",
+              "line": 97
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 10071,
+          "usage": {
+            "promptTokens": 133297,
+            "completionTokens": 9825,
+            "reasoningTokens": 6080,
+            "totalTokens": 143122
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 761,
+      "iteration": 1,
+      "notes": "larger PR; R1 baseline",
+      "iterationSha": "8493aa531e97607cf501e5be94b327c05fc63577",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 360
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 330
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 271
+            },
+            {
+              "file": "docs/pr-workflow.md",
+              "severity": "NON-BLOCKING",
+              "line": 260
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 3805,
+          "usage": {
+            "promptTokens": 121402,
+            "completionTokens": 8676,
+            "reasoningTokens": 6272,
+            "totalTokens": 130078
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 5,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 360
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 232
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 214
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 308
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 287
+            },
+            {
+              "file": "docs/pr-workflow.md",
+              "severity": "NON-BLOCKING",
+              "line": 258
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 7665,
+          "usage": {
+            "promptTokens": 137067,
+            "completionTokens": 12586,
+            "reasoningTokens": 8704,
+            "totalTokens": 149653
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 4,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 320
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 230
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 210
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 789
+            },
+            {
+              "file": "docs/pr-workflow.md",
+              "severity": "NON-BLOCKING",
+              "line": 260
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "NON-BLOCKING",
+              "line": 175
+            },
+            {
+              "file": ".claude/hooks/block-git-gh-cli.ts",
+              "severity": "BLOCKING",
+              "line": 256
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 10934,
+          "usage": {
+            "promptTokens": 137657,
+            "completionTokens": 10344,
+            "reasoningTokens": 5696,
+            "totalTokens": 148001
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 763,
+      "iteration": 1,
+      "notes": "larger PR; R1 baseline (later went to 4+ rounds)",
+      "iterationSha": "3f1b048c486e1f49f26db71836b86b3ee4eb026d",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 78
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "NON-BLOCKING",
+              "line": 177
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "NON-BLOCKING",
+              "line": 167
+            },
+            {
+              "file": "services/reviewer/src/prompt.test.ts",
+              "severity": "BLOCKING",
+              "line": 121
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 226
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "NON-BLOCKING",
+              "line": 208
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 11734,
+          "usage": {
+            "promptTokens": 135996,
+            "completionTokens": 13402,
+            "reasoningTokens": 8448,
+            "totalTokens": 149398
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 5,
+          "nonBlockingCount": 1,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 170
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 120
+            },
+            {
+              "file": "services/reviewer/src/prompt.test.ts",
+              "severity": "BLOCKING",
+              "line": 164
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 86
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "NON-BLOCKING",
+              "line": 141
+            },
+            {
+              "file": "services/reviewer/src/prompt.test.ts",
+              "severity": "BLOCKING",
+              "line": 14
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 9860,
+          "usage": {
+            "promptTokens": 136574,
+            "completionTokens": 6905,
+            "reasoningTokens": 3136,
+            "totalTokens": 143479
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 3,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 170
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 148
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "BLOCKING",
+              "line": 209
+            },
+            {
+              "file": "services/reviewer/src/prompt.test.ts",
+              "severity": "NON-BLOCKING",
+              "line": 170
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "NON-BLOCKING",
+              "line": 186
+            },
+            {
+              "file": "services/reviewer/src/prompt.ts",
+              "severity": "NON-BLOCKING",
+              "line": 170
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 9,
+          "scratchTextLength": 6199,
+          "usage": {
+            "promptTokens": 139696,
+            "completionTokens": 9523,
+            "reasoningTokens": 6208,
+            "totalTokens": 149219
+          }
+        }
+      ]
+    },
+    {
+      "prNumber": 805,
+      "iteration": 1,
+      "notes": "larger PR; R1 baseline (later went to 3+ rounds)",
+      "iterationSha": "f72f5e0da28ffed7308f3a1baf62653a92bc5d3f",
+      "contextFetched": true,
+      "attempts": [
+        {
+          "attempt": 1,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 2,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 160
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "BLOCKING",
+              "line": 168
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "BLOCKING",
+              "line": 147
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 160
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 7064,
+          "usage": {
+            "promptTokens": 66919,
+            "completionTokens": 6134,
+            "reasoningTokens": 3456,
+            "totalTokens": 73053
+          }
+        },
+        {
+          "attempt": 2,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 1,
+          "nonBlockingCount": 3,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "BLOCKING",
+              "line": 150
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 160
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 45
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 168
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 7,
+          "scratchTextLength": 2956,
+          "usage": {
+            "promptTokens": 59857,
+            "completionTokens": 7610,
+            "reasoningTokens": 5824,
+            "totalTokens": 67467
+          }
+        },
+        {
+          "attempt": 3,
+          "event": "REQUEST_CHANGES",
+          "blockingCount": 4,
+          "nonBlockingCount": 2,
+          "preExistingCount": 0,
+          "currentFindings": [
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "BLOCKING",
+              "line": 150
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "BLOCKING",
+              "line": 125
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "BLOCKING",
+              "line": 45
+            },
+            {
+              "file": "src/adapters/shared/commands/config/helpers.test.ts",
+              "severity": "BLOCKING",
+              "line": 10
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 160
+            },
+            {
+              "file": "src/adapters/shared/commands/config/list-show-commands.ts",
+              "severity": "NON-BLOCKING",
+              "line": 41
+            }
+          ],
+          "findingSource": "tool-calls",
+          "toolCallCount": 8,
+          "scratchTextLength": 5820,
+          "usage": {
+            "promptTokens": 68035,
+            "completionTokens": 4194,
+            "reasoningTokens": 1664,
+            "totalTokens": 72229
+          }
+        }
+      ]
+    }
+  ]
+}
