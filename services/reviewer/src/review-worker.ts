@@ -732,9 +732,6 @@ export async function runReview(
       }
     }
 
-    // Compose the structured review body from (possibly recovered) tool calls.
-    const composed = composeReviewBody(toolCallsForComposition);
-
     // Structural blockingCount: count submit_finding calls with severity=BLOCKING
     // AFTER monotonicity recovery, so the downstream convergence-metric and
     // event-derivation see the corrected values.
@@ -742,29 +739,47 @@ export async function runReview(
       (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
     ).length;
 
-    // PR #922 R5#1 catch: when monotonicity recovery downgrades all BLOCKING
-    // findings, the composed event must reflect the recovered severities even
-    // if the model emitted conclude_review=REQUEST_CHANGES. Pre-fix the
-    // composeReviewBody event was preserved as-is from the model's
-    // conclude_review call (composed.event), which contradicted the recovery
-    // intent — a recovery that crosses zero would still post REQUEST_CHANGES,
-    // negating the user-visible benefit of the recovery layer. Now: derive
-    // the post-recovery event from the post-recovery BLOCKING count when
-    // recovery actually crossed zero.
-    let recoveredEvent = composed.event;
-    if (
-      recoveredEvent === "REQUEST_CHANGES" &&
+    // PR #922 R5#1 + R6 catch: when monotonicity recovery downgrades all
+    // BLOCKING findings, BOTH the conclude_review tool call AND the composed
+    // event must reflect the recovered severities. Pre-R6 we overrode just
+    // the event variable, but the conclude_review tool call inside
+    // toolCallsForComposition was preserved as-is, so the composed body's
+    // executive summary could still state REQUEST_CHANGES while the posted
+    // event was COMMENT — a silent body-vs-event incoherence. Now: rewrite
+    // the conclude_review tool call BEFORE composition so the composed
+    // body is internally consistent, then compose, then use composed.event.
+    const shouldOverrideToCommentForRecovery =
       monotonicityRecoveryEnabled &&
-      blockingCount === 0
-    ) {
-      recoveredEvent = "COMMENT";
-    }
+      blockingCount === 0 &&
+      toolCallsForComposition.some(
+        (tc) => tc.name === "conclude_review" && tc.args.event === "REQUEST_CHANGES"
+      );
+    const reconciledToolCalls = shouldOverrideToCommentForRecovery
+      ? toolCallsForComposition.map((tc) => {
+          if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
+            return tc;
+          }
+          return {
+            name: "conclude_review" as const,
+            args: {
+              event: "COMMENT" as const,
+              summary: `${
+                tc.args.summary
+              }\n\n[mt#1496 monotonicity-recovery: all BLOCKING findings were downgraded to NON-BLOCKING because they cited prior NON-BLOCKING/PRE-EXISTING files without corresponding new code in the diff. Original conclude_review event was REQUEST_CHANGES; overridden to COMMENT to reflect the recovered severities.]`,
+            },
+          };
+        })
+      : toolCallsForComposition;
 
-    // Self-review override: structural event from composeReviewBody (or the
-    // post-recovery override above), but force COMMENT when the reviewer
+    // Compose the structured review body from (possibly recovered AND
+    // event-reconciled) tool calls.
+    const composed = composeReviewBody(reconciledToolCalls);
+
+    // Self-review override: structural event from composeReviewBody (already
+    // reconciled with recovery above), but force COMMENT when the reviewer
     // identity matches the PR author (GitHub blocks self-approval at the
     // platform level — same rule as the prose path).
-    const event = isSelfReview ? "COMMENT" : recoveredEvent;
+    const event = isSelfReview ? "COMMENT" : composed.event;
 
     // Defensive sanitizer logging: run the sanitizer on output.text (the
     // free-text scratch channel). If it fires, emit a structured log event
