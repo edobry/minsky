@@ -44,6 +44,14 @@ export interface BranchFreshnessResult {
    * where re-detection could disagree with the original detection.
    */
   mainRef?: string;
+  /**
+   * True for paths that are explicitly silent per the Behavioral Contract
+   * (branch-even-with-main, fresh branch). The entrypoint must NOT emit any
+   * stdout or hookSpecificOutput for these paths beyond what `warnings`
+   * carries — round-3 BLOCKING fix to make silence structural rather than
+   * a reason-string heuristic.
+   */
+  silent?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,8 +60,7 @@ export interface BranchFreshnessResult {
 
 /**
  * Per-call timeout for fast local git operations. Realistic git invocations
- * complete in <100ms; 1.5s is generous for degraded conditions and keeps the
- * cumulative worst case under the 15s PreToolUse cap.
+ * complete in <100ms; 1.5s is generous for degraded conditions.
  */
 const GIT_TIMEOUT_MS = 1_500;
 
@@ -64,15 +71,14 @@ const GIT_TIMEOUT_MS = 1_500;
 const FETCH_TIMEOUT_MS = 5_000;
 
 /**
- * Overall wall-clock budget for the hook. Below the 15s PreToolUse cap to
- * leave headroom for process startup / shutdown and the output write. When
- * cumulative time approaches this, the hook short-circuits with a warning
- * rather than risk SIGTERM mid-call (which would yield no structured
- * decision and flake the agent's commit).
+ * Overall wall-clock budget for the hook from `hookStart` (which is captured
+ * BEFORE the fetch — so fetch IS counted in this budget). Lowered to 10s so
+ * fetch (worst case 5s) + remaining git probes stay well under the 15s
+ * PreToolUse cap with margin for process startup / shutdown / write.
  *
- * Worst-case math: FETCH (5s) + 6 × GIT (1.5s each) = 14s — fits 15s cap.
+ * Worst-case math: hookStart → ... → exit ≤ 10s + slack ≈ 11s, fits 15s.
  */
-const OVERALL_BUDGET_MS = 12_000;
+const OVERALL_BUDGET_MS = 10_000;
 
 /**
  * Budget guard. Returns true if there's enough remaining wall-clock time to
@@ -257,13 +263,14 @@ export function checkBranchFreshness(
     };
   }
 
-  // Check if the remote branch exists; if not, it's a fresh branch — allow
+  // Check if the remote branch exists; if not, it's a fresh branch — allow silently
   if (!remoteBranchExists(repoDir, currentBranch)) {
     return {
       blocked: false,
       aheadCount: 0,
       aheadSubjects: [],
       reason: `Fresh branch: origin/${currentBranch} does not exist yet — no divergence to check`,
+      silent: true,
     };
   }
 
@@ -309,6 +316,7 @@ export function checkBranchFreshness(
       aheadSubjects: [],
       reason: `Branch ${currentBranch} is up to date with ${mainRef}`,
       mainRef,
+      silent: true,
     };
   }
 
@@ -389,6 +397,9 @@ if (import.meta.main) {
   }
 
   const repoDir = input.cwd;
+  // Capture hookStart BEFORE fetch so the OVERALL_BUDGET_MS guard inside
+  // checkBranchFreshness counts fetch time toward the budget. This prevents
+  // worst-case wall-time = fetch + budget exceeding the 15s PreToolUse cap.
   const hookStart = Date.now();
 
   // Refresh remote-tracking refs so the comparison runs against current state.
@@ -397,9 +408,10 @@ if (import.meta.main) {
   // refs, which is no worse than the pre-hook baseline.
   const warnings: string[] = [];
   const fetchResult = refreshRemoteRefs(repoDir);
-  if (!fetchResult.ok) {
+  const fetchFailed = !fetchResult.ok;
+  if (fetchFailed) {
     warnings.push(
-      `git fetch failed (continuing with possibly stale refs): ${fetchResult.reason ?? "unknown"}`
+      `git fetch failed — comparison may be against STALE refs (${fetchResult.reason ?? "unknown"})`
     );
   }
 
@@ -408,22 +420,22 @@ if (import.meta.main) {
   const result = checkBranchFreshness(repoDir, currentBranch, hookStart);
 
   if (!result.blocked) {
-    // Behavioral Contract (silent paths): "Allows silently: branch even with
-    // main, fresh branch (no upstream), detached HEAD, undetectable default
-    // branch." Only emit when there's something operationally interesting:
-    // a "skipped" reason (detached HEAD, undetectable default, budget
-    // exhausted) OR a fetch warning that operators should see. Fresh-branch
-    // and up-to-date paths emit nothing — they're the silent happy paths.
-    const isSkipped = result.reason.toLowerCase().includes("skipped");
-    const shouldEmit = isSkipped || warnings.length > 0;
-    if (shouldEmit) {
-      const lines: string[] = [];
-      if (isSkipped) {
-        lines.push(`[check-branch-fresh] ${result.reason}`);
-      }
-      for (const w of warnings) {
-        lines.push(`[check-branch-fresh] ${w}`);
-      }
+    // Behavioral Contract: silent paths (fresh branch, branch-even-with-main)
+    // emit nothing. Skipped paths (detached HEAD, undetectable default,
+    // budget exhausted) emit their reason for auditability. Warnings are
+    // always surfaced regardless. Round-3 BLOCKING fix: silence is now
+    // gated by `result.silent` (structural) rather than by reason-string
+    // pattern matching, so future reason-text changes can't accidentally
+    // leak silent paths via additionalContext.
+    const isSilent = result.silent === true;
+    const lines: string[] = [];
+    if (!isSilent) {
+      lines.push(`[check-branch-fresh] ${result.reason}`);
+    }
+    for (const w of warnings) {
+      lines.push(`[check-branch-fresh] ${w}`);
+    }
+    if (lines.length > 0) {
       for (const line of lines) {
         process.stdout.write(`${line}\n`);
       }
@@ -450,9 +462,11 @@ if (import.meta.main) {
     result.aheadSubjects
   );
 
-  // If we couldn't fetch, surface that warning alongside the denial so the
-  // operator knows the comparison may be against stale refs (still useful,
-  // but worth flagging).
+  // Round-3 BLOCKING fix: when fetch failed, the comparison ran against
+  // possibly-stale refs. Always surface that prominently in the deny message
+  // so operators don't act on a block whose evidence may be hours old.
+  // Warnings (which include the fetch failure when it occurred) are
+  // appended to the body in a dedicated section.
   const fullMessage =
     warnings.length > 0
       ? `${message}\n\nWarnings:\n${warnings.map((w) => `  [check-branch-fresh] ${w}`).join("\n")}`

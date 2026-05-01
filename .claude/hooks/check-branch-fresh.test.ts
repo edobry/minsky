@@ -113,6 +113,7 @@ function runFreshnessCheck(
       aheadCount: 0,
       aheadSubjects: [],
       reason: `Fresh branch: origin/${branch} does not exist yet — no divergence to check`,
+      silent: true,
     };
   }
 
@@ -136,6 +137,7 @@ function runFreshnessCheck(
       aheadSubjects: [],
       reason: `Branch ${branch} is up to date with ${mainRef}`,
       mainRef,
+      silent: true,
     };
   }
 
@@ -297,6 +299,44 @@ describe("branch freshness logic (injectable deps)", () => {
       expect(result.mainRef).toBeUndefined();
     });
   });
+
+  describe("silent flag (round-3 BLOCKING #2 fix)", () => {
+    test("fresh-branch result is marked silent", () => {
+      const deps = makeDeps({ remoteBranchExists: () => false });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(false);
+      expect(result.silent).toBe(true);
+    });
+
+    test("up-to-date result is marked silent", () => {
+      const deps = makeDeps({
+        listCommitsAhead: () => ({ count: 0, subjects: [] }),
+      });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(false);
+      expect(result.silent).toBe(true);
+    });
+
+    test("blocked result is NOT marked silent (deny message must reach the agent)", () => {
+      const deps = makeDeps({
+        listCommitsAhead: () => ({ count: 1, subjects: ["abc1234 fix"] }),
+      });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(true);
+      expect(result.silent).not.toBe(true);
+    });
+
+    test("undetectable-default result is NOT marked silent (skip reason worth surfacing)", () => {
+      const deps = makeDeps({ detectDefaultRemoteBranch: () => null });
+      const result = runFreshnessCheck(MOCK_REPO, FEATURE_BRANCH, deps);
+
+      expect(result.blocked).toBe(false);
+      expect(result.silent).not.toBe(true);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -313,15 +353,15 @@ describe("checkBranchFreshness (exported)", () => {
   });
 
   test("budget guard: skips remaining work when hookStart deadline is already past", () => {
-    // Round-2 BLOCKING #1 fix: pass hookStart from the entrypoint so that
-    // the cumulative wall-clock budget is enforced. Simulate a past deadline
-    // by passing a hookStart timestamp far in the past — the check should
-    // short-circuit with a "skipped" reason rather than running git probes.
+    // Round-2 BLOCKING #1 fix: pass hookStart from the entrypoint so the
+    // cumulative wall-clock budget is enforced. Simulate a past deadline
+    // by passing a hookStart timestamp at epoch — far past the 10s budget,
+    // deterministic, and free of any real-time / fs coupling.
     //
     // The branch arg is a non-null string so the early "detached HEAD" guard
     // does not fire; the budget guard at the next step is what we're testing.
-    const longAgo = Date.now() - 60_000;
-    const result = checkBranchFreshness(MOCK_REPO, "test-branch", longAgo);
+    const epochTimestamp = 1;
+    const result = checkBranchFreshness(MOCK_REPO, "test-branch", epochTimestamp);
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toContain("skipped");
