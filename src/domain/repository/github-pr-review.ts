@@ -418,6 +418,94 @@ const RESOLVE_REVIEW_THREAD_MUTATION = `
   }
 `;
 
+/**
+ * Pre-mutation ownership check: GraphQL accepts a global node ID and will
+ * operate on any thread the bot token can access. Without this guard, a
+ * caller passing a valid threadId from a different repository (mistakenly
+ * or maliciously) would silently mutate that thread. Verify the thread
+ * belongs to the expected owner/repo (and PR if known) before mutating.
+ *
+ * Returns the thread's repository slug for diagnostic logging.
+ */
+const RESOLVE_THREAD_OWNERSHIP_QUERY = `
+  query ReviewThreadOwnership($threadId: ID!) {
+    node(id: $threadId) {
+      __typename
+      ... on PullRequestReviewThread {
+        id
+        repository {
+          owner { login }
+          name
+        }
+        pullRequest {
+          number
+        }
+      }
+    }
+  }
+`;
+
+interface ThreadOwnershipResponse {
+  node: {
+    __typename: string;
+    id: string;
+    repository: { owner: { login: string }; name: string };
+    pullRequest: { number: number };
+  } | null;
+}
+
+async function assertThreadBelongsToRepo(
+  gh: GitHubContext,
+  threadId: string,
+  octokit: ReturnType<typeof createOctokit>,
+  expectedPrNumber?: number
+): Promise<void> {
+  // If the lookup itself fails (network, auth), the caller's outer try/catch
+  // routes it through handleOctokitError; we don't pre-empt here.
+  const response = await octokit.graphql<ThreadOwnershipResponse>(RESOLVE_THREAD_OWNERSHIP_QUERY, {
+    threadId,
+  });
+
+  if (!response.node) {
+    throw new MinskyError(
+      `Thread '${threadId}' does not exist or is not accessible to this token. ` +
+        `Ensure the threadId is the GraphQL node ID of a PullRequestReviewThread ` +
+        `(see resolveReviewThread JSDoc for accepted sources).`
+    );
+  }
+
+  if (response.node.__typename !== "PullRequestReviewThread") {
+    throw new MinskyError(
+      `Thread '${threadId}' resolves to a ${response.node.__typename} node, ` +
+        `not a PullRequestReviewThread. Do NOT pass a review comment's node_id; ` +
+        `comment IDs and thread IDs are distinct GitHub objects.`
+    );
+  }
+
+  const actualOwner = response.node.repository.owner.login;
+  const actualRepo = response.node.repository.name;
+  const actualPr = response.node.pullRequest.number;
+
+  if (
+    actualOwner.toLowerCase() !== gh.owner.toLowerCase() ||
+    actualRepo.toLowerCase() !== gh.repo.toLowerCase()
+  ) {
+    throw new MinskyError(
+      `Thread '${threadId}' belongs to ${actualOwner}/${actualRepo} ` +
+        `but this session targets ${gh.owner}/${gh.repo}. ` +
+        `Cross-repo thread mutation is not permitted.`
+    );
+  }
+
+  if (expectedPrNumber !== undefined && actualPr !== expectedPrNumber) {
+    throw new MinskyError(
+      `Thread '${threadId}' belongs to PR #${actualPr} in ${gh.owner}/${gh.repo} ` +
+        `but this session targets PR #${expectedPrNumber}. ` +
+        `Cross-PR thread mutation is not permitted.`
+    );
+  }
+}
+
 const UNRESOLVE_REVIEW_THREAD_MUTATION = `
   mutation UnresolveReviewThread($threadId: ID!) {
     unresolveReviewThread(input: { threadId: $threadId }) {
@@ -462,6 +550,10 @@ export async function resolveReviewThread(
   try {
     const token = await gh.getToken();
     const octokit = octokitOverride ?? createOctokit(token);
+
+    // Cross-repo guard: GraphQL accepts any node ID the bot can access.
+    // Verify the thread belongs to this session's owner/repo before mutating.
+    await assertThreadBelongsToRepo(gh, threadId, octokit);
 
     const response = await octokit.graphql<ResolveThreadResponse>(RESOLVE_REVIEW_THREAD_MUTATION, {
       threadId,
@@ -508,6 +600,9 @@ export async function unresolveReviewThread(
   try {
     const token = await gh.getToken();
     const octokit = octokitOverride ?? createOctokit(token);
+
+    // Cross-repo guard: same rationale as resolveReviewThread.
+    await assertThreadBelongsToRepo(gh, threadId, octokit);
 
     const response = await octokit.graphql<UnresolveThreadResponse>(
       UNRESOLVE_REVIEW_THREAD_MUTATION,
