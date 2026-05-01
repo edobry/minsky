@@ -211,22 +211,24 @@ export function extractFindings(body: string): string {
  * Extraction failure returns 0, matching the non-fatal stance in review-worker.
  */
 export function countBlockingFindings(body: string): number {
-  // Anchor each match to the start of a line (multiline flag), accept
-  // optional bullet/list prefix, then either balanced `**[BLOCKING]**` OR
-  // bare `[BLOCKING]` followed by a non-`*` boundary. PR #921 R2 catch:
-  // pre-fix used negative lookbehind/lookahead which had compatibility
-  // risk in some JavaScriptCore/Bun versions AND was over-permissive
-  // (counted incidental prose mentions of [BLOCKING] mid-line).
+  // Pattern (must stay in sync with extractFindings strategy 2 above):
+  //   - Anchored to start-of-line (multiline g flag) with optional
+  //     whitespace and optional bullet/list prefix:
+  //       * `1.` `2.` ... (numeric ordered list)
+  //       * `-` `+` `*` `•` (unordered list bullets)
+  //   - Either balanced bold `**[BLOCKING]**` OR bare `[BLOCKING]` followed
+  //     by non-consuming negative lookahead `(?!\*)`. Lookahead-only
+  //     (no lookbehind) for broad ES5+ engine compatibility.
   //
-  // The bare branch uses `(?:[^*]|$)` instead of `(?!\*)` lookahead — same
-  // semantics (next char must not be `*`) without lookahead. The trailing
-  // boundary IS consumed, but for counting that's harmless: each bare
-  // marker still produces exactly one match.
-  // PR #921 R3 refinements: bullet class includes `+` and ordered-list
-  // (`1.`) prefixes; bare branch uses non-consuming negative lookahead
-  // `(?!\*)` instead of consuming `(?:[^*]|$)`. Lookahead is broadly
-  // supported (ES5+); switching avoids the consuming-boundary brittleness
-  // that the R3 reviewer flagged.
+  // Iteration history (consolidated per PR #921 R6 cleanup):
+  //   - mt#1486: widened from `**[BLOCKING]**`-only to also accept bare
+  //     `[BLOCKING]`, matching production reviewer-bot format.
+  //   - PR #921 R1: added balance enforcement (reject one-sided wrappers).
+  //   - PR #921 R2: switched from negative lookbehind to start-of-line
+  //     anchor (broader engine support; eliminates over-permissive
+  //     mid-line matching).
+  //   - PR #921 R3: broadened bullet class to include ordered lists and
+  //     `+`; switched bare-branch boundary to non-consuming lookahead.
   const matches = body.match(
     /^\s*(?:(?:\d+\.|[-+*•])\s+)?(?:\*\*\[BLOCKING\]\*\*|\[BLOCKING\](?!\*))/gim
   );
