@@ -240,7 +240,6 @@ describe("TwoStrikesTracker — snapshot / fromSnapshot", () => {
           fingerprintHash: realHash,
           normalizedMessage: ERR_PERM,
           errorType: "Error",
-          count: 1,
           firstAt: "2026-05-01T00:00:00.000Z",
         },
       ],
@@ -268,10 +267,12 @@ describe("TwoStrikesTracker — snapshot / fromSnapshot", () => {
     const snap = tracker.snapshot();
     const firstStreak = snap.streaks[0];
     if (firstStreak) {
-      firstStreak.count = 999;
+      firstStreak.normalizedMessage = "MUTATED";
+      firstStreak.firstAt = "1970-01-01T00:00:00.000Z";
     }
 
     const fresh = tracker.snapshot();
-    expect(fresh.streaks[0]?.count).toBe(1);
+    expect(fresh.streaks[0]?.normalizedMessage).toBe(ERR_PERM);
+    expect(fresh.streaks[0]?.firstAt).toBe("2026-05-01T00:00:00.000Z");
   });
 });

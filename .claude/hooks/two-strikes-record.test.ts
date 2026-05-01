@@ -11,7 +11,13 @@
  */
 
 import { describe, expect, it, beforeEach } from "bun:test";
-import { runHook, detectError, type HookFs, type HookDeps } from "./two-strikes-record";
+import {
+  runHook,
+  detectOutcome,
+  sanitizeSessionId,
+  type HookFs,
+  type HookDeps,
+} from "./two-strikes-record";
 import type { ToolHookInput } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -83,42 +89,89 @@ function buildDeps(fs: FakeFs, mode: "observation" | "live" = "observation"): Ho
 }
 
 // ---------------------------------------------------------------------------
-// detectError
+// detectOutcome
 // ---------------------------------------------------------------------------
 
-describe("detectError", () => {
-  it("returns null for missing result", () => {
-    expect(detectError(TOOL_BASH, undefined)).toBeNull();
+describe("detectOutcome", () => {
+  it("returns unknown for missing result (PR #926 R1 BLOCKING fix: no implicit success)", () => {
+    expect(detectOutcome(TOOL_BASH, undefined)).toEqual({ kind: "unknown" });
   });
 
-  it("Bash: non-zero exit_code returns the stderr", () => {
-    expect(detectError(TOOL_BASH, { exit_code: 1, stderr: PERM_DENIED })).toBe(PERM_DENIED);
+  it("Bash: non-zero exit_code returns error with the stderr", () => {
+    expect(detectOutcome(TOOL_BASH, { exit_code: 1, stderr: PERM_DENIED })).toEqual({
+      kind: "error",
+      error: PERM_DENIED,
+    });
   });
 
-  it("Bash: exit_code 0 returns null", () => {
-    expect(detectError(TOOL_BASH, { exit_code: 0, stdout: "ok" })).toBeNull();
+  it("Bash: exit_code 0 returns explicit success", () => {
+    expect(detectOutcome(TOOL_BASH, { exit_code: 0, stdout: "ok" })).toEqual({ kind: "success" });
   });
 
   it("Bash: non-zero exit with empty stderr falls back to exit-code message", () => {
-    expect(detectError(TOOL_BASH, { exit_code: 7 })).toBe("exit code 7");
+    expect(detectOutcome(TOOL_BASH, { exit_code: 7 })).toEqual({
+      kind: "error",
+      error: "exit code 7",
+    });
   });
 
-  it("generic is_error=true returns the error string", () => {
-    expect(detectError(TOOL_EDIT, { is_error: true, error: "file not found" })).toBe(
-      "file not found"
-    );
+  it("Bash: missing exit_code returns unknown (no implicit success)", () => {
+    expect(detectOutcome(TOOL_BASH, { stdout: "x" })).toEqual({ kind: "unknown" });
+  });
+
+  it("generic is_error=true returns error", () => {
+    expect(detectOutcome(TOOL_EDIT, { is_error: true, error: "file not found" })).toEqual({
+      kind: "error",
+      error: "file not found",
+    });
   });
 
   it("generic is_error=true with no error/content falls back to placeholder", () => {
-    expect(detectError(TOOL_EDIT, { is_error: true })).toBe("tool error");
+    expect(detectOutcome(TOOL_EDIT, { is_error: true })).toEqual({
+      kind: "error",
+      error: "tool error",
+    });
   });
 
-  it("generic error field returns the error", () => {
-    expect(detectError(TOOL_EDIT, { error: "something broke" })).toBe("something broke");
+  it("generic is_error=false returns explicit success", () => {
+    expect(detectOutcome(TOOL_EDIT, { is_error: false })).toEqual({ kind: "success" });
   });
 
-  it("returns null for clean results", () => {
-    expect(detectError(TOOL_EDIT, { content: "hello" })).toBeNull();
+  it("generic error field returns error", () => {
+    expect(detectOutcome(TOOL_EDIT, { error: "something broke" })).toEqual({
+      kind: "error",
+      error: "something broke",
+    });
+  });
+
+  it("returns unknown for results with no recognised signals", () => {
+    expect(detectOutcome(TOOL_EDIT, { content: "hello" })).toEqual({ kind: "unknown" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// sanitizeSessionId
+// ---------------------------------------------------------------------------
+
+describe("sanitizeSessionId", () => {
+  it("preserves alphanumeric, dash, and underscore", () => {
+    expect(sanitizeSessionId("abc-123_xyz")).toBe("abc-123_xyz");
+  });
+
+  it("replaces forward slashes (directory traversal defence)", () => {
+    expect(sanitizeSessionId("../etc/passwd")).toBe("___etc_passwd");
+  });
+
+  it("replaces backslashes and other path separators", () => {
+    expect(sanitizeSessionId("a\\b/c")).toBe("a_b_c");
+  });
+
+  it("replaces dots (no traversal via .)", () => {
+    expect(sanitizeSessionId("a.b.c")).toBe("a_b_c");
+  });
+
+  it("replaces special characters", () => {
+    expect(sanitizeSessionId("uuid:1234@host")).toBe("uuid_1234_host");
   });
 });
 
@@ -232,6 +285,55 @@ describe("runHook — observation mode", () => {
     if (!stateContent) return;
     const snapshot = JSON.parse(stateContent);
     expect(snapshot.streaks).toHaveLength(1);
+  });
+
+  // Regression: PR #926 R1 BLOCKING.
+  // Before the fix, an undefined tool_result was treated as success and
+  // reset the streak — so error → undefined-event → same-error did NOT fire.
+  // After the fix, undefined tool_result is "unknown" and the streak survives,
+  // so the second error correctly fires 2-strikes.
+  it("error → undefined-result event → same error STILL fires (R1 fix)", () => {
+    const deps = buildDeps(fs);
+
+    runHook(
+      buildInput({ toolName: TOOL_BASH, toolResult: { exit_code: 1, stderr: PERM_DENIED } }),
+      deps
+    );
+
+    // Intermediate hook invocation with no tool_result — must NOT reset.
+    runHook(buildInput({ toolName: TOOL_BASH, toolResult: undefined }), deps);
+
+    runHook(
+      buildInput({ toolName: TOOL_BASH, toolResult: { exit_code: 1, stderr: PERM_DENIED } }),
+      deps
+    );
+
+    const observationsContent = fs.read(OBS_FILE);
+    expect(observationsContent).toBeDefined();
+    if (!observationsContent) return;
+    const lines = observationsContent.trim().split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+  });
+
+  // Regression: PR #926 R1 BLOCKING.
+  // Session ids with path separators must not blow up the state-file write
+  // and must not allow directory traversal.
+  it("session_id with path separators is sanitized to a safe filename", () => {
+    const deps = buildDeps(fs);
+
+    runHook(
+      buildInput({
+        toolName: TOOL_BASH,
+        toolResult: { exit_code: 1, stderr: "x" },
+        sessionId: "../etc/passwd",
+      }),
+      deps
+    );
+
+    // The original "../etc/passwd" path is NOT used.
+    expect(fs.read(`${STATE_DIR}/../etc/passwd.json`)).toBeUndefined();
+    // The sanitized form IS used.
+    expect(fs.read(`${STATE_DIR}/___etc_passwd.json`)).toBeDefined();
   });
 });
 

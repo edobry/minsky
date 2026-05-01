@@ -57,7 +57,6 @@ export interface TrackerStateRecord {
   fingerprintHash: string;
   normalizedMessage: string;
   errorType: string;
-  count: number;
   firstAt: string;
 }
 
@@ -174,15 +173,13 @@ export class TwoStrikesTracker {
     }
 
     // Different fingerprint OR first-ever error for this tool → start a
-    // fresh streak, count=1. (Replacing an existing different-fingerprint
-    // streak is the documented behaviour: two different errors don't
-    // accumulate.)
+    // fresh streak. (Replacing an existing different-fingerprint streak is
+    // the documented behaviour: two different errors don't accumulate.)
     this.streaks.set(toolName, {
       toolName,
       fingerprintHash: fp.hash,
       normalizedMessage: fp.normalizedMessage,
       errorType: fp.errorType,
-      count: 1,
       firstAt: ts,
     });
     return false;

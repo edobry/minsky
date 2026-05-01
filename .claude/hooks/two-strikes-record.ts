@@ -21,7 +21,7 @@
 
 import os from "os";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import {
@@ -55,43 +55,78 @@ export interface HookDeps {
 }
 
 /**
- * Heuristic error detection across tool kinds. Returns the error value when
- * the tool result indicates an error, or `null` for success.
+ * Three-way classification of a PostToolUse tool_result:
+ *   - `error`  — explicit error signal; we record it and may strike.
+ *   - `success` — explicit success signal; we reset the tool's streak.
+ *   - `unknown` — no signal either way (missing tool_result, no recognised
+ *     fields). We do NOT modify the streak. This preserves "consecutive
+ *     identical errors" semantics when the harness emits a PostToolUse
+ *     event without a result payload — a missing payload is not a
+ *     confirmed success and must not silently reset.
+ */
+export type ToolOutcome =
+  | { kind: "error"; error: unknown }
+  | { kind: "success" }
+  | { kind: "unknown" };
+
+/**
+ * Heuristic error/success detection across tool kinds.
+ *
+ * Reset semantics (per PR #926 R1 BLOCKING fix): only emit `success` on a
+ * positive success signal — Bash `exit_code === 0`, or generic
+ * `is_error === false`. Anything else is `unknown` (no streak change).
  *
  * Calibration TODO (per mt#1484 §Implementation Choice): inspect the
  * observation log and confirm this detector is neither over- nor
  * under-firing. Refine here before mt#1476 wires emission.
  */
-export function detectError(
+export function detectOutcome(
   toolName: string,
   result: Record<string, unknown> | undefined
-): unknown | null {
-  if (!result) return null;
+): ToolOutcome {
+  if (!result) return { kind: "unknown" };
 
-  // Bash: non-zero exit code → error.
+  // Bash: exit code is the signal.
   if (toolName === "Bash") {
     const exitCode = result.exit_code;
-    if (typeof exitCode === "number" && exitCode !== 0) {
+    if (typeof exitCode === "number") {
+      if (exitCode === 0) return { kind: "success" };
       const stderr = typeof result.stderr === "string" ? result.stderr : "";
       const content = typeof result.content === "string" ? result.content : "";
-      return stderr || content || `exit code ${exitCode}`;
+      return { kind: "error", error: stderr || content || `exit code ${exitCode}` };
     }
-    return null;
+    // No exit_code field — can't classify.
+    return { kind: "unknown" };
   }
 
   // Generic is_error flag (Claude Code MCP tools and others).
   if (result.is_error === true) {
     const error = typeof result.error === "string" ? result.error : "";
     const content = typeof result.content === "string" ? result.content : "";
-    return error || content || "tool error";
+    return { kind: "error", error: error || content || "tool error" };
+  }
+  if (result.is_error === false) {
+    return { kind: "success" };
   }
 
   // Generic error field — some tools surface errors via a string field.
   if (typeof result.error === "string" && result.error.length > 0) {
-    return result.error;
+    return { kind: "error", error: result.error };
   }
 
-  return null;
+  // No explicit signal either way.
+  return { kind: "unknown" };
+}
+
+/**
+ * Sanitize a session id to a safe filesystem-safe filename.
+ *
+ * Defends against directory traversal (`../etc/passwd`) and unexpected path
+ * separators in the session id. Conservative allow-list: alphanumeric, dash,
+ * and underscore. Anything else becomes `_`. Per PR #926 R1 BLOCKING fix.
+ */
+export function sanitizeSessionId(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
 /**
@@ -106,7 +141,8 @@ export function detectError(
  *   - Persists the tracker snapshot to per-session state file.
  */
 export function runHook(input: ToolHookInput, deps: HookDeps): void {
-  const sessionId = input.session_id ?? "default";
+  const rawSessionId = input.session_id ?? "default";
+  const sessionId = sanitizeSessionId(rawSessionId);
   const toolName = input.tool_name;
   const toolResult = input.tool_result;
 
@@ -115,8 +151,13 @@ export function runHook(input: ToolHookInput, deps: HookDeps): void {
   const stateFile = join(deps.stateDir, `${sessionId}.json`);
   const observationsFile = join(deps.stateDir, "observations.jsonl");
 
-  if (!deps.fs.exists(deps.stateDir)) {
-    deps.fs.mkdirP(deps.stateDir);
+  // Defensively ensure the state file's parent directory exists. Today this
+  // is always deps.stateDir (sanitizeSessionId strips path separators), but
+  // guarding here makes future sharding (e.g., per-day directories) safe
+  // without revisiting the hook (per PR #926 R1 BLOCKING fix).
+  const stateFileDir = dirname(stateFile);
+  if (!deps.fs.exists(stateFileDir)) {
+    deps.fs.mkdirP(stateFileDir);
   }
 
   // Load or initialise tracker state, overriding mode from deps.
@@ -136,11 +177,19 @@ export function runHook(input: ToolHookInput, deps: HookDeps): void {
 
   const tracker = TwoStrikesTracker.fromSnapshot(snapshot);
 
-  const errorValue = detectError(toolName, toolResult);
-  if (errorValue !== null) {
-    tracker.recordError(toolName, errorValue);
-  } else {
-    tracker.recordSuccess(toolName);
+  const outcome = detectOutcome(toolName, toolResult);
+  switch (outcome.kind) {
+    case "error":
+      tracker.recordError(toolName, outcome.error);
+      break;
+    case "success":
+      tracker.recordSuccess(toolName);
+      break;
+    case "unknown":
+      // No-op: missing/ambiguous tool_result must not modify the streak.
+      // Preserves "consecutive identical errors" semantics — only an
+      // explicit success signal can break a streak.
+      break;
   }
 
   // Drain new observations and append them to the global JSONL log so they
