@@ -2,6 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   formatBlockMessage,
   checkBranchFreshness,
+  refreshRemoteRefs,
   type BranchFreshnessResult,
 } from "./check-branch-fresh";
 
@@ -55,6 +56,26 @@ describe("formatBlockMessage", () => {
 
     expect(msg).toContain("origin/master");
     expect(msg).toContain("5 commit(s)");
+  });
+
+  test("derives branch name from mainRef in guidance (origin/master → master)", () => {
+    const msg = formatBlockMessage("feature/my-branch", "origin/master", 1, [
+      FIXTURE_COMMIT_SINGLE,
+    ]);
+
+    // Round-2 BLOCKING fix: guidance must use the detected default branch name,
+    // not hardcoded "main". For origin/master the message should say "master".
+    expect(msg).toContain("Review the new commits on master before continuing");
+    expect(msg).toContain("rebase this branch on current master");
+    expect(msg).not.toContain("Review the new commits on main");
+    expect(msg).not.toContain("rebase this branch on current main.");
+  });
+
+  test("derives branch name from mainRef in guidance (origin/main → main)", () => {
+    const msg = formatBlockMessage("task/mt-1483", "origin/main", 1, [FIXTURE_COMMIT_SINGLE]);
+
+    expect(msg).toContain("Review the new commits on main before continuing");
+    expect(msg).toContain("rebase this branch on current main.");
   });
 });
 
@@ -239,5 +260,22 @@ describe("checkBranchFreshness (exported)", () => {
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toContain("skipped");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// refreshRemoteRefs — basic shape assertion
+// ---------------------------------------------------------------------------
+
+describe("refreshRemoteRefs", () => {
+  test("returns {ok: false, reason} on non-existent repo (fail-open contract)", () => {
+    // Round-2 BLOCKING #1 fix: hook must fetch before comparing refs. The
+    // function must shape its failure as `{ok: false, reason}` so callers
+    // can warn but continue rather than aborting the entire hook.
+    const result = refreshRemoteRefs("/nonexistent/repo/does/not/exist");
+
+    expect(result.ok).toBe(false);
+    expect(typeof result.reason).toBe("string");
+    expect((result.reason ?? "").length).toBeGreaterThan(0);
   });
 });

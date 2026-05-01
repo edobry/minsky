@@ -39,7 +39,9 @@ export interface BranchFreshnessResult {
 // Core check
 // ---------------------------------------------------------------------------
 
-const GIT_TIMEOUT_MS = 8_000;
+const GIT_TIMEOUT_MS = 5_000;
+/** Slightly larger timeout for the network-bound `git fetch` call. */
+const FETCH_TIMEOUT_MS = 6_000;
 
 /**
  * Detect the current HEAD branch name in the given working directory.
@@ -71,7 +73,7 @@ export function remoteBranchExists(repoDir: string, branch: string): boolean {
  * Returns the default remote ref name, or null if undetectable.
  */
 export function detectDefaultRemoteBranch(repoDir: string): string | null {
-  // Try symbolic ref first
+  // Probe 1: symbolic ref (fastest, exact answer when set)
   const symbolic = execWithPath(
     ["git", "-C", repoDir, "symbolic-ref", "refs/remotes/origin/HEAD"],
     { timeout: GIT_TIMEOUT_MS }
@@ -80,7 +82,20 @@ export function detectDefaultRemoteBranch(repoDir: string): string | null {
     return symbolic.stdout.trim().replace(/^refs\/remotes\//, "");
   }
 
-  // Fall back to probing common defaults
+  // Probe 2: `git remote show origin` — parses "HEAD branch: <name>".
+  // Matches parallel-work-guard.detectDefaultBranch so repos lacking the
+  // symbolic ref but with a queryable origin still detect the right default.
+  const remoteShow = execWithPath(["git", "-C", repoDir, "remote", "show", "origin"], {
+    timeout: GIT_TIMEOUT_MS,
+  });
+  if (remoteShow.exitCode === 0) {
+    const headMatch = remoteShow.stdout.match(/^\s*HEAD branch:\s*(\S+)\s*$/m);
+    if (headMatch && headMatch[1] !== "(unknown)") {
+      return `origin/${headMatch[1]}`;
+    }
+  }
+
+  // Probes 3 and 4: try common defaults explicitly
   for (const candidate of ["main", "master"]) {
     const probe = execWithPath(
       ["git", "-C", repoDir, "rev-parse", "--verify", `origin/${candidate}`],
@@ -92,6 +107,30 @@ export function detectDefaultRemoteBranch(repoDir: string): string | null {
   }
 
   return null;
+}
+
+/**
+ * Refresh local remote-tracking refs from `origin` so the freshness comparison
+ * runs against current state. Without this step, `origin/main` and
+ * `origin/<branch>` are point-in-time copies that can lag the actual remote
+ * by hours or days, producing false allow/deny decisions.
+ *
+ * Bounded by `FETCH_TIMEOUT_MS`; on failure (network down, auth issue, etc.)
+ * the function returns `false` so the caller can warn but continue rather
+ * than blocking the entire hook.
+ */
+export function refreshRemoteRefs(repoDir: string): { ok: boolean; reason?: string } {
+  const result = execWithPath(
+    ["git", "-C", repoDir, "fetch", "origin", "--prune", "--no-tags", "--quiet"],
+    { timeout: FETCH_TIMEOUT_MS }
+  );
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      reason: `git fetch exited ${result.exitCode}: ${(result.stderr || result.stdout).trim()}`,
+    };
+  }
+  return { ok: true };
 }
 
 /**
@@ -212,6 +251,9 @@ export function formatBlockMessage(
   aheadCount: number,
   subjects: string[]
 ): string {
+  // Derive the branch name from the ref so guidance reflects the actual default
+  // branch (e.g. "origin/master" → "master") rather than hardcoding "main".
+  const mainBranch = mainRef.replace(/^origin\//, "");
   const lines: string[] = [
     `Branch-freshness guard: blocked — ${mainRef} is ${aheadCount} commit(s) ahead of origin/${branch}.`,
     "",
@@ -224,11 +266,11 @@ export function formatBlockMessage(
 
   lines.push("");
   lines.push(
-    "Review the new commits on main before continuing — they may subsume or conflict with this PR."
+    `Review the new commits on ${mainBranch} before continuing — they may subsume or conflict with this PR.`
   );
   lines.push("");
   lines.push("Recommended actions:");
-  lines.push("  1. RUN session_update to rebase this branch on current main.");
+  lines.push(`  1. RUN session_update to rebase this branch on current ${mainBranch}.`);
   lines.push("  2. REVIEW the new commits for overlap with the current diff.");
   lines.push("  3. If a sibling PR already fixed the same issue, consider closing this one.");
   lines.push("");
@@ -268,14 +310,45 @@ if (import.meta.main) {
 
   const repoDir = input.cwd;
 
+  // Refresh remote-tracking refs so the comparison runs against current state.
+  // Failure is non-fatal (warn + continue): a slow / unreachable origin should
+  // not block the agent's commit. The decision then runs against possibly-stale
+  // refs, which is no worse than the pre-hook baseline.
+  const warnings: string[] = [];
+  const fetchResult = refreshRemoteRefs(repoDir);
+  if (!fetchResult.ok) {
+    warnings.push(
+      `git fetch failed (continuing with possibly stale refs): ${fetchResult.reason ?? "unknown"}`
+    );
+  }
+
   // Detect current branch
   const currentBranch = detectCurrentBranch(repoDir);
   const result = checkBranchFreshness(repoDir, currentBranch);
 
   if (!result.blocked) {
-    // Silently allow — no output unless there's a skip reason worth logging
-    if (result.reason.includes("skipped")) {
-      process.stdout.write(`[check-branch-fresh] ${result.reason}\n`);
+    // Emit reason for transparency on every non-blocked allow path so host
+    // UIs that only surface hookSpecificOutput (not stdout) can audit the
+    // decision. Matches parallel-work-guard's pattern. The "up to date"
+    // branch is the silent happy path — no need to surface it.
+    const isUpToDate = result.reason.includes("up to date");
+    if (!isUpToDate || warnings.length > 0) {
+      const lines: string[] = [];
+      if (!isUpToDate) {
+        lines.push(`[check-branch-fresh] ${result.reason}`);
+      }
+      for (const w of warnings) {
+        lines.push(`[check-branch-fresh] ${w}`);
+      }
+      for (const line of lines) {
+        process.stdout.write(`${line}\n`);
+      }
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          additionalContext: lines.join("\n"),
+        },
+      });
     }
     process.exit(0);
   }
@@ -289,11 +362,19 @@ if (import.meta.main) {
     result.aheadSubjects
   );
 
+  // If we couldn't fetch, surface that warning alongside the denial so the
+  // operator knows the comparison may be against stale refs (still useful,
+  // but worth flagging).
+  const fullMessage =
+    warnings.length > 0
+      ? `${message}\n\nWarnings:\n${warnings.map((w) => `  [check-branch-fresh] ${w}`).join("\n")}`
+      : message;
+
   writeOutput({
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: message,
+      permissionDecisionReason: fullMessage,
     },
   });
   process.exit(0);
