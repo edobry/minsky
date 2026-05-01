@@ -381,17 +381,20 @@ export async function createAsk(
 
 const asksRespondParams = {
   id: {
-    schema: z.string().min(1),
+    // PR #924 R4 NON-BLOCKING: trim() before min(1) so whitespace-only
+    // strings are rejected at the schema layer (matching respondToAsk's
+    // post-trim validation in validateRespondParams).
+    schema: z.string().trim().min(1),
     description: "Ask ID (UUID) to respond to",
     required: true,
   },
   message: {
-    schema: z.string().min(1),
+    schema: z.string().trim().min(1),
     description: "Operator response message — becomes response.payload.message",
     required: true,
   },
   responder: {
-    schema: z.string().min(1),
+    schema: z.string().trim().min(1),
     description: "AgentId or 'operator' identifier; defaults to 'operator'",
     required: false,
   },
@@ -640,6 +643,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
         "(closed/cancelled/expired) states are rejected with a clear error.",
+      // requiresSetup: true — needs the persistence provider initialized for
+      // SQL access (DrizzleAskRepository). Consistent with asks.list /
+      // asks.create / asks.reconcile siblings, all of which depend on the
+      // same persistence provider. The execute() closure additionally
+      // surfaces a clear "AskRepository unavailable" error if persistence
+      // is somehow missing despite requiresSetup, so the failure mode is
+      // graceful in either configuration.
       requiresSetup: true,
       parameters: asksRespondParams,
       execute: async (params): Promise<RespondToAskResult> => {

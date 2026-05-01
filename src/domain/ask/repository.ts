@@ -233,12 +233,19 @@ export interface AskRepository {
  * Thrown when `respondAndClose` finds the Ask is not in `"suspended"` state
  * at the moment of the atomic update — typically because a concurrent actor
  * cancelled / expired / closed the Ask between read and write.
+ *
+ * The deletion race (Ask removed between read and write) is NOT signaled
+ * via this error — it surfaces as a plain `Error("Ask not found: ${id}")`
+ * from `repo.respondAndClose`'s disambiguation branch, matching the rest
+ * of the repository's not-found semantics. PR #924 R4 NON-BLOCKING:
+ * earlier drafts advertised a `"(deleted)"` variant on `observedState`
+ * that was never emitted; that surface has been removed.
  */
 export class ConcurrentTransitionError extends Error {
   readonly id: string;
-  readonly observedState: AskState | "(deleted)";
+  readonly observedState: AskState;
 
-  constructor(id: string, observedState: AskState | "(deleted)") {
+  constructor(id: string, observedState: AskState) {
     super(
       `Concurrent transition on Ask ${id}: expected state="suspended" at atomic respondAndClose, found state="${observedState}". Another actor (cancel / expire / close) transitioned the Ask between read and write.`
     );
