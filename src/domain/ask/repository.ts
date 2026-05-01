@@ -401,6 +401,18 @@ export class DrizzleAskRepository implements AskRepository {
     _respondInput: RespondAskInput,
     closeInput: CloseAskInput
   ): Promise<Ask> {
+    // Invariant enforcement (PR #924 R5 BLOCKING): the persistence-level
+    // atomic update writes state="closed" directly, but the LOGICAL walk
+    // is suspended → responded → closed. We invoke guardTransition twice
+    // here so the state-machine table (VALID_TRANSITIONS in state-machine.ts)
+    // is consulted as the source of truth — adding a future state would
+    // surface as a guardTransition failure here, not a silent invariant
+    // relaxation. The two calls validate both legs of the logical walk;
+    // the persistence update collapses them into a single UPDATE for
+    // atomicity.
+    guardTransition("suspended", "responded");
+    guardTransition("responded", "closed");
+
     // Optimistic concurrency: only update if the row is still in "suspended".
     // If a concurrent actor (cancel / expire / close) transitioned the Ask
     // between read and write, this WHERE clause matches zero rows and we
@@ -590,6 +602,14 @@ export class FakeAskRepository implements AskRepository {
     _respondInput: RespondAskInput,
     closeInput: CloseAskInput
   ): Promise<Ask> {
+    // Mirror the Drizzle backend's invariant enforcement (PR #924 R5
+    // BLOCKING): consult guardTransition for both legs of the logical walk
+    // suspended → responded → closed. The fake collapses to a single
+    // in-memory write; the guards ensure the state-machine table stays the
+    // source of truth.
+    guardTransition("suspended", "responded");
+    guardTransition("responded", "closed");
+
     // Single-threaded fake — atomic by virtue of synchronous in-memory ops.
     // Mirrors the Drizzle backend's optimistic-concurrency check: refuses if
     // state is not "suspended" at the moment of the call.

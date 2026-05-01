@@ -397,6 +397,10 @@ const asksRespondParams = {
     schema: z.string().trim().min(1),
     description: "AgentId or 'operator' identifier; defaults to 'operator'",
     required: false,
+    // PR #924 R5 NON-BLOCKING: schema-layer default so MCP/CLI surfaces
+    // and the helper see the same default. respondToAsk also defaults
+    // (defense in depth for direct programmatic callers).
+    defaultValue: "operator",
   },
 };
 
@@ -643,14 +647,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
         "v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. " +
         "Pre-suspended (detected/classified/routed) and terminal " +
         "(closed/cancelled/expired) states are rejected with a clear error.",
-      // requiresSetup: true — needs the persistence provider initialized for
-      // SQL access (DrizzleAskRepository). Consistent with asks.list /
-      // asks.create / asks.reconcile siblings, all of which depend on the
-      // same persistence provider. The execute() closure additionally
+      // requiresSetup: false — asks.respond depends only on the persistence
+      // provider, not on global Minsky configuration. The execute() closure
       // surfaces a clear "AskRepository unavailable" error if persistence
-      // is somehow missing despite requiresSetup, so the failure mode is
-      // graceful in either configuration.
-      requiresSetup: true,
+      // is missing (graceful failure mode). Flipped from true on PR #924
+      // R5 BLOCKING: tighter coupling than necessary, blocked programmatic
+      // use in minimal environments intended by v1 operator UX.
+      requiresSetup: false,
       parameters: asksRespondParams,
       execute: async (params): Promise<RespondToAskResult> => {
         const repo = await buildAskRepository(container);
