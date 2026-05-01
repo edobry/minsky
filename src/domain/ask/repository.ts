@@ -256,6 +256,22 @@ export interface AskRepository {
     respondInput: RespondAskInput,
     closeInput: CloseAskInput
   ): Promise<Ask>;
+
+  /**
+   * Persist an updated `windowMissedCount` on an Ask row.
+   *
+   * Does NOT enforce the state machine — this is a field-level update, not a
+   * state transition. Throws `Error` if the Ask is not found.
+   *
+   * Used by the Reaper (mt#1490) to persist miss-count increments so that
+   * subsequent reads reflect the new count and escalation thresholds trip
+   * correctly in production.
+   *
+   * @param id    Primary key of the Ask to update.
+   * @param count New `windowMissedCount` value.
+   * @returns     The updated Ask.
+   */
+  updateWindowMissedCount(id: string, count: number): Promise<Ask>;
 }
 
 /**
@@ -484,6 +500,25 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return toAsk(row);
   }
+
+  async updateWindowMissedCount(id: string, count: number): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const rows = await this.db
+      .update(asksTable)
+      .set({ windowMissedCount: count })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateWindowMissedCount returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +711,17 @@ export class FakeAskRepository implements AskRepository {
       closedAt: now,
     };
 
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateWindowMissedCount(id: string, count: number): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const updated: Ask = { ...existing, windowMissedCount: count };
     this.store.set(id, updated);
     return { ...updated };
   }
