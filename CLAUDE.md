@@ -91,6 +91,39 @@ parallel work has been explicitly acknowledged and coordinated.
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
 
+## Branch Freshness Guard
+
+A PreToolUse hook on `mcp__minsky__session_commit`, `mcp__minsky__session_pr_create`, and
+`mcp__minsky__session_pr_edit` blocks the call when `origin/main` has commits not reachable
+from the session's branch. This is the structural fix (mt#1483) for the "branch-behind-main
+during reviewer iteration" pattern that recurred four times across mt#1190, mt#1262, mt#1384,
+and related tasks.
+
+**Hook file:** `.claude/hooks/check-branch-fresh.ts`
+
+**How it works:**
+1. Detects the current HEAD branch from `input.cwd`.
+2. Checks whether `origin/<branch>` exists — if not (fresh branch, not yet pushed), allows silently.
+3. Compares `origin/<branch>..origin/main` — if main has commits the branch lacks, blocks.
+4. Block message lists: the count of diverging commits, the first 10 commit subjects (oneline), and the instruction "Review the new commits on main before continuing."
+
+**On block:** run `session_update` to rebase on main, review the merged PRs to check for
+overlap, then retry the original operation.
+
+**Override mechanism:** Set `MINSKY_SKIP_FRESHNESS=1` in your environment before invoking
+the tool:
+
+```bash
+MINSKY_SKIP_FRESHNESS=1 minsky session commit ...
+```
+
+The override is **logged to session stdout** (tool name, ISO timestamp) for audit.
+Use only when you have already reviewed main's new commits and confirmed no overlap.
+
+**Fresh branch exception:** The hook does not block the first commit on a branch that has
+no upstream ref yet (`origin/<branch>` does not exist). This prevents false positives
+on the very first push of a new session branch.
+
 # User Preferences
 
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
