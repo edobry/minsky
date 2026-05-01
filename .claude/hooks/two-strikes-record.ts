@@ -246,8 +246,20 @@ export function defaultDeps(): HookDeps {
 // `import.meta.main` is the idiomatic Bun entrypoint check (Bun >= 0.4) —
 // stable across versions per Bun docs (PR #926 R2 BLOCKING fix replaced
 // the brittle `import.meta.path === Bun.main` form).
+//
+// Always-exit-0 contract (PR #926 R3 BLOCKING fix): wrap the entire
+// top-level invocation in try/catch so any thrown error (stdin parse
+// failure, fs permission denied, JSON.stringify on a circular ref) is
+// logged to stderr and we still exit 0. Without this guard, the header's
+// documented "never propagates failure to the agent" was code-level
+// aspirational rather than enforced.
 if (import.meta.main) {
-  const input = await readInput<ToolHookInput>();
-  runHook(input, defaultDeps());
+  try {
+    const input = await readInput<ToolHookInput>();
+    runHook(input, defaultDeps());
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`two-strikes-record hook failed: ${msg}\n`);
+  }
   process.exit(0);
 }
