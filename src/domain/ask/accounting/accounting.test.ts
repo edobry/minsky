@@ -156,6 +156,25 @@ describe("buildAttentionCost", () => {
     expect(cost.resolvedIn).toBe("inbox");
   });
 
+  // mt#1498 finding 1: retriever: prefix must map to retriever transport
+  // (not silently fall through to subagent). mt#1448 added "retriever" to
+  // TransportKind; this test pins the corresponding accounting branch.
+  test("retriever: prefix maps to retriever transport and resolvedIn", () => {
+    const input: AttentionCostInput = { responder: "retriever:docs:search", tokenCost: 50 };
+    const cost = buildAttentionCost(input);
+    expect(cost.transport).toBe("retriever");
+    expect(cost.resolvedIn).toBe("retriever");
+    expect(cost.tokenCost).toBe(50);
+  });
+
+  test("retriever: prefix without tokenCost still maps to retriever transport", () => {
+    const input: AttentionCostInput = { responder: "retriever:foo:bar" };
+    const cost = buildAttentionCost(input);
+    expect(cost.transport).toBe("retriever");
+    expect(cost.resolvedIn).toBe("retriever");
+    expect(cost.tokenCost).toBeUndefined();
+  });
+
   test("bare AgentId (no recognized prefix) maps to subagent transport", () => {
     // e.g. a reviewer bot ID that doesn't carry a transport prefix
     const input: AttentionCostInput = { responder: "reviewer:service:minsky-reviewer-bot" };
