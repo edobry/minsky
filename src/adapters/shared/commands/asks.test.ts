@@ -615,6 +615,60 @@ describe("createAsk — service-window defaults and overrides", () => {
     expect(persisted.windowKey).toBe("custom-window");
   });
 
+  test("absent serviceStrategy + windowKey for scheduled-default kind persists custom windowKey", async () => {
+    // R4 fix: absent serviceStrategy is legitimate when kind defaults to scheduled.
+    // direction.decide defaults to scheduled/ask-hours; caller may supply a custom windowKey
+    // to override just the window name without specifying the strategy explicitly.
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_DIRECTION_DECIDE,
+        title: "T",
+        question: "Q",
+        // serviceStrategy intentionally absent — should resolve to "scheduled" via kind default
+        windowKey: "custom-window",
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    // Kind default resolves strategy to "scheduled"
+    expect(persisted.serviceStrategy).toBe("scheduled");
+    // Caller's windowKey overrides the kind default ("ask-hours")
+    expect(persisted.windowKey).toBe("custom-window");
+  });
+
+  test("absent serviceStrategy + windowKey for asap-default kind silently drops windowKey", async () => {
+    // R4 fix: absent serviceStrategy + windowKey for a kind whose default is asap.
+    // stuck.unblock defaults to asap; windowKey is meaningless for asap and must be dropped
+    // (R1 fix #3 silent-drop logic in createAsk).
+    const repo = new FakeAskRepository();
+
+    await createAsk(
+      repo,
+      {
+        kind: KIND_STUCK_UNBLOCK,
+        title: "Blocked",
+        question: "Help me unblock",
+        // serviceStrategy intentionally absent — resolves to "asap" via kind default
+        windowKey: "ask-hours", // Caller provides windowKey; should be silently dropped
+      },
+      { workspaceRoot: NONEXISTENT_WORKSPACE_ROOT }
+    );
+
+    const persisted = repo.all[0];
+    expect(persisted).toBeDefined();
+    if (!persisted) return;
+    // Kind default resolves strategy to "asap"
+    expect(persisted.serviceStrategy).toBe("asap");
+    // windowKey is not valid for asap — must be undefined
+    expect(persisted.windowKey).toBeUndefined();
+  });
+
   test("windowKey is cleared when caller supplies non-scheduled strategy alongside a windowKey", async () => {
     // Finding #3 (R1 review): windowKey must only be persisted when strategy is
     // 'scheduled'. If a caller passes serviceStrategy='asap' and windowKey='ask-hours',
@@ -660,11 +714,14 @@ describe("validateAsksCreateParams", () => {
     ).toThrow(ValidationError);
   });
 
-  test("rejects windowKey when serviceStrategy is absent", () => {
-    expect(() => validateAsksCreateParams({ windowKey: "ask-hours" })).toThrow(ValidationError);
+  test("allows windowKey when serviceStrategy is absent (per-kind default handles coherence)", () => {
+    // When serviceStrategy is absent, per-kind defaults in createAsk resolve the strategy.
+    // For scheduled-default kinds (e.g. direction.decide), the caller's windowKey overrides
+    // the default window name. The validation must not block this legitimate usage.
+    expect(() => validateAsksCreateParams({ windowKey: "ask-hours" })).not.toThrow();
   });
 
-  test("error message is actionable", () => {
+  test("error message is actionable and includes the explicit strategy value", () => {
     let caught: unknown;
     try {
       validateAsksCreateParams({ serviceStrategy: "asap", windowKey: "ask-hours" });
@@ -674,7 +731,8 @@ describe("validateAsksCreateParams", () => {
     expect(caught).toBeInstanceOf(ValidationError);
     const error = caught as ValidationError;
     expect(error.message).toContain("windowKey is only valid when serviceStrategy='scheduled'");
-    expect(error.message).toContain("Either drop windowKey, or set serviceStrategy='scheduled'");
+    expect(error.message).toContain("serviceStrategy='asap'");
+    expect(error.message).toContain("omit serviceStrategy to use the kind's default");
   });
 
   test("accepts windowKey when serviceStrategy is 'scheduled'", () => {

@@ -250,22 +250,36 @@ const asksCreateParams = {
  * Cross-field coherence validation for `asks.create` MCP params.
  *
  * `windowKey` is only meaningful when `serviceStrategy='scheduled'`. Passing it
- * with any other strategy (or with strategy absent) is a caller error that
- * should be caught at the parameter boundary — not silently ignored later.
+ * alongside an *explicitly* non-scheduled strategy is a caller error that should
+ * be caught at the parameter boundary — not silently ignored later.
+ *
+ * When `serviceStrategy` is *absent*, the validation passes. Per-kind defaults in
+ * `createAsk` resolve the strategy (e.g., `direction.decide` → `scheduled`), so a
+ * caller may legitimately omit `serviceStrategy` and supply a custom `windowKey` —
+ * the kind's default resolves to `scheduled`, and the caller's `windowKey` overrides
+ * the default window name.
+ *
+ * Only when `serviceStrategy` is *explicitly* set to a non-scheduled value does a
+ * `windowKey` become incoherent: the caller has explicitly chosen a strategy that
+ * doesn't use windows, yet is also specifying a window.
  *
  * Exported for direct testing without requiring the full command factory setup.
  * The `asks.create` command's `validate` hook delegates to this function.
  *
- * @throws {ValidationError} when `windowKey` is set but `serviceStrategy !== 'scheduled'`
+ * @throws {ValidationError} when `windowKey` is set AND `serviceStrategy` is explicitly non-scheduled
  */
 export function validateAsksCreateParams(params: {
   windowKey?: string;
   serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
 }): void {
-  if (params.windowKey !== undefined && params.serviceStrategy !== "scheduled") {
+  if (
+    params.windowKey !== undefined &&
+    params.serviceStrategy !== undefined &&
+    params.serviceStrategy !== "scheduled"
+  ) {
     throw new ValidationError(
-      "windowKey is only valid when serviceStrategy='scheduled'. " +
-        "Either drop windowKey, or set serviceStrategy='scheduled'."
+      `windowKey is only valid when serviceStrategy='scheduled'. You explicitly set serviceStrategy='${params.serviceStrategy}' but also provided windowKey. ` +
+        "Either drop windowKey, set serviceStrategy='scheduled', or omit serviceStrategy to use the kind's default."
     );
   }
 }
