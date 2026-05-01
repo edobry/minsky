@@ -742,10 +742,29 @@ export async function runReview(
       (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
     ).length;
 
-    // Self-review override: structural event from composeReviewBody, but force
-    // COMMENT when the reviewer identity matches the PR author (GitHub blocks
-    // self-approval at the platform level — same rule as the prose path).
-    const event = isSelfReview ? "COMMENT" : composed.event;
+    // PR #922 R5#1 catch: when monotonicity recovery downgrades all BLOCKING
+    // findings, the composed event must reflect the recovered severities even
+    // if the model emitted conclude_review=REQUEST_CHANGES. Pre-fix the
+    // composeReviewBody event was preserved as-is from the model's
+    // conclude_review call (composed.event), which contradicted the recovery
+    // intent — a recovery that crosses zero would still post REQUEST_CHANGES,
+    // negating the user-visible benefit of the recovery layer. Now: derive
+    // the post-recovery event from the post-recovery BLOCKING count when
+    // recovery actually crossed zero.
+    let recoveredEvent = composed.event;
+    if (
+      recoveredEvent === "REQUEST_CHANGES" &&
+      monotonicityRecoveryEnabled &&
+      blockingCount === 0
+    ) {
+      recoveredEvent = "COMMENT";
+    }
+
+    // Self-review override: structural event from composeReviewBody (or the
+    // post-recovery override above), but force COMMENT when the reviewer
+    // identity matches the PR author (GitHub blocks self-approval at the
+    // platform level — same rule as the prose path).
+    const event = isSelfReview ? "COMMENT" : recoveredEvent;
 
     // Defensive sanitizer logging: run the sanitizer on output.text (the
     // free-text scratch channel). If it fires, emit a structured log event

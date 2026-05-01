@@ -419,6 +419,18 @@ describe("parsePriorBodyFindings", () => {
     expect(parsePriorBodyFindings(body)).toEqual([]);
   });
 
+  test("parses bare-colon path before dash (PR #922 R5#2)", () => {
+    // Real bodies sometimes use a bare colon with no line number:
+    // "[BLOCKING] LICENSE: — text". Pre-fix the regex required digits
+    // when the colon was present.
+    const body =
+      "[BLOCKING] LICENSE: — incompatibility\n[NON-BLOCKING] Dockerfile: – security review";
+    const findings = parsePriorBodyFindings(body);
+    expect(findings).toHaveLength(2);
+    expect(findings[0]?.file).toBe("LICENSE");
+    expect(findings[1]?.file).toBe("Dockerfile");
+  });
+
   test("parses ASCII hyphen as dash separator (PR #922 R2#3)", () => {
     // Real bodies may use ASCII '-' instead of em-dash due to typing
     // variation or Markdown rendering. Pre-fix, the regex hardcoded U+2014.
