@@ -44,7 +44,7 @@ If the diff was not already returned by step 1, use `mcp__github__pull_request_r
 
 Each reviewer agent receives: the diff file path + line range, the PR's purpose/context, and any specific concerns to watch for. Collect all agent findings before proceeding.
 
-**Mode 1 subagents emit raw observations, not committed `comments[]`.** Section subagents lack `parsedDiff` (which is whole-PR), the task spec, and global review judgment, so they cannot validate anchors safely. As the parent aggregator, you hold the canonical `parsedDiff` from `session_pr_review_context` — validate each subagent's `(path, line, side)` anchor against it (step 5 + the anchor-validation block below), dedupe across slices, assign final severity, demote failed anchors to body entries, and construct the final `comments[]` yourself before posting in step 7. mt#1485 tracks the architectural reshape that formalizes this Mode 1 / parent-as-judge split.
+**Mode 1 subagents emit raw observations, not committed `comments[]`.** Section subagents lack `parsedDiff` (which is whole-PR), the task spec, and global review judgment, so they cannot validate anchors safely or calibrate severity per the Critic Constitution (see `.claude/agents/reviewer.md` § "Severity classification"). As the parent aggregator, you collect observation streams from each subagent and run the full aggregate-and-judge pass before posting — see step 6b below for the protocol. Per mt#1485, observations carry `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` with NO severity prefix and NO formatted `body` field; the parent constructs severity-prefixed `comments[].body` strings from `concern` + `evidence`.
 
 **Coverage gate:** Before proceeding to step 7 (Post to GitHub), you MUST have read or had agents read 100% of the diff. State explicitly: "Coverage: X/Y files reviewed." If coverage is not 100%, do NOT post. Sampling is not reviewing — it is performing diligence theater.
 
@@ -151,6 +151,56 @@ Classify the impact:
 - **"BLOCKING — [doc] needs updating but isn't updated in this PR"** — the change affects documented architecture/behavior and the docs weren't updated. This is a **blocking finding** that should trigger `REQUEST_CHANGES`. The PR cannot merge until the docs are updated in the same PR.
 
 "Follow-up task" is only acceptable when the reviewer provides explicit justification for why the doc update cannot be done in this PR (e.g., requires information from a different workstream that hasn't landed yet).
+
+### 6b. Aggregate observations from Mode 1 subagents
+
+**Skip this step if you read the diff yourself (1–20 files) — there are no subagent observations to aggregate.** Otherwise, before posting, run the full aggregate-and-judge pass on the observation streams returned by each Mode 1 subagent. The parent is the only actor with `parsedDiff`, the task spec, CI state, and a global view across slices, so all anchor validation, deduplication, severity calibration, and event selection happen here.
+
+Per `.claude/agents/reviewer.md` Mode 1, each subagent returns `{ "observations": [ ... ] }` where each entry has shape `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — no severity prefix, no `comments[]`-shaped `body`, no event. Your job is to turn N observation streams into one coherent review.
+
+**Aggregate-and-judge protocol:**
+
+1. **Collect** observation streams from every dispatched subagent. Concatenate into a single working list, tagging each entry with the source subagent (slice number) so you can resolve dedup decisions transparently.
+
+2. **Dedupe across slices.** Two observations are duplicates if they share `(path, line, concern)` semantically (the wording need not be identical — the same null-check removal flagged at the same line by two slices is one observation). Pick the entry with stronger `evidence`; record the other slice IDs alongside so the inline comment can note "flagged by slices 1 and 5."
+
+3. **Validate each anchor against `parsedDiff`.** Apply the anchor-validation block in step 7 (rename rules, file-status checks, `DiffLine` existence, multi-line same-hunk constraint). Observations that fail validation are **not dropped** — move them to a body "Unanchored findings" section. The subagent's evidence is still useful even if the anchor is bad.
+
+4. **Assign severity per the Critic Constitution** (see `.claude/agents/reviewer.md` § "Severity classification"). This is where you apply the global view the subagent did not have:
+
+   - Read the task spec (already loaded in step 6) and consider whether the observation is in-scope per the spec's success criteria.
+   - Apply the **Decision gate for non-blocking findings** from step 5: if the observation is in-scope AND the fix is known and actionable, it is **BLOCKING**, not non-blocking.
+   - Use BLOCKING / NON-BLOCKING / PRE-EXISTING / FALSE POSITIVE per the Severity classification in `.claude/agents/reviewer.md`. Drop FALSE POSITIVE silently; route PRE-EXISTING to the body, not `comments[]`.
+
+5. **Construct `comments[]`** by formatting each surviving observation:
+
+   ```
+   body: "[BLOCKING] " + concern + "\n" + evidence    // or [NON-BLOCKING]
+   ```
+
+   Carry through `path`, `line`, `side` (and `startLine`/`startSide` when present). Append "Flagged by slices N, M." to `body` for deduped observations so the audit trail is preserved.
+
+6. **Construct the review body** with all global content the subagents could not produce:
+
+   - **Summary** — counts of BLOCKING / NON-BLOCKING / PRE-EXISTING / unanchored.
+   - **Cross-cutting concerns** — patterns that span slices (e.g., "9 of 14 new functions lack return types"). Subagents see only their slice; you see the union.
+   - **Unanchored findings** from step 3 above.
+   - **Spec verification table** — produced once, by you, against the task spec (step 6).
+   - **CI status** — produced once, by you, from `session_pr_review_context`'s check runs.
+   - **Documentation impact** — produced once, by you, per step 6a.
+   - **Checked and clear** — union the per-slice "Checked and clear" lists from each subagent and dedupe. The parent emits a single coverage statement, not N separate ones.
+
+7. **Select the event** based on aggregated severity counts plus author check (per step 8 if the PR is bot-authored): `REQUEST_CHANGES` when there are BLOCKING findings AND the author is not the same identity posting the review; `COMMENT` when same-identity or no-blockers-with-uncertainty; `APPROVE` only when zero blocking AND different author identity.
+
+8. **Post via step 7** with the constructed `comments[]`, body, and event.
+
+**What the subagents must NOT do (Mode 1 hard guards):**
+
+- Subagents must NOT include severity prefixes (`[BLOCKING]`, `[NON-BLOCKING]`) in `concern` or `evidence` — severity is your call after seeing the spec and the global picture.
+- Subagents must NOT call `mcp__minsky__session_pr_review_submit` — only the parent posts the consolidated review.
+- Subagents must NOT emit `comments[]`-shaped entries (with formatted `body`) — they emit `observations[]` entries with `concern` and `evidence` as separate fields.
+
+If a Mode 1 subagent's output contains severity prefixes or a `comments[]` block, treat it as a protocol violation: strip the prefixes, lift `concern` and `evidence` from the formatted `body`, and continue the aggregate pass. File a follow-up to harden the subagent prompt.
 
 ### 7. Post to GitHub
 
@@ -292,6 +342,111 @@ During the 2026-04-28 reviewer structural-output session, 9 PRs were merged in a
 Without the parallel pattern (sequential: wait for CI, then wait for reviewer), the same 9 PRs would have required approximately 12 hours at ~5–10 min overhead per PR plus reviewer subagent latency. The parallel pattern halved the wall-clock time.
 
 This pattern is now canonical operating procedure for bot-authored PRs.
+
+## Worked example: 3-section dispatch with parent aggregation
+
+A 75-file PR triggers the proportionality rule (51–100 files → 4 reviewer agents; here we show 3 for compactness). Parent dispatches three Mode 1 subagents over slices A (files 1–25), B (26–50), C (51–75). Each returns observations.
+
+**Subagent A returns:**
+
+```json
+{
+  "observations": [
+    {
+      "path": "src/domain/session.ts",
+      "line": 42,
+      "side": "RIGHT",
+      "concern": "Missing return type annotation on resolveSession",
+      "evidence": "Read src/domain/session.ts:42 — function signature is `resolveSession(id)` without explicit return type. Inferred return is `SessionRecord | null` from the body."
+    },
+    {
+      "path": "src/domain/session.ts",
+      "line": 88,
+      "side": "RIGHT",
+      "concern": "catch block swallows error by returning undefined",
+      "evidence": "Read src/domain/session.ts:88-95. Caller src/router.ts:214 expects `SessionRecord | null`; undefined would propagate as null and mask the failure."
+    }
+  ]
+}
+```
+
+**Subagent B returns:**
+
+```json
+{
+  "observations": [
+    {
+      "path": "src/persistence/task-store.ts",
+      "line": 33,
+      "side": "LEFT",
+      "concern": "Removal of null-check exposes downstream call to undefined taskId",
+      "evidence": "Read src/persistence/task-store.ts:33 (deleted) and :35 (downstream). updateTask does not guard internally per src/persistence/task-store.ts:88."
+    }
+  ]
+}
+```
+
+**Subagent C returns:**
+
+```json
+{
+  "observations": [
+    {
+      "path": "src/domain/session.ts",
+      "line": 42,
+      "side": "RIGHT",
+      "concern": "resolveSession lacks explicit return type",
+      "evidence": "Read src/domain/session.ts:42 — implicit return type. Adding `Promise<SessionRecord | null>` would lock the contract."
+    },
+    {
+      "path": "src/router.ts",
+      "line": 999,
+      "side": "RIGHT",
+      "concern": "Possible off-by-one in pagination computation",
+      "evidence": "Read src/router.ts:999. Looks like `start = page * size` instead of `(page - 1) * size`."
+    }
+  ]
+}
+```
+
+**Parent's aggregate pass:**
+
+1. **Collect** — 5 observations across 3 subagents.
+2. **Dedupe** — `src/domain/session.ts:42` was flagged by both A and C. Same `(path, line, concern)` semantically. Keep A's wording (stronger evidence on inferred return type), record "also flagged by C." Working list now 4 observations.
+3. **Validate anchors against `parsedDiff`** — three of the four anchors validate (`session.ts:42 RIGHT`, `session.ts:88 RIGHT`, `task-store.ts:33 LEFT`). The fourth, `src/router.ts:999`, fails — `parsedDiff` shows `router.ts` ends at line 412 (subagent C had truncated context). Demote to body Unanchored findings.
+4. **Severity per Critic Constitution** with spec in hand:
+   - `session.ts:42` (return type) — in-scope, fix is known. Per the Decision gate, this is **BLOCKING** even though it would otherwise read as cosmetic.
+   - `session.ts:88` (swallowed error) — clearly **BLOCKING**.
+   - `task-store.ts:33` (null-check removal) — **BLOCKING**.
+   - `router.ts:999` (pagination, unanchored) — out-of-scope per spec, **NON-BLOCKING**.
+5. **Construct `comments[]`** (3 entries):
+   ```json
+   [
+     {
+       "path": "src/domain/session.ts",
+       "line": 42,
+       "side": "RIGHT",
+       "body": "[BLOCKING] Missing return type annotation on resolveSession\nRead src/domain/session.ts:42 — function signature is `resolveSession(id)` without explicit return type. Inferred return is `SessionRecord | null` from the body.\n\n(Flagged by slices A and C.)"
+     },
+     {
+       "path": "src/domain/session.ts",
+       "line": 88,
+       "side": "RIGHT",
+       "body": "[BLOCKING] catch block swallows error by returning undefined\nRead src/domain/session.ts:88-95. Caller src/router.ts:214 expects `SessionRecord | null`; undefined would propagate as null and mask the failure."
+     },
+     {
+       "path": "src/persistence/task-store.ts",
+       "line": 33,
+       "side": "LEFT",
+       "body": "[BLOCKING] Removal of null-check exposes downstream call to undefined taskId\nRead src/persistence/task-store.ts:33 (deleted) and :35 (downstream). updateTask does not guard internally per src/persistence/task-store.ts:88."
+     }
+   ]
+   ```
+6. **Construct body** — Summary (3 BLOCKING inline, 0 NON-BLOCKING inline, 1 NON-BLOCKING unanchored in body), Spec verification table, CI status, Documentation impact, Unanchored findings (1: `router.ts:999`), Checked and clear (union of A/B/C, deduped). The "Checked and clear" coverage statement is produced **once** — not three times — even though three subagents reported it per slice.
+7. **Event** — `REQUEST_CHANGES` (3 BLOCKING) if PR author differs from reviewer identity; otherwise `COMMENT` per step 8.
+8. **Post** via step 7.
+
+This is the structural shape mt#1485 formalizes: subagents read, parent judges. Each role is internally coherent.
 
 ## Key principles
 
