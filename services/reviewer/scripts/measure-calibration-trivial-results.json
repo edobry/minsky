@@ -1,0 +1,316 @@
+{
+  "runStartedAt": "2026-05-01T04:58:04.795Z",
+  "mode": "trivial",
+  "model": "gpt-5",
+  "dryRun": true,
+  "summary": {
+    "mode": "trivial",
+    "entriesTested": 20,
+    "attemptsPerEntry": 3,
+    "totalAttempts": 0,
+    "requestChangesRate": 0,
+    "meanBlockingCount": 0
+  },
+  "perEntry": [
+    {
+      "prNumber": 904,
+      "iteration": 1,
+      "notes": "5 lines (5+/0-)",
+      "iterationSha": "adaf9d95d04f32db5d950c972e340ceede1023d3",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 579,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 3104
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 812,
+      "iteration": 1,
+      "notes": "10 lines (4+/6-)",
+      "iterationSha": "67f4c72ce7a0010ce428cd3faeb1b5a7eeb724b3",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1455,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 4721
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 770,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "8b16bfa155cd46d6fe25f9dfc377766360e99223",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1450,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 4245
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 731,
+      "iteration": 1,
+      "notes": "4 lines (2+/2-)",
+      "iterationSha": "9a3c3bdd3e73715ba39b6960be221e4b5280debd",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 2476,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 5048
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 708,
+      "iteration": 1,
+      "notes": "5 lines (1+/4-)",
+      "iterationSha": "a58430a58e858ba08f83393c7b9ffe6d9b61e2a6",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1345,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 3555
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 651,
+      "iteration": 1,
+      "notes": "6 lines (4+/2-)",
+      "iterationSha": "72604594b412ff88b3dfa28ce0d1e01136383049",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1721,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 3498
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 648,
+      "iteration": 1,
+      "notes": "2 lines (2+/0-)",
+      "iterationSha": "6d0b53e32d8ae751ba6349077f66f7a903aed1aa",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 933,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2470
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 644,
+      "iteration": 1,
+      "notes": "7 lines (6+/1-)",
+      "iterationSha": "e1f303fd4b36084bbb626ec7cd309180dd755c9d",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 2327,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 3972
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 639,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "9d3814cbdda4f2803182af90aed99739748fdd75",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1004,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 1807
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 638,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "f7a4e761798e52b65715a81e33b42ab860cbc8f0",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 847,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2213
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 613,
+      "iteration": 1,
+      "notes": "7 lines (0+/7-)",
+      "iterationSha": "4064a22e24a43ddc973471bbab216c10db6333fb",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1189,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2726
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 603,
+      "iteration": 1,
+      "notes": "10 lines (8+/2-)",
+      "iterationSha": "1198998921776a97aaac71597d813c21afd251d2",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1566,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 3103
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 559,
+      "iteration": 1,
+      "notes": "8 lines (5+/3-)",
+      "iterationSha": "30dcf4d3a9b526d710475b4fdcbab961a00553df",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1060,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2139
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 519,
+      "iteration": 1,
+      "notes": "8 lines (8+/0-)",
+      "iterationSha": "67028ed4b24a5e51772148496604960b9c1d4d72",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1144,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2268
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 520,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "455675341453a181051b6a766b2709a5c5f21ea4",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1142,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2283
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 509,
+      "iteration": 1,
+      "notes": "2 lines (1+/1-)",
+      "iterationSha": "ed2e98cf32a2555924c7bd462d0c9c233b1eda56",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 650,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 1595
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 496,
+      "iteration": 1,
+      "notes": "2 lines (1+/1-)",
+      "iterationSha": "8f378a6a382f569bc466d4f202ded65145936d4f",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 552,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 1758
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 480,
+      "iteration": 1,
+      "notes": "8 lines (0+/8-)",
+      "iterationSha": "a99909a6ebf1766236689cd497f321033e196c06",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1175,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2073
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 478,
+      "iteration": 1,
+      "notes": "5 lines (3+/2-)",
+      "iterationSha": "825a41bf3aad151ec0ea8401f84cfdacfaf80978",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1295,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 2494
+      },
+      "attempts": []
+    },
+    {
+      "prNumber": 475,
+      "iteration": 1,
+      "notes": "6 lines (3+/3-)",
+      "iterationSha": "faf980383a0bf8102bc36d6eea7069f266b14edb",
+      "contextFetched": true,
+      "dryRunInfo": {
+        "diffChars": 1049,
+        "priorReviewsMarkdownChars": 0,
+        "priorFindingCount": 0,
+        "systemPromptChars": 10608,
+        "userPromptChars": 1946
+      },
+      "attempts": []
+    }
+  ]
+}

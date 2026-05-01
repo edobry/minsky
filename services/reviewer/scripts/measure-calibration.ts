@@ -376,83 +376,78 @@ async function enumerateTrivialCorpus(octokit: Octokit): Promise<TrivialCorpusRe
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
 
+  // Use GraphQL to fetch additions/deletions inline. One call returns 100 PRs
+  // with line counts; the REST equivalent needs a per-PR detail fetch because
+  // pulls.list does not include additions/deletions. Reduces enumeration cost
+  // from ~50-100 REST calls per dry-run to ~1-3 GraphQL calls. GraphQL has its
+  // own 5000-points/hour budget separate from REST 5000-requests/hour.
+  const graphqlQuery =
+    "query($owner: String!, $repo: String!, $cursor: String) {\n" +
+    "  repository(owner: $owner, name: $repo) {\n" +
+    '    pullRequests(first: 100, states: MERGED, baseRefName: "main",\n' +
+    "                 orderBy: { field: UPDATED_AT, direction: DESC },\n" +
+    "                 after: $cursor) {\n" +
+    "      pageInfo { hasNextPage endCursor }\n" +
+    "      nodes { number additions deletions mergedAt }\n" +
+    "    }\n" +
+    "  }\n" +
+    "}";
+
+  interface GraphqlPr {
+    number: number;
+    additions: number;
+    deletions: number;
+    mergedAt: string;
+  }
+  interface GraphqlResponse {
+    repository: {
+      pullRequests: {
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        nodes: GraphqlPr[];
+      };
+    };
+  }
+
   async function fetchCandidates(maxLines: number, since: Date): Promise<TrivialPrCorpusEntry[]> {
     const candidates: TrivialPrCorpusEntry[] = [];
-    let page = 1;
-    const sinceIso = since.toISOString();
+    let cursor: string | null = null;
+    let pagesFetched = 0;
+    const maxPages = 5;
 
-    // Paginate through closed PRs sorted by update time (descending) to
-    // efficiently find recently-merged ones.
-    while (candidates.length < 50) {
-      const response = await octokit.rest.pulls.list({
+    while (candidates.length < 20 && pagesFetched < maxPages) {
+      const response = await octokit.graphql<GraphqlResponse>(graphqlQuery, {
         owner: OWNER,
         repo: REPO,
-        state: "closed",
-        base: "main",
-        sort: "updated",
-        direction: "desc",
-        per_page: 50,
-        page,
+        cursor,
       });
-
-      if (response.data.length === 0) break;
+      pagesFetched++;
 
       let anyRecentEnough = false;
-
-      for (const pr of response.data) {
-        // Only count merged PRs (closed + merged_at is set).
-        if (!pr.merged_at) continue;
-
-        const mergedAt = new Date(pr.merged_at);
-        if (mergedAt < since) {
-          // PRs are sorted by updated_at, not merged_at; don't break early.
-          // But track if any on this page were recent enough to continue.
-          continue;
-        }
-        if (mergedAt.toISOString() < sinceIso) continue;
+      for (const pr of response.repository.pullRequests.nodes) {
+        if (!pr.mergedAt) continue;
+        const mergedAt = new Date(pr.mergedAt);
+        if (mergedAt < since) continue;
 
         anyRecentEnough = true;
-
-        // Check line count. GitHub's list endpoint includes additions/deletions.
-        const totalLines = (pr.additions ?? 0) + (pr.deletions ?? 0);
-
-        // Note: the list endpoint may not include additions/deletions for all PR types.
-        // If they are 0 and we can't verify, we'll fetch the full PR detail.
-        if (pr.additions === undefined || pr.deletions === undefined) {
-          // Need to fetch detail for line counts.
-          const detail = await octokit.rest.pulls.get({
-            owner: OWNER,
-            repo: REPO,
-            pull_number: pr.number,
-          });
-          const detailTotal = detail.data.additions + detail.data.deletions;
-          if (detailTotal <= maxLines) {
-            candidates.push({
-              prNumber: pr.number,
-              iteration: 1,
-              additions: detail.data.additions,
-              deletions: detail.data.deletions,
-              mergedAt: pr.merged_at,
-              notes: `${detailTotal} lines (${detail.data.additions}+/${detail.data.deletions}-)`,
-            });
-          }
-        } else if (totalLines <= maxLines) {
+        const totalLines = pr.additions + pr.deletions;
+        if (totalLines <= maxLines) {
           candidates.push({
             prNumber: pr.number,
             iteration: 1,
             additions: pr.additions,
             deletions: pr.deletions,
-            mergedAt: pr.merged_at,
+            mergedAt: pr.mergedAt,
             notes: `${totalLines} lines (${pr.additions}+/${pr.deletions}-)`,
           });
         }
       }
 
-      // If no entries on this page were recently merged, stop paginating.
-      // Entries are sorted by updated_at desc, so once we hit the window boundary
-      // we can stop (with a small buffer for out-of-order updates).
-      if (!anyRecentEnough && page > 3) break;
-      page++;
+      // PRs are sorted by updated_at desc. Once a full page lacks any
+      // recently-merged entries we can stop (with a 1-page buffer for
+      // out-of-order updates).
+      if (!anyRecentEnough && pagesFetched > 1) break;
+      if (!response.repository.pullRequests.pageInfo.hasNextPage) break;
+      cursor = response.repository.pullRequests.pageInfo.endCursor;
     }
 
     return candidates;
@@ -463,19 +458,23 @@ async function enumerateTrivialCorpus(octokit: Octokit): Promise<TrivialCorpusRe
 
   if (primary.length >= 10) {
     console.log(
-      `  Trivial corpus: found ${primary.length} PRs with <= 10 lines in last 30 days (primary window).`
+      `  Trivial corpus: found ${
+        primary.length
+      } PRs with <= 10 lines in last 30 days (primary window, GraphQL).`
     );
-    return { entries: primary.slice(0, 20) }; // cap at 20 to bound API cost
+    return { entries: primary.slice(0, 20) };
   }
 
   // Fallback: broaden to <= 20 lines and last 60 days
   const fallback = await fetchCandidates(20, sixtyDaysAgo);
-  const broadeningNote = `Primary window (<=10 lines, last 30 days) found ${primary.length} PRs. Broadened to <=20 lines and last 60 days; found ${fallback.length} PRs.`;
+  const broadeningNote = `Primary window (<=10 lines, last 30 days) found ${
+    primary.length
+  } PRs. Broadened to <=20 lines and last 60 days; found ${fallback.length} PRs.`;
   console.log(`  ${broadeningNote}`);
 
   if (fallback.length === 0) {
     throw new Error(
-      `No trivial PRs found even after broadening to <= 20 lines / 60 days. Cannot run trivial mode.`
+      "No trivial PRs found even after broadening to <= 20 lines / 60 days. Cannot run trivial mode."
     );
   }
 
