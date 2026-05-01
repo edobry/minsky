@@ -10,17 +10,16 @@
 
 import type { Ask } from "./types";
 import type { AskRepository } from "./repository";
-
-/**
- * Terminal Ask states — Asks in these states are not "open".
- */
-const CLOSED_STATES = new Set(["closed", "cancelled", "expired"]);
+import { isTerminal } from "./state-machine";
 
 /**
  * Returns true when the Ask is still open (not in a terminal state).
+ *
+ * Delegates to the canonical `isTerminal` predicate from state-machine.ts —
+ * single source of truth for terminal-state classification.
  */
 function isOpenAsk(ask: Ask): boolean {
-  return !CLOSED_STATES.has(ask.state);
+  return !isTerminal(ask.state);
 }
 
 /**

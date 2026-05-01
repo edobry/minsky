@@ -114,6 +114,18 @@ export function guardTransition(from: AskState, to: AskState): AskState {
 }
 
 /**
+ * Canonical list of terminal Ask states (no further transitions allowed).
+ *
+ * Single source of truth for "open" / "closed" classification across the
+ * domain. Use `isTerminal(state)` for predicate checks; use this array only
+ * when a SQL `NOT IN (...)` clause requires a literal list.
+ *
+ * Adding a new terminal state must update both this constant AND the
+ * `isTerminal` switch — the switch's exhaustive `assertNever` forces this.
+ */
+export const TERMINAL_ASK_STATES: readonly AskState[] = ["closed", "cancelled", "expired"] as const;
+
+/**
  * Returns true iff `state` is a terminal AskState (no further transitions
  * are ever allowed).
  *

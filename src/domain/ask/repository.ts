@@ -20,13 +20,13 @@
  */
 
 import { injectable } from "tsyringe";
-import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId } from "./types";
-import { guardTransition } from "./state-machine";
+import { guardTransition, isTerminal, TERMINAL_ASK_STATES } from "./state-machine";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -338,13 +338,18 @@ export class DrizzleAskRepository implements AskRepository {
 
   async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
     if (taskIds.length === 0) return [];
+    // Explicit isNotNull on parentTaskId is redundant with `IN (...)` in
+    // standard SQL (NULL evaluates to UNKNOWN and is filtered out), but
+    // we keep it explicit for parity with FakeAskRepository and for
+    // robustness against ORM/dialect surprises.
     const rows = await this.db
       .select()
       .from(asksTable)
       .where(
         and(
+          isNotNull(asksTable.parentTaskId),
           inArray(asksTable.parentTaskId, taskIds),
-          notInArray(asksTable.state, ["closed", "cancelled", "expired"])
+          notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[])
         )
       )
       .orderBy(desc(asksTable.createdAt));
@@ -569,10 +574,9 @@ export class FakeAskRepository implements AskRepository {
   async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
     if (taskIds.length === 0) return [];
     const taskIdSet = new Set(taskIds);
-    const closed = new Set(["closed", "cancelled", "expired"]);
     return this.all
       .filter(
-        (a) => a.parentTaskId !== undefined && taskIdSet.has(a.parentTaskId) && !closed.has(a.state)
+        (a) => a.parentTaskId !== undefined && taskIdSet.has(a.parentTaskId) && !isTerminal(a.state)
       )
       .sort((a, b) => (b.createdAt > a.createdAt ? 1 : b.createdAt < a.createdAt ? -1 : 0))
       .map((a) => ({ ...a }));
