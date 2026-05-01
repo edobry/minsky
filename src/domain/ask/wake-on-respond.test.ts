@@ -341,15 +341,23 @@ describe("LoggingWakeSignalSink", () => {
     ).not.toThrow();
   });
 
-  // Regression: PR #923 first-round review caught a field-vs-doc mismatch where
-  // operators were told to filter on `event=ask.wake` but the structured field
-  // value was actually `quality.review.responded`. This test pins the documented
-  // contract so any future drift breaks here, not in production logs.
-  test("emits structured payload with event=ask.wake matching the documented filter contract", () => {
-    const calls: Array<{ message: string; fields: Record<string, unknown> }> = [];
+  // Regression: PR #923 review rounds 1 and 2 caught two related issues:
+  //   R1: structured `event` field mismatched the documented filter contract
+  //   R2: `log.info` is no-op in default HUMAN mode — wake events were silently
+  //       dropped, breaking the operator-tail contract entirely.
+  // Fix: route through `log.cli` (program logger, always emits) with the JSON
+  // payload embedded in the message, prefixed with the literal tag `ask.wake`.
+  // This test pins both the channel and the field contract so future drift
+  // breaks here, not in production logs.
+  test("emits via cli channel with ask.wake tag and full payload JSON", () => {
+    const cliCalls: string[] = [];
+    const cliWarnCalls: string[] = [];
     const recordingLogger = {
-      info(message: string, fields: Record<string, unknown>): void {
-        calls.push({ message, fields });
+      cli(message: unknown): void {
+        cliCalls.push(String(message));
+      },
+      cliWarn(message: unknown): void {
+        cliWarnCalls.push(String(message));
       },
     };
 
@@ -365,16 +373,29 @@ describe("LoggingWakeSignalSink", () => {
       prNumber: 99,
     });
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.message).toBe("ask.wake");
+    // Channel contract: emitted via cli (program-logger info, always emits),
+    // not via cliWarn or any other channel.
+    expect(cliCalls).toHaveLength(1);
+    expect(cliWarnCalls).toHaveLength(0);
 
-    const fields = calls[0]?.fields ?? {};
-    // The documented operator-filter contract: event=ask.wake.
+    const line = cliCalls[0] ?? "";
+
+    // Line-prefix contract: `ask.wake ` (tag + single space) so operators can
+    // grep `^ask\.wake ` to filter the success channel from the skipped channel.
+    expect(line.startsWith("ask.wake ")).toBe(true);
+    expect(line.startsWith("ask.wake.skipped")).toBe(false);
+
+    // Field contract: parse the JSON suffix and assert every documented field.
+    const jsonStart = line.indexOf("{");
+    expect(jsonStart).toBeGreaterThan(0);
+    const fields = JSON.parse(line.slice(jsonStart)) as Record<string, unknown>;
+
+    // Documented operator-filter contract: event=ask.wake.
     expect(fields.event).toBe("ask.wake");
     // The cause field identifies the upstream transition (one of N triggers
     // we may add later).
     expect(fields.cause).toBe("quality.review.responded");
-    // All seven payload fields are spread into the log entry.
+    // All seven payload fields are present.
     expect(fields.askId).toBe("ask-1");
     expect(fields.parentSessionId).toBe("session-1");
     expect(fields.parentTaskId).toBe("mt#1481");

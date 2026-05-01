@@ -68,34 +68,50 @@ export interface WakeSignalSink {
  *
  * Defining this as a structural subset of the project logger gives tests a
  * clean DI seam without test-only `as` casts: pass a recording fake whose
- * shape exactly matches what the sink uses (just `info`).
+ * shape exactly matches what the sink uses (`cli` and `cliWarn`).
+ *
+ * `cli` is used because the project's agent-logger methods (`log.info`,
+ * `log.debug`, `log.warn`) are explicitly no-ops in HUMAN mode (the default)
+ * unless `ENABLE_AGENT_LOGS=true`. The `cli*` family routes through the
+ * program logger, which always emits regardless of log mode — see
+ * `src/utils/logger.ts`. Without this routing the wake event is silently
+ * dropped for default deployments.
  */
 export interface WakeSinkLogger {
-  info(message: string, fields: Record<string, unknown>): void;
+  cli(message: unknown): void;
+  cliWarn(message: unknown): void;
 }
 
+/** Tag prefix on every wake log line — operators grep on this. */
+const WAKE_LOG_TAG = "ask.wake";
+
+/** Tag prefix when a wake is intentionally skipped (no parentSessionId). */
+const WAKE_SKIPPED_LOG_TAG = "ask.wake.skipped";
+
 /**
- * Default `WakeSignalSink` that writes the wake event to the structured logger.
+ * Default `WakeSignalSink` that writes the wake event to the program logger so
+ * it always emits regardless of log mode.
  *
  * Per mt#1481's transport-availability analysis at the time of shipping:
  *   - mt#1001 (mesh push): not yet built — research-stage TODO
  *   - mt#697 (AG-UI interrupt): evaluation only, recommended NOT for mesh push
  *   - mt#1144 (cockpit shell): not yet built
  *
- * Log-only is the simplest live path: every operator running Minsky already
- * sees structured logs and can `tail` / filter on the `event=ask.wake` field.
- * When mt#1001 or mt#1144 lands, replace this default at composition time —
- * no other change required.
+ * Output format on stdout: `ask.wake <JSON-payload>` — operators tail and
+ * grep with `grep '"event":"ask.wake"'` (or simpler: `grep '^ask\.wake'`).
+ * The DI seam is the `WakeSinkLogger` interface above; tests inject a
+ * recording fake.
  *
- * **Field contract** (operators filter on these — do not change without updating
- * the spec and the regression test in `wake-on-respond.test.ts`):
- *   - `event`: always `"ask.wake"` — the routing/filtering key
- *   - `cause`: identifies the upstream transition that triggered the wake;
+ * **Field contract** (operators filter on these — do not change without
+ * updating the spec and the regression test in `wake-on-respond.test.ts`):
+ *   - JSON `event`: always `"ask.wake"` — the routing/filtering key
+ *   - JSON `cause`: identifies the upstream transition that triggered the wake;
  *     `"quality.review.responded"` for the mt#1481 path
- *   - All seven `WakeSignalPayload` fields are spread into the entry
+ *   - All seven `WakeSignalPayload` fields are spread into the JSON
+ *   - Line prefix is the literal string `ask.wake` followed by a single space
  *
- * Logger is injectable so tests can assert the contract without poking the
- * global logger mock.
+ * When mt#1001 / mt#1144 lands, swap this default at composition time —
+ * no other change to the reconciler required.
  */
 export class LoggingWakeSignalSink implements WakeSignalSink {
   private readonly logger: WakeSinkLogger;
@@ -105,11 +121,12 @@ export class LoggingWakeSignalSink implements WakeSignalSink {
   }
 
   emit(signal: WakeSignalPayload): void {
-    this.logger.info("ask.wake", {
-      event: "ask.wake",
+    const payload = {
+      event: WAKE_LOG_TAG,
       cause: "quality.review.responded",
       ...signal,
-    });
+    };
+    this.logger.cli(`${WAKE_LOG_TAG} ${JSON.stringify(payload)}`);
   }
 }
 
@@ -139,10 +156,17 @@ export async function dispatchWake(
   }
 ): Promise<void> {
   if (!args.parentSessionId) {
-    log.debug("ask.wake.skipped", {
-      askId: args.askId,
-      reason: "missing parentSessionId",
-    });
+    // Use log.cli (program logger) so the skip is visible in default HUMAN
+    // mode — log.debug is suppressed there. Operators diagnosing missing
+    // wakes need this breadcrumb. Same channel as the success path; tag
+    // differs so grep on `ask.wake.skipped` separates the two cases.
+    log.cli(
+      `${WAKE_SKIPPED_LOG_TAG} ${JSON.stringify({
+        event: WAKE_SKIPPED_LOG_TAG,
+        askId: args.askId,
+        reason: "missing parentSessionId",
+      })}`
+    );
     return;
   }
 

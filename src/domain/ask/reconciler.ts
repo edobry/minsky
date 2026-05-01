@@ -369,10 +369,19 @@ async function reconcileAsk(
     });
   } catch (wakeErr: unknown) {
     const errMsg = wakeErr instanceof Error ? wakeErr.message : String(wakeErr);
-    log.warn("reconcile: wake-signal dispatch failed (ask already responded)", {
-      askId: ask.id,
-      error: errMsg,
-    });
+    // Use cliWarn so the failure is visible in HUMAN mode (log.warn is
+    // suppressed). State is in structured fields rather than baked into
+    // the message text — sink failures are unrelated to the Ask's state
+    // and the old "(ask already responded)" parenthetical was misleading
+    // for transport-outage failure modes.
+    log.cliWarn(
+      `ask.wake.failed ${JSON.stringify({
+        event: "ask.wake.failed",
+        askId: ask.id,
+        askState: "responded",
+        error: errMsg,
+      })}`
+    );
   }
 
   // Fire notification. Failure here must NOT roll back the respond().
