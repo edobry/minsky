@@ -51,11 +51,30 @@ const ASK_STATE_VALUES = [
   "expired",
 ] as const satisfies readonly AskState[];
 
+/** Allowed service_strategy values — must mirror src/domain/ask/types.ts and migration 0029 */
+const ASK_SERVICE_STRATEGY_VALUES = ["asap", "scheduled", "deadline-bound"] as const;
+
 /** SQL expression for the kind CHECK constraint */
 const kindCheckSql = sql.raw(`kind IN (${ASK_KIND_VALUES.map((v) => `'${v}'`).join(", ")})`);
 
 /** SQL expression for the state CHECK constraint */
 const stateCheckSql = sql.raw(`state IN (${ASK_STATE_VALUES.map((v) => `'${v}'`).join(", ")})`);
+
+/**
+ * SQL expression for the service_strategy CHECK constraint.
+ * Mirrors migration 0029 `chk_asks_service_strategy`.
+ * NULL is allowed (treated as 'asap' by the router).
+ */
+const serviceStrategyCheckSql = sql.raw(
+  `service_strategy IS NULL OR service_strategy IN (${ASK_SERVICE_STRATEGY_VALUES.map((v) => `'${v}'`).join(", ")})`
+);
+
+/**
+ * SQL expression for the window_key coherence CHECK constraint.
+ * Mirrors migration 0029 `chk_asks_window_key_strategy`.
+ * window_key is only valid when service_strategy = 'scheduled'.
+ */
+const windowKeyStrategyCheckSql = sql.raw(`window_key IS NULL OR service_strategy = 'scheduled'`);
 
 export const asksTable = pgTable(
   "asks",
@@ -209,6 +228,13 @@ export const asksTable = pgTable(
 
     // Enum guard: reject unknown state values at DB level
     stateCheck: check("chk_asks_state", stateCheckSql),
+
+    // Enum guard: reject unknown service_strategy values at DB level (migration 0029)
+    // NULL is allowed — the router treats NULL as 'asap'.
+    serviceStrategyCheck: check("chk_asks_service_strategy", serviceStrategyCheckSql),
+
+    // Coherence guard: window_key only valid when service_strategy = 'scheduled' (migration 0029)
+    windowKeyStrategyCheck: check("chk_asks_window_key_strategy", windowKeyStrategyCheckSql),
   })
 );
 

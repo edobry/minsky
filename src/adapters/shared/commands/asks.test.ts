@@ -18,12 +18,13 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { createAsk } from "./asks";
+import { createAsk, validateAsksCreateParams } from "./asks";
 import { FakeAskRepository } from "../../../domain/ask/repository";
 import {
   getServiceWindowDefault,
   SERVICE_WINDOW_DEFAULTS,
 } from "../../../domain/ask/service-window-defaults";
+import { ValidationError } from "../../../errors/index";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -639,5 +640,54 @@ describe("createAsk — service-window defaults and overrides", () => {
     expect(persisted.serviceStrategy).toBe("asap");
     // windowKey must be null/undefined — it should not be stored for non-scheduled strategies
     expect(persisted.windowKey).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// validateAsksCreateParams — boundary-time enforcement (R2 review feedback)
+// ---------------------------------------------------------------------------
+
+describe("validateAsksCreateParams", () => {
+  test("rejects windowKey when serviceStrategy is 'asap'", () => {
+    expect(() =>
+      validateAsksCreateParams({ serviceStrategy: "asap", windowKey: "ask-hours" })
+    ).toThrow(ValidationError);
+  });
+
+  test("rejects windowKey when serviceStrategy is 'deadline-bound'", () => {
+    expect(() =>
+      validateAsksCreateParams({ serviceStrategy: "deadline-bound", windowKey: "ask-hours" })
+    ).toThrow(ValidationError);
+  });
+
+  test("rejects windowKey when serviceStrategy is absent", () => {
+    expect(() => validateAsksCreateParams({ windowKey: "ask-hours" })).toThrow(ValidationError);
+  });
+
+  test("error message is actionable", () => {
+    let caught: unknown;
+    try {
+      validateAsksCreateParams({ serviceStrategy: "asap", windowKey: "ask-hours" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ValidationError);
+    const error = caught as ValidationError;
+    expect(error.message).toContain("windowKey is only valid when serviceStrategy='scheduled'");
+    expect(error.message).toContain("Either drop windowKey, or set serviceStrategy='scheduled'");
+  });
+
+  test("accepts windowKey when serviceStrategy is 'scheduled'", () => {
+    // Should not throw
+    expect(() =>
+      validateAsksCreateParams({ serviceStrategy: "scheduled", windowKey: "ask-hours" })
+    ).not.toThrow();
+  });
+
+  test("accepts absent windowKey with any serviceStrategy", () => {
+    expect(() => validateAsksCreateParams({ serviceStrategy: "asap" })).not.toThrow();
+    expect(() => validateAsksCreateParams({ serviceStrategy: "scheduled" })).not.toThrow();
+    expect(() => validateAsksCreateParams({ serviceStrategy: "deadline-bound" })).not.toThrow();
+    expect(() => validateAsksCreateParams({})).not.toThrow();
   });
 });

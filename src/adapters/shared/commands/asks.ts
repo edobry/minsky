@@ -15,6 +15,7 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
+import { ValidationError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import {
   DrizzleAskRepository,
@@ -244,6 +245,30 @@ const asksCreateParams = {
   // window opens and the Ask is still pending. Callers must not set it directly via
   // asks.create — createAsk always initialises it to 0 for new Asks.
 };
+
+/**
+ * Cross-field coherence validation for `asks.create` MCP params.
+ *
+ * `windowKey` is only meaningful when `serviceStrategy='scheduled'`. Passing it
+ * with any other strategy (or with strategy absent) is a caller error that
+ * should be caught at the parameter boundary — not silently ignored later.
+ *
+ * Exported for direct testing without requiring the full command factory setup.
+ * The `asks.create` command's `validate` hook delegates to this function.
+ *
+ * @throws {ValidationError} when `windowKey` is set but `serviceStrategy !== 'scheduled'`
+ */
+export function validateAsksCreateParams(params: {
+  windowKey?: string;
+  serviceStrategy?: string;
+}): void {
+  if (params.windowKey !== undefined && params.serviceStrategy !== "scheduled") {
+    throw new ValidationError(
+      "windowKey is only valid when serviceStrategy='scheduled'. " +
+        "Either drop windowKey, or set serviceStrategy='scheduled'."
+    );
+  }
+}
 
 /**
  * Typed input for `createAsk` — the internal helper exposed for testing.
@@ -525,6 +550,11 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
       description: "Create an Ask and route it via the policy-first router (ADR-008)",
       requiresSetup: true,
       parameters: asksCreateParams,
+      validate: async (params) => {
+        // Cross-field coherence: windowKey is only meaningful when serviceStrategy='scheduled'.
+        // Reject at the parameter boundary so callers get immediate, actionable feedback.
+        validateAsksCreateParams(params);
+      },
       execute: async (params): Promise<RoutedAsk | ElicitationClosedAsk> => {
         const repo = await buildAskRepository(container);
         if (!repo) {
