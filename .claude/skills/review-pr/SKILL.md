@@ -163,10 +163,14 @@ The GitHub MCP server's `mcp__github__pull_request_review_write` tool is banned 
 
 1. Find the matching `DiffFile` in `parsedDiff` (skip `warning`-flagged files). Lookup depends on side:
    - **RIGHT-side anchor:** match `file.path === path` (the current filename).
-   - **LEFT-side anchor:** match `file.path === path` OR `file.oldPath === path`. For renamed files (`DiffFile.oldPath !== DiffFile.path`), LEFT anchors use `oldPath` per the reviewer agent's Renamed files rule.
-2. Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target line number (`newLine` for RIGHT, `oldLine` for LEFT).
-3. **For multi-line ranges** (`startLine` is set): also confirm `startLine` exists on the same side AND both endpoints fall within the same `DiffHunk`; verify `startSide === side`.
-4. If any check fails, move the finding to the body under an "Unanchored findings" section.
+   - **LEFT-side anchor:** match `file.path === path` OR `file.oldPath === path`. For non-renamed files, `oldPath` is `undefined` and only `path` matches; for renamed files, LEFT anchors must use `oldPath`.
+2. Verify the file's `status` permits the chosen side:
+   - `status: "added"` — only RIGHT anchors valid (no pre-image to anchor to).
+   - `status: "deleted"` — only LEFT anchors valid (no post-image to anchor to). Use `DiffFile.path` (deletions are not renames).
+   - `status: "modified"` or `"renamed"` — both sides valid.
+3. Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target line number (`newLine` for RIGHT, `oldLine` for LEFT).
+4. **For multi-line ranges** (`startLine` is set): also confirm `startLine` exists on the same side AND both endpoints fall within the same `DiffHunk`; verify `startSide === side`.
+5. If any check fails, move the finding to the body under an "Unanchored findings" section.
 
 **Side-mapping rule:**
 
