@@ -57,6 +57,18 @@ minsky setup github-app \
 
 The wizard variant walks you through the manual portal steps interactively, prompts for the App ID / installation ID / PEM contents, and validates the pasted credentials against the GitHub API before saving.
 
+#### Two-phase manifest flow (App created, install pending)
+
+If GitHub creates the App but you haven't yet installed it on the target repo when the redirect fires, the local server stays running and serves a `/check-install` endpoint. The browser shows an **Install App** link and the URL to revisit:
+
+1. Click **Install App** and complete installation in the GitHub UI.
+2. Return to your terminal's localhost tab and visit `http://localhost:<port>/check-install`. The provisioner re-queries `/app/installations`, captures the installation ID, and writes credentials to `~/.config/minsky/<name>.{pem,json}`.
+
+If you close the browser without finishing the install or miss the 5-minute deadline, the App will exist on GitHub but no local credentials will be saved. To recover:
+
+- **Same App name**: re-running `minsky setup github-app --name <name> --force` will start a fresh manifest flow. GitHub may reject creating a second App with the exact same name; if so, choose a different `--name` or delete the orphaned App in your GitHub developer settings first.
+- **Different name**: re-run with a new `--name` value to provision a fresh App.
+
 ### Alternative: `bun scripts/create-github-app.ts`
 
 Equivalent flag surface; useful before the CLI is installed:

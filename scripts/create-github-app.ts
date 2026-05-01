@@ -167,9 +167,20 @@ const outputDir = join(homedir(), ".config", "minsky");
 const store = new LocalConfigCredentialStore(outputDir);
 const provisioner = new ManifestFlowProvisioner({ port: args.port });
 
-console.log(`Creating App: ${args.name} for repo ${args.repo}`);
-console.log(`Server running at http://localhost:${args.port}`);
-console.log(`\nIf the browser does not open automatically, visit: http://localhost:${args.port}\n`);
+console.log(`Provisioning GitHub App: ${args.name} for repo ${args.repo}`);
+
+// Whether the manifest-flow server actually starts depends on whether
+// credentials already exist (orchestrator short-circuits in that case).
+// Only print the localhost URL when we know a server will actually run.
+const willStartServer = args.force || !(await store.exists(args.name));
+if (willStartServer) {
+  console.log(`Local callback listener at http://localhost:${args.port}`);
+  console.log(
+    `If the browser does not open automatically, visit http://localhost:${args.port}.\n` +
+      `If the App is created but not yet installed, finish installation in the browser, then\n` +
+      `return and visit http://localhost:${args.port}/check-install to capture the installation ID.\n`
+  );
+}
 
 try {
   const result = await provisionGithubApp({

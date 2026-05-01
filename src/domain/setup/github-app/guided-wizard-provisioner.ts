@@ -1,12 +1,15 @@
 /**
  * GuidedWizardProvisioner — interactive prompts + manual credential entry.
  *
- * For environments where the manifest flow doesn't apply: GitHub Enterprise
- * instances with non-standard auth, restricted SSO orgs, air-gapped setups.
+ * For environments where the manifest flow can't run: restricted SSO orgs,
+ * air-gapped setups, or browsers/ports the user can't reach. Also serves as
+ * a starting point for GitHub Enterprise (configure `apiBaseUrl` and
+ * `webBaseUrl` for non-github.com hosts; full GHE support is a follow-up
+ * beyond v1).
  *
  * Walks the user through the GitHub portal steps, prompts to paste the App ID,
  * installation ID, and PEM contents, then validates the PEM by signing a JWT
- * and calling /app.
+ * and calling /app on the configured API host.
  *
  * @see mt#1087
  */
@@ -37,11 +40,36 @@ const realPrompts: WizardPrompts = {
   isCancel: clack.isCancel as (v: unknown) => boolean,
 };
 
+export interface GuidedWizardProvisionerOptions {
+  /** @clack/prompts substitute (test seam). */
+  prompts?: WizardPrompts;
+  /**
+   * GitHub API base URL. Defaults to `https://api.github.com`. Override for
+   * GitHub Enterprise (e.g. `https://ghe.example.com/api/v3`).
+   */
+  apiBaseUrl?: string;
+  /**
+   * GitHub web base URL used to construct the App's HTML URL. Defaults to
+   * `https://github.com`. Override for GHE (e.g. `https://ghe.example.com`).
+   */
+  webBaseUrl?: string;
+}
+
 export class GuidedWizardProvisioner implements AppProvisioner {
   private readonly prompts: WizardPrompts;
+  private readonly apiBaseUrl: string;
+  private readonly webBaseUrl: string;
 
-  constructor(prompts: WizardPrompts = realPrompts) {
-    this.prompts = prompts;
+  constructor(options: GuidedWizardProvisionerOptions | WizardPrompts = {}) {
+    // Backwards-compat: previous callers passed a WizardPrompts directly.
+    const opts: GuidedWizardProvisionerOptions =
+      "text" in options && typeof (options as WizardPrompts).text === "function"
+        ? { prompts: options as WizardPrompts }
+        : (options as GuidedWizardProvisionerOptions);
+
+    this.prompts = opts.prompts ?? realPrompts;
+    this.apiBaseUrl = (opts.apiBaseUrl ?? "https://api.github.com").replace(/\/$/, "");
+    this.webBaseUrl = (opts.webBaseUrl ?? "https://github.com").replace(/\/$/, "");
   }
 
   async provision(spec: AppManifestSpec): Promise<AppCredentials> {
@@ -53,10 +81,10 @@ export class GuidedWizardProvisioner implements AppProvisioner {
         `You are about to create GitHub App "${name}" manually.`,
         "",
         "Steps:",
-        "  1. Go to https://github.com/settings/apps/new",
+        `  1. Go to ${this.webBaseUrl}/settings/apps/new`,
         "  2. Fill in the form with these settings:",
         `       Name:        ${name}`,
-        `       Homepage:    https://github.com/${repo}`,
+        `       Homepage:    ${this.webBaseUrl}/${repo}`,
         `       Permissions: ${Object.entries(permissions)
           .map(([k, v]) => `${k}:${v}`)
           .join(", ")}`,
@@ -159,12 +187,12 @@ export class GuidedWizardProvisioner implements AppProvisioner {
       throw new BrowserCancelledError("App creation cancelled by user");
     }
 
-    let htmlUrl = `https://github.com/apps/${slug}`;
+    let htmlUrl = `${this.webBaseUrl}/apps/${slug}`;
 
     if (shouldValidate) {
       try {
         const jwt = await buildJwt(appId, pem);
-        const resp = await fetch("https://api.github.com/app", {
+        const resp = await fetch(`${this.apiBaseUrl}/app`, {
           headers: {
             Authorization: `Bearer ${jwt}`,
             Accept: "application/vnd.github+json",

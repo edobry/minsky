@@ -46,7 +46,13 @@ export type InstallationLookup = (
 export interface ManifestFlowProvisionerOptions {
   /** Milliseconds to wait for the browser callback before giving up. */
   timeoutMs?: number;
-  /** Port to listen on. Pass 0 to let the OS pick a free port. */
+  /**
+   * Port to listen on for the localhost callback. Must be a fixed,
+   * user-known port: GitHub embeds it in the manifest's redirect_url
+   * before the server starts, so we cannot use port=0 / OS-assigned ports
+   * without a chicken-and-egg problem (the redirect_url has to be known
+   * before bind, but the bound port is only known after).
+   */
   port?: number;
   /** Override the installation-lookup strategy (test seam). */
   installationLookup?: InstallationLookup;

@@ -178,7 +178,13 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
             throw new ValidationError(`--via must be "manifest" or "wizard", got "${via}"`);
           }
 
-          const outputDir = expandHome(params.outputDir ?? "~/.config/minsky");
+          // outputDir resolution: only expand `~` if the user passed an
+          // explicit path. When omitted, let LocalConfigCredentialStore's
+          // own default (os.homedir() + .config/minsky) take over to avoid
+          // duplicating the default in two places.
+          const outputDir = params.outputDir
+            ? expandHome(params.outputDir)
+            : join(homedir(), ".config", "minsky");
 
           const spec: AppManifestSpec = {
             name: params.name,
@@ -248,7 +254,12 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
           if (err instanceof BrowserCancelledError) {
             return { success: false, message: err.message };
           }
-          throw err instanceof ValidationError ? err : new ValidationError(getErrorMessage(err));
+          // Preserve original error class for ValidationError + Error
+          // subclasses; only wrap unknown / non-Error throws as Error so
+          // operational failures (network, fs) keep their semantics and
+          // are not conflated with user-input validation errors.
+          if (err instanceof Error) throw err;
+          throw new Error(getErrorMessage(err));
         }
       },
     }),
