@@ -105,34 +105,59 @@ describe("operating envelope examples pass the commit-msg hook", () => {
     loadSkillBody: () => null,
   };
 
-  test("envelope renders a `feat(mt#X): partial: ...` example that the hook accepts", async () => {
-    const taskId = "mt#1524";
-    const sessionId = "test-session";
-    const result = generateSubagentPrompt({
+  // Shared expected fragment for envelope assertions; named here so the
+  // magic-string-duplication lint rule is satisfied across multiple tests.
+  const EXPECTED_ENVELOPE_FRAGMENT = "feat(mt#1524): partial:";
+
+  function renderImplementerPrompt(taskId: string): string {
+    return generateSubagentPrompt({
       sessionDir: "/tmp/sessiondir",
-      sessionId,
+      sessionId: "test-session",
       taskId,
       type: "implementation",
       instructions: "test instructions",
       harness: "claude-code",
       workspacePath: "/tmp/nonexistent-workspace",
       skillLoader: emptySkillLoader,
-    });
-    const prompt = result.prompt;
+    }).prompt;
+  }
+
+  test("envelope renders a `feat(mt#X): partial: ...` example that the hook accepts (numeric taskId)", async () => {
+    // Production callers pass numeric-only taskId (see prompt-command.ts and
+    // dispatch-command.ts which both call `taskId.replace(/^mt#/, "")`).
+    const prompt = renderImplementerPrompt("1524");
 
     // Sanity: the rendered prompt must NOT contain the old `wip(...)` form.
     expect(prompt).not.toContain("wip(mt#");
 
-    // Sanity: the new form is present (taskId interpolated into example).
-    expect(prompt).toContain(`feat(mt#${taskId}): partial:`);
+    // Sanity: the new form is present with a single `mt#` prefix.
+    expect(prompt).toContain(EXPECTED_ENVELOPE_FRAGMENT);
+
+    // Regression guard for the doubled-prefix BLOCKING (PR #938 review):
+    // there must be exactly zero `mt#mt#` substrings anywhere in the prompt.
+    expect(prompt).not.toContain("mt#mt#");
 
     // The example commit message embedded in the envelope must pass the hook.
-    const exampleCommit = `feat(${taskId}): partial: implemented router skeleton`;
+    const exampleCommit = `${EXPECTED_ENVELOPE_FRAGMENT} implemented router skeleton`;
     const hook = new CommitMsgHook("/tmp/commit-msg", {
       readFileSync: () => exampleCommit,
       execSync: () => "task/mt-1524",
     });
     const hookResult = await hook.run();
     expect(hookResult.success).toBe(true);
+  });
+
+  test("envelope tolerates display-formatted taskId without doubling the prefix", () => {
+    // If a caller mistakenly passes the display-formatted form, the renderer
+    // must still produce a single-prefix output — never `mt#mt#1524`.
+    const prompt = renderImplementerPrompt("mt#1524");
+    expect(prompt).not.toContain("mt#mt#");
+    expect(prompt).toContain(EXPECTED_ENVELOPE_FRAGMENT);
+  });
+
+  test("envelope handles bare-`#N` taskId form without doubling", () => {
+    const prompt = renderImplementerPrompt("#1524");
+    expect(prompt).not.toContain("mt##");
+    expect(prompt).toContain(EXPECTED_ENVELOPE_FRAGMENT);
   });
 });

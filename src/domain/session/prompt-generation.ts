@@ -201,9 +201,10 @@ ${sections}`;
 }
 
 function renderCommonHeader(params: GeneratePromptParams): string {
+  const numericId = normalizeTaskIdForDisplay(params.taskId);
   return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
 
-Task mt#${params.taskId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
+Task mt#${numericId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
 
 ${params.instructions}`;
 }
@@ -216,7 +217,19 @@ Only modify the following files:
 ${scope.map((f) => `- ${f}`).join("\n")}`;
 }
 
+/**
+ * Strip a leading project-prefix (e.g. `mt#`, `md#`, `#`) from a taskId so the
+ * renderer can prepend `mt#` exactly once. Callers may pass either the numeric
+ * form (`"1524"`) — which is what the production dispatch path uses — or the
+ * display-formatted form (`"mt#1524"`); both must yield the same output, never
+ * `"mt#mt#1524"` (mt#1524 BLOCKING).
+ */
+function normalizeTaskIdForDisplay(taskId: string): string {
+  return taskId.replace(/^[a-z]{2,}#/i, "").replace(/^#/, "");
+}
+
 function renderCommitInstructions(sessionId: string, taskId: string): string {
+  const numericId = normalizeTaskIdForDisplay(taskId);
   return `
 ## Committing Your Work
 
@@ -228,7 +241,7 @@ When your changes are ready, commit using:
 
 After committing, create a PR using:
 - Tool: \`mcp__minsky__session_pr_create\`
-- Parameters: \`task: "mt#${taskId}"\`
+- Parameters: \`task: "mt#${numericId}"\`
 
 Do NOT merge the PR.`;
 }
@@ -245,6 +258,7 @@ function renderSubagentOperatingEnvelope(
   taskId: string,
   readOnly: boolean
 ): string {
+  const numericId = normalizeTaskIdForDisplay(taskId);
   if (readOnly) {
     return `
 ${ENVELOPE_HEADER}
@@ -271,10 +285,10 @@ You have a bounded tool-call budget per dispatch. Recent dispatches have cut off
 
 **Budget awareness.** Commit or hand off *before* you run out, not after. Don't save the checkpoint for the end.
 
-**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (\`feat\`/\`fix\`/\`refactor\`/\`docs\`/etc.) and prefix the description with \`partial:\` to signal in-progress state — e.g., \`feat(mt#${taskId}): partial: <what's done>\`. The commit-msg hook rejects \`wip(...)\`; status lives in the description, not the type.
+**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (\`feat\`/\`fix\`/\`refactor\`/\`docs\`/etc.) and prefix the description with \`partial:\` to signal in-progress state — e.g., \`feat(mt#${numericId}): partial: <what's done>\`. The commit-msg hook rejects \`wip(...)\`; status lives in the description, not the type.
 
 **Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop starting new work:
-1. If code is modified, commit with \`<type>(mt#${taskId}): partial: <status>\` via \`mcp__minsky__session_commit\` (use the type matching the work)
+1. If code is modified, commit with \`<type>(mt#${numericId}): partial: <status>\` via \`mcp__minsky__session_commit\` (use the type matching the work)
 2. Write a handoff note to \`.minsky/sessions/${sessionId}/handoff.md\` with four fields:
    - **Done:** what shipped this dispatch
    - **In progress:** partial work, with file paths and line ranges
@@ -286,10 +300,11 @@ You have a bounded tool-call budget per dispatch. Recent dispatches have cut off
 }
 
 function renderSessionExecNote(taskId: string): string {
+  const numericId = normalizeTaskIdForDisplay(taskId);
   return `
 ## Running commands in the session
 
-Use \`mcp__minsky__session_exec(task: "mt#${taskId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
+Use \`mcp__minsky__session_exec(task: "mt#${numericId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
 }
 
 interface SkillSectionPlan {
