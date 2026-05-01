@@ -14,8 +14,9 @@
  *   listByClassifierVersion — all Asks produced by a classifier version
  *   transition             — state-machine-aware state update (throws on invalid move)
  *   close                  — convenience wrapper: transition to "closed" + attach response
+ *   respondAndClose        — atomic suspended → closed walk (mt#1458)
  *
- * Reference: ADR per mt#1034 (pending merge); mt#1237 spec.
+ * Reference: ADR per mt#1034 (pending merge); mt#1237 spec; mt#1458 (respondAndClose).
  */
 
 import { injectable } from "tsyringe";
@@ -36,8 +37,10 @@ import { guardTransition } from "./state-machine";
  *
  * Timestamps stored as `Date | null` in Drizzle are converted to ISO-8601
  * strings (or `undefined`) to match the `Ask` interface.
+ *
+ * @internal Exported for unit testing only — do not import outside of tests.
  */
-function toAsk(row: AskRecord): Ask {
+export function toAsk(row: AskRecord): Ask {
   return {
     id: row.id,
     kind: row.kind as AskKind,
@@ -58,6 +61,14 @@ function toAsk(row: AskRecord): Ask {
     suspendedAt: row.suspendedAt ? row.suspendedAt.toISOString() : undefined,
     respondedAt: row.respondedAt ? row.respondedAt.toISOString() : undefined,
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: (row.serviceStrategy as Ask["serviceStrategy"]) ?? undefined,
+    windowKey: row.windowKey ?? undefined,
+    // Coalesce NULLs to documented defaults: types.ts states "Defaults to 0 when absent"
+    // and "Defaults to false when absent". Legacy rows (pre-migration-0029) may have NULL
+    // because PostgreSQL ADD COLUMN DEFAULT does not backfill existing rows.
+    windowMissedCount: row.windowMissedCount ?? 0,
+    forceImmediate: row.forceImmediate ?? false,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
@@ -82,6 +93,11 @@ function toInsert(input: CreateAskInput): AskInsert {
     contextRefs: input.contextRefs ?? null,
     response: null,
     deadline: input.deadline ? new Date(input.deadline) : null,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: input.serviceStrategy ?? null,
+    windowKey: input.windowKey ?? null,
+    windowMissedCount: input.windowMissedCount ?? 0,
+    forceImmediate: input.forceImmediate ?? false,
     metadata: input.metadata ?? {},
   };
 }
@@ -104,6 +120,14 @@ export interface CreateAskInput {
   contextRefs?: Ask["contextRefs"];
   deadline?: string;
   metadata?: Record<string, unknown>;
+  /** Service-window routing strategy (mt#1411 spine — mt#1488). */
+  serviceStrategy?: Ask["serviceStrategy"];
+  /** Named window to target when strategy is "scheduled". */
+  windowKey?: string;
+  /** Count of windows already missed (defaults to 0 on insert). */
+  windowMissedCount?: number;
+  /** Bypass window check and route immediately. */
+  forceImmediate?: boolean;
 }
 
 /** Input for closing an Ask (state → "closed"). */
@@ -192,32 +216,21 @@ export interface AskRepository {
    * logical model (the same shape `repo.respond` would receive); the
    * intermediate "responded" payload is NOT persisted to a separate row
    * or column. Callers that need an audit trail of the intermediate
-   * payload should design that separately (e.g., via metadata or a
-   * dedicated audit table); v1 has no such trail.
+   * payload should design that separately.
    *
    * Atomicity guarantee:
-   *   - **Drizzle backend**: implemented via an optimistic-concurrency
-   *     `WHERE id = ? AND state = 'suspended'` clause. If a concurrent actor
-   *     transitions the Ask between this call and its execution (cancel,
-   *     expire, etc.), the update matches zero rows and the method throws
-   *     a `ConcurrentTransitionError` describing the actual current state.
+   *   - **Drizzle backend**: optimistic-concurrency `WHERE id = ? AND
+   *     state = 'suspended'` clause. If a concurrent actor transitions
+   *     the Ask between this call and its execution (cancel, expire,
+   *     etc.), the update matches zero rows and the method throws
+   *     `ConcurrentTransitionError` describing the actual current state.
    *   - **Fake backend**: single-threaded — atomic by virtue of the
    *     synchronous in-memory implementation.
    *
-   * Used by `respondToAsk` (mt#1458) to honor:
-   *   1. The `Ask.response` contract: `attentionCost` is filled on close.
-   *   2. The "no stuck-in-responded" invariant: if respond/close were
-   *      separate calls and the second failed, the Ask would be left in
-   *      `responded` without `attentionCost` and unable to advance.
+   * Used by `respondToAsk` (mt#1458) to honor the `Ask.response` contract
+   * (`attentionCost` is filled on close) AND the no-stuck-in-responded
+   * invariant.
    *
-   * @param id          Primary key of the suspended Ask.
-   * @param respondInput Response payload at the responded stage (without
-   *                    `attentionCost`). Carries the two-stage contract
-   *                    in the type signature; not persisted to a separate
-   *                    row in v1 (see paragraph above).
-   * @param closeInput   Response payload (with `attentionCost`) written
-   *                    to the persisted row. This is the payload that
-   *                    becomes `Ask.response` on the closed row.
    * @throws `Error` — Ask not found.
    * @throws `ConcurrentTransitionError` — Ask was not in `"suspended"` state
    *         when the atomic update ran.
@@ -234,12 +247,9 @@ export interface AskRepository {
  * at the moment of the atomic update — typically because a concurrent actor
  * cancelled / expired / closed the Ask between read and write.
  *
- * The deletion race (Ask removed between read and write) is NOT signaled
- * via this error — it surfaces as a plain `Error("Ask not found: ${id}")`
- * from `repo.respondAndClose`'s disambiguation branch, matching the rest
- * of the repository's not-found semantics. PR #924 R4 NON-BLOCKING:
- * earlier drafts advertised a `"(deleted)"` variant on `observedState`
- * that was never emitted; that surface has been removed.
+ * The deletion race (Ask removed between read and write) surfaces as a
+ * plain `Error("Ask not found: ${id}")` instead, matching the rest of the
+ * repository's not-found semantics.
  */
 export class ConcurrentTransitionError extends Error {
   readonly id: string;
@@ -401,30 +411,17 @@ export class DrizzleAskRepository implements AskRepository {
     _respondInput: RespondAskInput,
     closeInput: CloseAskInput
   ): Promise<Ask> {
-    // Invariant enforcement (PR #924 R5 BLOCKING): the persistence-level
-    // atomic update writes state="closed" directly, but the LOGICAL walk
-    // is suspended → responded → closed. We invoke guardTransition twice
-    // here so the state-machine table (VALID_TRANSITIONS in state-machine.ts)
-    // is consulted as the source of truth — adding a future state would
-    // surface as a guardTransition failure here, not a silent invariant
-    // relaxation. The two calls validate both legs of the logical walk;
-    // the persistence update collapses them into a single UPDATE for
-    // atomicity.
+    // Invariant enforcement: the persistence-level atomic update writes
+    // state="closed" directly, but the LOGICAL walk is suspended → responded
+    // → closed. We invoke guardTransition twice here so the state-machine
+    // table is consulted as the source of truth.
     guardTransition("suspended", "responded");
     guardTransition("responded", "closed");
 
     // Optimistic concurrency: only update if the row is still in "suspended".
-    // If a concurrent actor (cancel / expire / close) transitioned the Ask
-    // between read and write, this WHERE clause matches zero rows and we
-    // surface a ConcurrentTransitionError — no stuck-in-responded state can
-    // result from a partial walk because the walk happens in a single UPDATE.
-    //
-    // The persisted row goes from suspended → closed directly. Per the
-    // Ask.response contract, the final `response` is the closeInput payload
-    // (which includes attentionCost). The respondInput is intentionally not
-    // persisted to a separate intermediate row — its existence in the API
-    // signature documents the two-stage contract for callers, but persistence
-    // of the responded intermediate is collapsed into the close write.
+    // If a concurrent actor transitioned the Ask between this call and its
+    // execution, the WHERE clause matches zero rows and we surface
+    // ConcurrentTransitionError. No stuck-in-responded state is possible.
     const now = new Date();
     const rows = await this.db
       .update(asksTable)
@@ -506,6 +503,11 @@ export class FakeAskRepository implements AskRepository {
       response: undefined,
       deadline: input.deadline,
       createdAt: now,
+      // Service-window fields (mt#1411 spine — mt#1488)
+      serviceStrategy: input.serviceStrategy,
+      windowKey: input.windowKey,
+      windowMissedCount: input.windowMissedCount ?? 0,
+      forceImmediate: input.forceImmediate ?? false,
       metadata: input.metadata ?? {},
     };
     this.store.set(id, ask);
@@ -602,11 +604,8 @@ export class FakeAskRepository implements AskRepository {
     _respondInput: RespondAskInput,
     closeInput: CloseAskInput
   ): Promise<Ask> {
-    // Mirror the Drizzle backend's invariant enforcement (PR #924 R5
-    // BLOCKING): consult guardTransition for both legs of the logical walk
-    // suspended → responded → closed. The fake collapses to a single
-    // in-memory write; the guards ensure the state-machine table stays the
-    // source of truth.
+    // Mirror the Drizzle backend's invariant enforcement: consult
+    // guardTransition for both legs of the logical walk.
     guardTransition("suspended", "responded");
     guardTransition("responded", "closed");
 
