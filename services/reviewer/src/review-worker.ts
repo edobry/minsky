@@ -806,6 +806,13 @@ export async function runReview(
       // basis consistency. Recovery doesn't add or remove findings (only
       // changes severity), so totalFindingCount is identical pre- and post-,
       // but using one basis avoids future drift.
+      const preRecoveryFindings = output.toolCalls.filter((tc) => tc.name === "submit_finding");
+      const preRecoveryNonBlockingCount = preRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
+      ).length;
+      const preRecoveryPreExistingCount = preRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
+      ).length;
       const postRecoveryFindings = recoveryResult.toolCalls.filter(
         (tc) => tc.name === "submit_finding"
       );
@@ -825,6 +832,12 @@ export async function runReview(
           totalFindingCount,
           originalBlockingCount: recoveryResult.originalBlockingCount,
           postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
+          // Pre- and post-recovery breakdowns for the non-BLOCKING tiers
+          // so dashboards can distinguish "downgraded from BLOCKING" vs.
+          // "originally non-blocking" without reconstructing from logs
+          // (PR #922 R24#3).
+          preRecoveryNonBlockingCount,
+          preRecoveryPreExistingCount,
           postRecoveryNonBlockingCount,
           postRecoveryPreExistingCount,
           // True when the recovery moved the count past zero, signaling the
