@@ -522,7 +522,21 @@ export function applyMonotonicityRecovery(
     const fileWasRenamed = renamedTo !== undefined || renamedFromCheck !== undefined;
 
     const addedRanges = parsedDiff.added.get(lookupFile) ?? [];
-    const removedRanges = parsedDiff.removed.get(lookupFile) ?? [];
+    // PR #922 R12 catch: removed lines on renames are recorded under the
+    // OLD path (parseUnifiedDiff uses oldFilePath as the key for `-` lines
+    // so LEFT-side and unspecified-side overlap checks work correctly on
+    // old-path findings). Pre-fix we looked up removed ranges only by
+    // lookupFile (which resolves to newPath via the rename map), so a
+    // current finding citing the NEW path with side undefined would see
+    // empty removed-ranges and wrongly downgrade. Now: union the removed
+    // ranges from BOTH the new path lookup AND the old path lookup
+    // (resolved via renamedFromCheck or normalizedCurrentFile, depending
+    // on direction).
+    const oldPathForRemoved = renamedFromCheck ?? normalizedCurrentFile;
+    const removedRanges = [
+      ...(parsedDiff.removed.get(lookupFile) ?? []),
+      ...(parsedDiff.removed.get(oldPathForRemoved) ?? []),
+    ];
     const findingStart = tc.args.line;
     const findingEnd = tc.args.lineEnd ?? tc.args.line;
     const overlapsNewCode = rangeOverlapsAny(findingStart, findingEnd, addedRanges);

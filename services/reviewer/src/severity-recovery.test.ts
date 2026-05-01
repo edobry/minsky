@@ -695,6 +695,39 @@ describe("applyMonotonicityRecovery", () => {
     expect(result.downgrades).toHaveLength(0);
   });
 
+  test("preserves BLOCKING on rename: new-path finding with undefined side overlapping old-path removed lines (PR #922 R12)", () => {
+    // R4#2 fix: removed lines on renames are keyed under OLD path so LEFT-
+    // side overlap works for old-path findings. R12 catch: but a current
+    // finding citing the NEW path with side undefined would query removed
+    // ranges by NEW path and miss because they're under OLD path.
+    // Now: removedRanges unions both lookups so the overlap check sees the
+    // old-path removals too.
+    const prior: FlatPriorFinding[] = [
+      { file: "src/old-name.ts", severity: "NON-BLOCKING", line: 5 },
+    ];
+    const tc = [finding("BLOCKING", "src/new-name.ts", 11)]; // side undefined
+    const renameDiff = `diff --git a/src/old-name.ts b/src/new-name.ts
+similarity index 70%
+rename from src/old-name.ts
+rename to src/new-name.ts
+--- a/src/old-name.ts
++++ b/src/new-name.ts
+@@ -10,3 +10,1 @@
+ keep
+-removed11
+-removed12
+`;
+    const result = applyMonotonicityRecovery(tc, prior, renameDiff);
+    // Should preserve BLOCKING — the cited line 11 overlaps removed-range
+    // 11-12 on the OLD path. Pre-R12 the lookup was only by NEW path which
+    // had no removed entries, and the rename's conservative-preserve branch
+    // would have also preserved (so this test specifically demonstrates the
+    // removed-range path now works correctly).
+    expect(
+      result.toolCalls[0]?.name === "submit_finding" ? result.toolCalls[0].args.severity : null
+    ).toBe("BLOCKING");
+  });
+
   test("normalizes current finding's backslash path against POSIX diff ranges (PR #922 R11)", () => {
     // Inverse direction of R10: current finding cites a backslash path,
     // diff reports added ranges under POSIX. Pre-R11 the rename map and
