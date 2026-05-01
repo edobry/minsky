@@ -20,7 +20,7 @@
  */
 
 import { injectable } from "tsyringe";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
@@ -170,6 +170,22 @@ export interface AskRepository {
   listByClassifierVersion(version: string): Promise<Ask[]>;
 
   /**
+   * Batch-list open Asks for any task in `taskIds`.
+   *
+   * "Open" means state is not one of the terminal states (closed / cancelled
+   * / expired). Rows are returned ordered by `createdAt` descending so the
+   * caller can group by `parentTaskId` and pick the first row per task.
+   *
+   * Replaces the N-query `Promise.all(taskIds.map(listByParentTask))` pattern
+   * with a single query — see `getOpenAsksByTaskIds` in queries.ts. Returns
+   * an empty array when `taskIds` is empty (no query is issued).
+   *
+   * @param taskIds Task IDs to filter by.
+   * @returns       Open Asks across all matching tasks, sorted createdAt desc.
+   */
+  findOpenByTaskIds(taskIds: string[]): Promise<Ask[]>;
+
+  /**
    * Transition an Ask to a new state.
    *
    * Enforces the state machine — throws `InvalidAskTransitionError` when the
@@ -317,6 +333,21 @@ export class DrizzleAskRepository implements AskRepository {
       .select()
       .from(asksTable)
       .where(eq(asksTable.classifierVersion, version));
+    return rows.map(toAsk);
+  }
+
+  async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
+    if (taskIds.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(asksTable)
+      .where(
+        and(
+          inArray(asksTable.parentTaskId, taskIds),
+          notInArray(asksTable.state, ["closed", "cancelled", "expired"])
+        )
+      )
+      .orderBy(desc(asksTable.createdAt));
     return rows.map(toAsk);
   }
 
@@ -533,6 +564,18 @@ export class FakeAskRepository implements AskRepository {
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {
     return this.all.filter((a) => a.classifierVersion === version).map((a) => ({ ...a }));
+  }
+
+  async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
+    if (taskIds.length === 0) return [];
+    const taskIdSet = new Set(taskIds);
+    const closed = new Set(["closed", "cancelled", "expired"]);
+    return this.all
+      .filter(
+        (a) => a.parentTaskId !== undefined && taskIdSet.has(a.parentTaskId) && !closed.has(a.state)
+      )
+      .sort((a, b) => (b.createdAt > a.createdAt ? 1 : b.createdAt < a.createdAt ? -1 : 0))
+      .map((a) => ({ ...a }));
   }
 
   async transition(id: string, to: AskState): Promise<Ask> {

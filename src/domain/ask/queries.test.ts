@@ -149,4 +149,53 @@ describe("getOpenAsksByTaskIds", () => {
     expect(result.get(TASK_ID)).toBeNull();
     expect(result.get(TASK_ID_2)?.id).toBe(ask2.id);
   });
+
+  it("invokes findOpenByTaskIds exactly once for N task IDs (mt#1470 batch)", async () => {
+    // Seed 5 tasks each with one open Ask
+    const taskIds = ["mt#1", "mt#2", "mt#3", "mt#4", "mt#5"];
+    for (const id of taskIds) {
+      await repo.create(makeInput({ parentTaskId: id }));
+    }
+
+    let findOpenByTaskIdsCalls = 0;
+    let listByParentTaskCalls = 0;
+    const realFindOpen = repo.findOpenByTaskIds.bind(repo);
+    const realListByParent = repo.listByParentTask.bind(repo);
+    const spy = new Proxy(repo, {
+      get(target, prop, receiver) {
+        if (prop === "findOpenByTaskIds") {
+          return (taskIds: string[]) => {
+            findOpenByTaskIdsCalls++;
+            return realFindOpen(taskIds);
+          };
+        }
+        if (prop === "listByParentTask") {
+          return (taskId: string) => {
+            listByParentTaskCalls++;
+            return realListByParent(taskId);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+
+    const result = await getOpenAsksByTaskIds(spy as FakeAskRepository, taskIds);
+    expect(result.size).toBe(5);
+    expect(findOpenByTaskIdsCalls).toBe(1);
+    expect(listByParentTaskCalls).toBe(0);
+  });
+
+  it("returns the most recent open Ask per task when multiple exist for one task", async () => {
+    const olderTs = new Date(2025, 0, 1).toISOString();
+    const newerTs = new Date(2025, 6, 1).toISOString();
+    repo._seedAtState(
+      makeSeedAsk({ id: "ask-old", parentTaskId: TASK_ID, state: "detected", createdAt: olderTs })
+    );
+    repo._seedAtState(
+      makeSeedAsk({ id: "ask-new", parentTaskId: TASK_ID, state: "routed", createdAt: newerTs })
+    );
+
+    const result = await getOpenAsksByTaskIds(repo, [TASK_ID]);
+    expect(result.get(TASK_ID)?.id).toBe("ask-new");
+  });
 });
