@@ -759,10 +759,11 @@ export async function runReview(
     // AND whose cited line range is not touched by new lines in the diff under
     // review. The flag is read per-invocation rather than at boot so operators
     // can toggle without redeploy. Default-off keeps deployed behavior
-    // unchanged until a deliberate enablement. Accepts "true", "1",
-    // case-insensitive — PR #922 R18#3 robustness fix.
-    const monotonicityRecoveryEnabled = /^(true|1)$/i.test(
-      process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? ""
+    // unchanged until a deliberate enablement. Accepts common truthy
+    // values: "true", "1", "yes", "on" (case-insensitive) — PR #922 R20#5
+    // expanding R18#3.
+    const monotonicityRecoveryEnabled = /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? "").trim()
     );
 
     // Delegate the recovery + reconciliation + composition to the pure
@@ -797,7 +798,10 @@ export async function runReview(
         })
       );
     }
-    if (recoveryResult.downgrades.length > 0) {
+    if (monotonicityRecoveryEnabled) {
+      // Emit summary on EVERY review when recovery is enabled, even with
+      // zero downgrades, so dashboards see one event per review and can
+      // detect "recovery enabled but never fired" scenarios (PR #922 R20#3).
       // All counts derived from post-recovery toolCalls (PR #922 R3) for
       // basis consistency. Recovery doesn't add or remove findings (only
       // changes severity), so totalFindingCount is identical pre- and post-,
