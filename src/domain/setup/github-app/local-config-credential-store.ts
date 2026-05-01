@@ -8,10 +8,30 @@
  * @see mt#1087
  */
 
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "fs";
 import { join } from "path";
+import type { SyncFsLike } from "../../interfaces/fs-like";
+import { createRealSyncFs } from "../../interfaces/fs-like";
 import type { CredentialStore } from "./credential-store";
 import type { AppCredentials } from "./types";
+
+/**
+ * Filesystem subset used by LocalConfigCredentialStore.
+ * Extends SyncFsLike with chmodSync (not part of the shared interface because
+ * very few modules need it).
+ */
+export interface CredentialFs extends SyncFsLike {
+  chmodSync(path: string, mode: number): void;
+}
+
+/** Build a real-fs-backed CredentialFs by extending createRealSyncFs with chmod. */
+export function createRealCredentialFs(): CredentialFs {
+  const fs = require("fs");
+  const base = createRealSyncFs();
+  return {
+    ...base,
+    chmodSync: fs.chmodSync,
+  };
+}
 
 /** Serialised shape stored in <name>.json */
 interface StoredMeta {
@@ -27,9 +47,11 @@ interface StoredMeta {
 
 export class LocalConfigCredentialStore implements CredentialStore {
   private readonly outputDir: string;
+  private readonly fs: CredentialFs;
 
-  constructor(outputDir?: string) {
+  constructor(outputDir?: string, fs: CredentialFs = createRealCredentialFs()) {
     this.outputDir = outputDir ?? join(process.env.HOME ?? "~", ".config", "minsky");
+    this.fs = fs;
   }
 
   private pemPath(name: string): string {
@@ -41,24 +63,25 @@ export class LocalConfigCredentialStore implements CredentialStore {
   }
 
   async exists(name: string): Promise<boolean> {
-    return existsSync(this.pemPath(name)) && existsSync(this.metaPath(name));
+    return this.fs.existsSync(this.pemPath(name)) && this.fs.existsSync(this.metaPath(name));
   }
 
   async read(name: string): Promise<AppCredentials | null> {
     const pem = this.pemPath(name);
     const meta = this.metaPath(name);
-    if (!existsSync(pem) || !existsSync(meta)) {
+    if (!this.fs.existsSync(pem) || !this.fs.existsSync(meta)) {
       return null;
     }
     try {
-      const pemContent = await Bun.file(pem).text();
-      const raw = (await Bun.file(meta).json()) as StoredMeta;
+      const pemContent = this.fs.readFileSync(pem, "utf-8");
+      const rawJson = this.fs.readFileSync(meta, "utf-8");
+      const raw = JSON.parse(rawJson as string) as StoredMeta;
       return {
         appId: raw.appId,
         slug: raw.slug,
         clientId: raw.clientId,
         clientSecret: raw.clientSecret,
-        pem: pemContent,
+        pem: pemContent as string,
         htmlUrl: raw.htmlUrl,
         installationId: raw.installationId,
       };
@@ -68,11 +91,11 @@ export class LocalConfigCredentialStore implements CredentialStore {
   }
 
   async write(name: string, creds: AppCredentials): Promise<void> {
-    mkdirSync(this.outputDir, { recursive: true });
+    this.fs.mkdirSync(this.outputDir, { recursive: true });
 
     const pemFile = this.pemPath(name);
-    writeFileSync(pemFile, creds.pem);
-    chmodSync(pemFile, 0o600);
+    this.fs.writeFileSync(pemFile, creds.pem);
+    this.fs.chmodSync(pemFile, 0o600);
 
     const meta: StoredMeta = {
       appId: creds.appId,
@@ -84,6 +107,6 @@ export class LocalConfigCredentialStore implements CredentialStore {
       installationId: creds.installationId,
       createdAt: new Date().toISOString(),
     };
-    writeFileSync(this.metaPath(name), JSON.stringify(meta, null, 2));
+    this.fs.writeFileSync(this.metaPath(name), JSON.stringify(meta, null, 2));
   }
 }

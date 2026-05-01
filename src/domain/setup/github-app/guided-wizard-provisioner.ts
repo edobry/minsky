@@ -11,14 +11,41 @@
  * @see mt#1087
  */
 
-import { text, confirm, note, isCancel, cancel } from "@clack/prompts";
+import * as clack from "@clack/prompts";
 import type { AppProvisioner } from "./provisioner";
 import { BrowserCancelledError } from "./provisioner";
 import type { AppManifestSpec, AppCredentials } from "./types";
 import { pemToPkcs8ArrayBuffer } from "./pem-utils";
 
+/**
+ * Subset of @clack/prompts the wizard uses. Defaults to the real module;
+ * tests inject a deterministic mock.
+ */
+export interface WizardPrompts {
+  text(opts: unknown): Promise<unknown>;
+  confirm(opts: unknown): Promise<unknown>;
+  note(message: string, title?: string): void;
+  cancel(message: string): void;
+  isCancel(value: unknown): boolean;
+}
+
+const realPrompts: WizardPrompts = {
+  text: clack.text,
+  confirm: clack.confirm,
+  note: clack.note,
+  cancel: clack.cancel,
+  isCancel: clack.isCancel as (v: unknown) => boolean,
+};
+
 export class GuidedWizardProvisioner implements AppProvisioner {
+  private readonly prompts: WizardPrompts;
+
+  constructor(prompts: WizardPrompts = realPrompts) {
+    this.prompts = prompts;
+  }
+
   async provision(spec: AppManifestSpec): Promise<AppCredentials> {
+    const { text, confirm, note, isCancel, cancel } = this.prompts;
     const { name, repo, permissions, events, webhookUrl, inactive } = spec;
 
     note(
