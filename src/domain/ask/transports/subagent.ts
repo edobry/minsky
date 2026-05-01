@@ -348,23 +348,6 @@ function buildPrompt(routedAsk: RoutedAsk): string {
 }
 
 /**
- * Classify token cost into an ordinal bucket for the response payload.
- *
- * Pure token-cost classification — does NOT represent operator cognitive
- * load (per ADR-008, `operatorCost` is only present when the ask was
- * escalated to a human; this transport never reaches the operator at v1).
- *
- * "quick" < 2 000 tokens; "medium" < 10 000; "deep" otherwise.
- * If tokenCost is absent, default to "medium" (unknown).
- */
-function classifyTokenCostOrdinal(tokenCost: number | undefined): "quick" | "medium" | "deep" {
-  if (tokenCost === undefined) return "medium";
-  if (tokenCost < 2_000) return "quick";
-  if (tokenCost < 10_000) return "medium";
-  return "deep";
-}
-
-/**
  * Package a successful subagent response into a SubagentClosedAsk.
  *
  * Uses the accounting module's buildAttentionCost with the subagent's
@@ -399,8 +382,6 @@ function buildSuccessClose(
     tokenCost: subagentResponse.tokenCost,
   });
 
-  const tokenOrdinal = classifyTokenCostOrdinal(subagentResponse.tokenCost);
-
   return {
     ...routedAsk,
     state: "closed",
@@ -413,10 +394,6 @@ function buildSuccessClose(
       responder,
       payload: {
         text: subagentResponse.text,
-        attentionCost: {
-          tokenCost: subagentResponse.tokenCost,
-          kind: tokenOrdinal,
-        },
       },
       attentionCost,
     },
@@ -463,10 +440,6 @@ function buildErrorClose(routedAsk: RoutedAsk, stepName: string, err: unknown): 
       payload: {
         error: `${stepName} failed; chain extension blocked on mt#1001/mt#454`,
         errorDetail: errorMessage,
-        attentionCost: {
-          tokenCost: undefined,
-          kind: "medium" as const,
-        },
       },
       attentionCost,
     },
