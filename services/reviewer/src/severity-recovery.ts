@@ -556,7 +556,7 @@ export function applyMonotonicityRecovery(
       ...(tc.args.lineEnd !== undefined ? { lineEnd: tc.args.lineEnd } : {}),
       fromSeverity: "BLOCKING",
       toSeverity: "NON-BLOCKING",
-      reason: `mt#1496 monotonicity-recovery: file "${tc.args.file}" had a prior ${matchingPrior} finding and the diff under review does not introduce new lines on the cited range (${findingStart}${findingEnd !== findingStart ? `-${findingEnd}` : ""})`,
+      reason: `monotonicity-recovery: file "${tc.args.file}" had a prior ${matchingPrior} finding and the diff under review does not introduce new lines on the cited range (${findingStart}${findingEnd !== findingStart ? `-${findingEnd}` : ""})`,
       matchingPriorSeverity: matchingPrior,
     });
   }
