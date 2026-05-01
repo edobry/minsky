@@ -53,6 +53,12 @@ import {
 } from "./github-pr-review";
 import { listReviews as listReviewsImpl } from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
+import {
+  submitCheckRun as submitCheckRunImpl,
+  type SubmitCheckRunOptions,
+  type SubmitCheckRunResult,
+} from "./github-checks-run";
+import { handleOctokitError } from "./github-error-handler";
 import type { ReviewListEntry } from "./index";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
 
@@ -747,6 +753,47 @@ Repository: https://github.com/${this.owner}/${this.repo}
       unresolveReviewThread: async (threadId: string): Promise<void> => {
         const gh = this.requireGitHubContext();
         return unresolveReviewThreadImpl(gh, threadId);
+      },
+
+      submitCheckRun: async (
+        prIdentifier: string | number,
+        options: SubmitCheckRunOptions
+      ): Promise<SubmitCheckRunResult & { headSha: string }> => {
+        const gh = this.requireGitHubContext();
+        const octokit = createOctokit(await gh.getToken());
+
+        // Resolve PR identifier to a number
+        let prNumber: number;
+        if (typeof prIdentifier === "number") {
+          prNumber = prIdentifier;
+        } else {
+          const parsed = parseInt(prIdentifier, 10);
+          prNumber = !isNaN(parsed) ? parsed : await this.findPRNumberForBranch(prIdentifier);
+        }
+
+        // Fetch the PR's current head SHA — check runs are attached to commits, not PRs
+        let headSha: string;
+        try {
+          const prResp = await octokit.rest.pulls.get({
+            owner: gh.owner,
+            repo: gh.repo,
+            pull_number: prNumber,
+          });
+          headSha = prResp.data.head.sha;
+        } catch (error) {
+          if (error instanceof MinskyError) throw error;
+          handleOctokitError(error, {
+            operation: "submitCheckRun:resolvePR",
+            owner: gh.owner,
+            repo: gh.repo,
+            prNumber,
+          });
+          // handleOctokitError always throws; this satisfies TypeScript
+          throw error;
+        }
+
+        const result = await submitCheckRunImpl(gh, headSha, options);
+        return { ...result, headSha };
       },
     };
   }
