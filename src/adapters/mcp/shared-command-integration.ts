@@ -600,6 +600,19 @@ export function registerKnowledgeCommandsWithMcp(
 }
 
 /**
+ * Register memory commands with MCP
+ */
+export function registerMemoryCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.MEMORY],
+    ...config,
+  });
+}
+
+/**
  * Register authorship commands with MCP.
  *
  * This is the **least-privilege MCP entry point** for the authorship namespace.
@@ -675,6 +688,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.KNOWLEDGE,
       CommandCategory.PROVENANCE,
       CommandCategory.AUTHORSHIP,
+      CommandCategory.MEMORY,
       CommandCategory.WORKSPACE,
       CommandCategory.TRANSCRIPTS,
     ],
