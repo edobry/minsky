@@ -114,20 +114,12 @@ export function guardTransition(from: AskState, to: AskState): AskState {
 }
 
 /**
- * Canonical list of terminal Ask states (no further transitions allowed).
- *
- * Single source of truth for "open" / "closed" classification across the
- * domain. Use `isTerminal(state)` for predicate checks; use this array only
- * when a SQL `NOT IN (...)` clause requires a literal list.
- *
- * Adding a new terminal state must update both this constant AND the
- * `isTerminal` switch — the switch's exhaustive `assertNever` forces this.
- */
-export const TERMINAL_ASK_STATES: readonly AskState[] = ["closed", "cancelled", "expired"] as const;
-
-/**
  * Returns true iff `state` is a terminal AskState (no further transitions
  * are ever allowed).
+ *
+ * **Single source of truth** for terminal-vs-open classification. The
+ * `TERMINAL_ASK_STATES` array below is derived from this predicate at module
+ * load — there is no second list to keep in sync.
  *
  * Throws (via `assertNever`) if `state` is not a known AskState, so callers
  * are forced to handle exhaustiveness at compile time.
@@ -148,6 +140,39 @@ export function isTerminal(state: AskState): boolean {
       return assertNever(state);
   }
 }
+
+/**
+ * Runtime-exhaustive index of all AskState values.
+ *
+ * The `Record<AskState, true>` shape forces TypeScript to require every
+ * union member as a key — if a new AskState is added to the union, this
+ * object fails to type-check unless updated. `Object.keys` then yields the
+ * full set at runtime, used to derive `TERMINAL_ASK_STATES` below without a
+ * second hand-maintained list.
+ */
+const ALL_ASK_STATES_INDEX: Record<AskState, true> = {
+  detected: true,
+  classified: true,
+  routed: true,
+  suspended: true,
+  responded: true,
+  closed: true,
+  cancelled: true,
+  expired: true,
+};
+
+/** Runtime-exhaustive list of all AskState values. */
+export const ALL_ASK_STATES: readonly AskState[] = Object.keys(ALL_ASK_STATES_INDEX) as AskState[];
+
+/**
+ * Canonical list of terminal Ask states (no further transitions allowed).
+ *
+ * Derived at module load by filtering `ALL_ASK_STATES` through `isTerminal`,
+ * so there is exactly one source of truth (the `isTerminal` switch). Use
+ * this array when a SQL `NOT IN (...)` clause requires a literal list; use
+ * `isTerminal(state)` for predicate checks.
+ */
+export const TERMINAL_ASK_STATES: readonly AskState[] = ALL_ASK_STATES.filter(isTerminal);
 
 /**
  * Thrown when an Ask transition is attempted that is not in the valid
