@@ -113,6 +113,25 @@ describe("LocalConfigCredentialStore", () => {
     expect(state.modes.get(pemPath)).toBe(0o600);
   });
 
+  test("JSON metadata file written with 0600 permissions (clientSecret protection)", async () => {
+    const { fs, state } = createMockCredentialFs();
+    const store = new LocalConfigCredentialStore("/test/dir", fs);
+
+    await store.write("my-test-app", SAMPLE_CREDS);
+
+    const jsonPath = "/test/dir/my-test-app.json";
+    expect(state.modes.get(jsonPath)).toBe(0o600);
+  });
+
+  test("output directory locked to 0700 on write", async () => {
+    const { fs, state } = createMockCredentialFs();
+    const store = new LocalConfigCredentialStore("/test/dir", fs);
+
+    await store.write("my-test-app", SAMPLE_CREDS);
+
+    expect(state.modes.get("/test/dir")).toBe(0o700);
+  });
+
   test("read() of missing credentials returns null", async () => {
     const { fs } = createMockCredentialFs();
     const store = new LocalConfigCredentialStore("/test/dir", fs);

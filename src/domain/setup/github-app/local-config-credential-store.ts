@@ -8,6 +8,7 @@
  * @see mt#1087
  */
 
+import { homedir } from "os";
 import { join } from "path";
 import type { SyncFsLike } from "../../interfaces/fs-like";
 import { createRealSyncFs } from "../../interfaces/fs-like";
@@ -50,7 +51,11 @@ export class LocalConfigCredentialStore implements CredentialStore {
   private readonly fs: CredentialFs;
 
   constructor(outputDir?: string, fs: CredentialFs = createRealCredentialFs()) {
-    this.outputDir = outputDir ?? join(process.env.HOME ?? "~", ".config", "minsky");
+    // Resolve default outputDir via os.homedir() so we never produce a literal
+    // "~/..." path on systems where HOME is unset (Windows shells, sandboxed
+    // environments). os.homedir() returns the actual home directory across
+    // platforms and falls back to a sensible default if unavailable.
+    this.outputDir = outputDir ?? join(homedir(), ".config", "minsky");
     this.fs = fs;
   }
 
@@ -92,6 +97,14 @@ export class LocalConfigCredentialStore implements CredentialStore {
 
   async write(name: string, creds: AppCredentials): Promise<void> {
     this.fs.mkdirSync(this.outputDir, { recursive: true });
+    // Lock the output directory to 0700 so newly-written credentials inherit
+    // a private parent. Best-effort: chmod may no-op on platforms (Windows)
+    // that don't honor POSIX modes.
+    try {
+      this.fs.chmodSync(this.outputDir, 0o700);
+    } catch {
+      // Non-fatal — writeFileSync below will still write 0600 files
+    }
 
     const pemFile = this.pemPath(name);
     this.fs.writeFileSync(pemFile, creds.pem);
@@ -107,6 +120,11 @@ export class LocalConfigCredentialStore implements CredentialStore {
       installationId: creds.installationId,
       createdAt: new Date().toISOString(),
     };
-    this.fs.writeFileSync(this.metaPath(name), JSON.stringify(meta, null, 2));
+    const metaFile = this.metaPath(name);
+    this.fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2));
+    // The metadata JSON contains clientSecret + clientId; protect it the same
+    // way we protect the PEM. Without this, default umask + group-readable
+    // ~/.config can leak the secret to other local users.
+    this.fs.chmodSync(metaFile, 0o600);
   }
 }

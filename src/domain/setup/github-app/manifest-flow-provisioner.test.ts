@@ -1,16 +1,17 @@
 /**
  * Tests for ManifestFlowProvisioner.
  *
- * Hermetic: mocks GitHub API fetch calls and Bun.spawn (browser-open).
- * The local callback server runs for real on a fixed test-only port; tests
- * use distinct ports to avoid collisions.
+ * Hermetic: mocks GitHub API fetch (for /app-manifests/<code>/conversions),
+ * Bun.spawn (browser-open), and injects an InstallationLookup that skips the
+ * WebCrypto JWT path (which requires a real PEM). The local callback server
+ * runs for real on a fixed test-only port; tests use distinct ports.
  *
  * @see mt#1087
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { setupTestMocks } from "../../../utils/test-utils/mocking";
-import { ManifestFlowProvisioner } from "./manifest-flow-provisioner";
+import { ManifestFlowProvisioner, type InstallationLookup } from "./manifest-flow-provisioner";
 import { BrowserCancelledError } from "./provisioner";
 import type { AppManifestSpec } from "./types";
 
@@ -41,6 +42,19 @@ let manifestConversionResponse: { ok: boolean; status?: number; body: unknown } 
   body: FAKE_APP_RESPONSE,
 };
 
+/**
+ * Per-test queue of installation-lookup return values. Each call shifts the
+ * next value off the queue; if the queue is empty, returns undefined.
+ */
+let lookupQueue: (number | undefined)[] = [];
+
+function makeLookup(): InstallationLookup {
+  return async () => {
+    const next = lookupQueue.shift();
+    return next;
+  };
+}
+
 function installGithubFetchMock(): void {
   originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: string | Request | URL, init?: RequestInit) => {
@@ -49,12 +63,6 @@ function installGithubFetchMock(): void {
       if (url.includes("/app-manifests/") && url.endsWith("/conversions")) {
         return new Response(JSON.stringify(manifestConversionResponse.body), {
           status: manifestConversionResponse.ok ? 200 : (manifestConversionResponse.status ?? 500),
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (url.endsWith("/app/installations")) {
-        return new Response("[]", {
-          status: 200,
           headers: { "Content-Type": "application/json" },
         });
       }
@@ -77,6 +85,7 @@ function installSpawnMock(): void {
 
 beforeEach(() => {
   manifestConversionResponse = { ok: true, body: FAKE_APP_RESPONSE };
+  lookupQueue = [];
   installGithubFetchMock();
   installSpawnMock();
 });
@@ -89,29 +98,92 @@ afterEach(async () => {
 });
 
 describe("ManifestFlowProvisioner", () => {
-  test("happy path: callback delivers credentials, server shuts down", async () => {
+  test("happy path (App pre-installed): callback resolves immediately with installationId", async () => {
+    // First lookup hits with an installation.
+    lookupQueue = [99999];
+
     const port = 19890;
-    const provisioner = new ManifestFlowProvisioner({ port, timeoutMs: 30_000 });
+    const provisioner = new ManifestFlowProvisioner({
+      port,
+      timeoutMs: 30_000,
+      installationLookup: makeLookup(),
+    });
     const promise = provisioner.provision(SAMPLE_SPEC);
 
-    // Give the server a moment to bind before we hit /callback.
     await new Promise((r) => setTimeout(r, 50));
     await fetch(`http://localhost:${port}/callback?code=abc123`);
 
     const creds = await promise;
     expect(creds.appId).toBe(FAKE_APP_RESPONSE.id);
-    expect(creds.slug).toBe(FAKE_APP_RESPONSE.slug);
-    expect(creds.clientId).toBe(FAKE_APP_RESPONSE.client_id);
-    expect(creds.pem).toBe(FAKE_APP_RESPONSE.pem);
+    expect(creds.installationId).toBe(99999);
+  });
+
+  test("two-phase: /callback returns install link, /check-install completes installationId capture", async () => {
+    // First lookup (during /callback) returns undefined; second (during /check-install) hits.
+    lookupQueue = [undefined, 88888];
+
+    const port = 19899;
+    const provisioner = new ManifestFlowProvisioner({
+      port,
+      timeoutMs: 30_000,
+      installationLookup: makeLookup(),
+    });
+    const promise = provisioner.provision(SAMPLE_SPEC);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const cbResp = await fetch(`http://localhost:${port}/callback?code=abc123`);
+    expect(cbResp.status).toBe(200);
+    const cbBody = await cbResp.text();
+    expect(cbBody).toContain("App Created!");
+    expect(cbBody).toContain("/check-install");
+
+    await new Promise((r) => setTimeout(r, 20));
+    const checkResp = await fetch(`http://localhost:${port}/check-install`);
+    expect(checkResp.status).toBe(200);
+
+    const creds = await promise;
+    expect(creds.appId).toBe(FAKE_APP_RESPONSE.id);
+    expect(creds.installationId).toBe(88888);
+  });
+
+  test("two-phase: /check-install before installation is set returns 404, eventual timeout", async () => {
+    // Both lookups (during /callback + /check-install) return undefined.
+    lookupQueue = [undefined, undefined];
+
+    const port = 19898;
+    const provisioner = new ManifestFlowProvisioner({
+      port,
+      timeoutMs: 200,
+      installationLookup: makeLookup(),
+    });
+    const promise = provisioner.provision(SAMPLE_SPEC);
+
+    await new Promise((r) => setTimeout(r, 50));
+    await fetch(`http://localhost:${port}/callback?code=abc123`);
+
+    const checkResp = await fetch(`http://localhost:${port}/check-install`);
+    expect(checkResp.status).toBe(404);
+
+    // Provisioner still pending; let it time out — App created but not installed.
+    await expect(promise).rejects.toThrow(/App was created but not installed in time/);
   });
 
   test("browser-cancel timeout fires BrowserCancelledError and shuts down server", async () => {
-    const provisioner = new ManifestFlowProvisioner({ port: 19891, timeoutMs: 100 });
+    const provisioner = new ManifestFlowProvisioner({
+      port: 19891,
+      timeoutMs: 100,
+      installationLookup: makeLookup(),
+    });
     await expect(provisioner.provision(SAMPLE_SPEC)).rejects.toBeInstanceOf(BrowserCancelledError);
   });
 
-  test("BrowserCancelledError message describes the failure clearly", async () => {
-    const provisioner = new ManifestFlowProvisioner({ port: 19892, timeoutMs: 80 });
+  test("BrowserCancelledError message describes the failure clearly when no callback arrives", async () => {
+    const provisioner = new ManifestFlowProvisioner({
+      port: 19892,
+      timeoutMs: 80,
+      installationLookup: makeLookup(),
+    });
     await expect(provisioner.provision(SAMPLE_SPEC)).rejects.toThrow(
       "App creation not approved in browser"
     );
@@ -125,12 +197,14 @@ describe("ManifestFlowProvisioner", () => {
     };
 
     const port = 19893;
-    const provisioner = new ManifestFlowProvisioner({ port, timeoutMs: 30_000 });
+    const provisioner = new ManifestFlowProvisioner({
+      port,
+      timeoutMs: 30_000,
+      installationLookup: makeLookup(),
+    });
     const promise = provisioner.provision(SAMPLE_SPEC);
 
     await new Promise((r) => setTimeout(r, 50));
-    // Don't await this fetch — its connection may be reset when the
-    // server stops on the error path. We only need to trigger the route.
     fetch(`http://localhost:${port}/callback?code=baddata`).catch(() => {
       /* connection reset is expected when server shuts down */
     });
