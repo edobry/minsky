@@ -475,6 +475,36 @@ describe("parsePriorBodyFindings", () => {
       },
     ]);
   });
+
+  test("accepts paths with parenthesized annotations (PR #922 R14)", () => {
+    // Real bot review bodies sometimes cite paths with bracketed labels:
+    // `docs/Guide (draft).md`, `examples/v1 (deprecated)/foo.ts`.
+    const body = [
+      "[NON-BLOCKING] docs/Guide (draft).md:12 — nit",
+      "[BLOCKING] examples/v1 (deprecated)/foo.ts:5 — bad",
+    ].join("\n");
+    const findings = parsePriorBodyFindings(body);
+    expect(findings).toHaveLength(2);
+    expect(findings[0]).toEqual({
+      file: "docs/Guide (draft).md",
+      severity: "NON-BLOCKING",
+      line: 12,
+    });
+    expect(findings[1]).toEqual({
+      file: "examples/v1 (deprecated)/foo.ts",
+      severity: "BLOCKING",
+      line: 5,
+    });
+  });
+
+  test("rejects bare-prose over-match (no parens, no path-like chars)", () => {
+    // Critical negative case: severity marker followed by English prose
+    // ending in a dash boundary must NOT be parsed as a finding. The path
+    // alt requires either path chars OR `(...)` continuation, so prose
+    // like "above are issues" cannot grow past the first word.
+    const body = "Conclusion: [BLOCKING] above are issues — see context";
+    expect(parsePriorBodyFindings(body)).toEqual([]);
+  });
 });
 
 describe("parsePriorReviewFindings", () => {
