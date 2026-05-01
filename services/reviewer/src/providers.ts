@@ -212,6 +212,170 @@ const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 ];
 
 /**
+ * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
+ * adapted to the OpenAI SDK's tool-shape. Used by the post-loop forced
+ * conclude_review pass (mt#1471) to constrain the model to emit conclude_review
+ * via tool_choice.
+ */
+const CONCLUDE_REVIEW_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
+  (t) => t.function.name === "conclude_review"
+);
+// Runtime guard rather than a module-load throw: if conclude_review is somehow
+// absent from OUTPUT_TOOL_DEFINITIONS (refactor slip), the rest of the reviewer
+// service still starts; only the post-loop forced pass is disabled, and
+// composition-side severity-derived event recovery (mt#1413) takes over.
+const CONCLUDE_REVIEW_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null =
+  CONCLUDE_REVIEW_RAW_DEF
+    ? {
+        type: "function" as const,
+        function: {
+          name: CONCLUDE_REVIEW_RAW_DEF.function.name,
+          description: CONCLUDE_REVIEW_RAW_DEF.function.description,
+          parameters: CONCLUDE_REVIEW_RAW_DEF.function.parameters as Record<string, unknown>,
+        },
+      }
+    : null;
+
+/** User message injected before the post-loop forced conclude_review pass. */
+const CONCLUDE_REVIEW_REMINDER_USER_MSG =
+  "Your review is incomplete. Emit conclude_review(event, summary) now as your final tool call.";
+
+/**
+ * Subset of the model invocation parameters preserved across the main loop and
+ * the post-loop forced pass. Typed explicitly so `client.chat.completions.create`
+ * sees `model` as a required field — `Record<string, unknown>` widens it away
+ * and trips the SDK's overload resolution under `tsc --noEmit`.
+ */
+interface ChatCreateBaseParams {
+  model: string;
+  max_completion_tokens: number;
+  reasoning_effort?: "low" | "medium" | "high";
+}
+
+/**
+ * Run a single forced conclude_review API call and, if it returns a parseable
+ * conclude_review tool call, append it to `accumulatedToolCalls`.
+ *
+ * Uses `tool_choice: { type: "function", function: { name: "conclude_review" } }`
+ * with only the conclude_review tool registered to force the model to emit
+ * exactly one conclude_review call. This eliminates the in-loop reminder's
+ * reliance on the model voluntarily complying.
+ *
+ * Conversation history is NOT mutated: a shallow-copied `forcedMessages` array
+ * (parent `messages` + optional exit turn + user reminder) is constructed and
+ * passed to the API. The caller's `messages` array is unaffected, which is
+ * verified by a dedicated regression test.
+ *
+ * @returns Token usage from the call plus whether a parseable conclude_review
+ *          was actually appended to accumulatedToolCalls.
+ */
+async function forceConcludeReview(
+  client: OpenAI,
+  baseParams: ChatCreateBaseParams,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
+  accumulatedToolCalls: ReviewToolCall[]
+): Promise<{
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  emitted: boolean;
+}> {
+  // Runtime guard: if the conclude_review tool definition is missing (refactor
+  // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
+  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted on
+  // stdout (via console.log) for parity with all other reviewer.* JSON events
+  // so log-pipeline ingestion picks it up; the `severity: "error"` field is
+  // available for dashboards/alerts that want to escalate it.
+  if (!CONCLUDE_REVIEW_TOOL_DEF) {
+    console.log(
+      JSON.stringify({
+        event: "reviewer.conclude_review_tool_def_missing",
+        provider: "openai",
+        severity: "error",
+      })
+    );
+    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+  }
+
+  // Build a shallow-copied messages array for the forced call so the parent
+  // `messages` array (shared with the main loop) isn't mutated by appending
+  // the exit turn or the user reminder. Avoids implicit coupling and removes
+  // the risk of the exit turn being double-pushed if a future caller already
+  // appended it.
+  const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...messages,
+    ...(exitMessage ? [exitMessage] : []),
+    { role: "user", content: CONCLUDE_REVIEW_REMINDER_USER_MSG },
+  ];
+
+  const response = await client.chat.completions.create({
+    ...baseParams,
+    messages: forcedMessages,
+    tools: [CONCLUDE_REVIEW_TOOL_DEF],
+    // Reference the extracted tool def's name so the constraint stays in
+    // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
+    // renamed there, this call updates automatically.
+    tool_choice: {
+      type: "function",
+      function: { name: CONCLUDE_REVIEW_TOOL_DEF.function.name },
+    },
+  });
+
+  const usage = response.usage;
+  const tokenUsage = {
+    promptTokens: usage?.prompt_tokens ?? 0,
+    completionTokens: usage?.completion_tokens ?? 0,
+    reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+  };
+
+  const message = response.choices[0]?.message;
+  const rawToolCalls = message?.tool_calls;
+  if (!rawToolCalls || rawToolCalls.length === 0) {
+    return { ...tokenUsage, emitted: false };
+  }
+
+  // Parse the (forced) conclude_review tool call. Only the first one wins.
+  for (const toolCall of rawToolCalls) {
+    if (toolCall.function.name !== "conclude_review") continue;
+    try {
+      const parsed = parseToolCall("conclude_review", toolCall.function.arguments);
+      accumulatedToolCalls.push(parsed);
+      // Observability parity with main-loop output tool calls: emit the same
+      // shape so downstream metrics tracking `reviewer.output_tool_call`
+      // counts include the forced-path conclude_review emission.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.output_tool_call",
+          provider: "openai",
+          tool: "conclude_review",
+          count: accumulatedToolCalls.length,
+        })
+      );
+      return { ...tokenUsage, emitted: true };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(
+        JSON.stringify({
+          event: "reviewer.output_tool_call_parse_error",
+          provider: "openai",
+          tool: "conclude_review",
+          phase: "post_loop_forced",
+          error: errMsg,
+        })
+      );
+      // Malformed forced call: do not append. Composition-side severity-derived
+      // event recovery (mt#1413) handles the absent-conclude_review case.
+      return { ...tokenUsage, emitted: false };
+    }
+  }
+
+  // Forced call returned tool calls but none was conclude_review (shouldn't
+  // happen with tool_choice constraint, but defensive).
+  return { ...tokenUsage, emitted: false };
+}
+
+/**
  * Internal implementation of the OpenAI provider, split out so tests can
  * inject a fake client without module mocking (no-global-module-mocks rule).
  * Exported for tests only — production code should call callOpenAI.
@@ -287,6 +451,39 @@ export async function callOpenAIWithClient(
   /** Accumulated output tool calls parsed during the loop. */
   const accumulatedToolCalls: ReviewToolCall[] = [];
 
+  /**
+   * Text content from the round in which the model exited the tool-use loop
+   * (i.e., the round on which `rawToolCalls.length === 0`). Used as the
+   * `text` field in the final ReviewOutput.
+   *
+   * - Set inside the loop when the model voluntarily stops emitting tool calls.
+   * - On the last round (MAX_TOOL_ROUNDS - 1), tools are not passed and the
+   *   model is forced to text-only; we set this to the model's text or, if
+   *   absent, the [TOOL CAP REACHED] sentinel.
+   * - Stays null only if the loop ran zero iterations (impossible) or we
+   *   somehow fell through without entering the no-tool-calls branch.
+   */
+  let exitText: string | null = null;
+
+  /**
+   * The assistant message that ended the loop (the no-tool-calls turn).
+   * Held so the post-loop forced conclude_review pass (mt#1471) can append it
+   * to the conversation history before the user reminder.
+   */
+  let exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null = null;
+
+  /**
+   * The most recent non-empty assistant text observed across any round. Used
+   * as a fallback for `text` when the exit turn has empty content but a
+   * prior round produced narrative text. Avoids surfacing the misleading
+   * [TOOL CAP REACHED] sentinel for non-last-round early exits with empty
+   * content (mt#1471 PR #915 round-2 finding).
+   */
+  let lastNonEmptyAssistantText: string | null = null;
+
+  /** How many rounds the main loop actually ran (1-indexed for logging). */
+  let totalRoundsUsed = 0;
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
@@ -296,6 +493,8 @@ export async function callOpenAIWithClient(
       // On the last round, force the model to respond with text only.
       ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
     });
+
+    totalRoundsUsed = round + 1;
 
     const usage = response.usage;
     if (usage) {
@@ -307,29 +506,41 @@ export async function callOpenAIWithClient(
     const message = response.choices[0]?.message;
     if (!message) break;
 
+    // Track the most recent non-empty assistant text across the entire loop
+    // (including tool-call rounds). Used as fallback for `result.text` if
+    // the exit turn happens to have empty content.
+    if (typeof message.content === "string" && message.content.length > 0) {
+      lastNonEmptyAssistantText = message.content;
+    }
+
     const rawToolCalls = message.tool_calls;
 
-    // No tool calls: model is done — return the text response.
+    // No tool calls: the model is done emitting tool calls — capture exit
+    // state and break. Any missing conclude_review is handled after the loop
+    // by `forceConcludeReview` (see mt#1471).
     if (!rawToolCalls || rawToolCalls.length === 0) {
-      const text =
-        message.content ??
-        (isLastRound
-          ? "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit. The review above may be incomplete. Manual review is recommended."
-          : "");
-      const totalTokens = totalPromptTokens + totalCompletionTokens;
-      return {
-        text,
-        tokensUsed: totalTokens,
-        usage: {
-          promptTokens: totalPromptTokens,
-          completionTokens: totalCompletionTokens,
-          reasoningTokens: totalReasoningTokens,
-          totalTokens,
-        },
-        provider: "openai",
-        model,
-        toolCalls: accumulatedToolCalls,
-      };
+      exitMessage = message;
+      // Resolve `text` field with the following priority:
+      //   1. This turn's non-empty content (current model output).
+      //   2. Any earlier round's non-empty assistant content.
+      //   3. [TOOL CAP REACHED] sentinel — only on the last round, when the
+      //      round budget genuinely was exhausted.
+      //   4. Neutral "no final summary provided" notice for early empty
+      //      exits — avoids the UX lie of saying "tool cap reached" when
+      //      the cap wasn't actually hit (mt#1471 PR #915 round-2 finding).
+      const exitContent =
+        typeof message.content === "string" && message.content.length > 0 ? message.content : null;
+      if (exitContent !== null) {
+        exitText = exitContent;
+      } else if (lastNonEmptyAssistantText !== null) {
+        exitText = lastNonEmptyAssistantText;
+      } else if (isLastRound) {
+        exitText =
+          "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit. The review above may be incomplete. Manual review is recommended.";
+      } else {
+        exitText = "[REVIEWER NOTE] No final summary provided.";
+      }
+      break;
     }
 
     // Append the assistant message with tool calls to the conversation.
@@ -401,11 +612,64 @@ export async function callOpenAIWithClient(
     }
   }
 
-  // Should not reach here in practice — the loop always returns inside — but
-  // handle it defensively.
+  // Post-loop forced conclude_review pass (mt#1471).
+  //
+  // The main loop has exited. If the model emitted output tool calls (findings,
+  // inline comments, or spec verifications) but did NOT emit conclude_review,
+  // run one more API call with `tool_choice` constrained to conclude_review.
+  // This is the structural fix for the 1/15 production emission rate of
+  // mt#1450's in-loop reminder: the post-loop pass is decoupled from the
+  // round budget and uses tool_choice to force compliance.
+  //
+  // Composition-side severity-derived event recovery (mt#1413) remains the
+  // safety net if the forced pass fails to emit a parseable conclude_review.
+  const hasConcludeReview = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
+  const hasEmittedOutputCalls = accumulatedToolCalls.length > 0;
+  if (!hasConcludeReview && hasEmittedOutputCalls) {
+    try {
+      const forced = await forceConcludeReview(
+        client,
+        baseParams,
+        messages,
+        exitMessage,
+        accumulatedToolCalls
+      );
+      totalPromptTokens += forced.promptTokens;
+      totalCompletionTokens += forced.completionTokens;
+      totalReasoningTokens += forced.reasoningTokens;
+
+      console.log(
+        JSON.stringify({
+          event: "reviewer.conclude_review_reminder",
+          provider: "openai",
+          mode: "post_loop_forced",
+          fired_at_turn: totalRoundsUsed,
+          reminder_count: 1,
+          finally_emitted: forced.emitted,
+        })
+      );
+    } catch (err: unknown) {
+      // API error (network, rate limit, etc.) on the forced call. Log and
+      // fall through; composition-side recovery handles the missing event.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.conclude_review_reminder",
+          provider: "openai",
+          mode: "post_loop_forced",
+          fired_at_turn: totalRoundsUsed,
+          reminder_count: 1,
+          finally_emitted: false,
+          error: err instanceof Error ? err.message : String(err),
+        })
+      );
+    }
+  }
+
   const totalTokens = totalPromptTokens + totalCompletionTokens;
   return {
-    text: "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit without producing a final response. Manual review is recommended.",
+    text:
+      exitText ??
+      "[TOOL CAP REACHED] The reviewer hit the 10-iteration tool-use limit without producing a final response. Manual review is recommended.",
     tokensUsed: totalTokens,
     usage: {
       promptTokens: totalPromptTokens,

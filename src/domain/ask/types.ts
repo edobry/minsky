@@ -137,15 +137,35 @@ export interface AttentionCost {
   transport: TransportKind;
 
   /** How the Ask was ultimately resolved. */
-  resolvedIn: "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
+  resolvedIn:
+    | "policy"
+    | "subagent"
+    | "retriever"
+    | "inbox"
+    | "mesh"
+    | "agui"
+    | "elicitation"
+    | "timeout";
 }
 
 /**
  * Transport kinds that can carry an Ask to its resolver.
  *
  * Derived from the transport-binding matrix in ADR-008.
+ *
+ * `"elicitation"` (mt#1457) is the capability-aware transport for sync ask
+ * kinds when the active MCP client advertises elicitation support — the
+ * router prefers it over the static kind→inbox fallback for sync kinds.
  */
-export type TransportKind = "policy" | "subagent" | "inbox" | "mesh" | "agui" | "timeout";
+export type TransportKind =
+  | "policy"
+  | "subagent"
+  | "retriever"
+  | "inbox"
+  | "mesh"
+  | "agui"
+  | "elicitation"
+  | "timeout";
 
 /**
  * The Ask entity — the unified domain type for all HITL mechanisms.
@@ -282,6 +302,58 @@ export interface Ask {
     /** Attention cost, computed and written when the Ask closes. */
     attentionCost?: AttentionCost;
   };
+
+  // -------------------------------------------------------------------------
+  // Service-window fields (mt#1411 spine — mt#1488)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Routing strategy for the service-window primitive.
+   *
+   * - `"asap"` (default when absent) — route immediately, no window check.
+   * - `"scheduled"` — route only during the named `windowKey` window.
+   * - `"deadline-bound"` — route immediately but escalate as deadline nears.
+   *
+   * When absent, the router behaves as if the value were `"asap"`.
+   * Per-kind defaults are applied by `asks.create` via the
+   * `service-window-defaults` module; explicit requestor values override.
+   */
+  serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+
+  /**
+   * Named service window this Ask targets (e.g. `"ask-hours"`).
+   *
+   * Only meaningful when `serviceStrategy` is `"scheduled"`. The router
+   * (mt#1490) will look up window configuration by this key and defer the
+   * Ask until the window opens. Absent when strategy is `"asap"` or
+   * `"deadline-bound"`.
+   */
+  windowKey?: string;
+
+  /**
+   * How many scheduled windows this Ask has already missed.
+   *
+   * Incremented by the reaper (mt#1490) each time the window opens and
+   * the Ask is still pending. Used to decide when to escalate beyond the
+   * scheduled window. Defaults to `0` when absent.
+   */
+  windowMissedCount?: number;
+
+  /**
+   * When `true`, bypass the service-window check and route immediately.
+   *
+   * Intended for critical-path unblocking where waiting for the next
+   * scheduled window would cause unacceptable delay. Stored as a top-level
+   * field (not metadata) because four downstream consumers cross the
+   * typed-contract threshold: Router, mt#1035 noticer, Cockpit render,
+   * and per-kind defaults logic.
+   *
+   * NOTE: mt#1035 noticer anti-pattern guard (flag to operator when this
+   * is used too frequently) is tracked as a TODO for mt#1490.
+   *
+   * Defaults to `false` when absent.
+   */
+  forceImmediate?: boolean;
 
   // -------------------------------------------------------------------------
   // Extensibility

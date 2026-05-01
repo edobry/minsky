@@ -20,6 +20,7 @@ import type { WorkspaceUtilsInterface } from "../domain/workspace";
 import type { RepositoryBackendType } from "../domain/repository";
 import type { TaskGraphService } from "../domain/tasks/task-graph-service";
 import type { TaskRoutingService } from "../domain/tasks/task-routing-service";
+import type { ClientCapabilityRegistry } from "../mcp/client-capabilities";
 
 /**
  * The complete set of services managed by the DI container.
@@ -60,6 +61,14 @@ export interface AppServices {
 
   /** Task routing and availability scoring. */
   taskRoutingService: TaskRoutingService;
+
+  /**
+   * MCP client capability registry — surfaces the active client's advertised
+   * capabilities (e.g., `elicitation`) to the Ask router. Defaults to a no-op
+   * registry when no MCP host is attached. Replaced at the MCP composition
+   * root by the per-connection-aware `MCPClientCapabilityRegistry` (mt#1457).
+   */
+  clientCapabilityRegistry: ClientCapabilityRegistry;
 }
 
 /** A service key — one of the keys of AppServices. */

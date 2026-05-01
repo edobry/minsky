@@ -17,6 +17,7 @@ import type { IngestAllResult } from "./agent-transcript-ingest-service";
 
 const SESSION_A = "aaaaaaaa-0000-0000-0000-000000000001";
 const SESSION_B = "bbbbbbbb-0000-0000-0000-000000000002";
+const SESSION_C = "cccccccc-0000-0000-0000-000000000003";
 const TS1 = "2026-01-01T10:00:00.000Z";
 const TS2 = "2026-01-01T11:00:00.000Z";
 const TS3 = "2026-01-01T12:00:00.000Z";
@@ -243,9 +244,10 @@ describe("AgentTranscriptIngestService", () => {
       db._primeSession(SESSION_A);
 
       const svc = makeSvc(db, source);
-      const count = await svc.ingestSession(makeDiscovered(SESSION_A));
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
 
-      expect(count).toBe(2);
+      expect(result.ingested).toBe(2);
+      expect(result.error).toBeUndefined();
       const row = state.get(SESSION_A);
       expect(row).toBeDefined();
       expect((row?.transcript as RawTurnLine[]).length).toBe(2);
@@ -259,9 +261,10 @@ describe("AgentTranscriptIngestService", () => {
       db._primeSession(SESSION_A);
 
       const svc = makeSvc(db, source);
-      const count = await svc.ingestSession(makeDiscovered(SESSION_A));
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
 
-      expect(count).toBe(0);
+      expect(result.ingested).toBe(0);
+      expect(result.error).toBeUndefined();
       expect(state.size).toBe(0);
     });
 
@@ -277,9 +280,10 @@ describe("AgentTranscriptIngestService", () => {
       db._primeSession(SESSION_A);
 
       const svc = makeSvc(db, source);
-      const count = await svc.ingestSession(makeDiscovered(SESSION_A));
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
 
-      expect(count).toBe(0);
+      expect(result.ingested).toBe(0);
+      expect(result.error).toBeUndefined();
       expect(state.size).toBe(0);
     });
 
@@ -320,10 +324,11 @@ describe("AgentTranscriptIngestService", () => {
       db._primeSession(SESSION_A);
 
       const svc = makeSvc(db, source);
-      const count = await svc.ingestSession(makeDiscovered(SESSION_A));
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
 
       // Only TS3 should be new.
-      expect(count).toBe(1);
+      expect(result.ingested).toBe(1);
+      expect(result.error).toBeUndefined();
 
       const row = state.get(SESSION_A);
       // Updated HWM should be TS3.
@@ -350,9 +355,10 @@ describe("AgentTranscriptIngestService", () => {
       db._primeSession(SESSION_A);
 
       const svc = makeSvc(db, source);
-      const count = await svc.ingestSession(makeDiscovered(SESSION_A));
+      const result = await svc.ingestSession(makeDiscovered(SESSION_A));
 
-      expect(count).toBe(0);
+      expect(result.ingested).toBe(0);
+      expect(result.error).toBeUndefined();
     });
   });
 
@@ -374,7 +380,7 @@ describe("AgentTranscriptIngestService", () => {
       expect(result.totalIngested).toBe(3); // TS1+TS2 from A, TS3 from B
     });
 
-    test("a session DB error does not abort the sweep", async () => {
+    test("a session DB error is counted via the typed result and does not abort the sweep", async () => {
       const source = new FakeTranscriptSource();
       source.addSession(SESSION_A, makeLines([TS1]));
       source.addSession(SESSION_B, makeLines([TS2]));
@@ -405,11 +411,75 @@ describe("AgentTranscriptIngestService", () => {
       const result: IngestAllResult = await svc.ingestAll();
 
       expect(result.sessionsProcessed).toBe(2);
-      // Both sessions attempted; one errored at the DB layer but was caught by ingestSession.
-      // sessionsErrored counts ingestSession throws — the DB error is swallowed inside ingestSession.
-      expect(result.sessionsErrored).toBe(0);
-      // At least one session succeeded.
-      expect(result.totalIngested).toBeGreaterThanOrEqual(0);
+      // mt#1444: ingestSession now returns { ingested, error? } so the swallowed
+      // upsert failure surfaces and is counted in sessionsErrored honestly.
+      expect(result.sessionsErrored).toBe(1);
+      // The other session succeeded.
+      expect(result.totalIngested).toBe(1);
+    });
+
+    test("upsert failure increments sessionsErrored for that session", async () => {
+      // mt#1444 acceptance test (variant): one session in three errors at upsert;
+      // sessionsErrored counts exactly one even though the sweep doesn't abort.
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1]));
+      source.addSession(SESSION_B, makeLines([TS2]));
+      source.addSession(SESSION_C, makeLines([TS3]));
+
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+
+      // Throw on the second upsert (session B), let A and C succeed.
+      let upsertCount = 0;
+      const origInsert = db.insert.bind(db);
+      (db as Record<string, unknown>).insert = (_table: unknown) => ({
+        values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
+          const realChain = origInsert(_table).values(values);
+          return {
+            then: realChain.then.bind(realChain),
+            onConflictDoUpdate: (opts: unknown): Promise<void> => {
+              upsertCount++;
+              if (upsertCount === 2) return Promise.reject(new Error("simulated DB error"));
+              return realChain.onConflictDoUpdate(opts);
+            },
+          };
+        },
+      });
+
+      const svc = makeSvc(db, source);
+      const result: IngestAllResult = await svc.ingestAll();
+
+      expect(result.sessionsProcessed).toBe(3);
+      expect(result.sessionsErrored).toBe(1);
+      expect(result.totalIngested).toBe(2); // A and C succeeded, B failed
+    });
+
+    test("HWM-read failure is surfaced via the typed result and counted", async () => {
+      // mt#1444 acceptance test: HWM-read failure on one session counts in
+      // sessionsErrored even though ingestSession recovers and proceeds.
+      const source = new FakeTranscriptSource();
+      source.addSession(SESSION_A, makeLines([TS1]));
+
+      const state = new Map<string, FakeRow>();
+      const db = makeDb(state);
+      // Override the HWM select to throw.
+      (db as Record<string, unknown>).select = () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.reject(new Error("simulated HWM-read failure")),
+          }),
+        }),
+      });
+
+      const svc = makeSvc(db, source);
+      const result: IngestAllResult = await svc.ingestAll();
+
+      expect(result.sessionsProcessed).toBe(1);
+      // HWM-read failure surfaces in result.error even when the recovery path
+      // proceeded with null and the upsert succeeded — a recovered-from HWM
+      // error is a degraded state worth counting (without HWM, the next ingest
+      // would re-collect already-ingested lines).
+      expect(result.sessionsErrored).toBe(1);
     });
 
     test("sweep over empty source returns zero counts", async () => {

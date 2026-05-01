@@ -16,8 +16,9 @@
  * Reference: docs/architecture/adr-008-attention-allocation-subsystem.md
  */
 
-import type { AgentId, AttentionCost } from "../types";
+import type { AgentId } from "../types";
 import type { RoutedAsk, AskPayload, TransportBinding } from "../router";
+import { buildAttentionCost } from "../accounting/index";
 
 // ---------------------------------------------------------------------------
 // SubagentDispatcher interface (DI seam)
@@ -177,9 +178,10 @@ export interface SubagentTransportOptions {
  * Timeout is enforced via `Promise.race` + `AbortController`-style
  * rejection. The timeout is per-invocation, not per-chain.
  *
- * Attention cost: populates `response.payload.attentionCost` with the
- * subagent's token cost (when available) and `resolvedIn: "subagent"`.
- * Operator cost is NOT recorded — the operator was never reached in v1.
+ * Attention cost: populates `response.attentionCost` using the accounting
+ * module's buildAttentionCost with the subagent's responderId (or "subagent"
+ * fallback) and token cost. operatorCost is intentionally absent — the
+ * operator was never reached in v1.
  */
 export async function dispatchToSubagent(
   routedAsk: RoutedAsk,
@@ -346,40 +348,12 @@ function buildPrompt(routedAsk: RoutedAsk): string {
 }
 
 /**
- * Classify token cost into an ordinal bucket for the response payload.
- *
- * Pure token-cost classification — does NOT represent operator cognitive
- * load (per ADR-008, `operatorCost` is only present when the ask was
- * escalated to a human; this transport never reaches the operator at v1).
- *
- * "quick" < 2 000 tokens; "medium" < 10 000; "deep" otherwise.
- * If tokenCost is absent, default to "medium" (unknown).
- */
-function classifyTokenCostOrdinal(tokenCost: number | undefined): "quick" | "medium" | "deep" {
-  if (tokenCost === undefined) return "medium";
-  if (tokenCost < 2_000) return "quick";
-  if (tokenCost < 10_000) return "medium";
-  return "deep";
-}
-
-/**
- * Build attention cost metadata for a subagent-resolved Ask.
- *
- * `operatorCost` is intentionally absent — operator was never reached on
- * this transport at v1. Per ADR-008 §Attention accounting, `operatorCost`
- * is "Present when the ask was escalated to a human"; populating it from
- * a token-count threshold would be a category error.
- */
-function buildAttentionCost(subagentResponse: SubagentResponse): AttentionCost {
-  return {
-    tokenCost: subagentResponse.tokenCost,
-    transport: "subagent",
-    resolvedIn: "subagent",
-  };
-}
-
-/**
  * Package a successful subagent response into a SubagentClosedAsk.
+ *
+ * Uses the accounting module's buildAttentionCost with the subagent's
+ * responderId (or "subagent" fallback) so there is one source of truth
+ * for the transport/resolvedIn mapping. operatorCost is intentionally
+ * absent — the operator was never reached on this transport at v1.
  */
 function buildSuccessClose(
   routedAsk: RoutedAsk,
@@ -396,11 +370,17 @@ function buildSuccessClose(
     contextRefs: routedAsk.contextRefs,
   };
 
-  const attentionCost = buildAttentionCost(subagentResponse);
-  const tokenOrdinal = classifyTokenCostOrdinal(subagentResponse.tokenCost);
-
+  // Use responderId if available (may be "agui:foo", "mesh:foo", etc.);
+  // fall back to "subagent" for anonymous dispatches.
   const responder: AgentId | "operator" | "policy" | "timeout" =
     subagentResponse.responderId ?? "subagent";
+
+  // Delegate to the accounting module — one source of truth for transport mapping.
+  // operatorCost is omitted: per ADR-008, it is only present when escalated to a human.
+  const attentionCost = buildAttentionCost({
+    responder,
+    tokenCost: subagentResponse.tokenCost,
+  });
 
   return {
     ...routedAsk,
@@ -414,10 +394,6 @@ function buildSuccessClose(
       responder,
       payload: {
         text: subagentResponse.text,
-        attentionCost: {
-          tokenCost: subagentResponse.tokenCost,
-          kind: tokenOrdinal,
-        },
       },
       attentionCost,
     },
@@ -430,6 +406,9 @@ function buildSuccessClose(
  * The Ask is still "closed" — it is terminal. The error is in the
  * response payload so the caller can inspect it and decide whether to
  * escalate further (e.g., retry with a different transport).
+ *
+ * For error closes, the responder is "timeout" (the invocation timed out
+ * or failed), and attentionCost reflects that via the accounting module.
  */
 function buildErrorClose(routedAsk: RoutedAsk, stepName: string, err: unknown): SubagentClosedAsk {
   const now = new Date().toISOString();
@@ -444,6 +423,10 @@ function buildErrorClose(routedAsk: RoutedAsk, stepName: string, err: unknown): 
     contextRefs: routedAsk.contextRefs,
   };
 
+  // Error close: responder is "timeout" (chain failed without a human reaching it).
+  // The accounting module maps "timeout" → { transport: "timeout", resolvedIn: "timeout" }.
+  const attentionCost = buildAttentionCost({ responder: "timeout" });
+
   return {
     ...routedAsk,
     state: "closed",
@@ -457,15 +440,8 @@ function buildErrorClose(routedAsk: RoutedAsk, stepName: string, err: unknown): 
       payload: {
         error: `${stepName} failed; chain extension blocked on mt#1001/mt#454`,
         errorDetail: errorMessage,
-        attentionCost: {
-          tokenCost: undefined,
-          kind: "medium" as const,
-        },
       },
-      attentionCost: {
-        transport: "subagent",
-        resolvedIn: "timeout",
-      },
+      attentionCost,
     },
   };
 }

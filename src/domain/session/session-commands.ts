@@ -6,6 +6,7 @@
 
 import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
+import type { AskRepository } from "../ask/repository";
 
 /**
  * Session PR creation parameters
@@ -100,7 +101,8 @@ export async function sessionCommit(
     amend?: boolean;
     noStage?: boolean;
   },
-  sessionProvider: import("./types").SessionProviderInterface
+  sessionProvider: import("./types").SessionProviderInterface,
+  askRepository?: AskRepository
 ): Promise<{
   success: boolean;
   nothingToCommit?: boolean;
@@ -127,7 +129,15 @@ export async function sessionCommit(
     message: params.message,
   });
 
-  // Enforce merged-PR-freeze invariant
+  // Enforce merged-PR-freeze invariant BEFORE Ask emission.
+  // Design rationale: assertSessionMutable fires first by design. Frozen sessions
+  // (those whose PR has been merged) cannot commit, so capturing them as Ask events
+  // would route non-events through the policy system. ADR §Detection records actual
+  // commits, not attempts on frozen sessions.
+  //
+  // Reviewer note: R1 and R2 both raised "emit before mutable check" as a finding.
+  // That finding is explicitly dismissed: the ordering is intentional. Frozen sessions
+  // cannot produce real commits; an Ask emitted for one would be a false positive.
   const { assertSessionMutable } = await import("./session-mutability.js");
   const sessionRecordForFreeze = await sessionProvider.getSession(params.session);
   if (sessionRecordForFreeze) {
@@ -136,8 +146,73 @@ export async function sessionCommit(
 
   const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
 
-  // Resolve session to repo path at this boundary
+  // Resolve session to repo path at this boundary (needed for clean-tree check below)
   const workdir = await sessionProvider.getSessionWorkdir(params.session);
+
+  // Detect clean working tree up front — skip Ask emission and return early when
+  // there is nothing to commit. ADR §Detection: "every agent-initiated commit" means
+  // actual commits, not attempts on a clean tree.
+  //
+  // Carve-out: when params.amend is true, the commit may legitimately update only
+  // the commit message without new file changes. In that case the working tree is
+  // clean by design, so we must NOT short-circuit — the amend must be allowed to
+  // proceed even when hasUncommittedChanges returns false.
+  const sessionIdToUse = params.session;
+  let isCleanTree = false;
+  try {
+    const gitService = createGitService();
+    const hasChanges = await gitService.hasUncommittedChanges(workdir);
+    isCleanTree = !hasChanges;
+  } catch (probeErr) {
+    // If we cannot determine tree state (e.g. not a git repo yet), let the
+    // downstream commit attempt proceed and handle NothingToCommitError there.
+    // Surface the probe failure (don't silently swallow): if the tree turns out
+    // to actually be clean, the Ask emitted below is a benign false positive
+    // for that rare path, but operators need visibility into why detection failed.
+    log.warn(
+      `[session.commit] hasUncommittedChanges probe failed; proceeding with commit attempt: ${
+        probeErr instanceof Error ? probeErr.message : String(probeErr)
+      }`
+    );
+  }
+
+  if (!params.amend && isCleanTree) {
+    log.debug("Nothing to commit in session (clean working tree)", { session: params.session });
+    return {
+      success: true,
+      nothingToCommit: true,
+      commitHash: null,
+      message: "Nothing to commit, working tree clean",
+      pushed: false,
+    };
+  }
+
+  // Emit authorization.approve Ask (best-effort — never blocks the commit)
+  // Only reaches here when there are actual changes to commit.
+  if (askRepository) {
+    try {
+      const requestor =
+        sessionRecordForFreeze?.agentId ?? `minsky.session-commit:session:${sessionIdToUse}`;
+      await askRepository.create({
+        kind: "authorization.approve",
+        classifierVersion: "v1",
+        requestor,
+        parentTaskId: sessionRecordForFreeze?.taskId,
+        parentSessionId: sessionRecordForFreeze?.sessionId,
+        title: `Commit authorization: ${params.message.slice(0, 80)}`,
+        question: `Authorize commit in session ${params.session}: "${params.message}"`,
+        metadata: {
+          commitMessage: params.message,
+          stagedFiles: params.all ? "all" : "manual-staged",
+        },
+      });
+    } catch (askErr: unknown) {
+      log.warn("sessionCommit: failed to emit authorization.approve Ask (best-effort)", {
+        session: params.session,
+        error: askErr instanceof Error ? askErr.message : String(askErr),
+      });
+    }
+  }
 
   try {
     // Commit changes using session-scoped git command

@@ -52,7 +52,7 @@ If in scope:
    - Strip request/response headers beyond Authorization that may carry sensitive identifiers (`Set-Cookie`, `X-Amzn-Trace-Id`, internal trace headers).
    - Strip raw response bodies that may contain stack traces, config fragments, or PII — paste structural assertions only (`status=200, mcp-session-id present`) rather than full response bodies.
    - When in doubt, paste a clearly-attributed summary instead of raw output.
-5. **Paste into the PR body** under a `## Test plan` or `## Live verification` section. The reader should be able to see the script ran, what it asserted, and that no defect was found — without seeing any secrets.
+5. **Paste into the PR body** under a `## Test Plan` or `## Live verification` section. The reader should be able to see the script ran, what it asserted, and that no defect was found — without seeing any secrets.
 
 **Override exceptions** (any of the following — document in the PR body which applies):
 
@@ -66,6 +66,59 @@ If in scope:
 This is a checklist item, not a hard gate. The override exceptions exist for legitimate cases. The failure mode this guards against is "the code looks right but the live system disagrees" — and the cost of a five-hour post-merge discovery is much higher than the cost of one extra `bun scripts/...` invocation per PR.
 
 **Reviewer-side**: when reviewing a PR that touches a verify/probe/smoke script, confirm the PR body either contains the redacted live output OR a documented override exception. If neither is present, request the live-run output before approving.
+
+### 1b. Run new test files before opening the PR
+
+This step fires unconditionally as part of every /prepare-pr invocation — it is not conditional on the agent remembering to check.
+
+**Does this PR add any new test files?** Scan the diff for files matching `*.{test,spec}.{ts,mts,cts}`, `*.integration.test.{ts,mts,cts}` that are newly created (not just modified).
+
+> Note: the repo currently uses only `.ts` extensions for tests. If `.mts`/`.cts` variants are adopted, also update the merge-time hook (mt#1459) in lockstep.
+
+**Background:** Tests and probes are behavior-detecting artifacts whose correctness cannot be verified by code-shape alone. A test file that exists but was never run before merge may have wrong assertions, import errors, or setup that silently skips all cases. This is a recurring failure mode — see memory entry `feedback_behavior_detecting_artifacts_need_execution_evidence`. The merge-time hook (mt#1459) enforces the `[unverified-tests]` escape hatch at merge; this step is the earlier, lower-cost enforcement at PR-open time.
+
+**If new test files are present:**
+
+1.  Run the new test files against their intended target. Choose the right invocation for the file type:
+
+    For unit tests (`*.test.ts`, `*.spec.ts`):
+
+        bun test --preload ./tests/setup.ts --timeout=15000 <path-to-new-test-file>
+
+    For integration tests (`*.integration.test.ts`):
+
+        RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000 <path-to-new-test-file>
+
+    When in doubt, check `package.json` scripts — the `test:integration` script shows the canonical invocation.
+
+2.  Capture the full output (pass/fail counts, any errors).
+3.  Paste the output (or a clear summary) into the PR body's **Test Plan** section under an `Execution evidence:` heading. Example (passing run):
+
+    **Test Plan**
+
+    Execution evidence:
+
+        bun test src/domain/new-feature.test.ts
+        5 pass, 0 fail
+
+    If tests fail, paste the failing output instead — do not hide failures behind a summary. Example (failing run):
+
+        bun test src/domain/new-feature.test.ts
+        ✗ should handle edge case [src/domain/new-feature.test.ts:42]
+          AssertionError: expected "actual" to equal "expected"
+        4 pass, 1 fail
+        exit code: 1
+
+    Note: redact absolute paths in failure output if they leak system info (e.g., replace `/Users/yourname/...` with `<project-root>/...`).
+
+**If you cannot run them** (no infra access, requires user credentials not available in this context, or external service not reachable):
+
+1. Include `[unverified-tests]` in your input title — e.g., `[unverified-tests] Add session liveness tests`. The tool will prepend the conventional-commit prefix, so the rendered GitHub title becomes `feat(mt#X): [unverified-tests] Add session liveness tests`; the tag appears mid-title, not at position 0. The merge-time hook (mt#1459) detects the tag anywhere in the title, so position does not matter.
+2. Add a TODO in the PR body identifying the specific gap: which test file(s) could not be run and why.
+
+The `[unverified-tests]` tag is detected anywhere in the visible PR title by the merge-time PreToolUse hook (mt#1459), which will block merge until the tag is removed or a maintainer explicitly clears it. Making the convention legible here ensures the agent opening the PR and the hook guarding the merge share the same signal.
+
+**Reviewer-side:** when reviewing a PR that adds new test files, confirm the PR body either contains `Execution evidence:` output OR the PR title carries `[unverified-tests]` with a documented reason. If neither is present, request the evidence before approving.
 
 ### 2. Commit all changes
 

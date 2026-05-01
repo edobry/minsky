@@ -32,6 +32,7 @@ const KIND_CAPABILITY_ESCALATE: Ask["kind"] = "capability.escalate";
 const KIND_STUCK_UNBLOCK: Ask["kind"] = "stuck.unblock";
 const KIND_COORD_NOTIFY: Ask["kind"] = "coordination.notify";
 const KIND_QUALITY_REVIEW: Ask["kind"] = "quality.review";
+const KIND_INFO_RETRIEVE: Ask["kind"] = "information.retrieve";
 
 // ---------------------------------------------------------------------------
 // Fixture helpers
@@ -176,6 +177,15 @@ describe("policyFirstRoute", () => {
       expect(result.transport.kind).toBe("inbox");
     });
 
+    it("routes an information.retrieve Ask to retriever transport", async () => {
+      const ask = makeAsk(KIND_INFO_RETRIEVE, "Fetch the prior migration artifact");
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+
+      expect(result.state).toBe("routed");
+      expect(result.routingTarget).toBe("retriever");
+      expect(result.transport.kind).toBe("retriever");
+    });
+
     it("sets routedAt on routed asks", async () => {
       const ask = makeAsk(KIND_DIR_DECIDE, "Pick deployment strategy");
       const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
@@ -228,6 +238,126 @@ The following steps are permitted: approve and run the CI test suite at any time
 
       expect(result.state).toBe("closed");
       expect(result.packagedPayload.citation?.source).toBe("task-spec");
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#1457 — capability-aware routing
+  // -------------------------------------------------------------------------
+
+  describe("capability-aware routing (mt#1457)", () => {
+    /** Stub registry that lets tests toggle the capability state. */
+    function makeRegistry(hasElicitation: boolean) {
+      return {
+        hasElicitation: () => hasElicitation,
+        activeElicitationServer: () => null,
+      };
+    }
+
+    const QUESTION_ARCH_CHOICE = "Architectural choice";
+
+    it("direction.decide routes to elicitation when registry reports hasElicitation=true", async () => {
+      const ask = makeAsk(KIND_DIR_DECIDE, QUESTION_ARCH_CHOICE);
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      expect(result.state).toBe("routed");
+      expect(result.transport.kind).toBe("elicitation");
+      expect(result.routingTarget).toBe("operator");
+    });
+
+    it("direction.decide falls back to inbox when hasElicitation=false", async () => {
+      const ask = makeAsk(KIND_DIR_DECIDE, QUESTION_ARCH_CHOICE);
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(false),
+      });
+
+      expect(result.state).toBe("routed");
+      expect(result.transport.kind).toBe("inbox");
+      expect(result.routingTarget).toBe("operator");
+    });
+
+    it("direction.decide falls back to inbox when no capabilityRegistry is provided", async () => {
+      const ask = makeAsk(KIND_DIR_DECIDE, QUESTION_ARCH_CHOICE);
+      const result = await policyFirstRoute(ask, { workspaceRoot: tmpDir });
+
+      expect(result.state).toBe("routed");
+      expect(result.transport.kind).toBe("inbox");
+    });
+
+    it("async kinds (capability.escalate) ignore the capability registry — sync axis only", async () => {
+      const ask = makeAsk(KIND_CAPABILITY_ESCALATE, "Need bigger model");
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      // capability.escalate is async per the sync/async axis — should still
+      // route to subagent regardless of elicitation capability.
+      expect(result.state).toBe("routed");
+      expect(result.transport.kind).toBe("subagent");
+      expect(result.routingTarget).toBe("subagent");
+    });
+
+    it("async kinds (quality.review) ignore the capability registry", async () => {
+      const ask = makeAsk(KIND_QUALITY_REVIEW, "Review my output");
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      expect(result.transport.kind).toBe("inbox");
+    });
+
+    it("async kinds (coordination.notify) ignore the capability registry", async () => {
+      const ask = makeAsk(KIND_COORD_NOTIFY, "Heads up");
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      expect(result.transport.kind).toBe("mesh");
+    });
+
+    it("async kinds (information.retrieve) ignore the capability registry", async () => {
+      const ask = makeAsk(KIND_INFO_RETRIEVE, "Look up X");
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      expect(result.transport.kind).toBe("retriever");
+    });
+
+    it("async kinds (stuck.unblock) ignore the capability registry", async () => {
+      const ask = makeAsk(KIND_STUCK_UNBLOCK, "Stuck on X");
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      expect(result.transport.kind).toBe("subagent");
+    });
+
+    it("policy coverage takes precedence over elicitation routing", async () => {
+      // Phase 1 (policy) runs before Phase 2 (capability-aware kind dispatch).
+      // A direction.decide Ask whose context is policy-covered should close,
+      // even when elicitation is available.
+      const claudeMdPath = join(tmpDir, "CLAUDE.md");
+      await writeFile(claudeMdPath, "Policy: auto-approve direction.decide on test scope.\n");
+
+      const ask = makeAsk(KIND_DIR_DECIDE, "Some routine choice");
+      const result = await policyFirstRoute(ask, {
+        workspaceRoot: tmpDir,
+        capabilityRegistry: makeRegistry(true),
+      });
+
+      // Policy short-circuits to closed, regardless of capability.
+      expect(result.state).toBe("closed");
+      expect(result.transport.kind).toBe("policy");
     });
   });
 });

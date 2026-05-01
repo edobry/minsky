@@ -42,6 +42,7 @@ import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
 import { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
+import type { AskRepository } from "../ask/repository";
 
 // Re-export for backward compatibility with any consumers importing from this module.
 export { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
@@ -147,7 +148,22 @@ export interface SessionMergeDependencies {
   gitService?: GitServiceInterface;
   createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
   persistenceProvider?: PersistenceProvider;
+  /** Optional — when provided, a quality.review Ask row is emitted before each merge attempt. */
+  askRepository?: AskRepository;
 }
+
+// ---------------------------------------------------------------------------
+// Ask emission constants (mt#1475)
+// ---------------------------------------------------------------------------
+
+/** AskKind for pre-merge review requests. */
+const QUALITY_REVIEW_KIND = "quality.review" as const;
+
+/** Initial Ask state — router has not yet run. */
+const ASK_INITIAL_STATE = "detected" as const;
+
+/** Classifier version tag for the session_pr_merge emission. */
+const MERGE_CLASSIFIER_VERSION = "v1.0.0";
 
 /**
  * Merge a session's approved pull request (Task #358)
@@ -431,6 +447,54 @@ export async function mergeSessionPr(
       log.debug(
         `Skipping pre-merge approval check due to API error. Proceeding with merge attempt.`
       );
+    }
+  }
+
+  // ── quality.review Ask emission (mt#1475) ──────────────────────────────
+  // Best-effort: emit a quality.review Ask before each merge attempt.
+  // Failure must never block the merge — log and continue.
+  if (deps.askRepository) {
+    try {
+      const prUrl = sessionRecord.pullRequest?.url;
+      const prNumber =
+        sessionRecord.backendType === "github" && sessionRecord.pullRequest
+          ? sessionRecord.pullRequest.number
+          : undefined;
+      const taskId = sessionRecord.taskId;
+
+      await deps.askRepository.create({
+        kind: QUALITY_REVIEW_KIND,
+        classifierVersion: MERGE_CLASSIFIER_VERSION,
+        // requestor: the session ID in AgentId format (session identity)
+        requestor: sessionIdToUse,
+        parentSessionId: sessionIdToUse,
+        parentTaskId: taskId,
+        title: prNumber != null ? `Review PR #${prNumber} before merge` : "Review PR before merge",
+        question:
+          prUrl != null
+            ? `Review the changes in PR ${prUrl} before merge.`
+            : "Review the session PR changes before merge.",
+        contextRefs: prUrl
+          ? [
+              {
+                kind: "github-pr",
+                ref: prUrl,
+                description: prNumber != null ? `PR #${prNumber}` : "PR",
+              },
+            ]
+          : [],
+        metadata: {},
+      });
+
+      log.debug(`${QUALITY_REVIEW_KIND} Ask emitted for merge`, {
+        sessionId: sessionIdToUse,
+        taskId,
+        prNumber,
+        state: ASK_INITIAL_STATE,
+      });
+    } catch (askError) {
+      // Non-fatal: log at debug and continue so the merge always proceeds.
+      log.debug(`Failed to emit quality.review Ask before merge: ${getErrorMessage(askError)}`);
     }
   }
 

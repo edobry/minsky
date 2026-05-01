@@ -20,6 +20,12 @@ import type { SharedCommandRegistry } from "../command-registry";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import type { AppContainerInterface } from "../../../composition/types";
+import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
+import { registerTranscriptSearchCommand } from "./transcripts/search-command";
+import { registerTranscriptSimilarCommand } from "./transcripts/similar-command";
+import { registerTranscriptSpawnsExtractCommand } from "./transcripts/spawns-extract-command";
+import { registerTranscriptSearchTextCommand } from "./transcripts/search-text-command";
+import { registerTranscriptGetCommand } from "./transcripts/get-command";
 
 /**
  * Result returned by `transcripts.ingest`.
@@ -154,15 +160,19 @@ export function registerTranscriptCommands(
       }
 
       try {
-        const count = await svc.ingestSession(found);
+        const result = await svc.ingestSession(found);
         log.info(`transcripts.ingest --session=${sessionId} complete`, {
-          ingested: count,
+          ingested: result.ingested,
           harness,
+          ...(result.error ? { swallowedError: getErrorMessage(result.error) } : {}),
         });
         return {
-          totalIngested: count,
+          totalIngested: result.ingested,
           sessionsProcessed: 1,
-          sessionsErrored: 0,
+          // mt#1444: ingestSession returns a typed result so degraded paths
+          // (HWM read / stream / upsert failure) surface here instead of
+          // silently reporting 0.
+          sessionsErrored: result.error ? 1 : 0,
           harness,
         };
       } catch (err) {
@@ -175,4 +185,22 @@ export function registerTranscriptCommands(
   });
 
   log.debug("Transcript commands registered");
+
+  // ── transcripts.index-embeddings ─────────────────────────────────────────
+  registerTranscriptIndexEmbeddingsCommand(_container, targetRegistry);
+
+  // ── transcripts.search ───────────────────────────────────────────────────
+  registerTranscriptSearchCommand(_container, targetRegistry);
+
+  // ── transcripts.similar ──────────────────────────────────────────────────
+  registerTranscriptSimilarCommand(_container, targetRegistry);
+
+  // ── transcripts.spawns-extract ───────────────────────────────────────────
+  registerTranscriptSpawnsExtractCommand(_container, targetRegistry);
+
+  // ── transcripts.search-text ──────────────────────────────────────────────
+  registerTranscriptSearchTextCommand(_container, targetRegistry);
+
+  // ── transcripts.get ──────────────────────────────────────────────────────
+  registerTranscriptGetCommand(_container, targetRegistry);
 }

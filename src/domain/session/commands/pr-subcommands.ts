@@ -15,3 +15,5 @@ export { sessionPrWaitForReview } from "./pr-wait-for-review-subcommand";
 export { sessionPrReviewContext } from "./pr-review-context-subcommand";
 export { sessionPrReviewSubmit } from "./pr-review-submit-subcommand";
 export { sessionPrReviewDismiss } from "./pr-review-dismiss-subcommand";
+export { sessionPrReviewThreadResolve } from "./pr-review-thread-resolve-subcommand";
+export { sessionPrCheckRunSubmit } from "./pr-check-run-submit-subcommand";

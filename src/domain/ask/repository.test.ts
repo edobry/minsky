@@ -20,8 +20,9 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
 import type { Ask, AskKind } from "./types";
-import { FakeAskRepository } from "./repository";
+import { FakeAskRepository, toAsk } from "./repository";
 import type { CreateAskInput } from "./repository";
+import type { AskRecord } from "../storage/schemas/ask-schema";
 import { InvalidAskTransitionError } from "./state-machine";
 
 // ---------------------------------------------------------------------------
@@ -486,5 +487,71 @@ describe("state persistence across operations", () => {
     const fetched = await repo.getById(ask.id);
     expect(fetched?.state).toBe("closed");
     expect((fetched?.response?.payload as typeof payload)?.decision).toBe("approved");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toAsk: documented defaults for legacy rows with NULL service-window fields
+// ---------------------------------------------------------------------------
+
+describe("toAsk — service-window NULL coalescing (B2, mt#1488 R3)", () => {
+  /**
+   * Build a minimal AskRecord with the given overrides.
+   *
+   * Simulates a legacy DB row where PostgreSQL ADD COLUMN DEFAULT did not
+   * backfill existing rows, so window_missed_count and force_immediate are NULL.
+   */
+  function makeLegacyRow(overrides: Partial<AskRecord> = {}): AskRecord {
+    return {
+      id: "00000000-0000-0000-0000-000000000001",
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      state: "detected",
+      requestor: TEST_REQUESTOR,
+      routingTarget: null,
+      parentTaskId: null,
+      parentSessionId: null,
+      title: "Legacy row",
+      question: "Does this work?",
+      options: null,
+      contextRefs: null,
+      response: null,
+      deadline: null,
+      createdAt: new Date("2024-01-01T00:00:00Z"),
+      routedAt: null,
+      suspendedAt: null,
+      respondedAt: null,
+      closedAt: null,
+      serviceStrategy: null,
+      windowKey: null,
+      windowMissedCount: null,
+      forceImmediate: null,
+      metadata: {},
+      ...overrides,
+    };
+  }
+
+  it("coalesces NULL window_missed_count to 0 (documented default)", () => {
+    const row = makeLegacyRow({ windowMissedCount: null });
+    const ask = toAsk(row);
+    expect(ask.windowMissedCount).toBe(0);
+  });
+
+  it("coalesces NULL force_immediate to false (documented default)", () => {
+    const row = makeLegacyRow({ forceImmediate: null });
+    const ask = toAsk(row);
+    expect(ask.forceImmediate).toBe(false);
+  });
+
+  it("preserves explicit windowMissedCount when set", () => {
+    const row = makeLegacyRow({ windowMissedCount: 3 });
+    const ask = toAsk(row);
+    expect(ask.windowMissedCount).toBe(3);
+  });
+
+  it("preserves explicit forceImmediate=true when set", () => {
+    const row = makeLegacyRow({ forceImmediate: true });
+    const ask = toAsk(row);
+    expect(ask.forceImmediate).toBe(true);
   });
 });

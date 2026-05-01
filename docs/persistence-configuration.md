@@ -285,18 +285,33 @@ class we explicitly avoid.
 
 A top-level `await` starts the container and computes the connection string; the file then
 registers a `describe` block whose `afterAll` stops the container. Container startup happens
-outside Bun's per-test timeout — Testcontainers' own `withStartupTimeout(120_000)` is the only
-protection during the start phase, which is why `test:integration:docker` uses `--timeout=180000`
-for the test bodies that follow. Testcontainers handles cleanup automatically and reaps orphaned
+outside Bun's per-test timeout. With the no-op wait strategy, Testcontainers'
+`withStartupTimeout(120_000)` effectively bounds only the docker exec/socket calls — the wait
+strategy itself returns immediately. The real readiness deadline is the **60-second SQL probe
+loop** that runs after `start()` returns (described in the compatibility note below); that probe
+is what guarantees we don't move on to test execution against a non-ready Postgres. The
+`test:integration:docker` script uses `--timeout=180000` to give bun:test enough headroom for
+the test bodies after startup. Testcontainers handles cleanup automatically and reaps orphaned
 containers via Ryuk on next start if a previous run was killed mid-flight.
 
 ### Bun + Testcontainers compatibility note
 
-Testcontainers is primarily validated on Node.js. We use it under Bun, which has been working in
-local testing but is not the upstream's primary support target — if the Docker socket interaction,
-child-process management, or TLS layer regresses with a future Bun release, this test may need a
-Node-based invocation path. If you hit such issues, pin a known-compatible Testcontainers version
-and consider running this single test under `node` rather than `bun`.
+Testcontainers is primarily validated on Node.js. Under Bun, **all built-in wait strategies hang
+indefinitely**: both the default `Wait.forListeningPorts()` and the implicit log-based strategy
+(`/.*Started.*/`) use Docker socket polling or stream reading that never fires a completion
+callback under Bun's runtime.
+
+**Resolution (implemented in mt#1463):** The test uses a no-op `WaitStrategy` that resolves
+immediately, bypassing all testcontainers readiness machinery. After `start()` returns, the test
+performs its own SQL-level readiness probe using postgres-js: it attempts `SELECT 1` in a
+500 ms retry loop with a 60-second deadline. This is the canonical Postgres readiness check and
+gives stronger guarantees than TCP port-listening anyway (SQL-level proof the server accepts
+queries, not just that it's listening).
+
+The `bun run test:integration:docker` script works correctly with this approach. If Testcontainers
+ever fixes its Bun compatibility, the no-op strategy and SQL probe can be replaced with
+`.withWaitStrategy(Wait.forListeningPorts())` again — but the SQL probe is arguably superior so
+there is no strong reason to revert.
 
 ### Choosing a harness
 

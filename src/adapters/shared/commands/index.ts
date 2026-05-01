@@ -30,6 +30,7 @@ import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
+import { registerAttentionCommands } from "./attention";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -110,6 +111,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register transcript commands (transcripts.ingest — mt#1351)
   registerTranscriptCommands(container);
 
+  // Register attention commands (attention.report — mt#1071 / ADR-008)
+  registerAttentionCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -140,4 +144,5 @@ export {
   registerCompileCommands,
   registerWorkspaceCommands,
   registerTranscriptCommands,
+  registerAttentionCommands,
 };

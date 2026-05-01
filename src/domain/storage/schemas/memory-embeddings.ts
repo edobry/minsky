@@ -22,9 +22,12 @@ import {
   jsonb,
 } from "drizzle-orm/pg-core";
 import { createEmbeddingsTable } from "./embeddings-schema-factory";
+import { MEMORY_TYPE_VALUES } from "../../memory/types";
 
 // Postgres enums for memory type and scope
-export const memoryTypeEnum = pgEnum("memory_type", ["user", "feedback", "project", "reference"]);
+// MEMORY_TYPE_VALUES is the single source of truth — adding a value there
+// without a migration is caught by the drift-check test.
+export const memoryTypeEnum = pgEnum("memory_type", MEMORY_TYPE_VALUES);
 export const memoryScopeEnum = pgEnum("memory_scope", ["project", "user", "cross_project"]);
 
 /**
