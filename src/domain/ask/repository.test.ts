@@ -368,6 +368,117 @@ describe("listByClassifierVersion", () => {
   });
 });
 
+describe("findOpenByTaskIds", () => {
+  it("returns an empty array when taskIds is empty", async () => {
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+    const results = await repo.findOpenByTaskIds([]);
+    expect(results).toHaveLength(0);
+  });
+
+  it("returns Asks whose parentTaskId is in the input set", async () => {
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+    await repo.create(makeInput({ parentTaskId: "mt#200" }));
+    await repo.create(makeInput({ parentTaskId: "mt#300" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#100", "mt#300"]);
+    expect(results).toHaveLength(2);
+    const ids = results.map((a) => a.parentTaskId).sort();
+    expect(ids).toEqual(["mt#100", "mt#300"]);
+  });
+
+  it("excludes terminal-state Asks (closed / cancelled / expired)", async () => {
+    repo._seedAtState(makeSeedAsk({ id: "ask-closed", parentTaskId: "mt#100", state: "closed" }));
+    repo._seedAtState(
+      makeSeedAsk({ id: "ask-cancelled", parentTaskId: "mt#100", state: "cancelled" })
+    );
+    repo._seedAtState(makeSeedAsk({ id: "ask-expired", parentTaskId: "mt#100", state: "expired" }));
+    repo._seedAtState(makeSeedAsk({ id: "ask-open", parentTaskId: "mt#100", state: "detected" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.id).toBe("ask-open");
+  });
+
+  it("includes non-terminal states (detected, classified, routed, suspended, responded)", async () => {
+    const openStates = ["detected", "classified", "routed", "suspended", "responded"] as const;
+    for (const state of openStates) {
+      repo._seedAtState(makeSeedAsk({ id: `ask-${state}`, parentTaskId: "mt#100", state }));
+    }
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results).toHaveLength(openStates.length);
+  });
+
+  it("returns rows ordered by createdAt descending", async () => {
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "ask-old",
+        parentTaskId: "mt#100",
+        state: "detected",
+        createdAt: new Date(2025, 0, 1).toISOString(),
+      })
+    );
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "ask-new",
+        parentTaskId: "mt#100",
+        state: "routed",
+        createdAt: new Date(2025, 6, 1).toISOString(),
+      })
+    );
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "ask-mid",
+        parentTaskId: "mt#100",
+        state: "classified",
+        createdAt: new Date(2025, 3, 1).toISOString(),
+      })
+    );
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results.map((a) => a.id)).toEqual(["ask-new", "ask-mid", "ask-old"]);
+  });
+
+  it("returns rows for multiple tasks, all sorted in one stream", async () => {
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "task100-newer",
+        parentTaskId: "mt#100",
+        state: "detected",
+        createdAt: new Date(2025, 6, 1).toISOString(),
+      })
+    );
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "task200-older",
+        parentTaskId: "mt#200",
+        state: "detected",
+        createdAt: new Date(2025, 0, 1).toISOString(),
+      })
+    );
+
+    const results = await repo.findOpenByTaskIds(["mt#100", "mt#200"]);
+    expect(results.map((a) => a.id)).toEqual(["task100-newer", "task200-older"]);
+  });
+
+  it("ignores Asks whose parentTaskId is not in the input set", async () => {
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+    await repo.create(makeInput({ parentTaskId: "mt#200" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#999"]);
+    expect(results).toHaveLength(0);
+  });
+
+  it("ignores Asks with no parentTaskId", async () => {
+    repo._seedAtState(makeSeedAsk({ id: "no-task", parentTaskId: undefined, state: "detected" }));
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.parentTaskId).toBe("mt#100");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // respond convenience wrapper
 // ---------------------------------------------------------------------------
