@@ -42,7 +42,11 @@ import {
 export interface SetupGithubAppDeps {
   provisionGithubApp?: typeof defaultProvisionGithubApp;
   makeStore?: (outputDir: string) => CredentialStore;
-  makeProvisioner?: (via: "manifest" | "wizard", port: number | undefined) => AppProvisioner;
+  makeProvisioner?: (
+    via: "manifest" | "wizard",
+    port: number | undefined,
+    hosts: { apiBaseUrl?: string; webBaseUrl?: string }
+  ) => AppProvisioner;
 }
 
 const setupGithubAppParams = composeParams(
@@ -97,7 +101,18 @@ const setupGithubAppParams = composeParams(
     },
     port: {
       schema: z.number().optional(),
-      description: "Local callback port for the manifest flow (default: 9847)",
+      description: "Local callback port for the manifest flow (1-65535; default: 9847)",
+      required: false,
+    },
+    apiBaseUrl: {
+      schema: z.string().optional(),
+      description:
+        "GitHub API base URL for the wizard (default: https://api.github.com; set for GHE)",
+      required: false,
+    },
+    webBaseUrl: {
+      schema: z.string().optional(),
+      description: "GitHub web base URL for the wizard (default: https://github.com; set for GHE)",
       required: false,
     },
   }
@@ -140,8 +155,17 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
     deps.makeStore ?? ((outputDir: string) => new LocalConfigCredentialStore(outputDir));
   const makeProvisioner =
     deps.makeProvisioner ??
-    ((via: "manifest" | "wizard", port: number | undefined) =>
-      via === "manifest" ? new ManifestFlowProvisioner({ port }) : new GuidedWizardProvisioner());
+    ((
+      via: "manifest" | "wizard",
+      port: number | undefined,
+      hosts: { apiBaseUrl?: string; webBaseUrl?: string }
+    ) =>
+      via === "manifest"
+        ? new ManifestFlowProvisioner({ port })
+        : new GuidedWizardProvisioner({
+            apiBaseUrl: hosts.apiBaseUrl,
+            webBaseUrl: hosts.webBaseUrl,
+          }));
 
   // When called with explicit deps (i.e., from tests), allow overwrite so
   // each test re-registers cleanly. Production calls pass no deps and
@@ -176,6 +200,21 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
           if (via !== "manifest" && via !== "wizard") {
             // eslint-disable-next-line custom/no-validation-error-in-execute
             throw new ValidationError(`--via must be "manifest" or "wizard", got "${via}"`);
+          }
+
+          // Validate port: the manifest flow embeds it in the redirect_url
+          // before the server binds, so 0 / out-of-range values produce
+          // broken localhost URLs. Mirrors the constraint in
+          // ManifestFlowProvisioner's constructor (and the legacy script's
+          // arg validation).
+          if (params.port !== undefined) {
+            if (!Number.isInteger(params.port) || params.port < 1 || params.port > 65535) {
+              // eslint-disable-next-line custom/no-validation-error-in-execute
+              throw new ValidationError(
+                `--port must be a TCP port (1-65535), got ${params.port}. ` +
+                  `Port 0 / OS-assigned ports are not supported.`
+              );
+            }
           }
 
           // outputDir resolution: only expand `~` if the user passed an
@@ -220,7 +259,10 @@ export function registerSetupGithubAppCommand(deps: SetupGithubAppDeps = {}): vo
           }
 
           const store = makeStore(outputDir);
-          const provisioner = makeProvisioner(via, params.port);
+          const provisioner = makeProvisioner(via, params.port, {
+            apiBaseUrl: params.apiBaseUrl,
+            webBaseUrl: params.webBaseUrl,
+          });
 
           const result = await provisionGithubApp({
             name: params.name,

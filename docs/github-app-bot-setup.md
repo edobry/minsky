@@ -93,8 +93,11 @@ Flags:
 - `--events <e1,e2,...>` — optional. Default: none.
 - `--webhook-url <url>` — optional. Prefills `hook_attributes.url` in the App manifest. Use this for webhook-driven Apps (reviewer, automation services). Without it, a placeholder URL is submitted (GitHub requires the field).
 - `--inactive` — optional. Creates the App with `hook_attributes.active=false`. Default: active. Use this for Apps that don't need webhooks (the `minsky-ai` implementer App). Note that GitHub's REST API has no endpoint to toggle `active` later, so choose correctly up front — the only remediation is a manual toggle in the App settings UI.
-- `--port <n>` — optional. Default: `9847`.
+- `--port <n>` — optional. TCP port for the local manifest-flow callback. Must be 1-65535; port 0 is rejected because GitHub embeds the redirect URL in the manifest before the server binds. Default: `9847`.
+- `--force` — optional. Re-provision even if credentials already exist for `<name>`. Without `--force`, the orchestrator short-circuits and prints the existing credentials.
 - `--help` / `-h` — print usage.
+
+The same flags are accepted by `minsky setup github-app`, plus `--via {manifest|wizard}`, `--apiBaseUrl <url>`, and `--webBaseUrl <url>` (for GitHub Enterprise hosts when `--via wizard`).
 
 After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are automated; section 1 steps below are only needed if you prefer the UI path.
 

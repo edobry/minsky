@@ -66,6 +66,18 @@ export class ManifestFlowProvisioner implements AppProvisioner {
   constructor(options: ManifestFlowProvisionerOptions = {}) {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.port = options.port ?? 9847;
+    // Validate port at construction time. The manifest redirect_url is built
+    // from this.port BEFORE the server binds, so 0 (OS-assigned) and
+    // out-of-range values would produce broken localhost URLs that GitHub
+    // redirects to. Reject up front with a clear message rather than
+    // silently producing localhost:0 / localhost:65540 redirects.
+    if (!Number.isInteger(this.port) || this.port < 1 || this.port > 65535) {
+      throw new Error(
+        `ManifestFlowProvisioner: port must be a TCP port (1-65535), got ${this.port}. ` +
+          `Port 0 / OS-assigned ports are not supported because GitHub embeds the ` +
+          `redirect_url in the manifest before the server binds.`
+      );
+    }
     this.installationLookup = options.installationLookup ?? lookupInstallationId;
   }
 
