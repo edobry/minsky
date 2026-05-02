@@ -26,10 +26,12 @@ export type ConventionalCommitType = (typeof CONVENTIONAL_COMMIT_TYPES)[number];
 
 /**
  * Pipe-joined alternation suitable for embedding in a regex character class
- * (e.g. `^(feat|fix|...): description`). Sorted longest-first within each
- * length so prefix matching never short-circuits incorrectly (currently
- * irrelevant — all types are 2-8 chars and disjoint as prefixes — but kept
- * defensive for future additions).
+ * (e.g. `^(feat|fix|...): description`). Order follows
+ * `CONVENTIONAL_COMMIT_TYPES` declaration order; this is safe today because
+ * all 12 types are disjoint as prefixes (no type is a prefix of another). If
+ * a future type is ever a prefix of an existing one (e.g., `feature` added
+ * alongside `feat`), this constant should sort longest-first to avoid the
+ * regex engine short-circuiting on the shorter alternative.
  */
 export const CONVENTIONAL_COMMIT_TYPE_ALTERNATION = CONVENTIONAL_COMMIT_TYPES.join("|");
 

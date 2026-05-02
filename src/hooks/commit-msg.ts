@@ -11,7 +11,10 @@ import { log } from "../utils/logger";
 
 // Import actual validation logic instead of duplicating it
 import { isDuplicateContent } from "../domain/session/pr-validation";
-import { CONVENTIONAL_COMMIT_TYPE_ALTERNATION } from "../domain/git/conventional-commit-types";
+import {
+  CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
+  CONVENTIONAL_COMMIT_TYPES_DISPLAY,
+} from "../domain/git/conventional-commit-types";
 
 export interface CommitMsgResult {
   success: boolean;
@@ -176,6 +179,7 @@ export class CommitMsgHook {
       return {
         valid: false,
         error: `Invalid commit message format. Please use conventional commits format: "type(scope): description"
+The description must be 1–${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN} characters and the type must be one of: ${CONVENTIONAL_COMMIT_TYPES_DISPLAY}.
 Examples:
   feat(auth): add user authentication
   fix(#123): resolve login validation issue

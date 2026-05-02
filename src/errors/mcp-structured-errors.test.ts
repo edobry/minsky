@@ -300,9 +300,16 @@ describe("session.commit hook-failure detection", () => {
   });
 
   test("classifies output without hook substrings as 'unknown' (PR #938 R2)", () => {
-    // Subprocess output that mentions neither commit-msg nor pre-commit must
-    // not be auto-labeled as a hook failure. The adapter routes 'unknown' to
-    // SUBPROCESS_FAILED with neutral wording — see workflow-commands.ts.
+    // The classifier returns isHookFailure: true whenever a `git commit`
+    // subprocess produced any output (we know the hook layer was reached);
+    // the `hookKind` discriminator then identifies WHICH hook. When neither
+    // "commit-msg" nor "pre-commit" appears in the output, hookKind is
+    // "unknown" and the adapter (createSessionCommitCommand) routes the
+    // structured error to SUBPROCESS_FAILED with neutral "git commit failed"
+    // wording — i.e., NOT a specific hook attribution. The two-stage contract
+    // (classifier identifies subprocess output exists; adapter decides
+    // whether to attribute to a specific hook) is documented at the
+    // classifyHookFailure jsdoc and the adapter's catch block.
     const err = Object.assign(
       new Error("Command failed: git -C /repo commit -m 'feat(mt#1524): example'"),
       {
@@ -313,5 +320,21 @@ describe("session.commit hook-failure detection", () => {
     const { isHookFailure, hookKind } = classifyHookFailure(err);
     expect(isHookFailure).toBe(true);
     expect(hookKind).toBe("unknown");
+  });
+
+  test("unknown hookKind maps to SUBPROCESS_FAILED with neutral wording (PR #938 R4)", () => {
+    // Pin the adapter contract so a future refactor can't quietly resurrect
+    // a fabricated "git commit hook" attribution.
+    const subprocessOutput = "fatal: unable to write commit object";
+    const structured = mcpStructuredError({
+      code: McpErrorCode.SUBPROCESS_FAILED,
+      summary: "git commit failed",
+      subprocessOutput,
+    });
+    const data = structured.data as McpErrorPayload;
+    expect(data.code).toBe(McpErrorCode.SUBPROCESS_FAILED);
+    expect(data.summary).toBe("git commit failed");
+    expect(data.summary).not.toContain("hook");
+    expect(data.subprocessOutput).toBe(subprocessOutput);
   });
 });

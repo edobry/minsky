@@ -182,6 +182,21 @@ describe("operating envelope examples pass the commit-msg hook", () => {
     expect(renderImplementerPrompt("mt#mt-1524")).not.toContain("mt#mt-");
     expect(renderImplementerPrompt("mt#mt-1524")).toContain(EXPECTED_ENVELOPE_FRAGMENT);
   });
+
+  test("envelope preserves non-mt project prefix (PR #938 R4)", () => {
+    // Cross-project correctness: an `md#409` task must not be silently
+    // rebranded as `mt#409` in the rendered guidance — that would mislead
+    // the agent about which task system the work belongs to.
+    const mdPrompt = renderImplementerPrompt("md#409");
+    expect(mdPrompt).toContain("feat(md#409): partial:");
+    expect(mdPrompt).not.toContain("mt#409");
+    expect(mdPrompt).toContain('task: "md#409"');
+
+    // Hyphen form likewise: `gh-42` → `gh#42` (canonical hash form), not `mt#42`.
+    const ghPrompt = renderImplementerPrompt("gh-42");
+    expect(ghPrompt).toContain("feat(gh#42): partial:");
+    expect(ghPrompt).not.toContain("mt#42");
+  });
 });
 
 describe("commit-msg hook accepts longer descriptive subjects (PR #938 R2)", () => {
