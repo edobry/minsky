@@ -38,8 +38,19 @@ const FORBIDDEN_MESSAGES = [
   "change",
 ];
 
+/**
+ * Conventional-commit subject pattern: `type(scope): description`.
+ *
+ * The description must be non-empty and stay within a sane upper bound; we use
+ * 100 characters (rounding up from Conventional Commits' 72-char body wrap and
+ * GitHub's 72-char title soft limit) so descriptive `partial:`-prefixed
+ * checkpoints from the operating envelope (mt#1524) aren't silently rejected.
+ * Length-only enforcement lives here; semantic checks (forbidden placeholders,
+ * title-duplication) are separate validators.
+ */
+const CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN = 100;
 const CONVENTIONAL_COMMIT_PATTERN = new RegExp(
-  `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\(.+\\))?: .{1,50}`
+  `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\(.+\\))?: .{1,${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN}}$`
 );
 
 /**

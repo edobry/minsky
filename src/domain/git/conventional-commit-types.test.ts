@@ -160,4 +160,42 @@ describe("operating envelope examples pass the commit-msg hook", () => {
     expect(prompt).not.toContain("mt##");
     expect(prompt).toContain(EXPECTED_ENVELOPE_FRAGMENT);
   });
+
+  test("envelope handles hyphen-formatted taskId (`mt-1524`) without doubling (PR #938 R2)", () => {
+    // Branch-style task IDs use a hyphen separator. The normalizer must strip
+    // both `mt#` and `mt-` so an upstream caller passing the branch form
+    // doesn't produce `mt#mt-1524` in the rendered output.
+    const prompt = renderImplementerPrompt("mt-1524");
+    expect(prompt).not.toContain("mt#mt-");
+    expect(prompt).not.toContain("mt-1524"); // raw form should never appear
+    expect(prompt).toContain(EXPECTED_ENVELOPE_FRAGMENT);
+  });
+});
+
+describe("commit-msg hook accepts longer descriptive subjects (PR #938 R2)", () => {
+  test("accepts a `partial:`-prefixed subject up to 100 chars", async () => {
+    // The envelope's `feat(mt#1524): partial: <what's done>` guidance produces
+    // descriptive checkpoint messages that can run longer than the previous
+    // 50-char cap. Confirm a realistic 80-char subject passes.
+    const longSubject =
+      "feat(mt#1524): partial: implemented hook classifier and centralized commit-types";
+    expect(longSubject.length).toBeGreaterThan(50);
+    expect(longSubject.length).toBeLessThanOrEqual(100);
+    const hook = new CommitMsgHook("/tmp/commit-msg", {
+      readFileSync: () => longSubject,
+      execSync: () => "task/mt-1524",
+    });
+    const result = await hook.run();
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects a subject that exceeds 100 chars", async () => {
+    const tooLong = `feat(mt#1524): partial: ${"x".repeat(120)} — way past the conventional-commit cap`;
+    const hook = new CommitMsgHook("/tmp/commit-msg", {
+      readFileSync: () => tooLong,
+      execSync: () => "task/mt-1524",
+    });
+    const result = await hook.run();
+    expect(result.success).toBe(false);
+  });
 });

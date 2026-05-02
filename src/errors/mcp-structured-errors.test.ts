@@ -298,4 +298,20 @@ describe("session.commit hook-failure detection", () => {
     expect(data.code).toBe(McpErrorCode.COMMIT_MSG_FAILED);
     expect(data.subprocessOutput).toContain("Commit message validation failed");
   });
+
+  test("classifies output without hook substrings as 'unknown' (PR #938 R2)", () => {
+    // Subprocess output that mentions neither commit-msg nor pre-commit must
+    // not be auto-labeled as a hook failure. The adapter routes 'unknown' to
+    // SUBPROCESS_FAILED with neutral wording — see workflow-commands.ts.
+    const err = Object.assign(
+      new Error("Command failed: git -C /repo commit -m 'feat(mt#1524): example'"),
+      {
+        stderr: "fatal: unable to write commit object",
+        stdout: "",
+      }
+    );
+    const { isHookFailure, hookKind } = classifyHookFailure(err);
+    expect(isHookFailure).toBe(true);
+    expect(hookKind).toBe("unknown");
+  });
 });

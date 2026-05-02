@@ -187,19 +187,31 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             // clients can branch on `error.data.code` and humans see which
             // hook actually fired (mt#1524: a generic "pre-commit" summary
             // was masking commit-msg failures from non-conventional formats).
-            const code =
-              hookKind === "commit-msg"
-                ? McpErrorCode.COMMIT_MSG_FAILED
-                : McpErrorCode.PRE_COMMIT_FAILED;
-            const hookLabel =
-              hookKind === "commit-msg"
-                ? "commit-msg"
-                : hookKind === "pre-commit"
-                  ? "pre-commit"
-                  : "git commit";
-            const summaryDetail = subprocessOutput
-              ? `${hookLabel} hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
-              : `${hookLabel} hook blocked the commit`;
+            // Three-way mapping:
+            //   - commit-msg → COMMIT_MSG_FAILED + "commit-msg hook blocked the commit"
+            //   - pre-commit → PRE_COMMIT_FAILED + "pre-commit hook blocked the commit"
+            //   - unknown    → SUBPROCESS_FAILED + neutral "git commit failed" wording
+            //                  (we know `git commit` exited non-zero with output, but
+            //                  we cannot identify a specific hook — fabricating a
+            //                  "git commit hook" name would be misleading).
+            let code: (typeof McpErrorCode)[keyof typeof McpErrorCode];
+            let summaryDetail: string;
+            if (hookKind === "commit-msg") {
+              code = McpErrorCode.COMMIT_MSG_FAILED;
+              summaryDetail = subprocessOutput
+                ? `commit-msg hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+                : "commit-msg hook blocked the commit";
+            } else if (hookKind === "pre-commit") {
+              code = McpErrorCode.PRE_COMMIT_FAILED;
+              summaryDetail = subprocessOutput
+                ? `pre-commit hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+                : "pre-commit hook blocked the commit";
+            } else {
+              code = McpErrorCode.SUBPROCESS_FAILED;
+              summaryDetail = subprocessOutput
+                ? `git commit failed. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+                : "git commit failed";
+            }
             throw mcpStructuredError({
               code,
               summary: summaryDetail,
