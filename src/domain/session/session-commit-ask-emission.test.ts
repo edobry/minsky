@@ -68,6 +68,7 @@ async function makeTmpCleanGitRepo(): Promise<string> {
   execSync("git init", { cwd: dir, stdio: "ignore" });
   execSync("git config user.email test@example.com", { cwd: dir, stdio: "ignore" });
   execSync("git config user.name Test", { cwd: dir, stdio: "ignore" });
+  execSync("git config commit.gpgsign false", { cwd: dir, stdio: "ignore" });
   execSync("git commit --allow-empty -m init", { cwd: dir, stdio: "ignore" });
   return dir;
 }

@@ -92,9 +92,7 @@ function makeNoOpWaitStrategy(defaultTimeoutMs: number): WaitStrategy {
 // don't squeeze the effective ceiling below what the test expects.
 const MAX_CONNECTIONS = 10;
 
-// poolSize the shared helper sees. It will hold POOL_SIZE long-lived clients
-// to consume the ceiling, then race POOL_SIZE+5 more that must retry —
-// saturation guaranteed even with a few connections held by background work.
+// hold POOL_SIZE (8) long-lived clients to induce saturation while leaving headroom for background workers.
 const POOL_SIZE = 8;
 
 // Image with pgvector pre-installed so the AT-4 vector-storage path can run.
@@ -127,8 +125,16 @@ if (process.env.RUN_INTEGRATION_TESTS && process.env.RUN_TESTCONTAINER_TESTS) {
         POSTGRES_USER: "postgres",
         POSTGRES_DB: "postgres",
       })
-      // -c max_connections=N caps the server-side connection ceiling.
-      .withCommand(["postgres", "-c", `max_connections=${MAX_CONNECTIONS}`])
+      // -c max_connections=N caps the server-side connection ceiling;
+      // superuser_reserved_connections=0 makes all slots available to the test user so the
+      // 10/8/+5 saturation math is fully deterministic.
+      .withCommand([
+        "postgres",
+        "-c",
+        `max_connections=${MAX_CONNECTIONS}`,
+        "-c",
+        "superuser_reserved_connections=0",
+      ])
       .withExposedPorts(5432)
       // noOpWaitStrategy replaces the default Wait.forListeningPorts() which
       // hangs indefinitely under Bun. Every built-in testcontainers wait

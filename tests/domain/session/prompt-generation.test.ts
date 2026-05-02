@@ -425,7 +425,8 @@ describe("generateSubagentPrompt", () => {
         it(`includes checkpoint cadence for ${type} (mutating)`, () => {
           const result = generateSubagentPrompt({ ...baseParams, type });
           expect(result.prompt).toContain("**Checkpoint cadence.**");
-          expect(result.prompt).toContain("wip(mt#456)");
+          // mt#1524 replaced wip() with partial: prefix in conventional commits
+          expect(result.prompt).toContain("partial:");
         });
       }
 
@@ -435,9 +436,9 @@ describe("generateSubagentPrompt", () => {
           expect(result.prompt).not.toContain("**Checkpoint cadence.**");
         });
 
-        it(`omits wip(mt#...) instruction for ${type} (read-only)`, () => {
+        it(`omits partial: commit instruction for ${type} (read-only)`, () => {
           const result = generateSubagentPrompt({ ...baseParams, type });
-          expect(result.prompt).not.toContain("wip(mt#456)");
+          expect(result.prompt).not.toContain("partial:");
         });
       }
     });

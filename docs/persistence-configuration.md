@@ -313,6 +313,18 @@ ever fixes its Bun compatibility, the no-op strategy and SQL probe can be replac
 `.withWaitStrategy(Wait.forListeningPorts())` again — but the SQL probe is arguably superior so
 there is no strong reason to revert.
 
+If Bun support regresses, first confirm the issue is Bun-specific by running the container startup
+and SQL probe under Node.js via `tsx`:
+
+```bash
+RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1 \
+  npx tsx -e "import { GenericContainer } from 'testcontainers'; import postgres from 'postgres'; const c = await new GenericContainer('pgvector/pgvector:pg16').withEnvironment({ POSTGRES_PASSWORD: 'postgres', POSTGRES_USER: 'postgres', POSTGRES_DB: 'postgres' }).withExposedPorts(5432).start(); const sql = postgres(\`postgresql://postgres:postgres@\${c.getHost()}:\${c.getMappedPort(5432)}/postgres\`, { max: 1, prepare: false }); await sql\`SELECT 1\`; console.log('Node.js/tsx: OK at', c.getHost() + ':' + c.getMappedPort(5432)); await sql.end(); await c.stop();"
+```
+
+This exercises the container startup and SQL probe — the same path the testcontainer test uses —
+without the `bun:test` runner, confirming whether the regression is in the Bun runtime or in
+the Testcontainers library itself.
+
 ### Choosing a harness
 
 | Scenario                                                 | Harness                           |

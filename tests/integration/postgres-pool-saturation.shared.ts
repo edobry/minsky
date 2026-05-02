@@ -108,9 +108,16 @@ export function runSaturationSuite(options: SaturationSuiteOptions): void {
         // "Skip when env vars absent" happens at the outer wrapper level (env-gate) and
         // is unaffected by this throw — we only reach here when env vars ARE set but the
         // actual connection fails, which is a genuine error.
+        let target = connectionString;
+        try {
+          const url = new URL(connectionString);
+          target = `${url.hostname}:${url.port || "5432"}`;
+        } catch {
+          // keep full string if URL is unparseable
+        }
         throw new Error(
           `[saturation/${label}] connection health check failed — ${msg}. ` +
-            `Verify that SUPABASE_INTEGRATION_BRANCH_URL is correct and the branch is reachable.`
+            `Verify that ${target} is reachable and the connection string for "${label}" is correct.`
         );
       } finally {
         await probe.end().catch(() => {});

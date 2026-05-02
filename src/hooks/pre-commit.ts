@@ -163,7 +163,7 @@ export class PreCommitHook {
       try {
         const result = await execAsync(lintJsonCommand, {
           cwd: this.projectRoot,
-          timeout: 30000, // 30 second timeout
+          timeout: 120000, // 120 second timeout (large codebases can take 30-40s)
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();

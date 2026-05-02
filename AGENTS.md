@@ -895,130 +895,6 @@ Prevents shell parsing issues that cause commands to hang with `dquote>` prompts
 
 ## General
 
-# Hook Files
-
-All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
-
-## Parallel-Work Guard
-
-A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
-an open PR or a commit merged to main in the last 24 hours. This is the Tier-3 structural
-ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in `/plan-task` gate
-criterion (g) and `/implement-task` §0a.
-
-**Hook file:** `.claude/hooks/parallel-work-guard.ts`
-
-**Checks run:**
-1. Open-PR sweep — any open PR whose changed files overlap the task's `## Scope` → `In scope` list.
-2. Recently-merged sweep — commits on the repo's **default branch** (auto-detected via `git symbolic-ref` / `git remote show origin` / probes for `origin/main` and `origin/master`; only when all probes fail does the sweep skip with a warning) in the last 24 hours touching in-scope paths.
-
-**On hit:** the hook blocks `session_start` with a structured message listing the colliding
-PR/commit, overlapping files, and four recommended actions (wait / coordinate / reframe / override).
-
-**Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
-
-```bash
-MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
-```
-
-The override is **logged to session stdout** (task ID, ISO timestamp).
-The line is visible in the session transcript but is **not** written to a durable
-audit file — once the session log is rotated, the record is gone. Use only when
-parallel work has been explicitly acknowledged and coordinated.
-
-**When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
-section, the hook emits a warning to stdout and allows the session_start to proceed.
-
-# User Preferences
-
-- **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
-
-- **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
-
-- **Fix or track all identified issues:** When a problem is found, either fix it immediately if in scope, or create a task. Never just describe problems without taking action.
-
-- **Auto-commit and push all changes:** Commit and push after implementing any code fixes, feature additions, documentation updates, or task management operations. Never consider a task complete until changes are committed and pushed.
-
-- **Professional communication:** Use matter-of-fact language. No celebratory language, emojis, superlatives, or marketing phrases (e.g., "EXCEEDED ALL TARGETS", "Outstanding Success"). Report objective metrics and current state without editorial commentary.
-
-  Prohibited patterns: "You're absolutely right/correct", "Perfect!", "Amazing", "Outstanding", "I'm excited to announce", achievement language, all-caps statements.
-
-  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts.
-
-- **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
-
-- **Address all linter errors:** Acknowledge all linter errors in modified files. Fix straightforward ones; document limitations for complex ones.
-
-- **Verify workspace before making changes:** Check which workspace you're in (main or session) at the start of interactions. Make changes in the appropriate session workspace unless explicitly directed otherwise.
-
-# Subagent Routing
-
-When spawning subagents, use the appropriate model and type:
-
-**Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting. (Community guides often recommend `haiku` as the `CLAUDE_CODE_SUBAGENT_MODEL` default; Minsky uses `sonnet` because subagents run full implementation workflows — edit, commit, PR — not just search/format.)
-
-**Types:** `"refactorer"` for structural changes (built-in coherence verification). `"auditor"` for spec verification. `"reviewer"` for read-only PR review. `"Explore"` for codebase search. `"Plan"` for design. `"general-purpose"` as fallback.
-
-**Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
-
-**Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
-
-**Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
-
-# Key Architecture
-
-- Clean architecture: Domain → Adapters → Infrastructure
-- Shared command registry: commands defined once, adapted to CLI and MCP
-- Capability-based persistence providers (ADR-002)
-- Multi-backend tasks: GitHub Issues, Minsky DB
-- Dependency injection via tsyringe (`docs/architecture.md` §6)
-
-# Error Investigation
-
-- **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
-- **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
-- **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
-
-# Build & Test
-
-- **Runtime**: Bun (not Node.js)
-- **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
-- **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
-- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
-- **Format**: `bun run format:check` / `bun run format:all`
-- **All checks**: `bun run validate-all`
-
-# Work Completion
-
-- **Do not defer identified, actionable work.** Complete unmet success criteria before proposing to ship.
-- **The user decides scope, not the agent.** Never unilaterally decide "this is a good stopping point."
-- **Artifact creation is not progress.** Creating tasks/specs/rules is not a substitute for doing the work.
-- **Never notice an issue without acting on it.** File a task, update a spec, or save a memory — mentioning in chat is not action.
-- **Process corrections require structural fixes.** Invoke `/retrospective` for durable fixes (hooks, skills), not just memories.
-
-## Temporary mechanism budget
-
-When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary," "escape hatch," "workaround," "interim,"** or **"until X ships,"** it MUST cite both:
-
-1. A **tracking task** (the structural fix that retires the mechanism), AND
-2. An **escalation threshold** — a count, time window, or both — at which the mechanism's continued use indicates the temporary framing has failed.
-
-When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
-
-**Why:** mt#1503 / 2026-05-01 incident — the `gh api PUT /merge` bypass for self-authored bot PRs was framed in `feedback_gh_api_bypass.md` (2026-04-23) as "Escape hatch — not a default path." Over 3 weeks it became the dominant merge mechanism (~17+ PRs, ~5/week). Four memory entries observed "the bypass is becoming load-bearing" without escalating. The structural unblockers (mt#1073, mt#1065, mt#1345, mt#1372, mt#1310, mt#1405, mt#1477) sat in TODO/PLANNING the entire time. The prioritization loop had no measurement variety for *operational pattern frequency over time* (Ashby).
-
-**How to apply:**
-
-- When **writing** a memory or doc that names a workaround: include a budget. Format suggestion: `**Budget:** retire when <count> in <window> exceeded; tracking task: mt#X.`
-- When **reading** such a memory at use-time: count uses and check against budget. If exceeded, escalate before applying.
-- When you observe the **same workaround memory cited 2+ times in a 5-day rolling window** (or **3+ workaround invocations in 5 days**, or **2+ in 24h**), treat it as the budget signal regardless of whether the original entry recorded one — search for the tracking task and surface its status.
-- **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
-- Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline. See `feedback_temporary_mechanism_budget.md` for the bridge memory.
-
-# Compact Instructions
-
-When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
-
 # MCP Tools
 
 Use MCP tools for all operations — never shell out to git/gh CLI:
@@ -1073,12 +949,138 @@ Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" 
 
 **`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
 
+# Key Architecture
+
+- Clean architecture: Domain → Adapters → Infrastructure
+- Shared command registry: commands defined once, adapted to CLI and MCP
+- Capability-based persistence providers (ADR-002)
+- Multi-backend tasks: GitHub Issues, Minsky DB
+- Dependency injection via tsyringe (`docs/architecture.md` §6)
+
 # Key Workflows (via skills)
 
 - **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
 - **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
 - **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge.
 - **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)
+
+# User Preferences
+
+- **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
+
+- **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
+
+- **Fix or track all identified issues:** When a problem is found, either fix it immediately if in scope, or create a task. Never just describe problems without taking action.
+
+- **Auto-commit and push all changes:** Commit and push after implementing any code fixes, feature additions, documentation updates, or task management operations. Never consider a task complete until changes are committed and pushed.
+
+- **Professional communication:** Use matter-of-fact language. No celebratory language, emojis, superlatives, or marketing phrases (e.g., "EXCEEDED ALL TARGETS", "Outstanding Success"). Report objective metrics and current state without editorial commentary.
+
+  Prohibited patterns: "You're absolutely right/correct", "Perfect!", "Amazing", "Outstanding", "I'm excited to announce", achievement language, all-caps statements.
+
+  Required: Verify factual claims before agreeing or disagreeing. Use "Let me check..." before confirming facts.
+
+- **Verify before claiming completion:** Before declaring any task complete, systematically verify ALL requirements are fulfilled. Never declare completion when work remains. If uncertain, explicitly state uncertainty.
+
+- **Address all linter errors:** Acknowledge all linter errors in modified files. Fix straightforward ones; document limitations for complex ones.
+
+- **Verify workspace before making changes:** Check which workspace you're in (main or session) at the start of interactions. Make changes in the appropriate session workspace unless explicitly directed otherwise.
+
+# Build & Test
+
+- **Runtime**: Bun (not Node.js)
+- **Type checking**: Automated by hooks (`tsgo`). Use `mcp__minsky__validate_typecheck` for explicit checks. **Never run `bun run tsc` manually.**
+- **Lint**: Automated by hooks. Use `mcp__minsky__validate_lint` for explicit checks.
+- **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
+- **Format**: `bun run format:check` / `bun run format:all`
+- **All checks**: `bun run validate-all`
+
+# Compact Instructions
+
+When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
+
+# Subagent Routing
+
+When spawning subagents, use the appropriate model and type:
+
+**Models:** `"sonnet"` for bounded tasks (implementation, refactoring, search, committing). `"opus"` (default) for complex investigation, architectural design, multi-step reasoning. `"haiku"` for simple search/formatting. (Community guides often recommend `haiku` as the `CLAUDE_CODE_SUBAGENT_MODEL` default; Minsky uses `sonnet` because subagents run full implementation workflows — edit, commit, PR — not just search/format.)
+
+**Types:** `"refactorer"` for structural changes (built-in coherence verification). `"auditor"` for spec verification. `"reviewer"` for read-only PR review. `"Explore"` for codebase search. `"Plan"` for design. `"general-purpose"` as fallback.
+
+**Capacity:** Subagents have limited context/tool budgets with no graceful degradation. Scope to 8–12 files per wave. Instruct to commit incrementally. For multi-phase work, use subtasks (`tasks_create` with `parent`). If a subagent returns incomplete work, check session `git diff`/`git status` and finish from main agent.
+
+**Prompt generation:** Always use `mcp__minsky__session_generate_prompt` — never hand-craft prompts. It enforces correct sessionId, taskId, paths, scope bounds, and guard rails. Dispatch with `suggestedModel` and `agentType` from the result.
+
+**Escalation to Opus:** The default model is Sonnet. When you recognize you're struggling — 2nd identical tool error from the same tool, architectural ambiguity you can't resolve, multi-file reasoning that isn't converging, or a task that requires deep investigation — spawn a subagent with `model: "opus"` to analyze the problem. Let Opus produce the plan or diagnosis, then continue executing with Sonnet. Don't persist on a problem that exceeds your current model's capability. (See §Error Investigation for the mechanical 2-strikes rule.)
+
+# Code Style
+
+- TypeScript strict mode, double quotes, 2-space indent, 100-char line width
+- ES5 trailing commas, LF line endings
+- Prefer template literals over string concatenation
+- Max 400 lines per file (warn), 1500 (error)
+- 10 custom ESLint rules enforce architectural patterns
+
+# Work Completion
+
+- **Do not defer identified, actionable work.** Complete unmet success criteria before proposing to ship.
+- **The user decides scope, not the agent.** Never unilaterally decide "this is a good stopping point."
+- **Artifact creation is not progress.** Creating tasks/specs/rules is not a substitute for doing the work.
+- **Never notice an issue without acting on it.** File a task, update a spec, or save a memory — mentioning in chat is not action.
+- **Process corrections require structural fixes.** Invoke `/retrospective` for durable fixes (hooks, skills), not just memories.
+
+## Temporary mechanism budget
+
+When a memory entry, skill, doc, or comment encodes a mechanism as **"temporary," "escape hatch," "workaround," "interim,"** or **"until X ships,"** it MUST cite both:
+
+1. A **tracking task** (the structural fix that retires the mechanism), AND
+2. An **escalation threshold** — a count, time window, or both — at which the mechanism's continued use indicates the temporary framing has failed.
+
+When the threshold is exceeded, the agent surfaces a reprioritization prompt to the user (escalation packaging per `humility.mdc`) rather than continuing to apply the workaround silently. Memory describing the world is not a substitute for memory acting on it: an "escape hatch fires once a quarter" memory and an "escape hatch fires daily" memory have the same shape unless the budget is encoded.
+
+**Why:** mt#1503 / 2026-05-01 incident — the `gh api PUT /merge` bypass for self-authored bot PRs was framed in `feedback_gh_api_bypass.md` (2026-04-23) as "Escape hatch — not a default path." Over 3 weeks it became the dominant merge mechanism (~17+ PRs, ~5/week). Four memory entries observed "the bypass is becoming load-bearing" without escalating. The structural unblockers (mt#1073, mt#1065, mt#1345, mt#1372, mt#1310, mt#1405, mt#1477) sat in TODO/PLANNING the entire time. The prioritization loop had no measurement variety for *operational pattern frequency over time* (Ashby).
+
+**How to apply:**
+
+- When **writing** a memory or doc that names a workaround: include a budget. Format suggestion: `**Budget:** retire when <count> in <window> exceeded; tracking task: mt#X.`
+- When **reading** such a memory at use-time: count uses and check against budget. If exceeded, escalate before applying.
+- When you observe the **same workaround memory cited 2+ times in a 5-day rolling window** (or **3+ workaround invocations in 5 days**, or **2+ in 24h**), treat it as the budget signal regardless of whether the original entry recorded one — search for the tracking task and surface its status.
+- **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
+- Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline. See `feedback_temporary_mechanism_budget.md` for the bridge memory.
+
+# Hook Files
+
+All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
+
+## Parallel-Work Guard
+
+A PreToolUse hook on `mcp__minsky__session_start` blocks sessions whose in-scope files overlap
+an open PR or a commit merged to main in the last 24 hours. This is the Tier-3 structural
+ceiling for the parallel-work ladder (mt#1362); the Tier-2 floor lives in `/plan-task` gate
+criterion (g) and `/implement-task` §0a.
+
+**Hook file:** `.claude/hooks/parallel-work-guard.ts`
+
+**Checks run:**
+1. Open-PR sweep — any open PR whose changed files overlap the task's `## Scope` → `In scope` list.
+2. Recently-merged sweep — commits on the repo's **default branch** (auto-detected via `git symbolic-ref` / `git remote show origin` / probes for `origin/main` and `origin/master`; only when all probes fail does the sweep skip with a warning) in the last 24 hours touching in-scope paths.
+
+**On hit:** the hook blocks `session_start` with a structured message listing the colliding
+PR/commit, overlapping files, and four recommended actions (wait / coordinate / reframe / override).
+
+**Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
+
+```bash
+MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
+```
+
+The override is **logged to session stdout** (task ID, ISO timestamp).
+The line is visible in the session transcript but is **not** written to a durable
+audit file — once the session log is rotated, the record is gone. Use only when
+parallel work has been explicitly acknowledged and coordinated.
+
+**When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
+section, the hook emits a warning to stdout and allows the session_start to proceed.
 
 # Task Lifecycle
 
@@ -1114,12 +1116,10 @@ Mechanical checklist before posting an escalation:
 
 This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (mt#1034). When that subsystem ships, the packaging discipline becomes structural — until then, it's checklist-driven. See `feedback_escalation_packaging.md` for the originating incident (mt#1316 shape A/B/C).
 
-# Code Style
+# Error Investigation
 
-- TypeScript strict mode, double quotes, 2-space indent, 100-char line width
-- ES5 trailing commas, LF line endings
-- Prefer template literals over string concatenation
-- Max 400 lines per file (warn), 1500 (error)
-- 10 custom ESLint rules enforce architectural patterns
+- **2-strikes rule: after the 2nd identical tool error from the same tool, stop.** Do not retry. Read the tool's actual error message, diagnose the root cause (permission? stale input? upstream state?), and file a bug task if the error is systemic. Resume only once you understand why it failed. Counting attempts, not classifying the situation — it's a mechanical rule.
+- **Workarounds are not fixes.** Switching to an alternative path/method without understanding the root cause may hide a systemic bug that breaks other users. If a workaround is needed to proceed, file the underlying bug task first.
+- **When any MCP tool call returns an error, stop and investigate before the next attempt.** Even on the first occurrence, don't retry blindly — retry only with a hypothesis about what the error means.
 
 Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.
