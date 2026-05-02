@@ -57,8 +57,12 @@ export interface TokenProvider {
 
   /**
    * Returns identity information for the service account, or null if none is configured.
+   *
+   * @param role - Which service-account identity to query (default: "implementer").
+   *   When `role: "reviewer"` is passed and a reviewer App is configured, returns
+   *   the reviewer App's identity. Otherwise falls back to the implementer App.
    */
-  getServiceIdentity(): Promise<{ login: string; type: "app" | "user" } | null>;
+  getServiceIdentity(role?: TokenRole): Promise<{ login: string; type: "app" | "user" } | null>;
 
   /**
    * Synchronous check: returns true if a service account is configured.

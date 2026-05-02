@@ -90,7 +90,8 @@ class SingleAppClient {
     // If a specific repo scope is requested, always fetch a fresh scoped token
     // (we don't cache per-repo tokens — only the unscoped installation token).
     if (repo) {
-      return this.fetchInstallationToken(repo);
+      const { token } = await this.fetchInstallationToken(repo);
+      return token;
     }
 
     if (this.isTokenValid()) {
@@ -98,11 +99,8 @@ class SingleAppClient {
       return this.cachedToken!.token;
     }
 
-    const token = await this.fetchInstallationToken();
-    this.cachedToken = {
-      token,
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
-    };
+    const { token, expiresAt } = await this.fetchInstallationToken();
+    this.cachedToken = { token, expiresAt };
     return token;
   }
 
@@ -203,7 +201,7 @@ class SingleAppClient {
     };
   }
 
-  private async fetchInstallationToken(repo?: string): Promise<string> {
+  private async fetchInstallationToken(repo?: string): Promise<{ token: string; expiresAt: Date }> {
     const jwt = this.generateJwt();
 
     const body: Record<string, unknown> = {};
@@ -233,9 +231,25 @@ class SingleAppClient {
       );
     }
 
-    const data = (await response.json()) as { token: string };
-    return data.token;
+    const data = (await response.json()) as { token: string; expires_at?: string };
+    // Honour GitHub's actual expiry timestamp when present; fall back to a
+    // 1-hour assumption only if the field is missing or unparsable. Skew + the
+    // REFRESH_THRESHOLD_MS check together ensure we don't ride a token to
+    // its absolute deadline.
+    const expiresAt = parseExpiresAt(data.expires_at) ?? new Date(Date.now() + 60 * 60 * 1000);
+    return { token: data.token, expiresAt };
   }
+}
+
+/**
+ * Parses GitHub's `expires_at` ISO 8601 timestamp. Returns null if the input
+ * is missing or unparseable (callers fall back to a default).
+ */
+function parseExpiresAt(raw: string | undefined): Date | null {
+  if (!raw) return null;
+  const ts = Date.parse(raw);
+  if (Number.isNaN(ts)) return null;
+  return new Date(ts);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,7 +268,11 @@ export class GitHubAppTokenProvider implements TokenProvider {
    */
   private readonly reviewerClient: SingleAppClient | null;
 
-  private cachedAppInfo: GitHubAppInfo | null = null;
+  /**
+   * Per-role identity cache. Keyed by role to avoid conflating implementer
+   * and reviewer App identities when both are in use.
+   */
+  private cachedIdentityByRole: Partial<Record<TokenRole, GitHubAppInfo>> = {};
 
   constructor(config: GitHubAppConfig) {
     this.userToken = config.userToken;
@@ -297,13 +315,19 @@ export class GitHubAppTokenProvider implements TokenProvider {
     return this.userToken;
   }
 
-  async getServiceIdentity(): Promise<{ login: string; type: "app" | "user" } | null> {
-    if (this.cachedAppInfo) {
-      return this.cachedAppInfo;
-    }
+  async getServiceIdentity(
+    role?: TokenRole
+  ): Promise<{ login: string; type: "app" | "user" } | null> {
+    const resolvedRole: TokenRole =
+      role === "reviewer" && this.reviewerClient !== null ? "reviewer" : "implementer";
 
-    this.cachedAppInfo = await this.implementerClient.getAppInfo();
-    return this.cachedAppInfo;
+    const cached = this.cachedIdentityByRole[resolvedRole];
+    if (cached) return cached;
+
+    const client = this.clientForRole(resolvedRole);
+    const info = await client.getAppInfo();
+    this.cachedIdentityByRole[resolvedRole] = info;
+    return info;
   }
 
   isServiceAccountConfigured(): boolean {

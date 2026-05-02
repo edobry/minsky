@@ -30,7 +30,7 @@ export class FallbackTokenProvider implements TokenProvider {
     return this.userToken;
   }
 
-  async getServiceIdentity(): Promise<null> {
+  async getServiceIdentity(_role?: TokenRole): Promise<null> {
     return null;
   }
 
