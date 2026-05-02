@@ -133,7 +133,7 @@ interface TaskBackend {
 // Proposed: "task#md:123"
 
 interface SessionRecord {
-  session: string; // "task#md:123"
+  sessionId: string; // "task#md:123"
   taskId: BackendQualifiedId; // "md:123"
   backend: string; // "md"
   // ... other fields
@@ -145,8 +145,8 @@ function generateSessionName(taskId: BackendQualifiedId): string {
 }
 
 // Examples:
-// taskId: "md:123" → session: "task#md:123"
-// taskId: "gh:456" → session: "task#gh:456"
+// taskId: "md:123" → sessionId: "task#md:123"
+// taskId: "gh:456" → sessionId: "task#gh:456"
 ```
 
 #### Session Auto-Detection Updates

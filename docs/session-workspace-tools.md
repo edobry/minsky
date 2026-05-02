@@ -31,7 +31,7 @@ Reads the contents of a file within the session workspace with optional line ran
 
 **Parameters:**
 
-- `session` (string, required): Session identifier (e.g., "task#049")
+- `sessionId` (string, required): Session identifier (e.g., "task#049")
 - `path` (string, required): File path relative to session workspace or absolute within session
 - `start_line_one_indexed` (number, optional): Starting line number (1-indexed, inclusive)
 - `end_line_one_indexed_inclusive` (number, optional): Ending line number (1-indexed, inclusive)
@@ -45,7 +45,7 @@ Reads the contents of a file within the session workspace with optional line ran
   "success": true,
   "content": "Contents of src/component.tsx, lines 10-20 (total 50 lines):\nline 10 content\nline 11 content\n...",
   "path": "src/component.tsx",
-  "session": "task#049",
+  "sessionId": "task#049",
   "resolvedPath": "src/component.tsx",
   "totalLines": 50,
   "linesRead": {
@@ -71,7 +71,7 @@ _Read specific lines:_
 
 ```javascript
 const result = await session_read_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/utils/helper.ts",
   start_line_one_indexed: 25,
   end_line_one_indexed_inclusive: 35,
@@ -82,7 +82,7 @@ _Read single line with context:_
 
 ```javascript
 const result = await session_read_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/component.tsx",
   start_line_one_indexed: 42,
   end_line_one_indexed_inclusive: 42,
@@ -94,7 +94,7 @@ _Read entire file (explicit):_
 
 ```javascript
 const result = await session_read_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "package.json",
   should_read_entire_file: true,
 });
@@ -107,7 +107,7 @@ const result = await session_read_file({
   "success": false,
   "error": "File not found: /path/to/file.ts",
   "path": "relative/path/to/file.ts",
-  "session": "task#049"
+  "sessionId": "task#049"
 }
 ```
 
@@ -117,7 +117,7 @@ Writes content to a file within the session workspace, creating directories as n
 
 **Parameters:**
 
-- `session` (string, required): Session identifier
+- `sessionId` (string, required): Session identifier
 - `path` (string, required): File path within session workspace
 - `content` (string, required): Content to write to the file
 
@@ -127,7 +127,7 @@ Writes content to a file within the session workspace, creating directories as n
 {
   "success": true,
   "path": "src/components/NewComponent.tsx",
-  "session": "task#049",
+  "sessionId": "task#049",
   "bytesWritten": 1234,
   "created": true
 }
@@ -139,7 +139,7 @@ Lists the contents of a directory within the session workspace.
 
 **Parameters:**
 
-- `session` (string, required): Session identifier
+- `sessionId` (string, required): Session identifier
 - `path` (string, optional): Directory path (defaults to session root)
 
 **Response:**
@@ -148,7 +148,7 @@ Lists the contents of a directory within the session workspace.
 {
   "success": true,
   "path": "src/components",
-  "session": "task#049",
+  "sessionId": "task#049",
   "items": [
     {
       "name": "Button.tsx",
@@ -171,7 +171,7 @@ Checks if a file or directory exists within the session workspace.
 
 **Parameters:**
 
-- `session` (string, required): Session identifier
+- `sessionId` (string, required): Session identifier
 - `path` (string, required): Path to check
 
 **Response:**
@@ -181,7 +181,7 @@ Checks if a file or directory exists within the session workspace.
   "success": true,
   "exists": true,
   "path": "src/utils/helper.ts",
-  "session": "task#049",
+  "sessionId": "task#049",
   "type": "file"
 }
 ```
@@ -192,7 +192,7 @@ Deletes a file within the session workspace.
 
 **Parameters:**
 
-- `session` (string, required): Session identifier
+- `sessionId` (string, required): Session identifier
 - `path` (string, required): File path to delete
 
 **Response:**
@@ -201,7 +201,7 @@ Deletes a file within the session workspace.
 {
   "success": true,
   "path": "temp/cache.json",
-  "session": "task#049",
+  "sessionId": "task#049",
   "deleted": true
 }
 ```
@@ -212,7 +212,7 @@ Creates a directory (and parent directories) within the session workspace.
 
 **Parameters:**
 
-- `session` (string, required): Session identifier
+- `sessionId` (string, required): Session identifier
 - `path` (string, required): Directory path to create
 
 **Response:**
@@ -221,7 +221,7 @@ Creates a directory (and parent directories) within the session workspace.
 {
   "success": true,
   "path": "src/new-feature/components",
-  "session": "task#049",
+  "sessionId": "task#049",
   "created": true,
   "recursive": true
 }
@@ -255,7 +255,7 @@ Creates a directory (and parent directories) within the session workspace.
 ```javascript
 // Read package.json from session workspace
 const result = await session_read_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "package.json",
 });
 
@@ -270,7 +270,7 @@ if (result.success) {
 ```javascript
 // Read only the imports section of a TypeScript file
 const result = await session_read_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/components/Button.tsx",
   start_line_one_indexed: 1,
   end_line_one_indexed_inclusive: 15,
@@ -290,7 +290,7 @@ if (result.success) {
 ```javascript
 // Read a specific function with automatic context expansion
 const result = await session_read_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/utils/validation.ts",
   start_line_one_indexed: 45,
   end_line_one_indexed_inclusive: 45,
@@ -317,7 +317,7 @@ export const NewFeature: React.FC = () => {
 `;
 
 await session_write_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/components/NewFeature.tsx",
   content: componentCode,
 });
@@ -328,7 +328,7 @@ await session_write_file({
 ```javascript
 // List all TypeScript files in src/
 const result = await session_list_directory({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src",
 });
 
@@ -345,13 +345,13 @@ if (result.success) {
 ```javascript
 // Check if file exists before reading
 const exists = await session_file_exists({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/config/settings.json",
 });
 
 if (exists.success && exists.exists) {
   const config = await session_read_file({
-    session: "task#049",
+    sessionId: "task#049",
     path: "src/config/settings.json",
   });
   // Process config...
@@ -403,7 +403,7 @@ await edit_file({
 
 // ✅ DO: Use session tools
 await session_write_file({
-  session: "task#049",
+  sessionId: "task#049",
   path: "src/component.tsx",
   content: updatedContent,
 });
@@ -419,7 +419,7 @@ await session_write_file({
    {
      "success": false,
      "error": "Session 'invalid-session' not found",
-     "session": "invalid-session"
+     "sessionId": "invalid-session"
    }
    ```
 
@@ -430,7 +430,7 @@ await session_write_file({
      "success": false,
      "error": "Path '../../../etc/passwd' resolves outside session workspace",
      "path": "../../../etc/passwd",
-     "session": "task#049"
+     "sessionId": "task#049"
    }
    ```
 
@@ -441,7 +441,7 @@ await session_write_file({
      "success": false,
      "error": "File not found: /session/path/missing.txt",
      "path": "missing.txt",
-     "session": "task#049"
+     "sessionId": "task#049"
    }
    ```
 
@@ -451,7 +451,7 @@ await session_write_file({
      "success": false,
      "error": "Permission denied: /session/path/readonly.txt",
      "path": "readonly.txt",
-     "session": "task#049"
+     "sessionId": "task#049"
    }
    ```
 

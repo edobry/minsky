@@ -7,7 +7,7 @@
  * — the build breaks before the change can merge.
  *
  * This is the mechanical guard referenced in mt#1235 §Success Criteria
- * ("Type-level exhaustiveness check for AskKind") and ADR-006 §The Ask entity
+ * ("Type-level exhaustiveness check for AskKind") and ADR-008 §The Ask entity
  * (discriminated-union exhaustiveness). Runtime behavior is incidental — the
  * important signal is at compile time.
  */

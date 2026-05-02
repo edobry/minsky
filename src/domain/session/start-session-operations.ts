@@ -9,7 +9,7 @@ import {
 import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
-import { installDependencies } from "../../utils/package-manager";
+import { installDependencies, installNestedDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "../git";
 import { normalizeRepoName } from "../repo-utils";
 import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
@@ -424,6 +424,41 @@ Error: ${error}`);
         log.cli(
           `Warning: Dependency installation failed. You may need to run install manually.
 Error: ${getErrorMessage(installError)}`
+        );
+      }
+    }
+
+    // Install nested workspace packages (mt#1379). Sessions clone the full
+    // repo including nested packages under services/ and packages/ that
+    // have their own package.json + lockfile and are NOT root workspaces.
+    // Without this, the first test run for any nested package fails with
+    // misleading "Cannot find module" errors. Best-effort: failures here
+    // never fail session_start.
+    try {
+      const summary = await installNestedDependencies(sessionDir, { quiet });
+      if (summary.attempted > 0 && !quiet) {
+        if (summary.failed === 0) {
+          log.debug(
+            `[mt#1379] Installed ${summary.succeeded} nested package(s) under services/ or packages/`
+          );
+        } else {
+          log.cli(
+            `Warning: ${summary.failed} of ${summary.attempted} nested package install(s) failed. ` +
+              `Run install manually in: ${summary.results
+                .filter((r) => !r.success)
+                .map((r) => r.path)
+                .join(", ")}`
+          );
+        }
+      }
+    } catch (nestedError) {
+      // installNestedDependencies is contracted not to throw, but defend
+      // against future changes — a thrown error here must not fail
+      // session_start.
+      if (!quiet) {
+        log.cli(
+          `Warning: Nested-package install orchestration failed. You may need to run install manually in nested workspaces.
+Error: ${getErrorMessage(nestedError)}`
         );
       }
     }

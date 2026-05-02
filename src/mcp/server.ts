@@ -9,6 +9,7 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
   isInitializeRequest,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
@@ -21,6 +22,7 @@ import { randomUUID } from "crypto";
 import { resolveAgentId } from "../domain/agent-identity/resolve";
 import type { RequestExtras } from "../domain/agent-identity/layer2";
 import type { AppContainerInterface } from "../composition/types";
+import type { MCPClientCapabilityRegistry } from "./client-capabilities";
 
 /**
  * Transport type for MCP server
@@ -78,6 +80,19 @@ export interface MinskyMCPServerOptions {
    * Provided by the MCP start command after tool registration.
    */
   container?: AppContainerInterface;
+
+  /**
+   * MCP client capability registry (mt#1457). When provided, each `Server`
+   * instance created by `createConfiguredServer` is registered so the Ask
+   * router can detect elicitation-capable connections. HTTP-mode session
+   * cleanup paths unregister servers as connections close. Stdio mode
+   * registers once for the process lifetime.
+   *
+   * When undefined (the typical bare-CLI / test path), capability tracking
+   * is disabled — the no-op registry in CLI composition suffices for those
+   * code paths.
+   */
+  clientCapabilityRegistry?: MCPClientCapabilityRegistry;
 }
 
 // Tool definitions for MCP server
@@ -129,6 +144,9 @@ export class MinskyMCPServer {
   private stalenessDetector: StalenessDetector;
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
+  /** Optional capability registry — when set, every Server created in
+   * createConfiguredServer is register/unregister-tracked. */
+  private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -139,6 +157,15 @@ export class MinskyMCPServer {
     string,
     { server: Server; transport: StreamableHTTPServerTransport; lastActiveAt: number }
   > = new Map();
+
+  // Maximum concurrent HTTP sessions. When set, new initialize requests are
+  // rejected with 503 Service Unavailable once the cap is reached. Configured
+  // via MINSKY_MCP_MAX_SESSIONS env var. Absent or non-positive → no cap.
+  private readonly MAX_HTTP_SESSIONS: number | null = null;
+
+  // Retry-After value (seconds) sent with 503 responses when the cap is reached.
+  // Configurable via MINSKY_MCP_RETRY_AFTER_SECS env var; defaults to 30.
+  private readonly SESSION_CAP_RETRY_AFTER_SECS: number = 30;
 
   // Idle-timeout reaper for HTTP sessions. A client can POST initialize, get a
   // sessionId, and never call close() — leaving the Server+Transport pair
@@ -183,6 +210,26 @@ export class MinskyMCPServer {
 
     // DI container for service access (e.g. sessionProvider for agentId writes)
     this.container = options.container;
+
+    // mt#1457: capability registry for the Ask router. When provided, each
+    // Server created via createConfiguredServer is registered.
+    this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+
+    // Parse session cap from env var. Non-positive or non-numeric values → no cap.
+    const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
+    if (maxSessionsRaw !== undefined && maxSessionsRaw !== "") {
+      const parsed = Number.parseInt(maxSessionsRaw, 10);
+      this.MAX_HTTP_SESSIONS = parsed > 0 ? parsed : null;
+    }
+
+    // Parse Retry-After override (seconds). Falls back to the field default (30).
+    const retryAfterRaw = process.env.MINSKY_MCP_RETRY_AFTER_SECS;
+    if (retryAfterRaw !== undefined && retryAfterRaw !== "") {
+      const parsed = Number.parseInt(retryAfterRaw, 10);
+      if (parsed > 0) {
+        this.SESSION_CAP_RETRY_AFTER_SECS = parsed;
+      }
+    }
 
     // Initialize staleness detector to warn when server code is outdated
     this.stalenessDetector = new StalenessDetector(
@@ -276,6 +323,14 @@ export class MinskyMCPServer {
       }
     );
     this.diag.captureInit(server);
+
+    // mt#1457: register with the capability registry so the Ask router can
+    // detect this connection's elicitation capability once initialize completes.
+    // Capabilities are read live from the SDK Server (no caching), so registering
+    // here pre-init is safe — the SDK populates getClientCapabilities() on
+    // initialize. HTTP onclose / idle reaper / close() handle unregistration.
+    this.clientCapabilityRegistry?.registerServer(server);
+
     this.setupRequestHandlers(server);
     return server;
   }
@@ -378,6 +433,32 @@ export class MinskyMCPServer {
         return;
       }
 
+      // Admission control: reject new sessions when the concurrent-session cap
+      // is reached. The cap is configurable via MINSKY_MCP_MAX_SESSIONS; absent
+      // or non-positive values disable the cap entirely (no-op for backward
+      // compatibility). Rejected requests receive 503 + Retry-After so that
+      // well-behaved clients back off and retry rather than hammering the endpoint.
+      if (this.MAX_HTTP_SESSIONS !== null && this.httpSessions.size >= this.MAX_HTTP_SESSIONS) {
+        const currentCount = this.httpSessions.size;
+        log.warn("mcp_session_reject", {
+          reason: "cap_reached",
+          currentCount,
+          cap: this.MAX_HTTP_SESSIONS,
+        });
+        res
+          .status(503)
+          .set("Retry-After", String(this.SESSION_CAP_RETRY_AFTER_SECS))
+          .json({
+            jsonrpc: "2.0",
+            error: {
+              code: -32603,
+              message: `Service unavailable: concurrent session cap (${this.MAX_HTTP_SESSIONS}) reached. Retry after ${this.SESSION_CAP_RETRY_AFTER_SECS}s.`,
+            },
+            id: null,
+          });
+        return;
+      }
+
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
@@ -417,6 +498,9 @@ export class MinskyMCPServer {
             this.httpSessions.delete(closedId);
             log.debug("HTTP session closed and cleaned up", { sessionId: closedId });
           }
+          // mt#1457: unregister from the capability registry so a closed
+          // connection's stale capabilities don't influence routing decisions.
+          this.clientCapabilityRegistry?.unregisterServer(server);
           // Only close the Server if no external initiator claimed ownership —
           // the initiator (reaper / MinskyMCPServer.close) is responsible for
           // closing the Server directly.
@@ -443,7 +527,12 @@ export class MinskyMCPServer {
         const id = transport.sessionId;
         if (id && !this.httpSessions.has(id)) {
           this.httpSessions.set(id, entry);
-          log.debug("Registered new HTTP session via onmessage", { sessionId: id });
+          const newCount = this.httpSessions.size;
+          log.debug("mcp_session_admit", {
+            sessionId: id,
+            currentCount: newCount,
+            cap: this.MAX_HTTP_SESSIONS ?? "unlimited",
+          });
         }
         prevOnmessage?.(message, extra);
       };
@@ -508,6 +597,9 @@ export class MinskyMCPServer {
       // Mark external initiator so onclose doesn't also call server.close().
       (session as typeof session & { markExternalClose?: () => void }).markExternalClose?.();
       this.httpSessions.delete(id);
+      // mt#1457: unregister from capability registry. Idempotent — safe even
+      // if onclose also fires and unregisters again.
+      this.clientCapabilityRegistry?.unregisterServer(session.server);
       const idleMinutes = Math.floor((now - session.lastActiveAt) / 60_000);
       log.debug("Reaping idle HTTP session", { sessionId: id, idleMinutes });
       try {
@@ -623,6 +715,12 @@ export class MinskyMCPServer {
             this.triggerStaleSignal(server);
           }
 
+          // Preserve structured McpError instances (e.g. StructuredMcpError with
+          // machine-readable data payload) so the SDK propagates `code` and `data`
+          // to the caller intact. Plain Error objects are wrapped as before.
+          if (error instanceof McpError) {
+            throw error;
+          }
           throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
         }
       } finally {
@@ -918,6 +1016,8 @@ export class MinskyMCPServer {
         // call server.close().
         for (const [sessionId, entry] of this.httpSessions.entries()) {
           (entry as typeof entry & { markExternalClose?: () => void }).markExternalClose?.();
+          // mt#1457: unregister from capability registry on shutdown.
+          this.clientCapabilityRegistry?.unregisterServer(entry.server);
           try {
             await entry.transport.close();
             log.debug("Closed HTTP transport", { sessionId });
@@ -939,6 +1039,10 @@ export class MinskyMCPServer {
         }
         this.httpSessions.clear();
       }
+
+      // mt#1457: unregister the singleton stdio Server (HTTP sessions are
+      // unregistered above). Idempotent for the http-mode path.
+      this.clientCapabilityRegistry?.unregisterServer(this.server);
 
       await this.server.close();
       log.debug("MCP Server closed");
@@ -989,6 +1093,21 @@ export class MinskyMCPServer {
    */
   getInFlightCount(): number {
     return this.inFlightRequests.size;
+  }
+
+  /**
+   * Return the number of currently active HTTP sessions.
+   * Returns 0 for stdio transport (no HTTP sessions).
+   */
+  getSessionCount(): number {
+    return this.httpSessions.size;
+  }
+
+  /**
+   * Return the configured maximum concurrent HTTP sessions, or null if no cap.
+   */
+  getMaxSessions(): number | null {
+    return this.MAX_HTTP_SESSIONS;
   }
 
   /**

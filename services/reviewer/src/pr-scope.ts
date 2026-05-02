@@ -33,6 +33,16 @@ export type ScopeBucket = "trivial-or-docs" | "test-only" | "normal";
 const DOCS_FILE_PATTERN =
   /^(docs\/|.*\.md$|.*\.mdx$|README(\.[a-z]+)?$|CHANGELOG(\.[a-z]+)?$|LICENSE(\.[a-z]+)?$)/i;
 
+/**
+ * Skill files are agent capabilities, not documentation. A path is a skill
+ * path if it lives under `.minsky/skills/`, `.claude/skills/`, or contains
+ * `/skills/` anywhere in the path.
+ *
+ * Skill files should receive full-rigor review even when they carry a `.md`
+ * extension — they must NOT be classified as `docs-only`.
+ */
+const SKILL_PATH_PATTERN = /(?:^\.minsky\/skills\/|^\.claude\/skills\/|\/skills\/)/i;
+
 const TEST_FILE_PATTERN =
   /^(tests\/|test\/|.*__tests__\/|.*\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$)/i;
 
@@ -108,8 +118,14 @@ export function classifyPRScope(input: {
     return "normal";
   }
 
-  // docs-only: every file matches the docs pattern.
-  if (filesChanged.every((f) => DOCS_FILE_PATTERN.test(f))) {
+  // docs-only: every file matches the docs pattern AND no file is a skill path.
+  // Skill files (.minsky/skills/**, .claude/skills/**, or any path with /skills/)
+  // are agent capabilities, not documentation — they must receive full-rigor review
+  // even when they carry a .md extension.
+  if (
+    filesChanged.every((f) => DOCS_FILE_PATTERN.test(f)) &&
+    !filesChanged.some((f) => SKILL_PATH_PATTERN.test(f))
+  ) {
     return "docs-only";
   }
 

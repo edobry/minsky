@@ -13,6 +13,8 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../../../errors/index";
+import { McpErrorCode } from "../../../../errors/mcp-error-codes";
+import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
 import { log } from "../../../../utils/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCreateCommandParams } from "./session-parameters";
@@ -164,11 +166,23 @@ function handlePrError(error: unknown, params: SessionPrCreateParams): Error {
   const errorMessage = getErrorMessage(error);
 
   if (error instanceof SessionConflictError) {
-    return error;
+    // Structured error: MCP clients can branch on code === "CONFLICT"
+    return mcpStructuredError({
+      code: McpErrorCode.CONFLICT,
+      summary: "Merge conflict detected while creating PR branch",
+      details: {
+        sessionBranch: error.sessionBranch,
+        baseBranch: error.baseBranch,
+        originalMessage: errorMessage,
+      },
+    });
   } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
-    return new MinskyError(
-      `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Resolve conflicts manually and retry\n• Use --auto-resolve-delete-conflicts for simple conflicts\n\nTechnical details: ${errorMessage}`
-    );
+    // Structured error for conflict text that is not a SessionConflictError instance
+    return mcpStructuredError({
+      code: McpErrorCode.CONFLICT,
+      summary: "Git merge conflict detected while creating PR branch",
+      details: { originalMessage: errorMessage },
+    });
   } else if (
     errorMessage.includes("Permission denied") ||
     errorMessage.includes("authentication")

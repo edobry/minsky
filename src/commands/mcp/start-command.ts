@@ -29,6 +29,7 @@ import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
+import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -289,12 +290,24 @@ export function createStartCommand(
 
         const projectContext = resolveProjectContext(options.repo);
 
+        // mt#1457: build the MCP-backed capability registry and wire it both
+        // into the container (for asks.create / router consumers) and into
+        // the MinskyMCPServer (for register/unregister of Server instances).
+        // The CLI composition root (`createCliContainer`) registers a no-op
+        // by default; this override replaces it for MCP-server execution so
+        // routing decisions reflect actual host capabilities.
+        const clientCapabilityRegistry = new MCPClientCapabilityRegistry();
+        if (container) {
+          container.set("clientCapabilityRegistry", clientCapabilityRegistry);
+        }
+
         // Prepare server configuration
         const serverConfig = {
           name: "Minsky MCP Server",
           version: "1.0.0", // TODO: Import from package.json
           projectContext,
           transportType: transportType as "stdio" | "http",
+          clientCapabilityRegistry,
           ...(transportType === "http" && {
             httpConfig: {
               port: parseInt(options.port, 10),
@@ -401,48 +414,120 @@ export function createStartCommand(
         // path — never from `minsky --help` or any CLI-only code path.
         const scheduler = await buildAndStartScheduler(container);
 
-        log.cli("Press Ctrl+C to stop");
+        // Hard timeout for drain+close path (mt#1417).
+        // Configurable via PG_DRAIN_TIMEOUT_MS; defaults to 5000ms.
+        // Sanitize: parseInt produces NaN for non-numeric values, which setTimeout
+        // would coerce to 0 and fire the hard-timeout immediately, forcing exit(1)
+        // even when a clean drain would have succeeded. Fall back to default and
+        // clamp to a sane range (PR #881 R1 BLOCKING).
+        const PG_DRAIN_TIMEOUT_DEFAULT_MS = 5000;
+        const PG_DRAIN_TIMEOUT_MIN_MS = 100;
+        const PG_DRAIN_TIMEOUT_MAX_MS = 60_000;
+        // Strict validation: only accept a canonical decimal integer string.
+        // parseInt would happily accept "200ms" (200), "0x10" (0), "1e3" (1) —
+        // partial/exotic forms that should fall back to the default rather than
+        // be silently coerced (PR #881 R3 BLOCKING).
+        const rawDrainTimeout = process.env.PG_DRAIN_TIMEOUT_MS;
+        const isCanonicalIntegerString = (s: string | undefined): s is string =>
+          typeof s === "string" && /^\s*\d+\s*$/.test(s);
+        const PG_DRAIN_TIMEOUT_MS = isCanonicalIntegerString(rawDrainTimeout)
+          ? Math.min(
+              Math.max(parseInt(rawDrainTimeout, 10), PG_DRAIN_TIMEOUT_MIN_MS),
+              PG_DRAIN_TIMEOUT_MAX_MS
+            )
+          : PG_DRAIN_TIMEOUT_DEFAULT_MS;
+
+        // Idempotency flag: once a shutdown race is in flight, skip re-entry.
+        let shutdownInFlight = false;
 
         // Handle termination signals gracefully
         const cleanup = async () => {
+          if (shutdownInFlight) return;
+          shutdownInFlight = true;
+
           log.cli("\nStopping Minsky MCP Server...");
-          try {
-            // Stop the scheduler first so in-flight syncs complete before closing.
-            if (scheduler) {
-              await scheduler.stop();
-              log.debug("[scheduler] Knowledge sync scheduler stopped");
+
+          // Race the drain+close path against a hard timeout so the process
+          // never hangs indefinitely (e.g. when Claude Code closes the stdio pipe
+          // without sending a signal — mt#1417).
+          const drainAndClose = async (): Promise<void> => {
+            try {
+              // Stop the scheduler first so in-flight syncs complete before closing.
+              if (scheduler) {
+                await scheduler.stop();
+                log.debug("[scheduler] Knowledge sync scheduler stopped");
+              }
+              await server.drain();
+            } catch (error) {
+              log.warn("Error during server cleanup", {
+                error: getErrorMessage(error),
+              });
             }
-            await server.drain();
-          } catch (error) {
-            log.warn("Error during server cleanup", {
-              error: getErrorMessage(error),
-            });
-          }
-          // Release DB sockets promptly so another MCP instance (e.g. Railway
-          // redeploy rolling over to a new container) can claim pool slots
-          // without waiting for TCP timeout (mt#1193).
-          try {
-            const persistence = container?.has("persistence")
-              ? container.get("persistence")
-              : undefined;
-            if (
-              persistence &&
-              typeof (persistence as { close?: () => Promise<void> }).close === "function"
-            ) {
-              await (persistence as { close: () => Promise<void> }).close();
-              log.debug("[persistence] PostgreSQL connections closed");
+            // Release DB sockets promptly so another MCP instance (e.g. Railway
+            // redeploy rolling over to a new container) can claim pool slots
+            // without waiting for TCP timeout (mt#1193).
+            try {
+              const persistence = container?.has("persistence")
+                ? container.get("persistence")
+                : undefined;
+              if (
+                persistence &&
+                typeof (persistence as { close?: () => Promise<void> }).close === "function"
+              ) {
+                await (persistence as { close: () => Promise<void> }).close();
+                log.debug("[persistence] PostgreSQL connections closed");
+              }
+            } catch (error) {
+              log.warn("Error closing persistence during shutdown", {
+                error: getErrorMessage(error),
+              });
             }
-          } catch (error) {
-            log.warn("Error closing persistence during shutdown", {
-              error: getErrorMessage(error),
-            });
+          };
+
+          // Capture the timeout handle so we can clear it after the race resolves.
+          // Otherwise the timer lingers until process.exit, harmless today but a
+          // real footgun if the race shape evolves (PR #881 R1 NON-BLOCKING).
+          let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+          const hardTimeout = new Promise<never>((_, reject) => {
+            timeoutHandle = setTimeout(
+              () => reject(new Error("shutdown timeout")),
+              PG_DRAIN_TIMEOUT_MS
+            );
+          });
+
+          try {
+            await Promise.race([drainAndClose(), hardTimeout]);
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            // Route through the shared exit helper for consistent termination
+            // semantics + Bun-vs-Node parity (PR #881 R1 BLOCKING).
+            exit(0);
+          } catch {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            log.warn(`Shutdown timed out after ${PG_DRAIN_TIMEOUT_MS}ms; forcing exit`);
+            exit(1);
           }
-          process.exit(0);
         };
 
         const proc = process as Record<string, unknown>;
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
+        (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
+
+        // When the Claude Code parent closes its stdio pipe (without sending a signal),
+        // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard
+        // inside `cleanup` makes this listener idempotent even if it fires more
+        // than once (PR #881 R1 NON-BLOCKING). Only attach for stdio transport —
+        // HTTP-mode containers don't use stdin and may run with stdin closed at
+        // startup, which would falsely trigger.
+        if (!options.http) {
+          process.stdin.on("close", cleanup);
+        }
+
+        // Print readiness AFTER all shutdown handlers are attached (PR #881 R2 BLOCKING):
+        // tests + parent processes use this line as the deterministic ready signal,
+        // so emitting it before handlers register opens a race window where an
+        // immediate shutdown event hits the kernel default action and bypasses cleanup.
+        log.cli("Press Ctrl+C to stop");
 
         // Keep the process alive by waiting indefinitely
         await new Promise(() => {});

@@ -295,6 +295,47 @@ export interface ReviewOperations {
    * `undefined` as "listing not supported on this backend."
    */
   listReviews?(prIdentifier: string | number): Promise<ReviewListEntry[]>;
+
+  /**
+   * Mark a GitHub PR review thread as resolved.
+   *
+   * Requires a GraphQL `resolveReviewThread` mutation — no REST equivalent.
+   * The `threadId` is the GraphQL node ID of the `PullRequestReviewThread`.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "thread resolution not supported on this backend."
+   */
+  resolveReviewThread?(threadId: string): Promise<void>;
+
+  /**
+   * Mark a previously-resolved GitHub PR review thread as unresolved.
+   *
+   * Requires a GraphQL `unresolveReviewThread` mutation — no REST equivalent.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "thread resolution not supported on this backend."
+   */
+  unresolveReviewThread?(threadId: string): Promise<void>;
+
+  /**
+   * Submit a GitHub Check Run for the given PR (resolved to its head commit
+   * SHA), posting the supplied annotations with automatic pagination (50 per
+   * call).
+   *
+   * Introduced for mt#1346 (dual-surface reviewer output). The check run is
+   * posted under the bot identity via `getToken()`, which honours the
+   * configured TokenProvider service account.
+   *
+   * The backend resolves `prIdentifier` to the PR's current head SHA
+   * before calling the Checks API, so callers do not need to track SHAs.
+   *
+   * Non-GitHub backends may not implement this; callers should guard with
+   * `if (backend.review.submitCheckRun)`.
+   */
+  submitCheckRun?(
+    prIdentifier: string | number,
+    options: import("./github-checks-run").SubmitCheckRunOptions
+  ): Promise<import("./github-checks-run").SubmitCheckRunResult & { headSha: string }>;
 }
 
 /**

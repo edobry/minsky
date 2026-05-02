@@ -14,18 +14,19 @@
  *   listByClassifierVersion — all Asks produced by a classifier version
  *   transition             — state-machine-aware state update (throws on invalid move)
  *   close                  — convenience wrapper: transition to "closed" + attach response
+ *   respondAndClose        — atomic suspended → closed walk (mt#1458)
  *
- * Reference: ADR per mt#1034 (pending merge); mt#1237 spec.
+ * Reference: ADR per mt#1034 (pending merge); mt#1237 spec; mt#1458 (respondAndClose).
  */
 
 import { injectable } from "tsyringe";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { asksTable } from "../storage/schemas/ask-schema";
 import type { AskRecord, AskInsert } from "../storage/schemas/ask-schema";
 import type { Ask, AskState, AskKind, AgentId } from "./types";
-import { guardTransition } from "./state-machine";
+import { guardTransition, isTerminal, TERMINAL_ASK_STATES } from "./state-machine";
 
 // ---------------------------------------------------------------------------
 // Row ↔ domain mapping
@@ -36,8 +37,10 @@ import { guardTransition } from "./state-machine";
  *
  * Timestamps stored as `Date | null` in Drizzle are converted to ISO-8601
  * strings (or `undefined`) to match the `Ask` interface.
+ *
+ * @internal Exported for unit testing only — do not import outside of tests.
  */
-function toAsk(row: AskRecord): Ask {
+export function toAsk(row: AskRecord): Ask {
   return {
     id: row.id,
     kind: row.kind as AskKind,
@@ -58,6 +61,14 @@ function toAsk(row: AskRecord): Ask {
     suspendedAt: row.suspendedAt ? row.suspendedAt.toISOString() : undefined,
     respondedAt: row.respondedAt ? row.respondedAt.toISOString() : undefined,
     closedAt: row.closedAt ? row.closedAt.toISOString() : undefined,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: (row.serviceStrategy as Ask["serviceStrategy"]) ?? undefined,
+    windowKey: row.windowKey ?? undefined,
+    // Coalesce NULLs to documented defaults: types.ts states "Defaults to 0 when absent"
+    // and "Defaults to false when absent". Legacy rows (pre-migration-0029) may have NULL
+    // because PostgreSQL ADD COLUMN DEFAULT does not backfill existing rows.
+    windowMissedCount: row.windowMissedCount ?? 0,
+    forceImmediate: row.forceImmediate ?? false,
     metadata: (row.metadata ?? {}) as Record<string, unknown>,
   };
 }
@@ -82,6 +93,11 @@ function toInsert(input: CreateAskInput): AskInsert {
     contextRefs: input.contextRefs ?? null,
     response: null,
     deadline: input.deadline ? new Date(input.deadline) : null,
+    // Service-window fields (mt#1411 spine — mt#1488)
+    serviceStrategy: input.serviceStrategy ?? null,
+    windowKey: input.windowKey ?? null,
+    windowMissedCount: input.windowMissedCount ?? 0,
+    forceImmediate: input.forceImmediate ?? false,
     metadata: input.metadata ?? {},
   };
 }
@@ -104,6 +120,14 @@ export interface CreateAskInput {
   contextRefs?: Ask["contextRefs"];
   deadline?: string;
   metadata?: Record<string, unknown>;
+  /** Service-window routing strategy (mt#1411 spine — mt#1488). */
+  serviceStrategy?: Ask["serviceStrategy"];
+  /** Named window to target when strategy is "scheduled". */
+  windowKey?: string;
+  /** Count of windows already missed (defaults to 0 on insert). */
+  windowMissedCount?: number;
+  /** Bypass window check and route immediately. */
+  forceImmediate?: boolean;
 }
 
 /** Input for closing an Ask (state → "closed"). */
@@ -146,6 +170,22 @@ export interface AskRepository {
   listByClassifierVersion(version: string): Promise<Ask[]>;
 
   /**
+   * Batch-list open Asks for any task in `taskIds`.
+   *
+   * "Open" means state is not one of the terminal states (closed / cancelled
+   * / expired). Rows are returned ordered by `createdAt` descending so the
+   * caller can group by `parentTaskId` and pick the first row per task.
+   *
+   * Replaces the N-query `Promise.all(taskIds.map(listByParentTask))` pattern
+   * with a single query — see `getOpenAsksByTaskIds` in queries.ts. Returns
+   * an empty array when `taskIds` is empty (no query is issued).
+   *
+   * @param taskIds Task IDs to filter by.
+   * @returns       Open Asks across all matching tasks, sorted createdAt desc.
+   */
+  findOpenByTaskIds(taskIds: string[]): Promise<Ask[]>;
+
+  /**
    * Transition an Ask to a new state.
    *
    * Enforces the state machine — throws `InvalidAskTransitionError` when the
@@ -180,6 +220,112 @@ export interface AskRepository {
    * operation. Throws on invalid transitions (same as `transition`).
    */
   close(id: string, input: CloseAskInput): Promise<Ask>;
+
+  /**
+   * Atomically respond to and close a `"suspended"` Ask in one step.
+   *
+   * Logically walks the Ask through `suspended → responded → closed`, but
+   * persists ONLY the close stage: the row goes from suspended to closed
+   * in a single UPDATE with `respondedAt` and `closedAt` both set to now,
+   * `state: "closed"`, and `response = closeInput.response`. The
+   * `respondInput` parameter exists solely to document the two-stage
+   * logical model (the same shape `repo.respond` would receive); the
+   * intermediate "responded" payload is NOT persisted to a separate row
+   * or column. Callers that need an audit trail of the intermediate
+   * payload should design that separately.
+   *
+   * Atomicity guarantee:
+   *   - **Drizzle backend**: optimistic-concurrency `WHERE id = ? AND
+   *     state = 'suspended'` clause. If a concurrent actor transitions
+   *     the Ask between this call and its execution (cancel, expire,
+   *     etc.), the update matches zero rows and the method throws
+   *     `ConcurrentTransitionError` describing the actual current state.
+   *   - **Fake backend**: single-threaded — atomic by virtue of the
+   *     synchronous in-memory implementation.
+   *
+   * Used by `respondToAsk` (mt#1458) to honor the `Ask.response` contract
+   * (`attentionCost` is filled on close) AND the no-stuck-in-responded
+   * invariant.
+   *
+   * @throws `Error` — Ask not found.
+   * @throws `ConcurrentTransitionError` — Ask was not in `"suspended"` state
+   *         when the atomic update ran.
+   */
+  respondAndClose(
+    id: string,
+    respondInput: RespondAskInput,
+    closeInput: CloseAskInput
+  ): Promise<Ask>;
+
+  /**
+   * Persist an updated `windowMissedCount` on an Ask row.
+   *
+   * Does NOT enforce the state machine — this is a field-level update, not a
+   * state transition. Throws `Error` if the Ask is not found.
+   *
+   * Used by the Reaper (mt#1490) to persist miss-count increments so that
+   * subsequent reads reflect the new count and escalation thresholds trip
+   * correctly in production.
+   *
+   * @param id    Primary key of the Ask to update.
+   * @param count New `windowMissedCount` value.
+   * @returns     The updated Ask.
+   */
+  updateWindowMissedCount(id: string, count: number): Promise<Ask>;
+
+  /**
+   * Persist an updated `forceImmediate` flag on an Ask row.
+   *
+   * Does NOT enforce the state machine — this is a field-level update, not a
+   * state transition. Throws `Error` if the Ask is not found.
+   *
+   * Used by the Reaper (mt#1490) to persist the escalation flag so that
+   * subsequent reads reflect the true escalated state on the DB row.
+   *
+   * @param id    Primary key of the Ask to update.
+   * @param value New `forceImmediate` value.
+   * @returns     The updated Ask.
+   */
+  updateForceImmediate(id: string, value: boolean): Promise<Ask>;
+
+  /**
+   * Persist an updated `routingTarget` on an Ask row.
+   *
+   * Does NOT enforce the state machine — this is a field-level update, not a
+   * state transition. Throws `Error` if the Ask is not found.
+   *
+   * Used by `createAsk` (mt#1490) to persist the router's `routingTarget`
+   * decision on window-deferred Asks so that subsequent reads see the target
+   * the router resolved (e.g. "operator" for inbox/elicitation Asks).
+   *
+   * @param id     Primary key of the Ask to update.
+   * @param target New `routingTarget` value.
+   * @returns      The updated Ask.
+   */
+  updateRoutingTarget(id: string, target: string): Promise<Ask>;
+}
+
+/**
+ * Thrown when `respondAndClose` finds the Ask is not in `"suspended"` state
+ * at the moment of the atomic update — typically because a concurrent actor
+ * cancelled / expired / closed the Ask between read and write.
+ *
+ * The deletion race (Ask removed between read and write) surfaces as a
+ * plain `Error("Ask not found: ${id}")` instead, matching the rest of the
+ * repository's not-found semantics.
+ */
+export class ConcurrentTransitionError extends Error {
+  readonly id: string;
+  readonly observedState: AskState;
+
+  constructor(id: string, observedState: AskState) {
+    super(
+      `Concurrent transition on Ask ${id}: expected state="suspended" at atomic respondAndClose, found state="${observedState}". Another actor (cancel / expire / close) transitioned the Ask between read and write.`
+    );
+    this.name = "ConcurrentTransitionError";
+    this.id = id;
+    this.observedState = observedState;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +380,26 @@ export class DrizzleAskRepository implements AskRepository {
       .select()
       .from(asksTable)
       .where(eq(asksTable.classifierVersion, version));
+    return rows.map(toAsk);
+  }
+
+  async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
+    if (taskIds.length === 0) return [];
+    // Explicit isNotNull on parentTaskId is redundant with `IN (...)` in
+    // standard SQL (NULL evaluates to UNKNOWN and is filtered out), but
+    // we keep it explicit for parity with FakeAskRepository and for
+    // robustness against ORM/dialect surprises.
+    const rows = await this.db
+      .select()
+      .from(asksTable)
+      .where(
+        and(
+          isNotNull(asksTable.parentTaskId),
+          inArray(asksTable.parentTaskId, taskIds),
+          notInArray(asksTable.state, TERMINAL_ASK_STATES as AskState[])
+        )
+      )
+      .orderBy(desc(asksTable.createdAt));
     return rows.map(toAsk);
   }
 
@@ -322,6 +488,106 @@ export class DrizzleAskRepository implements AskRepository {
     }
     return toAsk(row);
   }
+
+  async respondAndClose(
+    id: string,
+    _respondInput: RespondAskInput,
+    closeInput: CloseAskInput
+  ): Promise<Ask> {
+    // Invariant enforcement: the persistence-level atomic update writes
+    // state="closed" directly, but the LOGICAL walk is suspended → responded
+    // → closed. We invoke guardTransition twice here so the state-machine
+    // table is consulted as the source of truth.
+    guardTransition("suspended", "responded");
+    guardTransition("responded", "closed");
+
+    // Optimistic concurrency: only update if the row is still in "suspended".
+    // If a concurrent actor transitioned the Ask between this call and its
+    // execution, the WHERE clause matches zero rows and we surface
+    // ConcurrentTransitionError. No stuck-in-responded state is possible.
+    const now = new Date();
+    const rows = await this.db
+      .update(asksTable)
+      .set({
+        state: "closed",
+        response: closeInput.response as AskInsert["response"],
+        respondedAt: now,
+        closedAt: now,
+      })
+      .where(and(eq(asksTable.id, id), eq(asksTable.state, "suspended")))
+      .returning();
+
+    if (rows.length === 0) {
+      // Disambiguate: not-found vs. wrong-state.
+      const existing = await this.getById(id);
+      if (!existing) {
+        throw new Error(`Ask not found: ${id}`);
+      }
+      throw new ConcurrentTransitionError(id, existing.state);
+    }
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask respondAndClose returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
+  async updateWindowMissedCount(id: string, count: number): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const rows = await this.db
+      .update(asksTable)
+      .set({ windowMissedCount: count })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateWindowMissedCount returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
+  async updateForceImmediate(id: string, value: boolean): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const rows = await this.db
+      .update(asksTable)
+      .set({ forceImmediate: value })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateForceImmediate returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
+
+  async updateRoutingTarget(id: string, target: string): Promise<Ask> {
+    const existing = await this.getById(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const rows = await this.db
+      .update(asksTable)
+      .set({ routingTarget: target })
+      .where(eq(asksTable.id, id))
+      .returning();
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error(`Ask updateRoutingTarget returned no row: ${id}`);
+    }
+    return toAsk(row);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +643,11 @@ export class FakeAskRepository implements AskRepository {
       response: undefined,
       deadline: input.deadline,
       createdAt: now,
+      // Service-window fields (mt#1411 spine — mt#1488)
+      serviceStrategy: input.serviceStrategy,
+      windowKey: input.windowKey,
+      windowMissedCount: input.windowMissedCount ?? 0,
+      forceImmediate: input.forceImmediate ?? false,
       metadata: input.metadata ?? {},
     };
     this.store.set(id, ask);
@@ -402,6 +673,17 @@ export class FakeAskRepository implements AskRepository {
 
   async listByClassifierVersion(version: string): Promise<Ask[]> {
     return this.all.filter((a) => a.classifierVersion === version).map((a) => ({ ...a }));
+  }
+
+  async findOpenByTaskIds(taskIds: string[]): Promise<Ask[]> {
+    if (taskIds.length === 0) return [];
+    const taskIdSet = new Set(taskIds);
+    return this.all
+      .filter(
+        (a) => a.parentTaskId !== undefined && taskIdSet.has(a.parentTaskId) && !isTerminal(a.state)
+      )
+      .sort((a, b) => (b.createdAt > a.createdAt ? 1 : b.createdAt < a.createdAt ? -1 : 0))
+      .map((a) => ({ ...a }));
   }
 
   async transition(id: string, to: AskState): Promise<Ask> {
@@ -464,6 +746,73 @@ export class FakeAskRepository implements AskRepository {
       respondedAt: existing.respondedAt ?? now,
     };
 
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async respondAndClose(
+    id: string,
+    _respondInput: RespondAskInput,
+    closeInput: CloseAskInput
+  ): Promise<Ask> {
+    // Mirror the Drizzle backend's invariant enforcement: consult
+    // guardTransition for both legs of the logical walk.
+    guardTransition("suspended", "responded");
+    guardTransition("responded", "closed");
+
+    // Single-threaded fake — atomic by virtue of synchronous in-memory ops.
+    // Mirrors the Drizzle backend's optimistic-concurrency check: refuses if
+    // state is not "suspended" at the moment of the call.
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+    if (existing.state !== "suspended") {
+      throw new ConcurrentTransitionError(id, existing.state);
+    }
+
+    const now = new Date().toISOString();
+    const updated: Ask = {
+      ...existing,
+      state: "closed",
+      response: closeInput.response,
+      respondedAt: now,
+      closedAt: now,
+    };
+
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateWindowMissedCount(id: string, count: number): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const updated: Ask = { ...existing, windowMissedCount: count };
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateForceImmediate(id: string, value: boolean): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const updated: Ask = { ...existing, forceImmediate: value };
+    this.store.set(id, updated);
+    return { ...updated };
+  }
+
+  async updateRoutingTarget(id: string, target: string): Promise<Ask> {
+    const existing = this.store.get(id);
+    if (!existing) {
+      throw new Error(`Ask not found: ${id}`);
+    }
+
+    const updated: Ask = { ...existing, routingTarget: target };
     this.store.set(id, updated);
     return { ...updated };
   }

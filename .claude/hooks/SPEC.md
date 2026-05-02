@@ -140,15 +140,35 @@ Exit code 2 is a **blocking error** in Claude Code — the agent is forced to co
 
 1. Extracts `task` from `tool_input` — exits silently if empty
 2. Constructs branch name: `task/${task.replace("#", "-")}`
-3. Looks up PR number via `gh pr list`
+3. Looks up PR number and head SHA via `gh pr list --json number,headRefOid`
 4. Exits silently if no PR found
-5. Checks review count via `gh api` — deny if 0
-6. Checks spec verification in review bodies — deny if absent
+5. Fetches reviews via `gh api repos/.../pulls/<pr>/reviews`
+6. **Review presence:** deny if 0 reviews
+7. **Spec verification:** deny if no review body matches `/spec[- ]verification/i`
+8. **Documentation impact:** deny if no review body matches `/documentation[- ]impact/i`
+9. **Review freshness:** of the reviews containing spec verification, the most recent one's `commit_id` must equal the PR HEAD sha; otherwise deny as stale (covers an older commit). Skipped only when the PR-list query did not return a head sha.
+10. **CI check_runs presence (mt#1309 webhook-miss regression detection):** fetch `gh api repos/.../commits/<headSha>/check-runs?per_page=1` (10s timeout). The `?per_page=1` query keeps the response tiny — the gate only reads `total_count`, which is the canonical pagination-safe field on GitHub's Checks API. The response is run through `parseCheckRunsResponse`, which returns either `{ok:true, count}` or `{ok:false, error}`. `evaluateCheckRunsPresence` then:
+    - **deny with API-failure reason** if `{ok:false}` (timeout via `timedOut:true`, non-zero exit, empty body, non-JSON, missing fields, etc.). The reason is distinct from the webhook-miss text — it instructs the operator to investigate the gh api error before retrying. Timeouts get a distinct "gh api timed out" prefix.
+    - **deny with webhook-miss reason** if `{ok:true, count:0}`. The reason names mt#1309 / PR #763 lineage and points at the empty-commit-to-wake-the-webhook recovery path documented in `/review-pr` step 7a.
+    - **allow** if `{ok:true, count>0}`. Status of the runs is intentionally not checked here — that policy is "presence-only, status-agnostic".
+
+The check is skipped entirely when `headSha` is unavailable (the `gh pr list` lookup at step 3 returned no row). This is a soft skip — the hook continues to allow the merge based on the prior review/spec/doc/freshness gates that already passed.
+
+### Ordering
+
+The five gates run in this fixed order: review presence → spec verification → documentation impact → review freshness → CI check_runs presence. The most-specific user-actionable failure surfaces first; the CI gate runs last because it queries an external API and represents a less-likely-to-recur failure mode.
 
 ### Dependencies
 
 - `gh` CLI (GitHub CLI) — must be authenticated
 - Hardcodes repo: `edobry/minsky`
+
+### Testable surfaces
+
+The hook body is wrapped in `if (import.meta.main)` so the pure helpers
+(`parseCheckRunsResponse`, `evaluateCheckRunsPresence`) can be unit-tested via
+import without triggering the stdin-blocking entry point. See
+`.claude/hooks/require-review-before-merge.test.ts`.
 
 ---
 
@@ -180,5 +200,5 @@ Exit code 2 is a **blocking error** in Claude Code — the agent is forced to co
 4. **Session root detection**: `$HOME/.local/state/minsky/sessions/<uuid>/` prefix check
 5. **tsgo**: `--noEmit` for both edit and stop; edit checks single root (fast feedback), stop checks all tracked roots (correctness gate)
 6. **Error filtering**: edit hook separates file-local vs cascade errors; stop hook aggregates all
-7. **Review gate**: checks both review existence AND spec verification in review body
+7. **Review gate**: five gates in fixed order — review presence → spec verification → documentation impact → review freshness (covers HEAD) → CI check_runs presence (mt#1309). API/parse failures on the CI gate produce a distinct deny reason from the webhook-miss case.
 8. **Post-merge pull**: ff-only, warns only if src/ changed

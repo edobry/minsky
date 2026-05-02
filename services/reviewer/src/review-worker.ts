@@ -31,7 +31,15 @@ import {
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
 import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
-import { sanitizeReviewBody, type SanitizeResult } from "./sanitize";
+import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
+import { composeReviewBody, type ComposeReviewResult } from "./compose-review";
+import type { ReviewToolCall } from "./output-tools";
+import {
+  applyMonotonicityRecovery,
+  parsePriorReviewFindings,
+  type DowngradeAuditEntry,
+  type FlatPriorFinding,
+} from "./severity-recovery";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -101,12 +109,20 @@ export interface ReviewResult {
  * must have non-empty content — otherwise GitHub shows what looks like an
  * "approved with no issues" review that is actually "model produced no content".
  *
+ * When `outputToolsActive` is true (OpenAI + output-tools path), a review with
+ * empty text but non-empty toolCalls is treated as successful — the model
+ * emitted structured output via tool calls, which is the expected behavior on
+ * that path (gpt-5 emits tool calls with output.text === "").
+ *
  * Exported for tests; runReview calls this right after the model response.
  */
 export function validateReviewOutput(
-  output: ReviewOutput
+  output: ReviewOutput,
+  outputToolsActive: boolean = false
 ): { ok: true } | { ok: false; reason: string } {
   if (output.text.trim().length > 0) return { ok: true };
+  // On the output-tools-active path, non-empty toolCalls is also a success signal.
+  if (outputToolsActive && output.toolCalls.length > 0) return { ok: true };
   const u = output.usage;
   const tokenBreakdown = u
     ? `prompt=${u.promptTokens ?? "?"} completion=${u.completionTokens ?? "?"} reasoning=${u.reasoningTokens ?? "?"} total=${u.totalTokens ?? "?"}`
@@ -170,6 +186,9 @@ export interface CallWithRetryResult {
  * Tool context (mt#1126) passes through to both attempts when provided, so
  * the retry gets the same file-access capabilities as the first call.
  *
+ * When `outputToolsActive` is true, passes that flag through to
+ * `validateReviewOutput` so non-empty toolCalls count as a success signal.
+ *
  * @param callReviewerFn test seam; defaults to the real `callReviewer` from `./providers`
  */
 export async function callReviewerWithRetry(
@@ -177,10 +196,11 @@ export async function callReviewerWithRetry(
   systemPrompt: string,
   userPrompt: string,
   tools?: ReviewerToolContext,
-  callReviewerFn: CallReviewerFn = callReviewer
+  callReviewerFn: CallReviewerFn = callReviewer,
+  outputToolsActive: boolean = false
 ): Promise<CallWithRetryResult> {
   const first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
-  const firstValidation = validateReviewOutput(first);
+  const firstValidation = validateReviewOutput(first, outputToolsActive);
   if (firstValidation.ok) {
     return {
       output: first,
@@ -204,7 +224,7 @@ export async function callReviewerWithRetry(
   const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, {
     reasoningEffort: "low",
   });
-  const retryValidation = validateReviewOutput(retry);
+  const retryValidation = validateReviewOutput(retry, outputToolsActive);
   return {
     output: retry,
     validation: retryValidation,
@@ -321,6 +341,112 @@ export async function defaultForkAccessProbe(
     }
   }
   return false;
+}
+
+/**
+ * Pure helper: apply monotonicity recovery and conclude_review reconciliation
+ * to a list of tool calls, then compose the review body. Extracted from
+ * runReview's outputToolsActive branch so the recovery+reconciliation+
+ * composition flow can be unit-tested without mocking GitHub/OpenAI/MCP.
+ *
+ * PR #922 R7-R13 catch: the bot persistently flagged the lack of unit tests
+ * for the runReview integration path. Full integration tests (mocking
+ * octokit, callReviewer, getAppIdentity, fetchPriorReviews, MCP) are
+ * substantial work deferred to mt#1497. This pure helper covers the
+ * core recovery+reconciliation+composition logic that runReview now
+ * delegates to it, addressing the test gap at the unit level.
+ *
+ * Behavior:
+ *   1. If recoveryEnabled AND priorFindings.length > 0, apply
+ *      applyMonotonicityRecovery to downgrade BLOCKING findings whose file
+ *      matched a prior NON-BLOCKING/PRE-EXISTING finding (per the spec in
+ *      severity-recovery.ts).
+ *   2. Count post-recovery BLOCKING findings.
+ *   3. If recovery crossed zero (BLOCKING > 0 → BLOCKING == 0) AND a
+ *      conclude_review with event=REQUEST_CHANGES was emitted, rewrite that
+ *      conclude_review tool call to event=COMMENT before composition. This
+ *      keeps the body's executive summary and the GitHub event consistent.
+ *   4. Compose the review body from the (possibly reconciled) tool calls.
+ *
+ * Pure function — no I/O, no async, no logging. The caller is responsible
+ * for emitting per-downgrade and summary log events using the returned
+ * `downgrades` array and counts.
+ */
+export interface ComposeWithRecoveryResult {
+  /** The (possibly recovered + reconciled) tool calls used for composition. */
+  toolCalls: ReadonlyArray<ReviewToolCall>;
+  /** The composed review body and event. */
+  composed: ComposeReviewResult;
+  /** Audit log entries for downgrades that fired. Empty when no recovery. */
+  downgrades: ReadonlyArray<DowngradeAuditEntry>;
+  /** BLOCKING count BEFORE recovery (always derived from input toolCalls). */
+  originalBlockingCount: number;
+  /** BLOCKING count AFTER recovery. */
+  postRecoveryBlockingCount: number;
+  /** True when the conclude_review tool call was rewritten REQUEST_CHANGES → COMMENT. */
+  reconcileApplied: boolean;
+}
+
+export function applyRecoveryAndCompose(
+  toolCalls: ReadonlyArray<ReviewToolCall>,
+  priorFindings: ReadonlyArray<FlatPriorFinding>,
+  diffText: string,
+  recoveryEnabled: boolean
+): ComposeWithRecoveryResult {
+  const originalBlockingCount = toolCalls.filter(
+    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+  ).length;
+
+  // Step 1: optionally recover.
+  let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = toolCalls;
+  let downgrades: ReadonlyArray<DowngradeAuditEntry> = [];
+  if (recoveryEnabled && priorFindings.length > 0) {
+    const recovery = applyMonotonicityRecovery(toolCalls, priorFindings, diffText);
+    toolCallsForComposition = recovery.toolCalls;
+    downgrades = recovery.downgrades;
+  }
+
+  // Step 2: count post-recovery BLOCKING.
+  const postRecoveryBlockingCount = toolCallsForComposition.filter(
+    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+  ).length;
+
+  // Step 3: reconcile conclude_review if recovery crossed zero.
+  const shouldReconcile =
+    recoveryEnabled &&
+    postRecoveryBlockingCount === 0 &&
+    toolCallsForComposition.some(
+      (tc) => tc.name === "conclude_review" && tc.args.event === "REQUEST_CHANGES"
+    );
+  let reconcileApplied = false;
+  if (shouldReconcile) {
+    reconcileApplied = true;
+    toolCallsForComposition = toolCallsForComposition.map((tc) => {
+      if (tc.name !== "conclude_review" || tc.args.event !== "REQUEST_CHANGES") {
+        return tc;
+      }
+      return {
+        name: "conclude_review" as const,
+        args: {
+          event: "COMMENT" as const,
+          summary: tc.args.summary,
+        },
+      };
+    });
+  }
+
+  // Step 4: compose. Spread to coerce the readonly local to the mutable
+  // signature expected by composeReviewBody (which only reads).
+  const composed = composeReviewBody([...toolCallsForComposition]);
+
+  return {
+    toolCalls: toolCallsForComposition,
+    composed,
+    downgrades,
+    originalBlockingCount,
+    postRecoveryBlockingCount,
+    reconcileApplied,
+  };
 }
 
 /**
@@ -483,6 +609,12 @@ export async function runReview(
   const priorReviewFetcherFn = deps.priorReviewFetcher ?? fetchPriorReviews;
   let priorReviewIngestion: PriorReviewIngestionResult;
   let priorReviewsMarkdown = "";
+  // Flat list of prior findings (file + severity + line range) used by the
+  // mt#1496 monotonicity-recovery layer when REVIEWER_MONOTONICITY_RECOVERY_ENABLED
+  // is set. Empty when the feature flag is off OR when no prior reviews were
+  // fetched. Computed alongside priorReviewsMarkdown so we don't pay the parse
+  // cost twice.
+  let priorFlatFindings: FlatPriorFinding[] = [];
   try {
     const rawPriorReviews = await priorReviewFetcherFn(octokit, owner, repo, prNumber);
     // SC-2 (mt#1189): sanitize each prior review body before ingestion so that
@@ -499,6 +631,10 @@ export async function runReview(
       priorBlockingCounts: priorReviews.map((r) => countBlockingFindings(r.body)),
     };
     priorReviewsMarkdown = summary.markdown;
+    // mt#1496: extract flat findings from prior bodies for the monotonicity-
+    // recovery layer. Always computed (cheap) regardless of the feature flag,
+    // so the wiring is symmetric across flag states.
+    priorFlatFindings = parsePriorReviewFindings(priorReviews.map((r) => r.body));
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     console.warn(
@@ -510,6 +646,7 @@ export async function runReview(
       priorBlockingCounts: [],
       error: errorMessage,
     };
+    priorFlatFindings = [];
   }
 
   const userPrompt = buildReviewPrompt({
@@ -544,7 +681,13 @@ export async function runReview(
   const { toolsActive, reason } = await decideToolsActive(config, pr, () =>
     defaultForkAccessProbe(octokit, pr)
   );
-  const systemPrompt = buildCriticConstitution(toolsActive, scopeBucket);
+
+  // Output tools (submit_finding, conclude_review, etc.) follow the same gate
+  // as reviewer tools: OpenAI-only (mt#1399 wires them only for OpenAI). When
+  // both toolsActive and provider=openai, the model sees and uses output tools.
+  const outputToolsActive = toolsActive && config.provider === "openai";
+
+  const systemPrompt = buildCriticConstitution(toolsActive, scopeBucket, outputToolsActive);
 
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
@@ -559,12 +702,15 @@ export async function runReview(
   // callReviewerWithRetry (mt#1131) wraps callReviewer with single-retry-on-
   // empty semantics: if the first call returns empty on OpenAI, it retries
   // once with reasoningEffort="low" before giving up. Tools pass through to
-  // both attempts.
+  // both attempts. outputToolsActive is passed so validateReviewOutput treats
+  // non-empty toolCalls as a success signal on the output-tools path.
   const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
     config,
     systemPrompt,
     userPrompt,
-    toolsActive ? toolContext : undefined
+    toolsActive ? toolContext : undefined,
+    callReviewer,
+    outputToolsActive
   );
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
@@ -579,11 +725,24 @@ export async function runReview(
   if (!validation.ok) {
     const skipNotice = buildEmptyOutputSkipNotice(output);
     // submitReview failure shouldn't mask the original empty-output error —
-    // catch defensively and continue to the error return below.
+    // catch defensively and continue to the error return below. Log the
+    // secondary failure so operators can correlate "primary error in
+    // status=error return + GitHub silent" against a submission-side cause
+    // (rate limit, transient 5xx, identity issue) rather than guessing.
     try {
       await submitReview(octokit, owner, repo, prNumber, "COMMENT", skipNotice);
-    } catch {
-      // Surfacing in logs is still captured via status=error + the reason below.
+    } catch (submitErr) {
+      console.log(
+        JSON.stringify(
+          buildSubmitFailureLog("reviewer.submit_skip_notice_failed", {
+            prCoords: { owner, repo, prNumber, sha: pr.headSha },
+            primaryReason: validation.reason,
+            submitErr,
+            provider: output.provider,
+            model: output.model,
+          })
+        )
+      );
     }
     return {
       status: "error",
@@ -599,6 +758,184 @@ export async function runReview(
       priorReviewIngestion,
     };
   }
+
+  // -------------------------------------------------------------------------
+  // Post-validation flow: branch on outputToolsActive
+  //
+  // OpenAI + output-tools-active path: compose review body from toolCalls,
+  // then submit. Sanitizer runs on output.text (the scratch channel) for
+  // defensive logging only — its result never gates what is posted.
+  //
+  // All other paths (Gemini/Anthropic, or feature flag off): preserve the
+  // existing sanitize → decidePostSanitizeOutcome flow exactly as before.
+  // -------------------------------------------------------------------------
+
+  if (outputToolsActive) {
+    // mt#1496 severity-monotonicity recovery: when enabled, downgrade BLOCKING
+    // findings whose file matches a prior NON-BLOCKING / PRE-EXISTING finding
+    // AND whose cited line range is not touched by new lines in the diff under
+    // review. The flag is read per-invocation rather than at boot so operators
+    // can toggle without redeploy. Default-off keeps deployed behavior
+    // unchanged until a deliberate enablement. Accepts common truthy
+    // values: "true", "1", "yes", "on" (case-insensitive) — PR #922 R20#5
+    // expanding R18#3.
+    const monotonicityRecoveryEnabled = /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? "").trim()
+    );
+
+    // Delegate the recovery + reconciliation + composition to the pure
+    // helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
+    // persistent "no integration tests" complaint at the unit level — see
+    // applyRecoveryAndCompose tests in review-worker.test.ts).
+    const recoveryResult = applyRecoveryAndCompose(
+      output.toolCalls,
+      priorFlatFindings,
+      pr.diff,
+      monotonicityRecoveryEnabled
+    );
+    const composed = recoveryResult.composed;
+    const blockingCount = recoveryResult.postRecoveryBlockingCount;
+
+    // Emit one log event per downgrade so operators can audit the recovery
+    // layer's decisions and identify false positives. Aggregated count is
+    // also useful for dashboards.
+    for (const d of recoveryResult.downgrades) {
+      console.log(
+        JSON.stringify({
+          event: "reviewer.severity_downgrade",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          file: d.file,
+          line: d.line,
+          ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+          fromSeverity: d.fromSeverity,
+          toSeverity: d.toSeverity,
+          matchingPriorSeverity: d.matchingPriorSeverity,
+          reason: d.reason,
+        })
+      );
+    }
+    if (monotonicityRecoveryEnabled) {
+      // Emit summary on EVERY review when recovery is enabled, even with
+      // zero downgrades, so dashboards see one event per review and can
+      // detect "recovery enabled but never fired" scenarios (PR #922 R20#3).
+      // All counts derived from post-recovery toolCalls (PR #922 R3) for
+      // basis consistency. Recovery doesn't add or remove findings (only
+      // changes severity), so totalFindingCount is identical pre- and post-,
+      // but using one basis avoids future drift.
+      const preRecoveryFindings = output.toolCalls.filter((tc) => tc.name === "submit_finding");
+      const preRecoveryNonBlockingCount = preRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
+      ).length;
+      const preRecoveryPreExistingCount = preRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
+      ).length;
+      const postRecoveryFindings = recoveryResult.toolCalls.filter(
+        (tc) => tc.name === "submit_finding"
+      );
+      const totalFindingCount = postRecoveryFindings.length;
+      const postRecoveryNonBlockingCount = postRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "NON-BLOCKING"
+      ).length;
+      const postRecoveryPreExistingCount = postRecoveryFindings.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
+      ).length;
+      console.log(
+        JSON.stringify({
+          event: "reviewer.severity_downgrade_summary",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          downgradeCount: recoveryResult.downgrades.length,
+          totalFindingCount,
+          originalBlockingCount: recoveryResult.originalBlockingCount,
+          postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
+          // Pre- and post-recovery breakdowns for the non-BLOCKING tiers
+          // so dashboards can distinguish "downgraded from BLOCKING" vs.
+          // "originally non-blocking" without reconstructing from logs
+          // (PR #922 R24#3).
+          preRecoveryNonBlockingCount,
+          preRecoveryPreExistingCount,
+          postRecoveryNonBlockingCount,
+          postRecoveryPreExistingCount,
+          // True when the recovery moved the count past zero, signaling the
+          // composed event will likely change from REQUEST_CHANGES to
+          // COMMENT/APPROVE downstream.
+          crossedZero:
+            recoveryResult.originalBlockingCount > 0 &&
+            recoveryResult.postRecoveryBlockingCount === 0,
+        })
+      );
+    }
+
+    // Self-review override: structural event from composeReviewBody (already
+    // reconciled with recovery above), but force COMMENT when the reviewer
+    // identity matches the PR author (GitHub blocks self-approval at the
+    // platform level — same rule as the prose path).
+    const event = isSelfReview ? "COMMENT" : composed.event;
+
+    // Defensive sanitizer logging: run the sanitizer on output.text (the
+    // free-text scratch channel). If it fires, emit a structured log event
+    // so operators can see CoT leakage via the scratch channel — but do NOT
+    // use the sanitizer's result to gate what is posted. The tool calls are
+    // the authoritative output on this path.
+    const scratchSanitized = sanitizeReviewBody(output.text);
+    if (scratchSanitized.action !== "passthrough") {
+      console.log(
+        JSON.stringify({
+          event: "reviewer.cot_leak_detected_in_scratch",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          originalLength: scratchSanitized.meta.originalLength,
+          cleanedLength: scratchSanitized.meta.cleanedLength,
+          reason: scratchSanitized.meta.reason,
+          provider: output.provider,
+          model: output.model,
+        })
+      );
+    }
+
+    const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
+    const review = await submitReview(octokit, owner, repo, prNumber, event, reviewBody);
+
+    const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce(
+      (acc, n) => acc + n,
+      0
+    );
+    const acknowledgedCount = countAcknowledgedFindings(composed.body);
+    console.log(
+      JSON.stringify(
+        buildConvergenceMetricLog(
+          pr.number,
+          pr.headSha,
+          priorReviewIngestion.iterationCount + 1,
+          priorBlockerTotal,
+          blockingCount,
+          acknowledgedCount
+        )
+      )
+    );
+
+    const reviewerLogin = reviewerIdentity.login;
+    return {
+      status: "reviewed",
+      review,
+      reason: `Posted ${event} review as ${reviewerLogin} (provider=${output.provider}, model=${output.model}, attempt=${attempt}) [output-tools]`,
+      tier,
+      providerUsed: output.provider,
+      providerModel: output.model,
+      usage: output.usage,
+      attempt,
+      retryAttempted,
+      taskSpecFetch,
+      scope: prScope,
+      priorReviewIngestion,
+      blockingCount,
+    };
+  }
+
+  // -------------------------------------------------------------------------
+  // Prose path (non-OpenAI or output-tools-off): CoT-leakage guard + sanitize
+  // -------------------------------------------------------------------------
 
   // CoT-leakage guard (mt#1212): detect model scratch leaking into the visible
   // review body. Distinct from the empty-output guard above — here the model
@@ -618,6 +955,7 @@ export async function runReview(
         cleanedLength: sanitized.meta.cleanedLength,
         action: sanitized.action,
         reason: sanitized.meta.reason,
+        prefixSnippet: redactForLog(output.text), // mt#1264: redacted first ~200 chars for FP/TP calibration
         provider: output.provider,
         model: output.model,
       })
@@ -649,8 +987,24 @@ export async function runReview(
         outcome.event,
         annotateReviewBody(sanitized.body, output, tier, isSelfReview)
       );
-    } catch {
-      // Primary error is still captured in outcome.reason + status below.
+    } catch (submitErr) {
+      // Log the secondary failure (mt#1370). Without this, a CoT-leak followed
+      // by a submitReview failure leaves zero trace on GitHub and only the
+      // primary outcome.reason in Railway logs — operators cannot tell whether
+      // the bot tried-and-failed or never tried at all. Symptom case: PR #830
+      // 2026-04-27, second commit 7e7be76a9 silent for 11+ minutes.
+      console.log(
+        JSON.stringify(
+          buildSubmitFailureLog("reviewer.submit_error_notice_failed", {
+            prCoords: { owner, repo, prNumber, sha: pr.headSha },
+            primaryReason: outcome.reason,
+            sanitizeReason: sanitized.meta.reason,
+            submitErr,
+            provider: output.provider,
+            model: output.model,
+          })
+        )
+      );
     }
     return {
       status: "error",
@@ -776,4 +1130,107 @@ function annotateReviewBody(
     }\n\n---\n\n`;
 
   return header + text;
+}
+
+/**
+ * Build the structured-log payload for a defensive submitReview failure
+ * (mt#1370). One builder serves both event variants:
+ *
+ *   - `reviewer.submit_skip_notice_failed` (empty-output guard catch)
+ *   - `reviewer.submit_error_notice_failed` (CoT-leakage error guard catch)
+ *
+ * The two events share the same field set except for `sanitizeReason`, which
+ * is only meaningful in the CoT-error path (the empty-output path doesn't run
+ * the sanitizer). Pass `sanitizeReason` only in that case.
+ *
+ * Both catch blocks call this builder and pass the returned payload to
+ * `JSON.stringify` + `console.log` (stdout, matching reviewer.cot_leak_detected
+ * and reviewer.convergence_metric in the same file).
+ *
+ * Exported so the payload shape is unit-testable independent of the catch
+ * blocks themselves (round-4 review BLOCKING).
+ */
+export function buildSubmitFailureLog(
+  eventName: "reviewer.submit_skip_notice_failed" | "reviewer.submit_error_notice_failed",
+  args: {
+    prCoords: { owner: string; repo: string; prNumber: number; sha: string };
+    primaryReason: string;
+    sanitizeReason?: string;
+    submitErr: unknown;
+    provider: string;
+    model: string;
+  }
+): Record<string, unknown> {
+  const { prCoords, primaryReason, sanitizeReason, submitErr, provider, model } = args;
+  const payload: Record<string, unknown> = {
+    event: eventName,
+    prUrl: `https://github.com/${prCoords.owner}/${prCoords.repo}/pull/${prCoords.prNumber}`,
+    sha: prCoords.sha, // canonical field name (aligned with reviewer.cot_leak_detected)
+    commitSha: prCoords.sha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
+    primaryReason,
+    submitError: serializeSubmitError(submitErr),
+    provider,
+    model,
+  };
+  if (sanitizeReason !== undefined) {
+    payload.sanitizeReason = sanitizeReason;
+  }
+  return payload;
+}
+
+/**
+ * Serialize a submitReview error into a structured-log-safe payload.
+ *
+ * Octokit errors carry diagnostically valuable fields beyond `.message`:
+ *   - `status` — HTTP status (rate limit signals as 403 + specific body, 5xx
+ *     transient, 401/403 auth scope, etc.)
+ *   - `name` — usually "HttpError" or similar; helps distinguish thrown class
+ *   - `code` — node error code if the throw originated below octokit
+ *   - `stack` — truncated to STACK_MAX_LEN to bound log line size
+ *
+ * Reducing every catch to `.message` loses these. This helper picks them out
+ * when present and falls back to `String(err)` otherwise. Output is bounded by
+ * letting the caller's `JSON.stringify` cap natural object size; the fields
+ * we extract are all small primitives + a truncated stack.
+ *
+ * Exported for unit testing (mt#1370 R3 BLOCKING).
+ */
+const STACK_MAX_LEN = 1024;
+
+export function serializeSubmitError(err: unknown): {
+  name?: string;
+  message: string;
+  status?: number | string;
+  code?: string;
+  stack?: string;
+} {
+  if (err instanceof Error) {
+    const out: {
+      name?: string;
+      message: string;
+      status?: number | string;
+      code?: string;
+      stack?: string;
+    } = {
+      name: err.name,
+      message: err.message,
+    };
+    // Octokit attaches `status` (number) and sometimes `code` to the error
+    // object; check via narrow object access without changing the static type.
+    const errObj = err as Error & { status?: unknown; code?: unknown };
+    if (typeof errObj.status === "number" || typeof errObj.status === "string") {
+      out.status = errObj.status;
+    }
+    if (typeof errObj.code === "string") {
+      out.code = errObj.code;
+    }
+    if (typeof err.stack === "string" && err.stack.length > 0) {
+      out.stack =
+        err.stack.length > STACK_MAX_LEN
+          ? `${err.stack.slice(0, STACK_MAX_LEN)}...[truncated]`
+          : err.stack;
+    }
+    return out;
+  }
+  return { message: String(err) };
 }

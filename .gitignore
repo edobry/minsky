@@ -61,6 +61,12 @@ virtual-*.test.ts
 .mcp.json
 supabase/
 
+# temporary PR-body drafts (passed inline to session_pr_create, not committed)
+/pr-body.md
+
 # installed agent skills (restore via postinstall)
 .agents/
 .claude/worktrees/
+
+# Per-session ephemeral artifacts (handoff notes, scratch files)
+.minsky/sessions/

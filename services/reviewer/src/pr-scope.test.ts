@@ -410,6 +410,90 @@ describe("classifyPRScope — pagination/truncation safeguard (mt#1270)", () => 
   });
 });
 
+describe("classifyPRScope — skill paths excluded from docs-only (mt#1388)", () => {
+  // Representative skill paths used across multiple tests.
+  const MINSKY_SKILL = ".minsky/skills/orchestrate/SKILL.md";
+  const CLAUDE_SKILL = ".claude/skills/implement-task/SKILL.md";
+
+  test(".minsky/skills/**/*.md is NOT docs-only (falls through to normal)", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: [MINSKY_SKILL],
+      })
+    ).toBe("normal");
+  });
+
+  test(".claude/skills/**/*.md is NOT docs-only (falls through to normal)", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: [".claude/skills/foo/SKILL.md"],
+      })
+    ).toBe("normal");
+  });
+
+  test("path containing /skills/ anywhere is NOT docs-only", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: ["some/nested/skills/my-skill.md"],
+      })
+    ).toBe("normal");
+  });
+
+  test("regular README.md (no skill path) is still docs-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["README.md"] })).toBe("docs-only");
+  });
+
+  test("docs/architecture.md (no skill path) is still docs-only", () => {
+    expect(classifyPRScope({ diff: NORMAL_DIFF, filesChanged: ["docs/architecture.md"] })).toBe(
+      "docs-only"
+    );
+  });
+
+  test("skill .md + regular code file → normal (mixed-file regression)", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: [MINSKY_SKILL, "src/foo.ts"],
+      })
+    ).toBe("normal");
+  });
+
+  test("skill-only PR with trivial diff → normal (skill overrides trivial downgrade path)", () => {
+    // A skill file change with a trivial diff must still be classified normal
+    // because the skill exclusion prevents docs-only classification, and
+    // the trivial threshold is only reached if lines < 10 and files < 3.
+    // With TRIVIAL_DIFF (2 lines, 1 file), this would fall to trivial — but
+    // the key concern is docs-only classification, not trivial. Verify that
+    // a small skill change is not docs-only.
+    const result = classifyPRScope({
+      diff: TRIVIAL_DIFF,
+      filesChanged: [MINSKY_SKILL],
+    });
+    expect(result).not.toBe("docs-only");
+  });
+
+  test("multiple skill .md files → normal (not docs-only)", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: [MINSKY_SKILL, CLAUDE_SKILL],
+      })
+    ).toBe("normal");
+  });
+
+  test("skill path mixed with regular docs → normal (not docs-only)", () => {
+    expect(
+      classifyPRScope({
+        diff: NORMAL_DIFF,
+        filesChanged: [".minsky/skills/foo/SKILL.md", "docs/guide.md"],
+      })
+    ).toBe("normal");
+  });
+});
+
 describe("scopeBucketFor", () => {
   const cases: Array<[PRScope, ReturnType<typeof scopeBucketFor>]> = [
     ["docs-only", "trivial-or-docs"],

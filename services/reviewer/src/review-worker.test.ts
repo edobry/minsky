@@ -9,6 +9,9 @@ import {
   defaultForkAccessProbe,
   buildRunReviewStartLog,
   buildConvergenceMetricLog,
+  buildSubmitFailureLog,
+  serializeSubmitError,
+  applyRecoveryAndCompose,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
@@ -17,12 +20,18 @@ import {
 } from "./review-worker";
 import type { ReviewerDb } from "./db/client";
 import type { ConvergenceMetricInput } from "./metrics";
+import type { ReviewToolCall } from "./output-tools";
+import type { FlatPriorFinding } from "./severity-recovery";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
 import type { PriorReview } from "./prior-review-summary";
+
+// Shared constant for the first-attempt trace string — used in multiple
+// describe blocks so it must be file-scoped to avoid no-magic-string-duplication.
+const ATTEMPT_FIRST_SUCCESS = "first-attempt-success" as const;
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -73,6 +82,7 @@ describe("validateReviewOutput", () => {
       reasoningTokens: 1500,
       totalTokens: 5000,
     },
+    toolCalls: [],
   };
 
   test("passes through non-empty content", () => {
@@ -119,6 +129,7 @@ describe("validateReviewOutput", () => {
       provider: "openai",
       model: "gpt-5",
       tokensUsed: 8192,
+      toolCalls: [],
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -153,6 +164,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       reasoningTokens: 12000,
       totalTokens: 16000,
     },
+    toolCalls: [],
   };
 
   test("starts with the skip marker", () => {
@@ -183,6 +195,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       text: "",
       provider: "anthropic",
       model: "claude-opus-4-6",
+      toolCalls: [],
     });
     expect(notice).not.toContain("reasoning phase");
   });
@@ -241,6 +254,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
     model: "gpt-5",
     tokensUsed: 500,
     usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    toolCalls: [],
   };
 
   function makeEmpty(provider: "openai" | "google" | "anthropic"): ReviewOutput {
@@ -260,6 +274,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
         reasoningTokens: 12000,
         totalTokens: 16000,
       },
+      toolCalls: [],
     };
   }
 
@@ -279,7 +294,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
 
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.options).toBeUndefined();
-    expect(result.attempt).toBe("first-attempt-success");
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
     expect(result.retryAttempted).toBe(false);
     expect(result.validation.ok).toBe(true);
     expect(result.output).toBe(substantive);
@@ -435,7 +450,7 @@ describe("decidePostSanitizeOutcome", () => {
     reviewerLogin: REVIEWER_LOGIN,
     provider: "openai",
     model: "gpt-5",
-    attempt: "first-attempt-success" as const,
+    attempt: ATTEMPT_FIRST_SUCCESS,
   };
 
   const passthrough: SanitizeResult = {
@@ -1010,5 +1025,535 @@ describe("RunReviewDeps.metricsRecorder slot (mt#1306)", () => {
         acknowledgedAddressedCount: 0,
       })
     ).rejects.toThrow("metric write failure");
+  });
+});
+
+// =============================================================================
+// serializeSubmitError (mt#1370): unit coverage for the structured-log error
+// serializer used by the two defensive submitReview catch blocks.
+// =============================================================================
+
+describe("serializeSubmitError", () => {
+  test("octokit-shaped HttpError captures name, message, status, code, stack", () => {
+    const err = new Error("API rate limit exceeded") as Error & {
+      status?: number;
+      code?: string;
+    };
+    err.name = "HttpError";
+    err.status = 403;
+    err.code = "RATE_LIMITED";
+    const out = serializeSubmitError(err);
+    expect(out.name).toBe("HttpError");
+    expect(out.message).toBe("API rate limit exceeded");
+    expect(out.status).toBe(403);
+    expect(out.code).toBe("RATE_LIMITED");
+    expect(typeof out.stack).toBe("string");
+    expect((out.stack ?? "").length).toBeGreaterThan(0);
+  });
+
+  test("string-typed status is preserved (some HTTP libs use string codes)", () => {
+    const err = new Error("transient") as Error & { status?: string };
+    err.status = "500";
+    const out = serializeSubmitError(err);
+    expect(out.status).toBe("500");
+  });
+
+  test("plain Error with no status/code captures only name + message + stack", () => {
+    const err = new Error("plain failure");
+    const out = serializeSubmitError(err);
+    expect(out.name).toBe("Error");
+    expect(out.message).toBe("plain failure");
+    expect(out.status).toBeUndefined();
+    expect(out.code).toBeUndefined();
+    expect(typeof out.stack).toBe("string");
+  });
+
+  test("non-string status is dropped (defensive against weird throws)", () => {
+    const err = new Error("weird") as Error & { status?: unknown };
+    err.status = { weird: "object" };
+    const out = serializeSubmitError(err);
+    expect(out.status).toBeUndefined();
+    expect(out.message).toBe("weird");
+  });
+
+  test("non-string code is dropped (defensive against weird throws)", () => {
+    const err = new Error("weird") as Error & { code?: unknown };
+    err.code = 42;
+    const out = serializeSubmitError(err);
+    expect(out.code).toBeUndefined();
+  });
+
+  test("string throw becomes message=String(err), no other fields", () => {
+    const out = serializeSubmitError("just a string");
+    expect(out.message).toBe("just a string");
+    expect(out.name).toBeUndefined();
+    expect(out.status).toBeUndefined();
+    expect(out.code).toBeUndefined();
+    expect(out.stack).toBeUndefined();
+  });
+
+  test("number throw becomes message=String(err)", () => {
+    const out = serializeSubmitError(42);
+    expect(out.message).toBe("42");
+    expect(out.name).toBeUndefined();
+  });
+
+  test("plain object throw becomes message=String(err) (i.e., [object Object])", () => {
+    const out = serializeSubmitError({ foo: "bar" });
+    expect(out.message).toBe("[object Object]");
+    expect(out.name).toBeUndefined();
+  });
+
+  test("stack longer than 1024 chars is truncated with marker", () => {
+    const err = new Error("big stack");
+    // Synthesize a long stack by overwriting it.
+    const longStack = "a".repeat(2000);
+    Object.defineProperty(err, "stack", { value: longStack, configurable: true });
+    const out = serializeSubmitError(err);
+    expect(out.stack).toBeDefined();
+    const stack = out.stack ?? "";
+    expect(stack.length).toBeLessThanOrEqual(1024 + "...[truncated]".length);
+    expect(stack.endsWith("...[truncated]")).toBe(true);
+  });
+
+  test("missing stack on Error is gracefully omitted", () => {
+    const err = new Error("no stack");
+    Object.defineProperty(err, "stack", { value: undefined, configurable: true });
+    const out = serializeSubmitError(err);
+    expect(out.stack).toBeUndefined();
+    expect(out.message).toBe("no stack");
+  });
+});
+
+// =============================================================================
+// buildSubmitFailureLog (mt#1370 R4): payload-builder for the two structured
+// log events emitted from the defensive submitReview catch blocks. Tests the
+// payload shape independent of the catch block itself, addressing the round-4
+// BLOCKING that the catch-block emission lacked field-stability coverage.
+// =============================================================================
+
+const EV_SKIP_NOTICE_FAILED = "reviewer.submit_skip_notice_failed" as const;
+const EV_ERROR_NOTICE_FAILED = "reviewer.submit_error_notice_failed" as const;
+
+describe("buildSubmitFailureLog", () => {
+  const baseArgs = {
+    prCoords: { owner: "edobry", repo: "minsky", prNumber: 830, sha: "abc1234" },
+    primaryReason: "test-reason",
+    submitErr: new Error("submit failed"),
+    provider: "openai",
+    model: "gpt-5",
+  };
+
+  test("skip_notice_failed variant has all expected fields", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect(log["event"]).toBe(EV_SKIP_NOTICE_FAILED);
+    expect(log["prUrl"]).toBe("https://github.com/edobry/minsky/pull/830");
+    expect(log["sha"]).toBe("abc1234");
+    expect(log["commitSha"]).toBe("abc1234");
+    expect(log["primaryReason"]).toBe("test-reason");
+    expect(log["provider"]).toBe("openai");
+    expect(log["model"]).toBe("gpt-5");
+    expect(log["submitError"]).toBeDefined();
+    expect((log["submitError"] as { message: string }).message).toBe("submit failed");
+  });
+
+  test("error_notice_failed variant accepts and includes sanitizeReason", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:long-narrative-prefix",
+    });
+    expect(log["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(log["sanitizeReason"]).toBe("cot-leak:long-narrative-prefix");
+  });
+
+  test("sanitizeReason is omitted when not provided", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, baseArgs);
+    expect("sanitizeReason" in log).toBe(false);
+  });
+
+  test("sha and commitSha are both populated from the same source", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "x", repo: "y", prNumber: 1, sha: "deadbeef" },
+    });
+    expect(log["sha"]).toBe("deadbeef");
+    expect(log["commitSha"]).toBe("deadbeef");
+  });
+
+  test("prUrl is constructed from owner+repo+prNumber", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      prCoords: { owner: "different-owner", repo: "different-repo", prNumber: 42, sha: "x" },
+    });
+    expect(log["prUrl"]).toBe("https://github.com/different-owner/different-repo/pull/42");
+  });
+
+  test("submitError nests serializeSubmitError output (octokit-shaped throw)", () => {
+    const httpErr = new Error("rate limited") as Error & { status?: number; code?: string };
+    httpErr.name = "HttpError";
+    httpErr.status = 403;
+    httpErr.code = "RATE_LIMITED";
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: httpErr,
+    });
+    const serialized = log["submitError"] as {
+      name?: string;
+      message: string;
+      status?: number | string;
+      code?: string;
+    };
+    expect(serialized.name).toBe("HttpError");
+    expect(serialized.status).toBe(403);
+    expect(serialized.code).toBe("RATE_LIMITED");
+    expect(serialized.message).toBe("rate limited");
+  });
+
+  test("payload is JSON-stringifiable without throwing (used at the call site)", () => {
+    const log = buildSubmitFailureLog(EV_ERROR_NOTICE_FAILED, {
+      ...baseArgs,
+      sanitizeReason: "cot-leak:blank-line-run",
+    });
+    expect(() => JSON.stringify(log)).not.toThrow();
+    const roundtripped = JSON.parse(JSON.stringify(log)) as Record<string, unknown>;
+    expect(roundtripped["event"]).toBe(EV_ERROR_NOTICE_FAILED);
+    expect(roundtripped["sanitizeReason"]).toBe("cot-leak:blank-line-run");
+  });
+
+  test("non-Error throw still produces a valid payload via serializeSubmitError fallback", () => {
+    const log = buildSubmitFailureLog(EV_SKIP_NOTICE_FAILED, {
+      ...baseArgs,
+      submitErr: "string-throw",
+    });
+    const serialized = log["submitError"] as { message: string };
+    expect(serialized.message).toBe("string-throw");
+  });
+});
+
+// =============================================================================
+// validateReviewOutput — outputToolsActive path (mt#1402)
+//
+// When outputToolsActive=true, non-empty toolCalls must count as a success
+// signal even when output.text is empty — gpt-5 emits tool calls with
+// output.text === "" on the output-tools path.
+// =============================================================================
+
+describe("validateReviewOutput — outputToolsActive path", () => {
+  const baseOutput: ReviewOutput = {
+    text: "",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 5000,
+    usage: {
+      promptTokens: 3000,
+      completionTokens: 2000,
+      reasoningTokens: 1500,
+      totalTokens: 5000,
+    },
+    toolCalls: [],
+  };
+
+  test("empty text + empty toolCalls + outputToolsActive=true → fails (nothing was produced)", () => {
+    const result = validateReviewOutput(baseOutput, true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("empty content");
+    }
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → ok (tool calls are the output)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "Two blocking findings." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=false → fails (default prose path)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues found." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, false);
+    expect(result.ok).toBe(false);
+  });
+
+  test("non-empty text + non-empty toolCalls + outputToolsActive=true → ok (text passes first)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      text: "some scratch text",
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// =============================================================================
+// callReviewerWithRetry — outputToolsActive forwarding (mt#1402)
+//
+// Verify that the outputToolsActive flag is forwarded to validateReviewOutput
+// so non-empty toolCalls count as success on the output-tools path.
+// =============================================================================
+
+describe("callReviewerWithRetry — outputToolsActive forwarding", () => {
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  type Invocation = { options?: import("./providers").CallReviewerOptions };
+  function fakeReviewer(outputs: ReviewOutput[], invocations: Invocation[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      const next = outputs[i];
+      if (next === undefined) {
+        throw new Error(`fakeReviewer ran out of outputs (invocation ${i + 1})`);
+      }
+      i++;
+      return next;
+    };
+  }
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → first-attempt-success, no retry", async () => {
+    const invocations: Invocation[] = [];
+    const output: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [
+        {
+          name: "submit_finding",
+          args: {
+            severity: "BLOCKING",
+            file: "src/foo.ts",
+            line: 1,
+            summary: "Null check missing",
+            details: "The condition fails when x is null.",
+          },
+        },
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "One blocking issue found." },
+        },
+      ],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([output], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
+    expect(result.retryAttempted).toBe(false);
+    expect(result.validation.ok).toBe(true);
+  });
+
+  test("empty text + empty toolCalls + outputToolsActive=true → retry attempted (still empty)", async () => {
+    const invocations: Invocation[] = [];
+    const emptyOutput: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([emptyOutput, emptyOutput], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(2);
+    expect(result.retryAttempted).toBe(true);
+    expect(result.validation.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRecoveryAndCompose (mt#1496 PR #922 R7-R13)
+// ---------------------------------------------------------------------------
+//
+// Pure helper extracted from runReview's outputToolsActive branch so the
+// recovery + reconciliation + composition flow can be unit-tested without
+// mocking GitHub/OpenAI/MCP. Full integration tests for runReview itself
+// require substantial mock scaffolding and are deferred to mt#1497; this
+// unit-test surface covers the core decision logic the bot has flagged.
+
+describe("applyRecoveryAndCompose (mt#1496)", () => {
+  function finding(
+    severity: "BLOCKING" | "NON-BLOCKING" | "PRE-EXISTING",
+    file: string,
+    line: number
+  ): ReviewToolCall {
+    return {
+      name: "submit_finding",
+      args: {
+        severity,
+        file,
+        line,
+        summary: `${severity} on ${file}`,
+        details: "details",
+      },
+    };
+  }
+  function conclude(event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"): ReviewToolCall {
+    return {
+      name: "conclude_review",
+      args: { event, summary: `${event} summary` },
+    };
+  }
+
+  test("recovery disabled: passes through unchanged, no downgrades", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", false);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("recovery enabled but no priors: passes through, no recovery applied", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const result = applyRecoveryAndCompose(toolCalls, [], "", true);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("recovery enabled with priors: BLOCKING downgrades to NON-BLOCKING when no diff overlap", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades).toHaveLength(1);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+  });
+
+  test("crossed-zero reconciliation: rewrites conclude_review REQUEST_CHANGES → COMMENT", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.reconcileApplied).toBe(true);
+    expect(result.composed.event).toBe("COMMENT");
+    // The reconciled tool calls should have COMMENT as the conclude_review
+    // event, not REQUEST_CHANGES.
+    const concludeCall = result.toolCalls.find((tc) => tc.name === "conclude_review");
+    expect(concludeCall?.name === "conclude_review" ? concludeCall.args.event : null).toBe(
+      "COMMENT"
+    );
+  });
+
+  test("partial downgrade (not crossed zero): no reconciliation", () => {
+    // Two BLOCKING findings, one downgraded, one preserved (different file).
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5), // will downgrade (matches prior)
+      finding("BLOCKING", "src/bar.ts", 5), // will preserve (no prior match)
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades).toHaveLength(1);
+    expect(result.originalBlockingCount).toBe(2);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("no conclude_review present: composed event still derived from severities", () => {
+    // No conclude_review → composeReviewBody derives event from blockingCount.
+    // After recovery downgrades all BLOCKING, derived event is COMMENT.
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+    expect(result.reconcileApplied).toBe(false); // no conclude_review to reconcile
+    expect(result.composed.event).toBe("COMMENT");
+  });
+
+  test("conclude_review COMMENT (not REQUEST_CHANGES): no reconciliation needed", () => {
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5), conclude("COMMENT")];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("COMMENT");
+  });
+
+  test("downgrades array contains expected audit fields", () => {
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades[0]).toMatchObject({
+      file: "src/foo.ts",
+      line: 5,
+      fromSeverity: "BLOCKING",
+      toSeverity: "NON-BLOCKING",
+      matchingPriorSeverity: "NON-BLOCKING",
+    });
+  });
+
+  test("preserves BLOCKING when diff introduces new lines on cited range", () => {
+    // Recovery should NOT downgrade if the diff actually introduces new code
+    // overlapping the finding's range.
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 11)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const diff = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,2 +10,4 @@
+ keep
++new11
++new12
+ keep
+`;
+    const result = applyRecoveryAndCompose(toolCalls, priors, diff, true);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
   });
 });
