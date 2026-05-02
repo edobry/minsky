@@ -1,7 +1,10 @@
 import { injectable } from "tsyringe";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
+import {
+  taskRelationshipsTable,
+  RELATIONSHIP_TYPE_VALUES,
+} from "../storage/schemas/task-relationships";
 
 /**
  * Minimal interface for any Drizzle query executor — satisfied by both
@@ -12,8 +15,11 @@ type DrizzleExecutor = Pick<
   "select" | "insert" | "update" | "delete" | "execute"
 >;
 
+// Re-export for consumers that import RelationshipType from this module
+export { RELATIONSHIP_TYPE_VALUES } from "../storage/schemas/task-relationships";
+
 /** Edge types for task relationships */
-export type RelationshipType = "depends" | "parent";
+export type RelationshipType = (typeof RELATIONSHIP_TYPE_VALUES)[number];
 
 function isQualifiedId(id: string): boolean {
   return (

@@ -11,17 +11,24 @@ import {
   buildConvergenceMetricLog,
   buildSubmitFailureLog,
   serializeSubmitError,
+  applyRecoveryAndCompose,
   type CallReviewerFn,
   type ReviewResult,
   type PriorReviewFetcherFn,
   type PriorReviewIngestionResult,
 } from "./review-worker";
+import type { ReviewToolCall } from "./output-tools";
+import type { FlatPriorFinding } from "./severity-recovery";
 import type { CallReviewerOptions, ReviewOutput } from "./providers";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
 import type { PriorReview } from "./prior-review-summary";
+
+// Shared constant for the first-attempt trace string — used in multiple
+// describe blocks so it must be file-scoped to avoid no-magic-string-duplication.
+const ATTEMPT_FIRST_SUCCESS = "first-attempt-success" as const;
 
 describe("parseReviewEvent", () => {
   test("returns COMMENT when reviewer is same identity as author", () => {
@@ -72,6 +79,7 @@ describe("validateReviewOutput", () => {
       reasoningTokens: 1500,
       totalTokens: 5000,
     },
+    toolCalls: [],
   };
 
   test("passes through non-empty content", () => {
@@ -118,6 +126,7 @@ describe("validateReviewOutput", () => {
       provider: "openai",
       model: "gpt-5",
       tokensUsed: 8192,
+      toolCalls: [],
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -152,6 +161,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       reasoningTokens: 12000,
       totalTokens: 16000,
     },
+    toolCalls: [],
   };
 
   test("starts with the skip marker", () => {
@@ -182,6 +192,7 @@ describe("buildEmptyOutputSkipNotice", () => {
       text: "",
       provider: "anthropic",
       model: "claude-opus-4-6",
+      toolCalls: [],
     });
     expect(notice).not.toContain("reasoning phase");
   });
@@ -240,6 +251,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
     model: "gpt-5",
     tokensUsed: 500,
     usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    toolCalls: [],
   };
 
   function makeEmpty(provider: "openai" | "google" | "anthropic"): ReviewOutput {
@@ -259,6 +271,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
         reasoningTokens: 12000,
         totalTokens: 16000,
       },
+      toolCalls: [],
     };
   }
 
@@ -278,7 +291,7 @@ describe("callReviewerWithRetry (mt#1131)", () => {
 
     expect(invocations).toHaveLength(1);
     expect(invocations[0]?.options).toBeUndefined();
-    expect(result.attempt).toBe("first-attempt-success");
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
     expect(result.retryAttempted).toBe(false);
     expect(result.validation.ok).toBe(true);
     expect(result.output).toBe(substantive);
@@ -434,7 +447,7 @@ describe("decidePostSanitizeOutcome", () => {
     reviewerLogin: REVIEWER_LOGIN,
     provider: "openai",
     model: "gpt-5",
-    attempt: "first-attempt-success" as const,
+    attempt: ATTEMPT_FIRST_SUCCESS,
   };
 
   const passthrough: SanitizeResult = {
@@ -1105,5 +1118,333 @@ describe("buildSubmitFailureLog", () => {
     });
     const serialized = log["submitError"] as { message: string };
     expect(serialized.message).toBe("string-throw");
+  });
+});
+
+// =============================================================================
+// validateReviewOutput — outputToolsActive path (mt#1402)
+//
+// When outputToolsActive=true, non-empty toolCalls must count as a success
+// signal even when output.text is empty — gpt-5 emits tool calls with
+// output.text === "" on the output-tools path.
+// =============================================================================
+
+describe("validateReviewOutput — outputToolsActive path", () => {
+  const baseOutput: ReviewOutput = {
+    text: "",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 5000,
+    usage: {
+      promptTokens: 3000,
+      completionTokens: 2000,
+      reasoningTokens: 1500,
+      totalTokens: 5000,
+    },
+    toolCalls: [],
+  };
+
+  test("empty text + empty toolCalls + outputToolsActive=true → fails (nothing was produced)", () => {
+    const result = validateReviewOutput(baseOutput, true);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("empty content");
+    }
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → ok (tool calls are the output)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "Two blocking findings." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+
+  test("empty text + non-empty toolCalls + outputToolsActive=false → fails (default prose path)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues found." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, false);
+    expect(result.ok).toBe(false);
+  });
+
+  test("non-empty text + non-empty toolCalls + outputToolsActive=true → ok (text passes first)", () => {
+    const output: ReviewOutput = {
+      ...baseOutput,
+      text: "some scratch text",
+      toolCalls: [
+        {
+          name: "conclude_review",
+          args: { event: "APPROVE", summary: "No issues." },
+        },
+      ],
+    };
+    const result = validateReviewOutput(output, true);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// =============================================================================
+// callReviewerWithRetry — outputToolsActive forwarding (mt#1402)
+//
+// Verify that the outputToolsActive flag is forwarded to validateReviewOutput
+// so non-empty toolCalls count as success on the output-tools path.
+// =============================================================================
+
+describe("callReviewerWithRetry — outputToolsActive forwarding", () => {
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  type Invocation = { options?: import("./providers").CallReviewerOptions };
+  function fakeReviewer(outputs: ReviewOutput[], invocations: Invocation[]): CallReviewerFn {
+    let i = 0;
+    return async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      const next = outputs[i];
+      if (next === undefined) {
+        throw new Error(`fakeReviewer ran out of outputs (invocation ${i + 1})`);
+      }
+      i++;
+      return next;
+    };
+  }
+
+  test("empty text + non-empty toolCalls + outputToolsActive=true → first-attempt-success, no retry", async () => {
+    const invocations: Invocation[] = [];
+    const output: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [
+        {
+          name: "submit_finding",
+          args: {
+            severity: "BLOCKING",
+            file: "src/foo.ts",
+            line: 1,
+            summary: "Null check missing",
+            details: "The condition fails when x is null.",
+          },
+        },
+        {
+          name: "conclude_review",
+          args: { event: "REQUEST_CHANGES", summary: "One blocking issue found." },
+        },
+      ],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([output], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(1);
+    expect(result.attempt).toBe(ATTEMPT_FIRST_SUCCESS);
+    expect(result.retryAttempted).toBe(false);
+    expect(result.validation.ok).toBe(true);
+  });
+
+  test("empty text + empty toolCalls + outputToolsActive=true → retry attempted (still empty)", async () => {
+    const invocations: Invocation[] = [];
+    const emptyOutput: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 5000,
+      toolCalls: [],
+    };
+
+    const result = await callReviewerWithRetry(
+      fakeConfig,
+      "sys",
+      "user",
+      undefined,
+      fakeReviewer([emptyOutput, emptyOutput], invocations),
+      true // outputToolsActive
+    );
+
+    expect(invocations).toHaveLength(2);
+    expect(result.retryAttempted).toBe(true);
+    expect(result.validation.ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRecoveryAndCompose (mt#1496 PR #922 R7-R13)
+// ---------------------------------------------------------------------------
+//
+// Pure helper extracted from runReview's outputToolsActive branch so the
+// recovery + reconciliation + composition flow can be unit-tested without
+// mocking GitHub/OpenAI/MCP. Full integration tests for runReview itself
+// require substantial mock scaffolding and are deferred to mt#1497; this
+// unit-test surface covers the core decision logic the bot has flagged.
+
+describe("applyRecoveryAndCompose (mt#1496)", () => {
+  function finding(
+    severity: "BLOCKING" | "NON-BLOCKING" | "PRE-EXISTING",
+    file: string,
+    line: number
+  ): ReviewToolCall {
+    return {
+      name: "submit_finding",
+      args: {
+        severity,
+        file,
+        line,
+        summary: `${severity} on ${file}`,
+        details: "details",
+      },
+    };
+  }
+  function conclude(event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT"): ReviewToolCall {
+    return {
+      name: "conclude_review",
+      args: { event, summary: `${event} summary` },
+    };
+  }
+
+  test("recovery disabled: passes through unchanged, no downgrades", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", false);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("recovery enabled but no priors: passes through, no recovery applied", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const result = applyRecoveryAndCompose(toolCalls, [], "", true);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("recovery enabled with priors: BLOCKING downgrades to NON-BLOCKING when no diff overlap", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades).toHaveLength(1);
+    expect(result.originalBlockingCount).toBe(1);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+  });
+
+  test("crossed-zero reconciliation: rewrites conclude_review REQUEST_CHANGES → COMMENT", () => {
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5),
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.reconcileApplied).toBe(true);
+    expect(result.composed.event).toBe("COMMENT");
+    // The reconciled tool calls should have COMMENT as the conclude_review
+    // event, not REQUEST_CHANGES.
+    const concludeCall = result.toolCalls.find((tc) => tc.name === "conclude_review");
+    expect(concludeCall?.name === "conclude_review" ? concludeCall.args.event : null).toBe(
+      "COMMENT"
+    );
+  });
+
+  test("partial downgrade (not crossed zero): no reconciliation", () => {
+    // Two BLOCKING findings, one downgraded, one preserved (different file).
+    const toolCalls: ReviewToolCall[] = [
+      finding("BLOCKING", "src/foo.ts", 5), // will downgrade (matches prior)
+      finding("BLOCKING", "src/bar.ts", 5), // will preserve (no prior match)
+      conclude("REQUEST_CHANGES"),
+    ];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades).toHaveLength(1);
+    expect(result.originalBlockingCount).toBe(2);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("REQUEST_CHANGES");
+  });
+
+  test("no conclude_review present: composed event still derived from severities", () => {
+    // No conclude_review → composeReviewBody derives event from blockingCount.
+    // After recovery downgrades all BLOCKING, derived event is COMMENT.
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+    expect(result.reconcileApplied).toBe(false); // no conclude_review to reconcile
+    expect(result.composed.event).toBe("COMMENT");
+  });
+
+  test("conclude_review COMMENT (not REQUEST_CHANGES): no reconciliation needed", () => {
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5), conclude("COMMENT")];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.postRecoveryBlockingCount).toBe(0);
+    expect(result.reconcileApplied).toBe(false);
+    expect(result.composed.event).toBe("COMMENT");
+  });
+
+  test("downgrades array contains expected audit fields", () => {
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 5)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const result = applyRecoveryAndCompose(toolCalls, priors, "", true);
+    expect(result.downgrades[0]).toMatchObject({
+      file: "src/foo.ts",
+      line: 5,
+      fromSeverity: "BLOCKING",
+      toSeverity: "NON-BLOCKING",
+      matchingPriorSeverity: "NON-BLOCKING",
+    });
+  });
+
+  test("preserves BLOCKING when diff introduces new lines on cited range", () => {
+    // Recovery should NOT downgrade if the diff actually introduces new code
+    // overlapping the finding's range.
+    const toolCalls: ReviewToolCall[] = [finding("BLOCKING", "src/foo.ts", 11)];
+    const priors: FlatPriorFinding[] = [{ file: "src/foo.ts", severity: "NON-BLOCKING", line: 5 }];
+    const diff = `diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -10,2 +10,4 @@
+ keep
++new11
++new12
+ keep
+`;
+    const result = applyRecoveryAndCompose(toolCalls, priors, diff, true);
+    expect(result.downgrades).toHaveLength(0);
+    expect(result.postRecoveryBlockingCount).toBe(1);
+    expect(result.reconcileApplied).toBe(false);
   });
 });

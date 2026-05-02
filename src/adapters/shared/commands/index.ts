@@ -13,6 +13,7 @@ import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerSetupCommands } from "./setup";
+import { registerSetupGithubAppCommand } from "./setup-github-app";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -29,6 +30,9 @@ import { registerProvenanceCommands } from "./provenance";
 import { registerAuthorshipCommands } from "./authorship";
 import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
+import { registerTranscriptCommands } from "./transcripts";
+import { registerAttentionCommands } from "./attention";
+import { registerWindowCommands } from "./window";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -58,6 +62,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register setup commands
   registerSetupCommands();
 
+  // Register `setup github-app` subcommand (mt#1087)
+  registerSetupGithubAppCommand();
+
   // Register config commands
   registerConfigCommands();
 
@@ -73,7 +80,7 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register tools commands
   registerToolsCommands(container);
 
-  // Register asks commands (Ask subsystem — mt#1034 / ADR-006)
+  // Register asks commands (Ask subsystem — mt#1034 / ADR-008)
   registerAsksCommands(container);
 
   // Register pr-watch commands (PR-state watcher — mt#1295)
@@ -106,6 +113,15 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register workspace commands (workspace.info — always available, no setup required)
   registerWorkspaceCommands();
 
+  // Register transcript commands (transcripts.ingest — mt#1351)
+  registerTranscriptCommands(container);
+
+  // Register attention commands (attention.report — mt#1071 / ADR-008)
+  registerAttentionCommands(container);
+
+  // Register window commands (attention windows — mt#1489 / mt#1411)
+  registerWindowCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -118,6 +134,7 @@ export {
   registerRulesCommands,
   registerInitCommands,
   registerSetupCommands,
+  registerSetupGithubAppCommand,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,
@@ -135,4 +152,7 @@ export {
   registerAuthorshipCommands,
   registerCompileCommands,
   registerWorkspaceCommands,
+  registerTranscriptCommands,
+  registerAttentionCommands,
+  registerWindowCommands,
 };

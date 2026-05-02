@@ -5,6 +5,9 @@
  */
 import { TaskCommandRegistry } from "./base-task-command";
 import type { AppContainerInterface } from "../../../../composition/types";
+import { DrizzleAskRepository } from "../../../../domain/ask/repository";
+import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
+import { log } from "../../../../utils/logger";
 
 let registry: TaskCommandRegistry | null = null;
 
@@ -63,6 +66,22 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     }
     return container.get("taskService");
   };
+  // Optional AskRepository factory — best-effort, returns null when unavailable
+  const getAskRepository = async () => {
+    if (!container?.has("persistence")) return null;
+    try {
+      const provider = container.get("persistence") as SqlCapablePersistenceProvider;
+      if (!provider.getDatabaseConnection) return null;
+      const db = await provider.getDatabaseConnection();
+      if (!db) return null;
+      return new DrizzleAskRepository(db);
+    } catch (err: unknown) {
+      log.debug("[tasks] Could not initialize AskRepository for BLOCKED subtype enrichment", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
+  };
   // Import command creation functions locally to avoid top-level circular imports
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
@@ -103,12 +122,18 @@ export function createAllTaskCommands(container?: AppContainerInterface) {
     createTasksStatusGetCommand(getPersistenceProvider, getTaskService),
     createTasksStatusSetCommand(getPersistenceProvider, getTaskService),
     createTasksSpecCommand(getPersistenceProvider, getTaskService),
-    createTasksListCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
+    createTasksListCommand(
+      getPersistenceProvider,
+      getTaskGraphService,
+      getTaskService,
+      getAskRepository
+    ),
     createTasksGetCommand(
       getPersistenceProvider,
       getTaskGraphService,
       getTaskService,
-      getOptionalSessionProvider
+      getOptionalSessionProvider,
+      getAskRepository
     ),
     createTasksCreateCommand(getPersistenceProvider, getTaskGraphService, getTaskService),
     createTasksEditCommand(getPersistenceProvider, getTaskService),

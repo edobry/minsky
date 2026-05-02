@@ -28,6 +28,7 @@ export const commandCategorySchema = z.enum([
   "AUTHORSHIP",
   "COMPILE",
   "WORKSPACE",
+  "TRANSCRIPTS",
 ]);
 
 /**

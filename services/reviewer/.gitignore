@@ -2,3 +2,4 @@ node_modules/
 *.log
 .env
 .env.local
+scripts/replay-results.json

@@ -16,6 +16,9 @@ import { log } from "../../utils/logger";
 import { redact } from "../../utils/redaction";
 import { z } from "zod";
 import { guardProjectSetup } from "../../domain/configuration/guard";
+import type { StrikeTracker } from "../../domain/ask/strike-tracker";
+import { normalizeErrorSignature } from "../../domain/ask/strike-tracker";
+import type { AskRepository } from "../../domain/ask/repository";
 
 /**
  * Test whether a Zod schema accepts boolean values.
@@ -136,6 +139,99 @@ export interface McpSharedCommandConfig {
   debug?: boolean;
   /** DI container — passed from MCP startup, avoids getAppContainer() Service Locator */
   container?: import("../../composition/types").AppContainerInterface;
+  /**
+   * Optional 2-strikes tracker (mt#1464).
+   * When provided, every MCP tool error increments the counter; a 2nd identical
+   * error on the same (taskId, toolName) pair fires a `stuck.unblock` Ask.
+   */
+  strikeTracker?: StrikeTracker;
+  /**
+   * Optional Ask repository for emitting `stuck.unblock` Asks on strike-2.
+   * Failures are best-effort — they never block the command error path.
+   */
+  askRepository?: AskRepository;
+}
+
+/** Classifier version tag for 2-strikes `stuck.unblock` Asks (mt#1464). */
+const STRIKES_CLASSIFIER_VERSION = "v1.0.0";
+
+/**
+ * Serialize one attempt payload into a JSON-safe object.
+ *
+ * Error instances serialize to `{}` by default because their properties
+ * are non-enumerable. This helper extracts `name`, `code`, and `message`
+ * explicitly so the Ask metadata round-trips cleanly via
+ * JSON.parse(JSON.stringify(...)) and does not leak raw Error objects.
+ *
+ * `stack` is intentionally omitted: stack traces can expose file paths,
+ * internal hostnames, env details, and (in some Error subclasses) wrapped
+ * tokens — a security risk for Ask metadata that may be persisted or
+ * transmitted externally.
+ */
+function serializeAttempt(payload: unknown): unknown {
+  if (payload instanceof Error) {
+    const err = payload as Error & { code?: unknown };
+    return {
+      name: err.name,
+      code: err.code !== undefined ? err.code : undefined,
+      message: err.message,
+      // stack omitted: security — can leak file paths, hostnames, and tokens
+    };
+  }
+  // Primitives: coerce to string so metadata is JSON-safe.
+  if (payload === null || typeof payload !== "object") {
+    return String(payload);
+  }
+  // Plain objects (non-Error throws): whitelist only `{name, code, message}`.
+  // Other fields may carry stack frames, request/response bodies, headers,
+  // tokens, file paths, or env details — we drop everything outside the
+  // whitelist to prevent leakage when metadata is persisted or routed externally.
+  const obj = payload as Record<string, unknown>;
+  const safe: Record<string, unknown> = {};
+  if (typeof obj.name === "string") safe.name = obj.name;
+  if (obj.code !== undefined && (typeof obj.code === "string" || typeof obj.code === "number")) {
+    safe.code = obj.code;
+  }
+  if (typeof obj.message === "string") safe.message = obj.message;
+  return safe;
+}
+
+/**
+ * Best-effort emission of a `stuck.unblock` Ask on the 2nd identical MCP error.
+ *
+ * Called from the MCP command error path when `count === 2`. Failures are
+ * caught by the caller — this function must never throw.
+ */
+async function emitStuckUnblockAsk(params: {
+  askRepository: AskRepository;
+  taskId: string | undefined;
+  sessionId: string | undefined;
+  toolName: string;
+  attempts: unknown[];
+}): Promise<void> {
+  const { askRepository, taskId, sessionId, toolName, attempts } = params;
+  // Build a valid AgentId per ADR-006: {kind}:{scope}:{id}
+  const requestor = sessionId
+    ? `minsky.mcp:session:${sessionId}`
+    : taskId
+      ? `minsky.mcp:task:${taskId}`
+      : "minsky.mcp:unknown:unknown";
+  // Serialize attempts before storing: Error instances serialize to {} by
+  // default (non-enumerable properties). serializeAttempt extracts only
+  // {name, code, message} so metadata round-trips via JSON; stack is
+  // intentionally omitted for security (file paths, env, wrapped tokens),
+  // and non-Error payloads are whitelisted to the same fields.
+  const serializedAttempts = attempts.map(serializeAttempt);
+  await askRepository.create({
+    kind: "stuck.unblock",
+    classifierVersion: STRIKES_CLASSIFIER_VERSION,
+    requestor,
+    parentTaskId: taskId,
+    parentSessionId: sessionId,
+    title: `MCP tool ${toolName} failed twice with same error`,
+    question: `The MCP tool "${toolName}" has produced the same error signature twice in a row. Prior attempts are in metadata.`,
+    metadata: { priorAttempts: serializedAttempts },
+  });
 }
 
 /**
@@ -248,6 +344,20 @@ export function registerSharedCommandsWithMcp(
 
             const duration = Date.now() - startTime;
             log.debug(`[MCP] Command completed: ${command.id}`, { duration });
+
+            // 2-strikes success path: clear strikes for this (taskId, toolName) pair.
+            // MCP commands signal errors exclusively by throwing — there is no { ok: false }
+            // non-throw contract here, so a non-throwing return always means success.
+            if (config.strikeTracker) {
+              // When args.task is absent, key by sessionId so unrelated sessions
+              // hitting the same tool don't share a strike counter. Falling back
+              // to "_global" would collapse all task-less commands into one bucket,
+              // causing false 2-strikes across sessions. (mt#1464 R2 fix)
+              const sessionId = typeof args?.session === "string" ? args.session : undefined;
+              const taskId = typeof args?.task === "string" ? args.task : (sessionId ?? "unknown");
+              config.strikeTracker.recordSuccess(taskId, command.id);
+            }
+
             return result as string | Record<string, unknown>;
           } catch (error) {
             const duration = Date.now() - startTime;
@@ -272,6 +382,35 @@ export function registerSharedCommandsWithMcp(
               duration,
               isUndefinedReference,
             });
+
+            // 2-strikes error path (mt#1464): record the strike.
+            // On strike-2, emit a stuck.unblock Ask — best-effort, never blocks the throw.
+            if (config.strikeTracker) {
+              // When args.task is absent, key by sessionId so unrelated sessions
+              // hitting the same tool don't share a strike counter. Falling back
+              // to "_global" would collapse all task-less commands into one bucket,
+              // causing false 2-strikes across sessions. (mt#1464 R2 fix)
+              const sessionId = typeof args?.session === "string" ? args.session : undefined;
+              const taskId = typeof args?.task === "string" ? args.task : (sessionId ?? "unknown");
+              const errorSig = normalizeErrorSignature(error);
+              const strikeResult = config.strikeTracker.recordError(
+                { taskId, toolName: command.id, errorSignature: errorSig },
+                error
+              );
+
+              if (strikeResult.count === 2 && config.askRepository) {
+                emitStuckUnblockAsk({
+                  askRepository: config.askRepository,
+                  taskId: typeof args?.task === "string" ? args.task : undefined,
+                  sessionId,
+                  toolName: command.id,
+                  attempts: strikeResult.attempts,
+                }).catch((emitErr) => {
+                  log.warn(`[2-strikes] Failed to emit stuck.unblock Ask: ${emitErr}`);
+                });
+              }
+            }
+
             throw error;
           }
         },
@@ -537,6 +676,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.PROVENANCE,
       CommandCategory.AUTHORSHIP,
       CommandCategory.WORKSPACE,
+      CommandCategory.TRANSCRIPTS,
     ],
     ...config,
   });

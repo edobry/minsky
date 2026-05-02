@@ -16,6 +16,8 @@ import { log } from "../../utils/logger";
 import type { AskRepository } from "./repository";
 import type { Ask, AskState } from "./types";
 import type { OperatorNotify } from "../notify/operator-notify";
+import { buildAttentionCost } from "./accounting/index";
+import { LoggingWakeSignalSink, dispatchWake, type WakeSignalSink } from "./wake-on-respond";
 
 // ---------------------------------------------------------------------------
 // GitHub client interface — narrow projection used by the reconciler.
@@ -53,11 +55,6 @@ export interface GithubReviewClient {
 // PR contextRef parsing helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Expected format for a PR contextRef: `github-pr:<owner>/<repo>/<pr-number>`
- */
-const PR_REF_PATTERN = /^github-pr:([^/]+)\/([^/]+)\/(\d+)$/;
-
 interface ParsedPrRef {
   owner: string;
   repo: string;
@@ -65,19 +62,52 @@ interface ParsedPrRef {
 }
 
 /**
+ * Patterns recognised by `parsePrRef`.
+ *
+ * Tried in order; the first match wins.
+ *
+ * 1. Colon-prefixed form:   `github-pr:<owner>/<repo>/<pr-number>`
+ * 2. Full URL (https/http): `https://github.com/<owner>/<repo>/pull/<N>[/...]`
+ * 3. URL without scheme:    `github.com/<owner>/<repo>/pull/<N>[/...]`
+ *
+ * Trailing path segments, query strings, and fragments after the PR number are
+ * tolerated (e.g. `/files`, `?diff=split`, `#discussion-r12345`) so that
+ * copy-pasted GitHub URLs with extra path info work too.
+ * Only `github.com` host matches — gitlab.com and other forges do not.
+ * Only `/pull/` path segment matches — `/issues/` and other paths do not.
+ */
+const PR_REF_PATTERNS = [
+  // Colon-prefixed form: github-pr:owner/repo/123
+  /^github-pr:([^/]+)\/([^/]+)\/(\d+)$/,
+  // URL form with scheme: https://github.com/owner/repo/pull/123 (also accept http://)
+  /^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/,
+  // URL form without scheme: github.com/owner/repo/pull/123
+  /^github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:[/?#].*)?$/,
+];
+
+/**
  * Parse a `github-pr` contextRef into owner/repo/prNumber.
- * Returns `null` when the ref does not match the expected format.
+ *
+ * Accepts two forms:
+ *  - Colon-prefixed: `github-pr:<owner>/<repo>/<pr-number>`
+ *  - GitHub URL:     `https://github.com/<owner>/<repo>/pull/<N>` (http:// and
+ *                    scheme-less `github.com/...` variants also accepted)
+ *
+ * Returns `null` when the ref does not match any recognised format.
  */
 export function parsePrRef(ref: string): ParsedPrRef | null {
-  const match = PR_REF_PATTERN.exec(ref);
-  if (!match) return null;
-  const ownerPart = match[1];
-  const repoPart = match[2];
-  const prNumberStr = match[3];
-  if (!ownerPart || !repoPart || !prNumberStr) return null;
-  const prNumber = parseInt(prNumberStr, 10);
-  if (isNaN(prNumber)) return null;
-  return { owner: ownerPart, repo: repoPart, prNumber };
+  for (const pattern of PR_REF_PATTERNS) {
+    const match = pattern.exec(ref);
+    if (!match) continue;
+    const ownerPart = match[1];
+    const repoPart = match[2];
+    const prNumberStr = match[3];
+    if (!ownerPart || !repoPart || !prNumberStr) continue;
+    const prNumber = parseInt(prNumberStr, 10);
+    if (isNaN(prNumber)) continue;
+    return { owner: ownerPart, repo: repoPart, prNumber };
+  }
+  return null;
 }
 
 /**
@@ -153,7 +183,8 @@ function truncate(str: string, max: number): string {
 export async function reconcile(
   askRepository: AskRepository,
   githubClient: GithubReviewClient,
-  operatorNotify: OperatorNotify
+  operatorNotify: OperatorNotify,
+  wakeSink: WakeSignalSink = new LoggingWakeSignalSink()
 ): Promise<ReconcileResult> {
   // Gather all open quality.review Asks across non-terminal pre-responded states.
   // v1 short-circuit: mt#1069 (router) does not yet exist, so detected/classified
@@ -176,7 +207,13 @@ export async function reconcile(
 
   for (const ask of candidates) {
     try {
-      const outcome = await reconcileAsk(ask, askRepository, githubClient, operatorNotify);
+      const outcome = await reconcileAsk(
+        ask,
+        askRepository,
+        githubClient,
+        operatorNotify,
+        wakeSink
+      );
       outcomes.push(outcome);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -229,7 +266,8 @@ async function reconcileAsk(
   ask: Ask,
   askRepository: AskRepository,
   githubClient: GithubReviewClient,
-  operatorNotify: OperatorNotify
+  operatorNotify: OperatorNotify,
+  wakeSink: WakeSignalSink
 ): Promise<AskReconcileOutcome> {
   // Find the github-pr contextRef.
   const prRef = findPrRef(ask);
@@ -276,10 +314,21 @@ async function reconcileAsk(
   // respond() state-machine guard (suspended -> responded) succeeds.
   await walkToSuspended(askRepository, ask);
 
+  // Build the responder AgentId: reviewer service prefixed for transport mapping.
+  // Using "reviewer:service:..." means buildAttentionCost maps this to "subagent"
+  // transport (no recognized agui/mesh/inbox prefix), which is correct per ADR-008:
+  // the reviewer agent is a subagent-class responder.
+  const responderAgentId = `reviewer:service:${latestReview.reviewerLogin ?? "unknown"}`;
+
+  // Compute attentionCost for this respond() call.
+  // buildAttentionCost throws if it encounters an invalid input — that propagates
+  // up through the per-Ask try/catch and surfaces in the reconcile result.
+  const attentionCost = buildAttentionCost({ responder: responderAgentId });
+
   // Transition Ask to responded via the respond() API.
   await askRepository.respond(ask.id, {
     response: {
-      responder: `reviewer:service:${latestReview.reviewerLogin ?? "unknown"}`,
+      responder: responderAgentId,
       payload: {
         reviewBody: latestReview.body,
         reviewState: latestReview.state,
@@ -289,7 +338,7 @@ async function reconcileAsk(
         owner,
         repo,
       },
-      attentionCost: undefined,
+      attentionCost,
     },
   });
 
@@ -304,6 +353,36 @@ async function reconcileAsk(
   //
   // For the idempotence guarantee: the state transition itself is the guard.
   // An Ask in `responded` is terminal relative to this reconciler's filter.
+
+  // Wake the originating agent (mt#1481). Parallel path to operator-notify —
+  // wake failure does NOT roll back the respond() and does NOT short-circuit
+  // the notify path below. Skips cleanly when parentSessionId is missing.
+  try {
+    await dispatchWake(wakeSink, {
+      askId: ask.id,
+      parentSessionId: ask.parentSessionId,
+      parentTaskId: ask.parentTaskId,
+      reviewBody: latestReview.body,
+      reviewState: latestReview.state,
+      reviewAuthor: latestReview.reviewerLogin,
+      prNumber,
+    });
+  } catch (wakeErr: unknown) {
+    const errMsg = wakeErr instanceof Error ? wakeErr.message : String(wakeErr);
+    // Use cliWarn so the failure is visible in HUMAN mode (log.warn is
+    // suppressed). State is in structured fields rather than baked into
+    // the message text — sink failures are unrelated to the Ask's state
+    // and the old "(ask already responded)" parenthetical was misleading
+    // for transport-outage failure modes.
+    log.cliWarn(
+      `ask.wake.failed ${JSON.stringify({
+        event: "ask.wake.failed",
+        askId: ask.id,
+        askState: "responded",
+        error: errMsg,
+      })}`
+    );
+  }
 
   // Fire notification. Failure here must NOT roll back the respond().
   let notified = false;
