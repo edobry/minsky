@@ -9,3 +9,8 @@ repository:
   github:
     owner: "edobry"
     repo: "minsky"
+
+workflows:
+  lint:
+    # Use local eslint to avoid incompatibility with the globally-installed eslint (v10 vs v9)
+    jsonCommand: "./node_modules/.bin/eslint . --format json"
