@@ -170,6 +170,18 @@ describe("operating envelope examples pass the commit-msg hook", () => {
     expect(prompt).not.toContain("mt-1524"); // raw form should never appear
     expect(prompt).toContain(EXPECTED_ENVELOPE_FRAGMENT);
   });
+
+  test("envelope strips chained/doubled prefixes (PR #938 R3 hardening)", () => {
+    // Pathological input: an upstream bug doubled the prefix. The normalizer
+    // must strip ALL leading prefixes so a single `mt#` survives in the
+    // rendered output, never `mt#mt#1524`.
+    expect(renderImplementerPrompt("mt#mt#1524")).not.toContain("mt#mt#");
+    expect(renderImplementerPrompt("mt#mt#1524")).toContain(EXPECTED_ENVELOPE_FRAGMENT);
+
+    // Mixed-form chain: `mt#mt-1524` should also collapse to a single prefix.
+    expect(renderImplementerPrompt("mt#mt-1524")).not.toContain("mt#mt-");
+    expect(renderImplementerPrompt("mt#mt-1524")).toContain(EXPECTED_ENVELOPE_FRAGMENT);
+  });
 });
 
 describe("commit-msg hook accepts longer descriptive subjects (PR #938 R2)", () => {

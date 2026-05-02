@@ -218,18 +218,23 @@ ${scope.map((f) => `- ${f}`).join("\n")}`;
 }
 
 /**
- * Strip a leading project-prefix (e.g. `mt#`, `md#`, `mt-`, `gh-`, `#`) from a
+ * Strip leading project-prefixes (e.g. `mt#`, `md#`, `mt-`, `gh-`, `#`) from a
  * taskId so the renderer can prepend `mt#` exactly once. Callers may pass any
  * of the supported forms — numeric (`"1524"`, the production dispatch shape),
  * display-formatted (`"mt#1524"`), hyphen-formatted (`"mt-1524"`, used in
  * branch names), or bare-hash (`"#1524"`) — and all must yield the same
  * output, never `"mt#mt#1524"` / `"mt#mt-1524"` / `"mt##1524"` (mt#1524).
  *
+ * The `+` quantifier on the alternation group also strips chained prefixes
+ * (e.g. `"mt#mt#1524"` → `"1524"`) so a doubly-prefixed input from a
+ * misbehaving caller can't survive normalization and become triple-prefixed
+ * in render output (PR #938 R3 hardening).
+ *
  * Mirrors `TASK_ID_PREFIX_RE` in `pr-conventional-title.ts` which accepts
  * `<letters>[#-]` for the project prefix.
  */
 function normalizeTaskIdForDisplay(taskId: string): string {
-  return taskId.replace(/^[a-z]{2,}[#-]/i, "").replace(/^#/, "");
+  return taskId.replace(/^(?:[a-z]{2,}[#-]|#)+/i, "");
 }
 
 function renderCommitInstructions(sessionId: string, taskId: string): string {
