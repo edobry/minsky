@@ -216,7 +216,7 @@ After PR creation, do NOT continue **implementing new scope** on the session bra
 - **Committing PR description files** to the repo — use `--body` parameter, never commit `pr.md` files
 - **Duplicating title in body** — title goes in `--title` only, body starts with `## Summary`
 - **Wrong task content** — verify PR content matches the current task, not a previous one
-- **Continuing work after PR creation** — the PR is the final step in the session
+- **Implementing new scope after PR creation** — the PR is the final step for the original scope. Follow-up commits limited to addressing reviewer findings ARE expected during review iteration (see /review-pr step 7 + 7a); only NEW SCOPE requires a fresh session.
 
 ## Key principles
 
