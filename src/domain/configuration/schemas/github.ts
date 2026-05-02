@@ -62,6 +62,18 @@ export const githubServiceAccountSchema = z
   .optional();
 
 /**
+ * Reviewer role configuration — wraps a service account config for the
+ * minsky-reviewer GitHub App. Parallel to `github.serviceAccount` (implementer).
+ */
+export const githubReviewerSchema = z
+  .strictObject({
+    // GitHub App service account for the reviewer identity (minsky-reviewer App).
+    // When absent, getToken("reviewer") falls back to the implementer App.
+    serviceAccount: githubServiceAccountSchema,
+  })
+  .optional();
+
+/**
  * Complete GitHub configuration
  */
 export const githubConfigSchema = z
@@ -81,14 +93,21 @@ export const githubConfigSchema = z
     // GitHub API base URL (for GitHub Enterprise)
     baseUrl: baseSchemas.url.optional(),
 
-    // GitHub App service account configuration
+    // GitHub App service account configuration (implementer identity: minsky-ai App)
     serviceAccount: githubServiceAccountSchema,
+
+    // Reviewer role configuration (minsky-reviewer App).
+    // When present, getToken("reviewer") uses this App's credentials.
+    // When absent, both roles fall back to the single implementer App.
+    reviewer: githubReviewerSchema,
   })
   .default({});
 
 // Type exports
 export type GitHubTokenConfig = z.infer<typeof githubTokenSchema>;
 export type GitHubRepoConfig = z.infer<typeof githubRepoConfigSchema>;
+export type GitHubServiceAccountConfig = z.infer<typeof githubServiceAccountSchema>;
+export type GitHubReviewerConfig = z.infer<typeof githubReviewerSchema>;
 export type GitHubConfig = z.infer<typeof githubConfigSchema>;
 
 /**

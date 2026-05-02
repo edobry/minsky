@@ -49,7 +49,13 @@ function makeFakeTokenProvider(opts?: {
   throwOnService?: boolean;
   onGetServiceToken?: (repo?: string) => void;
 }): TokenProvider {
-  return {
+  const provider: TokenProvider = {
+    async getToken(
+      _role?: import("../../../domain/auth/token-provider").TokenRole,
+      repo?: string
+    ): Promise<string> {
+      return provider.getServiceToken(repo);
+    },
     async getServiceToken(repo?: string): Promise<string> {
       opts?.onGetServiceToken?.(repo);
       if (opts?.throwOnService) {
@@ -67,6 +73,7 @@ function makeFakeTokenProvider(opts?: {
       return false;
     },
   };
+  return provider;
 }
 
 // ---------------------------------------------------------------------------

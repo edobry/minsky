@@ -194,7 +194,9 @@ The tool automatically:
 
 ### 6. Stop working on the session branch
 
-After PR creation, do NOT continue committing to the session branch. Switch to main workspace if further work is needed.
+After PR creation, do NOT continue **implementing new scope** on the session branch. Follow-up commits limited to addressing reviewer findings ARE expected during review iteration — this is the normal path and is what `/review-pr` step 7/7a and `/orchestrate` Error recovery presume. New work outside the PR's stated scope must start a new session.
+
+**Next steps once the PR is open:** the merge flow is owned by `/review-pr` (review submission, including the same-App-identity APPROVE block, stale CHANGES_REQUESTED dismissal, and reviewer-bot webhook-miss diagnosis in step 7/7a) and `/orchestrate` (in-flight branch-divergence checks during multi-round iteration, plus the Error recovery table for `session_update` abort and reviewer-bot silence). If iteration spans multiple rounds, expect to consult those skills.
 
 ## PR types
 
@@ -233,7 +235,7 @@ passes `session_pr_create` / `session_pr_edit` will also pass the hook.
 - **Committing PR description files** to the repo — use `--body` parameter, never commit `pr.md` files
 - **Duplicating title in body** — title goes in `--title` only, body starts with `## Summary`
 - **Wrong task content** — verify PR content matches the current task, not a previous one
-- **Continuing work after PR creation** — the PR is the final step in the session
+- **Implementing new scope after PR creation** — the PR is the final step for the original scope. Follow-up commits limited to addressing reviewer findings ARE expected during review iteration (see /review-pr step 7 + 7a); only NEW SCOPE requires a fresh session.
 
 ## Key principles
 
