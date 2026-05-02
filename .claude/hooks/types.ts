@@ -50,6 +50,32 @@ export function execSync(
   };
 }
 
+/**
+ * PATH-augmented sync exec helper. Prepends common homebrew/system binary
+ * directories to PATH so that `gh` and `git` resolve correctly regardless of
+ * the shell PATH that launched Claude Code. Used by hooks that call `gh`/`git`.
+ */
+export function execWithPath(
+  cmd: string[],
+  options?: { cwd?: string; timeout?: number }
+): { exitCode: number; stdout: string; stderr: string; timedOut?: boolean } {
+  const pathPrefix = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}`;
+  const result = Bun.spawnSync(cmd, {
+    cwd: options?.cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: options?.timeout ?? 10000,
+    env: { ...process.env, PATH: pathPrefix },
+  });
+  const timedOut = result.exitCode === null && result.signalCode === "SIGTERM";
+  return {
+    exitCode: result.exitCode ?? 1,
+    stdout: result.stdout.toString().trim(),
+    stderr: result.stderr.toString().trim(),
+    timedOut,
+  };
+}
+
 // Read hook input from stdin
 export async function readInput<T = ClaudeHookInput>(): Promise<T> {
   return (await Bun.stdin.json()) as T;

@@ -256,16 +256,38 @@ export const sessionUpdateCommandParams = {
 };
 
 /**
- * Session approve command parameters
+ * Session approve command parameters.
+ * Only includes fields relevant to the approve action (not merge-only flags).
  */
 export const sessionApproveCommandParams = {
   sessionId: commonSessionParams.sessionId,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+};
+
+/**
+ * Session merge command parameters.
+ * Extends the approve base with merge-only flags.
+ */
+export const sessionMergeCommandParams = {
+  ...sessionApproveCommandParams,
   skipCleanup: {
     schema: z.boolean(),
     description: "Skip session cleanup after merge (preserves session files)",
+    required: false,
+    defaultValue: false,
+  },
+  acceptStaleReviewerSilence: {
+    schema: z.boolean(),
+    description:
+      "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). " +
+      "All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; " +
+      "(2) at least one COMMENTED review from the same identity as the PR author must exist; " +
+      "(3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); " +
+      "(4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; " +
+      "(5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. " +
+      "Emits an audit log entry at INFO level when the waiver is applied. Default: false.",
     required: false,
     defaultValue: false,
   },
@@ -682,26 +704,17 @@ export const sessionPrReviewSubmitCommandParams = {
         line: z.number().int().positive(),
         body: z.string().min(1),
         side: z.enum(["LEFT", "RIGHT"]).optional(),
-        /**
-         * First line of a multi-line range (1-based, inclusive).
-         * Must be strictly less than `line`. Omit for single-line comments.
-         */
         startLine: z.number().int().positive().optional(),
-        /**
-         * Diff side for the start of a multi-line range.
-         * Must equal `side` when both are provided. When only startSide is
-         * provided, `side` is inferred from it (and vice versa) — see the
-         * comments description for full defaulting rules.
-         */
         startSide: z.enum(["LEFT", "RIGHT"]).optional(),
+        suggestion: z
+          .string()
+          .optional()
+          .describe(
+            "Replacement code for a GitHub suggestion block. Line count must match the anchored range."
+          ),
       })
     ),
-    description:
-      "Optional inline line-level comments. Each comment may span a range by providing " +
-      "startLine (first line, inclusive) in addition to line (last line, inclusive). " +
-      "Side defaulting: when both side and startSide are provided they must match (or " +
-      "the comment is rejected); when only one is provided the other inherits from it; " +
-      "when both are omitted, side defaults to RIGHT.",
+    description: "Optional inline line-level comments",
     required: false,
   },
   json: commonSessionParams.json,
@@ -729,6 +742,80 @@ export const sessionPrReviewDismissCommandParams = {
       "the dismissed review. Include why the review is stale (e.g. 'covers " +
       "commit <sha>; blocker addressed in <sha>').",
     required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session PR Review Thread Resolve command parameters
+ * Resolves or unresolves a GitHub PR review thread (GraphQL-only operation)
+ * through Minsky using the configured bot identity.
+ *
+ * `threadId` is the GraphQL node ID of a `PullRequestReviewThread` object.
+ * Sources:
+ *  - GraphQL: `pullRequest.reviewThreads.nodes[].id`
+ *  - REST: items returned by `GET /repos/{owner}/{repo}/pulls/{n}/threads` carry `node_id` of the thread
+ *  - The `reviewThreads[].id` field on `session_pr_review_context` (mt#1343)
+ *
+ * Note: a review comment's `node_id` is NOT a thread ID. The two are distinct
+ * objects in the GitHub API; only thread node IDs are accepted here.
+ */
+export const sessionPrReviewThreadResolveCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  threadId: {
+    schema: z.string().min(1),
+    description:
+      "GraphQL node ID of a PullRequestReviewThread. Obtain from one of: " +
+      "(1) session_pr_review_context.reviewThreads[].id, " +
+      "(2) GraphQL pullRequest.reviewThreads.nodes[].id, or " +
+      "(3) REST GET /repos/{owner}/{repo}/pulls/{pull_number}/threads (each item's node_id). " +
+      "Do NOT pass a review comment's node_id (from /pulls/{n}/comments or /pulls/{n}/reviews) — " +
+      "comment IDs and thread IDs are distinct objects; the GraphQL mutation will reject the wrong type.",
+    required: true,
+  },
+  action: {
+    schema: z.enum(["resolve", "unresolve"]),
+    description: 'Action to perform: "resolve" marks the thread as done; "unresolve" reopens it.',
+    required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session PR Check Run Submit command parameters
+ * Submits a GitHub Check Run for the session's PR, compiling reviewer findings
+ * into check-run annotations (machine-shaped, branch-protection-eligible surface).
+ */
+export const sessionPrCheckRunSubmitCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  findings: {
+    schema: z.array(
+      z.object({
+        path: z.string().min(1),
+        startLine: z.number().int().positive(),
+        endLine: z.number().int().positive().optional(),
+        severity: z.string().min(1),
+        title: z.string().min(1),
+        message: z.string().min(1),
+        rawDetails: z.string().optional(),
+      })
+    ),
+    description:
+      "List of reviewer findings to compile into check-run annotations. " +
+      "severity: 'BLOCKING' → failure, 'NON-BLOCKING' → warning, other → notice. " +
+      "An empty list produces a check run with conclusion 'success' and no annotations.",
+    required: true,
+  },
+  checkRunName: {
+    schema: z.string().min(1),
+    description:
+      "Override the check run name (default: 'minsky-reviewer/findings'). " +
+      "Must be stable across runs for branch-protection integration.",
+    required: false,
   },
   json: commonSessionParams.json,
 };

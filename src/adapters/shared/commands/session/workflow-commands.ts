@@ -9,16 +9,23 @@ import { CommandCategory, type CommandDefinition } from "../../command-registry"
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionApproveCommandParams,
+  sessionMergeCommandParams,
   sessionInspectCommandParams,
   sessionReviewCommandParams,
 } from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
+import { buildAskRepository } from "../asks";
 import { type AIReviewResult } from "../../../../domain/ai/review-service";
 import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "../../../../domain/persistence/types";
 import { McpErrorCode } from "../../../../errors/mcp-error-codes";
 import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
 import { SessionConflictError } from "../../../../errors/index";
+import { DrizzleAskRepository, type AskRepository } from "../../../../domain/ask/repository";
+import { log } from "../../../../utils/logger";
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -34,6 +41,8 @@ export { createSessionPrWaitForReviewCommand } from "./pr-wait-for-review-comman
 export { createSessionPrReviewContextCommand } from "./pr-review-context-command";
 export { createSessionPrReviewSubmitCommand } from "./pr-review-submit-command";
 export { createSessionPrReviewDismissCommand } from "./pr-review-dismiss-command";
+export { createSessionPrReviewThreadResolveCommand } from "./pr-review-thread-resolve-command";
+export { createSessionPrCheckRunSubmitCommand } from "./pr-check-run-submit-command";
 
 /**
  * Classify a caught error from `git commit` as a pre-commit hook failure.
@@ -78,53 +87,78 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
     description: "Commit and push changes within a session workspace",
     parameters: sessionCommitCommandParams,
     mutating: true,
-    execute: withErrorLogging("session.commit", async (params: Record<string, unknown>) => {
-      const { sessionCommit } = await import("../../../../domain/session/session-commands");
-      const deps = await getDeps();
-
-      try {
-        const result = await sessionCommit(
-          {
-            session: (params.sessionId as string | undefined) ?? "",
-            message: (params.message as string | undefined) ?? "",
-            all: params.all as boolean | undefined,
-            amend: params.amend as boolean | undefined,
-            noStage: params.noStage as boolean | undefined,
-          },
-          deps.sessionProvider
-        );
-
-        return {
-          success: result.success,
-          sessionId: params.sessionId,
-          commitHash: result.commitHash,
-          shortHash: result.shortHash,
-          subject: result.subject,
-          branch: result.branch,
-          authorName: result.authorName,
-          authorEmail: result.authorEmail,
-          timestamp: result.timestamp,
-          message: result.message,
-          filesChanged: result.filesChanged,
-          insertions: result.insertions,
-          deletions: result.deletions,
-          files: result.files,
-          pushed: result.pushed,
-          oneline: params.oneline === true,
-          noFiles: params.noFiles === true,
-        };
-      } catch (err) {
-        const { isPreCommit, subprocessOutput } = classifyPreCommitFailure(err);
-        if (isPreCommit) {
-          throw mcpStructuredError({
-            code: McpErrorCode.PRE_COMMIT_FAILED,
-            summary: "Pre-commit hook blocked the commit",
-            subprocessOutput,
-          });
+    execute: withErrorLogging(
+      "session.commit",
+      async (params: Record<string, unknown>, context) => {
+        const { sessionCommit } = await import("../../../../domain/session/session-commands");
+        const { log } = await import("../../../../utils/logger");
+        const deps = await getDeps();
+        // Guard: skip DB touch when persistence is not registered in the container.
+        // buildAskRepository is a no-op when container is absent, but calling it
+        // unconditionally still triggers an async DB-init path and log.warn noise
+        // whenever persistence is not configured (e.g. CLI-only contexts).
+        let askRepository: Awaited<ReturnType<typeof buildAskRepository>> = null;
+        if (context.container?.has("persistence")) {
+          askRepository = await buildAskRepository(context.container);
+          if (askRepository === null) {
+            // Persistence is registered but buildAskRepository returned null
+            // (e.g. DB connection unavailable or non-SQL backend). Surface this
+            // at the adapter layer so operators know Ask emission is silently
+            // disabled for this command run — don't just coerce null → undefined.
+            log.warn(
+              "[session.commit] persistence is registered but buildAskRepository returned null; authorization.approve Ask emission disabled for this invocation"
+            );
+          }
         }
-        throw err;
+
+        try {
+          const result = await sessionCommit(
+            {
+              session: (params.sessionId as string | undefined) ?? "",
+              message: (params.message as string | undefined) ?? "",
+              all: params.all as boolean | undefined,
+              amend: params.amend as boolean | undefined,
+              noStage: params.noStage as boolean | undefined,
+            },
+            deps.sessionProvider,
+            askRepository ?? undefined
+          );
+
+          return {
+            success: result.success,
+            sessionId: params.sessionId,
+            commitHash: result.commitHash,
+            shortHash: result.shortHash,
+            subject: result.subject,
+            branch: result.branch,
+            authorName: result.authorName,
+            authorEmail: result.authorEmail,
+            timestamp: result.timestamp,
+            message: result.message,
+            filesChanged: result.filesChanged,
+            insertions: result.insertions,
+            deletions: result.deletions,
+            files: result.files,
+            pushed: result.pushed,
+            oneline: params.oneline === true,
+            noFiles: params.noFiles === true,
+          };
+        } catch (err) {
+          const { isPreCommit, subprocessOutput } = classifyPreCommitFailure(err);
+          if (isPreCommit) {
+            const summaryDetail = subprocessOutput
+              ? `Pre-commit hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+              : "Pre-commit hook blocked the commit";
+            throw mcpStructuredError({
+              code: McpErrorCode.PRE_COMMIT_FAILED,
+              summary: summaryDetail,
+              subprocessOutput,
+            });
+          }
+          throw err;
+        }
       }
-    }),
+    ),
   };
 }
 
@@ -410,10 +444,15 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
  * Build the SessionMergeDependencies shape from the adapter's DI deps and
  * command execution container. Exported for unit-testing the DI wiring —
  * see workflow-commands-merge-deps.test.ts (mt#1025).
+ *
+ * `askRepository` is optional — callers that need Ask emission (e.g., the
+ * session.pr.merge execute path) should build it asynchronously and pass it
+ * explicitly. Tests can pass a FakeAskRepository stub.
  */
 export function buildSessionMergeDeps(
   deps: Awaited<ReturnType<LazySessionDeps>>,
-  container: MergeDepContainer | undefined
+  container: MergeDepContainer | undefined,
+  askRepository?: AskRepository
 ): SessionMergeDependencies {
   return {
     sessionDB: deps.sessionProvider,
@@ -422,6 +461,7 @@ export function buildSessionMergeDeps(
     persistenceProvider: container?.has("persistence")
       ? (container.get("persistence") as PersistenceProvider)
       : undefined,
+    askRepository,
   };
 }
 
@@ -447,7 +487,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
     category: CommandCategory.SESSION,
     name: "merge",
     description: "Merge an approved session pull request",
-    parameters: sessionApproveCommandParams, // Reuse same params
+    parameters: sessionMergeCommandParams,
     mutating: true,
     execute: withErrorLogging(
       "session.pr.merge",
@@ -459,6 +499,26 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
 
         const shouldCleanup = params.skipCleanup !== true;
 
+        // Build AskRepository best-effort (same pattern as pr-create-command.ts).
+        // When unavailable, merge proceeds without Ask emission.
+        let askRepository: DrizzleAskRepository | undefined;
+        const persistenceForAsk = context.container?.has("persistence")
+          ? context.container.get("persistence")
+          : undefined;
+        if (persistenceForAsk) {
+          try {
+            const sqlProvider = persistenceForAsk as SqlCapablePersistenceProvider;
+            if (sqlProvider.getDatabaseConnection) {
+              const db = await sqlProvider.getDatabaseConnection();
+              if (db) {
+                askRepository = new DrizzleAskRepository(db);
+              }
+            }
+          } catch (askRepoError) {
+            log.debug(`Could not initialize AskRepository for PR merge: ${askRepoError}`);
+          }
+        }
+
         try {
           const result = await mergeSessionPr(
             {
@@ -467,8 +527,9 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
               repo: params.repo as string | undefined,
               json: params.json as boolean | undefined,
               cleanupSession: shouldCleanup,
+              acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
             },
-            buildSessionMergeDeps(deps, context.container)
+            buildSessionMergeDeps(deps, context.container, askRepository)
           );
 
           return { success: true, result, printed: true };

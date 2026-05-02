@@ -20,8 +20,9 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 
 import type { Ask, AskKind } from "./types";
-import { FakeAskRepository } from "./repository";
+import { FakeAskRepository, toAsk } from "./repository";
 import type { CreateAskInput } from "./repository";
+import type { AskRecord } from "../storage/schemas/ask-schema";
 import { InvalidAskTransitionError } from "./state-machine";
 
 // ---------------------------------------------------------------------------
@@ -367,6 +368,117 @@ describe("listByClassifierVersion", () => {
   });
 });
 
+describe("findOpenByTaskIds", () => {
+  it("returns an empty array when taskIds is empty", async () => {
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+    const results = await repo.findOpenByTaskIds([]);
+    expect(results).toHaveLength(0);
+  });
+
+  it("returns Asks whose parentTaskId is in the input set", async () => {
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+    await repo.create(makeInput({ parentTaskId: "mt#200" }));
+    await repo.create(makeInput({ parentTaskId: "mt#300" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#100", "mt#300"]);
+    expect(results).toHaveLength(2);
+    const ids = results.map((a) => a.parentTaskId).sort();
+    expect(ids).toEqual(["mt#100", "mt#300"]);
+  });
+
+  it("excludes terminal-state Asks (closed / cancelled / expired)", async () => {
+    repo._seedAtState(makeSeedAsk({ id: "ask-closed", parentTaskId: "mt#100", state: "closed" }));
+    repo._seedAtState(
+      makeSeedAsk({ id: "ask-cancelled", parentTaskId: "mt#100", state: "cancelled" })
+    );
+    repo._seedAtState(makeSeedAsk({ id: "ask-expired", parentTaskId: "mt#100", state: "expired" }));
+    repo._seedAtState(makeSeedAsk({ id: "ask-open", parentTaskId: "mt#100", state: "detected" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.id).toBe("ask-open");
+  });
+
+  it("includes non-terminal states (detected, classified, routed, suspended, responded)", async () => {
+    const openStates = ["detected", "classified", "routed", "suspended", "responded"] as const;
+    for (const state of openStates) {
+      repo._seedAtState(makeSeedAsk({ id: `ask-${state}`, parentTaskId: "mt#100", state }));
+    }
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results).toHaveLength(openStates.length);
+  });
+
+  it("returns rows ordered by createdAt descending", async () => {
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "ask-old",
+        parentTaskId: "mt#100",
+        state: "detected",
+        createdAt: new Date(2025, 0, 1).toISOString(),
+      })
+    );
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "ask-new",
+        parentTaskId: "mt#100",
+        state: "routed",
+        createdAt: new Date(2025, 6, 1).toISOString(),
+      })
+    );
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "ask-mid",
+        parentTaskId: "mt#100",
+        state: "classified",
+        createdAt: new Date(2025, 3, 1).toISOString(),
+      })
+    );
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results.map((a) => a.id)).toEqual(["ask-new", "ask-mid", "ask-old"]);
+  });
+
+  it("returns rows for multiple tasks, all sorted in one stream", async () => {
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "task100-newer",
+        parentTaskId: "mt#100",
+        state: "detected",
+        createdAt: new Date(2025, 6, 1).toISOString(),
+      })
+    );
+    repo._seedAtState(
+      makeSeedAsk({
+        id: "task200-older",
+        parentTaskId: "mt#200",
+        state: "detected",
+        createdAt: new Date(2025, 0, 1).toISOString(),
+      })
+    );
+
+    const results = await repo.findOpenByTaskIds(["mt#100", "mt#200"]);
+    expect(results.map((a) => a.id)).toEqual(["task100-newer", "task200-older"]);
+  });
+
+  it("ignores Asks whose parentTaskId is not in the input set", async () => {
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+    await repo.create(makeInput({ parentTaskId: "mt#200" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#999"]);
+    expect(results).toHaveLength(0);
+  });
+
+  it("ignores Asks with no parentTaskId", async () => {
+    repo._seedAtState(makeSeedAsk({ id: "no-task", parentTaskId: undefined, state: "detected" }));
+    await repo.create(makeInput({ parentTaskId: "mt#100" }));
+
+    const results = await repo.findOpenByTaskIds(["mt#100"]);
+    expect(results).toHaveLength(1);
+    expect(results[0]?.parentTaskId).toBe("mt#100");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // respond convenience wrapper
 // ---------------------------------------------------------------------------
@@ -486,5 +598,71 @@ describe("state persistence across operations", () => {
     const fetched = await repo.getById(ask.id);
     expect(fetched?.state).toBe("closed");
     expect((fetched?.response?.payload as typeof payload)?.decision).toBe("approved");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// toAsk: documented defaults for legacy rows with NULL service-window fields
+// ---------------------------------------------------------------------------
+
+describe("toAsk — service-window NULL coalescing (B2, mt#1488 R3)", () => {
+  /**
+   * Build a minimal AskRecord with the given overrides.
+   *
+   * Simulates a legacy DB row where PostgreSQL ADD COLUMN DEFAULT did not
+   * backfill existing rows, so window_missed_count and force_immediate are NULL.
+   */
+  function makeLegacyRow(overrides: Partial<AskRecord> = {}): AskRecord {
+    return {
+      id: "00000000-0000-0000-0000-000000000001",
+      kind: "quality.review",
+      classifierVersion: "v1.0.0",
+      state: "detected",
+      requestor: TEST_REQUESTOR,
+      routingTarget: null,
+      parentTaskId: null,
+      parentSessionId: null,
+      title: "Legacy row",
+      question: "Does this work?",
+      options: null,
+      contextRefs: null,
+      response: null,
+      deadline: null,
+      createdAt: new Date("2024-01-01T00:00:00Z"),
+      routedAt: null,
+      suspendedAt: null,
+      respondedAt: null,
+      closedAt: null,
+      serviceStrategy: null,
+      windowKey: null,
+      windowMissedCount: null,
+      forceImmediate: null,
+      metadata: {},
+      ...overrides,
+    };
+  }
+
+  it("coalesces NULL window_missed_count to 0 (documented default)", () => {
+    const row = makeLegacyRow({ windowMissedCount: null });
+    const ask = toAsk(row);
+    expect(ask.windowMissedCount).toBe(0);
+  });
+
+  it("coalesces NULL force_immediate to false (documented default)", () => {
+    const row = makeLegacyRow({ forceImmediate: null });
+    const ask = toAsk(row);
+    expect(ask.forceImmediate).toBe(false);
+  });
+
+  it("preserves explicit windowMissedCount when set", () => {
+    const row = makeLegacyRow({ windowMissedCount: 3 });
+    const ask = toAsk(row);
+    expect(ask.windowMissedCount).toBe(3);
+  });
+
+  it("preserves explicit forceImmediate=true when set", () => {
+    const row = makeLegacyRow({ forceImmediate: true });
+    const ask = toAsk(row);
+    expect(ask.forceImmediate).toBe(true);
   });
 });

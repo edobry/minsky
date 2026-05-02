@@ -52,6 +52,11 @@ export async function sessionPrCreate(
   body?: string;
   url?: string;
   pullRequest?: PullRequestInfo;
+  /**
+   * Receipt of the IN-REVIEW status transition attempted post-PR-create.
+   * See `StatusTransitionReceipt` in `session-pr-operations.ts` (mt#1378).
+   */
+  statusTransition: import("../session-pr-operations").StatusTransitionReceipt;
 }> {
   const { sessionDB, persistenceProvider, askRepository, taskService } = deps;
 

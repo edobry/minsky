@@ -63,6 +63,10 @@ import { ConflictType, ConflictSeverity } from "./conflict-detection-types";
 export class FakeGitService implements GitServiceInterface {
   /** All commands passed to execInRepository, in order. */
   readonly recordedCommands: Array<{ workdir: string; command: string }> = [];
+  /** All calls to push(), in order. */
+  readonly pushedCalls: Array<PushOptions> = [];
+  /** All calls to popStash(), in order (repoPath values). */
+  readonly popStashCalls: Array<string> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
   /** Configurable command-pattern errors (first match wins; checked before responses). */
@@ -72,6 +76,12 @@ export class FakeGitService implements GitServiceInterface {
   private readonly sessionWorkdir: string;
   private readonly mockWorkdir: string;
   private branchExists: boolean;
+
+  /**
+   * When set, smartSessionUpdate() returns this result instead of the default
+   * happy-path response. Use this in tests to simulate conflict scenarios.
+   */
+  private smartSessionUpdateOverride: SmartUpdateResult | undefined;
 
   constructor(
     options: {
@@ -94,6 +104,8 @@ export class FakeGitService implements GitServiceInterface {
 
   resetCallCount(): void {
     this.recordedCommands.length = 0;
+    this.pushedCalls.length = 0;
+    this.popStashCalls.length = 0;
   }
 
   /** Configure a response for a specific command pattern. First match wins. */
@@ -111,6 +123,14 @@ export class FakeGitService implements GitServiceInterface {
 
   setBranchExists(value: boolean): void {
     this.branchExists = value;
+  }
+
+  /**
+   * Override the result returned by smartSessionUpdate().
+   * Useful for simulating merge-conflict scenarios in tests.
+   */
+  setSmartSessionUpdateResult(result: SmartUpdateResult): void {
+    this.smartSessionUpdateOverride = result;
   }
 
   async execInRepository(workdir: string, command: string): Promise<string> {
@@ -132,6 +152,20 @@ export class FakeGitService implements GitServiceInterface {
 
     // Default command-pattern responses (preserved from createMockGitService)
     if (command.includes("rev-list --left-right --count")) return "0\t0";
+    // Upstream resolution: @{u} throws by default (no upstream configured), causing
+    // the caller to fall back to the conventional origin/<branch> ref name.
+    if (command.includes("@{u}")) {
+      throw new Error("fatal: no upstream configured for branch");
+    }
+    // show-ref for remote tracking refs: default to success (ref exists) unless the
+    // command targets a pr/ branch (handled separately by branchExists flag).
+    if (command.includes("show-ref") && command.includes("refs/remotes/")) {
+      if (command.includes("pr/")) {
+        return this.branchExists ? "ref-exists" : "not-exists";
+      }
+      // For non-pr remote refs, return success (ref exists) so the rev-list check runs.
+      return "ref-exists";
+    }
     if (command.includes("show-ref") && command.includes("pr/")) {
       return this.branchExists ? "ref-exists" : "not-exists";
     }
@@ -178,11 +212,13 @@ export class FakeGitService implements GitServiceInterface {
     return { workdir: this.mockWorkdir, merged: true, conflicts: false };
   }
 
-  async push(_options: PushOptions): Promise<PushResult> {
+  async push(options: PushOptions): Promise<PushResult> {
+    this.pushedCalls.push(options);
     return { workdir: this.mockWorkdir, pushed: true };
   }
 
   async popStash(_repoPath: string): Promise<StashResult> {
+    this.popStashCalls.push(_repoPath);
     return { workdir: this.mockWorkdir, stashed: false };
   }
 
@@ -254,6 +290,9 @@ export class FakeGitService implements GitServiceInterface {
     _baseBranch: string,
     _options?: { skipIfAlreadyMerged?: boolean; autoResolveConflicts?: boolean }
   ): Promise<SmartUpdateResult> {
+    if (this.smartSessionUpdateOverride !== undefined) {
+      return this.smartSessionUpdateOverride;
+    }
     return { workdir: this.mockWorkdir, updated: true, skipped: false };
   }
 }

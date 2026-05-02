@@ -24,28 +24,60 @@ When `github.serviceAccount` is present in the Minsky configuration, `createToke
 
 ## 1. Create the GitHub App
 
-You can create and install the App either via the **automated script** (recommended) or through the GitHub UI. The script covers sections 1–3 (create App, generate key, install on repo, fetch installation ID) in a single browser-driven flow and saves all credentials to `~/.config/minsky/` with correct permissions.
+You can create and install the App either via the **`minsky setup github-app` CLI subcommand** (recommended), the equivalent **`bun scripts/create-github-app.ts` script** (for fresh checkouts before the CLI is installed), or through the GitHub UI as a manual fallback. The CLI/script covers sections 1–3 (create App, generate key, install on repo, fetch installation ID) in a single browser-driven flow and saves all credentials to `~/.config/minsky/` with correct permissions.
 
-### Automated: `scripts/create-github-app.ts`
+### Recommended: `minsky setup github-app`
 
-Run the script with the App name, target repo, and optional permission/event overrides. It starts a local HTTP server, opens your browser to GitHub's "Create App from manifest" page with the manifest pre-filled, captures the redirect, exchanges the code for credentials, and saves them.
+Run the subcommand with the App name and target repo. Minsky renders the manifest, spins up a local callback listener, opens your browser to GitHub's "Create App from manifest" page, captures the redirect, exchanges the code for credentials, and writes them to `~/.config/minsky/<name>.{pem,json}`. A manifest preview is shown before submission so you can confirm exactly what will be created.
 
 Canonical invocations:
 
 ```bash
 # Implementer App (code author, PR creator; no webhook needed):
-bun scripts/create-github-app.ts \
+minsky setup github-app \
   --name minsky-ai \
   --repo <your-owner>/<your-repo> \
   --inactive
 
 # Reviewer App (Chinese-wall adversarial reviewer, mt#1073; webhook-driven):
-bun scripts/create-github-app.ts \
+minsky setup github-app \
   --name minsky-reviewer \
   --repo <your-owner>/<your-repo> \
   --permissions pull_requests:write,contents:read,metadata:read \
   --events pull_request \
   --webhook-url https://minsky-reviewer.example.com/webhook
+
+# Guided wizard fallback (GitHub Enterprise instances, restricted SSO orgs,
+# air-gapped setups — anywhere the manifest flow does not apply):
+minsky setup github-app \
+  --name minsky-reviewer \
+  --repo <your-owner>/<your-repo> \
+  --via wizard
+```
+
+The wizard variant walks you through the manual portal steps interactively, prompts for the App ID / installation ID / PEM contents, and validates the pasted credentials against the GitHub API before saving.
+
+#### Two-phase manifest flow (App created, install pending)
+
+If GitHub creates the App but you haven't yet installed it on the target repo when the redirect fires, the local server stays running and serves a `/check-install` endpoint. The browser shows an **Install App** link and the URL to revisit:
+
+1. Click **Install App** and complete installation in the GitHub UI.
+2. Return to your terminal's localhost tab and visit `http://localhost:<port>/check-install`. The provisioner re-queries `/app/installations`, captures the installation ID, and writes credentials to `~/.config/minsky/<name>.{pem,json}`.
+
+If you close the browser without finishing the install or miss the 5-minute deadline, the App will exist on GitHub but no local credentials will be saved. To recover:
+
+- **Same App name**: re-running `minsky setup github-app --name <name> --force` will start a fresh manifest flow. GitHub may reject creating a second App with the exact same name; if so, choose a different `--name` or delete the orphaned App in your GitHub developer settings first.
+- **Different name**: re-run with a new `--name` value to provision a fresh App.
+
+### Alternative: `bun scripts/create-github-app.ts`
+
+Equivalent flag surface; useful before the CLI is installed:
+
+```bash
+bun scripts/create-github-app.ts \
+  --name minsky-ai \
+  --repo <your-owner>/<your-repo> \
+  --inactive
 ```
 
 The script writes:
@@ -61,8 +93,11 @@ Flags:
 - `--events <e1,e2,...>` — optional. Default: none.
 - `--webhook-url <url>` — optional. Prefills `hook_attributes.url` in the App manifest. Use this for webhook-driven Apps (reviewer, automation services). Without it, a placeholder URL is submitted (GitHub requires the field).
 - `--inactive` — optional. Creates the App with `hook_attributes.active=false`. Default: active. Use this for Apps that don't need webhooks (the `minsky-ai` implementer App). Note that GitHub's REST API has no endpoint to toggle `active` later, so choose correctly up front — the only remediation is a manual toggle in the App settings UI.
-- `--port <n>` — optional. Default: `9847`.
+- `--port <n>` — optional. TCP port for the local manifest-flow callback. Must be 1-65535; port 0 is rejected because GitHub embeds the redirect URL in the manifest before the server binds. Default: `9847`.
+- `--force` — optional. Re-provision even if credentials already exist for `<name>`. Without `--force`, the orchestrator short-circuits and prints the existing credentials.
 - `--help` / `-h` — print usage.
+
+The same flags are accepted by `minsky setup github-app`, plus `--via {manifest|wizard}`, `--apiBaseUrl <url>`, and `--webBaseUrl <url>` (for GitHub Enterprise hosts when `--via wizard`).
 
 After the script exits, skip to §4 (configure Minsky). Sections 2 and 3 are automated; section 1 steps below are only needed if you prefer the UI path.
 

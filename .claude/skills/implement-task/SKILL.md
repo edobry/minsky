@@ -29,6 +29,19 @@ Optional: task ID (e.g., `/implement-task mt#123`). If omitted, uses the current
 
 ## Process
 
+Step 0: Entry gate: check task status
+Step 0a: Late parallel-work spot-check
+Step 1: Retrieve relevant memory context
+Step 2: Read and verify the task spec
+Step 3: Start a session (READY → IN-PROGRESS)
+Step 4: Understand architectural context
+Step 5: Plan the implementation
+Step 6: Develop
+Step 7: Verify implementation
+Step 7a: Ship verification artifact for structural changes (when in scope)
+Step 8: Create PR (IN-PROGRESS → IN-REVIEW)
+Step 9: Hand off to verify
+
 ### 0. Entry gate: check task status
 
 **This is the first and mandatory mechanical step.** Call `mcp__minsky__tasks_status_get` with the task ID.
@@ -131,6 +144,75 @@ Before declaring complete:
 - If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
 
+#### Convergence checklist (mandatory before §8)
+
+Before invoking step §8 (Create PR), walk through this checklist; if any check fails, fix the gap before creating the PR.
+
+**Preventive phase (before first PR creation):**
+
+1. **Trust-boundary defensive coverage.** Every site where external input enters the system needs a runtime guard or wrapper. Grep for each category below and confirm each hit has a `try/catch` wrapper, a `safe*` helper, or a runtime type guard (Zod, manual `typeof`, etc.) on the result:
+
+   - File I/O: `fs.readFile`, `fs.readdir`, `fs.stat`, `fs.writeFile`, `glob`, `fs.mkdir`
+   - Network: `fetch`, HTTP calls, RPC clients, MCP calls
+   - Database: every query (connection loss, schema mismatch, constraint violation)
+   - Subprocess: `exec`, `spawn`, `child_process.*`
+   - Deserialization: `JSON.parse`, type casts (`as Foo`) on parsed data, parsing user input
+   - Configuration: `process.env.X`, config-file reads
+   - Request bodies, webhook payloads, anything from the network boundary
+
+2. **Portable defaults.** No defaults bind to a specific user, machine, or host. No `homedir()`-derived absolutes baked into defaults; no user-specific paths embedded as constants. Mental model: "would this work on a fresh machine for a new user?"
+
+**Reactive phase (when iterating on reviewer findings):**
+
+3. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+
+4. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+
+Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds). See `feedback_cascade_defense_in_implementer_prompt.md` for the pattern history.
+
+### 7a. Ship verification artifact for structural changes (when in scope)
+
+**Decision rule — is this change structural?**
+
+A change is structural if its correctness depends on live external behavior that no unit test can fully verify. Examples:
+
+- New persistence backend path (new DB provider, new table layout, schema migration semantics)
+- New model-output channel (output tools, structured-output schema, new tool call format)
+- New external-system probe (health check against a live API, feature-flag read from a hosted store)
+- New deploy-target wiring (Railway service, container start-up, environment variable resolution)
+- Schema migration with semantic changes (not additive-only column adds)
+
+Counter-examples (NOT structural — no artifact needed):
+
+- Pure-function changes with full behavioral test coverage
+- Refactors that preserve API surface verified by existing tests
+- Adding or updating tests
+- Docs-only or config-only changes
+- Single-file logic fixes where no external system is involved
+
+**Requirement when structural.** The PR must also ship a verification artifact alongside the code change:
+
+- A smoke script, replay script, e2e probe, or equivalent
+- Place under `services/<service>/scripts/` or repo-wide `scripts/` if there is no service subdirectory
+- The artifact must:
+  - Be runnable from the command line (`bun scripts/smoke-<feature>.ts`, `./scripts/verify-<feature>.sh`, etc.)
+  - Gate on required env vars (`OPENAI_API_KEY`, `GITHUB_TOKEN`, `DATABASE_URL`, etc.) — skip gracefully (exit 0 with a clear "SKIP: env var not set" message) when env is absent
+  - Emit pass/fail with exit code (0 = pass, non-zero = fail)
+  - Produce structured output: stdout JSON or a results file at e.g. `scripts/<purpose>-results.json`
+
+**Live-verification gap pattern.** Subagents typically lack the env vars needed for live execution. The documented pattern is:
+
+1. Subagent ships the artifact in the PR (code + script, but no live output).
+2. Main agent (or human operator) runs the live verification after the PR is created, using env vars present in the main context.
+3. The live-run output (redacted) is appended to the PR body under a "## Live verification" section.
+
+This pattern was established by mt#1399 (smoke test for output-tools wiring — verified GPT-5 emits tool calls live) and mt#1403 (replay-verification script for cluster verification — verified 0/15 posted-body fires across the original leak corpus). Reference both when describing the verification gap to a reviewer.
+
+**What goes in the PR body.** The PR description's "## Live verification" section must contain either:
+
+- The redacted live-run output from running the artifact, OR
+- A documented override: the artifact has not been run because (a) the target has not been deployed yet, (b) the author lacks live-target access per documented policy, or (c) the target has a rate-limit or maintenance-window constraint. "I read the code carefully" is not a valid override.
+
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 
 **This step owns the IN-PROGRESS → IN-REVIEW transition.**
@@ -160,6 +242,7 @@ These constraints apply throughout implementation:
 - **Never manually set DONE.** Task status flows: TODO → IN-PROGRESS → IN-REVIEW → DONE. DONE is only set after PR merge, never manually from a session.
 - **No work without a session.** Implementation work requires an active session for isolation and traceability.
 - **Never bypass the entry gate.** Calling `session_start` on a TODO or PLANNING task skips the planning phase and produces unplanned implementation work.
+- **Structural changes require a verification artifact.** A fix whose correctness depends on live external behavior (new persistence path, new model-output channel, new external-system probe, new deploy-target wiring, schema migration) must ship alongside a smoke / replay / probe script under `services/<service>/scripts/` or `scripts/`. Subagents ship the artifact; live verification runs from main-agent context where env vars are present.
 
 ## Key principles
 
@@ -167,3 +250,11 @@ These constraints apply throughout implementation:
 - **The entry gate protects quality.** A task that isn't READY has not been planned. Don't implement unplanned work.
 - **Commit incrementally.** Don't save everything for one final commit.
 - **Document findings in the spec.** Update the task spec with progress, decisions, and verification outcomes — never create separate summary files.
+
+## Regression examples
+
+**mt#1399 — output-tools wiring (smoke test pattern).** The PR wired GPT-5's output-tools channel. Correctness required live verification that the model emits tool calls in the new format. A smoke script was shipped in the same PR; the main agent ran it post-creation and appended the redacted output to the PR body. No unit test could have caught a misconfigured tool-call schema.
+
+**mt#1403 — cluster verification (replay script pattern).** The PR shipped a content-routing cluster. Correctness required verifying that 0 of 15 items from the original posting-body leak corpus fired through the cluster. A replay-verification script was shipped in the same PR; the main agent ran it against the live corpus and appended a structured JSON results file to the PR body. No unit test covers the full corpus distribution.
+
+Both are the canonical instances of the live-verification gap pattern: subagent ships the artifact, main agent runs it.

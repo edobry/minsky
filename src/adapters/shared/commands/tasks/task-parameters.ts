@@ -105,6 +105,12 @@ export const taskFilterParams = {
     description: "Show dependency status (READY/BLOCKED) for each task",
     required: false,
   },
+  showAttention: {
+    schema: z.boolean().default(false),
+    description:
+      "Include per-task attention cost rollup in the output (ADR-008 §Attention accounting)",
+    required: false,
+  },
 };
 
 /**

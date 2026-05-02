@@ -249,6 +249,43 @@ Full gap analysis: [Notion: Architecture map](https://www.notion.so/33a937f03cb4
 
 ---
 
+## Companion Principles
+
+Three cross-cutting principles govern how Minsky agents behave within the architecture above. They
+are not implementation features — they are posture commitments that shape every design decision.
+ADR-008 (Attention-Allocation Subsystem) names and consumes all three. The full position essay
+lives in Notion (`34a937f0-3cb4-814b-adba-f2e5cee38c08`).
+
+### Attention as the scarce resource
+
+Minsky is, at its core, an attention-allocation system. Every human-in-the-loop mechanism —
+`BLOCKED` states, PR approval gates, the 2-strikes escalation rule, the Agent Inbox, mesh
+notifications — is routing a decision to the cheapest resolver available. The operator is the most
+expensive resource and therefore the one to conserve. HITL mechanisms are not interruptions to be
+minimized; they are routing decisions to be optimized. The right question is never "should we ask
+a human?" but "what is the cheapest resolver that can answer this correctly?"
+
+### Humility as a design property
+
+A Minsky agent knows its boundary of delegation and represents it structurally, rather than
+collapsing uncertainty into confident action. Preference-bound decisions — naming, framework
+choice, tradeoff resolution, scope change, architectural novelty — are not the agent's to make
+alone; the system escalates them by construction rather than resolving them under its own
+authority. VSM placement: System 5 is the delegate of the principal, not the principal itself.
+The operational corollary in `CLAUDE.md §Design Principle: Humility` is an instance of this
+principle, not a separate rule.
+
+### Noticing as a structural property
+
+Agents cannot reliably introspect "I should ask here" — Sonnet-class loss rewards confident
+answers. Noticing — detecting that a decision belongs to a higher authority — must be built one
+recursion level above the agent's own execution loop, not inside it. VSM placement: System 3*
+(the audit/probe channel). This is why the System 3* detector (mt#1035) is a sibling to the Ask
+subsystem rather than a feature of the agent itself: the agent cannot be trusted to notice its
+own blind spots.
+
+---
+
 ## Further Reading
 
 - [`docs/architecture.md`](architecture.md) — implementation architecture: command registry,

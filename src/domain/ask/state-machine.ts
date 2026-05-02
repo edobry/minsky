@@ -9,6 +9,10 @@
  * Lifecycle (in order):
  *   detected → classified → routed → suspended → responded → closed
  *
+ * Window-deferred lifecycle (mt#1490):
+ *   classified → suspended (router Phase 3 sets suspended directly for window-deferred Asks)
+ *   suspended  → routed    (reaper wakes up the Ask when the window opens)
+ *
  * Terminal states (closed, cancelled, expired) can only be reached from
  * specific non-terminal states; once terminal, no further transitions are
  * allowed.
@@ -19,11 +23,49 @@
 import type { AskState } from "./types";
 import { assertNever } from "./types";
 
+// ---------------------------------------------------------------------------
+// AskState universe — single source of truth
+// ---------------------------------------------------------------------------
+
+/**
+ * Runtime-exhaustive index of all AskState values.
+ *
+ * The `Record<AskState, true>` shape forces TypeScript to require every
+ * union member as a key — if a new AskState is added to the union, this
+ * object fails to type-check unless updated. `Object.keys` then yields the
+ * full set at runtime, used wherever an exhaustive runtime list is needed
+ * (`ALL_ASK_STATES`, `TERMINAL_ASK_STATES`, `buildValidTransitions`).
+ *
+ * This is the canonical AskState enumeration for the module — there is no
+ * second hand-maintained list. Per PR #930 R3 BLOCKING fix: previously
+ * `buildValidTransitions` had its own local `states` array that could
+ * silently drift from the union; that array is now derived from
+ * `ALL_ASK_STATES` so the Record-type guard above is the only place to
+ * update when the union grows.
+ */
+const ALL_ASK_STATES_INDEX: Record<AskState, true> = {
+  detected: true,
+  classified: true,
+  routed: true,
+  suspended: true,
+  responded: true,
+  closed: true,
+  cancelled: true,
+  expired: true,
+};
+
+/** Runtime-exhaustive list of all AskState values. */
+export const ALL_ASK_STATES: readonly AskState[] = Object.keys(ALL_ASK_STATES_INDEX) as AskState[];
+
 /**
  * Valid state transitions as a map from `from` → set of allowed `to` states.
  *
  * Each case in the switch below must be exhaustive over AskState so that
  * adding a new state triggers a compile error at the `assertNever` call.
+ * The iteration source is `ALL_ASK_STATES` (the canonical union enumeration
+ * derived from `ALL_ASK_STATES_INDEX`), so adding a new union member is
+ * caught at compile time by the Record guard above and at runtime by the
+ * exhaustive switch below.
  */
 function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
   const map = new Map<AskState, ReadonlySet<AskState>>();
@@ -33,19 +75,7 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
     map.set(from, new Set(to));
   }
 
-  // Exhaustive switch forces a compile error when a new AskState is added.
-  const states: AskState[] = [
-    "detected",
-    "classified",
-    "routed",
-    "suspended",
-    "responded",
-    "closed",
-    "cancelled",
-    "expired",
-  ];
-
-  for (const state of states) {
+  for (const state of ALL_ASK_STATES) {
     switch (state) {
       case "detected":
         // Classifier runs → classified; or operator/policy short-circuits to cancelled/expired.
@@ -53,7 +83,8 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
         break;
       case "classified":
         // Router picks a target → routed; or short-circuit close paths.
-        allow(state, "routed", "cancelled", "expired");
+        // Also → suspended directly for window-deferred Asks (mt#1490 Phase 3).
+        allow(state, "routed", "suspended", "cancelled", "expired");
         break;
       case "routed":
         // Transport dispatched → suspended (waiting for response).
@@ -61,7 +92,8 @@ function buildValidTransitions(): ReadonlyMap<AskState, ReadonlySet<AskState>> {
         break;
       case "suspended":
         // Response received → responded; or deadline/cancel.
-        allow(state, "responded", "cancelled", "expired");
+        // Also → routed when the reaper wakes up a window-deferred Ask (mt#1490).
+        allow(state, "routed", "responded", "cancelled", "expired");
         break;
       case "responded":
         // Post-response validation/side-effects complete → closed.
@@ -117,6 +149,10 @@ export function guardTransition(from: AskState, to: AskState): AskState {
  * Returns true iff `state` is a terminal AskState (no further transitions
  * are ever allowed).
  *
+ * **Single source of truth** for terminal-vs-open classification. The
+ * `TERMINAL_ASK_STATES` array below is derived from this predicate at module
+ * load — there is no second list to keep in sync.
+ *
  * Throws (via `assertNever`) if `state` is not a known AskState, so callers
  * are forced to handle exhaustiveness at compile time.
  */
@@ -136,6 +172,16 @@ export function isTerminal(state: AskState): boolean {
       return assertNever(state);
   }
 }
+
+/**
+ * Canonical list of terminal Ask states (no further transitions allowed).
+ *
+ * Derived at module load by filtering `ALL_ASK_STATES` through `isTerminal`,
+ * so there is exactly one source of truth (the `isTerminal` switch). Use
+ * this array when a SQL `NOT IN (...)` clause requires a literal list; use
+ * `isTerminal(state)` for predicate checks.
+ */
+export const TERMINAL_ASK_STATES: readonly AskState[] = ALL_ASK_STATES.filter(isTerminal);
 
 /**
  * Thrown when an Ask transition is attempted that is not in the valid

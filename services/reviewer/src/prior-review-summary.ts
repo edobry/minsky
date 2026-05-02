@@ -146,11 +146,24 @@ export function extractFindings(body: string): string {
   const findingsHeaderMatch = body.match(/###\s+Findings\b/i);
   if (findingsHeaderMatch && findingsHeaderMatch.index !== undefined) {
     const afterHeader = body.slice(findingsHeaderMatch.index);
-    // Take until the next ### header (or end of string)
-    const nextHeader = afterHeader.slice(afterHeader.indexOf("\n") + 1).search(/^###\s/m);
+    // PR #921 R7 catch: pre-fix this had a silent-data-loss bug when the
+    // `### Findings` line was the last line of the body without a trailing
+    // newline. afterHeader.indexOf("\n") returns -1, +1 yields 0, the
+    // search starts at offset 0 and matches the same `### Findings` header
+    // (nextHeader becomes 0), then slice(0, 0).trim() returns "". Fix:
+    // explicitly handle the no-newline case by returning the full
+    // afterHeader (header to EOF).
+    const headerNewlineIdx = afterHeader.indexOf("\n");
+    if (headerNewlineIdx === -1) {
+      // Header is on the last line with no trailing newline → no body to
+      // extract beyond the header itself. Return the whole afterHeader
+      // (which is just the header line at this point).
+      return afterHeader.trim();
+    }
+    // Search for the next ### header strictly AFTER the header line.
+    const nextHeader = afterHeader.slice(headerNewlineIdx + 1).search(/^###\s/m);
     if (nextHeader >= 0) {
-      // +1 for the newline after the header line
-      const headerLineLen = afterHeader.indexOf("\n") + 1;
+      const headerLineLen = headerNewlineIdx + 1;
       return afterHeader.slice(0, headerLineLen + nextHeader).trim();
     }
     return afterHeader.trim();
@@ -167,7 +180,25 @@ export function extractFindings(body: string): string {
   let inFinding = false;
 
   for (const line of lines) {
-    if (/\*\*\[(BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*/i.test(line)) {
+    // Anchor severity markers to the start of the line (with optional
+    // whitespace and bullet/list prefix). Real production review bodies
+    // place findings at the start of a list item; mid-line mentions in
+    // narrative prose ("the string [BLOCKING] appears in docs") must NOT
+    // trigger inFinding (which would over-capture the body to EOF).
+    //
+    // PR #921 R3 refinements:
+    //   - Bullet class broadened to `[-+*•]` plus numeric-ordered lists
+    //     (e.g., `1.`, `12.`) for parity with GitHub Markdown.
+    //   - Switched bare-branch boundary from consuming `(?:[^*]|$)` to
+    //     non-consuming negative lookahead `(?!\*)`. Lookahead is broadly
+    //     supported (ES5+), unlike lookbehind, so portability is preserved
+    //     while the regex no longer eats the next character. This avoids
+    //     subtle slicing bugs if the regex is later used for capture.
+    if (
+      /^\s*(?:(?:\d+\.|[-+*•])\s+)?(?:\*\*\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\]\*\*|\[(?:BLOCKING|NON-BLOCKING|PRE-EXISTING)\](?!\*))/i.test(
+        line
+      )
+    ) {
       inFinding = true;
     }
     if (inFinding) {
@@ -193,7 +224,27 @@ export function extractFindings(body: string): string {
  * Extraction failure returns 0, matching the non-fatal stance in review-worker.
  */
 export function countBlockingFindings(body: string): number {
-  const matches = body.match(/\*\*\[BLOCKING\]\*\*/gi);
+  // Pattern (must stay in sync with extractFindings strategy 2 above):
+  //   - Anchored to start-of-line (multiline g flag) with optional
+  //     whitespace and optional bullet/list prefix:
+  //       * `1.` `2.` ... (numeric ordered list)
+  //       * `-` `+` `*` `•` (unordered list bullets)
+  //   - Either balanced bold `**[BLOCKING]**` OR bare `[BLOCKING]` followed
+  //     by non-consuming negative lookahead `(?!\*)`. Lookahead-only
+  //     (no lookbehind) for broad ES5+ engine compatibility.
+  //
+  // Iteration history (consolidated per PR #921 R6 cleanup):
+  //   - mt#1486: widened from `**[BLOCKING]**`-only to also accept bare
+  //     `[BLOCKING]`, matching production reviewer-bot format.
+  //   - PR #921 R1: added balance enforcement (reject one-sided wrappers).
+  //   - PR #921 R2: switched from negative lookbehind to start-of-line
+  //     anchor (broader engine support; eliminates over-permissive
+  //     mid-line matching).
+  //   - PR #921 R3: broadened bullet class to include ordered lists and
+  //     `+`; switched bare-branch boundary to non-consuming lookahead.
+  const matches = body.match(
+    /^\s*(?:(?:\d+\.|[-+*•])\s+)?(?:\*\*\[BLOCKING\]\*\*|\[BLOCKING\](?!\*))/gim
+  );
   return matches?.length ?? 0;
 }
 
@@ -238,8 +289,22 @@ export function countAcknowledgedFindings(body: string): number {
   return count;
 }
 
-/** Max total characters the rendered markdown summary may occupy. */
-const MAX_SUMMARY_CHARS = 3000;
+/**
+ * Max total characters the rendered markdown summary may occupy.
+ *
+ * Sized for ~10 round PRs at ~2.5K chars/iteration without truncation. The
+ * original budget was 3000 chars (mt#1189), but the mt#1429 diagnostic showed
+ * that long-iteration PRs (5+ rounds, e.g. PR #732) routinely exceeded it,
+ * dropping the oldest iterations and leaving the model without the original
+ * NON-BLOCKING classifications that the severity-monotonicity rule
+ * (prompt.ts Principle 8) is meant to anchor against. gpt-5's 400K-token
+ * context makes 30K chars (~7.5K tokens, ~2% of context) a trivial fraction
+ * of the prompt budget — far cheaper than the substrate it preserves.
+ *
+ * The cap is still useful as a runaway guard for pathological cases (100+
+ * iterations) but should not bite on normal PR review cycles.
+ */
+const MAX_SUMMARY_CHARS = 30000;
 
 /**
  * Summarize a list of prior bot reviews for prompt injection.

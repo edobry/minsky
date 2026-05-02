@@ -26,6 +26,7 @@ const IN_REPO_CARVE_OUT_PHRASE = "This rule does NOT apply to in-repo paths";
 const SCOPE_CALIBRATION_HEADING = "## Scope-aware calibration";
 const RESERVE_BLOCKING = "reserve BLOCKING severity";
 const DIFF_VS_DESC_EXCEPTION = "Exception — diff-vs-description mismatch on in-repo paths";
+const INTERNAL_SCRATCH = "internal scratch";
 
 describe("buildCriticConstitution", () => {
   test("includes the Tool access section when toolsAvailable=true", () => {
@@ -444,6 +445,70 @@ describe("no-tools in-repo diff-vs-description exception clause", () => {
     // list_directory), so the diff-vs-description exception is specific to
     // the no-tools path (inside buildInRepoCarveOut(false)).
     expect(withTools).not.toContain("Exception — diff-vs-description mismatch on in-repo paths");
+  });
+});
+
+describe("buildCriticConstitution — output tools mode (mt#1401)", () => {
+  test("outputToolsActive=true includes tool-emission directive and submit_finding", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("submit_finding");
+    expect(prompt).toContain("Emit your review via structured tool calls only");
+    expect(prompt).toContain(INTERNAL_SCRATCH);
+  });
+
+  test("outputToolsActive=true includes all four output tools", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("submit_finding");
+    expect(prompt).toContain("submit_inline_comment");
+    expect(prompt).toContain("submit_spec_verification");
+    expect(prompt).toContain("conclude_review");
+  });
+
+  test("outputToolsActive=true output-tools prompt includes tightened conclude_review directive (mt#1413)", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    // The tightened language must be present: review is INCOMPLETE without conclude_review
+    expect(prompt).toContain("INCOMPLETE without");
+    // The FINAL tool call language must be present
+    expect(prompt).toContain("FINAL tool call MUST be");
+    // The consequence of failure must be stated
+    expect(prompt).toContain("will default to COMMENT regardless of your findings");
+  });
+
+  test("outputToolsActive=false (prose mode) does NOT include the tightened conclude_review directive", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    // The prose format does not use the tightened tool-emission language
+    expect(prompt).not.toContain("INCOMPLETE without");
+    expect(prompt).not.toContain("FINAL tool call MUST be");
+  });
+
+  test("outputToolsActive=false (default) preserves prose output format — no submit_finding, no internal scratch", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    expect(prompt).not.toContain("submit_finding");
+    expect(prompt).not.toContain(INTERNAL_SCRATCH);
+    // The prose format includes the Findings list heading.
+    expect(prompt).toContain("Findings list");
+  });
+
+  test("outputToolsActive=false default matches explicit false", () => {
+    // The default value must be false; calling with 2 args equals calling with false.
+    expect(buildCriticConstitution(true, "normal")).toBe(
+      buildCriticConstitution(true, "normal", false)
+    );
+  });
+
+  test("outputToolsActive=true but toolsAvailable=false falls back to prose (no tool channel)", () => {
+    // Without tools wired, the output-tools format is not effective — free-text
+    // is the only output channel, so prose instructions must be used.
+    const prompt = buildCriticConstitution(false, "normal", true);
+    expect(prompt).not.toContain("submit_finding");
+    expect(prompt).not.toContain(INTERNAL_SCRATCH);
+    expect(prompt).toContain("Findings list");
+  });
+
+  test("legacy CRITIC_CONSTITUTION export still matches buildCriticConstitution(true) with default params", () => {
+    // Backward-compatibility shim: the two-arg default must equal the zero-extra-arg legacy.
+    expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true));
+    expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true, "normal", false));
   });
 });
 

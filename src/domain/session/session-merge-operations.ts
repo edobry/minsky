@@ -41,6 +41,11 @@ import { createCompletionService } from "../ai/service-factory";
 import { createTokenProvider } from "../auth";
 import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
+import { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
+import type { AskRepository } from "../ask/repository";
+
+// Re-export for backward compatibility with any consumers importing from this module.
+export { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -95,6 +100,26 @@ export interface SessionMergeParams {
   repo?: string;
   json?: boolean;
   cleanupSession?: boolean; // Session cleanup after merge (default: true)
+  /**
+   * Operator-override waiver: when true, allows merge for self-authored bot PRs
+   * blocked only by the same-App-identity self-approval rule when
+   * minsky-reviewer[bot] has not fired (webhook-miss class).
+   *
+   * Only used by session.pr.merge -- has no effect in other contexts.
+   *
+   * Conditions that must ALL hold for the waiver to apply:
+   *   - PR author is minsky-ai[bot] (waiver does not apply to human-authored PRs).
+   *   - No CHANGES_REQUESTED review exists on the PR (DISMISSED reviews are excluded).
+   *   - At least one COMMENTED review from the SAME identity as the PR author exists.
+   *   - No review from minsky-reviewer[bot] exists.
+   *   - No other merge blockers are active (PR is not a draft, no merge conflicts, PR is open).
+   *     Checked via approvalStatus.hasNonApprovalMergeBlockers rather than canMerge because
+   *     canMerge is always false when isApproved=false, making it useless in this path.
+   *
+   * Default: false (safety check is enforced by default; waiver requires explicit opt-in).
+   * An audit log entry at INFO level is emitted when the waiver is used.
+   */
+  acceptStaleReviewerSilence?: boolean;
 }
 
 /**
@@ -123,7 +148,22 @@ export interface SessionMergeDependencies {
   gitService?: GitServiceInterface;
   createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<RepositoryBackend>;
   persistenceProvider?: PersistenceProvider;
+  /** Optional — when provided, a quality.review Ask row is emitted before each merge attempt. */
+  askRepository?: AskRepository;
 }
+
+// ---------------------------------------------------------------------------
+// Ask emission constants (mt#1475)
+// ---------------------------------------------------------------------------
+
+/** AskKind for pre-merge review requests. */
+const QUALITY_REVIEW_KIND = "quality.review" as const;
+
+/** Initial Ask state — router has not yet run. */
+const ASK_INITIAL_STATE = "detected" as const;
+
+/** Classifier version tag for the session_pr_merge emission. */
+const MERGE_CLASSIFIER_VERSION = "v1.0.0";
 
 /**
  * Merge a session's approved pull request (Task #358)
@@ -253,21 +293,151 @@ export async function mergeSessionPr(
         log.cli(`• Branch protection: ${branchProtection}`);
       }
 
+      // Track whether the waiver path was taken (used for B1: correct success message)
+      let waiverApplied = false;
+
       if (!approvalStatus.isApproved) {
-        // Concise, actionable guidance without noisy transport logs
-        throw new ValidationError(
-          `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.` +
-            `\n\n` +
-            `💡 Next steps:` +
-            `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
-            `\n   2. Request required reviews` +
-            `\n   3. Address any changes requested` +
-            `\n   4. Re-run merge when approvals are sufficient`
+        // Check whether the operator-override waiver applies before blocking.
+        // Waiver conditions (ALL must hold):
+        //   1. acceptStaleReviewerSilence flag explicitly set to true.
+        //   2. PR author is the configured bot identity (minsky-ai[bot]).
+        //   3. No CHANGES_REQUESTED review (substantive findings unaddressed).
+        //   4. No minsky-reviewer[bot] review (webhook-miss class).
+        //   5. At least one COMMENTED review from the SAME identity as the PR author.
+        const rawReviews = approvalStatus.rawReviews ?? [];
+        const prAuthor = sessionRecord.pullRequest.github?.author ?? "";
+        const isPrAuthorBot = prAuthor.toLowerCase() === BOT_IDENTITY_LOGIN.toLowerCase();
+        // Exclude DISMISSED reviews from CHANGES_REQUESTED check (stale reviews that no longer block)
+        const hasChangesRequested = rawReviews
+          .filter((r) => r.state !== "DISMISSED")
+          .some((r) => r.state === "CHANGES_REQUESTED");
+        const hasReviewerBotReview = rawReviews.some(
+          (r) => r.reviewerLogin.toLowerCase() === REVIEWER_BOT_LOGIN.toLowerCase()
         );
+        // Waiver requires COMMENTED review from the SAME identity as the PR author.
+        // Normalize both sides to lowercase: GitHub logins are case-insensitive.
+        const prAuthorLower = prAuthor.toLowerCase();
+        const hasCommentedReview = rawReviews.some(
+          (r) => r.state === "COMMENTED" && r.reviewerLogin.toLowerCase() === prAuthorLower
+        );
+
+        const waiverEligible =
+          params.acceptStaleReviewerSilence === true &&
+          isPrAuthorBot &&
+          !hasChangesRequested &&
+          !hasReviewerBotReview &&
+          hasCommentedReview;
+
+        if (waiverEligible) {
+          // Waiver only addresses the reviewer-bot-silence blocker, not other merge blockers.
+          // Use hasNonApprovalMergeBlockers rather than canMerge: canMerge is always false
+          // when isApproved=false (it includes isApproved in its computation), making it
+          // permanently unreachable here. hasNonApprovalMergeBlockers is computed independently
+          // of approval state and accurately reflects draft/conflict/closed blockers (B1).
+          if (approvalStatus.hasNonApprovalMergeBlockers) {
+            const blockerDesc =
+              approvalStatus.nonApprovalBlockerDescription ?? approvalStatus.prState ?? "unknown";
+            throw new ValidationError(
+              `❌ GitHub PR #${sessionRecord.pullRequest.number} cannot be merged.\n` +
+                `   The acceptStaleReviewerSilence waiver addresses reviewer-bot silence only.\n` +
+                `   Another merge blocker is active (${blockerDesc}).\n` +
+                `   Resolve the underlying blocker (e.g., draft state, merge conflicts, failing checks) before retrying.\n\n` +
+                `💡 Next steps:` +
+                `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+                `\n   2. Address the blocker` +
+                `\n   3. Re-run merge when the PR is mergeable`
+            );
+          }
+
+          // Identify which identities are involved for audit record
+          const commentReviewers = rawReviews
+            .filter((r) => r.state === "COMMENTED")
+            .map((r) => r.reviewerLogin)
+            .join(", ");
+          const prNumber = sessionRecord.pullRequest.number;
+
+          log.info(
+            `WAIVER: acceptStaleReviewerSilence applied for PR #${prNumber}. ` +
+              `PR author identity: ${sessionRecord.pullRequest.github?.author ?? "unknown"}. ` +
+              `COMMENT reviewer(s): ${commentReviewers}. ` +
+              `${REVIEWER_BOT_LOGIN} review absent (webhook-miss class). ` +
+              `Proceeding with merge under operator-override waiver.`
+          );
+          if (!params.json) {
+            log.cli(
+              `⚠️  Operator-override waiver applied: ${REVIEWER_BOT_LOGIN} review absent. ` +
+                `Merging under acceptStaleReviewerSilence. See audit log for details.`
+            );
+          }
+          waiverApplied = true;
+          // Fall through to merge -- do not throw
+        } else if (params.acceptStaleReviewerSilence === true && !waiverEligible) {
+          // Flag was set but waiver conditions don't hold -- give a clear reason
+          const reasons: string[] = [];
+          if (!isPrAuthorBot) {
+            reasons.push(
+              `PR author is "${prAuthor}", not minsky-ai[bot] (waiver only applies to self-authored bot PRs)`
+            );
+          }
+          if (hasChangesRequested) {
+            reasons.push(
+              "CHANGES_REQUESTED review exists (substantive findings must be addressed)"
+            );
+          }
+          if (hasReviewerBotReview) {
+            reasons.push(
+              `${REVIEWER_BOT_LOGIN} review exists (waiver only applies when reviewer-bot is absent)`
+            );
+          }
+          if (!hasCommentedReview) {
+            reasons.push(
+              `no COMMENTED review from the PR author (${prAuthor}) found (waiver requires a same-identity COMMENT review)`
+            );
+          }
+          throw new ValidationError(
+            `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.\n` +
+              `   acceptStaleReviewerSilence=true was set but waiver conditions are not met:\n${reasons
+                .map((r) => `   - ${r}`)
+                .join("\n")}\n\n` +
+              `💡 Next steps:` +
+              `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+              `\n   2. Request required reviews` +
+              `\n   3. Address any changes requested` +
+              `\n   4. Re-run merge when approvals are sufficient`
+          );
+        } else {
+          // Default path: no waiver, block merge with actionable guidance
+          // Only hint about acceptStaleReviewerSilence when the waiver could plausibly apply:
+          // the PR must be authored by the bot identity (waiver never applies to human-authored PRs).
+          const missingReviewerNote =
+            isPrAuthorBot && !hasReviewerBotReview
+              ? `\n   Note: ${REVIEWER_BOT_LOGIN} has not reviewed this PR. ` +
+                `If the reviewer bot is silent (webhook-miss), you may use ` +
+                `acceptStaleReviewerSilence=true as an operator-override waiver.`
+              : "";
+          throw new ValidationError(
+            `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.${
+              missingReviewerNote
+            }\n\n` +
+              `💡 Next steps:` +
+              `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+              `\n   2. Request required reviews` +
+              `\n   3. Address any changes requested` +
+              `\n   4. Re-run merge when approvals are sufficient`
+          );
+        }
       }
 
+      // B1: Condition success message on whether the PR was actually approved (not waiver path).
+      // When proceeding via waiver, the waiver message above already informed the user.
       if (!params.json) {
-        log.cli(`✅ PR is approved and mergeable`);
+        if (waiverApplied) {
+          log.cli(
+            `PR proceeding via acceptStaleReviewerSilence waiver -- reviewer-bot review absent, waiver conditions met`
+          );
+        } else {
+          log.cli(`✅ PR is approved and mergeable`);
+        }
       }
     } catch (error) {
       if (error instanceof ValidationError) {
@@ -277,6 +447,54 @@ export async function mergeSessionPr(
       log.debug(
         `Skipping pre-merge approval check due to API error. Proceeding with merge attempt.`
       );
+    }
+  }
+
+  // ── quality.review Ask emission (mt#1475) ──────────────────────────────
+  // Best-effort: emit a quality.review Ask before each merge attempt.
+  // Failure must never block the merge — log and continue.
+  if (deps.askRepository) {
+    try {
+      const prUrl = sessionRecord.pullRequest?.url;
+      const prNumber =
+        sessionRecord.backendType === "github" && sessionRecord.pullRequest
+          ? sessionRecord.pullRequest.number
+          : undefined;
+      const taskId = sessionRecord.taskId;
+
+      await deps.askRepository.create({
+        kind: QUALITY_REVIEW_KIND,
+        classifierVersion: MERGE_CLASSIFIER_VERSION,
+        // requestor: the session ID in AgentId format (session identity)
+        requestor: sessionIdToUse,
+        parentSessionId: sessionIdToUse,
+        parentTaskId: taskId,
+        title: prNumber != null ? `Review PR #${prNumber} before merge` : "Review PR before merge",
+        question:
+          prUrl != null
+            ? `Review the changes in PR ${prUrl} before merge.`
+            : "Review the session PR changes before merge.",
+        contextRefs: prUrl
+          ? [
+              {
+                kind: "github-pr",
+                ref: prUrl,
+                description: prNumber != null ? `PR #${prNumber}` : "PR",
+              },
+            ]
+          : [],
+        metadata: {},
+      });
+
+      log.debug(`${QUALITY_REVIEW_KIND} Ask emitted for merge`, {
+        sessionId: sessionIdToUse,
+        taskId,
+        prNumber,
+        state: ASK_INITIAL_STATE,
+      });
+    } catch (askError) {
+      // Non-fatal: log at debug and continue so the merge always proceeds.
+      log.debug(`Failed to emit quality.review Ask before merge: ${getErrorMessage(askError)}`);
     }
   }
 
