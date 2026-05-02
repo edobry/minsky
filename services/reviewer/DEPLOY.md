@@ -35,6 +35,20 @@ railway variable set MINSKY_REVIEWER_WEBHOOK_SECRET=<secret-from-openssl>
 railway variable set REVIEWER_PROVIDER=openai
 railway variable set OPENAI_API_KEY=<your-key>
 
+# REQUIRED: Postgres connection for the convergence-metrics schema. The
+# service reads MINSKY_SESSIONDB_POSTGRES_URL (or legacy MINSKY_POSTGRES_URL)
+# at startup via src/db/client.ts and applies drizzle migrations from
+# services/reviewer/migrations/pg before opening the webhook listener. If
+# neither is set, the service falls back to a dev-only
+# `postgresql://localhost:5432/minsky` URL and the container crash-loops on
+# the first migration query (no Postgres listening inside the container).
+#
+# Use the same connection string you have at
+# `~/.config/minsky/config.yaml` → `persistence.postgres.connectionString`.
+# The Supabase transaction-mode pooler endpoint (port 6543) is confirmed
+# working for these migrations as of 2026-05-02 (mt#1556).
+railway variable set MINSKY_SESSIONDB_POSTGRES_URL=<your-supabase-postgres-url>
+
 railway variable set MINSKY_REVIEWER_TIER2_ENABLED=false
 ```
 
