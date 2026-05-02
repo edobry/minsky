@@ -1,18 +1,33 @@
 /**
- * Tests for window commands and domain logic — mt#1489.
+ * Tests for window commands and domain logic — mt#1489 + mt#1491.
  *
- * Tests openWindow / closeWindow domain functions and the cron integration
- * helper. Uses the recording notifier for hermetic event assertion.
+ * Tests openWindow / closeWindow domain functions, the cron integration
+ * helper, and the window.service render + response loop. Uses the
+ * recording notifier for hermetic event assertion and the FakeAskRepository
+ * for in-memory ask persistence.
  *
  * checkAndFireCronWindows tests use an in-memory LoaderFs (empty = no config
  * file = defaults) so no real filesystem or env-var manipulation is needed.
  */
 
 import { describe, test, expect } from "bun:test";
-import { openWindow, closeWindow, checkAndFireCronWindows, OpenWindowRegistry } from "./index";
+import {
+  openWindow,
+  closeWindow,
+  checkAndFireCronWindows,
+  OpenWindowRegistry,
+  parseServiceCommand,
+  renderAsk,
+  renderCohortDigest,
+  serviceWindow,
+  type StdinReader,
+  type WindowServiceResult,
+} from "./index";
 import { createRecordingWindowNotifier } from "../../../../domain/ask/attention-windows/notify";
 import type { AttentionWindowConfig } from "../../../../domain/ask/attention-windows/config";
 import type { LoaderFs } from "../../../../domain/ask/attention-windows/loader";
+import { FakeAskRepository } from "../../../../domain/ask/repository";
+import type { Ask, AskKind, AskOption } from "../../../../domain/ask/types";
 
 // ---------------------------------------------------------------------------
 // Test fixtures
@@ -227,5 +242,582 @@ describe("checkAndFireCronWindows", () => {
     // Second call same minute — should NOT re-fire
     await checkAndFireCronWindows(notifier, registry, lastFiredAt, shifted, emptyFs);
     expect(notifier.openedEvents).toHaveLength(firstFiredCount);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// window.service — mt#1491
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fake StdinReader that yields the given lines in order, then null.
+ * Used by serviceWindow tests to simulate operator input without touching
+ * process.stdin.
+ */
+function makeFakeStdinReader(lines: string[]): StdinReader {
+  let i = 0;
+  return {
+    async readLine(): Promise<string | null> {
+      if (i >= lines.length) return null;
+      return lines[i++] ?? null;
+    },
+  };
+}
+
+/**
+ * Seed the FakeAskRepository with a "suspended" Ask, walking it through
+ * detected → classified → suspended (the window-deferred lifecycle).
+ */
+async function seedSuspendedAsk(
+  repo: FakeAskRepository,
+  opts: {
+    kind: AskKind;
+    parentTaskId?: string;
+    title: string;
+    question: string;
+    options?: AskOption[];
+    serviceStrategy?: Ask["serviceStrategy"];
+    windowKey?: string;
+    contextRefs?: Ask["contextRefs"];
+    metadata?: Record<string, unknown>;
+  }
+): Promise<Ask> {
+  const created = await repo.create({
+    kind: opts.kind,
+    classifierVersion: "test-1",
+    requestor: "com.anthropic.claude-code:proc:test",
+    parentTaskId: opts.parentTaskId,
+    title: opts.title,
+    question: opts.question,
+    options: opts.options,
+    contextRefs: opts.contextRefs,
+    metadata: opts.metadata,
+    serviceStrategy: opts.serviceStrategy ?? "scheduled",
+    windowKey: opts.windowKey ?? "ask-hours",
+  });
+  await repo.transition(created.id, "classified");
+  await repo.transition(created.id, "suspended");
+  const final = await repo.getById(created.id);
+  if (!final) throw new Error("seeded ask missing");
+  return final;
+}
+
+const TWO_OPTIONS: AskOption[] = [
+  { label: "Postgres", value: "postgres", description: "already deployed" },
+  { label: "Redis", value: "redis", description: "second source of truth" },
+];
+
+// Local kind constants — extracted to satisfy custom/no-magic-string-duplication
+// (each AskKind appears in many test fixtures across describe blocks).
+const KIND_DECIDE: AskKind = "direction.decide";
+const KIND_APPROVE: AskKind = "authorization.approve";
+const KIND_REVIEW: AskKind = "quality.review";
+
+describe("parseServiceCommand", () => {
+  test("parses `done` (case-insensitive)", () => {
+    expect(parseServiceCommand("done")).toEqual({ type: "done" });
+    expect(parseServiceCommand("DONE")).toEqual({ type: "done" });
+    expect(parseServiceCommand("  done  ")).toEqual({ type: "done" });
+  });
+
+  test("parses `skip N`", () => {
+    expect(parseServiceCommand("skip 2")).toEqual({ type: "skip", index: 2 });
+    expect(parseServiceCommand("SKIP 11")).toEqual({ type: "skip", index: 11 });
+  });
+
+  test("parses `<N><letter>` as respond", () => {
+    expect(parseServiceCommand("1A")).toEqual({
+      type: "respond",
+      index: 1,
+      optionLetter: "A",
+    });
+    expect(parseServiceCommand("3b")).toEqual({
+      type: "respond",
+      index: 3,
+      optionLetter: "B",
+    });
+  });
+
+  test("returns null for unrecognized input", () => {
+    expect(parseServiceCommand("")).toBeNull();
+    expect(parseServiceCommand("blah")).toBeNull();
+    expect(parseServiceCommand("1")).toBeNull();
+    expect(parseServiceCommand("A")).toBeNull();
+    expect(parseServiceCommand("12AB")).toBeNull();
+  });
+});
+
+describe("renderAsk", () => {
+  test("renders direction.decide with humility 5-item checklist", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "Cache choice",
+      question: "Postgres vs Redis for cache?",
+      options: TWO_OPTIONS,
+      contextRefs: [
+        { kind: "spec", ref: "mt#1500", description: "latency budget" },
+        { kind: "spec", ref: "mt#1500", description: "operational complexity" },
+      ],
+      metadata: { notNeeded: "cost analysis (already done)" },
+    });
+    const out = renderAsk(1, ask);
+
+    // 1. Question
+    expect(out).toContain("Q: Postgres vs Redis for cache?");
+    // 2. Options inline
+    expect(out).toContain("A) Postgres");
+    expect(out).toContain("B) Redis");
+    // 3. Drivers (from contextRefs descriptions)
+    expect(out).toContain("Drivers:");
+    expect(out).toContain("latency budget");
+    expect(out).toContain("operational complexity");
+    // 4. Recommendation marker on first option
+    expect(out).toContain("(recommended)");
+    // 5. What-not-needed
+    expect(out).toContain("Not needed: cost analysis");
+    // Index header
+    expect(out).toMatch(/^\[1\] direction\.decide/);
+    // Reply affordance
+    expect(out).toContain("Reply: 1A");
+  });
+
+  test("renders authorization.approve with approve/deny affordance", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_APPROVE,
+      parentTaskId: "mt#1500",
+      title: "deploy",
+      question: "OK to deploy v2?",
+    });
+    const out = renderAsk(1, ask);
+    expect(out).toContain("A) Approve");
+    expect(out).toContain("B) Deny");
+    expect(out).toContain("Reply: 1A (approve)");
+  });
+
+  test("renders quality.review with approve/changes affordance", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_REVIEW,
+      parentTaskId: "mt#1500",
+      title: "review",
+      question: "Approve PR?",
+    });
+    const out = renderAsk(1, ask);
+    expect(out).toContain("A) Approve");
+    expect(out).toContain("B) Request changes");
+    expect(out).toContain("Reply: 1A (approve)");
+    expect(out).toContain("1B (changes)");
+  });
+});
+
+describe("renderCohortDigest", () => {
+  test("renders empty-state for empty cohort", () => {
+    const out = renderCohortDigest("ask-hours", []);
+    expect(out).toContain("No pending asks");
+    expect(out).toContain("ask-hours");
+  });
+
+  test("groups asks by parentTaskId with task headers + numbered items", async () => {
+    const repo = new FakeAskRepository();
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "first",
+      question: "Q1?",
+      options: TWO_OPTIONS,
+    });
+    const a2 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "second",
+      question: "Q2?",
+      options: TWO_OPTIONS,
+    });
+    const a3 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1501",
+      title: "third",
+      question: "Q3?",
+      options: TWO_OPTIONS,
+    });
+    const out = renderCohortDigest("ask-hours", [a1, a2, a3]);
+
+    // Task section headers
+    expect(out).toContain("## mt#1500 — 2 decisions");
+    expect(out).toContain("## mt#1501 — 1 decision");
+    // Three numbered items
+    expect(out).toContain("[1] direction.decide");
+    expect(out).toContain("[2] direction.decide");
+    expect(out).toContain("[3] direction.decide");
+    // Footer
+    expect(out).toContain("respond [N | NA | NB | skip N | done]");
+  });
+});
+
+describe("serviceWindow", () => {
+  // Acceptance test 5: empty cohort
+  test("empty cohort → renders empty-state, returns zero counts", async () => {
+    const repo = new FakeAskRepository();
+    const stdin = makeFakeStdinReader([]);
+    const lines: string[] = [];
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => []
+    );
+    expect(result).toEqual({
+      windowKey: "ask-hours",
+      responded: 0,
+      skipped: 0,
+      remaining: 0,
+    } satisfies WindowServiceResult);
+    expect(lines.join("\n")).toContain("No pending asks");
+  });
+
+  // Acceptance test 1: render shape with 3 decide asks across 2 tasks
+  test("renders 2 task sections + 3 numbered items, priority-sorted", async () => {
+    const repo = new FakeAskRepository();
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "auth",
+      question: "Postgres vs Redis?",
+      options: TWO_OPTIONS,
+    });
+    const a2 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "module name",
+      question: "What name?",
+      options: TWO_OPTIONS,
+    });
+    const a3 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1501",
+      title: "chart lib",
+      question: "Recharts or Visx?",
+      options: TWO_OPTIONS,
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["done"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [a1, a2, a3]
+    );
+    const text = lines.join("\n");
+    expect(text).toContain("## mt#1500 — 2 decisions");
+    expect(text).toContain("## mt#1501 — 1 decision");
+    expect(text).toContain("[1]");
+    expect(text).toContain("[2]");
+    expect(text).toContain("[3]");
+    // None handled because user immediately said `done`
+    expect(result).toEqual({
+      windowKey: "ask-hours",
+      responded: 0,
+      skipped: 0,
+      remaining: 3,
+    } satisfies WindowServiceResult);
+  });
+
+  // Acceptance test 2: reply 1A closes ask 1 with option=A payload
+  test("`1A` propagates response via respondAndClose; ask 1 closes; 2 remain", async () => {
+    const repo = new FakeAskRepository();
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "first",
+      question: "Q1?",
+      options: TWO_OPTIONS,
+    });
+    const a2 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "second",
+      question: "Q2?",
+      options: TWO_OPTIONS,
+    });
+    const a3 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1501",
+      title: "third",
+      question: "Q3?",
+      options: TWO_OPTIONS,
+    });
+    const stdin = makeFakeStdinReader(["1A", "done"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [a1, a2, a3]
+    );
+
+    expect(result.responded).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.remaining).toBe(2);
+
+    // Verify ask 1 is closed with option=postgres (the value of the "A" option)
+    const closed = await repo.getById(a1.id);
+    expect(closed?.state).toBe("closed");
+    expect(closed?.response?.payload).toEqual({
+      option: "postgres",
+      chosen: "postgres",
+    });
+
+    // Asks 2 and 3 should still be suspended
+    const stillA2 = await repo.getById(a2.id);
+    const stillA3 = await repo.getById(a3.id);
+    expect(stillA2?.state).toBe("suspended");
+    expect(stillA3?.state).toBe("suspended");
+  });
+
+  // Acceptance test 3: reply done after 1 → remaining stay suspended
+  test("`done` after responding to 1 → 2 remain suspended for next window", async () => {
+    const repo = new FakeAskRepository();
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "a",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const a2 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "b",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const a3 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1501",
+      title: "c",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const stdin = makeFakeStdinReader(["1B", "done"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [a1, a2, a3]
+    );
+
+    expect(result.responded).toBe(1);
+    expect(result.remaining).toBe(2);
+
+    const stillA2 = await repo.getById(a2.id);
+    const stillA3 = await repo.getById(a3.id);
+    expect(stillA2?.state).toBe("suspended");
+    expect(stillA3?.state).toBe("suspended");
+  });
+
+  // Acceptance test 4: skip 2 keeps Ask 2 suspended without response
+  test("`skip 2` defers ask 2 (no response written); other asks still pending", async () => {
+    const repo = new FakeAskRepository();
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "a",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const a2 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "b",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const a3 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1501",
+      title: "c",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const stdin = makeFakeStdinReader(["skip 2", "done"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [a1, a2, a3]
+    );
+
+    expect(result.responded).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(result.remaining).toBe(2);
+
+    // Ask 2 was not responded to — still suspended, no response payload
+    const stillA2 = await repo.getById(a2.id);
+    expect(stillA2?.state).toBe("suspended");
+    expect(stillA2?.response).toBeUndefined();
+  });
+
+  // Acceptance test 6: mixed kinds render with kind-appropriate affordances
+  test("mixed kinds (decide + approve + review) render kind-appropriate affordances", async () => {
+    const repo = new FakeAskRepository();
+    const decide = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "decide",
+      question: "A or B?",
+      options: TWO_OPTIONS,
+    });
+    const approve = await seedSuspendedAsk(repo, {
+      kind: KIND_APPROVE,
+      parentTaskId: "mt#1500",
+      title: "approve",
+      question: "Deploy?",
+    });
+    const review = await seedSuspendedAsk(repo, {
+      kind: KIND_REVIEW,
+      parentTaskId: "mt#1500",
+      title: "review",
+      question: "PR ok?",
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["done"]);
+    await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [decide, approve, review]
+    );
+    const text = lines.join("\n");
+    // direction.decide affordance — labeled options
+    expect(text).toContain("A) Postgres");
+    // authorization.approve affordance
+    expect(text).toMatch(/Reply:\s+\dA \(approve\)/);
+    // quality.review affordance
+    expect(text).toContain("(changes)");
+  });
+
+  test("authorization.approve `1A` writes { approved: true }", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_APPROVE,
+      parentTaskId: "mt#1500",
+      title: "deploy",
+      question: "Deploy?",
+    });
+    const stdin = makeFakeStdinReader(["1A"]);
+    await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [ask]
+    );
+    const closed = await repo.getById(ask.id);
+    expect(closed?.state).toBe("closed");
+    expect(closed?.response?.payload).toEqual({ approved: true });
+  });
+
+  test("authorization.approve `1B` writes { approved: false }", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_APPROVE,
+      parentTaskId: "mt#1500",
+      title: "deploy",
+      question: "Deploy?",
+    });
+    const stdin = makeFakeStdinReader(["1B"]);
+    await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [ask]
+    );
+    const closed = await repo.getById(ask.id);
+    expect(closed?.response?.payload).toEqual({ approved: false });
+  });
+
+  test("EOF (null from stdin) exits cleanly", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "a",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const stdin = makeFakeStdinReader([]); // EOF immediately
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [ask]
+    );
+    expect(result.responded).toBe(0);
+    expect(result.remaining).toBe(1);
+  });
+
+  test("unrecognized input continues the loop without consuming an ask", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "a",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["garbage", "1A"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [ask]
+    );
+    expect(result.responded).toBe(1);
+    expect(lines.some((l) => l.includes("Unrecognised input"))).toBe(true);
+  });
+
+  test("out-of-range index is rejected without consuming an ask", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "a",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["5A", "1A"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [ask]
+    );
+    expect(result.responded).toBe(1);
+    expect(lines.some((l) => l.includes("out of range"))).toBe(true);
   });
 });
