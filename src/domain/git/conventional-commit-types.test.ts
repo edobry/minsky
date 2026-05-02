@@ -197,6 +197,23 @@ describe("operating envelope examples pass the commit-msg hook", () => {
     expect(ghPrompt).toContain("feat(gh#42): partial:");
     expect(ghPrompt).not.toContain("mt#42");
   });
+
+  test("envelope preserves malformed taskId verbatim (PR #938 R5)", () => {
+    // Inputs whose remainder isn't a non-empty digit string are returned
+    // as-is so the malformed input surfaces in the rendered guidance
+    // rather than producing a broken display ID like `mt#` or `md#abc123`.
+    const emptyDigits = renderImplementerPrompt("mt#");
+    // Should NOT contain a freshly-rebranded `mt#` followed by `:` (which
+    // would happen if the function returned `mt#`); instead the original
+    // input is preserved as a clear signal that something is off.
+    expect(emptyDigits).toContain("Task mt#:");
+    // And the broken form is NOT silently coerced to a valid-looking ID.
+    expect(emptyDigits).not.toContain("Task mt#1524");
+
+    const alphaSuffix = renderImplementerPrompt("md#abc123");
+    expect(alphaSuffix).toContain("md#abc123");
+    expect(alphaSuffix).not.toContain("mt#abc123");
+  });
 });
 
 describe("commit-msg hook accepts longer descriptive subjects (PR #938 R2)", () => {

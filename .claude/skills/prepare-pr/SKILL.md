@@ -203,6 +203,16 @@ backed by `src/domain/git/conventional-commit-types.ts`). Use the type that
 most accurately reflects the change — the hook treats them all equally; this
 table is for human readers.
 
+**Title format invariants enforced by the commit-msg hook:**
+
+- Type tokens are **lowercase only** (`feat`, not `Feat`).
+- The colon is followed by **exactly one literal space** (`feat: foo`, not `feat:  foo`).
+- The description after the space is **1–100 characters** (non-empty, capped).
+
+These rules apply to every commit subject (including squash-merge titles). The
+session PR validators are aligned with the same constraints, so a title that
+passes `session_pr_create` / `session_pr_edit` will also pass the hook.
+
 | Type       | Use for                                                  |
 | ---------- | -------------------------------------------------------- |
 | `feat`     | New features                                             |

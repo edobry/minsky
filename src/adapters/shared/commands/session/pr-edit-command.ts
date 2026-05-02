@@ -139,13 +139,15 @@ export async function executeSessionPrEdit(
           finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
         }
       } else {
-        // Case-sensitive on purpose: the commit-msg hook regex
-        // (`src/hooks/commit-msg.ts` `CONVENTIONAL_COMMIT_PATTERN`) does NOT
-        // use the `i` flag, so accepting `Feat(...)` here would let titles
-        // through that the hook later rejects at commit time. Keep this
-        // validator strictly aligned with the hook (PR #938 R3).
+        // Case-sensitive AND single-space-after-colon on purpose: the
+        // commit-msg hook regex (`src/hooks/commit-msg.ts`
+        // `CONVENTIONAL_COMMIT_PATTERN`) does NOT use the `i` flag and
+        // requires exactly one literal space (`: `). Accepting `Feat(...)`
+        // or `feat(scope):  two-spaces` here would let titles through that
+        // the hook later rejects at commit time. Keep this validator
+        // strictly aligned with the hook (PR #938 R3/R5).
         const conventionalRe = new RegExp(
-          `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\([^)]*\\))?:\\s+`
+          `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\([^)]*\\))?: `
         );
         if (!conventionalRe.test(params.title)) {
           throw new ValidationError(

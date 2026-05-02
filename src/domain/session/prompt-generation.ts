@@ -253,9 +253,17 @@ function normalizeTaskIdForDisplay(taskId: string): string {
     lastProject = match[1]?.toLowerCase();
     cursor = projectMatcher.lastIndex;
   }
-  const numericId = taskId.replace(/^(?:[a-z]{2,}[#-]|#)+/i, "");
+  const remainder = taskId.replace(/^(?:[a-z]{2,}[#-]|#)+/i, "");
+  // Validate: the remainder must be a non-empty digit string. Anything else
+  // (empty `mt#`, alpha-suffix `md#abc123`, etc.) means the input wasn't a
+  // recognizable task ID; fall back to the original verbatim so render
+  // output surfaces the malformed input rather than silently emitting
+  // `mt#` or `md#abc123` as if it were a valid display ID (PR #938 R5).
+  if (!/^\d+$/.test(remainder)) {
+    return taskId;
+  }
   const project = lastProject ?? DEFAULT_PROJECT_PREFIX;
-  return `${project}#${numericId}`;
+  return `${project}#${remainder}`;
 }
 
 function renderCommitInstructions(sessionId: string, taskId: string): string {
