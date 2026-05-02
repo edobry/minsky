@@ -3,6 +3,7 @@
  */
 
 import { ValidationError } from "../../../../errors/index";
+import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "../../../../domain/git/conventional-commit-types";
 
 // Allow leading whitespace so titles like `"  mt#1265: foo"` are detected and
 // stripped — without `\s*` the strip + mismatch checks silently fail.
@@ -83,7 +84,7 @@ export function composeConventionalTitle(input: {
   // Require type
   if (!type) {
     throw new ValidationError(
-      "--type is required. Provide one of: feat, fix, docs, style, refactor, perf, test, chore"
+      `--type is required. Provide one of: ${CONVENTIONAL_COMMIT_TYPES_DISPLAY}`
     );
   }
 

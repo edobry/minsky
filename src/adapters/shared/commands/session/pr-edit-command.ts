@@ -18,6 +18,10 @@ import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrEditCommandParams } from "./session-parameters";
 import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import {
+  CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
+  CONVENTIONAL_COMMIT_TYPES_DISPLAY,
+} from "../../../../domain/git/conventional-commit-types";
 
 export interface SessionPrEditParams {
   sessionId?: string;
@@ -135,11 +139,20 @@ export async function executeSessionPrEdit(
           finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
         }
       } else {
-        const conventionalRe = /^(feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?:\s+/i;
+        // Case-sensitive AND single-space-after-colon on purpose: the
+        // commit-msg hook regex (`src/hooks/commit-msg.ts`
+        // `CONVENTIONAL_COMMIT_PATTERN`) does NOT use the `i` flag and
+        // requires exactly one literal space (`: `). Accepting `Feat(...)`
+        // or `feat(scope):  two-spaces` here would let titles through that
+        // the hook later rejects at commit time. Keep this validator
+        // strictly aligned with the hook (PR #938 R3/R5).
+        const conventionalRe = new RegExp(
+          `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\([^)]*\\))?: `
+        );
         if (!conventionalRe.test(params.title)) {
           throw new ValidationError(
             "Invalid title. Provide either:\n" +
-              "  • --type <feat|fix|docs|style|refactor|perf|test|chore> with a description-only --title\n" +
+              `  • --type <${CONVENTIONAL_COMMIT_TYPES_DISPLAY.replaceAll(", ", "|")}> with a description-only --title\n` +
               "  • or a full conventional commit title like 'feat(scope): short description'"
           );
         }
