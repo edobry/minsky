@@ -296,9 +296,15 @@ export interface WindowServiceResult {
  *
  * The default implementation wraps `process.stdin`. Tests inject a fake that
  * returns a predetermined sequence of lines.
+ *
+ * `close()` is optional — implementations that hold long-lived resources
+ * (e.g. `readline.createInterface`) should release them when the consumer
+ * is finished. `serviceWindow` calls `close()` exactly once on exit
+ * (PR #943 R1 NON-BLOCKING #2).
  */
 export interface StdinReader {
   readLine(): Promise<string | null>;
+  close?(): void;
 }
 
 /**
@@ -475,17 +481,32 @@ export function renderCohortDigest(
   lines.push(SEPARATOR);
   lines.push("");
 
-  // Group by parentTaskId
+  // Group by parentTaskId.
+  //
+  // Section ordering (PR #943 R1 BLOCKING #2): the input `asks` array is
+  // assumed to be sorted by the caller (kind-priority × deadline × createdAt;
+  // see `compareAskPriority`). We preserve that ordering at the section level
+  // by walking `asks` in order and tracking first-occurrence per parentTaskId
+  // — the section whose top-priority ask appears earliest is rendered first.
+  // Within each section, asks retain their input order (also priority-sorted).
+  // Indices ([1], [2], ...) follow the rendered traversal, NOT the raw input
+  // order — i.e., a higher-priority ask may bear a higher index if a sibling
+  // task whose top ask was earlier in the sort came first.
   const byTask = new Map<string, Ask[]>();
+  const sectionOrder: string[] = [];
   for (const ask of asks) {
     const taskId = ask.parentTaskId ?? "(no task)";
+    if (!byTask.has(taskId)) {
+      sectionOrder.push(taskId);
+    }
     const group = byTask.get(taskId) ?? [];
     group.push(ask);
     byTask.set(taskId, group);
   }
 
   let globalIndex = 1;
-  for (const [taskId, taskAsks] of byTask) {
+  for (const taskId of sectionOrder) {
+    const taskAsks = byTask.get(taskId) ?? [];
     const countLabel = taskAsks.length === 1 ? "1 decision" : `${taskAsks.length} decisions`;
     lines.push(`## ${taskId} — ${countLabel}`);
     lines.push("");
@@ -496,12 +517,15 @@ export function renderCohortDigest(
     }
   }
 
-  // Footer
+  // Footer reply hint — use a generic placeholder rather than concrete A/B
+  // letters, since the available letter range varies per Ask. Operators rely
+  // on the per-Ask `Reply:` lines (rendered above) for the actual valid set
+  // (PR #943 R1 NON-BLOCKING #1).
   if (openState) {
     const closeTime = openState.expectedCloseAt.toTimeString().slice(0, 5);
-    lines.push(`Window closes ${closeTime} · respond [N | NA | NB | skip N | done]`);
+    lines.push(`Window closes ${closeTime} · respond [N<letter> | skip N | done]`);
   } else {
-    lines.push(`respond [N | NA | NB | skip N | done]`);
+    lines.push(`respond [N<letter> | skip N | done]`);
   }
 
   return lines.join("\n");
@@ -536,6 +560,34 @@ export async function serviceWindow(
     nowMs: number
   ) => Promise<Ask[]> = pendingAsksForWindow,
   openState?: OpenWindowState
+): Promise<WindowServiceResult> {
+  // Wrap the body in try/finally so stdin readers that hold long-lived
+  // resources (readline.createInterface, real stdin handle) are released
+  // exactly once on exit, regardless of which path returned the result
+  // (PR #943 R1 NON-BLOCKING #2).
+  try {
+    return await serviceWindowImpl(
+      repo,
+      windowKey,
+      stdinReader,
+      outputWriter,
+      nowMs,
+      loadCohort,
+      openState
+    );
+  } finally {
+    stdinReader.close?.();
+  }
+}
+
+async function serviceWindowImpl(
+  repo: AskRepository,
+  windowKey: string,
+  stdinReader: StdinReader,
+  outputWriter: (text: string) => void,
+  nowMs: number,
+  loadCohort: (repo: AskRepository, windowKey: string, nowMs: number) => Promise<Ask[]>,
+  openState: OpenWindowState | undefined
 ): Promise<WindowServiceResult> {
   const asks = await loadCohort(repo, windowKey, nowMs);
 
@@ -618,9 +670,14 @@ export async function serviceWindow(
         continue;
       }
       payloadValue = { option: String(option.value), chosen: String(option.value) };
-    } else if (ask.kind === "authorization.approve") {
-      payloadValue = { approved: cmd.optionLetter === "A" };
-    } else if (ask.kind === "quality.review") {
+    } else if (ask.kind === "authorization.approve" || ask.kind === "quality.review") {
+      // Approve/review kinds expose exactly two synthetic options: A=approve, B=deny/changes.
+      // Reject any other letter — silently mapping non-A to "denial" risks recording the
+      // wrong decision (PR #943 R1 BLOCKING #1).
+      if (cmd.optionLetter !== "A" && cmd.optionLetter !== "B") {
+        outputWriter(`Option ${cmd.optionLetter} is out of range for ask ${idx} (valid: A–B).`);
+        continue;
+      }
       payloadValue = { approved: cmd.optionLetter === "A" };
     } else {
       payloadValue = { option: cmd.optionLetter };
@@ -701,6 +758,12 @@ export function makeProcessStdinReader(): StdinReader {
       return new Promise<string | null>((resolve) => {
         waiters.push(resolve);
       });
+    },
+    close(): void {
+      if (rl) {
+        rl.close();
+        rl = null;
+      }
     },
   };
 }

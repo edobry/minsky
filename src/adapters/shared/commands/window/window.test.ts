@@ -452,8 +452,8 @@ describe("renderCohortDigest", () => {
     expect(out).toContain("[1] direction.decide");
     expect(out).toContain("[2] direction.decide");
     expect(out).toContain("[3] direction.decide");
-    // Footer
-    expect(out).toContain("respond [N | NA | NB | skip N | done]");
+    // Footer (PR #943 R1 NB#1: generic letter placeholder, not concrete A/B)
+    expect(out).toContain("respond [N<letter> | skip N | done]");
   });
 });
 
@@ -796,6 +796,152 @@ describe("serviceWindow", () => {
     );
     expect(result.responded).toBe(1);
     expect(lines.some((l) => l.includes("Unrecognised input"))).toBe(true);
+  });
+
+  // PR #943 R1 BLOCKING #1: approve/review must reject letters beyond A/B
+  test("authorization.approve rejects `1C` as out-of-range without consuming the ask", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_APPROVE,
+      parentTaskId: "mt#1500",
+      title: "deploy",
+      question: "Deploy?",
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["1C", "1A"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [ask]
+    );
+    expect(result.responded).toBe(1);
+    expect(lines.some((l) => l.includes("out of range") && l.includes("A–B"))).toBe(true);
+    // Final state: approved=true (from the 1A retry, not silently denied from 1C)
+    const closed = await repo.getById(ask.id);
+    expect(closed?.response?.payload).toEqual({ approved: true });
+  });
+
+  test("quality.review rejects `1Z` as out-of-range without consuming the ask", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_REVIEW,
+      parentTaskId: "mt#1500",
+      title: "review",
+      question: "Approve?",
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["1Z", "1B"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [ask]
+    );
+    expect(result.responded).toBe(1);
+    expect(lines.some((l) => l.includes("out of range") && l.includes("A–B"))).toBe(true);
+    // Final state: approved=false (from the 1B retry, not silently denied from 1Z)
+    const closed = await repo.getById(ask.id);
+    expect(closed?.response?.payload).toEqual({ approved: false });
+  });
+
+  // PR #943 R1 BLOCKING #2: section order is deterministic by first-occurrence
+  test("renders task sections in first-occurrence order from the input cohort", async () => {
+    const repo = new FakeAskRepository();
+    // Asks ordered with mt#1501 appearing FIRST in the input array — section
+    // for 1501 should render before 1500 even though 1500 has more asks.
+    const a1 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1501",
+      title: "early",
+      question: "First?",
+      options: TWO_OPTIONS,
+    });
+    const a2 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "later",
+      question: "Second?",
+      options: TWO_OPTIONS,
+    });
+    const a3 = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "later2",
+      question: "Third?",
+      options: TWO_OPTIONS,
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["done"]);
+    await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [a1, a2, a3]
+    );
+    const text = lines.join("\n");
+    const idx1501 = text.indexOf("## mt#1501");
+    const idx1500 = text.indexOf("## mt#1500");
+    expect(idx1501).toBeGreaterThan(0);
+    expect(idx1500).toBeGreaterThan(idx1501);
+  });
+
+  // PR #943 R1 NON-BLOCKING #2: stdinReader.close() called exactly once on exit
+  test("calls stdinReader.close() on normal exit", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "a",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    let closeCalls = 0;
+    const stdin: StdinReader = {
+      async readLine(): Promise<string | null> {
+        return null; // EOF immediately
+      },
+      close(): void {
+        closeCalls++;
+      },
+    };
+    await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => [ask]
+    );
+    expect(closeCalls).toBe(1);
+  });
+
+  test("calls stdinReader.close() even on empty cohort path", async () => {
+    const repo = new FakeAskRepository();
+    let closeCalls = 0;
+    const stdin: StdinReader = {
+      async readLine(): Promise<string | null> {
+        return null;
+      },
+      close(): void {
+        closeCalls++;
+      },
+    };
+    await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      () => {},
+      Date.now(),
+      async () => []
+    );
+    expect(closeCalls).toBe(1);
   });
 
   test("out-of-range index is rejected without consuming an ask", async () => {
