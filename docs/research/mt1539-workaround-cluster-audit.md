@@ -2,7 +2,7 @@
 
 **Task:** mt#1539 (Child A of mt#1505)
 **Type:** Research / Audit
-**Status:** Draft (2026-05-04)
+**Status:** Draft (2026-05-04, Phase 2)
 **Parent:** mt#1505 (umbrella roadmap stall audit)
 
 ## Summary
@@ -27,6 +27,35 @@ A cluster qualifies as "workaround-load-bearing stall" when ALL of:
 4. The structural unblockers don't share a parent task or rollup — they appear unrelated on the
    roadmap.
 5. The workaround is becoming load-bearing — now used routinely, not as the original escape hatch.
+
+## Task-Graph Status Summary (Phase 2)
+
+| Task    | Title (abbreviated)                                | Status    | Memory filed | Stall age   |
+| ------- | -------------------------------------------------- | --------- | ------------ | ----------- |
+| mt#1073 | Adversarial reviewer App (Chinese-wall isolation)  | PLANNING  | 2026-04-23   | 11d         |
+| mt#1065 | Route session_pr_review_submit token by event type | TODO      | 2026-04-23   | 11d         |
+| mt#1405 | Investigate why CI doesn't fire on bot PRs         | TODO      | 2026-04-23   | 11d         |
+| mt#1477 | Evaluate pull_request_target migration             | TODO      | 2026-04-23   | 11d         |
+| mt#1506 | Design session ↔ operator-interface binding       | TODO      | 2026-05-01   | 3d          |
+| mt#1478 | Auto-mode skill chaining at gate-passes            | TODO      | 2026-04-30   | 4d          |
+| mt#1523 | Add §7a TOCTOU sweep to implement-task skill       | TODO      | 2026-05-01   | 3d          |
+| mt#1551 | Fold audit into /review-pr; retire /verify-task    | PLANNING  | 2026-05-01   | 3d (active) |
+| mt#1459 | PreToolUse hook: execution evidence for tests      | IN-REVIEW | 2026-04-28   | 6d          |
+| mt#1460 | /prepare-pr: demand execution evidence for tests   | IN-REVIEW | 2026-04-28   | 6d          |
+| mt#1483 | Hook on session_commit: branch-behind-main         | IN-REVIEW | 2026-04-28   | 6d          |
+| mt#1555 | /loop preflight hook: terminal state check         | TODO      | 2026-05-02   | 2d (fresh)  |
+| mt#1541 | Implement Surface 1 (policy-coverage detector)     | TODO      | 2026-05-01   | 3d          |
+| mt#1543 | Implement Surface 4 (post-mortem analyzer)         | PLANNING  | 2026-05-01   | 3d (active) |
+| mt#1034 | Attention-allocation umbrella (ADR-008)            | DONE      | —            | resolved    |
+| mt#1387 | Cascade-defense convergence checklist in skill     | DONE      | —            | resolved    |
+| mt#1228 | PreToolUse hook: block squash on gh api PUT merge  | DONE      | —            | resolved    |
+
+**Bucket summary:**
+
+- **DONE / resolved:** mt#1034, mt#1387, mt#1228 — workaround already retired
+- **IN-REVIEW (structural fix in flight):** mt#1483, mt#1459, mt#1460 — cluster converging
+- **PLANNING (active design):** mt#1073, mt#1551, mt#1543 — moving
+- **TODO (stalled):** mt#1065, mt#1405, mt#1477, mt#1506, mt#1478, mt#1523, mt#1555 — candidates for rollup
 
 ## Sweep Results
 
