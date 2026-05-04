@@ -201,9 +201,10 @@ ${sections}`;
 }
 
 function renderCommonHeader(params: GeneratePromptParams): string {
+  const displayId = normalizeTaskIdForDisplay(params.taskId);
   return `You are working in Minsky session at ${params.sessionDir}. All file paths MUST be absolute paths under this directory.
 
-Task mt#${params.taskId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
+Task ${displayId}: ${params.type.charAt(0).toUpperCase() + params.type.slice(1)} work
 
 ${params.instructions}`;
 }
@@ -216,7 +217,57 @@ Only modify the following files:
 ${scope.map((f) => `- ${f}`).join("\n")}`;
 }
 
+/**
+ * Normalize a taskId to its canonical display form `<project>#<digits>`,
+ * preserving the project prefix so non-`mt` tasks aren't silently rebranded.
+ *
+ * Accepted input forms:
+ *   - numeric (`"1524"`)               → `"mt#1524"` (default project)
+ *   - display (`"mt#1524"`)            → `"mt#1524"`
+ *   - hyphen  (`"mt-1524"`, branch)    → `"mt#1524"`
+ *   - md/gh/etc. (`"md#409"`, `"gh-42"`) → `"md#409"` / `"gh#42"` (project preserved)
+ *   - bare hash (`"#1524"`)            → `"mt#1524"` (no project hint → default)
+ *   - chained prefixes (`"mt#mt#1524"`)→ `"mt#1524"` (last project wins; PR #938 R4)
+ *
+ * Mirrors `TASK_ID_PREFIX_RE` in `pr-conventional-title.ts` which accepts
+ * `<letters>[#-]` for the project prefix.
+ *
+ * The default project (`"mt"`) is used only when the input has no project
+ * hint at all (e.g., the production dispatch path strips `mt#`/`#` upstream,
+ * leaving a bare numeric ID). Inputs that DO carry a project (`md#`, `gh-`,
+ * etc.) are emitted verbatim — silently coercing them to `mt#` would mislead
+ * agents about which task system the work belongs to.
+ */
+const DEFAULT_PROJECT_PREFIX = "mt";
+function normalizeTaskIdForDisplay(taskId: string): string {
+  // Strip ALL chained prefixes; capture the LAST project segment seen so a
+  // caller passing `"md#mt-409"` (unlikely but well-defined) keeps the
+  // innermost project, not the outermost.
+  const projectMatcher = /([a-z]{2,})[#-]/gi;
+  let lastProject: string | undefined;
+  let match: RegExpExecArray | null;
+  // Only consider matches at the start of the string (chained from index 0).
+  let cursor = 0;
+  while ((match = projectMatcher.exec(taskId)) !== null) {
+    if (match.index !== cursor) break;
+    lastProject = match[1]?.toLowerCase();
+    cursor = projectMatcher.lastIndex;
+  }
+  const remainder = taskId.replace(/^(?:[a-z]{2,}[#-]|#)+/i, "");
+  // Validate: the remainder must be a non-empty digit string. Anything else
+  // (empty `mt#`, alpha-suffix `md#abc123`, etc.) means the input wasn't a
+  // recognizable task ID; fall back to the original verbatim so render
+  // output surfaces the malformed input rather than silently emitting
+  // `mt#` or `md#abc123` as if it were a valid display ID (PR #938 R5).
+  if (!/^\d+$/.test(remainder)) {
+    return taskId;
+  }
+  const project = lastProject ?? DEFAULT_PROJECT_PREFIX;
+  return `${project}#${remainder}`;
+}
+
 function renderCommitInstructions(sessionId: string, taskId: string): string {
+  const displayId = normalizeTaskIdForDisplay(taskId);
   return `
 ## Committing Your Work
 
@@ -228,7 +279,7 @@ When your changes are ready, commit using:
 
 After committing, create a PR using:
 - Tool: \`mcp__minsky__session_pr_create\`
-- Parameters: \`task: "mt#${taskId}"\`
+- Parameters: \`task: "${displayId}"\`
 
 Do NOT merge the PR.`;
 }
@@ -245,6 +296,7 @@ function renderSubagentOperatingEnvelope(
   taskId: string,
   readOnly: boolean
 ): string {
+  const displayId = normalizeTaskIdForDisplay(taskId);
   if (readOnly) {
     return `
 ${ENVELOPE_HEADER}
@@ -271,10 +323,10 @@ You have a bounded tool-call budget per dispatch. Recent dispatches have cut off
 
 **Budget awareness.** Commit or hand off *before* you run out, not after. Don't save the checkpoint for the end.
 
-**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use \`wip(mt#${taskId}): <what's done>\` for intermediate commits — the \`wip\` prefix signals in-progress state.
+**Checkpoint cadence.** Commit after each new file ≥150 lines OR after 3 substantive edits. Use a conventional commit type matching the work (\`feat\`/\`fix\`/\`refactor\`/\`docs\`/etc.) and prefix the description with \`partial:\` to signal in-progress state — e.g., \`feat(${displayId}): partial: <what's done>\`. The commit-msg hook rejects \`wip(...)\`; status lives in the description, not the type.
 
 **Graceful exit.** When you sense pressure (output feels constrained, compaction warnings, budget near exhaustion), stop starting new work:
-1. If code is modified, commit with \`wip(mt#${taskId}): <status>\` via \`mcp__minsky__session_commit\`
+1. If code is modified, commit with \`<type>(${displayId}): partial: <status>\` via \`mcp__minsky__session_commit\` (use the type matching the work)
 2. Write a handoff note to \`.minsky/sessions/${sessionId}/handoff.md\` with four fields:
    - **Done:** what shipped this dispatch
    - **In progress:** partial work, with file paths and line ranges
@@ -286,10 +338,11 @@ You have a bounded tool-call budget per dispatch. Recent dispatches have cut off
 }
 
 function renderSessionExecNote(taskId: string): string {
+  const displayId = normalizeTaskIdForDisplay(taskId);
   return `
 ## Running commands in the session
 
-Use \`mcp__minsky__session_exec(task: "mt#${taskId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
+Use \`mcp__minsky__session_exec(task: "${displayId}", command: "<cmd>")\` to run shell commands inside the session workspace (e.g., \`bun test\`, \`bun run format:check\`, \`git status\`). The session directory is resolved automatically — never use \`git -C <path>\` or shell \`cd\` workarounds.`;
 }
 
 interface SkillSectionPlan {

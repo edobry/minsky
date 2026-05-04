@@ -5,6 +5,7 @@
  * Extracted from session.ts as part of modularization effort.
  */
 import { z } from "zod";
+import { CONVENTIONAL_COMMIT_TYPES } from "../../../../domain/git/conventional-commit-types";
 
 /**
  * Common parameter building blocks for session commands
@@ -399,7 +400,7 @@ export const sessionPrCreateCommandParams = {
     required: true,
   },
   type: {
-    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    schema: z.enum(CONVENTIONAL_COMMIT_TYPES),
     description: "Conventional commit type to generate title prefix",
     required: true,
   },
@@ -456,7 +457,7 @@ export const sessionPrEditCommandParams = {
     required: false,
   },
   type: {
-    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    schema: z.enum(CONVENTIONAL_COMMIT_TYPES),
     description: "Conventional commit type to generate prefix when editing (optional)",
     required: false,
   },

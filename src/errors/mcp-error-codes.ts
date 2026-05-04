@@ -9,6 +9,8 @@
  * errors.
  */
 export const McpErrorCode = {
+  /** A commit-msg hook blocked the commit (e.g., non-conventional format). `subprocessOutput` contains the hook stderr. */
+  COMMIT_MSG_FAILED: "COMMIT_MSG_FAILED",
   /** A git merge conflict prevented the operation from completing. */
   CONFLICT: "CONFLICT",
   /** A pre-commit hook blocked the commit. `subprocessOutput` contains the hook stderr. */

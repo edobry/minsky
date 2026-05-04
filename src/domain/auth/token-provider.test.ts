@@ -197,7 +197,11 @@ describe("GitHubAppTokenProvider", () => {
         // Inject a cached token that expires in 3 minutes (below the 5-min threshold)
         // Set expiry to epoch 0 — always in the past, always triggers refresh
         const soonExpiry = new Date(0);
-        (provider as unknown as Record<string, unknown>)["cachedToken"] = {
+        // cachedToken now lives on the implementerClient inside the provider
+        const impl = (provider as unknown as Record<string, unknown>)["implementerClient"] as {
+          _cachedToken: { token: string; expiresAt: Date } | null;
+        };
+        impl._cachedToken = {
           token: "ghs_old_token",
           expiresAt: soonExpiry,
         };
@@ -382,6 +386,354 @@ describe("GitHubAppTokenProvider", () => {
       }
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Acceptance test 1: per-role token isolation (dual-App mode)
+  // When reviewer credentials are configured, implementer and reviewer tokens
+  // come from different App installations.
+  // -------------------------------------------------------------------------
+  describe("getToken — dual-App routing (acceptance test 1)", () => {
+    it("returns different tokens for implementer and reviewer roles when reviewer App configured", async () => {
+      // Implementer App returns "ghs_implementer_token", reviewer App returns "ghs_reviewer_token".
+      const fakeFetch = mock(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.includes("/installations/11111/access_tokens")) {
+          return new Response(JSON.stringify({ token: "ghs_implementer_token" }), { status: 201 });
+        }
+        if (urlStr.includes("/installations/22222/access_tokens")) {
+          return new Response(JSON.stringify({ token: "ghs_reviewer_token" }), { status: 201 });
+        }
+        return new Response("not found", { status: 404 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const provider = new GitHubAppTokenProvider({
+          appId: 10000,
+          installationId: 11111,
+          userToken: "ghp_user",
+          privateKeyLoader: () => TEST_PRIVATE_KEY,
+          reviewerConfig: {
+            appId: 20000,
+            installationId: 22222,
+            privateKeyLoader: () => TEST_PRIVATE_KEY,
+          },
+        });
+
+        const implToken = await provider.getToken("implementer");
+        const reviewerToken = await provider.getToken("reviewer");
+
+        expect(implToken).toBe("ghs_implementer_token");
+        expect(reviewerToken).toBe("ghs_reviewer_token");
+        // They must differ — different App identities
+        expect(implToken).not.toBe(reviewerToken);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Acceptance test 2: single-App fallback when reviewer config is absent
+  // Both roles must return the same implementer token without error.
+  // -------------------------------------------------------------------------
+  describe("getToken — single-App fallback (acceptance test 2)", () => {
+    it("both roles return the same token when reviewer config is absent", async () => {
+      const SINGLE_APP_TOKEN = "ghs_single_app_token";
+      const fakeFetch = mock(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.includes("/access_tokens")) {
+          return new Response(JSON.stringify({ token: SINGLE_APP_TOKEN }), { status: 201 });
+        }
+        return new Response("not found", { status: 404 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        // No reviewerConfig supplied — single-App mode
+        const provider = makeProvider();
+
+        const implToken = await provider.getToken("implementer");
+        // The cache means only 1 HTTP call happened; reviewer falls back to same client.
+        const reviewerToken = await provider.getToken("reviewer");
+
+        expect(implToken).toBe(SINGLE_APP_TOKEN);
+        expect(reviewerToken).toBe(SINGLE_APP_TOKEN);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Acceptance test 3: cache isolation per role
+  // Each role maintains its own cache; a cache hit for one role must not
+  // suppress a fetch for the other role.
+  // -------------------------------------------------------------------------
+  describe("getToken — cache isolation per role (acceptance test 3)", () => {
+    it("caches tokens independently per role in dual-App mode", async () => {
+      const IMPL_CACHED_TOKEN = "ghs_impl_cached";
+      const REVIEWER_CACHED_TOKEN = "ghs_reviewer_cached";
+      let implFetchCount = 0;
+      let reviewerFetchCount = 0;
+
+      const fakeFetch = mock(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.includes("/installations/33333/access_tokens")) {
+          implFetchCount++;
+          return new Response(JSON.stringify({ token: IMPL_CACHED_TOKEN }), { status: 201 });
+        }
+        if (urlStr.includes("/installations/44444/access_tokens")) {
+          reviewerFetchCount++;
+          return new Response(JSON.stringify({ token: REVIEWER_CACHED_TOKEN }), { status: 201 });
+        }
+        return new Response("not found", { status: 404 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const provider = new GitHubAppTokenProvider({
+          appId: 30000,
+          installationId: 33333,
+          userToken: "ghp_user",
+          privateKeyLoader: () => TEST_PRIVATE_KEY,
+          reviewerConfig: {
+            appId: 40000,
+            installationId: 44444,
+            privateKeyLoader: () => TEST_PRIVATE_KEY,
+          },
+        });
+
+        // Each role fetches once, then serves from cache on subsequent calls.
+        const impl1 = await provider.getToken("implementer");
+        const impl2 = await provider.getToken("implementer");
+        const rev1 = await provider.getToken("reviewer");
+        const rev2 = await provider.getToken("reviewer");
+
+        expect(impl1).toBe(IMPL_CACHED_TOKEN);
+        expect(impl2).toBe(IMPL_CACHED_TOKEN);
+        expect(rev1).toBe(REVIEWER_CACHED_TOKEN);
+        expect(rev2).toBe(REVIEWER_CACHED_TOKEN);
+
+        // Exactly one HTTP call per role — cache prevents extra fetches
+        expect(implFetchCount).toBe(1);
+        expect(reviewerFetchCount).toBe(1);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Acceptance test 4: backward-compat — no role arg defaults to implementer
+  // -------------------------------------------------------------------------
+  describe("getToken — backward-compat (acceptance test 4)", () => {
+    it("calling getToken with no role arg returns the implementer token", async () => {
+      const IMPL_DEFAULT_TOKEN = "ghs_impl_default";
+      const REVIEWER_DEFAULT_TOKEN = "ghs_reviewer_default";
+      const fakeFetch = mock(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.includes("/installations/55555/access_tokens")) {
+          return new Response(JSON.stringify({ token: IMPL_DEFAULT_TOKEN }), { status: 201 });
+        }
+        if (urlStr.includes("/installations/66666/access_tokens")) {
+          return new Response(JSON.stringify({ token: REVIEWER_DEFAULT_TOKEN }), { status: 201 });
+        }
+        return new Response("not found", { status: 404 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const provider = new GitHubAppTokenProvider({
+          appId: 50000,
+          installationId: 55555,
+          userToken: "ghp_user",
+          privateKeyLoader: () => TEST_PRIVATE_KEY,
+          reviewerConfig: {
+            appId: 60000,
+            installationId: 66666,
+            privateKeyLoader: () => TEST_PRIVATE_KEY,
+          },
+        });
+
+        // No role argument — must behave identically to "implementer"
+        const tokenNoRole = await provider.getToken();
+        const tokenImplicit = await provider.getToken("implementer");
+
+        expect(tokenNoRole).toBe(IMPL_DEFAULT_TOKEN);
+        expect(tokenImplicit).toBe(IMPL_DEFAULT_TOKEN);
+        // Both come from the implementer installation — not the reviewer installation
+        expect(tokenNoRole).not.toBe(REVIEWER_DEFAULT_TOKEN);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // expires_at honoured: cache expiry comes from GitHub's response, not a
+  // hardcoded 1-hour assumption. (mt#1509 R1 BLOCKING fix.)
+  // -------------------------------------------------------------------------
+  describe("getToken — expires_at honoured", () => {
+    it("uses GitHub's expires_at timestamp for the cache entry", async () => {
+      // GitHub policy can issue tokens with a shorter window than 1h. Use a
+      // fixed reference point so we don't need wall-clock arithmetic at test time.
+      const REFERENCE_NOW = 1_750_000_000_000;
+      const githubExpiry = new Date(REFERENCE_NOW + 30 * 60 * 1000).toISOString();
+
+      const fakeFetch = mock(async () => {
+        return new Response(
+          JSON.stringify({ token: "ghs_short_lived", expires_at: githubExpiry }),
+          { status: 201 }
+        );
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const provider = makeProvider();
+        await provider.getToken();
+        const cached = (
+          provider as unknown as { implementerClient: { _cachedToken: { expiresAt: Date } | null } }
+        ).implementerClient._cachedToken;
+
+        if (cached === null) throw new Error("expected cached token to be set");
+        // The cached expiry should match GitHub's timestamp exactly (parsed back from ISO).
+        expect(cached.expiresAt.getTime()).toBe(Date.parse(githubExpiry));
+      });
+    });
+
+    it("falls back to ~1-hour expiry when expires_at is missing from the response", async () => {
+      const fakeFetch = mock(async () => {
+        return new Response(JSON.stringify({ token: "ghs_no_expiry" }), { status: 201 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const before = Date.now();
+        const provider = makeProvider();
+        await provider.getToken();
+        const after = Date.now();
+        const cached = (
+          provider as unknown as { implementerClient: { _cachedToken: { expiresAt: Date } | null } }
+        ).implementerClient._cachedToken;
+
+        if (cached === null) throw new Error("expected cached token to be set");
+        // Fallback expiry should be ~1 hour from when the fetch resolved.
+        const expiryMs = cached.expiresAt.getTime();
+        expect(expiryMs).toBeGreaterThanOrEqual(before + 60 * 60 * 1000);
+        expect(expiryMs).toBeLessThanOrEqual(after + 60 * 60 * 1000);
+      });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // getServiceIdentity is role-aware: implementer and reviewer Apps return
+  // their own slugs; cache is keyed per-role. (mt#1509 R1 BLOCKING fix.)
+  // -------------------------------------------------------------------------
+  describe("getServiceIdentity — role-aware", () => {
+    it("returns implementer slug for implementer role and reviewer slug for reviewer role", async () => {
+      let implFetchCount = 0;
+      let reviewerFetchCount = 0;
+
+      const fakeFetch = mock(async (url: string | URL | Request) => {
+        const urlStr =
+          typeof url === "string"
+            ? url
+            : url instanceof URL
+              ? url.toString()
+              : (url as Request).url;
+        if (urlStr.endsWith("/app")) {
+          // Differentiate by JWT signed with each App's key — but our mock
+          // can't inspect the JWT, so instead we use installation ID hint:
+          // the test calls getAppInfo only via the per-role client, and the
+          // SingleAppClient returned by clientForRole is the correct one.
+          // Since GitHub's /app endpoint returns the App for the JWT issuer,
+          // we just count which call came when by call order.
+          if (implFetchCount + reviewerFetchCount === 0) {
+            implFetchCount++;
+            return new Response(JSON.stringify({ slug: "minsky-ai" }), { status: 200 });
+          }
+          reviewerFetchCount++;
+          return new Response(JSON.stringify({ slug: "minsky-reviewer" }), { status: 200 });
+        }
+        return new Response("not found", { status: 404 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const provider = new GitHubAppTokenProvider({
+          appId: 70000,
+          installationId: 77777,
+          userToken: "ghp_user",
+          privateKeyLoader: () => TEST_PRIVATE_KEY,
+          reviewerConfig: {
+            appId: 80000,
+            installationId: 88888,
+            privateKeyLoader: () => TEST_PRIVATE_KEY,
+          },
+        });
+
+        const implIdentity = await provider.getServiceIdentity("implementer");
+        const reviewerIdentity = await provider.getServiceIdentity("reviewer");
+
+        expect(implIdentity).toEqual({ login: "minsky-ai[bot]", type: "app" });
+        expect(reviewerIdentity).toEqual({ login: "minsky-reviewer[bot]", type: "app" });
+
+        // Each role fetched exactly once — per-role cache, not shared.
+        expect(implFetchCount).toBe(1);
+        expect(reviewerFetchCount).toBe(1);
+      });
+    });
+
+    it("caches identity per-role independently", async () => {
+      let totalFetchCount = 0;
+      const fakeFetch = mock(async () => {
+        totalFetchCount++;
+        return new Response(JSON.stringify({ slug: "minsky-ai" }), { status: 200 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        const provider = new GitHubAppTokenProvider({
+          appId: 90000,
+          installationId: 99999,
+          userToken: "ghp_user",
+          privateKeyLoader: () => TEST_PRIVATE_KEY,
+          reviewerConfig: {
+            appId: 90001,
+            installationId: 99998,
+            privateKeyLoader: () => TEST_PRIVATE_KEY,
+          },
+        });
+
+        // 2 implementer calls + 2 reviewer calls = exactly 2 fetches (one per role)
+        await provider.getServiceIdentity("implementer");
+        await provider.getServiceIdentity("implementer");
+        await provider.getServiceIdentity("reviewer");
+        await provider.getServiceIdentity("reviewer");
+
+        expect(totalFetchCount).toBe(2);
+      });
+    });
+
+    it("falls back to implementer identity when reviewer requested but not configured", async () => {
+      const fakeFetch = mock(async () => {
+        return new Response(JSON.stringify({ slug: "minsky-ai" }), { status: 200 });
+      }) as unknown as typeof fetch;
+
+      await withFetch(fakeFetch, async () => {
+        // No reviewerConfig — single-App mode
+        const provider = makeProvider();
+
+        const reviewerIdentity = await provider.getServiceIdentity("reviewer");
+        expect(reviewerIdentity).toEqual({ login: "minsky-ai[bot]", type: "app" });
+      });
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -454,5 +806,31 @@ describe("createTokenProvider", () => {
     const provider = createTokenProvider(config, "ghp_fallback");
     expect(await provider.getServiceToken()).toBe("ghp_fallback");
     expect(await provider.getUserToken()).toBe("ghp_fallback");
+  });
+
+  it("returns GitHubAppTokenProvider with reviewer routing when reviewer.serviceAccount is configured", () => {
+    const config: GitHubConfig = {
+      token: "ghp_user",
+      serviceAccount: {
+        type: "github-app",
+        appId: 10001,
+        privateKeyFile: "~/.config/minsky/minsky-app.pem",
+        installationId: 77777,
+      },
+      reviewer: {
+        serviceAccount: {
+          type: "github-app",
+          appId: 20001,
+          privateKeyFile: "~/.config/minsky/minsky-reviewer.pem",
+          installationId: 88888,
+        },
+      },
+    };
+
+    // The factory should produce a GitHubAppTokenProvider with reviewer credentials wired.
+    // The dual-App routing itself is tested in the GitHubAppTokenProvider suite above.
+    const provider = createTokenProvider(config, "ghp_user");
+    expect(provider).toBeInstanceOf(GitHubAppTokenProvider);
+    expect(provider.isServiceAccountConfigured()).toBe(true);
   });
 });
