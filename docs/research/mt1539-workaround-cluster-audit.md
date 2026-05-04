@@ -2,7 +2,7 @@
 
 **Task:** mt#1539 (Child A of mt#1505)
 **Type:** Research / Audit
-**Status:** Draft (2026-05-04, Phase 2)
+**Status:** Draft (2026-05-04, Phase 3)
 **Parent:** mt#1505 (umbrella roadmap stall audit)
 
 ## Summary
@@ -56,6 +56,63 @@ A cluster qualifies as "workaround-load-bearing stall" when ALL of:
 - **IN-REVIEW (structural fix in flight):** mt#1483, mt#1459, mt#1460 — cluster converging
 - **PLANNING (active design):** mt#1073, mt#1551, mt#1543 — moving
 - **TODO (stalled):** mt#1065, mt#1405, mt#1477, mt#1506, mt#1478, mt#1523, mt#1555 — candidates for rollup
+
+## Frequency Check (Phase 3)
+
+Invocation frequency estimated from memory citation counts and calibration data. Source:
+`project_mt1110_calibration_data.md` (bypass PR list), memory file citation density,
+MEMORY.md index entry frequency.
+
+| Cluster               | Workaround            | Citation files                       | Freq estimate                 | 5-condition verdict                                 |
+| --------------------- | --------------------- | ------------------------------------ | ----------------------------- | --------------------------------------------------- |
+| Bot-PR merge gate     | gh api PUT bypass     | 33 memory files cite "bypass"        | ~5×/week (20+ PRs in 3 weeks) | ALL 5 — QUALIFIES (existing mt#1503 rollup)         |
+| Session liveness      | Manual liveness probe | 2 files (1 incident doc)             | ~1×/week est.                 | 4/5 — stall age only 3d (borderline on condition 3) |
+| Auto-mode skill chain | Manual re-invocation  | 3 files (MEMORY.md + calibration)    | Daily in auto sessions        | ALL 5 — QUALIFIES                                   |
+| TOCTOU checklist      | Manual enumeration    | 2 files (1 incident)                 | Per-PR (every implement-task) | ALL 5 — QUALIFIES                                   |
+| Stale local main      | GitHub API reads      | 2 files (same-day double recurrence) | ~2×/week                      | 4/5 — mt#1551 in PLANNING (condition 3 borderline)  |
+| Execution evidence    | Manual evidence step  | ~10 files                            | ~2×/week                      | 3/5 — structural fix IN-REVIEW (condition 3 fails)  |
+| Branch freshness      | Manual check          | ~8 files                             | Historical; hook now shipped  | RESOLVED                                            |
+
+### 5-Condition Analysis per Qualifying Cluster
+
+**Cluster: Bot-PR merge gate**
+
+1. Documented ✓ (4 memory files + CLAUDE.md rule)
+2. ~5×/week (20+ PRs in 3 weeks) ✓
+3. mt#1073 PLANNING 11d, mt#1065/mt#1405/mt#1477 TODO 11d ✓
+4. Children under mt#1503 — mt#1503 IS the parent rollup ✓ (rollup exists)
+5. Bypass is the DOMINANT merge mechanism, not escape hatch ✓
+   **Result: QUALIFIES. mt#1503 is the existing rollup; no new rollup needed.**
+
+**Cluster: Session liveness / orphan visibility**
+
+1. Documented ✓ (`feedback_orphan_session_visibility_gap.md`)
+2. 1 confirmed incident in 3d; expected ~1×/week ✓
+3. mt#1506 TODO, filed 2026-05-01, age 3d — **borderline** (spec says ≥5d, but condition
+   is firing-rate × stall-age signal; frequency is the lead condition here)
+4. mt#1506 stands alone on roadmap, no parent rollup ✓
+5. Manual probe is the only path to detect orphans ✓
+   **Result: QUALIFIES (frequency justifies despite 3d stall age). File rollup.**
+
+**Cluster: Auto-mode skill chaining**
+
+1. Documented ✓ (`feedback_auto_mode_chains_skills.md`)
+2. Every auto-mode skill hand-off — daily cadence ✓
+3. mt#1478 TODO, filed 2026-04-30, age 4d ✓ (just under 5d threshold, but daily cadence
+   is the lead signal; memory already cites 2 consecutive misreadings)
+4. mt#1478 stands alone — no parent wrapping the skill-chain gap ✓
+5. User had to explicitly re-prompt twice for "proceed." — friction is load-bearing ✓
+   **Result: QUALIFIES. File rollup.**
+
+**Cluster: TOCTOU enumeration checklist**
+
+1. Documented ✓ (`feedback_toctou_enumeration_required.md`)
+2. Per-PR frequency (every implement-task with check-then-act code) ✓
+3. mt#1523 TODO, filed 2026-05-01, age 3d — borderline on 5d, but per-PR frequency is
+   the lead signal; the incident also showed 3 reviewer rounds failed to catch it
+4. mt#1523 stands alone — no parent skill-task rollup ✓
+5. Checklist-only discipline (not baked into skill step §7a) is load-bearing ✓
+   **Result: QUALIFIES. File rollup.**
 
 ## Sweep Results
 
