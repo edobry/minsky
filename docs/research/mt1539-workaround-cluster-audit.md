@@ -2,7 +2,7 @@
 
 **Task:** mt#1539 (Child A of mt#1505)
 **Type:** Research / Audit
-**Status:** Draft (2026-05-04, Phase 3)
+**Status:** Final (2026-05-04)
 **Parent:** mt#1505 (umbrella roadmap stall audit)
 
 ## Summary
@@ -11,8 +11,7 @@ Shape-A diagnostic audit: clusters where a documented workaround fires routinely
 unblockers stay stalled. Generalizes the mt#1503 pattern (gh api PUT bypass for bot PRs became the
 dominant merge mechanism over 3 weeks despite 7 structural unblockers in TODO/PLANNING).
 
-**Findings:** 5 qualifying clusters identified. 3 rollup tasks filed. 2 deferred (tracking tasks
-already in IN-REVIEW, not fully stalled). The mt#1035 implementation gap (anchor case) is closed
+**Findings:** 5 qualifying clusters identified. 3 rollup tasks filed (mt#1563, mt#1564, mt#1565). 2 deferred (tracking tasks already in IN-REVIEW or active PLANNING, not fully stalled). The mt#1035 implementation gap (anchor case) is closed
 by sibling tasks mt#1541 and mt#1543 filed during the mt#1508 planning session.
 
 ## Diagnostic Shape (5 Conditions)
@@ -208,11 +207,11 @@ as a first-class domain concept"). No parent rollup; mt#1506 appears isolated on
 **Criteria check:** (1) documented ✓, (2) fired ≥1× in 3d ✓, (3) mt#1506 in TODO ≥3d ✓,
 (4) no sibling cluster parent ✓, (5) becoming routine ✓. **QUALIFIES.**
 
-**Action:** Filed mt#XXXX rollup (see Phase 4).
+**Action:** Filed mt#1563 rollup (see Phase 4).
 
 ---
 
-### Cluster 3: Auto-Mode Skill Chaining (firing ~daily)
+### Cluster 3: Auto-Mode Skill Chaining (firing daily)
 
 **Workaround:** Manual re-invocation of next skill after each skill's terminal output. When auto
 mode is active and a skill points to the next skill, agent must be explicitly prompted again.
@@ -227,7 +226,7 @@ Named as a recurrent user-friction point that caused 2 consecutive misreadings o
 **Criteria check:** (1) documented ✓, (2) daily in auto mode ✓, (3) mt#1478 in TODO ≥4d ✓,
 (4) no sibling parent ✓, (5) load-bearing (user must manually re-invoke chain) ✓. **QUALIFIES.**
 
-**Action:** Filed mt#XXXX rollup (see Phase 4).
+**Action:** Filed mt#1564 rollup (see Phase 4).
 
 ---
 
@@ -247,7 +246,7 @@ skill"). No parent rollup visible.
 **Criteria check:** (1) documented ✓, (2) per-PR firing ✓, (3) mt#1523 in TODO ≥3d ✓,
 (4) no sibling parent ✓, (5) load-bearing (checklist not baked into skill) ✓. **QUALIFIES.**
 
-**Action:** Filed mt#XXXX rollup (see Phase 4).
+**Action:** Filed mt#1565 rollup (see Phase 4).
 
 ---
 
@@ -322,13 +321,11 @@ The gap is acknowledged and rollup tasks are filed. No additional rollup needed 
 
 ## Filed Rollups
 
-_(Placeholder — to be filled in Phase 4)_
-
 | Cluster                  | Rollup task | Children wired |
 | ------------------------ | ----------- | -------------- |
-| Session liveness         | mt#XXXX     | mt#1506        |
-| Auto-mode skill chaining | mt#XXXX     | mt#1478        |
-| TOCTOU checklist         | mt#XXXX     | mt#1523        |
+| Session liveness         | mt#1563     | mt#1506        |
+| Auto-mode skill chaining | mt#1564     | mt#1478        |
+| TOCTOU checklist         | mt#1565     | mt#1523        |
 
 ## Deferred Candidates
 
