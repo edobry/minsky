@@ -75,6 +75,17 @@
             "statusMessage": "Checking for parallel work..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__minsky__tasks_status_set",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tasks-status-set-guard.ts",
+            "timeout": 10,
+            "statusMessage": "Validating task status transition..."
+          }
+        ]
       }
     ],
     "SessionStart": [
