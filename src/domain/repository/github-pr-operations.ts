@@ -12,6 +12,7 @@ import { Octokit } from "@octokit/rest";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { execGitWithTimeout } from "../../utils/git-exec";
+import type { TokenRole } from "../auth/token-provider";
 import type { SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "./index";
 import {
@@ -30,9 +31,26 @@ import { SessionStatus } from "../session/types";
 export interface GitHubContext {
   owner: string;
   repo: string;
-  getToken: () => Promise<string>;
+  /**
+   * Token accessor. Optional `role` selects which service-account identity
+   * provides the token: "implementer" (default) uses the minsky-ai App;
+   * "reviewer" uses the minsky-reviewer App when configured. When the
+   * reviewer App is not configured, this method silently falls back to the
+   * implementer App's token — callers that must enforce a strict identity
+   * (e.g., APPROVE / REQUEST_CHANGES on a self-authored bot PR) MUST gate
+   * on `isRoleConfigured("reviewer")` first.
+   */
+  getToken: (role?: TokenRole) => Promise<string>;
   /** Optional user-token accessor for privileged fallback on permission failures. */
   getUserToken?: () => Promise<string>;
+  /**
+   * Strict per-role configuration check. Returns true iff the requested role
+   * has dedicated credentials (i.e., its own App configured). Distinct from
+   * `getToken(role)`, which silently falls back. Optional for backwards
+   * compatibility with older test stubs that don't supply it; production
+   * code paths populated by `requireGitHubContext` always include it.
+   */
+  isRoleConfigured?: (role: TokenRole) => boolean;
 }
 
 /**
