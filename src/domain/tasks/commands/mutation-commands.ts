@@ -104,10 +104,16 @@ export async function setTaskStatusFromParams(
       );
     }
 
-    // Validate the status transition
-    if (task.status) {
-      validateStatusTransition(task.status as TaskStatus, validParams.status as TaskStatus);
+    // Validate the status transition. A falsy current status indicates a backend bug —
+    // refuse to transition rather than silently skipping validation (mt#1504 ride-along).
+    if (!task.status) {
+      throw new ValidationError(
+        `Task ${validParams.taskId} has no current status — backend returned an empty/missing status field. Refusing to set status until the read returns a valid value.`,
+        undefined,
+        undefined
+      );
     }
+    validateStatusTransition(task.status as TaskStatus, validParams.status as TaskStatus);
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);

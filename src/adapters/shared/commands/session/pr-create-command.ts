@@ -21,6 +21,7 @@ import { sessionPrCreateCommandParams } from "./session-parameters";
 import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
 import type { SessionPrCreateDependencies } from "../../../../domain/session/commands/pr-create-subcommand";
 import { composeConventionalTitle } from "./pr-conventional-title";
+import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "../../../../domain/git/conventional-commit-types";
 import { DrizzleAskRepository } from "../../../../domain/ask/repository";
 import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
 import type { PersistenceProvider } from "../../../../domain/persistence/types";
@@ -283,7 +284,7 @@ export async function executeSessionPrCreate(
       }
     } else {
       throw new ValidationError(
-        "--type is required for session pr create. Provide one of: feat, fix, docs, style, refactor, perf, test, chore"
+        `--type is required for session pr create. Provide one of: ${CONVENTIONAL_COMMIT_TYPES_DISPLAY}`
       );
     }
 
