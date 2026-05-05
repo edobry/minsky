@@ -1,13 +1,14 @@
 /**
- * Window CLI commands — mt#1489.
+ * Window CLI commands — mt#1489, mt#1491.
  *
- * Surfaces the attention-window primitive (mt#1411 ADR) as four shared
+ * Surfaces the attention-window primitive (mt#1411 ADR) as five shared
  * commands that are registered in the shared command registry:
  *
  *   window.list    — show configured windows + current state
  *   window.open    — explicitly open a window; fires NOTIFY event
  *   window.close   — explicitly close a window; fires NOTIFY event
- *   window.status  — show currently-open window(s)
+ *   window.status  — show currently-open window(s) with pending count
+ *   window.service — load cohort for a window, render digest, accept responses
  *
  * Commands are v0 file-backed: no DB `attention_windows` table exists yet.
  * Window "open" state is tracked in-process via the `OpenWindowRegistry`
@@ -21,6 +22,7 @@
  */
 
 import { z } from "zod";
+import { createInterface as createReadlineInterface } from "node:readline";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../../command-registry";
 import { log } from "../../../../utils/logger";
 import {
@@ -37,6 +39,10 @@ import {
 } from "../../../../domain/ask/attention-windows/notify";
 import type { AttentionWindowConfig } from "../../../../domain/ask/attention-windows/config";
 import type { AppContainerInterface } from "../../../../composition/types";
+import type { Ask, AskKind } from "../../../../domain/ask/types";
+import type { AskRepository } from "../../../../domain/ask/repository";
+import { pendingAsksForWindow } from "../../../../domain/ask/pending-asks-for-window";
+import { buildAskRepository } from "../asks";
 
 // ---------------------------------------------------------------------------
 // In-process open-window registry (v0; no DB table)
@@ -269,6 +275,557 @@ export interface WindowListResult {
 export interface WindowStatusResult {
   openWindows: OpenWindowState[];
   count: number;
+  /** Per-window pending ask counts (only present for open windows). */
+  pendingByWindow?: Record<string, number>;
+}
+
+// ---------------------------------------------------------------------------
+// window.service — types and domain logic (mt#1491)
+// ---------------------------------------------------------------------------
+
+/** Result returned by `serviceWindow` / the `window.service` command. */
+export interface WindowServiceResult {
+  windowKey: string;
+  responded: number;
+  skipped: number;
+  remaining: number;
+}
+
+/**
+ * Stdin reader interface — injectable for tests.
+ *
+ * The default implementation wraps `process.stdin`. Tests inject a fake that
+ * returns a predetermined sequence of lines.
+ *
+ * `close()` is optional — implementations that hold long-lived resources
+ * (e.g. `readline.createInterface`) should release them when the consumer
+ * is finished. `serviceWindow` calls `close()` exactly once on exit
+ * (PR #943 R1 NON-BLOCKING #2).
+ */
+export interface StdinReader {
+  readLine(): Promise<string | null>;
+  close?(): void;
+}
+
+/**
+ * Parse an operator response token from the service loop.
+ *
+ * Accepted formats:
+ *   `<N><letter>` — respond to ask N with the option identified by letter
+ *                   (A = first option, B = second, …)
+ *   `skip <N>`    — defer ask N without responding
+ *   `done`        — exit the service loop early
+ *
+ * Returns `null` if the input does not match any recognised pattern.
+ */
+export type ServiceCommand =
+  | { type: "respond"; index: number; optionLetter: string }
+  | { type: "skip"; index: number }
+  | { type: "done" };
+
+export function parseServiceCommand(raw: string): ServiceCommand | null {
+  const trimmed = raw.trim().toLowerCase();
+
+  if (trimmed === "done") {
+    return { type: "done" };
+  }
+
+  const skipMatch = /^skip\s+(\d+)$/.exec(trimmed);
+  if (skipMatch) {
+    const idx = parseInt(skipMatch[1] ?? "0", 10);
+    return { type: "skip", index: idx };
+  }
+
+  // `<N><letter>` — e.g. "1a", "2B", "3c"
+  const respondMatch = /^(\d+)([a-z])$/.exec(trimmed);
+  if (respondMatch) {
+    const idx = parseInt(respondMatch[1] ?? "0", 10);
+    const letter = (respondMatch[2] ?? "a").toUpperCase();
+    return { type: "respond", index: idx, optionLetter: letter };
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Render helpers — plain text + ANSI; no Markdown or extra dependencies.
+// ---------------------------------------------------------------------------
+
+const SEPARATOR = "─".repeat(42); // box-drawing horizontal line
+
+/**
+ * Render a single-line option entry.
+ *
+ * Format: `A) <label> [— description]`
+ *
+ * The first option in a `direction.decide` Ask is conventionally the
+ * recommended option and is marked with `(recommended)` in the label if
+ * the label or description does not already say so. This satisfies the
+ * humility checklist item: "make a recommendation."
+ */
+function renderOption(
+  letter: string,
+  label: string,
+  description?: string,
+  isFirst?: boolean
+): string {
+  const rec = isFirst && !label.toLowerCase().includes("recommended") ? " (recommended)" : "";
+  const base = `    ${letter}) ${label}${rec}`;
+  return description ? `${base} — ${description}` : base;
+}
+
+/**
+ * Render per-Ask kind-appropriate affordances.
+ *
+ * Satisfies the humility 5-item checklist at the per-Ask level:
+ *   1. Question (Q:)
+ *   2. Options inline (A), B), …)
+ *   3. Drivers (from contextRefs labels / metadata.drivers)
+ *   4. Recommendation marker (first option marked recommended)
+ *   5. What-not-needed (shown as "Not needed: …" when `metadata.notNeeded` is set)
+ */
+export function renderAsk(index: number, ask: Ask): string {
+  const lines: string[] = [];
+
+  // Header: index, kind, created time, estimated cost
+  const createdTime = new Date(ask.createdAt).toTimeString().slice(0, 5);
+  const costLabel =
+    ask.kind === "direction.decide" || ask.kind === "authorization.approve" ? "medium" : "quick";
+  lines.push(`[${index}] ${ask.kind} · created ${createdTime} · ${costLabel}`);
+
+  // 1. Question
+  lines.push(`    Q: ${ask.question}`);
+
+  // 2. Options inline (for decision-like kinds).
+  //
+  // PR #943 R2 BLOCKING #3: cap rendered options at 26 (A–Z) since the
+  // parser (`parseServiceCommand`) only accepts a single-letter A–Z suffix.
+  // Rendering beyond Z would surface unselectable items. v1 limit; revisit
+  // when an Ask kind legitimately needs >26 options (none today).
+  if (ask.options && ask.options.length > 0) {
+    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const renderable = Math.min(ask.options.length, letters.length);
+    for (let i = 0; i < renderable; i++) {
+      const opt = ask.options[i];
+      const letter = letters[i];
+      // Both indexed accesses are within renderable, which is bounded by both
+      // arrays' lengths above; the explicit guard satisfies strict mode.
+      if (!opt || !letter) continue;
+      const isFirst = i === 0;
+      const label = String(opt.label);
+      const description = opt.description;
+      lines.push(renderOption(letter, label, description, isFirst));
+    }
+    if (ask.options.length > letters.length) {
+      const overflow = ask.options.length - letters.length;
+      lines.push(
+        `    (... and ${overflow} more option${overflow === 1 ? "" : "s"} not selectable in v1; see Cockpit render for full set)`
+      );
+    }
+  } else if (ask.kind === "authorization.approve") {
+    lines.push("    A) Approve");
+    lines.push("    B) Deny");
+  } else if (ask.kind === "quality.review") {
+    lines.push("    A) Approve");
+    lines.push("    B) Request changes");
+  }
+
+  // 3. Drivers — extracted from contextRefs descriptions
+  const drivers: string[] = [];
+  if (ask.contextRefs && ask.contextRefs.length > 0) {
+    drivers.push(
+      ...ask.contextRefs.filter((r) => r.description).map((r) => r.description as string)
+    );
+  }
+  if (ask.metadata?.["drivers"] && Array.isArray(ask.metadata["drivers"])) {
+    drivers.push(...(ask.metadata["drivers"] as string[]));
+  }
+  if (drivers.length > 0) {
+    lines.push(`    Drivers: ${drivers.join(", ")}`);
+  }
+
+  // 5. What not needed — items the responder does not need to consider
+  if (ask.metadata?.["notNeeded"]) {
+    lines.push(`    Not needed: ${String(ask.metadata["notNeeded"])}`);
+  }
+
+  // Reply affordance line.
+  //
+  // PR #943 R2 BLOCKING #1: tokens MUST embed the Ask's display `index`
+  // (not the option ordinal `i + 1`), since the service loop parses
+  // `<askIndex><letter>` as "respond to ask N with option letter". A token
+  // like `1A` always targets Ask 1; rendering `1A | 2B` for Ask #3 would
+  // mislead operators into closing the wrong Ask.
+  if (ask.options && ask.options.length > 0) {
+    // Cap at 26 to match the option-render cap (PR #943 R2 BLOCKING #3).
+    const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const selectable = Math.min(ask.options.length, ALPHABET.length);
+    const letters = Array.from({ length: selectable }, (_, i) => `${index}${ALPHABET[i]}`).join(
+      " | "
+    );
+    lines.push(`    Reply: ${letters} | skip ${index} | done`);
+  } else if (ask.kind === "authorization.approve") {
+    lines.push(`    Reply: ${index}A (approve) | ${index}B (deny) | skip ${index} | done`);
+  } else if (ask.kind === "quality.review") {
+    lines.push(`    Reply: ${index}A (approve) | ${index}B (changes) | skip ${index} | done`);
+  } else {
+    // PR #943 R3 BLOCKING #1: kinds outside the v1 CLI-respondable set
+    // (coordination.notify, capability.escalate, information.retrieve,
+    // stuck.unblock) have no defined response affordance from CLI per spec
+    // (mt#1147 will handle them via Cockpit). Render skip-only so operators
+    // can defer them without recording a junk payload; serviceWindow rejects
+    // respond commands for these kinds with a clear "use Cockpit" message.
+    lines.push(`    Reply: skip ${index} | done    (use Cockpit to respond — not in CLI v1)`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * The set of Ask kinds whose response payloads are defined for CLI v1.
+ *
+ * Other kinds render a skip-only affordance and reject `<N><letter>` input
+ * (PR #943 R3 BLOCKING #1).
+ */
+const CLI_RESPONDABLE_KINDS = new Set<AskKind>([
+  "direction.decide",
+  "authorization.approve",
+  "quality.review",
+]);
+
+/**
+ * @returns true when `ask` can be responded to via CLI v1.
+ */
+function isCliRespondable(ask: Ask): boolean {
+  if (ask.options && ask.options.length > 0) return true;
+  return CLI_RESPONDABLE_KINDS.has(ask.kind);
+}
+
+/**
+ * Render the full cohort digest.
+ *
+ * Layout:
+ *   <window-title> (<N> pending)
+ *   ────────────────────────────
+ *   ## <task-id> (<task-title>) — <N> decisions
+ *   [1] ... (first ask)
+ *   [2] ... (second ask)
+ *   ...
+ *   Window closes <time> · respond [N | NA | skip N | done]
+ */
+export function renderCohortDigest(
+  windowKey: string,
+  asks: Ask[],
+  openState?: OpenWindowState,
+  now: Date = new Date()
+): string {
+  if (asks.length === 0) {
+    return `No pending asks for window "${windowKey}".`;
+  }
+
+  const lines: string[] = [];
+
+  // Header
+  const dateStr = now.toISOString().slice(0, 10);
+  const timeStr = now.toTimeString().slice(0, 5);
+  lines.push(`${windowKey} — ${dateStr} ${timeStr} (${asks.length} pending)`);
+  lines.push(SEPARATOR);
+  lines.push("");
+
+  // Group by parentTaskId.
+  //
+  // Section ordering (PR #943 R1 BLOCKING #2): the input `asks` array is
+  // assumed to be sorted by the caller (kind-priority × deadline × createdAt;
+  // see `compareAskPriority`). We preserve that ordering at the section level
+  // by walking `asks` in order and tracking first-occurrence per parentTaskId
+  // — the section whose top-priority ask appears earliest is rendered first.
+  // Within each section, asks retain their input order (also priority-sorted).
+  // Indices ([1], [2], ...) follow the rendered traversal, NOT the raw input
+  // order — i.e., a higher-priority ask may bear a higher index if a sibling
+  // task whose top ask was earlier in the sort came first.
+  const byTask = new Map<string, Ask[]>();
+  const sectionOrder: string[] = [];
+  for (const ask of asks) {
+    const taskId = ask.parentTaskId ?? "(no task)";
+    if (!byTask.has(taskId)) {
+      sectionOrder.push(taskId);
+    }
+    const group = byTask.get(taskId) ?? [];
+    group.push(ask);
+    byTask.set(taskId, group);
+  }
+
+  let globalIndex = 1;
+  for (const taskId of sectionOrder) {
+    const taskAsks = byTask.get(taskId) ?? [];
+    const countLabel = taskAsks.length === 1 ? "1 decision" : `${taskAsks.length} decisions`;
+    lines.push(`## ${taskId} — ${countLabel}`);
+    lines.push("");
+    for (const ask of taskAsks) {
+      lines.push(renderAsk(globalIndex, ask));
+      lines.push("");
+      globalIndex++;
+    }
+  }
+
+  // Footer reply hint — use a generic placeholder rather than concrete A/B
+  // letters, since the available letter range varies per Ask. Operators rely
+  // on the per-Ask `Reply:` lines (rendered above) for the actual valid set
+  // (PR #943 R1 NON-BLOCKING #1).
+  if (openState) {
+    const closeTime = openState.expectedCloseAt.toTimeString().slice(0, 5);
+    lines.push(`Window closes ${closeTime} · respond [N<letter> | skip N | done]`);
+  } else {
+    lines.push(`respond [N<letter> | skip N | done]`);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Core domain function for the window.service command.
+ *
+ * Loads the pending-ask cohort for `windowKey`, renders the digest, reads
+ * operator commands line-by-line, and propagates responses to Ask state
+ * via `repo.respondAndClose`.
+ *
+ * Returns a structured result with counts of responded / skipped / remaining.
+ *
+ * @param repo           Ask repository (injectable — real or fake for tests).
+ * @param windowKey      The window key to service.
+ * @param stdinReader    Line-based stdin reader (injectable for tests).
+ * @param outputWriter   Stdout writer function (injectable for tests).
+ * @param nowMs          Current timestamp (injectable for tests).
+ * @param loadCohort     Cohort loader (injectable for tests; defaults to pendingAsksForWindow).
+ * @param openState      The open-window registry state (optional; used for close-time display).
+ */
+export async function serviceWindow(
+  repo: AskRepository,
+  windowKey: string,
+  stdinReader: StdinReader,
+  outputWriter: (text: string) => void,
+  nowMs: number = Date.now(),
+  loadCohort: (
+    repo: AskRepository,
+    windowKey: string,
+    nowMs: number
+  ) => Promise<Ask[]> = pendingAsksForWindow,
+  openState?: OpenWindowState
+): Promise<WindowServiceResult> {
+  // Wrap the body in try/finally so stdin readers that hold long-lived
+  // resources (readline.createInterface, real stdin handle) are released
+  // exactly once on exit, regardless of which path returned the result
+  // (PR #943 R1 NON-BLOCKING #2).
+  try {
+    return await serviceWindowImpl(
+      repo,
+      windowKey,
+      stdinReader,
+      outputWriter,
+      nowMs,
+      loadCohort,
+      openState
+    );
+  } finally {
+    stdinReader.close?.();
+  }
+}
+
+async function serviceWindowImpl(
+  repo: AskRepository,
+  windowKey: string,
+  stdinReader: StdinReader,
+  outputWriter: (text: string) => void,
+  nowMs: number,
+  loadCohort: (repo: AskRepository, windowKey: string, nowMs: number) => Promise<Ask[]>,
+  openState: OpenWindowState | undefined
+): Promise<WindowServiceResult> {
+  const asks = await loadCohort(repo, windowKey, nowMs);
+
+  if (asks.length === 0) {
+    outputWriter(`No pending asks for window "${windowKey}".`);
+    return { windowKey, responded: 0, skipped: 0, remaining: 0 };
+  }
+
+  const digest = renderCohortDigest(windowKey, asks, openState, new Date(nowMs));
+  outputWriter(digest);
+
+  // Track which asks have been handled (responded or skipped) in this session.
+  const handledSet = new Set<number>(); // 1-based indices
+
+  let responded = 0;
+  let skipped = 0;
+
+  // Service loop
+  while (handledSet.size < asks.length) {
+    const raw = await stdinReader.readLine();
+    if (raw === null) {
+      // EOF — treat as "done"
+      break;
+    }
+
+    const cmd = parseServiceCommand(raw);
+    if (cmd === null) {
+      outputWriter(`Unrecognised input: "${raw.trim()}". Use N<letter> | skip N | done`);
+      continue;
+    }
+
+    if (cmd.type === "done") {
+      break;
+    }
+
+    if (cmd.type === "skip") {
+      const idx = cmd.index;
+      if (idx < 1 || idx > asks.length) {
+        outputWriter(`Index ${idx} out of range (1–${asks.length}).`);
+        continue;
+      }
+      if (handledSet.has(idx)) {
+        outputWriter(`Ask ${idx} already handled.`);
+        continue;
+      }
+      handledSet.add(idx);
+      skipped++;
+      outputWriter(`Ask ${idx} deferred.`);
+      continue;
+    }
+
+    // cmd.type === "respond"
+    const idx = cmd.index;
+    if (idx < 1 || idx > asks.length) {
+      outputWriter(`Index ${idx} out of range (1–${asks.length}).`);
+      continue;
+    }
+    if (handledSet.has(idx)) {
+      outputWriter(`Ask ${idx} already handled.`);
+      continue;
+    }
+
+    const ask = asks[idx - 1];
+    if (!ask) {
+      outputWriter(`Internal error: ask ${idx} not found.`);
+      continue;
+    }
+
+    // Map letter to option value (A = index 0, B = index 1, …)
+    const letterIndex = cmd.optionLetter.charCodeAt(0) - "A".charCodeAt(0);
+    let payloadValue: unknown;
+
+    // PR #943 R3 BLOCKING #1: reject respond commands for non-v1 kinds.
+    // These kinds render a skip-only affordance per renderAsk; surface the
+    // same "use Cockpit" guidance to keep the contract consistent.
+    if (!isCliRespondable(ask)) {
+      outputWriter(
+        `Ask ${idx} (${ask.kind}) is not respondable from CLI v1. Use \`skip ${idx}\` or \`done\`; respond via Cockpit when it ships.`
+      );
+      continue;
+    }
+
+    if (ask.options && ask.options.length > 0) {
+      const option = ask.options[letterIndex];
+      if (!option) {
+        outputWriter(
+          `Option ${cmd.optionLetter} is out of range for ask ${idx} ` +
+            `(valid: A–${"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[ask.options.length - 1] ?? "?"}).`
+        );
+        continue;
+      }
+      payloadValue = { option: String(option.value), chosen: String(option.value) };
+    } else {
+      // Approve/review kinds expose exactly two synthetic options: A=approve, B=deny/changes.
+      // Reject any other letter — silently mapping non-A to "denial" risks recording the
+      // wrong decision (PR #943 R1 BLOCKING #1). The `isCliRespondable` gate above
+      // guarantees `ask.kind` is `authorization.approve` or `quality.review` here.
+      if (cmd.optionLetter !== "A" && cmd.optionLetter !== "B") {
+        outputWriter(`Option ${cmd.optionLetter} is out of range for ask ${idx} (valid: A–B).`);
+        continue;
+      }
+      payloadValue = { approved: cmd.optionLetter === "A" };
+    }
+
+    const respondPayload = {
+      responder: "operator" as const,
+      payload: payloadValue as Record<string, unknown>,
+    };
+    const closePayload = {
+      responder: "operator" as const,
+      payload: payloadValue as Record<string, unknown>,
+      attentionCost: {
+        transport: "inbox" as const,
+        resolvedIn: "inbox" as const,
+      },
+    };
+
+    try {
+      await repo.respondAndClose(ask.id, { response: respondPayload }, { response: closePayload });
+      handledSet.add(idx);
+      responded++;
+      outputWriter(`Ask ${idx} responded (${cmd.optionLetter}).`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      outputWriter(`Error responding to ask ${idx}: ${msg}`);
+    }
+  }
+
+  const remaining = asks.length - responded - skipped;
+  return { windowKey, responded, skipped, remaining };
+}
+
+// ---------------------------------------------------------------------------
+// Default stdin reader (process.stdin)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `StdinReader` that reads one line at a time from `process.stdin`.
+ *
+ * Uses `node:readline` createInterface, which handles line buffering and
+ * EOF detection without needing the AsyncIterable cast that lints would
+ * flag as a risky `as unknown` assertion.
+ */
+export function makeProcessStdinReader(): StdinReader {
+  const lineQueue: string[] = [];
+  const waiters: Array<(line: string | null) => void> = [];
+  let closed = false;
+  let rl: ReturnType<typeof createReadlineInterface> | null = null;
+
+  function ensureReader() {
+    if (rl) return;
+    rl = createReadlineInterface(process.stdin as NodeJS.ReadableStream);
+    rl.on("line", (line: string) => {
+      const waiter = waiters.shift();
+      if (waiter) {
+        waiter(line);
+      } else {
+        lineQueue.push(line);
+      }
+    });
+    rl.on("close", () => {
+      closed = true;
+      while (waiters.length > 0) {
+        const w = waiters.shift();
+        if (w) w(null);
+      }
+    });
+  }
+
+  return {
+    async readLine(): Promise<string | null> {
+      if (lineQueue.length > 0) {
+        return lineQueue.shift() ?? null;
+      }
+      if (closed) return null;
+      ensureReader();
+      return new Promise<string | null>((resolve) => {
+        waiters.push(resolve);
+      });
+    },
+    close(): void {
+      if (rl) {
+        rl.close();
+        rl = null;
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -404,9 +961,92 @@ export function registerWindowCommands(
       description: "Show currently-open attention windows with one-line summary per window",
       requiresSetup: false,
       parameters: {},
-      execute: async (): Promise<WindowStatusResult> => {
+      execute: async (_params, ctx): Promise<WindowStatusResult> => {
         const openWindows = globalRegistry.getAllOpen();
-        return { openWindows, count: openWindows.length };
+
+        // Compute pending Ask counts per open window when a repository is
+        // available. Resolve container from execution context first
+        // (PR #943 R2 BLOCKING #4: same fallback pattern as window.service).
+        // Errors from individual windows are isolated via Promise.allSettled
+        // so one failing window doesn't tank the whole status response
+        // (PR #943 R2 NB).
+        let pendingByWindow: Record<string, number> | undefined;
+        const repo = await buildAskRepository(ctx.container ?? container);
+        if (repo && openWindows.length > 0) {
+          const nowMs = Date.now();
+          pendingByWindow = {};
+          const results = await Promise.allSettled(
+            openWindows.map(async (w) => ({
+              windowKey: w.windowKey,
+              count: (await pendingAsksForWindow(repo, w.windowKey, nowMs)).length,
+            }))
+          );
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              pendingByWindow[r.value.windowKey] = r.value.count;
+            } else {
+              log.warn("window.status: pendingAsksForWindow failed", {
+                error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+              });
+            }
+          }
+        }
+
+        return { openWindows, count: openWindows.length, pendingByWindow };
+      },
+    })
+  );
+
+  // -------------------------------------------------------------------------
+  // window.service
+  // -------------------------------------------------------------------------
+  sharedCommandRegistry.registerCommand(
+    defineCommand({
+      id: "window.service",
+      category: CommandCategory.TOOLS,
+      name: "service",
+      description:
+        "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses",
+      requiresSetup: false,
+      parameters: {
+        key: {
+          schema: z.string().min(1),
+          description: "Window key to service (e.g. ask-hours)",
+          required: true,
+        },
+      },
+      execute: async (params, ctx): Promise<WindowServiceResult> => {
+        // PR #943 R2 BLOCKING #4: resolve container from execution context
+        // first, falling back to the registration-time container — matches
+        // the pattern used by window.open / window.close / window.status.
+        // Without this fallback, command runners that supply a per-invocation
+        // container at execute time can't override the outer container.
+        const repo = await buildAskRepository(ctx.container ?? container);
+        if (!repo) {
+          throw new Error(
+            "window.service: AskRepository unavailable — persistence provider does not support SQL"
+          );
+        }
+
+        const windowKey = params.key as string;
+        const openState = globalRegistry.getOpen(windowKey);
+
+        // Default stdin reader — reads one line at a time from process.stdin.
+        // Bun's process.stdin is an AsyncIterable<Buffer>; we read chunks and
+        // return the first complete line (up to the first newline).
+        const stdinReader: StdinReader = makeProcessStdinReader();
+
+        return serviceWindow(
+          repo,
+          windowKey,
+          stdinReader,
+          (text) => {
+            process.stdout.write(`${text}\n`);
+          },
+          Date.now(),
+          pendingAsksForWindow,
+          openState ?? undefined
+        );
       },
     })
   );
