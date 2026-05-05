@@ -230,20 +230,47 @@ export function isAppendOnlyToJsonArrays(before: unknown, after: unknown): boole
 }
 
 /**
- * Cheap structural deep-equality via JSON serialization. Sufficient for our
- * use case (settings.json contents — no functions, no Dates, no cycles).
+ * Order-insensitive structural deep-equality (PR #952 R3#2 fix).
  *
- * Caveat (PR #952 R1 NON-BLOCKING #2): JSON.stringify is key-order-sensitive.
- * Two semantically-equal objects with different key insertion order serialize
- * to different strings and would compare unequal. In practice the repo's
- * settings.json is consistently formatted by prettier, so insertion order is
- * stable; if a future serializer reorders keys before commit this would
- * cause false collisions (fail-closed direction — under-exempts, never
- * over-exempts). Order-insensitive deep equality is deferred until that
- * actually bites.
+ * For objects, compares the same key SET regardless of insertion order; for
+ * arrays, compares element-by-element at the same index (order matters);
+ * for primitives, strict equality. This avoids the false-non-exemption that
+ * a JSON.stringify-based check produced when two semantically-equal objects
+ * had different key insertion orders across refs (e.g., one prettified, one
+ * hand-edited).
+ *
+ * Sufficient for our use case (settings.json contents — no functions, no
+ * Dates, no cycles).
  */
 function deepJsonEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  if (a === b) return true;
+
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepJsonEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  if (a !== null && typeof a === "object") {
+    if (b === null || typeof b !== "object" || Array.isArray(b)) return false;
+    const aRecord = a as Record<string, unknown>;
+    const bRecord = b as Record<string, unknown>;
+    const aKeys = Object.keys(aRecord);
+    const bKeys = Object.keys(bRecord);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const key of aKeys) {
+      if (!Object.prototype.hasOwnProperty.call(bRecord, key)) return false;
+      if (!deepJsonEqual(aRecord[key], bRecord[key])) return false;
+    }
+    return true;
+  }
+
+  // Primitives + null: strict equality (already handled by `a === b` above
+  // for most cases; this branch handles NaN-vs-NaN, but we treat NaN !== NaN
+  // per IEEE — non-issue for JSON since NaN is not representable).
+  return false;
 }
 
 /**
@@ -348,6 +375,13 @@ interface PrInfo {
   number: number;
   title: string;
   headRefName: string;
+  /**
+   * Head commit SHA (40-char hex). Used as `toRef` in the structural
+   * append-only check (PR #952 R3#1) so the GitHub Contents API call works
+   * for forked PRs whose `headRefName` exists only in the fork repo. SHAs
+   * are always addressable from the base repo's API.
+   */
+  headRefOid?: string;
 }
 
 /**
@@ -398,7 +432,7 @@ export function fetchOpenPrs(repo: string): PrInfo[] {
       "--limit",
       String(FETCH_OPEN_PRS_LIMIT),
       "--json",
-      "number,title,headRefName",
+      "number,title,headRefName,headRefOid",
     ],
     { timeout: GH_GIT_TIMEOUT_MS }
   );
@@ -614,9 +648,13 @@ export function checkOpenPrs(
     // warning so operators can audit the exemption. Allowlisted files that
     // FAIL the structural check also emit a triage hint (PR #952 R1 inline
     // nit) so operators understand why a collision was kept.
+    // Prefer the PR's head SHA (always addressable in the base repo's API)
+    // over the branch name (which only exists in the fork for forked PRs).
+    // PR #952 R3#1 fix.
+    const toRef = pr.headRefOid ?? pr.headRefName;
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
-      const isExempt = isAppendOnly(input.repo, baseBranch, pr.headRefName, file, warnings);
+      const isExempt = isAppendOnly(input.repo, baseBranch, toRef, file, warnings);
       if (isExempt) {
         warnings.push(
           `PR #${pr.number}: ${file} change is append-only into JSON arrays — exempted from collision`
@@ -805,9 +843,23 @@ export function fetchRecentMerges(
     // wasn't supplied (legacy callers / tests) — preserve original behavior.
     let realOverlapping = overlapping;
     if (repo) {
+      // Resolve <sha>^ to a real 40-char SHA before passing to the GitHub
+      // Contents API. The Contents API rejects rev-spec expressions like
+      // "<sha>^" or "<sha>~1" — only branch names, tags, and full SHAs work.
+      // PR #952 R3#3 fix.
+      const parentResult = execWithPath(["git", "-C", repoDir, "rev-parse", `${entry.sha}^`], {
+        timeout: GH_GIT_TIMEOUT_MS,
+      });
+      const parentSha = parentResult.exitCode === 0 ? parentResult.stdout.trim() : null;
+      if (!parentSha) {
+        warnings.push(
+          `Commit ${entry.sha.slice(0, 7)}: could not resolve parent SHA via git rev-parse — keeping all overlapping files as collisions`
+        );
+      }
       realOverlapping = overlapping.filter((file) => {
         if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
-        const isExempt = isAppendOnly(repo, `${entry.sha}^`, entry.sha, file, warnings);
+        if (!parentSha) return true; // fail-closed: keep collision
+        const isExempt = isAppendOnly(repo, parentSha, entry.sha, file, warnings);
         if (isExempt) {
           warnings.push(
             `Commit ${entry.sha.slice(0, 7)}: ${file} change is append-only into JSON arrays — exempted from collision`

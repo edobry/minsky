@@ -913,6 +913,26 @@ describe("isAppendOnlyToJsonArrays", () => {
       `${FIXTURE_SETTINGS_JSON.replace(".json", ".local.json")}`
     );
   });
+
+  it("treats objects with same keys in different order as equal (PR #952 R3#2)", () => {
+    // Two semantically-identical objects with different key insertion order
+    // — possible when one ref's settings.json was prettified and another
+    // was hand-edited. Pre-R3#2, JSON.stringify-based equality returned
+    // false here, defeating the exemption. Now the recursive equality
+    // ignores object key order.
+    const before = { matcher: "tool1", hooks: [{ a: 1, b: 2 }] };
+    const after = { hooks: [{ b: 2, a: 1 }], matcher: "tool1" };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("array order still matters even with order-insensitive object compare (PR #952 R3#2)", () => {
+    // Sanity check: arrays remain order-sensitive — only OBJECT keys are
+    // treated as orderless. Reordering array elements must still register
+    // as a structural change.
+    const before = { hooks: [{ a: 1 }, { a: 2 }] };
+    const after = { hooks: [{ a: 2 }, { a: 1 }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1060,6 +1080,53 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
         w.includes("Open-PR structural-check baseBranch defaulted to 'main'")
       )
     ).toBe(true);
+  });
+
+  it("uses headRefOid (PR head SHA) as toRef when present, falls back to headRefName (PR #952 R3#1)", () => {
+    let observedToRef = "";
+    const sha = "deadbeefcafebabe1234567890abcdef12345678";
+    const shaDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 500,
+          title: "feat: forked PR",
+          headRefName: "fork-author:feature-branch",
+          headRefOid: sha,
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedToRef = toRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", shaDeps);
+    // SHA is preferred — works for forked PRs whose branch name only
+    // exists in the fork repo.
+    expect(observedToRef).toBe(sha);
+  });
+
+  it("falls back to headRefName when headRefOid is absent (PR #952 R3#1 fallback)", () => {
+    let observedToRef = "";
+    const fallbackDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 501,
+          title: "feat: same-repo PR",
+          headRefName: "task/mt-501",
+          // headRefOid intentionally omitted
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedToRef = toRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
+    expect(observedToRef).toBe("task/mt-501");
   });
 
   it("preserves collision and emits a triage warning when allowlisted file is NOT append-only (PR #952 R1 inline nit)", () => {
