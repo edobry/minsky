@@ -26,8 +26,8 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { readInput, writeOutput, execWithPath } from "./types";
-import type { ToolHookInput } from "./types";
+import { readInput, writeOutput, execWithPath, readHostCap } from "./types";
+import type { ToolHookInput, HostCapInfo } from "./types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -73,29 +73,99 @@ export interface BranchFreshnessResult {
 }
 
 // ---------------------------------------------------------------------------
+// Budget derivation from host cap (mt#1546)
+// ---------------------------------------------------------------------------
+//
+// Three timer constants govern this hook's wall-clock behaviour. They derive
+// from the host-imposed PreToolUse `timeout` field in `.claude/settings.json`
+// — read once at module load — so bumping the cap there scales the internal
+// budgets without any source edits.
+//
+// Derivation chain (with the current 15s host cap):
+//   hostCapSec       = 15  (read from settings.json)
+//   OVERALL_BUDGET_MS = floor(15_000 * 0.6)            = 9000
+//   FETCH_TIMEOUT_MS  = floor(OVERALL_BUDGET_MS * 0.55) = 4950  (legacy: 5000)
+//   GIT_TIMEOUT_MS    = floor(OVERALL_BUDGET_MS * 0.17) = 1530  (legacy: 1500)
+//
+// Ratios are explicit design choices, not magic:
+//   OVERALL_BUDGET_RATIO (0.6)  — leaves 40% headroom under host cap for
+//     process startup, stdout writes, OS scheduling jitter, and the time
+//     spent in the GIT_TIMEOUT_MS-sized call started at the budget edge
+//     (worst-case wall = OVERALL_BUDGET_MS + GIT_TIMEOUT_MS ≈ 10.5s under
+//     a 15s cap, leaving ~4.5s headroom).
+//   FETCH_TIMEOUT_RATIO (0.55) — fetch is the only network-bound call and
+//     dominates worst-case wall time; allow it most of the budget.
+//   GIT_TIMEOUT_RATIO   (0.17) — each local git probe gets ~1/6 of budget
+//     (≈ 6 sequential probes possible within budget).
+
+/**
+ * Fraction of the host cap allocated to the hook's overall wall-clock budget.
+ * The remaining 40% is headroom for process startup, stdout writes, OS
+ * scheduling jitter, and a final-call overrun under the budget guard.
+ */
+export const OVERALL_BUDGET_RATIO = 0.6;
+
+/**
+ * Fraction of the overall budget granted to the network-bound `git fetch`.
+ * Fetch dominates worst-case wall time and is the only off-host call.
+ */
+export const FETCH_TIMEOUT_RATIO = 0.55;
+
+/**
+ * Fraction of the overall budget granted to each local git probe. ~1/6 means
+ * up to 6 sequential probes can run within budget (current code makes 4–5).
+ */
+export const GIT_TIMEOUT_RATIO = 0.17;
+
+export interface DerivedBudgets {
+  /** Overall wall-clock budget for the hook from `hookStart` (incl. fetch). */
+  overallBudgetMs: number;
+  /** Per-call timeout for the network-bound `git fetch`. */
+  fetchTimeoutMs: number;
+  /** Per-call timeout for fast local git operations. */
+  gitTimeoutMs: number;
+}
+
+/**
+ * Derive ms-valued budgets from a host cap (in seconds). Pure function — used
+ * at module load and exposed for hermetic tests that inject fake host caps.
+ */
+export function deriveBudgets(hostCapSec: number): DerivedBudgets {
+  const overallBudgetMs = Math.floor(hostCapSec * 1000 * OVERALL_BUDGET_RATIO);
+  return {
+    overallBudgetMs,
+    fetchTimeoutMs: Math.floor(overallBudgetMs * FETCH_TIMEOUT_RATIO),
+    gitTimeoutMs: Math.floor(overallBudgetMs * GIT_TIMEOUT_RATIO),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Core check
 // ---------------------------------------------------------------------------
 
+const HOST_CAP_INFO: HostCapInfo = readHostCap("check-branch-fresh.ts");
+const BUDGETS = deriveBudgets(HOST_CAP_INFO.hostCapSec);
+
 /**
  * Per-call timeout for fast local git operations. Realistic git invocations
- * complete in <100ms; 1.5s is generous for degraded conditions.
+ * complete in <100ms; the derived budget is generous for degraded conditions.
  */
-const GIT_TIMEOUT_MS = 1_500;
+const GIT_TIMEOUT_MS = BUDGETS.gitTimeoutMs;
 
 /**
  * Per-call timeout for the network-bound `git fetch`. Higher than other calls
  * because it's the only one going over the wire.
  */
-const FETCH_TIMEOUT_MS = 5_000;
+const FETCH_TIMEOUT_MS = BUDGETS.fetchTimeoutMs;
 
 /**
  * Overall wall-clock budget for the hook from `hookStart` (which is captured
  * BEFORE the fetch — so fetch IS counted in this budget). Worst-case wall
- * time = OVERALL_BUDGET_MS + GIT_TIMEOUT_MS_for_last_call_started ≈ 10.5s,
- * leaving ~4.5s headroom under the 15s PreToolUse cap for process startup,
- * stdout writes, and OS scheduling jitter.
+ * time = OVERALL_BUDGET_MS + GIT_TIMEOUT_MS_for_last_call_started, leaving
+ * (host cap − sum) headroom for process startup, stdout writes, and OS
+ * scheduling jitter.
  */
-const OVERALL_BUDGET_MS = 9_000;
+const OVERALL_BUDGET_MS = BUDGETS.overallBudgetMs;
 
 /**
  * Budget guard. Returns true if there's enough remaining wall-clock time to
@@ -439,6 +509,11 @@ if (import.meta.main) {
   // not block the agent's commit. The decision then runs against possibly-stale
   // refs, which is no worse than the pre-hook baseline.
   const warnings: string[] = [];
+  // Surface the host-cap-read warning (if any) so operators see when budgets
+  // were derived from the default 15s rather than from settings.json.
+  if (HOST_CAP_INFO.warning) {
+    warnings.push(HOST_CAP_INFO.warning);
+  }
   const fetchResult = refreshRemoteRefs(repoDir);
   if (!fetchResult.ok) {
     warnings.push(
