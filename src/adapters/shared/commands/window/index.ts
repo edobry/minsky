@@ -382,7 +382,7 @@ function renderOption(
  *   2. Options inline (A), B), …)
  *   3. Drivers (from contextRefs labels / metadata.drivers)
  *   4. Recommendation marker (first option marked recommended)
- *   5. What-not-needed (shown as "Context not needed: …" when metadata present)
+ *   5. What-not-needed (shown as "Not needed: …" when `metadata.notNeeded` is set)
  */
 export function renderAsk(index: number, ask: Ask): string {
   const lines: string[] = [];
@@ -396,16 +396,32 @@ export function renderAsk(index: number, ask: Ask): string {
   // 1. Question
   lines.push(`    Q: ${ask.question}`);
 
-  // 2. Options inline (for decision-like kinds)
+  // 2. Options inline (for decision-like kinds).
+  //
+  // PR #943 R2 BLOCKING #3: cap rendered options at 26 (A–Z) since the
+  // parser (`parseServiceCommand`) only accepts a single-letter A–Z suffix.
+  // Rendering beyond Z would surface unselectable items. v1 limit; revisit
+  // when an Ask kind legitimately needs >26 options (none today).
   if (ask.options && ask.options.length > 0) {
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    ask.options.forEach((opt, i) => {
-      const letter = letters[i] ?? String(i + 1);
+    const renderable = Math.min(ask.options.length, letters.length);
+    for (let i = 0; i < renderable; i++) {
+      const opt = ask.options[i];
+      const letter = letters[i];
+      // Both indexed accesses are within renderable, which is bounded by both
+      // arrays' lengths above; the explicit guard satisfies strict mode.
+      if (!opt || !letter) continue;
       const isFirst = i === 0;
       const label = String(opt.label);
       const description = opt.description;
       lines.push(renderOption(letter, label, description, isFirst));
-    });
+    }
+    if (ask.options.length > letters.length) {
+      const overflow = ask.options.length - letters.length;
+      lines.push(
+        `    (... and ${overflow} more option${overflow === 1 ? "" : "s"} not selectable in v1; see Cockpit render for full set)`
+      );
+    }
   } else if (ask.kind === "authorization.approve") {
     lines.push("    A) Approve");
     lines.push("    B) Deny");
@@ -433,11 +449,20 @@ export function renderAsk(index: number, ask: Ask): string {
     lines.push(`    Not needed: ${String(ask.metadata["notNeeded"])}`);
   }
 
-  // Reply affordance line
+  // Reply affordance line.
+  //
+  // PR #943 R2 BLOCKING #1: tokens MUST embed the Ask's display `index`
+  // (not the option ordinal `i + 1`), since the service loop parses
+  // `<askIndex><letter>` as "respond to ask N with option letter". A token
+  // like `1A` always targets Ask 1; rendering `1A | 2B` for Ask #3 would
+  // mislead operators into closing the wrong Ask.
   if (ask.options && ask.options.length > 0) {
-    const letters = ask.options
-      .map((_, i) => `${i + 1}${"ABCDEFGHIJKLMNOPQRSTUVWXYZ"[i] ?? String(i + 1)}`)
-      .join(" | ");
+    // Cap at 26 to match the option-render cap (PR #943 R2 BLOCKING #3).
+    const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const selectable = Math.min(ask.options.length, ALPHABET.length);
+    const letters = Array.from({ length: selectable }, (_, i) => `${index}${ALPHABET[i]}`).join(
+      " | "
+    );
     lines.push(`    Reply: ${letters} | skip ${index} | done`);
   } else if (ask.kind === "authorization.approve") {
     lines.push(`    Reply: ${index}A (approve) | ${index}B (deny) | skip ${index} | done`);
@@ -901,23 +926,35 @@ export function registerWindowCommands(
       description: "Show currently-open attention windows with one-line summary per window",
       requiresSetup: false,
       parameters: {},
-      execute: async (): Promise<WindowStatusResult> => {
+      execute: async (_params, ctx): Promise<WindowStatusResult> => {
         const openWindows = globalRegistry.getAllOpen();
 
-        // Compute pending Ask counts per open window when a repository is available.
+        // Compute pending Ask counts per open window when a repository is
+        // available. Resolve container from execution context first
+        // (PR #943 R2 BLOCKING #4: same fallback pattern as window.service).
+        // Errors from individual windows are isolated via Promise.allSettled
+        // so one failing window doesn't tank the whole status response
+        // (PR #943 R2 NB).
         let pendingByWindow: Record<string, number> | undefined;
-        const repo = await buildAskRepository(container);
+        const repo = await buildAskRepository(ctx.container ?? container);
         if (repo && openWindows.length > 0) {
           const nowMs = Date.now();
           pendingByWindow = {};
-          await Promise.all(
-            openWindows.map(async (w) => {
-              const asks = await pendingAsksForWindow(repo, w.windowKey, nowMs);
-              if (pendingByWindow) {
-                pendingByWindow[w.windowKey] = asks.length;
-              }
-            })
+          const results = await Promise.allSettled(
+            openWindows.map(async (w) => ({
+              windowKey: w.windowKey,
+              count: (await pendingAsksForWindow(repo, w.windowKey, nowMs)).length,
+            }))
           );
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              pendingByWindow[r.value.windowKey] = r.value.count;
+            } else {
+              log.warn("window.status: pendingAsksForWindow failed", {
+                error: r.reason instanceof Error ? r.reason.message : String(r.reason),
+              });
+            }
+          }
         }
 
         return { openWindows, count: openWindows.length, pendingByWindow };
@@ -943,8 +980,13 @@ export function registerWindowCommands(
           required: true,
         },
       },
-      execute: async (params): Promise<WindowServiceResult> => {
-        const repo = await buildAskRepository(container);
+      execute: async (params, ctx): Promise<WindowServiceResult> => {
+        // PR #943 R2 BLOCKING #4: resolve container from execution context
+        // first, falling back to the registration-time container — matches
+        // the pattern used by window.open / window.close / window.status.
+        // Without this fallback, command runners that supply a per-invocation
+        // container at execute time can't override the outer container.
+        const repo = await buildAskRepository(ctx.container ?? container);
         if (!repo) {
           throw new Error(
             "window.service: AskRepository unavailable — persistence provider does not support SQL"

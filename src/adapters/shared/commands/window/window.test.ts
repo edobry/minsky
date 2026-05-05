@@ -397,6 +397,51 @@ describe("renderAsk", () => {
     expect(out).toContain("Reply: 1A (approve)");
   });
 
+  // PR #943 R2 BLOCKING #1: Reply hint must use the Ask's display index
+  // (not the option ordinal) so operators don't accidentally close the wrong Ask.
+  test("Reply hint embeds the Ask's display index for index > 1", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "third",
+      question: "Q?",
+      options: TWO_OPTIONS,
+    });
+    const out = renderAsk(3, ask);
+    expect(out).toContain("Reply: 3A | 3B | skip 3 | done");
+    expect(out).not.toContain("Reply: 1A");
+    expect(out).not.toContain("2B |");
+  });
+
+  // PR #943 R2 BLOCKING #3: rendering caps options at 26 (A–Z)
+  test("renders only first 26 options + overflow note when ask has > 26 options", async () => {
+    const manyOptions: AskOption[] = Array.from({ length: 30 }, (_, i) => ({
+      label: `Option ${i + 1}`,
+      value: `opt${i + 1}`,
+    }));
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: KIND_DECIDE,
+      parentTaskId: "mt#1500",
+      title: "many",
+      question: "Pick?",
+      options: manyOptions,
+    });
+    const out = renderAsk(1, ask);
+    // First 26 letters render with their option label
+    expect(out).toContain("A) Option 1");
+    expect(out).toContain("Z) Option 26");
+    // No 27th letter / no numeric fallback render
+    expect(out).not.toContain("27) Option 27");
+    // Overflow note present
+    expect(out).toContain("4 more options not selectable in v1");
+    // Reply hint stops at Z, doesn't include 27/28/29/30
+    expect(out).toContain("1A | 1B");
+    expect(out).toContain("1Z | skip 1 | done");
+    expect(out).not.toContain("127");
+  });
+
   test("renders quality.review with approve/changes affordance", async () => {
     const repo = new FakeAskRepository();
     const ask = await seedSuspendedAsk(repo, {
