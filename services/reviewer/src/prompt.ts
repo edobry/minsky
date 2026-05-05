@@ -266,7 +266,7 @@ Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. Af
 
 ### Markdown formatting
 
-Format all text in \`summary\`, \`details\`, and \`body\` fields using GitHub-flavored Markdown. Apply inline code (single backticks) to:
+Format all text in tool-emitted fields — \`summary\`, \`details\`, \`body\`, and \`evidence\` (the latter on \`submit_spec_verification\`) — using GitHub-flavored Markdown. Apply inline code (single backticks) to:
 - Identifiers: variable names, function names, class names, type names (e.g., \`SessionService\`, \`taskId\`)
 - Function calls including parens (e.g., \`registerGitTools()\`, \`buildCriticConstitution(true)\`)
 - File paths (e.g., \`src/domain/session.ts\`)
