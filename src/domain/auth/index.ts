@@ -17,17 +17,33 @@ export { GitHubAppTokenProvider } from "./github-app-token-provider";
  * If `config.serviceAccount` is present, returns a GitHubAppTokenProvider.
  * Otherwise returns a FallbackTokenProvider that uses the user token directly.
  *
+ * When `config.reviewer.serviceAccount` is also present, the returned
+ * GitHubAppTokenProvider performs dual-App routing: `getToken("reviewer")`
+ * returns tokens from the reviewer App's installation.
+ *
  * @param config - The resolved GitHub configuration section.
  * @param userToken - The human user's GitHub personal access token.
  */
 export function createTokenProvider(config: GitHubConfig, userToken: string): TokenProvider {
   if (config.serviceAccount) {
+    // Build optional reviewer App credentials when configured.
+    const reviewerServiceAccount = config.reviewer?.serviceAccount;
+    const reviewerConfig = reviewerServiceAccount
+      ? {
+          appId: reviewerServiceAccount.appId,
+          installationId: reviewerServiceAccount.installationId,
+          privateKeyFile: reviewerServiceAccount.privateKeyFile,
+          privateKey: reviewerServiceAccount.privateKey,
+        }
+      : undefined;
+
     return new GitHubAppTokenProvider({
       appId: config.serviceAccount.appId,
       privateKeyFile: config.serviceAccount.privateKeyFile,
       privateKey: config.serviceAccount.privateKey,
       installationId: config.serviceAccount.installationId,
       userToken,
+      reviewerConfig,
     });
   }
 

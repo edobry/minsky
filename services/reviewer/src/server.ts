@@ -13,6 +13,8 @@ import { loadConfig } from "./config";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
+import { getDb, type ReviewerDb } from "./db/client";
+import { applyMigrations } from "./db/migrate";
 
 interface PullRequestPayload {
   pull_request: {
@@ -32,7 +34,8 @@ export type RunReviewFn = (
   prNumber: number,
   prAuthorLogin: string,
   deliveryId?: string,
-  headSha?: string
+  headSha?: string,
+  deps?: import("./review-worker").RunReviewDeps
 ) => Promise<ReviewResult>;
 
 /**
@@ -42,12 +45,17 @@ export type RunReviewFn = (
  * Accepts an optional `runReviewFn` override for testing — production always
  * uses the real `runReview` from review-worker.ts.
  *
+ * Accepts an optional `db` handle for convergence metric persistence.
+ * When provided, each review write is attempted; errors are swallowed.
+ * When absent (test environments), metric persistence is skipped.
+ *
  * Exported for testability; the module-level startup below calls this with
  * the real config and the real runReview.
  */
 export function createApp(
   cfg: ReviewerConfig,
-  runReviewFn: RunReviewFn = runReview
+  runReviewFn: RunReviewFn = runReview,
+  db?: ReviewerDb
 ): {
   server: ReturnType<typeof Bun.serve>;
   gracefulShutdown: () => Promise<void>;
@@ -78,7 +86,8 @@ export function createApp(
       prNumber,
       prAuthor,
       deliveryId,
-      headSha
+      headSha,
+      db !== undefined ? { db } : undefined
     )
       .then((result) => {
         console.log(
@@ -297,7 +306,25 @@ export function createApp(
 
 if (import.meta.main) {
   const config = loadConfig();
-  const { server, gracefulShutdown } = createApp(config);
+
+  // Apply reviewer migrations before starting the server.
+  // Fail-fast: if migrations error, log and exit non-zero.
+  let db;
+  try {
+    db = getDb();
+    await applyMigrations(db);
+    console.log(JSON.stringify({ event: "migrations_applied" }));
+  } catch (err: unknown) {
+    console.error(
+      JSON.stringify({
+        event: "migration_error",
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
+    process.exit(1);
+  }
+
+  const { server, gracefulShutdown } = createApp(config, runReview, db);
 
   console.log(
     JSON.stringify({

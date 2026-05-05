@@ -91,6 +91,57 @@ parallel work has been explicitly acknowledged and coordinated.
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
 
+## Branch Freshness Guard
+
+A PreToolUse hook on `mcp__minsky__session_commit`, `mcp__minsky__session_pr_create`, and
+`mcp__minsky__session_pr_edit` blocks the call when `origin/main` has commits not reachable
+from the session's branch. This is the structural fix (mt#1483) for the "branch-behind-main
+during reviewer iteration" pattern that recurred four times across mt#1190, mt#1262, mt#1384,
+and related tasks.
+
+**Hook file:** `.claude/hooks/check-branch-fresh.ts`
+
+**How it works:**
+1. Detects the current HEAD branch from `input.cwd`.
+2. Checks whether `origin/<branch>` exists — if not (fresh branch, not yet pushed), allows silently.
+3. Compares `origin/<branch>..origin/main` — if main has commits the branch lacks, blocks.
+4. Block message lists: the count of diverging commits, the first 10 commit subjects (oneline), and the instruction "Review the new commits on main before continuing."
+
+**On block:** run `session_update` to rebase on main, review the merged PRs to check for
+overlap, then retry the original operation.
+
+**Override mechanism:** Set `MINSKY_SKIP_FRESHNESS=1` in your environment before invoking
+the tool:
+
+```bash
+MINSKY_SKIP_FRESHNESS=1 minsky session commit ...
+```
+
+The override is **logged to session stdout** (tool name, ISO timestamp) for audit.
+Use only when you have already reviewed main's new commits and confirmed no overlap.
+
+**Behavioral Contract:**
+
+- **Blocks** when `origin/main` is N commits ahead of `origin/<branch>`. The denial
+  message lists the count, the first 10 commit subjects (oneline), and instruction
+  to review before continuing.
+- **Allows silently** (no stdout, no `additionalContext`) on these four paths — they
+  are the "nothing to report" cases:
+  - branch even with main
+  - fresh branch (no upstream ref yet — typical of a brand-new session's first push)
+  - detached HEAD (no current branch to compare against)
+  - undetectable default branch (no `origin/main` or `origin/master` to compare to)
+- **Warnings always surface** even on silent paths. If the pre-check `git fetch`
+  failed (network down, auth issue, slow remote), the resulting "comparison may be
+  against STALE refs" warning IS emitted regardless of whether the path is silent.
+  This carve-out is intentional: silence means "nothing to report"; warnings mean
+  "something the operator should know," and operators should always learn about
+  staleness even on otherwise-silent allow paths.
+- **Skipped** paths (budget exhausted, miscellaneous probe failures) emit their
+  "freshness check skipped" reason for auditability — these are NOT in the silent
+  list because they signal something operationally interesting (the hook ran but
+  couldn't complete its check).
+
 # User Preferences
 
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
@@ -207,6 +258,25 @@ When the threshold is exceeded, the agent surfaces a reprioritization prompt to 
 - **Ground threshold numbers in observed cadence, not generic defaults.** The 5-day default is calibrated to Minsky's actual loop frequency (~1/day workaround invocation, ~3/day total feedback-memory creation, multi-per-day task status changes). When defining a new budget, check the cadence of the specific signal first (calibration data files, memory mtimes, PR merge timestamps); pick a window where 2 events on the same pattern is unambiguously a signal, not noise.
 - Until the structural detector ships (mt#1034 attention-allocation noticer), this is checklist-driven discipline. See `feedback_temporary_mechanism_budget.md` for the bridge memory.
 
+## Recovery layer spec discipline
+
+When a task spec introduces a **recovery layer** — sweeper, retry, fallback, alert, dead-letter queue, periodic-sync, health-check, circuit-breaker, or any mechanism intended to recover from a class of failure — the spec MUST contain BOTH of these subsections:
+
+1. **`### Covers`** — the failure modes this layer recovers from, enumerated explicitly.
+2. **`### Does NOT cover`** — the failure modes outside this layer's reach, with a pointer to the task that owns each (or explicit "no current owner — must be filed").
+
+A recovery layer is only as strong as the failure modes its spec enumerates. Implicit "covers everything in the area" framing produces false confidence and deferred follow-ups.
+
+**Why:** mt#1556 / 2026-05-02 incident — mt#1260's periodic-sweeper spec described what it does (detect missed reviews + retrigger) but did not enumerate which silent-reviewer modes it covers vs. doesn't. The implicit framing was "the silent-reviewer class is now covered." In reality the sweeper runs in-process via `setInterval` *after* drizzle migrations apply, so it is structurally unable to recover when the service can't start (mt#1556's actual failure mode). mt#1260 marked DONE 2026-04-26 → silent-reviewer class declared "covered" → mt#1310 (alerting) and mt#1372 (webhook diagnosis) sat in PLANNING for ~6 days → 2026-05-02 the very class they would have caught (service-down) crashed the reviewer service silently for ~107 hours.
+
+**How to apply:**
+
+- When **authoring** a recovery-layer task spec: include both subsections. List failure modes by name, not by area. If a failure mode lacks an owner task, file the owner task before marking the recovery-layer task READY.
+- When **reviewing** a recovery-layer PR: verify the runtime behavior matches the spec's `### Covers` list. If the implementation can't actually recover from a listed mode, fix or move to `### Does NOT cover`.
+- When **transitioning** a recovery-layer task to DONE: confirm every `### Does NOT cover` entry has an owner task and that those owners are at least READY. A DONE recovery-layer task with PLANNING-status non-coverage owners is the false-completion pattern.
+- **Trigger keywords for the rule:** spec language like "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" — when paired with a recovery mechanism, the discipline applies.
+- This is the recovery-layer equivalent of `Temporary mechanism budget` above. Same family of pattern: a mechanism labeled as "the fix" without enumerating what it doesn't cover, so the gap stays invisible until it fires. Tracking task: mt#1567.
+
 # Compact Instructions
 
 When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
@@ -264,6 +334,89 @@ mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
 Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
 
 **`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
+
+# Decision Defaults
+
+When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Pre-training emphasizes industry-average patterns; without a contrary anchor in this file, the textbook wins. Each entry below names the Minsky-grounded answer, the generic-SE alternative it overrides, and the originating memory.
+
+This file is the **policy corpus** that the mt#1541 policy-coverage detector (Surface 1 of the System 3* detector family, mt#1035) consults at preference-encoding actions. Today the corpus is human-consulted; once the detector ships, uncovered actions block until the agent files an Ask.
+
+## Datastores: Postgres-via-Supabase by default
+
+When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
+
+**Generic-SE override:** "use Redis for queues, MinIO for blob storage, Mongo for documents, polyglot persistence." See `feedback_postgres_default_datastore`.
+
+## Reliability: sweeper, not durable queue
+
+For single-node services with an external source of truth: a periodic sweeper + ack-immediate + drain is the default. A durable internal queue is a second source of truth you have to own — choose it only when ordering, fan-out, or backpressure are real requirements.
+
+**Generic-SE override:** "use a queue for reliability." See `feedback_reconciliation_over_replication`.
+
+## Thresholds: ground in observed cadence, not round numbers
+
+When picking a window, retry count, timeout, or budget threshold: ground the number in observed cadence (memory mtimes, PR timestamps, calibration-data files), not generic SE defaults. Round-number anchoring (1 week, 2 weeks, 30 days) silently imports industry sprint cadences that don't match Minsky's loop.
+
+**Minsky-velocity defaults (calibrated 2026-04-30):**
+
+- **Budget windows:** 5 days
+- **Burst-detection windows:** 24h
+- **Workaround-load-bearing signal:** 2+ in 24h, OR 3+ in 5 days
+- **Stall threshold (status hasn't changed):** 5 days for active work, 10 days for lynchpin tracking
+
+**Generic-SE override:** "2-week sprint cadence, 30-day rolling window." See `feedback_threshold_grounding`.
+
+## Time estimates: don't give them
+
+Don't quote "X days," "an hour," "a week" for future work. Estimates anchored on industry velocity are reliably wrong. Substitute **scope descriptors grounded in code**: file count, LOC, comparable task IDs.
+
+**Generic-SE override:** "agile estimation, story-pointing, velocity-based forecasting." See `feedback_no_time_estimates`.
+
+## Task overlap: subsume when subset, coordinate when independent
+
+When two tasks describe the same outcome via different mechanisms: close one and absorb its constraints into the other (subsume). Coordinating two tasks via a shared join column is generic-SE; subsuming is the Minsky-grounded move when one trivially supersedes the other. Don't subsume when the tasks address separate concerns that share only a join column — coordinate then.
+
+**Generic-SE override:** "keep tasks independent, coordinate via dependencies, never close active scope." See `feedback_subsume_overlapping_task`, `feedback_default_to_merge_without_subsume_signal`.
+
+## Strategic frame first
+
+Tactical asks may be instances of named strategic concepts (cockpit, mesh, attention-allocation, asks subsystem, mode-1/2 review, System 3\*). Before specking a tactical solution, run a cheap Notion/task/memory check for the named frame. If the frame applies, name it explicitly and structure the work as an instance of that frame.
+
+**Generic-SE override:** "treat the request at face value, don't reframe." See `feedback_strategic_reframe_first`.
+
+## Turnkey, not portal
+
+When a workflow needs an external system action (creating a GitHub App, configuring infrastructure, registering a service): check first whether Minsky tooling already automates it (manifest flow, TokenProvider, MCP tools, hosted-MCP). The default move is **automation-via-Minsky**; routing the user to a portal is the fallback when automation isn't possible.
+
+**Generic-SE override:** "user goes to GitHub portal / cloud console / docs to provision X." Originating incident: mt#1507 (GitHub App provisioning assumed manual portal flow despite manifest tooling existing).
+
+## Workarounds: budget + tracking task required
+
+When introducing a "temporary," "escape hatch," "workaround," "interim," or "until X ships" mechanism: cite both a tracking task (the structural fix) AND an escalation threshold (count + window) at which the temporary framing has failed.
+
+**Generic-SE override:** "TODO: clean this up later." See `Work Completion §Temporary mechanism budget`.
+
+## User does not review PRs in the loop
+
+Don't end status updates with "ready for your review/merge." User has delegated PR review to `minsky-reviewer[bot]`. Drive the PR to convergence with the bot, then surface only at merge.
+
+**Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
+
+## How this is enforced
+
+Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
+
+Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its policy corpus and mechanically blocks preference-encoding actions where no policy citation covers the choice. mt#1035 §Surface 1 specifies the mechanism. Until that detector ships, the corpus is checklist-driven discipline.
+
+## Cross-References
+
+- `humility.mdc` — design principle that motivates this corpus (collapsing uncertainty into confident action)
+- `operational-safety-dry-run-first.mdc` — sibling rule on agent-decision discipline
+- `work-completion.mdc §Temporary mechanism budget` — sibling rule on workaround discipline
+- mt#1034 — attention-allocation subsystem (umbrella)
+- mt#1035 — System 3\* detector design (defines the consumer of this corpus)
+- mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
+- mt#1508 — the audit task that produced this corpus
 
 # Key Workflows (via skills)
 
