@@ -20,9 +20,11 @@ import { log } from "../../utils/logger";
  * - `memory.supersede`: Mark one memory as superseding another
  * - `memory.lineage`: Walk the supersession chain
  *
- * Client harnesses may surface these under harness-specific aliases
- * (e.g., Claude Code surfaces them as `mcp__minsky__memory_*`), but the
- * canonical names registered here are the dot form.
+ * Some MCP client harnesses MAY rewrite or alias these tool names at their
+ * own surface (for example, Claude Code's tool registry transforms a
+ * dot-form `command.id` into an `mcp__<server>__<command>` form before
+ * presenting it to agents). This bridge does not configure or guarantee
+ * any such alias — `command.id` is what's registered with the MCP server.
  *
  * Without this wiring the commands are registered in the shared command
  * registry but the MCP bridge never emits them — same bug class as mt#386

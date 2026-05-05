@@ -667,7 +667,16 @@ export function registerProvenanceCommandsWithMcp(
 }
 
 /**
- * Register all main command categories with MCP
+ * Register all main command categories with MCP.
+ *
+ * MEMORY is intentionally NOT in this list. Memory commands are registered
+ * solely via the per-category adapter `registerMemoryTools` invoked by
+ * `start-command.ts`. The dual-registration shape that other categories
+ * exhibit (listed here AND independently registered in start-command) is a
+ * latent silent-overwrite hazard via `MinskyMCPServer.addTool()`'s Map
+ * semantics; mt#1521 owns the structural source-of-truth resolution that
+ * may apply this same exclusion to the other categories. Until then, MEMORY
+ * is the model.
  */
 export function registerAllMainCommandsWithMcp(
   commandMapper: CommandMapper,
@@ -688,7 +697,6 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.KNOWLEDGE,
       CommandCategory.PROVENANCE,
       CommandCategory.AUTHORSHIP,
-      CommandCategory.MEMORY,
       CommandCategory.WORKSPACE,
       CommandCategory.TRANSCRIPTS,
     ],
