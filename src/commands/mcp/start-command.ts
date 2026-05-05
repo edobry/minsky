@@ -27,6 +27,7 @@ import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools"
 import { registerValidateTools } from "../../adapters/mcp/validate";
 import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
+import { registerMemoryTools } from "../../adapters/mcp/memory";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
@@ -99,6 +100,7 @@ async function registerAllTools(
   registerChangesetTools(commandMapper, container);
   registerValidateTools(commandMapper, container);
   registerMcpManagementTools(commandMapper, container);
+  registerMemoryTools(commandMapper, container);
 }
 
 /**

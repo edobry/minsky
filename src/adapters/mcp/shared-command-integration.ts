@@ -600,6 +600,19 @@ export function registerKnowledgeCommandsWithMcp(
 }
 
 /**
+ * Register memory commands with MCP
+ */
+export function registerMemoryCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.MEMORY],
+    ...config,
+  });
+}
+
+/**
  * Register authorship commands with MCP.
  *
  * This is the **least-privilege MCP entry point** for the authorship namespace.
@@ -654,7 +667,16 @@ export function registerProvenanceCommandsWithMcp(
 }
 
 /**
- * Register all main command categories with MCP
+ * Register all main command categories with MCP.
+ *
+ * MEMORY is intentionally NOT in this list. Memory commands are registered
+ * solely via the per-category adapter `registerMemoryTools` invoked by
+ * `start-command.ts`. The dual-registration shape that other categories
+ * exhibit (listed here AND independently registered in start-command) is a
+ * latent silent-overwrite hazard via `MinskyMCPServer.addTool()`'s Map
+ * semantics; mt#1521 owns the structural source-of-truth resolution that
+ * may apply this same exclusion to the other categories. Until then, MEMORY
+ * is the model.
  */
 export function registerAllMainCommandsWithMcp(
   commandMapper: CommandMapper,
