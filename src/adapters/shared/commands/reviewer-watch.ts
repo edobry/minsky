@@ -68,12 +68,22 @@ function resolveWatchConfig(params: {
 async function buildTokenProviderFromConfig(): Promise<{
   tokenProvider: import("../../../domain/auth").TokenProvider;
 }> {
-  const { getConfiguration } = await import("../../../domain/configuration/index");
-  const { createTokenProvider } = await import("../../../domain/auth");
-  const cfg = getConfiguration();
-  const userToken = cfg.github?.token ?? "";
-  const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
-  return { tokenProvider };
+  try {
+    const { getConfiguration } = await import("../../../domain/configuration/index");
+    const { createTokenProvider } = await import("../../../domain/auth");
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+    return { tokenProvider };
+  } catch (err: unknown) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      "reviewer.watch requires Minsky configuration to be initialized. " +
+        "Run `minsky setup` (or the appropriate init step) before calling reviewer.watch.run / reviewer.watch.start. " +
+        `Cause: ${cause}`,
+      { cause: err instanceof Error ? err : new Error(String(err)) }
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
