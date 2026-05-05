@@ -669,6 +669,16 @@ export function checkOpenPrs(
     const toRef = `refs/pull/${pr.number}/head`;
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
+      // Mid-iteration budget recheck (PR #952 R5#4): each isAppendOnly call
+      // can issue up to two `gh api` calls (BEFORE + AFTER content fetch).
+      // If the budget is nearly exhausted, fail-closed rather than risking
+      // SIGTERM mid-fetch.
+      if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) {
+        warnings.push(
+          `PR #${pr.number}: ${file} structural-config exemption skipped (budget exhausted) — keeping collision`
+        );
+        return true;
+      }
       const isExempt = isAppendOnly(input.repo, baseBranch, toRef, file, warnings);
       if (isExempt) {
         warnings.push(
@@ -799,6 +809,13 @@ export function fetchRecentMerges(
     warnings: string[]
   ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
+  // Wall-clock budget for the merge sweep (PR #952 R5#5). Mirror of
+  // OPEN_PR_SWEEP_BUDGET_MS — a per-commit `git rev-parse` plus up to two
+  // `gh api` calls per allowlisted file can blow the 30s PreToolUse cap on
+  // busy repos with many recent merges.
+  const sweepStart = Date.now();
+  const MERGE_SWEEP_BUDGET_MS = 25_000;
+
   // ISO timestamp for `hours` ago
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
@@ -847,7 +864,15 @@ export function fetchRecentMerges(
 
   // Find overlapping commits
   const collisions: ParallelWorkCollision[] = [];
+  let mergeBudgetAborted = false;
   for (const entry of entries) {
+    // Per-commit wall-clock budget check (PR #952 R5#5). Stop early if
+    // the cumulative scan time approaches the 30s hook timeout.
+    if (Date.now() - sweepStart >= MERGE_SWEEP_BUDGET_MS) {
+      mergeBudgetAborted = true;
+      break;
+    }
+
     const overlapping = findOverlappingFiles(inScopeFiles, entry.files);
     if (overlapping.length === 0) {
       continue;
@@ -874,6 +899,14 @@ export function fetchRecentMerges(
       realOverlapping = overlapping.filter((file) => {
         if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
         if (!parentSha) return true; // fail-closed: keep collision
+        // Mid-iteration budget recheck (PR #952 R5#5): each isAppendOnly
+        // call adds two `gh api` calls. Fail-closed if budget exhausted.
+        if (Date.now() - sweepStart >= MERGE_SWEEP_BUDGET_MS) {
+          warnings.push(
+            `Commit ${entry.sha.slice(0, 7)}: ${file} structural-config exemption skipped (budget exhausted) — keeping collision`
+          );
+          return true;
+        }
         const isExempt = isAppendOnly(repo, parentSha, entry.sha, file, warnings);
         if (isExempt) {
           warnings.push(
@@ -906,6 +939,12 @@ export function fetchRecentMerges(
         overlappingFiles: realOverlapping,
       });
     }
+  }
+
+  if (mergeBudgetAborted) {
+    warnings.push(
+      `Recently-merged sweep aborted after ${Math.round((Date.now() - sweepStart) / 1000)}s (partial scan; 30s hook budget approaching)`
+    );
   }
 
   return collisions;
