@@ -843,6 +843,47 @@ describe("serviceWindow", () => {
     expect(lines.some((l) => l.includes("Unrecognised input"))).toBe(true);
   });
 
+  // PR #943 R3 BLOCKING #1: kinds outside the v1 CLI-respondable set
+  // (e.g. coordination.notify) must render skip-only and reject respond.
+  test("renders skip-only affordance for non-v1 kinds (e.g. coordination.notify)", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: "coordination.notify",
+      parentTaskId: "mt#1500",
+      title: "notify",
+      question: "Heads up?",
+    });
+    const out = renderAsk(2, ask);
+    expect(out).not.toContain("2A");
+    expect(out).toContain("not in CLI v1");
+    expect(out).toContain("skip 2");
+  });
+
+  test("serviceWindow rejects respond on non-v1 kinds without closing the ask", async () => {
+    const repo = new FakeAskRepository();
+    const ask = await seedSuspendedAsk(repo, {
+      kind: "coordination.notify",
+      parentTaskId: "mt#1500",
+      title: "notify",
+      question: "Heads up?",
+    });
+    const lines: string[] = [];
+    const stdin = makeFakeStdinReader(["1A", "skip 1"]);
+    const result = await serviceWindow(
+      repo,
+      "ask-hours",
+      stdin,
+      (t) => lines.push(t),
+      Date.now(),
+      async () => [ask]
+    );
+    expect(result.responded).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(lines.some((l) => l.includes("not respondable from CLI v1"))).toBe(true);
+    const stillThere = await repo.getById(ask.id);
+    expect(stillThere?.state).toBe("suspended");
+  });
+
   // PR #943 R1 BLOCKING #1: approve/review must reject letters beyond A/B
   test("authorization.approve rejects `1C` as out-of-range without consuming the ask", async () => {
     const repo = new FakeAskRepository();

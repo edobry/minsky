@@ -39,7 +39,7 @@ import {
 } from "../../../../domain/ask/attention-windows/notify";
 import type { AttentionWindowConfig } from "../../../../domain/ask/attention-windows/config";
 import type { AppContainerInterface } from "../../../../composition/types";
-import type { Ask } from "../../../../domain/ask/types";
+import type { Ask, AskKind } from "../../../../domain/ask/types";
 import type { AskRepository } from "../../../../domain/ask/repository";
 import { pendingAsksForWindow } from "../../../../domain/ask/pending-asks-for-window";
 import { buildAskRepository } from "../asks";
@@ -469,10 +469,36 @@ export function renderAsk(index: number, ask: Ask): string {
   } else if (ask.kind === "quality.review") {
     lines.push(`    Reply: ${index}A (approve) | ${index}B (changes) | skip ${index} | done`);
   } else {
-    lines.push(`    Reply: ${index}A | skip ${index} | done`);
+    // PR #943 R3 BLOCKING #1: kinds outside the v1 CLI-respondable set
+    // (coordination.notify, capability.escalate, information.retrieve,
+    // stuck.unblock) have no defined response affordance from CLI per spec
+    // (mt#1147 will handle them via Cockpit). Render skip-only so operators
+    // can defer them without recording a junk payload; serviceWindow rejects
+    // respond commands for these kinds with a clear "use Cockpit" message.
+    lines.push(`    Reply: skip ${index} | done    (use Cockpit to respond — not in CLI v1)`);
   }
 
   return lines.join("\n");
+}
+
+/**
+ * The set of Ask kinds whose response payloads are defined for CLI v1.
+ *
+ * Other kinds render a skip-only affordance and reject `<N><letter>` input
+ * (PR #943 R3 BLOCKING #1).
+ */
+const CLI_RESPONDABLE_KINDS = new Set<AskKind>([
+  "direction.decide",
+  "authorization.approve",
+  "quality.review",
+]);
+
+/**
+ * @returns true when `ask` can be responded to via CLI v1.
+ */
+function isCliRespondable(ask: Ask): boolean {
+  if (ask.options && ask.options.length > 0) return true;
+  return CLI_RESPONDABLE_KINDS.has(ask.kind);
 }
 
 /**
@@ -685,6 +711,16 @@ async function serviceWindowImpl(
     const letterIndex = cmd.optionLetter.charCodeAt(0) - "A".charCodeAt(0);
     let payloadValue: unknown;
 
+    // PR #943 R3 BLOCKING #1: reject respond commands for non-v1 kinds.
+    // These kinds render a skip-only affordance per renderAsk; surface the
+    // same "use Cockpit" guidance to keep the contract consistent.
+    if (!isCliRespondable(ask)) {
+      outputWriter(
+        `Ask ${idx} (${ask.kind}) is not respondable from CLI v1. Use \`skip ${idx}\` or \`done\`; respond via Cockpit when it ships.`
+      );
+      continue;
+    }
+
     if (ask.options && ask.options.length > 0) {
       const option = ask.options[letterIndex];
       if (!option) {
@@ -695,17 +731,16 @@ async function serviceWindowImpl(
         continue;
       }
       payloadValue = { option: String(option.value), chosen: String(option.value) };
-    } else if (ask.kind === "authorization.approve" || ask.kind === "quality.review") {
+    } else {
       // Approve/review kinds expose exactly two synthetic options: A=approve, B=deny/changes.
       // Reject any other letter — silently mapping non-A to "denial" risks recording the
-      // wrong decision (PR #943 R1 BLOCKING #1).
+      // wrong decision (PR #943 R1 BLOCKING #1). The `isCliRespondable` gate above
+      // guarantees `ask.kind` is `authorization.approve` or `quality.review` here.
       if (cmd.optionLetter !== "A" && cmd.optionLetter !== "B") {
         outputWriter(`Option ${cmd.optionLetter} is out of range for ask ${idx} (valid: A–B).`);
         continue;
       }
       payloadValue = { approved: cmd.optionLetter === "A" };
-    } else {
-      payloadValue = { option: cmd.optionLetter };
     }
 
     const respondPayload = {
