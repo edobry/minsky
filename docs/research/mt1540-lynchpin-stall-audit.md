@@ -2,7 +2,7 @@
 
 **Task:** mt#1540 (Child B of mt#1505)
 **Type:** Research / Audit
-**Status:** Phase 1 — Cross-reference graph (2026-05-04)
+**Status:** Final (2026-05-04)
 **Parent:** mt#1505 (umbrella roadmap stall audit)
 
 ## Summary
@@ -16,8 +16,11 @@ memories or ≥1 ADR cite it as a dependency/umbrella/parent, it hasn't changed 
 days, its own dependents are stalled, and no memory documents a workaround citing it (which
 would make it a Child A candidate instead).
 
-**Findings (preliminary — phases 1–2):** 4 strong candidates identified. Full phase 3–5
-analysis below.
+**Findings:** 3 qualifying lynchpin clusters identified. 3 rollup tasks filed (mt#1570,
+mt#1571, mt#1572). 4 deferred candidates (8d stall, below 10d threshold, or parent in active
+PLANNING). Two strategic clusters identified: ADR-008 transport bindings and ADR-007 retrofit
+track. Both are "design shipped, implementation stalled" patterns — ADR done, no children
+landed.
 
 ---
 
@@ -33,6 +36,21 @@ The following tasks are explicitly excluded per the dedup rule:
 - mt#1483 (Child A resolved)
 - mt#1541, mt#1543 (Child A anchor case closure)
 - mt#1035 (Child A anchor case)
+
+---
+
+## Diagnostic Shape (5 Conditions)
+
+A cluster qualifies as "lynchpin stall" (Child B) when ALL of:
+
+1. Task is referenced as dependency / "subsumed by" / "umbrella" / "parent of" by ≥2 memories
+   OR ≥2 tasks OR ≥1 ADR.
+2. Last status change ≥10 days old. (10d threshold — looser than Child A's 5d because no
+   firing-rate corroboration.)
+3. Has child or sibling dependencies that are themselves stalled.
+4. **No documented workaround in memory cites this task** (otherwise it falls under mt#1539
+   Child A).
+5. Originating filing rationale still applies (work still relevant, not deprioritized).
 
 ---
 
@@ -60,7 +78,7 @@ Top candidates by feedback file count:
 
 Top candidates by project file count:
 
-- mt#1413: 4 files — reviewer calibration (check status)
+- mt#1413: 4 files — DONE (reviewer calibration, confirmed)
 - mt#1110: 8 files — reviewer aggressiveness Sprint-B (READY)
 - mt#1395: 4 files — DONE (reviewer structured channel)
 - mt#1125: 2 files — DONE
@@ -96,8 +114,6 @@ Top candidates by ADR file count:
 | mt#1058 | Retrofit AI-using features for dual-mode cognition | 0              | 1          | 1         | 2     | TODO     |
 | mt#781  | Cockpit documentation (anchored in mt#1143)        | 0              | 1          | 1         | 2     | TODO     |
 
-Note: mt#1413 (4 proj files) checked but skipped — status check needed.
-
 ---
 
 ## Phase 2 — Status + Age Sweep
@@ -116,30 +132,27 @@ Note: mt#1413 (4 proj files) checked but skipped — status check needed.
 | mt#1058 | TODO     | 2026-04-23 (in mt#1057 doc)                         | 11d          |
 | mt#781  | TODO     | 2026-04-26 (in ADR-008 update)                      | 8d           |
 
-**Threshold filter (≥10d or no recent commits at all):**
+**Threshold filter (≥10d):**
 
 - mt#321 (11d) — passes ✓
 - mt#454 (11d) — passes ✓
 - mt#1058 (11d) — passes ✓
-- mt#1001 (8d) — borderline; low IDs suggest very old filing with no recent direct commits
-- mt#700 (8d) — borderline; same pattern
-- mt#781 (8d) — borderline
-- mt#800 (7d) — borderline (cited as infrastructure, not directly progressed)
-- mt#1110 (7d) — borderline (calibration work cited but task in READY without direct commits)
-- mt#503 (7d) — borderline
+- mt#1001 (8d) — borderline (no recent direct commits, low task ID suggesting old filing)
+- mt#700 (8d) — borderline (same pattern)
+- mt#781 (8d) — borderline (parent mt#1143 in active PLANNING)
+- mt#800 (7d) — eliminated (READY, next-up, not stalled)
+- mt#1110 (7d) — eliminated (READY, calibration next-up)
+- mt#503 (7d) — eliminated (below threshold)
 
-**Age notes:** git commit dates represent "last time task was mentioned" not "last status change." For old tasks (mt#321, mt#454, mt#503, mt#700, mt#781, mt#1001), these may have been filed months ago with no sessions ever started. The 10d filter here should be read as "no direct implementation commits ≥10d."
+**Age methodology note:** Git commit dates represent "last time task was mentioned in any commit
+body," not "last status change." For older tasks (mt#321, mt#454, mt#700, mt#781, mt#1001), these
+IDs appear in ADR/research documents; the tasks themselves may have had no session started at all.
+The 10d filter is applied to "last meaningful activity touching the task."
 
-**Surviving candidates after age filter (≥10d, or very old/no-session tasks):**
+**Surviving candidates after age filter:**
 
-- mt#321 (11d, TODO, multiple ADR/proj refs, cited as "first consumer" of mt#1063/mt#1057)
-- mt#454 (11d, PLANNING, ADR-008 transport binding — Agent Inbox)
-- mt#1058 (11d, TODO, umbrella for ADR-007 retrofit — "migrate existing AI-using features")
-
-**Borderline candidates (8d, strong cross-refs):**
-
-- mt#1001 (8d, TODO, ADR-008 transport binding for mesh push)
-- mt#700 (8d, TODO, ADR-008 transport binding for task executor)
+- mt#321, mt#454, mt#1058 — confirmed ≥10d
+- mt#1001, mt#700 — borderline (8d, strong cross-refs, included in cluster rollup mt#1570)
 
 ---
 
@@ -148,175 +161,245 @@ Note: mt#1413 (4 proj files) checked but skipped — status check needed.
 ### mt#321 — AI-Powered Project Analysis for Enhanced Init Command
 
 **Cross-refs:** Cited as "first consumer of ADR-007 (CognitionProvider abstraction)" in
-`project_planning.md` and in ADR-007 PR body. Referenced by `project_progressive_adoption.md`
-as "first T0 consumer" of the progressive adoption model.
+`project_planning.md` and ADR-007 PR body. Referenced by `project_progressive_adoption.md`
+as "first T0 consumer" of the progressive adoption model. Cited in ADR-007 as the motivating
+feature: "mt#321 (agent-readiness assessment, first consumer via mt#1063) is the first feature
+that will be user-facing in all three contexts."
 
 **Status:** TODO. No session found.
 
-**Stalled dependents:** mt#321 depends on mt#1063 (AI criterion evaluation, TODO), which
-in turn depends on ADR-007/mt#1057 (CognitionProvider) landing. mt#1057 is likely DONE
-(ADR shipped 2026-04-23) but the implementation task needs checking.
+**Stalled dependents:** mt#321 depends on mt#1063 (AI criterion evaluation via CognitionProvider,
+TODO, 11d stalled) which is the direct consumer of ADR-007. ADR-007 shipped 2026-04-23 (mt#1057
+DONE) — prerequisite is done, but mt#1063 and mt#321 remain unstarted.
 
-**Originating relevance:** The progressive adoption model still applies — T0 assessment
-(no Minsky config, no API key) still has no implementation. The user-facing init command
-hasn't been enhanced with AI-powered analysis.
+**Originating relevance:** Progressive adoption T0 still has no implementation. A user running
+`/assess` in Claude Code with no Minsky config and no API key still does not get AI-powered
+analysis. The harness-based cognition path (delegated mode) exists in design only.
 
-**Workaround check:** No memory file documents a workaround that cites mt#321. The
-progressive adoption model (`project_progressive_adoption.md`) describes the design
-intention, not a workaround.
+**5-condition check:**
 
-**Verdict: Child B candidate** (no workaround, structurally important, stalled ≥11d).
+1. Cited in ≥2 project files + 1 ADR ✓
+2. Last activity 11d ago (ADR-007 PR mention) ✓
+3. mt#1063 (stalled sibling dep) also TODO, 11d ✓
+4. No memory documents a workaround citing mt#321 ✓
+5. Progressive adoption T0 commitment still unmet ✓
 
----
-
-### mt#454 — Agent Inbox / Seek Human Input (PLANNING)
-
-**Cross-refs:** ADR-008 (attention-allocation) names mt#454 as the durable async backbone.
-`project_attention_allocation.md` documents it as the "durable async backbone" for `direction.decide`
-asks. `project_mt1526_agent_inbox_ecosystem_comparison.md` (mt#1526 research) references mt#454
-directly. `project_planning.md` lists it under attention-allocation.
-
-**Status:** PLANNING (11d). No implementation session found.
-
-**Stalled dependents:** ADR-008 implementation plan lists mt#454 as the async transport
-binding for `direction.decide` asks. Without mt#454, the Ask subsystem cannot handle
-long-running async escalations. The research doc (`mt1526-agent-inbox-ecosystem-comparison.md`)
-completed on 2026-04-27 (PR #937) was explicitly a prerequisite investigation for mt#454.
-
-**Originating relevance:** The Ask subsystem is still not fully wired (ADR-008 transport
-bindings are incomplete). Agent Inbox is the canonical mechanism for async `direction.decide`
-escalations. This gap means the Ask subsystem can only handle sync asks in-process.
-
-**Workaround check:** No memory file documents a workaround that cites mt#454. The
-manual escalation pattern (user interrupts session) is described in CLAUDE.md as humility
-discipline, but no memory file frames it as "workaround for mt#454."
-
-**Verdict: Child B candidate** (no workaround, ADR transport binding, stalled ≥11d).
+**Result: QUALIFIES. Filed mt#1572.**
 
 ---
 
-### mt#1058 — Retrofit AI-Using Features for Dual-Mode Cognition (TODO)
+### mt#454 — Agent Inbox / Seek Human Input (PLANNING, 11d)
 
-**Cross-refs:** ADR-007 PR body explicitly lists mt#1058 as Phase 4 of the CognitionProvider
-plan ("Retrofit umbrella — migrate existing AI-using features"). mt#1057 ADR doc references
-mt#1058 as the sequenced follow-up. The `project_planning.md` places mt#1058 after mt#915
-(DONE) in the mt#800 skill track.
+**Cross-refs:** ADR-008 designates mt#454 as the "durable async backbone" for `direction.decide`
+asks. `project_attention_allocation.md` documents the architecture explicitly: "mt#454 (Agent
+Inbox) — the durable async backbone. Should expand from 'seek human input' to full async-ask
+persistence." The mt#1526 ecosystem comparison research (PR #937, 2026-04-27) was completed
+specifically as a prerequisite for mt#454. Listed in `project_planning.md` under attention
+allocation cluster.
 
-**Status:** TODO. Last meaningful commit: 2026-04-23 (in mt#1057 ADR doc). 11d stalled.
+**Status:** PLANNING. No implementation session. Research prerequisite completed 2026-04-27.
 
-**Stalled dependents:** mt#1058 is the umbrella for migrating all existing AI-using features
-to use `CognitionProvider`. Until mt#1058 lands, T0 progressive adoption is broken for
-any feature that directly calls `AICompletionService`. mt#1063 ("AI criterion evaluation
-via CognitionProvider") is also TODO and would be one of the first consumers.
+**Stalled dependents:** Without mt#454, `direction.decide` asks (principal-level decisions that
+require human input) have no durable async transport. The Ask subsystem (ADR-008) handles only
+synchronous in-process asks without this binding. mt#1001 (mesh notify) and mt#700 (AG-UI
+executor) are the other two stalled transport bindings in the same cluster.
 
-**Originating relevance:** ADR-007 (CognitionProvider) shipped on 2026-04-23. The retrofit
-umbrella is the next required step. Without it, the ADR is a design artifact with no runtime
-effect. The T0 progressive adoption model cannot deliver on its commitment.
+**Originating relevance:** The attention-allocation ADR-008 lists 8 stage lifecycle; Stage 5
+(Suspension) and Stage 7 (Resumption) for async asks require the Agent Inbox backend. The
+humility principle's implementation depends on these stages for async `direction.decide` routing.
 
-**Workaround check:** No memory cites mt#1058 as a workaround tracking task. There is no
-documented "use X instead of mt#1058" pattern.
+**5-condition check:**
 
-**Verdict: Child B candidate** (no workaround, ADR implementation dependency, stalled ≥11d).
+1. Cited in ≥2 project files + 1 ADR ✓
+2. Last activity 11d ago ✓
+3. ADR-008 transport bindings (mt#1001, mt#700) also stalled ✓
+4. No memory cites mt#454 as a workaround tracking task ✓
+5. Ask subsystem async gap still unaddressed ✓
 
----
-
-### mt#1001 — Mesh Signal Channel Push/Subscription (TODO)
-
-**Cross-refs:** ADR-008 (attention-allocation) cites mt#1001 as the transport binding for
-`coordination.notify` asks. `project_attention_allocation.md` states: "mt#1001 (mesh signal
-push) — `coordination.notify` is its own ask kind; uses LISTEN/NOTIFY + SSE, not AG-UI."
-`project_mesh_observability.md` references mt#1001. `project_planning.md` (under attention
-allocation section). Also cited in `draft_openclaw_hiclaw_position_paper.md`.
-
-**Status:** TODO. Last mention in commits: 2026-04-26 (ADR-008 renumbering commit).
-
-**Stalled dependents:** Without mt#1001, the `coordination.notify` ask kind has no transport
-wire. The mesh observability vision (peer agents notifying each other of conflicts) has no
-implementation path. Cited in 5 total files (1 feedback, 3 project, 1 ADR).
-
-**Originating relevance:** The mesh signal architecture is still unimplemented. ADR-008
-designates mt#1001 as the owner of this transport binding. The HITL-as-attention-allocation
-reframe (core strategic claim) depends on all ask kinds having transport bindings; mt#1001
-is the missing link for async/notify asks.
-
-**Workaround check:** No memory documents a workaround citing mt#1001. The mesh is simply
-absent — there's no "use X instead" pattern documented.
-
-**Verdict: Borderline Child B candidate** (8d stall, not ≥10d by git commit date, but task
-is structurally blocking ADR-008 transport completeness with no recent commits at all).
+**Result: QUALIFIES. Filed in cluster rollup mt#1570.**
 
 ---
 
-### mt#700 — Provider-Agnostic Task Executor (TODO)
+### mt#1058 — Retrofit AI-Using Features for Dual-Mode Cognition (TODO, 11d)
 
-**Cross-refs:** ADR-008 cites mt#700 as the AG-UI transport binding for the task executor.
-`project_attention_allocation.md` states: "mt#700 (Layer 2 task executor) — consumer of the
-Ask subsystem; executor interface emits ask events." Cited in 3 project files + 1 ADR.
+**Cross-refs:** ADR-007 PR body lists mt#1058 as Phase 4 of the CognitionProvider plan:
+"Retrofit umbrella — migrate existing AI-using features." `project_planning.md` places it
+after mt#915 (DONE) in the mt#800 skill track. Referenced as the prerequisite for T0
+progressive adoption across all existing AI features.
 
-**Status:** TODO. Last commit mentioning: 2026-04-26 (in ADR renumbering).
+**Status:** TODO. Last meaningful commit: 2026-04-23. 11d stalled.
 
-**Stalled dependents:** Without mt#700, the AG-UI transport binding has no consumer.
-The task executor prototype is the implementation path for autonomous task execution
-without Claude Code dependency.
+**Stalled dependents:** mt#1063 (AI criterion evaluation, TODO) and mt#321 (AI-powered init,
+TODO) both depend on the CognitionProvider retrofit being in motion. Until mt#1058 activates
+the migration, existing features continue calling `AICompletionService` directly, bypassing
+delegated mode and breaking T0 progressive adoption.
 
-**Originating relevance:** Still relevant — Minsky still depends on Claude Code as its
-harness. The goal of provider-agnostic execution remains unmet.
+**Originating relevance:** ADR-007 is a design artifact with no runtime effect until the
+retrofit track activates. The T0 commitment ("no API key, harness provides cognition") cannot
+be delivered for any existing feature without mt#1058.
 
-**Workaround check:** Claude Code dependency is described in `project_progressive_adoption.md`
-as the structural condition, but no memory frames it as "workaround for mt#700."
+**5-condition check:**
 
-**Verdict: Borderline Child B candidate** (8d stall; ADR transport binding; no workaround).
+1. Cited in 1 ADR + referenced in mt#1057 doc and `project_planning.md` ✓
+2. Last activity 11d ago ✓
+3. mt#1063 (TODO) is a direct child; mt#321 is downstream ✓
+4. No memory documents a workaround citing mt#1058 ✓
+5. ADR-007 still has no runtime implementation ✓
+
+**Result: QUALIFIES. Filed mt#1571.**
 
 ---
 
 ### Eliminated candidates
 
-| Task    | Reason eliminated                                                      |
-| ------- | ---------------------------------------------------------------------- |
-| mt#800  | READY status (planned, not stalled) — 7d since last reference          |
-| mt#1110 | READY status — reviewer calibration is next-up, not stalled            |
-| mt#503  | 7d stall only; cited in mt#1035 doc as "shared infrastructure" not dep |
-| mt#781  | Cockpit doc task; 8d stall but dependent on mt#1143 (cockpit) — check  |
+| Task    | Reason eliminated                                                                             |
+| ------- | --------------------------------------------------------------------------------------------- |
+| mt#800  | READY status — actively next-up, not stalled; sub-tasks making progress (mt#913, mt#914 DONE) |
+| mt#1110 | READY status — reviewer calibration queued, 7d since last reference                           |
+| mt#503  | 7d stall, below threshold; cited as "shared infrastructure" with mt#1035, not direct lynchpin |
+| mt#781  | 8d stall but parent mt#1143 (cockpit) is in active PLANNING — not independently stalled       |
 
 ---
 
-## Phase 4 — Filed Rollups
+## Stalled Lynchpin Table
 
-**Qualifying candidates by impact (cross-ref count × stall age):**
-
-1. **mt#454** — ADR-008 transport binding (async), 11d PLANNING, 3 file citations, Ask subsystem async backbone
-2. **mt#1058** — ADR-007 retrofit umbrella, 11d TODO, 2 file citations but directly ADR-specified
-3. **mt#321** — First T0 consumer, 11d TODO, 4 file citations, progressive-adoption gating
-
-**Borderline (8d, below 10d threshold):** 4. mt#1001 — ADR-008 transport binding (notify), 8d 5. mt#700 — ADR-008 transport binding (AG-UI), 8d
-
-Per spec, cap at 3. Filing rollups for the 3 confirmed ≥10d candidates. Bordeline (mt#1001,
-mt#700) go into deferred candidates.
-
-<!-- ROLLUP IDs WILL BE FILLED IN AFTER tasks_create CALLS -->
+| Task    | Title                                              | Cited by (count) | Status   | Age | Stalled deps    | Cluster                    | Rollup action |
+| ------- | -------------------------------------------------- | ---------------- | -------- | --- | --------------- | -------------------------- | ------------- |
+| mt#454  | Agent Inbox / seek-human-input async backbone      | 3 memories/ADRs  | PLANNING | 11d | mt#1001, mt#700 | ADR-008 transport bindings | filed mt#1570 |
+| mt#1001 | Mesh signal channel push/subscription              | 5 memories/ADRs  | TODO     | 8d  | mt#454          | ADR-008 transport bindings | filed mt#1570 |
+| mt#700  | Provider-agnostic task executor with Ask support   | 4 memories/ADRs  | TODO     | 8d  | mt#454          | ADR-008 transport bindings | filed mt#1570 |
+| mt#1058 | Retrofit AI-using features for dual-mode cognition | 2 ADR/proj refs  | TODO     | 11d | mt#1063         | ADR-007 retrofit track     | filed mt#1571 |
+| mt#1063 | AI criterion evaluation via CognitionProvider      | 2 ADR/proj refs  | TODO     | 11d | mt#321          | ADR-007 retrofit track     | filed mt#1571 |
+| mt#321  | AI-Powered Project Analysis / enhanced init        | 4 memories/ADRs  | TODO     | 11d | mt#1063         | T0 progressive adoption    | filed mt#1572 |
 
 ---
 
-## Phase 5 — Stalled Lynchpin Table
+## Cluster Descriptions (Impact Order)
 
-<!-- TO BE FILLED IN AFTER ROLLUP FILING -->
+### Cluster 1: ADR-008 Transport Bindings (3 stalled tasks, 11d average)
+
+**Tasks:** mt#454 (PLANNING), mt#1001 (TODO), mt#700 (TODO)
+
+**Structure:** ADR-008 (attention-allocation subsystem) was published 2026-04-22 (mt#1034 DONE).
+The ADR specifies three transport bindings for the Ask subsystem's outer boundary:
+
+- `direction.decide` asks (async, long-horizon) → mt#454 (Agent Inbox)
+- `coordination.notify` asks (fire-and-forget) → mt#1001 (mesh signal channel)
+- Task executor interface (AG-UI, Layer 2) → mt#700 (provider-agnostic executor)
+
+ADR-008's child implementation tasks (mt#1068–mt#1072) covered the domain layer (entity,
+router, subagent dispatch, attention accounting, BLOCKED rendering) and are largely DONE.
+The transport bindings were designated as "owned by existing parent tasks" — but those parent
+tasks are stalled and have no shared rollup to surface the gap.
+
+**Impact:** Without these three transport bindings, the Ask subsystem operates in stub mode:
+it can route asks internally but cannot deliver them to humans asynchronously or to peer agents.
+The humility principle's `direction.decide` escalation path has no durable wire.
+
+**Last activity:** ADR-008 mentioned 2026-04-26 in a renumbering commit. mt#1526 ecosystem
+comparison research (prerequisite for mt#454) completed 2026-04-27.
+
+**No workaround:** No memory documents a "use X instead" pattern for any of these three tasks.
+The transports are simply absent.
+
+**Rollup filed:** mt#1570 — "[MegaParent] Ask subsystem transport bindings: async, mesh, and
+executor structural unblockers"
+
+---
+
+### Cluster 2: ADR-007 Retrofit Track (2 stalled tasks, 11d)
+
+**Tasks:** mt#1058 (TODO), mt#1063 (TODO)
+
+**Structure:** ADR-007 (CognitionProvider abstraction) was published 2026-04-23 (mt#1057 DONE).
+The ADR defines three operational modes for AI-using features: Direct, Delegated, Degraded.
+Phase 4 of the ADR's implementation plan is the retrofit umbrella (mt#1058) — migrating all
+existing features from direct `AICompletionService` calls to `CognitionProvider`. mt#1063
+is the first scheduled consumer (AI criterion evaluation), which in turn enables mt#321.
+
+**Impact:** ADR-007 is a design artifact with no runtime effect. Existing AI-using features
+continue to call `AICompletionService` directly, which means T0 progressive adoption (no API
+key, harness provides cognition) cannot work for any existing feature. The retrofit umbrella
+has no parent rollup and no session started.
+
+**Last activity:** ADR-007 PR body mentioned mt#1058 as Phase 4 on 2026-04-23. No commits
+since then touch either mt#1058 or mt#1063.
+
+**No workaround:** No memory documents a "use X instead of CognitionProvider" pattern for
+existing features. The gap is invisible — features call `AICompletionService` directly with
+no flag that they're non-compliant with ADR-007.
+
+**Rollup filed:** mt#1571 — "[MegaParent] CognitionProvider retrofit: activate ADR-007 across
+existing AI-using features"
+
+---
+
+### Cluster 3: T0 Progressive Adoption Consumer (1 task, 11d)
+
+**Task:** mt#321 (TODO)
+
+**Structure:** mt#321 (AI-Powered Project Analysis for Enhanced Init) is the canonical "first
+T0 consumer" of Minsky's progressive adoption model. It is cited as such across 3 project
+memory files and ADR-007. T0 means: no Minsky config, no API key — the harness provides
+cognition. mt#321 cannot start until mt#1063 (ADR-007 first consumer, also stalled) is in
+motion.
+
+**Impact:** The lowest rung of the progressive adoption ladder has no implementation.
+A new user cannot run `/assess` or the enhanced init command without Minsky config. The T0
+commitment in `project_progressive_adoption.md` is a design promise with no delivery path.
+
+**Last activity:** ADR-007 PR body cited mt#321 as motivating feature on 2026-04-23. No
+implementation commits.
+
+**No workaround:** No memory documents a workaround for the missing T0 init enhancement.
+The feature simply doesn't exist yet.
+
+**Rollup filed:** mt#1572 — "[MegaParent] Progressive adoption T0 consumer: AI-powered init
+and assessment pipeline"
 
 ---
 
 ## Filed Rollups
 
-<!-- TO BE FILLED IN AFTER tasks_create CALLS -->
+| Cluster                    | Rollup task | Children wired          |
+| -------------------------- | ----------- | ----------------------- |
+| ADR-008 transport bindings | mt#1570     | mt#454, mt#1001, mt#700 |
+| ADR-007 retrofit track     | mt#1571     | mt#1058, mt#1063        |
+| T0 progressive adoption    | mt#1572     | mt#321                  |
 
 ---
 
 ## Deferred Candidates
 
-| Task    | Title (abbreviated)                       | Reason deferred                                               |
-| ------- | ----------------------------------------- | ------------------------------------------------------------- |
-| mt#1001 | Mesh signal channel push/subscription     | 8d stall (below 10d threshold); ADR transport gap still valid |
-| mt#700  | Provider-agnostic task executor prototype | 8d stall (below 10d threshold); ADR transport gap still valid |
-| mt#503  | Premature-completion guardrails           | 7d stall; mt#1035 shared-interface rather than direct dep     |
-| mt#781  | Cockpit documentation                     | 8d stall; depends on mt#1143 (cockpit) status                 |
+| Task    | Title (abbreviated)                       | Reason deferred                                                                   |
+| ------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
+| mt#1001 | Mesh signal channel push/subscription     | 8d stall — included in mt#1570 cluster rollup despite being below 10d strict      |
+| mt#700  | Provider-agnostic task executor prototype | 8d stall — included in mt#1570 cluster rollup despite being below 10d strict      |
+| mt#503  | Premature-completion guardrails           | 7d stall, below threshold; cited as shared-interface with mt#1035, not dep        |
+| mt#781  | Cockpit documentation (anchored mt#1143)  | 8d stall; parent mt#1143 (cockpit) in active PLANNING — not independently stalled |
+
+**Note on mt#1001 and mt#700:** These are technically below the 10d threshold (8d) but are
+included in cluster rollup mt#1570 because they form the same ADR-008 transport cluster as
+mt#454 (which does qualify at 11d). Including them in the same rollup is structurally correct
+— they share the same stall cause and the same unblocking action.
+
+---
+
+## Threshold Calibration Note
+
+Was 10d the right threshold? Signal quality analysis:
+
+- At 10d: 3 confirmed candidates (mt#321, mt#454, mt#1058) — clean signal
+- At 8d: 2 additional candidates (mt#1001, mt#700) — also valid, grouped in cluster
+- At 7d: 2 more (mt#503, mt#503) — these are weaker; mt#503 has a different citation shape
+
+**Assessment:** 10d is appropriate as the strict threshold. The 8d candidates (mt#1001,
+mt#700) are justified by cluster cohesion (same ADR, same blocking cause) rather than their
+individual stall age alone. Lowering the threshold to 8d globally would admit too many
+candidates; keeping 10d with a cluster exception is the right calibration.
+
+This is calibrated differently from Child A (5d threshold) because Child B lacks the
+firing-rate corroboration signal. The higher threshold compensates for lower certainty.
 
 ---
 
@@ -325,6 +408,11 @@ mt#700) go into deferred candidates.
 - mt#1505 — parent umbrella roadmap stall audit
 - mt#1539 — sibling Child A (workaround-load-bearing cluster audit)
 - mt#1034 — attention-allocation umbrella (DONE) — canonical reference for ADR-008 lineage
+- mt#1057 — CognitionProvider ADR (DONE) — prerequisite for mt#1058 and mt#1063
 - mt#800 — TypeScript-first authoring parent (READY — not stalled, near-term next-up)
+- mt#1526 — Agent Inbox ecosystem comparison (DONE) — prerequisite for mt#454
 - ADR-007 (`docs/architecture/adr-007-cognition-provider-abstraction.md`) — mt#1058 depends on this
 - ADR-008 (`docs/architecture/adr-008-attention-allocation-subsystem.md`) — mt#454/mt#1001/mt#700 depend on this
+- `project_attention_allocation.md` — primary memory source for ADR-008 transport binding analysis
+- `project_progressive_adoption.md` — progressive adoption T0 commitment source
+- `docs/research/mt1539-workaround-cluster-audit.md` — Child A (dedup reference)
