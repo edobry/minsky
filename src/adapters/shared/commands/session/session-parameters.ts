@@ -5,6 +5,7 @@
  * Extracted from session.ts as part of modularization effort.
  */
 import { z } from "zod";
+import { CONVENTIONAL_COMMIT_TYPES } from "../../../../domain/git/conventional-commit-types";
 
 /**
  * Common parameter building blocks for session commands
@@ -399,7 +400,7 @@ export const sessionPrCreateCommandParams = {
     required: true,
   },
   type: {
-    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    schema: z.enum(CONVENTIONAL_COMMIT_TYPES),
     description: "Conventional commit type to generate title prefix",
     required: true,
   },
@@ -456,7 +457,7 @@ export const sessionPrEditCommandParams = {
     required: false,
   },
   type: {
-    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    schema: z.enum(CONVENTIONAL_COMMIT_TYPES),
     description: "Conventional commit type to generate prefix when editing (optional)",
     required: false,
   },
@@ -779,6 +780,43 @@ export const sessionPrReviewThreadResolveCommandParams = {
     schema: z.enum(["resolve", "unresolve"]),
     description: 'Action to perform: "resolve" marks the thread as done; "unresolve" reopens it.',
     required: true,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session PR Check Run Submit command parameters
+ * Submits a GitHub Check Run for the session's PR, compiling reviewer findings
+ * into check-run annotations (machine-shaped, branch-protection-eligible surface).
+ */
+export const sessionPrCheckRunSubmitCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  findings: {
+    schema: z.array(
+      z.object({
+        path: z.string().min(1),
+        startLine: z.number().int().positive(),
+        endLine: z.number().int().positive().optional(),
+        severity: z.string().min(1),
+        title: z.string().min(1),
+        message: z.string().min(1),
+        rawDetails: z.string().optional(),
+      })
+    ),
+    description:
+      "List of reviewer findings to compile into check-run annotations. " +
+      "severity: 'BLOCKING' → failure, 'NON-BLOCKING' → warning, other → notice. " +
+      "An empty list produces a check run with conclusion 'success' and no annotations.",
+    required: true,
+  },
+  checkRunName: {
+    schema: z.string().min(1),
+    description:
+      "Override the check run name (default: 'minsky-reviewer/findings'). " +
+      "Must be stable across runs for branch-protection integration.",
+    required: false,
   },
   json: commonSessionParams.json,
 };

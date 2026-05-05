@@ -77,6 +77,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__tasks_status_set",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/tasks-status-set-guard.ts",
+            "timeout": 10,
+            "statusMessage": "Validating task status transition..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_commit|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
         "hooks": [
           {
@@ -164,6 +175,17 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/post-session-start.ts",
             "timeout": 10,
             "statusMessage": "Labeling session..."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Edit|Write|Read|Grep|Glob|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/two-strikes-record.ts",
+            "timeout": 5,
+            "statusMessage": "Recording 2-strikes streak..."
           }
         ]
       }

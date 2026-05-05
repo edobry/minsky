@@ -100,9 +100,11 @@ describe("summarizePriorReviews", () => {
     expect(result.markdown).toBe("");
   });
 
-  test("truncation: when markdown exceeds 3000 chars, older iterations are omitted first", () => {
-    // Create many reviews with large bodies so the total exceeds 3000 chars
-    const bigBody = `**[BLOCKING]** src/foo.ts:1 — ${"x".repeat(400)}`;
+  test("truncation: when markdown exceeds 30000 chars, older iterations are omitted first", () => {
+    // Create many reviews with large bodies so the total exceeds 30000 chars.
+    // MAX_SUMMARY_CHARS was raised from 3000 to 30000 (mt#1465 substrate raise);
+    // use a body of ~4000 chars per iteration so 10 iterations ≈ 40000+ chars total.
+    const bigBody = `**[BLOCKING]** src/foo.ts:1 — ${"x".repeat(4000)}`;
     const reviews: PriorReview[] = Array.from({ length: 10 }, (_, i) =>
       makeReview({
         id: i + 1,
@@ -115,7 +117,7 @@ describe("summarizePriorReviews", () => {
     const result = summarizePriorReviews(reviews, HEAD_SHA);
 
     // Summary must fit within budget
-    expect(result.markdown.length).toBeLessThanOrEqual(3000);
+    expect(result.markdown.length).toBeLessThanOrEqual(30000);
     // iterationCount still reflects all 10 reviews
     expect(result.iterationCount).toBe(10);
     // The omit note should be present

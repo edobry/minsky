@@ -10,17 +10,16 @@
 
 import type { Ask } from "./types";
 import type { AskRepository } from "./repository";
-
-/**
- * Terminal Ask states — Asks in these states are not "open".
- */
-const CLOSED_STATES = new Set(["closed", "cancelled", "expired"]);
+import { isTerminal } from "./state-machine";
 
 /**
  * Returns true when the Ask is still open (not in a terminal state).
+ *
+ * Delegates to the canonical `isTerminal` predicate from state-machine.ts —
+ * single source of truth for terminal-state classification.
  */
 function isOpenAsk(ask: Ask): boolean {
-  return !CLOSED_STATES.has(ask.state);
+  return !isTerminal(ask.state);
 }
 
 /**
@@ -46,20 +45,29 @@ export async function getOpenAskForTask(repo: AskRepository, taskId: string): Pr
  * Returns a `Map<taskId, Ask | null>` so callers can look up enrichment
  * for every task in O(1) without an N+1 query.
  *
- * The implementation issues one `listByParentTask` per task.  A future
- * optimisation (single SQL query across all IDs) is left for when the
- * `AskRepository` interface gains a multi-task variant.
+ * Issues a single `repo.findOpenByTaskIds` call (one SQL `IN (...)` query
+ * for the Drizzle backend) and groups the rows by `parentTaskId`. The
+ * repository returns rows ordered by `createdAt` descending, so the first
+ * row encountered per task is the most recent.
  */
 export async function getOpenAsksByTaskIds(
   repo: AskRepository,
   taskIds: string[]
 ): Promise<Map<string, Ask | null>> {
   const result = new Map<string, Ask | null>();
-  await Promise.all(
-    taskIds.map(async (id) => {
-      const ask = await getOpenAskForTask(repo, id);
-      result.set(id, ask);
-    })
-  );
+  for (const id of taskIds) {
+    result.set(id, null);
+  }
+  if (taskIds.length === 0) return result;
+
+  const rows = await repo.findOpenByTaskIds(taskIds);
+  for (const row of rows) {
+    const taskId = row.parentTaskId;
+    if (taskId === undefined) continue;
+    if (!result.has(taskId)) continue;
+    if (result.get(taskId) === null) {
+      result.set(taskId, row);
+    }
+  }
   return result;
 }

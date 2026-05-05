@@ -13,6 +13,7 @@ import { registerSessionCommands } from "./session";
 import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerSetupCommands } from "./setup";
+import { registerSetupGithubAppCommand } from "./setup-github-app";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -31,6 +32,7 @@ import { registerCompileCommands } from "./compile/compile-commands";
 import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
 import { registerAttentionCommands } from "./attention";
+import { registerWindowCommands } from "./window";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -59,6 +61,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register setup commands
   registerSetupCommands();
+
+  // Register `setup github-app` subcommand (mt#1087)
+  registerSetupGithubAppCommand();
 
   // Register config commands
   registerConfigCommands();
@@ -114,6 +119,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register attention commands (attention.report — mt#1071 / ADR-008)
   registerAttentionCommands(container);
 
+  // Register window commands (attention windows — mt#1489 / mt#1411)
+  registerWindowCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -126,6 +134,7 @@ export {
   registerRulesCommands,
   registerInitCommands,
   registerSetupCommands,
+  registerSetupGithubAppCommand,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,
@@ -145,4 +154,5 @@ export {
   registerWorkspaceCommands,
   registerTranscriptCommands,
   registerAttentionCommands,
+  registerWindowCommands,
 };

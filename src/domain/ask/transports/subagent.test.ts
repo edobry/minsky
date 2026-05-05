@@ -128,16 +128,16 @@ describe("dispatchToSubagent — capability.escalate", () => {
     expect(typeof payload?.text).toBe("string");
     expect(payload?.text).toContain("Escalation result");
 
-    // Attention cost recorded
+    // Attention cost recorded — canonical response.attentionCost only.
+    // The legacy payload.attentionCost field was removed in mt#1498 — the
+    // shape diverged from the canonical AttentionCost (it carried
+    // {tokenCost, kind} instead of {tokenCost?, operatorCost?, transport,
+    // resolvedIn}) and no production callsite consumed it.
     const attentionCost = result.response?.attentionCost;
     expect(attentionCost?.tokenCost).toBe(750);
     expect(attentionCost?.transport).toBe("subagent");
     expect(attentionCost?.resolvedIn).toBe("subagent");
-
-    // Payload-level attention cost (ADR-008 §Attention accounting)
-    const payloadCost = payload?.attentionCost as Record<string, unknown>;
-    expect(payloadCost?.tokenCost).toBe(750);
-    expect(["quick", "medium", "deep"]).toContain(payloadCost?.kind);
+    expect(payload?.attentionCost).toBeUndefined();
 
     // Dispatcher called once with correct model
     expect(dispatcher.state.calls).toHaveLength(1);
@@ -292,11 +292,9 @@ describe("dispatchToSubagent — token cost recording", () => {
 
     const result = await dispatchToSubagent(routedAsk, { dispatcher });
 
+    // Canonical response.attentionCost is the single source of truth for
+    // token cost (mt#1498 removed the redundant payload.attentionCost field).
     expect(result.response?.attentionCost?.tokenCost).toBe(3500);
-
-    const payloadCost = (result.response?.payload as Record<string, unknown>)
-      ?.attentionCost as Record<string, unknown>;
-    expect(payloadCost?.tokenCost).toBe(3500);
   });
 
   test("records undefined tokenCost when dispatcher omits token count", async () => {
@@ -306,28 +304,6 @@ describe("dispatchToSubagent — token cost recording", () => {
     const result = await dispatchToSubagent(routedAsk, { dispatcher });
 
     expect(result.response?.attentionCost?.tokenCost).toBeUndefined();
-  });
-
-  test('classifies <2000 tokens as "quick"', async () => {
-    const dispatcher = createMockDispatcher({ text: "done", tokenCost: 1000 });
-    const routedAsk = makeRoutedAsk(KIND_CAPABILITY_ESCALATE);
-
-    const result = await dispatchToSubagent(routedAsk, { dispatcher });
-
-    const payloadCost = (result.response?.payload as Record<string, unknown>)
-      ?.attentionCost as Record<string, unknown>;
-    expect(payloadCost?.kind).toBe("quick");
-  });
-
-  test('classifies >=10000 tokens as "deep"', async () => {
-    const dispatcher = createMockDispatcher({ text: "done", tokenCost: 15000 });
-    const routedAsk = makeRoutedAsk(KIND_CAPABILITY_ESCALATE);
-
-    const result = await dispatchToSubagent(routedAsk, { dispatcher });
-
-    const payloadCost = (result.response?.payload as Record<string, unknown>)
-      ?.attentionCost as Record<string, unknown>;
-    expect(payloadCost?.kind).toBe("deep");
   });
 });
 

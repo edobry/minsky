@@ -22,13 +22,14 @@ import type { AskRepository } from "../repository";
  * Derive transport and resolvedIn from a responder string.
  *
  * Mapping rules (ADR-008 §Transport-binding matrix + responder taxonomy):
- *   - "policy"            → transport = "policy",   resolvedIn = "policy"
- *   - "operator"          → transport = "inbox",    resolvedIn = "inbox"
- *   - "timeout"           → transport = "timeout",  resolvedIn = "timeout"
- *   - responder.startsWith("agui:")   → transport = "agui",    resolvedIn = "agui"
- *   - responder.startsWith("mesh:")   → transport = "mesh",    resolvedIn = "mesh"
- *   - responder.startsWith("inbox:")  → transport = "inbox",   resolvedIn = "inbox"
- *   - any other string (bare AgentId) → transport = "subagent", resolvedIn = "subagent"
+ *   - "policy"             → transport = "policy",    resolvedIn = "policy"
+ *   - "operator"           → transport = "inbox",     resolvedIn = "inbox"
+ *   - "timeout"            → transport = "timeout",   resolvedIn = "timeout"
+ *   - responder.startsWith("agui:")      → transport = "agui",      resolvedIn = "agui"
+ *   - responder.startsWith("mesh:")      → transport = "mesh",      resolvedIn = "mesh"
+ *   - responder.startsWith("inbox:")     → transport = "inbox",     resolvedIn = "inbox"
+ *   - responder.startsWith("retriever:") → transport = "retriever", resolvedIn = "retriever"
+ *   - any other string (bare AgentId)    → transport = "subagent",  resolvedIn = "subagent"
  *
  * ADR-008 semantics: the responder prefix determines the transport because the
  * prefix encodes which wire format carried the answer back (AgentId format from
@@ -60,6 +61,13 @@ function deriveTransportAndResolvedIn(responder: string): {
   }
   if (responder.startsWith("inbox:")) {
     return { transport: "inbox", resolvedIn: "inbox" };
+  }
+  if (responder.startsWith("retriever:")) {
+    // mt#1448 added "retriever" to TransportKind; mt#1498 closes the gap
+    // here so retriever-prefixed responders no longer fall through to the
+    // subagent bucket and miscategorise information.retrieve closures in
+    // attention rollups.
+    return { transport: "retriever", resolvedIn: "retriever" };
   }
 
   // Any other string (bare AgentId or unrecognised prefix) → subagent bucket
@@ -103,6 +111,7 @@ export interface AttentionCostInput {
  *   - responder starts with "agui:" -> transport = "agui", resolvedIn = "agui"
  *   - responder starts with "mesh:" -> transport = "mesh", resolvedIn = "mesh"
  *   - responder starts with "inbox:" -> transport = "inbox", resolvedIn = "inbox"
+ *   - responder starts with "retriever:" -> transport = "retriever", resolvedIn = "retriever"
  *   - other responders (bare AgentId) -> transport = "subagent", attach tokenCost if provided
  *
  * Does NOT apply to cancelled/expired Asks — callers must check state before calling.

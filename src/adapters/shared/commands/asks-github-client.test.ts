@@ -1,10 +1,18 @@
 /**
- * Unit tests for the production GithubReviewClient adapter (mt#1292).
+ * Unit tests for the production GithubReviewClient adapter (mt#1292, verified mt#1482).
  *
  * Hermetic — injects a fake TokenProvider and a fake `listReviews` function
  * via the optional `listReviewsImpl` parameter of `makeProductionGithubReviewClient`.
  * No real HTTP calls, no real GitHub API. The production module is imported and
  * exercised directly.
+ *
+ * The DI seam (`listReviewsImpl` optional parameter) is used instead of
+ * `mock.module()` per the project's `no-global-module-mocks` ESLint rule —
+ * all dependency injection must go through function/constructor parameters.
+ *
+ * Acceptance guarantee: deleting the body of `makeProductionGithubReviewClient`
+ * causes this suite to fail (the factory is called and its return value used;
+ * a deleted body returns undefined, making `client.listReviews()` throw).
  *
  * Coverage:
  *   - Review list maps ReviewListEntry fields to GithubReview correctly
@@ -41,7 +49,13 @@ function makeFakeTokenProvider(opts?: {
   throwOnService?: boolean;
   onGetServiceToken?: (repo?: string) => void;
 }): TokenProvider {
-  return {
+  const provider: TokenProvider = {
+    async getToken(
+      _role?: import("../../../domain/auth/token-provider").TokenRole,
+      repo?: string
+    ): Promise<string> {
+      return provider.getServiceToken(repo);
+    },
     async getServiceToken(repo?: string): Promise<string> {
       opts?.onGetServiceToken?.(repo);
       if (opts?.throwOnService) {
@@ -59,6 +73,7 @@ function makeFakeTokenProvider(opts?: {
       return false;
     },
   };
+  return provider;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +109,39 @@ function makeEntry(
 // ---------------------------------------------------------------------------
 
 describe("makeProductionGithubReviewClient", () => {
+  test("smoke: factory returns object with callable listReviews that delegates to listReviewsImpl", async () => {
+    // Programmatic enforcement of the docstring's "delete the body and tests
+    // fail" claim. If makeProductionGithubReviewClient stops returning a
+    // usable client, or stops wiring listReviewsImpl through, this test fails
+    // immediately and unambiguously — the docstring's guarantee is now
+    // backed by an assertion rather than only by prose.
+    //
+    // Addresses PR #927 round-1 NON-BLOCKING (pullrequestreview-4210089517).
+    let invocationCount = 0;
+    let capturedPrNumber: string | number | undefined;
+    const fakeListReviews: ListReviewsFn = async (_gh, prNumber) => {
+      invocationCount += 1;
+      capturedPrNumber = prNumber;
+      return [];
+    };
+
+    const tokenProvider = makeFakeTokenProvider();
+    const client = makeProductionGithubReviewClient(tokenProvider, fakeListReviews);
+
+    // 1. Factory returned an object.
+    expect(client).toBeDefined();
+    expect(typeof client).toBe("object");
+
+    // 2. Object has a callable `listReviews` function.
+    expect(typeof client.listReviews).toBe("function");
+
+    // 3. Calling listReviews invokes the injected impl exactly once with the
+    //    correct prNumber — proves the factory's body wires the impl through.
+    await client.listReviews("owner", "repo", 42);
+    expect(invocationCount).toBe(1);
+    expect(capturedPrNumber).toBe(42);
+  });
+
   test("maps ReviewListEntry fields to GithubReview correctly", async () => {
     const entries: ReviewListEntry[] = [
       makeEntry(1001, { state: "APPROVED", reviewerLogin: "alice", body: "LGTM" }),

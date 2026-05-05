@@ -182,7 +182,7 @@ This is intentional and follows conventional commits. If a reviewer flags the vi
 Use `mcp__minsky__session_pr_create` with:
 
 - `title`: description-only title
-- `type`: one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+- `type`: one of `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `ci`, `build`, `revert`, `merge`
 - `body`: the PR description (starts with `## Summary`, never duplicates the title)
 - `task`: the task ID
 
@@ -194,27 +194,48 @@ The tool automatically:
 
 ### 6. Stop working on the session branch
 
-After PR creation, do NOT continue committing to the session branch. Switch to main workspace if further work is needed.
+After PR creation, do NOT continue **implementing new scope** on the session branch. Follow-up commits limited to addressing reviewer findings ARE expected during review iteration — this is the normal path and is what `/review-pr` step 7/7a and `/orchestrate` Error recovery presume. New work outside the PR's stated scope must start a new session.
+
+**Next steps once the PR is open:** the merge flow is owned by `/review-pr` (review submission, including the same-App-identity APPROVE block, stale CHANGES_REQUESTED dismissal, and reviewer-bot webhook-miss diagnosis in step 7/7a) and `/orchestrate` (in-flight branch-divergence checks during multi-round iteration, plus the Error recovery table for `session_update` abort and reviewer-bot silence). If iteration spans multiple rounds, expect to consult those skills.
 
 ## PR types
 
-| Type       | Use for                                |
-| ---------- | -------------------------------------- |
-| `feat`     | New features                           |
-| `fix`      | Bug fixes                              |
-| `docs`     | Documentation changes                  |
-| `style`    | Formatting, no logic change            |
-| `refactor` | Code restructuring, no behavior change |
-| `perf`     | Performance improvements               |
-| `test`     | Adding or modifying tests              |
-| `chore`    | Build process, auxiliary tools         |
+The accepted set is the commit-msg hook's allowlist (`src/hooks/commit-msg.ts`,
+backed by `src/domain/git/conventional-commit-types.ts`). Use the type that
+most accurately reflects the change — the hook treats them all equally; this
+table is for human readers.
+
+**Title format invariants enforced by the commit-msg hook:**
+
+- Type tokens are **lowercase only** (`feat`, not `Feat`).
+- The colon is followed by **exactly one literal space** (`feat: foo`, not `feat:  foo`).
+- The description after the space is **1–100 characters** (non-empty, capped).
+
+These rules apply to every commit subject (including squash-merge titles). The
+session PR validators are aligned with the same constraints, so a title that
+passes `session_pr_create` / `session_pr_edit` will also pass the hook.
+
+| Type       | Use for                                                  |
+| ---------- | -------------------------------------------------------- |
+| `feat`     | New features                                             |
+| `fix`      | Bug fixes                                                |
+| `docs`     | Documentation changes                                    |
+| `style`    | Formatting, no logic change                              |
+| `refactor` | Code restructuring, no behavior change                   |
+| `perf`     | Performance improvements                                 |
+| `test`     | Adding or modifying tests                                |
+| `chore`    | Build process, auxiliary tools                           |
+| `ci`       | CI configuration (workflows, actions, runners)           |
+| `build`    | Build system / package manager changes                   |
+| `revert`   | Reverting a previous commit                              |
+| `merge`    | Explicit merge commits with conventional-format subjects |
 
 ## Anti-patterns
 
 - **Committing PR description files** to the repo — use `--body` parameter, never commit `pr.md` files
 - **Duplicating title in body** — title goes in `--title` only, body starts with `## Summary`
 - **Wrong task content** — verify PR content matches the current task, not a previous one
-- **Continuing work after PR creation** — the PR is the final step in the session
+- **Implementing new scope after PR creation** — the PR is the final step for the original scope. Follow-up commits limited to addressing reviewer findings ARE expected during review iteration (see /review-pr step 7 + 7a); only NEW SCOPE requires a fresh session.
 
 ## Key principles
 

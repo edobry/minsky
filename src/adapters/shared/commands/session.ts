@@ -38,6 +38,7 @@ import {
   createSessionPrReviewSubmitCommand,
   createSessionPrReviewDismissCommand,
   createSessionPrReviewThreadResolveCommand,
+  createSessionPrCheckRunSubmitCommand,
 } from "./session/workflow-commands";
 import { createSessionConflictsCommand } from "./session/conflicts-command";
 import { createSessionRepairCommand } from "./session/repair-command";
@@ -103,6 +104,7 @@ export async function registerSessionCommands(
     createSessionPrReviewSubmitCommand(getDeps),
     createSessionPrReviewDismissCommand(getDeps),
     createSessionPrReviewThreadResolveCommand(getDeps),
+    createSessionPrCheckRunSubmitCommand(getDeps),
 
     // Migration
     createSessionMigrateCommand(getDeps),

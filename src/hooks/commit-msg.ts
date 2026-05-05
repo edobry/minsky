@@ -11,6 +11,10 @@ import { log } from "../utils/logger";
 
 // Import actual validation logic instead of duplicating it
 import { isDuplicateContent } from "../domain/session/pr-validation";
+import {
+  CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
+  CONVENTIONAL_COMMIT_TYPES_DISPLAY,
+} from "../domain/git/conventional-commit-types";
 
 export interface CommitMsgResult {
   success: boolean;
@@ -37,8 +41,20 @@ const FORBIDDEN_MESSAGES = [
   "change",
 ];
 
-const CONVENTIONAL_COMMIT_PATTERN =
-  /^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|merge)(\(.+\))?: .{1,50}/;
+/**
+ * Conventional-commit subject pattern: `type(scope): description`.
+ *
+ * The description must be non-empty and stay within a sane upper bound; we use
+ * 100 characters (rounding up from Conventional Commits' 72-char body wrap and
+ * GitHub's 72-char title soft limit) so descriptive `partial:`-prefixed
+ * checkpoints from the operating envelope (mt#1524) aren't silently rejected.
+ * Length-only enforcement lives here; semantic checks (forbidden placeholders,
+ * title-duplication) are separate validators.
+ */
+const CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN = 100;
+const CONVENTIONAL_COMMIT_PATTERN = new RegExp(
+  `^(${CONVENTIONAL_COMMIT_TYPE_ALTERNATION})(\\(.+\\))?: .{1,${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN}}$`
+);
 
 /**
  * Unified commit message validation hook
@@ -163,6 +179,7 @@ export class CommitMsgHook {
       return {
         valid: false,
         error: `Invalid commit message format. Please use conventional commits format: "type(scope): description"
+The description must be 1–${CONVENTIONAL_COMMIT_SUBJECT_MAX_LEN} characters and the type must be one of: ${CONVENTIONAL_COMMIT_TYPES_DISPLAY}.
 Examples:
   feat(auth): add user authentication
   fix(#123): resolve login validation issue

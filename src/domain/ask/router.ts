@@ -1,16 +1,22 @@
 /**
  * Ask router — ADR-008 §Router.
  *
- * Two-phase decision:
+ * Three-phase decision:
  *   Phase 1: policy consultation — if an existing policy covers the Ask,
  *            short-circuit to closed with responder="policy".
  *   Phase 2: for uncovered asks, pick routingTarget and transport by kind
  *            per the ADR-008 transport-binding matrix.
+ *   Phase 3: service-window selector (mt#1490) — evaluate serviceStrategy:
+ *            - asap / no strategy: dispatch immediately (existing behavior)
+ *            - forceImmediate=true: bypass windowing, dispatch immediately
+ *            - scheduled: suspend with windowKey; reaper dispatches on window-open
+ *            - deadline-bound: if deadline is within PAGE_THRESHOLD, dispatch
+ *              immediately; else suspend
  *
  * This module does NOT dispatch to non-policy transports. Inbox, AG-UI,
  * mesh, and subagent dispatch are separate child tasks (mt#1070, mt#454,
- * mt#700, mt#1001). The router produces a RoutedAsk; transport adapters
- * consume it.
+ * mt#700, mt#1001). The router produces a RoutedAsk or SuspendedAsk;
+ * transport adapters consume it.
  *
  * Reference: docs/architecture/adr-008-attention-allocation-subsystem.md §Router
  */
@@ -22,6 +28,18 @@ import { loadAllPolicySources, isCovered } from "./policy";
 import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
 import type { ClientCapabilityRegistry } from "../../mcp/client-capabilities";
+
+// ---------------------------------------------------------------------------
+// Service-window: page threshold constant
+// ---------------------------------------------------------------------------
+
+/**
+ * Page threshold in milliseconds for deadline-bound Asks.
+ *
+ * When a deadline-bound Ask has a deadline within this window, the router
+ * dispatches immediately rather than suspending. Default: 15 minutes.
+ */
+export const PAGE_THRESHOLD_MS = 15 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Transport binding
@@ -70,7 +88,7 @@ export interface AskPayload {
 // ---------------------------------------------------------------------------
 
 /**
- * An Ask after the router has run.
+ * An Ask after the router has run and dispatched to a transport.
  *
  * `state` is either "routed" (dispatching to a transport) or "closed"
  * (policy covered it; no further dispatch needed).
@@ -85,12 +103,38 @@ export interface RoutedAsk extends Ask {
   packagedPayload: AskPayload;
 }
 
+/**
+ * An Ask that the router has suspended pending a service window.
+ *
+ * Produced by Phase 3 (window selector) when `serviceStrategy` is `"scheduled"`
+ * or `"deadline-bound"` (with deadline beyond page-threshold).
+ *
+ * The `routingTarget` and `transport` are still resolved by Phase 2, so the
+ * reaper knows where to dispatch when the window opens. This satisfies ADR Q2:
+ * future channel work (mt#1409) can flip transport without touching window logic.
+ */
+export interface SuspendedAsk extends Ask {
+  state: "suspended";
+  routingTarget: AgentId | "operator" | "policy";
+  transport: TransportBinding;
+  packagedPayload: AskPayload;
+  /** The window key this Ask is waiting for (undefined for deadline-bound). */
+  suspendedForWindowKey?: string;
+}
+
+/**
+ * Union of router output types. A router call may produce:
+ * - RoutedAsk (state "routed" or "closed") — immediate dispatch
+ * - SuspendedAsk (state "suspended") — deferred pending a service window
+ */
+export type RouterResult = RoutedAsk | SuspendedAsk;
+
 // ---------------------------------------------------------------------------
 // Router interface
 // ---------------------------------------------------------------------------
 
 export interface AskRouter {
-  route(ask: Ask): Promise<RoutedAsk>;
+  route(ask: Ask): Promise<RouterResult>;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,10 +316,20 @@ export interface PolicyFirstRouteOptions {
    * tool wrapper to thread the active connection's capabilities into routing.
    */
   capabilityRegistry?: ClientCapabilityRegistry;
+
+  /**
+   * Current time override for deadline calculations (Phase 3 window selector).
+   *
+   * Injected in tests to simulate specific deadline conditions without
+   * sleeping or manipulating the system clock.
+   * Defaults to `Date.now()` when not provided.
+   */
+  nowMs?: number;
 }
 
 /**
- * A router that consults policy first, then routes by kind.
+ * A router that consults policy first, then routes by kind, then evaluates
+ * the service-window selector.
  *
  * Phase 1: Load all policy sources and check coverage via `isCovered`.
  *   - If covered: return a closed RoutedAsk with responder="policy" and citation.
@@ -283,12 +337,19 @@ export interface PolicyFirstRouteOptions {
  *     (classifier-vs-policy disagreement audit).
  *
  * Phase 2: For uncovered asks, pick routingTarget and transport via the
- *   transport-binding matrix and return a routed RoutedAsk.
+ *   transport-binding matrix.
+ *
+ * Phase 3: Service-window selector (mt#1490).
+ *   - forceImmediate=true → bypass, return RoutedAsk immediately.
+ *   - asap (or no strategy) → return RoutedAsk immediately (unchanged behavior).
+ *   - scheduled → return SuspendedAsk; reaper dispatches on window-open.
+ *   - deadline-bound → if deadline ≤ PAGE_THRESHOLD_MS from now, return
+ *     RoutedAsk immediately; else return SuspendedAsk.
  */
 export async function policyFirstRoute(
   ask: Ask,
   options: PolicyFirstRouteOptions = {}
-): Promise<RoutedAsk> {
+): Promise<RouterResult> {
   const workspaceRoot = options.workspaceRoot ?? process.cwd();
   const specContent = options.specContent ?? null;
 
@@ -326,7 +387,81 @@ export async function policyFirstRoute(
   const { routingTarget, transport } = pickTransport(ask.kind, options.capabilityRegistry);
   const packagedPayload = packagePayload(ask);
 
-  const now = new Date().toISOString();
+  const nowTs = options.nowMs ?? Date.now();
+  const nowIso = new Date(nowTs).toISOString();
+
+  // -----------------------------------------------------------------------
+  // Phase 3: service-window selector (mt#1490)
+  // -----------------------------------------------------------------------
+
+  // forceImmediate short-circuits all window logic.
+  const strategy = ask.serviceStrategy ?? "asap";
+
+  if (!ask.forceImmediate && strategy !== "asap") {
+    if (strategy === "scheduled") {
+      // Suspend until the named window opens. The reaper will dispatch on
+      // `minsky.attention_window_opened` for `ask.windowKey`.
+      const suspended: SuspendedAsk = {
+        ...ask,
+        state: "suspended",
+        routingTarget,
+        transport,
+        packagedPayload,
+        routedAt: nowIso,
+        suspendedAt: nowIso,
+        suspendedForWindowKey: ask.windowKey,
+      };
+
+      log.debug("ask.router: suspending scheduled Ask", {
+        askId: ask.id,
+        kind: ask.kind,
+        windowKey: ask.windowKey,
+      });
+
+      return suspended;
+    }
+
+    if (strategy === "deadline-bound") {
+      // Dispatch immediately if deadline is within page-threshold; else suspend.
+      const deadline = ask.deadline ? new Date(ask.deadline).getTime() : null;
+      const withinThreshold = deadline !== null && deadline - nowTs <= PAGE_THRESHOLD_MS;
+
+      if (!withinThreshold) {
+        // Suspend — reaper will check periodically and dispatch when close.
+        const suspended: SuspendedAsk = {
+          ...ask,
+          state: "suspended",
+          routingTarget,
+          transport,
+          packagedPayload,
+          routedAt: nowIso,
+          suspendedAt: nowIso,
+          suspendedForWindowKey: undefined, // deadline-bound has no specific window
+        };
+
+        log.debug("ask.router: suspending deadline-bound Ask (beyond threshold)", {
+          askId: ask.id,
+          kind: ask.kind,
+          deadline: ask.deadline,
+        });
+
+        return suspended;
+      }
+
+      // Within threshold — fall through to immediate dispatch.
+      log.debug("ask.router: dispatching deadline-bound Ask (within threshold)", {
+        askId: ask.id,
+        kind: ask.kind,
+        deadline: ask.deadline,
+      });
+    }
+  } else if (ask.forceImmediate && strategy !== "asap") {
+    log.debug("ask.router: forceImmediate bypassing window selector", {
+      askId: ask.id,
+      kind: ask.kind,
+      strategy,
+    });
+  }
 
   const routed: RoutedAsk = {
     ...ask,
@@ -334,7 +469,7 @@ export async function policyFirstRoute(
     routingTarget,
     transport,
     packagedPayload,
-    routedAt: now,
+    routedAt: nowIso,
   };
 
   return routed;
@@ -355,4 +490,18 @@ export function createPolicyFirstRouter(options: PolicyFirstRouteOptions = {}): 
   return {
     route: (ask: Ask) => policyFirstRoute(ask, options),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Type guard helpers for RouterResult discrimination
+// ---------------------------------------------------------------------------
+
+/** Returns true when a RouterResult is a SuspendedAsk (window-deferred). */
+export function isSuspendedAsk(result: RouterResult): result is SuspendedAsk {
+  return result.state === "suspended";
+}
+
+/** Returns true when a RouterResult is a RoutedAsk (immediate dispatch or policy-closed). */
+export function isRoutedAsk(result: RouterResult): result is RoutedAsk {
+  return result.state === "routed" || result.state === "closed";
 }

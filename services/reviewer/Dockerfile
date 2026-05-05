@@ -8,6 +8,7 @@ RUN bun install --frozen-lockfile --production
 
 # Copy source.
 COPY src ./src
+COPY migrations ./migrations
 COPY tsconfig.json ./
 
 # Railway provides PORT; we default to 3000 for local.
