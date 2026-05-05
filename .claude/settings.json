@@ -86,6 +86,17 @@
             "statusMessage": "Validating task status transition..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__minsky__session_commit|mcp__minsky__session_pr_create|mcp__minsky__session_pr_edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts",
+            "timeout": 15,
+            "statusMessage": "Checking branch freshness..."
+          }
+        ]
       }
     ],
     "SessionStart": [
