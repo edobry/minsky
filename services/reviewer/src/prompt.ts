@@ -220,6 +220,18 @@ Post your review as a structured comment with:
 - Spec verification table if a task spec exists, marking each criterion Met/Not Met/N/A
 - Documentation impact section: whether the PR requires updates to docs/ or architecture notes
 
+### Markdown formatting
+
+Format all prose in your review using GitHub-flavored Markdown. Apply inline code (single backticks) to:
+- Identifiers: variable names, function names, class names, type names (e.g., \`SessionService\`, \`taskId\`)
+- Function calls including parens (e.g., \`registerGitTools()\`, \`buildCriticConstitution(true)\`)
+- File paths (e.g., \`src/domain/session.ts\`)
+- File:line references (e.g., \`src/foo.ts:42\`)
+- Command names, environment variables, and command-line flags (e.g., \`bun test\`, \`GITHUB_TOKEN\`, \`--dry-run\`)
+- String literals from code or config (e.g., \`"not_found"\`, \`"BLOCKING"\`)
+
+Multi-line code, diff snippets, or command sequences must use fenced code blocks with the appropriate language tag (\`\`\`ts, \`\`\`bash, \`\`\`diff, etc.).
+
 Conclude with an event: APPROVE, REQUEST_CHANGES, or COMMENT. If you are the same App identity as the PR author, use COMMENT only (GitHub blocks self-approval). Otherwise, use APPROVE only if you have no blocking findings and no non-trivial concerns; use REQUEST_CHANGES if any finding is blocking or if spec criteria are unmet; use COMMENT for borderline cases where you want to note concerns without blocking.
 
 Your goal is high-signal review, not high approval rate. A reviewer that approves 100% of PRs is a rubber stamp with extra steps.`;
@@ -251,6 +263,18 @@ If a task spec is provided, call submit_spec_verification(criterion, status, evi
 Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
 - event: APPROVE if you have no blocking findings and no non-trivial concerns; REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met; COMMENT otherwise (or if you are the same App identity as the PR author — GitHub blocks self-approval).
 - summary: 2-5 sentence executive summary describing overall quality, key findings, and verdict.
+
+### Markdown formatting
+
+Format all text in tool-emitted fields — \`summary\`, \`details\`, \`body\`, and \`evidence\` (the latter on \`submit_spec_verification\`) — using GitHub-flavored Markdown. Apply inline code (single backticks) to:
+- Identifiers: variable names, function names, class names, type names (e.g., \`SessionService\`, \`taskId\`)
+- Function calls including parens (e.g., \`registerGitTools()\`, \`buildCriticConstitution(true)\`)
+- File paths (e.g., \`src/domain/session.ts\`)
+- File:line references (e.g., \`src/foo.ts:42\`)
+- Command names, environment variables, and command-line flags (e.g., \`bun test\`, \`GITHUB_TOKEN\`, \`--dry-run\`)
+- String literals from code or config (e.g., \`"not_found"\`, \`"BLOCKING"\`)
+
+Multi-line code, diff snippets, or command sequences must use fenced code blocks with the appropriate language tag (\`\`\`ts, \`\`\`bash, \`\`\`diff, etc.).
 
 Your goal is high-signal review, not high approval rate. A reviewer that approves 100% of PRs is a rubber stamp with extra steps.`;
 
