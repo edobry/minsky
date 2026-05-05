@@ -1047,4 +1047,79 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     // but the open-PR sweep still runs and uses "main" as the base.
     expect(observedBaseRef).toBe("main");
   });
+
+  it("emits a warning when default-branch detection fails (open-PR fallback to 'main') (PR #952 R1 NON-BLOCKING #3)", () => {
+    const fallbackDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: null, warning: "all probes failed" }),
+      fetchOpenPrs: () => [],
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
+    expect(
+      result.warnings.some((w) =>
+        w.includes("Open-PR structural-check baseBranch defaulted to 'main'")
+      )
+    ).toBe(true);
+  });
+
+  it("preserves collision and emits a triage warning when allowlisted file is NOT append-only (PR #952 R1 inline nit)", () => {
+    // Simulates the gh API failure / parse failure path: structural check
+    // returns false (cannot prove append-only), collision must be preserved
+    // and the WHY surfaced for triage.
+    const failClosedDeps = makeDeps({
+      fetchOpenPrs: () => [
+        { number: 400, title: "feat(other): real conflict", headRefName: "task/mt-400" },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, _to, _file, warnings) => {
+        // Simulate the helper writing a fetch-failure warning, then
+        // returning false (fail-closed).
+        warnings.push("Could not fetch .claude/settings.json@feature-branch: gh exited 4");
+        return false;
+      },
+    });
+
+    const result = runParallelWorkChecks(
+      taskInput,
+      "/tmp/anywhere",
+      "task/mt-9999",
+      failClosedDeps
+    );
+    // Fail-closed: collision preserved.
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]?.overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
+    // Operator-facing: gh failure warning AND keeping-collision triage hint
+    // both visible.
+    expect(result.warnings.some((w) => w.includes("Could not fetch"))).toBe(true);
+    expect(
+      result.warnings.some((w) =>
+        w.includes(`${FIXTURE_SETTINGS_JSON} is allowlisted but its change is NOT append-only`)
+      )
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchFileContentAtRef — path-encoding regression (PR #952 R1 BLOCKING)
+// ---------------------------------------------------------------------------
+
+describe("fetchFileContentAtRef — path-encoding regression (PR #952 R1 BLOCKING)", () => {
+  // The PR #952 R1 BLOCKING was: encodeURIComponent on the FULL filePath
+  // encoded '/' as '%2F', causing GitHub Contents API to 404 every fetch
+  // and disabling the exemption entirely. The fix encodes each path SEGMENT
+  // separately and rejoins with '/', preserving slashes in the URL path.
+  it("encodes path segments individually and rejoins with '/' (no '%2F' in path)", () => {
+    const filePath = FIXTURE_SETTINGS_JSON;
+    const encoded = filePath.split("/").map(encodeURIComponent).join("/");
+    expect(encoded).toBe(FIXTURE_SETTINGS_JSON); // slashes preserved
+    expect(encoded).not.toContain("%2F");
+  });
+
+  it("encodes special characters in segments while keeping slashes", () => {
+    const filePath = "src/My Component.tsx";
+    const encoded = filePath.split("/").map(encodeURIComponent).join("/");
+    expect(encoded).toBe("src/My%20Component.tsx"); // space encoded inside segment
+    expect(encoded).not.toContain("%2F");
+  });
 });

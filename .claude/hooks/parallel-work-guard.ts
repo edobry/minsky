@@ -232,6 +232,15 @@ export function isAppendOnlyToJsonArrays(before: unknown, after: unknown): boole
 /**
  * Cheap structural deep-equality via JSON serialization. Sufficient for our
  * use case (settings.json contents — no functions, no Dates, no cycles).
+ *
+ * Caveat (PR #952 R1 NON-BLOCKING #2): JSON.stringify is key-order-sensitive.
+ * Two semantically-equal objects with different key insertion order serialize
+ * to different strings and would compare unequal. In practice the repo's
+ * settings.json is consistently formatted by prettier, so insertion order is
+ * stable; if a future serializer reorders keys before commit this would
+ * cause false collisions (fail-closed direction — under-exempts, never
+ * over-exempts). Order-insensitive deep equality is deferred until that
+ * actually bites.
  */
 function deepJsonEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -250,11 +259,16 @@ export function fetchFileContentAtRef(
   filePath: string,
   warnings: string[]
 ): string | null {
+  // Encode each path SEGMENT separately and rejoin with '/'. encodeURIComponent
+  // on the full path encodes '/' as '%2F', which the GitHub Contents API
+  // rejects with 404 — disabling the exemption entirely (PR #952 R1 BLOCKING).
+  // The ref query parameter is still fully encoded.
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
   const result = execWithPath(
     [
       "gh",
       "api",
-      `repos/${repo}/contents/${encodeURIComponent(filePath)}?ref=${encodeURIComponent(ref)}`,
+      `repos/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
       "--jq",
       ".content",
     ],
@@ -597,13 +611,19 @@ export function checkOpenPrs(
     // Filter out STRUCTURED_CONFIG_ALLOWLIST files whose change in this PR
     // is purely append-only into JSON arrays — those don't conflict with
     // a peer PR also adding entries (mt#1587). Each filtered file emits a
-    // warning so operators can audit the exemption.
+    // warning so operators can audit the exemption. Allowlisted files that
+    // FAIL the structural check also emit a triage hint (PR #952 R1 inline
+    // nit) so operators understand why a collision was kept.
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
       const isExempt = isAppendOnly(input.repo, baseBranch, pr.headRefName, file, warnings);
       if (isExempt) {
         warnings.push(
           `PR #${pr.number}: ${file} change is append-only into JSON arrays — exempted from collision`
+        );
+      } else {
+        warnings.push(
+          `PR #${pr.number}: ${file} is allowlisted but its change is NOT append-only — keeping collision`
         );
       }
       return !isExempt;
@@ -792,9 +812,23 @@ export function fetchRecentMerges(
           warnings.push(
             `Commit ${entry.sha.slice(0, 7)}: ${file} change is append-only into JSON arrays — exempted from collision`
           );
+        } else {
+          warnings.push(
+            `Commit ${entry.sha.slice(0, 7)}: ${file} is allowlisted but its change is NOT append-only — keeping collision`
+          );
         }
         return !isExempt;
       });
+    } else {
+      // Surface the skipped-exemption case explicitly so operators can see
+      // when an allowlisted file was kept as a collision because no `repo`
+      // slug was available (PR #952 R1 NON-BLOCKING #4).
+      const skippedAllowlisted = overlapping.filter((f) => STRUCTURED_CONFIG_ALLOWLIST.includes(f));
+      if (skippedAllowlisted.length > 0) {
+        warnings.push(
+          `Commit ${entry.sha.slice(0, 7)}: structural-config exemption skipped for ${skippedAllowlisted.join(", ")} — no GitHub repo slug supplied`
+        );
+      }
     }
 
     if (realOverlapping.length > 0) {
@@ -894,6 +928,16 @@ export function runParallelWorkChecks(
     warnings.push(`Default-branch detection failed (non-blocking): ${msg}`);
   }
   const baseBranch = defaultBranchRef ? defaultBranchRef.replace(/^origin\//, "") : "main";
+  if (defaultBranchRef === null) {
+    // Mirror the recently-merged sweep's explicit signaling: when default
+    // detection fails, the open-PR sweep still runs but uses 'main' as its
+    // structural-check base. Surface the assumption so operators know why
+    // an exemption may have fired against a non-canonical base
+    // (PR #952 R1 NON-BLOCKING #3).
+    warnings.push(
+      "Open-PR structural-check baseBranch defaulted to 'main' (default-branch detection failed)"
+    );
+  }
 
   // Check A: open PRs
   try {
