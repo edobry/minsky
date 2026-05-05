@@ -79,7 +79,16 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
    - Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
    - **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
    - If any of those checks fail, record the finding in the review body instead of `comments[]`.
-5. **Verify against task spec** — check each success criterion against the actual code.
+5. **Verify against task spec, run adoption sweep, run smoke test.** This step is mandatory and consolidates three sub-checks the Mode 2 reviewer must run before posting (per mt#1551, replacing the post-merge auditor surface):
+
+   **5a. Spec verification.** Read every success criterion in the task spec. For each, verify the PR delivers it by checking the code. Classify Met / Not met / N/A and record the result for the spec-verification table that goes in the review body. Any "Not met" criterion is a BLOCKING finding.
+
+   **5b. Adoption sweep.** For each new public export (function, class, type), CLI command, MCP tool, hook, or capability introduced by the diff, sweep the post-PR codebase for consumers: `grep` for the symbol/command/tool name across `src/`, `tests/`, docs, CLAUDE.md, AGENTS.md, and any service-specific scripts. Classify each as **Adopted** (at least one consumer exists) or **Missing consumers** (no callers found). Missing consumers are reported as NON-BLOCKING with a recommendation to file a follow-up adoption task — UNLESS the spec explicitly requires consumer wiring, in which case they are BLOCKING.
+
+   **Cost-bounding rule:** if the PR introduces more than 10 new public exports / commands / tools, do NOT do inline grep-for-callers across all of them — that exceeds your context budget. Instead, list the new exports in a "Missing consumers (deferred)" review-body section and file a single follow-up adoption task that walks the consumer sweep separately. The threshold (10) is the rough boundary at which inline sweep stops fitting comfortably in the reviewer's context window for a typical Minsky PR; revise upward if telemetry shows the limit is too tight in practice.
+
+   **5c. Smoke test.** Run at least one CLI command that exercises the changed code path against the PR branch. Examples: a DI-changing PR runs `bun src/cli.ts tasks list`; a session-mutation PR runs `bun src/cli.ts session list`; a docs/skill-only PR may skip with rationale. Record pass/fail and include the result in the review body's CI-status section. The smoke catches PR-introduced regressions that pre-merge CI may have missed (e.g., container init failures, command-registration breakage). It does NOT cover concurrent-merge interactions — those are tracked in mt#1592.
+
 6. **Post the review directly** — call `mcp__minsky__session_pr_review_submit` with task, body, event, and `comments[]`. Do not return findings to the parent for posting; post them yourself.
 
 Event selection for Mode 2:
