@@ -512,6 +512,65 @@ describe("buildCriticConstitution — output tools mode (mt#1401)", () => {
   });
 });
 
+describe("buildCriticConstitution — Markdown formatting guidance (mt#1590)", () => {
+  const MARKDOWN_FORMATTING_HEADING = "### Markdown formatting";
+  const INLINE_CODE_PHRASE = "Apply inline code (single backticks)";
+  const FENCED_CODE_PHRASE = "fenced code blocks with the appropriate language tag";
+
+  test("prose output format (outputToolsActive=false) includes Markdown formatting subsection", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    expect(prompt).toContain(MARKDOWN_FORMATTING_HEADING);
+    expect(prompt).toContain(INLINE_CODE_PHRASE);
+    expect(prompt).toContain(FENCED_CODE_PHRASE);
+  });
+
+  test("tools output format (outputToolsActive=true) includes Markdown formatting subsection", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain(MARKDOWN_FORMATTING_HEADING);
+    expect(prompt).toContain(INLINE_CODE_PHRASE);
+    expect(prompt).toContain(FENCED_CODE_PHRASE);
+  });
+
+  test("prose format guidance enumerates identifiers, function calls, file paths, and env vars", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    expect(prompt).toContain("Identifiers");
+    expect(prompt).toContain("Function calls including parens");
+    expect(prompt).toContain("File paths");
+    expect(prompt).toContain("environment variables");
+  });
+
+  test("tools format guidance enumerates identifiers, function calls, file paths, and env vars", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("Identifiers");
+    expect(prompt).toContain("Function calls including parens");
+    expect(prompt).toContain("File paths");
+    expect(prompt).toContain("environment variables");
+  });
+
+  test("both output formats mention file:line reference backtick convention", () => {
+    for (const outputToolsActive of [false, true]) {
+      const prompt = buildCriticConstitution(true, "normal", outputToolsActive);
+      expect(prompt).toContain("File:line references");
+    }
+  });
+
+  test("Markdown formatting subsection appears before closing paragraph in prose format", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    const markdownIdx = prompt.indexOf(MARKDOWN_FORMATTING_HEADING);
+    const closingIdx = prompt.indexOf("Your goal is high-signal review");
+    expect(markdownIdx).toBeGreaterThan(0);
+    expect(markdownIdx).toBeLessThan(closingIdx);
+  });
+
+  test("Markdown formatting subsection appears before closing paragraph in tools format", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    const markdownIdx = prompt.indexOf(MARKDOWN_FORMATTING_HEADING);
+    const closingIdx = prompt.indexOf("Your goal is high-signal review");
+    expect(markdownIdx).toBeGreaterThan(0);
+    expect(markdownIdx).toBeLessThan(closingIdx);
+  });
+});
+
 describe("buildCriticConstitution — scope-aware calibration (mt#1188)", () => {
   test("trivial-or-docs scope includes the calibration section header", () => {
     const prompt = buildCriticConstitution(true, "trivial-or-docs");
