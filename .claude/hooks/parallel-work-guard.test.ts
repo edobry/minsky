@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import {
   extractInScopeFiles,
+  fetchFileContentAtRef,
   findOverlappingFiles,
   formatBlockMessage,
   runParallelWorkChecks,
@@ -1082,16 +1083,14 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     ).toBe(true);
   });
 
-  it("uses headRefOid (PR head SHA) as toRef when present, falls back to headRefName (PR #952 R3#1)", () => {
+  it("uses refs/pull/<num>/head as toRef regardless of fork status (PR #952 R4#1)", () => {
     let observedToRef = "";
-    const sha = "deadbeefcafebabe1234567890abcdef12345678";
-    const shaDeps = makeDeps({
+    const refsDeps = makeDeps({
       fetchOpenPrs: () => [
         {
           number: 500,
           title: "feat: forked PR",
-          headRefName: "fork-author:feature-branch",
-          headRefOid: sha,
+          headRefName: "fork-author:feature-branch", // fork-only ref
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
@@ -1101,21 +1100,21 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
       },
     });
 
-    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", shaDeps);
-    // SHA is preferred — works for forked PRs whose branch name only
-    // exists in the fork repo.
-    expect(observedToRef).toBe(sha);
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", refsDeps);
+    // Canonical PR-head ref — addressable via the base repo's API for both
+    // same-repo and forked PRs. Replaces the R3#1 attempt that used
+    // headRefOid (a fork-only SHA, not in the base repo's git database).
+    expect(observedToRef).toBe("refs/pull/500/head");
   });
 
-  it("falls back to headRefName when headRefOid is absent (PR #952 R3#1 fallback)", () => {
+  it("uses refs/pull/<num>/head for same-repo PRs too (PR #952 R4#1 consistency)", () => {
     let observedToRef = "";
-    const fallbackDeps = makeDeps({
+    const sameRepoDeps = makeDeps({
       fetchOpenPrs: () => [
         {
           number: 501,
           title: "feat: same-repo PR",
           headRefName: "task/mt-501",
-          // headRefOid intentionally omitted
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
@@ -1125,8 +1124,8 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
       },
     });
 
-    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
-    expect(observedToRef).toBe("task/mt-501");
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", sameRepoDeps);
+    expect(observedToRef).toBe("refs/pull/501/head");
   });
 
   it("preserves collision and emits a triage warning when allowlisted file is NOT append-only (PR #952 R1 inline nit)", () => {
@@ -1189,4 +1188,40 @@ describe("fetchFileContentAtRef — path-encoding regression (PR #952 R1 BLOCKIN
     expect(encoded).toBe("src/My%20Component.tsx"); // space encoded inside segment
     expect(encoded).not.toContain("%2F");
   });
+});
+
+// ---------------------------------------------------------------------------
+// fetchFileContentAtRef — rev-spec ref guard (PR #952 R4#2 BLOCKING)
+// ---------------------------------------------------------------------------
+
+describe("fetchFileContentAtRef — rev-spec ref guard (PR #952 R4#2)", () => {
+  // The GitHub Contents API rejects rev-spec expressions like <sha>^,
+  // <sha>~1, HEAD^. Defense-in-depth: fetchFileContentAtRef now refuses
+  // any ref containing ^ or ~ before issuing the API call, preventing
+  // future regressions that reintroduce <sha>^ as a fromRef.
+  it("refuses refs containing ^ (parent-spec) and emits a triage warning", () => {
+    const warnings: string[] = [];
+    const result = fetchFileContentAtRef("owner/repo", "abc123^", FIXTURE_SETTINGS_JSON, warnings);
+    expect(result).toBeNull();
+    expect(warnings.some((w) => w.includes("rev-spec syntax"))).toBe(true);
+  });
+
+  it("refuses refs containing ~ (ancestor-spec)", () => {
+    const warnings: string[] = [];
+    const result = fetchFileContentAtRef("owner/repo", "abc123~1", FIXTURE_SETTINGS_JSON, warnings);
+    expect(result).toBeNull();
+    expect(warnings.some((w) => w.includes("rev-spec syntax"))).toBe(true);
+  });
+
+  it("refuses HEAD^ as a ref", () => {
+    const warnings: string[] = [];
+    const result = fetchFileContentAtRef("owner/repo", "HEAD^", FIXTURE_SETTINGS_JSON, warnings);
+    expect(result).toBeNull();
+    expect(warnings.some((w) => w.includes("rev-spec syntax"))).toBe(true);
+  });
+
+  // Note: positive-path tests (valid SHA / branch / refs/pull/N/head)
+  // require live `gh api` execution and are out of scope for unit tests.
+  // The rev-spec guard is sufficient to prevent the BLOCKING regression
+  // class; integration coverage lives in mt#1497-style replay scripts.
 });

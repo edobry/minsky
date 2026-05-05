@@ -286,6 +286,19 @@ export function fetchFileContentAtRef(
   filePath: string,
   warnings: string[]
 ): string | null {
+  // Hard guard: the GitHub Contents API rejects rev-spec expressions like
+  // <sha>^, <sha>~1, HEAD^, etc. — only branch names, tags, refs/pull/N/head,
+  // and 40-char SHAs are accepted. Callers must resolve rev-specs to
+  // concrete SHAs BEFORE calling this function (see fetchRecentMerges'
+  // git rev-parse). Defense-in-depth against future regressions
+  // reintroducing the bug — PR #952 R4#2.
+  if (/[\^~]/.test(ref)) {
+    warnings.push(
+      `Refusing to fetch ${filePath}@${ref}: ref contains rev-spec syntax (^/~) which the GitHub Contents API rejects. Resolve to a concrete SHA before calling fetchFileContentAtRef.`
+    );
+    return null;
+  }
+
   // Encode each path SEGMENT separately and rejoin with '/'. encodeURIComponent
   // on the full path encodes '/' as '%2F', which the GitHub Contents API
   // rejects with 404 — disabling the exemption entirely (PR #952 R1 BLOCKING).
@@ -648,10 +661,12 @@ export function checkOpenPrs(
     // warning so operators can audit the exemption. Allowlisted files that
     // FAIL the structural check also emit a triage hint (PR #952 R1 inline
     // nit) so operators understand why a collision was kept.
-    // Prefer the PR's head SHA (always addressable in the base repo's API)
-    // over the branch name (which only exists in the fork for forked PRs).
-    // PR #952 R3#1 fix.
-    const toRef = pr.headRefOid ?? pr.headRefName;
+    // Use `refs/pull/<num>/head` — the canonical PR-head ref that GitHub
+    // always provides in the base repo's namespace, regardless of whether
+    // the PR is from a fork. PR #952 R4#1 fix replacing the R3#1 attempt
+    // (which used pr.headRefOid — a fork-only SHA for forked PRs, not
+    // addressable via the base repo's Contents API).
+    const toRef = `refs/pull/${pr.number}/head`;
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
       const isExempt = isAppendOnly(input.repo, baseBranch, toRef, file, warnings);
