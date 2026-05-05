@@ -72,6 +72,9 @@ function makeFakeTokenProvider(opts?: {
     isServiceAccountConfigured(): boolean {
       return false;
     },
+    isRoleConfigured(): boolean {
+      return false;
+    },
   };
   return provider;
 }

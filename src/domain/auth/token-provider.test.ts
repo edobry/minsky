@@ -72,6 +72,14 @@ describe("FallbackTokenProvider", () => {
   it("isServiceAccountConfigured returns false", () => {
     expect(provider.isServiceAccountConfigured()).toBe(false);
   });
+
+  it("isRoleConfigured returns false for both implementer and reviewer", () => {
+    // Fallback mode has no service-account credentials at all, so neither
+    // role is "configured" in the strict sense — even though getToken always
+    // succeeds by returning the user token.
+    expect(provider.isRoleConfigured("implementer")).toBe(false);
+    expect(provider.isRoleConfigured("reviewer")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -111,6 +119,33 @@ describe("GitHubAppTokenProvider", () => {
   describe("isServiceAccountConfigured", () => {
     it("returns true", () => {
       expect(makeProvider().isServiceAccountConfigured()).toBe(true);
+    });
+  });
+
+  describe("isRoleConfigured", () => {
+    it("implementer is always configured when GitHubAppTokenProvider is in use", () => {
+      const provider = makeProvider();
+      expect(provider.isRoleConfigured("implementer")).toBe(true);
+    });
+
+    it("reviewer is NOT configured when reviewerConfig is absent (single-App mode)", () => {
+      // No reviewerConfig — reviewer falls back silently in getToken, but
+      // isRoleConfigured must report false so callers can detect the absence
+      // and refuse to silently fall back when posting APPROVE / REQUEST_CHANGES.
+      const provider = makeProvider();
+      expect(provider.isRoleConfigured("reviewer")).toBe(false);
+    });
+
+    it("reviewer IS configured when reviewerConfig is supplied (dual-App mode)", () => {
+      const provider = makeProvider({
+        reviewerConfig: {
+          appId: 99999,
+          installationId: 88888,
+          privateKeyLoader: () => TEST_PRIVATE_KEY,
+        },
+      });
+      expect(provider.isRoleConfigured("reviewer")).toBe(true);
+      expect(provider.isRoleConfigured("implementer")).toBe(true);
     });
   });
 
