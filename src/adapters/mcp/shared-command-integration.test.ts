@@ -10,7 +10,10 @@
  */
 import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { z } from "zod";
-import { registerSharedCommandsWithMcp } from "./shared-command-integration";
+import {
+  registerSharedCommandsWithMcp,
+  registerAllMainCommandsWithMcp,
+} from "./shared-command-integration";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -350,6 +353,33 @@ describe("MCP shared-command bridge", () => {
 
     const result = await handler({});
     expect(result).toEqual(structuredBody);
+  });
+
+  test("registerAllMainCommandsWithMcp does NOT include MEMORY (mt#1012 R2 regression guard)", async () => {
+    // PR #953 R2: MEMORY commands are registered solely via the per-category
+    // adapter `registerMemoryTools` invoked from start-command.ts. Including
+    // them in the all-in-one helper too would create a silent-overwrite
+    // hazard via MinskyMCPServer.addTool()'s Map semantics if anything ever
+    // calls registerAllMainCommandsWithMcp alongside the per-category path.
+    // mt#1521 owns the structural source-of-truth refactor that may apply
+    // this same exclusion to other categories; this test locks the MEMORY
+    // exclusion until that audit lands.
+    const id = "memory.__mcp_bridge_exclusion_test__";
+
+    registerTestCommand({
+      id,
+      name: id,
+      category: CommandCategory.MEMORY,
+      description: "MEMORY exclusion regression test",
+      requiresSetup: false,
+      parameters: {},
+      execute: async () => ({ success: true }),
+    });
+
+    const { mapper, captured } = makeMockMapper(id);
+    registerAllMainCommandsWithMcp(mapper as never);
+
+    expect(captured.handler).toBeUndefined();
   });
 
   test("does not throw when a TASKS command has a non-Zod plain-object schema", () => {
