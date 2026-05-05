@@ -348,9 +348,18 @@ export function fetchFileContentAtRef(
  * can't prove it's safe).
  *
  * Used to filter STRUCTURED_CONFIG_ALLOWLIST hits out of the open-PR and
- * recently-merged collision lists. For open PRs: fromRef = base branch
- * (e.g., "main"), toRef = pr.headRefName. For recently-merged commits:
- * fromRef = "<sha>^", toRef = "<sha>".
+ * recently-merged collision lists. Both refs MUST be concrete refs the
+ * GitHub Contents API can resolve — branch names, tags, full SHAs, or
+ * `refs/pull/<num>/head`. Rev-spec syntax (`^`, `~`) is rejected by
+ * `fetchFileContentAtRef`; callers must resolve parent SHAs ahead of
+ * time (see `fetchRecentMerges` for the canonical pattern using
+ * `git rev-parse <sha>^`).
+ *
+ * Typical refs:
+ *   - For open PRs: fromRef = base branch name (e.g., "main"),
+ *     toRef = `refs/pull/<num>/head`.
+ *   - For recently-merged commits: fromRef = parent SHA resolved via
+ *     `git rev-parse <sha>^`, toRef = the merge commit SHA.
  */
 export function isFileChangeAppendOnly(
   repo: string,
@@ -388,13 +397,6 @@ interface PrInfo {
   number: number;
   title: string;
   headRefName: string;
-  /**
-   * Head commit SHA (40-char hex). Used as `toRef` in the structural
-   * append-only check (PR #952 R3#1) so the GitHub Contents API call works
-   * for forked PRs whose `headRefName` exists only in the fork repo. SHAs
-   * are always addressable from the base repo's API.
-   */
-  headRefOid?: string;
 }
 
 /**
@@ -445,7 +447,7 @@ export function fetchOpenPrs(repo: string): PrInfo[] {
       "--limit",
       String(FETCH_OPEN_PRS_LIMIT),
       "--json",
-      "number,title,headRefName,headRefOid",
+      "number,title,headRefName",
     ],
     { timeout: GH_GIT_TIMEOUT_MS }
   );
