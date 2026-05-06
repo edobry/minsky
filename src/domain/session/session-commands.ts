@@ -7,6 +7,7 @@
 import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { AskRepository } from "../ask/repository";
+import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
 /**
  * Session PR creation parameters
@@ -238,6 +239,60 @@ export async function sessionCommit(
         };
       }
       throw commitErr;
+    }
+
+    // mt#1522: CAS check on origin/main SHA before push.
+    //
+    // The branch-freshness hook (mt#1483) captures origin/main's SHA at
+    // allow time and writes it to `.git/.minsky-freshness-sha`. Here we
+    // re-fetch and verify the SHA hasn't advanced. If it has, the agent
+    // would build on stale base — same shape of bug the freshness hook
+    // exists to prevent, just at a smaller (~seconds) time scale.
+    //
+    // §7b TOCTOU enumeration on this CAS pattern:
+    //   - Read atomicity: marker is one read; current-SHA is one
+    //     `git rev-parse` after fetch. PASS.
+    //   - Decision-action gap: between this CAS pass and the push that
+    //     follows, origin/main can advance again. ACCEPT — irreducible
+    //     (no remote locking on origin/main without server-side
+    //     enforcement) AND FF-conflict-preserving (push to
+    //     origin/<branch> doesn't conflict with origin/main advances).
+    //     The push-duration window is ms-class, orders of magnitude
+    //     smaller than the seconds-class gap we're closing.
+    //   - Stale-read at read time: forced fresh `git fetch` before SHA
+    //     resolve. PASS.
+    //
+    // When MINSKY_SKIP_FRESHNESS=1, the hook exits before writing a
+    // marker; checkFreshnessCas reads no marker and bypasses, mirroring
+    // the override semantics through to push.
+    const casGitService = createGitService();
+    const casResult = await checkFreshnessCas(workdir, {
+      fetchOrigin: async (dir) => {
+        try {
+          await casGitService.execInRepository(dir, "git fetch origin --prune --no-tags --quiet");
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      resolveRefSha: async (dir, ref) => {
+        try {
+          const out = await casGitService.execInRepository(dir, `git rev-parse "${ref}"`);
+          const sha = out.trim();
+          return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
+        } catch {
+          return null;
+        }
+      },
+    });
+    // Cleanup runs whether we pass or abort; transient marker should not
+    // persist past one session_commit attempt. (Self-healing on next run
+    // either way.)
+    cleanupFreshnessMarker(workdir);
+    if (!casResult.ok) {
+      throw new MinskyError(
+        `Branch-freshness CAS check failed: ${casResult.reason ?? "(no reason)"}`
+      );
     }
 
     // Always push changes in session context - commit and push should be atomic

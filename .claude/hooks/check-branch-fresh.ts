@@ -26,6 +26,8 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -35,6 +37,12 @@ import {
   DEFAULT_HOST_CAP_SEC,
 } from "./types";
 import type { ToolHookInput, HostCapInfo } from "./types";
+
+// Filename of the freshness marker, scoped to `.git/`. Must stay in sync
+// with `FRESHNESS_MARKER_FILENAME` in
+// `src/domain/session/freshness-marker.ts` — that module owns the read +
+// CAS-check side; this file owns the write side. mt#1522.
+const FRESHNESS_MARKER_FILENAME = ".minsky-freshness-sha";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -255,6 +263,21 @@ export function refreshRemoteRefs(repoDir: string): { ok: boolean; reason?: stri
     };
   }
   return { ok: true };
+}
+
+/**
+ * Resolve a ref to its 40-char SHA. Returns null on any failure (ref doesn't
+ * exist, git command failed, etc.). Used to capture `origin/main` at
+ * allow time for the CAS marker (mt#1522).
+ */
+export function resolveRefSha(repoDir: string, ref: string): string | null {
+  const result = execWithPath(["git", "-C", repoDir, "rev-parse", ref], {
+    timeout: GIT_TIMEOUT_MS,
+  });
+  if (result.exitCode !== 0) return null;
+  const sha = result.stdout.trim();
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  return sha;
 }
 
 /**
@@ -529,6 +552,42 @@ if (import.meta.main) {
   const result = checkBranchFreshness(repoDir, undefined, hookStart);
 
   if (!result.blocked) {
+    // mt#1522: write the freshness CAS marker before emitting allow.
+    // Only on session_commit (the spec scopes the CAS check there;
+    // session_pr_create / session_pr_edit are too infrequent for the
+    // seconds-class race to matter). Only when we actually compared
+    // (result.mainRef set — silent paths like detached HEAD / fresh
+    // branch / undetectable default leave mainRef undefined). Failure
+    // to write is non-fatal: surfaced as a warning so the operator
+    // knows the CAS check won't fire on the next push.
+    if (input.tool_name === "mcp__minsky__session_commit" && result.mainRef) {
+      const capturedSha = resolveRefSha(repoDir, result.mainRef);
+      if (capturedSha === null) {
+        warnings.push(
+          `Could not resolve ${result.mainRef} to SHA for CAS marker — push-time CAS check will bypass`
+        );
+      } else {
+        const markerPath = join(repoDir, ".git", FRESHNESS_MARKER_FILENAME);
+        try {
+          writeFileSync(
+            markerPath,
+            JSON.stringify({
+              mainRef: result.mainRef,
+              sha: capturedSha,
+              toolName: input.tool_name,
+              ts: new Date().toISOString(),
+            }),
+            "utf8"
+          );
+        } catch (err) {
+          const reason = err instanceof Error ? err.message : String(err);
+          warnings.push(
+            `Could not write freshness marker (${reason}) — push-time CAS check will bypass`
+          );
+        }
+      }
+    }
+
     // Behavioral Contract: silent paths emit no `reason` to stdout or
     // additionalContext. Non-silent paths (budget-exhausted) DO emit their
     // reason. Warnings (e.g., fetch failures) ALWAYS emit regardless of
