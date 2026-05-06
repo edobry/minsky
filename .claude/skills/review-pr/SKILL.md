@@ -164,7 +164,13 @@ Run at least one CLI command that exercises the changed code path against the PR
 - New CLI command → invoke the new command with a representative argument
 - Docs / prompt-only PR → may skip with rationale recorded in the review body
 
-Record pass/fail and include the result in the review body's CI-status section (see step 9). The smoke catches PR-introduced regressions that pre-merge CI may have missed (container init failures, command-registration breakage, etc.). It does **not** cover concurrent-merge interactions — those (two PRs that pass CI individually but interact badly post-merge) are tracked separately in mt#1592.
+Record one of three outcomes for the review body's `Smoke:` line:
+
+- `pass — <command run>` if the command exited 0
+- `fail — <command run>: <stderr summary>` if it exited non-zero (BLOCKING finding)
+- `skipped — <rationale>` for docs / prompt-only / config-only PRs where no code path runs (`skipped` is acceptable; the pre-merge hook treats it as a valid value, not as missing)
+
+Include the result in the review body's CI-status section (see step 9). The smoke catches PR-introduced regressions that pre-merge CI may have missed (container init failures, command-registration breakage, etc.). It does **not** cover concurrent-merge interactions — those (two PRs that pass CI individually but interact badly post-merge) are tracked separately in mt#1592.
 
 ### 6a. Assess documentation impact
 
@@ -361,7 +367,7 @@ The body is for summary and metadata — NOT for inline findings. All location-b
 ## Review: <short description>
 
 **CI status:** <pass/fail/pending — N checks passed, M failed>
-**Smoke:** <pass/fail — `<command run>` on PR branch>
+**Smoke:** <one of: `pass — <command>` | `fail — <command>: <stderr summary>` | `skipped — <rationale>`>
 
 ### Summary
 

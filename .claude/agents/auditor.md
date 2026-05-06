@@ -8,7 +8,7 @@ description: >-
   the standard closeout path — the reviewer subagent handles spec
   verification at review time. Use this agent for one-off audits, second-
   opinion verification, or non-PR spec checks against main.
-tools: "Read, Glob, Grep, Bash, mcp__minsky__tasks_get, mcp__minsky__tasks_spec_get"
+tools: "Read, Glob, Grep, Bash, mcp__minsky__tasks_get, mcp__minsky__tasks_spec_get, mcp__github__get_file_contents"
 model: sonnet
 ---
 
