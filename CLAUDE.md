@@ -142,6 +142,44 @@ Use only when you have already reviewed main's new commits and confirmed no over
   list because they signal something operationally interesting (the hook ran but
   couldn't complete its check).
 
+**Budget derivation (mt#1546):**
+
+The hook's three timer constants (`OVERALL_BUDGET_MS`, `FETCH_TIMEOUT_MS`,
+`GIT_TIMEOUT_MS`) derive at entrypoint time (before `hookStart` capture)
+from the host-imposed `timeout` field in `.claude/settings.json` for this
+hook's matcher entry. The read is deliberately deferred from module-load
+to entrypoint so importing the module has no fs/env side effects (relevant
+for tests and any non-entrypoint consumers). Bumping the host cap in
+settings.json scales the internal budgets proportionally, with no source
+edits required.
+
+Three named ratios encode the design choices:
+
+- `OVERALL_BUDGET_RATIO = 0.6` — overall budget = 60% of host cap.
+- `FETCH_TIMEOUT_RATIO = 0.55` — fetch can use 55% of overall budget.
+- `GIT_TIMEOUT_RATIO = 0.17` — each local git probe gets ~1/6 of budget.
+
+At the current 15-second host cap the derived values are 9000 / 4950 /
+1530 ms (overall / fetch / git). The `4950` and `1530` differ slightly
+from the legacy hardcoded `5000` and `1500` ms — within ±10%, which the
+test fixtures explicitly verify. The deviation is intentional: it is the
+cost of removing the magic-number coupling between cap and constants.
+
+Each derived value is also clamped to a minimum of 100 ms
+(`MIN_DERIVED_BUDGET_MS`) so pathologically small caps cannot zero-out a
+per-call budget. The clamp never fires for realistic caps (≥ 5s).
+
+If `.claude/settings.json` cannot be read, parsed, or contains no matching
+entry, the hook falls back to the 15-second default and emits a one-line
+warning through the operator-warning channel. The shared
+`readHostCap(hookFilename, projectDir?, options?)` helper in
+`.claude/hooks/types.ts` exposes this pattern for reuse by future hooks
+with the same constraint. The `events` option (default
+`["PreToolUse"]`) scopes the matcher walk to a specific lifecycle event.
+The walker performs exact-or-suffix path-segment matching against the
+hook's basename — case-sensitive, separator-normalised so Windows-style
+backslash paths in settings.json work cross-platform.
+
 # User Preferences
 
 - **Take direct action without asking:** When the next step is clear, proceed immediately without asking for confirmation. Do not end responses with questions unless ambiguity cannot be resolved by a reasonable assumption.
@@ -461,12 +499,22 @@ function helloWorld() {
 
 ```
 TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW → DONE
-       (investigate) (gate)  (session_start) (pr_create)  (verify + merge)
+       (investigate) (gate)  (session_start) (pr_create)  (merge)
 
 Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state)
 ```
 
 Transitions are enforced in the domain layer. `session_start` blocks from TODO/PLANNING — task must be READY first. See `/orchestrate` skill for full workflow details.
+
+## Verification surfaces
+
+The reviewer subagent (`.claude/agents/reviewer.md` Mode 2, dispatched by `/review-pr` and auto-firing as `minsky-reviewer[bot]`) is the canonical verification surface. It runs at review time against the PR branch and covers spec verification, adoption sweep, and a smoke test exercising the changed code path. This is the load-bearing gate; merges are blocked until its findings are addressed.
+
+Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an audit gate. It is a thin closeout wrapper for the bypass-merge path: it confirms `pr.merged === true` AND the merge-commit body contains the canonical bypass-merge audit-trail signature ("Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"), then sets DONE. If neither condition holds, it halts. The auditor subagent is no longer dispatched on the standard closeout path; it remains available for ad-hoc spec verification when explicitly requested.
+
+The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
+
+Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
 
 Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
 
