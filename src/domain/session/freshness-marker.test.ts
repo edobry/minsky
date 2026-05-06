@@ -187,6 +187,73 @@ describe("write + read freshness marker (round-trip)", () => {
     }
   });
 
+  // PR #963 R2 BLOCKING #1: option-injection prevention.
+  test("read returns null when mainRef starts with a dash (PR #963 R2 BLOCKING — option injection)", () => {
+    // git rev-parse "${ref}" with ref="--help" would parse as a CLI
+    // option, not a ref name. The validator must reject leading-dash
+    // values before they can reach the rev-parse callsite.
+    const root = makeWorkdirWithGitDir();
+    try {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      writeFileSync(
+        markerPath(root),
+        JSON.stringify({
+          mainRef: "--help",
+          sha: FIXTURE_SHA_A,
+          toolName: FIXTURE_TOOL,
+          ts: FIXTURE_TS,
+        }),
+        "utf8"
+      );
+      /* eslint-enable custom/no-real-fs-in-tests */
+      expect(readFreshnessMarker(root)).toBeNull();
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("read returns null when mainRef is `-h` (single-dash option-like)", () => {
+    const root = makeWorkdirWithGitDir();
+    try {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      writeFileSync(
+        markerPath(root),
+        JSON.stringify({
+          mainRef: "-h",
+          sha: FIXTURE_SHA_A,
+          toolName: FIXTURE_TOOL,
+          ts: FIXTURE_TS,
+        }),
+        "utf8"
+      );
+      /* eslint-enable custom/no-real-fs-in-tests */
+      expect(readFreshnessMarker(root)).toBeNull();
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("read returns null when mainRef is `--exec=...` (long-option-like)", () => {
+    const root = makeWorkdirWithGitDir();
+    try {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      writeFileSync(
+        markerPath(root),
+        JSON.stringify({
+          mainRef: "--exec=touch_pwn",
+          sha: FIXTURE_SHA_A,
+          toolName: FIXTURE_TOOL,
+          ts: FIXTURE_TS,
+        }),
+        "utf8"
+      );
+      /* eslint-enable custom/no-real-fs-in-tests */
+      expect(readFreshnessMarker(root)).toBeNull();
+    } finally {
+      cleanup(root);
+    }
+  });
+
   test("read accepts well-formed marker with origin/feature/branch ref", () => {
     const root = makeWorkdirWithGitDir();
     try {

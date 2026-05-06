@@ -7,7 +7,31 @@
 import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { AskRepository } from "../ask/repository";
-import { checkFreshnessCas, cleanupFreshnessMarker, FreshnessCasError } from "./freshness-marker";
+import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
+
+/**
+ * Error thrown when the branch-freshness CAS check (mt#1522) detects that
+ * `origin/main` advanced between the freshness hook's allow decision and
+ * `session_commit`'s push. Defined here (rather than in `freshness-marker.ts`)
+ * so the marker module stays free of `errors/` imports — that module is also
+ * imported by the `.claude/hooks/check-branch-fresh.ts` hook for its write
+ * helper, and dragging app-domain transitive deps into the hook is a
+ * regression risk per PR #963 R2 BLOCKING #2.
+ *
+ * Carries a stable `code` so UX/policy/telemetry layers can distinguish a
+ * CAS-prevented push from other commit failures programmatically.
+ */
+export class FreshnessCasError extends MinskyError {
+  readonly code: "FRESHNESS_CAS_FAILED" = "FRESHNESS_CAS_FAILED";
+  constructor(
+    message: string,
+    public readonly capturedSha: string,
+    public readonly currentSha: string,
+    public readonly mainRef: string
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Session PR creation parameters
@@ -284,7 +308,12 @@ export async function sessionCommit(
         },
         resolveRefSha: async (dir, ref) => {
           try {
-            const out = await casGitService.execInRepository(dir, `git rev-parse "${ref}"`);
+            // Defense-in-depth (PR #963 R2 BLOCKING #1): `--` separator
+            // prevents git from interpreting `ref` as an option even if
+            // a future regex regression were to admit a leading-`-`
+            // value. SAFE_REF_RE already forbids leading `-`; this
+            // keeps the call safe under any validator drift.
+            const out = await casGitService.execInRepository(dir, `git rev-parse -- "${ref}"`);
             const sha = out.trim();
             return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
           } catch {

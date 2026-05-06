@@ -29,24 +29,14 @@
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { MinskyError } from "../../errors/index";
 
-/**
- * Specific error type for CAS-prevented pushes. Carries a stable `code` so
- * UX/policy/telemetry layers can distinguish a freshness CAS abort from
- * other commit failures (PR #963 R1 NON-BLOCKING #4 fix).
- */
-export class FreshnessCasError extends MinskyError {
-  readonly code: "FRESHNESS_CAS_FAILED" = "FRESHNESS_CAS_FAILED";
-  constructor(
-    message: string,
-    public readonly capturedSha: string,
-    public readonly currentSha: string,
-    public readonly mainRef: string
-  ) {
-    super(message);
-  }
-}
+// PR #963 R2 BLOCKING #2 fix: this module is imported by the
+// `.claude/hooks/check-branch-fresh.ts` hook to access writeFreshnessMarker.
+// Importing app-domain modules (errors/, schemas/, etc.) from here would
+// drag transitive dependencies into the hook's dependency surface, slowing
+// startup and introducing fragility. So `FreshnessCasError` lives in the
+// session-commands callsite (where the throw happens), not here. This module
+// imports only `node:fs` + `node:path`.
 
 /**
  * Filename of the freshness marker, scoped to `.git/`. Per-repo, hidden
@@ -107,17 +97,23 @@ export function writeFreshnessMarker(
 
 /**
  * Strict regex for the `mainRef` field. Refs are restricted to alphanumeric,
- * dot, underscore, slash, and dash. Critically rejects shell metacharacters
- * (quotes, backticks, semicolons, dollar signs, parentheses) so the value is
- * safe to interpolate into a shell command if the consumer chooses to. PR
- * #963 R1 BLOCKING fix — closes a command-injection hole at the CAS-check
- * call site that interpolated this field into `git rev-parse "${ref}"`.
+ * dot, underscore, slash, and dash — AND the first character must NOT be
+ * a dash. Critically rejects:
+ *   - Shell metacharacters (quotes, backticks, semicolons, dollar signs,
+ *     parentheses) so the value is safe to interpolate into a shell command.
+ *     PR #963 R1 BLOCKING #1 fix.
+ *   - Refs that start with `-` (e.g., `--help`), which `git rev-parse` would
+ *     parse as command-line OPTIONS rather than ref names. PR #963 R2
+ *     BLOCKING #1 fix — addresses option-injection, distinct from shell
+ *     metacharacter injection.
  *
  * Examples accepted: `origin/main`, `origin/master`, `origin/feature/branch`,
- * `refs/remotes/origin/HEAD`. Examples rejected: `origin/main"; rm -rf /`,
- * `origin/$(touch pwn)`, anything with backticks or shell control chars.
+ * `refs/remotes/origin/HEAD`, `_internal/x`.
+ * Examples rejected: `origin/main"; rm -rf /`, `origin/$(touch pwn)`,
+ * `--help`, `-h`, `--exec=...`, anything with backticks or shell control
+ * chars.
  */
-const SAFE_REF_RE = /^[A-Za-z0-9._/-]+$/;
+const SAFE_REF_RE = /^[A-Za-z0-9_./][A-Za-z0-9._/-]*$/;
 
 /** Strict regex for the `sha` field — must be exactly 40 lowercase hex chars. */
 const SHA_RE = /^[0-9a-f]{40}$/;
