@@ -206,10 +206,12 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   const mode = readMode();
 
+  // Audit log on every PreToolUse invocation: makes the active mode
+  // observable in the session transcript so operators can confirm what's
+  // running without diff-checking the hook source. Per PR #951 R2.
+  process.stdout.write(`[policy-coverage-detector] mode=${mode} tool=${input.tool_name}\n`);
+
   if (mode === "disabled") {
-    process.stdout.write(
-      `[policy-coverage-detector] DISABLED via ${MODE_ENV_VAR}=disabled — permitting tool=${input.tool_name}\n`
-    );
     process.exit(0);
   }
 

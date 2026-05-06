@@ -108,8 +108,21 @@ function extractPathSignature(filePath: string): string {
   const segments = filePath.split(/[/\\]/).filter((s) => s.length > 0);
   const basename = segments[segments.length - 1] ?? filePath;
 
-  const specialDirs = ["tests", "__tests__", "migrations", "scripts"];
-  const prefix = segments.find((s) => specialDirs.includes(s));
+  const specialDirs = new Set(["tests", "__tests__", "migrations", "scripts"]);
+
+  // Find the NEAREST special-dir segment to the basename (right-to-left scan
+  // excluding the basename itself). Prior version picked the first occurrence
+  // left-to-right which mis-classifies paths like `vendor/scripts/lib/migrations/foo.ts`
+  // (would pick `scripts` even though the closest scope is `migrations`).
+  // Per PR #951 R2 NON-BLOCKING.
+  let prefix: string | undefined;
+  for (let i = segments.length - 2; i >= 0; i--) {
+    const seg = segments[i];
+    if (seg !== undefined && specialDirs.has(seg)) {
+      prefix = seg;
+      break;
+    }
+  }
 
   return prefix ? `${prefix}:${basename}` : basename;
 }

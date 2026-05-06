@@ -208,6 +208,21 @@ describe("internal helpers", () => {
     );
   });
 
+  it("extractPathSignature picks the NEAREST special-dir segment when multiple match — PR #951 R2", () => {
+    // When both `scripts` and `migrations` appear in the path, the nearest
+    // ancestor of the basename (closest to the right) wins.
+    expect(__TEST_ONLY.extractPathSignature("vendor/scripts/lib/migrations/0042.sql")).toBe(
+      "migrations:0042.sql"
+    );
+    expect(__TEST_ONLY.extractPathSignature("a/tests/b/__tests__/c.ts")).toBe("__tests__:c.ts");
+  });
+
+  it("extractPathSignature ignores special-dir segments at the basename position", () => {
+    // If `tests` IS the basename (no extension matches), the nearest-ancestor
+    // scan excludes it; falls back to no prefix.
+    expect(__TEST_ONLY.extractPathSignature("a/b/tests")).toBe("tests");
+  });
+
   it("formatQuestion is non-empty for every filter reason", () => {
     const reasons: Array<keyof typeof __TEST_ONLY.SEVERITY_BY_REASON> = [
       "new-file",

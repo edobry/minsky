@@ -232,13 +232,19 @@ export async function loadProjectRules(projectRoot: string): Promise<PolicyEntry
  * Resolve the project memory directory path from the project root.
  *
  * Convention: `~/.claude/projects/<slug>/memory/` where `<slug>` is derived
- * from the project root path by replacing `/` with `-`.
+ * from the project root path by replacing path separators with `-`.
  *
- * Example: /Users/edobry/Projects/minsky → -Users-edobry-Projects-minsky
+ * Example (POSIX): /Users/edobry/Projects/minsky → -Users-edobry-Projects-minsky
+ * Example (Windows): C:\\repo\\minsky          → C:-repo-minsky
+ *
+ * PR #951 R2 fix: replaces BOTH `/` and `\\` so the slug stays a single
+ * directory token on Windows. The previous `\\/` only regex left
+ * backslashes in place, causing `path.join` to interpret them as nested
+ * directory separators and silently miss the operator's memory files.
  */
 export function resolveMemoryDir(projectRoot: string): string {
   const absoluteRoot = resolve(projectRoot);
-  const slug = absoluteRoot.replace(/\//g, "-");
+  const slug = absoluteRoot.replace(/[/\\]/g, "-");
   return join(homedir(), ".claude", "projects", slug, "memory");
 }
 
