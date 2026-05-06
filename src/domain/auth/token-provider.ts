@@ -68,4 +68,20 @@ export interface TokenProvider {
    * Synchronous check: returns true if a service account is configured.
    */
   isServiceAccountConfigured(): boolean;
+
+  /**
+   * Synchronous check: returns true if the *specific* service-account role
+   * is configured with its own credentials.
+   *
+   * - `"implementer"` → true iff a primary GitHub App service account is
+   *   configured (i.e., `isServiceAccountConfigured()` is true).
+   * - `"reviewer"`    → true iff a reviewer App service account is configured
+   *   (i.e., `github.reviewer.serviceAccount` is present). Distinct from
+   *   `getToken("reviewer")`, which silently falls back to the implementer
+   *   App when reviewer is not configured. Callers that need to enforce a
+   *   strict identity (e.g., APPROVE / REQUEST_CHANGES on a self-authored
+   *   bot PR, where a fallback would re-introduce the self-approval bug)
+   *   must check this method *before* calling `getToken("reviewer")`.
+   */
+  isRoleConfigured(role: TokenRole): boolean;
 }

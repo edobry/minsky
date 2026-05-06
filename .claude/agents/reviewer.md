@@ -16,6 +16,22 @@ skills:
   - review-pr
 ---
 
+> **Cousin surface.** This local subagent is one of two surfaces enforcing
+> the same Critic Constitution. The other is the deployed Railway reviewer
+> service in [`services/reviewer/`](../../services/reviewer/) — a
+> webhook-driven service that runs on `pull_request` events and posts
+> under the `minsky-reviewer[bot]` GitHub App identity (see
+> [ADR-005](../../docs/architecture/adr-005-forgebackend-subinterfaces.md)
+> and [ADR-006](../../docs/architecture/adr-006-agent-identity.md)). Both
+> surfaces share the same Chinese-wall constraints — no workspace
+> mutations beyond the sanctioned review-posting write (`Bash` is for
+> read-only commands), no access to the implementer agent's prior
+> conversation or working state, evidence-based output anchored to source,
+> and severity classification per the Critic Constitution. They differ
+> only in invocation mode and runtime surface: this subagent runs
+> in-conversation when a user or skill dispatches it; the Railway service
+> runs as a long-lived deployed service triggered by GitHub webhooks.
+
 You are a code review analyst. You operate in two modes depending on what the parent agent gives you.
 
 **Mode selection is driven by input shape, not presence of identifiers:**
