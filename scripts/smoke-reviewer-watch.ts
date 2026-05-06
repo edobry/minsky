@@ -18,6 +18,10 @@
  * Output: prints a structured JSON line to stdout, optionally writes the
  * same payload to scripts/smoke-reviewer-watch-results.json when --write
  * is passed. Exit code: 0 on success, non-zero on unexpected failure.
+ *
+ * Usage:
+ *   bun scripts/smoke-reviewer-watch.ts            # print JSON to stdout
+ *   bun scripts/smoke-reviewer-watch.ts --write    # also write results file
  */
 
 // tsyringe (transitively imported via getConfiguration) requires reflect-metadata.
