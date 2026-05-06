@@ -593,8 +593,14 @@ Repository: https://github.com/${this.owner}/${this.repo}
     return {
       owner: this.owner,
       repo: this.repo,
-      getToken: () => this.tokenProvider.getServiceToken(),
+      // Forward the optional role through to the TokenProvider so callers can
+      // request a specific service-account identity (e.g. "reviewer" for
+      // adversarial APPROVE / REQUEST_CHANGES) rather than always receiving
+      // the implementer App's token. When `role` is omitted, getToken()
+      // defaults to "implementer" — preserving pre-mt#1510 behaviour.
+      getToken: (role) => this.tokenProvider.getToken(role),
       getUserToken: () => this.tokenProvider.getUserToken(),
+      isRoleConfigured: (role) => this.tokenProvider.isRoleConfigured(role),
     };
   }
 

@@ -334,6 +334,21 @@ export class GitHubAppTokenProvider implements TokenProvider {
     return true;
   }
 
+  /**
+   * Strict per-role configuration check. Distinct from `isServiceAccountConfigured()`
+   * (which only reports the primary App's presence) and from `getToken("reviewer")`
+   * (which silently falls back to implementer when reviewer is absent).
+   *
+   * - `"implementer"` → always true (this provider is only constructed when
+   *   the implementer App is configured).
+   * - `"reviewer"`    → true iff a reviewer App was configured (i.e., the
+   *   reviewer client was instantiated in the constructor).
+   */
+  isRoleConfigured(role: TokenRole): boolean {
+    if (role === "reviewer") return this.reviewerClient !== null;
+    return true;
+  }
+
   // ---------------------------------------------------------------------------
   // Pass-through helpers for backward-compatible tests that call these directly.
   // ---------------------------------------------------------------------------
