@@ -39,6 +39,7 @@ Step 5: Plan the implementation
 Step 6: Develop
 Step 7: Verify implementation
 Step 7a: Ship verification artifact for structural changes (when in scope)
+Step 7b: TOCTOU / concurrency sweep for check-then-act code (mandatory when applicable)
 Step 8: Create PR (IN-PROGRESS → IN-REVIEW)
 Step 9: Hand off to verify
 
@@ -212,6 +213,94 @@ This pattern was established by mt#1399 (smoke test for output-tools wiring — 
 
 - The redacted live-run output from running the artifact, OR
 - A documented override: the artifact has not been run because (a) the target has not been deployed yet, (b) the author lacks live-target access per documented policy, or (c) the target has a rate-limit or maintenance-window constraint. "I read the code carefully" is not a valid override.
+
+### 7b. TOCTOU / concurrency sweep for check-then-act code
+
+**Mandatory** when this implementation introduces or modifies a check-then-act pattern. The
+sweep is the agent's responsibility — reviewer-bot does NOT reliably catch TOCTOU. It
+catches functional and structural concerns; it has not in practice surfaced multi-call
+atomicity or decision-action gaps. **Do not defer this to review.**
+
+**When this step applies (any of):**
+
+- Code reads external state and acts on the read (filesystem, API, database, git refs, env).
+- Code implements a hook, gate, or guard (any precondition-check-then-permit pattern).
+- Code validates a precondition then acts on a downstream resource (lock, ref, file).
+- Code spawns a subprocess after a check the subprocess could invalidate.
+
+If none apply, this step is a no-op — record "(N/A — no check-then-act pattern introduced)"
+in the PR body and proceed.
+
+**Enumerate the three windows. Every time. For each, document a fix-or-accept decision.**
+
+1. **Read atomicity.** Does the check make multiple separate reads of the underlying
+   state? If yes, can the state change between reads (parallel writers, concurrent
+   fetches, sibling processes)?
+
+   - **Mitigation:** collapse to a single atomic read.
+
+2. **Decision-action gap.** Between the moment of decision (allow / proceed) and the
+   action (push / write / spawn), can the underlying state change in a way that
+   invalidates the decision?
+
+   - **Mitigation:** re-check immediately before the action, or compare-and-swap on a
+     captured identifier (CAS / version / SHA).
+
+3. **Stale-read at read time.** Was the data already old when read (remote-tracking ref
+   not recently fetched, cached config, memoized snapshot, in-process cache)?
+   - **Mitigation:** force a fresh read at check time.
+
+**The "small window" rationalization is forbidden.**
+
+> If the race is the same SHAPE of bug the code exists to prevent, the size of the window
+> is a UX consideration, not a correctness one. A seconds-class instance of an hours-class
+> bug is still the bug.
+
+Do not dismiss a window because "the race is unlikely" or "the window is short." Either
+mitigate, or write down an explicit accept-rationale from the list below.
+
+**Accept is valid when ANY of these hold:**
+
+- **Idempotent.** The action produces the same outcome on retry; concurrent execution is
+  safe by construction.
+- **FF-conflict-preserving.** The action's failure mode on conflict is correctness-preserving
+  (e.g., a git push that requires fast-forward — the push rejects, the agent retries against
+  the new state, no silent corruption).
+- **Irreducible.** No locking / CAS primitive is available in the underlying system; the
+  window cannot be closed without external infrastructure.
+- **Automatic recovery.** Post-conflict recovery is automatic and observable (the next
+  invocation correctly re-reads and re-acts on the updated state).
+
+Document the chosen accept-rationale in a code comment at the race site so the next reader
+doesn't have to re-derive it. Naming the rationale is part of the accept; an unannotated
+accept reads as overlooked.
+
+**Mitigate is required when ANY of these hold:**
+
+- **Creates redo.** Race outcome forces the user to redo work (wasted iteration on stale
+  base, replayed action against changed state).
+- **Silent worse-state.** Race outcome silently produces a worse state (agent builds on
+  stale base again, action lands but does the wrong thing, no error surface).
+- **Observable to consumer.** Race outcome is visible to a downstream consumer (reviewer,
+  build system, user-facing log) in a way that creates confusion or work for them.
+
+**If mitigation is non-trivial:** file a follow-up structural task (per the
+meta-retrospective principle that residual races deserve named owners) and document the
+residual window in a code comment naming the follow-up task. A residual race with a
+tracking task is qualitatively different from a residual race that's been forgotten about.
+
+**What goes in the PR body.** Either:
+
+- A "## Concurrency analysis" subsection enumerating the three windows with a one-line
+  fix-or-accept decision per window and the chosen accept-rationale (or fix description).
+- An explicit "(N/A — no check-then-act pattern introduced)" line if this step doesn't
+  apply.
+
+Cross-reference: `feedback_toctou_enumeration_required.md` is the bridge memory carrying
+this discipline pre-skill; once this skill section ships, that memory's job becomes
+historical record + pointer here. The originating incident (mt#1483 PR #928 round-N-1
+detection of `listCommitsAhead` Class-1 race + Class-2 dismissal) is the regression
+example for this section.
 
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 
