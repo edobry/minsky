@@ -34,6 +34,7 @@ import { registerWorkspaceCommands } from "./workspace/info-command";
 import { registerTranscriptCommands } from "./transcripts";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
+import { registerUnaskedDirectionCommands } from "./unasked-direction";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -126,6 +127,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register window commands (attention windows — mt#1489 / mt#1411)
   registerWindowCommands(container);
 
+  // Register unasked-direction commands (Surface 4 weekly review — mt#1543)
+  registerUnaskedDirectionCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -160,4 +164,5 @@ export {
   registerTranscriptCommands,
   registerAttentionCommands,
   registerWindowCommands,
+  registerUnaskedDirectionCommands,
 };
