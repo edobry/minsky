@@ -267,9 +267,14 @@ function deepJsonEqual(a: unknown, b: unknown): boolean {
     return true;
   }
 
-  // Primitives + null: strict equality (already handled by `a === b` above
-  // for most cases; this branch handles NaN-vs-NaN, but we treat NaN !== NaN
-  // per IEEE — non-issue for JSON since NaN is not representable).
+  // Primitives + null: strict equality already handled by top `a === b`.
+  // Treat NaN-vs-NaN as equal for numeric primitives (PR #952 R8#2):
+  // JSON.parse never produces NaN, but the helper is exported and may be
+  // reused by callers with non-JSON numeric sources; treating NaN as equal
+  // to NaN aligns with intuitive equality semantics.
+  if (typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b)) {
+    return true;
+  }
   return false;
 }
 
@@ -676,7 +681,13 @@ export function checkOpenPrs(
     // the PR is from a fork. PR #952 R4#1 fix replacing the R3#1 attempt
     // (which used pr.headRefOid — a fork-only SHA for forked PRs, not
     // addressable via the base repo's Contents API).
-    const toRef = `refs/pull/${pr.number}/head`;
+    // Try `refs/pull/<num>/head` first, then `refs/pull/<num>/merge` as a
+    // fallback. The `/head` ref is the PR's actual head commit; `/merge` is
+    // the GitHub-materialized merge-commit-with-base. For private/deleted
+    // forks where `/head` may not be addressable from the base repo's
+    // Contents API, `/merge` provides a fallback addressable from base.
+    // PR #952 R8#1.
+    const toRefCandidates = [`refs/pull/${pr.number}/head`, `refs/pull/${pr.number}/merge`];
     // Use the PR's actual base branch as `fromRef` so the structural
     // comparison reflects this PR's real diff (PR #952 R7#4). Falls back
     // to the repo's default branch when baseRefName is unavailable
@@ -699,7 +710,25 @@ export function checkOpenPrs(
         );
         return true;
       }
-      const isExempt = isAppendOnly(input.repo, fromRef, toRef, file, warnings);
+      // Try each candidate ref; first one that returns true wins. False
+      // could mean either "real non-append-only diff" OR "fetch failure";
+      // the fallback handles the latter case for forked PRs whose /head
+      // isn't addressable from the base repo's Contents API.
+      let isExempt = false;
+      let usedRef = "";
+      for (const candidateToRef of toRefCandidates) {
+        if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) break;
+        if (isAppendOnly(input.repo, fromRef, candidateToRef, file, warnings)) {
+          isExempt = true;
+          usedRef = candidateToRef;
+          break;
+        }
+      }
+      if (isExempt && usedRef.endsWith("/merge")) {
+        warnings.push(
+          `PR #${pr.number}: ${file} exemption resolved via ${usedRef} fallback (head ref not addressable)`
+        );
+      }
       if (isExempt) {
         warnings.push(
           `PR #${pr.number}: ${file} change is append-only into JSON arrays — exempted from collision`

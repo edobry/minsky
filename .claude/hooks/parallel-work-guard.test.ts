@@ -926,6 +926,14 @@ describe("isAppendOnlyToJsonArrays", () => {
     expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
   });
 
+  it("treats NaN as equal to NaN for numeric primitives (PR #952 R8#2)", () => {
+    // JSON.parse never produces NaN, but for non-JSON callers reusing the
+    // helper, NaN-vs-NaN comparing as true matches intuitive equality.
+    const before = { value: NaN };
+    const after = { value: NaN };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
   it("array order still matters even with order-insensitive object compare (PR #952 R3#2)", () => {
     // Sanity check: arrays remain order-sensitive — only OBJECT keys are
     // treated as orderless. Reordering array elements must still register
@@ -1105,6 +1113,60 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     // same-repo and forked PRs. Replaces the R3#1 attempt that used
     // headRefOid (a fork-only SHA, not in the base repo's git database).
     expect(observedToRef).toBe("refs/pull/500/head");
+  });
+
+  it("falls back to refs/pull/<num>/merge when /head fetch fails (PR #952 R8#1)", () => {
+    const observedRefs: string[] = [];
+    const fallbackDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      fetchOpenPrs: () => [
+        {
+          number: 700,
+          title: "feat: forked PR with private head",
+          headRefName: "fork:branch",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedRefs.push(toRef);
+        // Simulate /head failure (returns false, fail-closed); /merge succeeds.
+        return toRef.endsWith("/merge");
+      },
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
+    // Both refs were tried in order.
+    expect(observedRefs).toEqual(["refs/pull/700/head", "refs/pull/700/merge"]);
+    // Exemption succeeded via fallback — no collision recorded.
+    expect(result.blocked).toBe(false);
+    // Audit warning records the fallback was used.
+    expect(
+      result.warnings.some((w) => w.includes("exemption resolved via refs/pull/700/merge fallback"))
+    ).toBe(true);
+  });
+
+  it("does not retry /merge when /head succeeds (PR #952 R8#1 efficiency)", () => {
+    const observedRefs: string[] = [];
+    const headSuccessDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 701,
+          title: "feat: same-repo PR /head works",
+          headRefName: "task/mt-701",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedRefs.push(toRef);
+        return true; // /head succeeds first try
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", headSuccessDeps);
+    // Only /head was tried; /merge was not invoked.
+    expect(observedRefs).toEqual(["refs/pull/701/head"]);
   });
 
   it("uses pr.baseRefName as fromRef when present (PR #952 R7#4)", () => {
