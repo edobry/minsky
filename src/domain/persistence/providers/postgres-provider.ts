@@ -20,6 +20,10 @@ import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
+import {
+  EMBEDDINGS_CONFIGS,
+  type VectorDomain,
+} from "../../storage/schemas/embeddings-schema-factory";
 
 // Per-process default pool size. Intentionally small: Minsky shares a single
 // Supabase/Supavisor session-mode pooler across multiple consumers (laptop
@@ -332,9 +336,14 @@ export class PostgresVectorPersistenceProvider
   }
 
   /**
-   * Get vector storage instance (type-safe - only exists on vector provider)
+   * Get vector storage for a specific domain.
+   * Each domain has its own embeddings table (EMBEDDINGS_CONFIGS); this method
+   * routes to the correct table, preventing cross-domain contamination.
+   *
+   * This is the preferred API. The legacy getVectorStorage(dimension) delegates
+   * here with domain="tasks" for backward compatibility.
    */
-  getVectorStorage(dimension: number): VectorStorage {
+  getVectorStorageForDomain(domain: VectorDomain, dimension: number): VectorStorage {
     if (!this.isInitialized) {
       throw new Error("PostgresVectorPersistenceProvider not initialized");
     }
@@ -343,12 +352,24 @@ export class PostgresVectorPersistenceProvider
       throw new Error("Database connections not available");
     }
 
+    const config = EMBEDDINGS_CONFIGS[domain];
     return new PostgresVectorStorage(this.sql, this.db, dimension, {
-      tableName: "tasks_embeddings",
-      idColumn: "task_id",
-      embeddingColumn: "vector",
-      lastIndexedAtColumn: "indexed_at",
+      tableName: config.tableName,
+      idColumn: config.idColumn,
+      embeddingColumn: config.vectorColumn,
+      lastIndexedAtColumn: config.indexedAtColumn,
     });
+  }
+
+  /**
+   * Get vector storage instance (type-safe - only exists on vector provider)
+   *
+   * @deprecated Use getVectorStorageForDomain(domain, dimension) to specify
+   * the correct domain. This method defaults to the "tasks" domain for backward
+   * compatibility, which is WRONG for memory, rules, tools, and knowledge domains.
+   */
+  getVectorStorage(dimension: number): VectorStorage {
+    return this.getVectorStorageForDomain("tasks", dimension);
   }
 
   getConnectionInfo(): string {

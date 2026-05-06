@@ -161,7 +161,13 @@ interface ParseError {
 }
 
 function parseMemoryFile(fileContent: string): ParseResult | ParseError {
-  const parsed = matter(fileContent);
+  let parsed: ReturnType<typeof matter>;
+  try {
+    parsed = matter(fileContent);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason: `YAML parse error: ${msg.split("\n")[0] ?? msg}` };
+  }
   const fm = parsed.data as Record<string, unknown>;
   const body = parsed.content.trim();
 

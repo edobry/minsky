@@ -21,6 +21,7 @@ import { getEffectivePersistenceConfig } from "../configuration/persistence-conf
 import type { Configuration } from "../configuration/schemas";
 import { log } from "../../utils/logger";
 import type { VectorStorage } from "../storage/vector/types";
+import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory";
 
 /**
  * Build a PersistenceConfig from a Configuration via the documented fallback
@@ -112,16 +113,29 @@ export class PersistenceService {
   }
 
   /**
-   * Get vector storage — type-safe approach using interface checking.
+   * Get vector storage for a specific domain — preferred API.
+   * Routes to the correct embeddings table via EMBEDDINGS_CONFIGS, preventing
+   * cross-domain table contamination.
    */
-  getVectorStorage(dimension: number): VectorStorage {
+  getVectorStorageForDomain(domain: VectorDomain, dimension: number): VectorStorage {
     const provider = this.getProvider();
 
     if (!this.isVectorCapable(provider)) {
       throw new CapabilityNotSupportedError("vectorStorage", provider.constructor.name);
     }
 
-    return provider.getVectorStorage(dimension);
+    return provider.getVectorStorageForDomain(domain, dimension);
+  }
+
+  /**
+   * Get vector storage — type-safe approach using interface checking.
+   *
+   * @deprecated Use getVectorStorageForDomain(domain, dimension) to specify the
+   * correct domain. This method defaults to the "tasks" domain, which is WRONG
+   * for memory, rules, tools, and knowledge embeddings.
+   */
+  getVectorStorage(dimension: number): VectorStorage {
+    return this.getVectorStorageForDomain("tasks", dimension);
   }
 
   private isVectorCapable(
@@ -129,8 +143,8 @@ export class PersistenceService {
   ): provider is VectorCapablePersistenceProvider {
     return (
       provider.capabilities.vectorStorage === true &&
-      "getVectorStorage" in provider &&
-      typeof provider.getVectorStorage === "function"
+      "getVectorStorageForDomain" in provider &&
+      typeof (provider as VectorCapablePersistenceProvider).getVectorStorageForDomain === "function"
     );
   }
 
