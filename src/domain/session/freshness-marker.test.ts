@@ -122,6 +122,85 @@ describe("write + read freshness marker (round-trip)", () => {
     }
   });
 
+  // PR #963 R1 BLOCKING #1 fix: marker validation closes the
+  // command-injection hole at the CAS callsite.
+  test("read returns null when mainRef contains shell metacharacters (PR #963 R1 BLOCKING)", () => {
+    const root = makeWorkdirWithGitDir();
+    try {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      writeFileSync(
+        markerPath(root),
+        JSON.stringify({
+          mainRef: 'origin/main"; rm -rf /',
+          sha: FIXTURE_SHA_A,
+          toolName: FIXTURE_TOOL,
+          ts: FIXTURE_TS,
+        }),
+        "utf8"
+      );
+      /* eslint-enable custom/no-real-fs-in-tests */
+      expect(readFreshnessMarker(root)).toBeNull();
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("read returns null when mainRef contains shell-substitution syntax", () => {
+    const root = makeWorkdirWithGitDir();
+    try {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      writeFileSync(
+        markerPath(root),
+        JSON.stringify({
+          mainRef: "origin/$(touch pwn)",
+          sha: FIXTURE_SHA_A,
+          toolName: FIXTURE_TOOL,
+          ts: FIXTURE_TS,
+        }),
+        "utf8"
+      );
+      /* eslint-enable custom/no-real-fs-in-tests */
+      expect(readFreshnessMarker(root)).toBeNull();
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("read returns null when sha is not 40-hex (e.g., shorter, wrong charset)", () => {
+    const root = makeWorkdirWithGitDir();
+    try {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      writeFileSync(
+        markerPath(root),
+        JSON.stringify({
+          mainRef: FIXTURE_MAIN_REF,
+          sha: "deadbeef", // too short
+          toolName: FIXTURE_TOOL,
+          ts: FIXTURE_TS,
+        }),
+        "utf8"
+      );
+      /* eslint-enable custom/no-real-fs-in-tests */
+      expect(readFreshnessMarker(root)).toBeNull();
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  test("read accepts well-formed marker with origin/feature/branch ref", () => {
+    const root = makeWorkdirWithGitDir();
+    try {
+      const validPayload = {
+        ...FIXTURE_PAYLOAD,
+        mainRef: "origin/feature/some-branch",
+      };
+      writeFreshnessMarker(root, validPayload);
+      expect(readFreshnessMarker(root)).toEqual(validPayload);
+    } finally {
+      cleanup(root);
+    }
+  });
+
   test("cleanup removes the marker file", () => {
     const root = makeWorkdirWithGitDir();
     try {

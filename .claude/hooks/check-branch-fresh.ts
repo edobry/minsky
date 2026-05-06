@@ -26,8 +26,6 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -37,12 +35,14 @@ import {
   DEFAULT_HOST_CAP_SEC,
 } from "./types";
 import type { ToolHookInput, HostCapInfo } from "./types";
-
-// Filename of the freshness marker, scoped to `.git/`. Must stay in sync
-// with `FRESHNESS_MARKER_FILENAME` in
-// `src/domain/session/freshness-marker.ts` — that module owns the read +
-// CAS-check side; this file owns the write side. mt#1522.
-const FRESHNESS_MARKER_FILENAME = ".minsky-freshness-sha";
+// PR #963 R1 NON-BLOCKING #2 fix: import the shared helper instead of
+// duplicating filename + write logic in this file. Keeps payload shape +
+// path canonical at one site (src/domain/session/freshness-marker.ts) so
+// schema changes can't drift between the write side (this hook) and the
+// read + CAS side (session_commit). The shared module imports only
+// node:fs / node:path / errors — no transitive dependency surface that
+// would slow hook startup.
+import { writeFreshnessMarker } from "../../src/domain/session/freshness-marker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -85,6 +85,14 @@ export interface BranchFreshnessResult {
    * (see header comment for the carve-out rationale).
    */
   silent?: boolean;
+  /**
+   * True iff the commits-ahead comparison (`listCommitsAhead`) actually ran
+   * to completion. Required to gate the mt#1522 CAS marker write — we must
+   * not capture a SHA when the budget-exhausted-before-comparison path
+   * returned with `mainRef` set but no real freshness validation. PR #963
+   * R1 BLOCKING #6 fix.
+   */
+  comparisonRan?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -432,6 +440,7 @@ export function checkBranchFreshness(
       mainRef,
       silent: true,
       currentBranch,
+      comparisonRan: true,
     };
   }
 
@@ -442,6 +451,7 @@ export function checkBranchFreshness(
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
     mainRef,
     currentBranch,
+    comparisonRan: true,
   };
 }
 
@@ -553,36 +563,38 @@ if (import.meta.main) {
 
   if (!result.blocked) {
     // mt#1522: write the freshness CAS marker before emitting allow.
-    // Only on session_commit (the spec scopes the CAS check there;
-    // session_pr_create / session_pr_edit are too infrequent for the
-    // seconds-class race to matter). Only when we actually compared
-    // (result.mainRef set — silent paths like detached HEAD / fresh
-    // branch / undetectable default leave mainRef undefined). Failure
-    // to write is non-fatal: surfaced as a warning so the operator
-    // knows the CAS check won't fire on the next push.
-    if (input.tool_name === "mcp__minsky__session_commit" && result.mainRef) {
+    // Only fires when ALL of the following hold:
+    //   - tool === session_commit (spec scopes the CAS check there;
+    //     session_pr_create / session_pr_edit are too infrequent for the
+    //     seconds-class race to matter).
+    //   - result.mainRef is set (mainRef detected).
+    //   - result.comparisonRan === true (the listCommitsAhead probe
+    //     actually executed — guards against the budget-exhausted-
+    //     before-comparison path that returns mainRef without running
+    //     the comparison; PR #963 R1 BLOCKING #6 fix).
+    // Failure to write is non-fatal: surfaced as a warning so the operator
+    // knows the CAS check won't fire on the next push (no worse than the
+    // pre-mt#1522 baseline).
+    if (
+      input.tool_name === "mcp__minsky__session_commit" &&
+      result.mainRef &&
+      result.comparisonRan === true
+    ) {
       const capturedSha = resolveRefSha(repoDir, result.mainRef);
       if (capturedSha === null) {
         warnings.push(
           `Could not resolve ${result.mainRef} to SHA for CAS marker — push-time CAS check will bypass`
         );
       } else {
-        const markerPath = join(repoDir, ".git", FRESHNESS_MARKER_FILENAME);
-        try {
-          writeFileSync(
-            markerPath,
-            JSON.stringify({
-              mainRef: result.mainRef,
-              sha: capturedSha,
-              toolName: input.tool_name,
-              ts: new Date().toISOString(),
-            }),
-            "utf8"
-          );
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
+        const writeResult = writeFreshnessMarker(repoDir, {
+          mainRef: result.mainRef,
+          sha: capturedSha,
+          toolName: input.tool_name,
+          ts: new Date().toISOString(),
+        });
+        if (!writeResult.ok) {
           warnings.push(
-            `Could not write freshness marker (${reason}) — push-time CAS check will bypass`
+            `Could not write freshness marker (${writeResult.reason ?? "(no reason)"}) — push-time CAS check will bypass`
           );
         }
       }

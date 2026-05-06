@@ -29,6 +29,24 @@
 
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { MinskyError } from "../../errors/index";
+
+/**
+ * Specific error type for CAS-prevented pushes. Carries a stable `code` so
+ * UX/policy/telemetry layers can distinguish a freshness CAS abort from
+ * other commit failures (PR #963 R1 NON-BLOCKING #4 fix).
+ */
+export class FreshnessCasError extends MinskyError {
+  readonly code: "FRESHNESS_CAS_FAILED" = "FRESHNESS_CAS_FAILED";
+  constructor(
+    message: string,
+    public readonly capturedSha: string,
+    public readonly currentSha: string,
+    public readonly mainRef: string
+  ) {
+    super(message);
+  }
+}
 
 /**
  * Filename of the freshness marker, scoped to `.git/`. Per-repo, hidden
@@ -50,7 +68,14 @@ export interface FreshnessMarkerPayload {
   ts: string;
 }
 
-/** Path to the marker file given a session/repo workdir. */
+/**
+ * Path to the marker file given a session/repo workdir. Assumes the workdir
+ * is a regular git repository whose `.git/` directory already exists. For
+ * bare repos, worktrees, or unusual layouts, the right path may differ —
+ * such cases are out of scope here (the hook only fires inside a session
+ * workspace, which is always a regular checkout). PR #963 R1 NON-BLOCKING
+ * #7 noted this assumption.
+ */
 export function markerPath(workdir: string): string {
   return join(workdir, ".git", FRESHNESS_MARKER_FILENAME);
 }
@@ -60,6 +85,10 @@ export function markerPath(workdir: string): string {
  * error so the caller can warn but not abort. (A failed marker write means
  * the CAS check won't fire on the next push — same outcome as no hook ran,
  * which is the pre-mt#1522 baseline.)
+ *
+ * Does NOT create `.git/` if missing — assumes the workdir is a git repo
+ * (which it always is in a session workspace). Failure to find `.git/`
+ * shows up as an `ENOENT` whose reason is returned in the result.
  */
 export function writeFreshnessMarker(
   workdir: string,
@@ -77,15 +106,35 @@ export function writeFreshnessMarker(
 }
 
 /**
+ * Strict regex for the `mainRef` field. Refs are restricted to alphanumeric,
+ * dot, underscore, slash, and dash. Critically rejects shell metacharacters
+ * (quotes, backticks, semicolons, dollar signs, parentheses) so the value is
+ * safe to interpolate into a shell command if the consumer chooses to. PR
+ * #963 R1 BLOCKING fix — closes a command-injection hole at the CAS-check
+ * call site that interpolated this field into `git rev-parse "${ref}"`.
+ *
+ * Examples accepted: `origin/main`, `origin/master`, `origin/feature/branch`,
+ * `refs/remotes/origin/HEAD`. Examples rejected: `origin/main"; rm -rf /`,
+ * `origin/$(touch pwn)`, anything with backticks or shell control chars.
+ */
+const SAFE_REF_RE = /^[A-Za-z0-9._/-]+$/;
+
+/** Strict regex for the `sha` field — must be exactly 40 lowercase hex chars. */
+const SHA_RE = /^[0-9a-f]{40}$/;
+
+/**
  * Read and parse the freshness marker. Returns null when:
  *   - File does not exist (no hook fired, or override active).
  *   - File exists but cannot be read (permissions, etc.).
  *   - File contents are not valid JSON.
  *   - File parses but is missing required fields.
+ *   - File parses but `mainRef` contains shell metacharacters.
+ *   - File parses but `sha` is not 40 lowercase hex chars.
  *
  * Each null return is a bypass signal — the CAS check should proceed-without-check
- * rather than fail closed, since a corrupted/missing marker means we have
- * no captured SHA to compare against.
+ * rather than fail closed, since a corrupted/malicious/missing marker means we
+ * have no captured SHA to compare against. Strict shape validation closes the
+ * command-injection vector at the CAS site (PR #963 R1).
  */
 export function readFreshnessMarker(workdir: string): FreshnessMarkerPayload | null {
   const p = markerPath(workdir);
@@ -112,6 +161,8 @@ export function readFreshnessMarker(workdir: string): FreshnessMarkerPayload | n
   ) {
     return null;
   }
+  if (!SAFE_REF_RE.test(fields["mainRef"])) return null;
+  if (!SHA_RE.test(fields["sha"])) return null;
   return {
     mainRef: fields["mainRef"],
     sha: fields["sha"],
