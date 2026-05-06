@@ -898,6 +898,70 @@ describe("readHostCap (mt#1546)", () => {
     expect(info.hostCapSec).toBe(21);
   });
 
+  // PR #958 R4 BLOCKING: matcher must handle quoted command tokens.
+  test("matches a double-quoted hook path with trailing args (PR #958 R4 BLOCKING)", () => {
+    const quotedSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `"${HOOK_COMMAND_PATH}" --quiet`,
+                timeout: 27,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(quotedSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(27);
+  });
+
+  test("matches a single-quoted hook path (PR #958 R4 BLOCKING)", () => {
+    const sQuoteSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `'${HOOK_COMMAND_PATH}'`,
+                timeout: 29,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(sQuoteSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(29);
+  });
+
+  test("matches `bun run` with quoted hook path + args (PR #958 R4 BLOCKING)", () => {
+    const wrapperQuotedSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `bun run "${HOOK_COMMAND_PATH}" --flag`,
+                timeout: 31,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(wrapperQuotedSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(31);
+  });
+
   test("matches a Windows-path-with-args command (cross-platform regression)", () => {
     const winArgsSettings = JSON.stringify({
       hooks: {

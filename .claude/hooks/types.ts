@@ -231,9 +231,14 @@ function commandMatchesHookFile(command: string, hookFilename: string): boolean 
   // typically the first or second token (after a wrapper like `bun run`
   // or `node`); flags/args appear later and never substring-match the
   // basename suffix because they don't end with `.ts`.
+  // Each token has surrounding quotes stripped (single OR double) — common
+  // when settings.json wraps a path in quotes for shell safety, e.g.,
+  // `bun run "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts"`.
+  // PR #958 R4 BLOCKING fix.
   const tokens = command.split(/\s+/).filter((t) => t.length > 0);
   for (const token of tokens) {
-    const normalised = token.replace(/\\/g, "/");
+    const dequoted = token.replace(/^['"]|['"]$/g, "");
+    const normalised = dequoted.replace(/\\/g, "/");
     if (normalised === hookFilename) return true;
     if (normalised.endsWith(`/${hookFilename}`)) return true;
   }
