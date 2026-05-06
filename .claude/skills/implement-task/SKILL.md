@@ -39,6 +39,7 @@ Step 5: Plan the implementation
 Step 6: Develop
 Step 7: Verify implementation
 Step 7a: Ship verification artifact for structural changes (when in scope)
+Step 7b: TOCTOU / concurrency sweep for check-then-act code (mandatory when applicable)
 Step 8: Create PR (IN-PROGRESS → IN-REVIEW)
 Step 9: Hand off to verify
 
