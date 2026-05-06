@@ -69,6 +69,14 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 
 1. **Fetch PR context** — call `mcp__minsky__session_pr_review_context` with the task ID. This returns PR metadata, diff, parsed diff (as `parsedDiff: DiffFile[]`), CI check runs, and the task spec in a single call. If both `mcp__minsky__session_pr_review_context` and `mcp__minsky__tasks_spec_get` fail, submit a `COMMENT` review documenting the context-fetch failure, then stop. Do not return findings to the parent — Mode 2 is self-contained.
 2. **If spec is missing** — fall back to `mcp__minsky__tasks_spec_get` with the task ID.
+
+**Source freshness (required for adoption sweep at step 5b).** Local `Read`, `Glob`, and `Grep` are only safe to use for codebase-wide reads when the workspace is checked out at the PR HEAD:
+
+- **Dispatched by `/review-pr` into a session workspace** (the standard path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. This is the load-bearing case.
+- **Invoked outside a session workspace** (rare; ad-hoc review from main agent context): local reads may hit a stale main checkout. **Do not run adoption-sweep grep against the local workspace in this case.** Instead, constrain the sweep to the diff itself (consumers visible in `parsedDiff`) and explicitly note in the review that full-codebase adoption verification was skipped due to no-fresh-workspace; the reviewer-bot or a follow-up audit can re-run with a session-workspace dispatch.
+
+Confirm which case applies before step 5b. If unclear, prefer the constrained path (diff-only sweep) over the unsafe one (stale-main grep). The same staleness class that motivated the auditor's freshness preamble (mt#1485 false-FAIL) applies here — adoption findings based on stale-main reads are unreliable.
+
 3. **Analyze the diff** — for each file in the diff, follow steps 2–3 from Mode 1 above. For large PRs (200+ files), request Mode 1 sectioning from the parent instead of attempting a whole-PR review in one run.
 4. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
    - Find the `DiffFile` in `parsedDiff`. The lookup depends on side and rename status:

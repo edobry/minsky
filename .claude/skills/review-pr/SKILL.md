@@ -170,7 +170,9 @@ Record one of three outcomes for the review body's `Smoke:` line:
 - `fail — <command run>: <stderr summary>` if it exited non-zero (BLOCKING finding)
 - `skipped — <rationale>` for docs / prompt-only / config-only PRs where no code path runs (`skipped` is acceptable; the pre-merge hook treats it as a valid value, not as missing)
 
-Include the result in the review body's CI-status section (see step 9). The smoke catches PR-introduced regressions that pre-merge CI may have missed (container init failures, command-registration breakage, etc.). It does **not** cover concurrent-merge interactions — those (two PRs that pass CI individually but interact badly post-merge) are tracked separately in mt#1592.
+**Smoke is an independent gate, not part of CI-status counts.** The `CI status` line counts only GitHub Actions check_runs (build, lint, placeholder-test detection, etc.); the Smoke line is a separate review-body field that the pre-merge hook parses independently. A Smoke=`fail` blocks merge regardless of CI N/M; a Smoke=`skipped` is treated as a valid value (not as missing); a Smoke=`pass` is a positive signal but does not increment CI N. The two surfaces measure different things — CI = pre-merge automation, Smoke = the reviewer's manual run-through.
+
+The smoke catches PR-introduced regressions that pre-merge CI may have missed (container init failures, command-registration breakage, etc.). It does **not** cover concurrent-merge interactions — those (two PRs that pass CI individually but interact badly post-merge) are tracked separately in mt#1592.
 
 ### 6a. Assess documentation impact
 
@@ -366,8 +368,10 @@ The body is for summary and metadata — NOT for inline findings. All location-b
 ```markdown
 ## Review: <short description>
 
-**CI status:** <pass/fail/pending — N checks passed, M failed>
+**CI status:** <pass/fail/pending — N checks passed, M failed (GitHub Actions only; Smoke is independent — see Smoke line below)>
 **Smoke:** <one of: `pass — <command>` | `fail — <command>: <stderr summary>` | `skipped — <rationale>`>
+
+(The pre-merge hook parses `CI status` and `Smoke:` as independent gates. CI N/M counts only GitHub Actions check_runs. Smoke is its own gate: `fail` blocks merge, `skipped` is a valid value, `pass` is a positive signal.)
 
 ### Summary
 

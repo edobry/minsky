@@ -54,7 +54,7 @@ Call `mcp__minsky__tasks_status_get` with the task ID.
 Find the PR for the task. Typical resolution paths:
 
 - `mcp__minsky__session_get(task: "mt#X")` returns the session record, which carries the PR number.
-- If no session record carries it, search by branch name pattern (`task/mt-<id>`) via `mcp__github__list_pull_requests` (state: `closed`, since the bypass-merge path means the PR is already closed-as-merged).
+- If no session record carries it, search by branch name pattern (`task/mt-<id>`) via `mcp__github__list_pull_requests`. Query both `state: "open"` and `state: "closed"` — `/verify-task` may fire just after merge but before GitHub finishes marking the PR closed, or on a still-open PR that bypass-merged via a separate path. Trying `state: "all"` (or open + closed in sequence) ensures the PR is found regardless of where it sits in that race window.
 
 Call `mcp__github__pull_request_read` with `method: "get"` to retrieve PR metadata. If no PR is found:
 
@@ -78,11 +78,13 @@ Fetch the merge commit via `mcp__github__get_commit(owner, repo, sha: pr.merge_c
 Bot self-approval bypass per feedback_self_authored_pr_merge_constraints
 ```
 
-This phrase is the canonical audit trail used in bypass-merges across the project (PR #886, PR #933 confirmed as of 2026-05-01). If the phrase is absent, branch on which path the PR took:
+This phrase is the canonical audit trail used in bypass-merges across the project (PR #886, PR #933 confirmed as of 2026-05-01). If the phrase is absent, **halt unconditionally** — DONE is not allowed without both conditions. Branch on which path the PR took only to inform the surfacing message, not to allow proceeding:
 
-- **If the PR was merged via `session_pr_merge`:** that tool already auto-set the task to DONE in the same atomic operation (see `src/domain/session/session-merge-operations.ts:519-544`). This skill should not have fired. Confirm the task status is actually IN-REVIEW; if it is, surface the inconsistency rather than silently setting DONE.
+- **If the PR was merged via `session_pr_merge`:** that tool already auto-set the task to DONE in the same atomic operation (see `src/domain/session/session-merge-operations.ts:519-544`). This skill should not have fired. Confirm the task status is actually IN-REVIEW; if it is, surface the inconsistency for investigation. **Do not set DONE.**
 - **If the PR was merged via the GitHub UI directly or via `gh api` without the audit phrase:** halt and surface:
-  > PR #N was merged but the merge-commit body lacks the canonical bypass-merge audit-trail signature ("Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"). The bypass-merge path requires the audit trail to be auditable. Either amend the merge commit to include the audit phrase (`git commit --amend` is not possible on a published merge commit; instead, post a follow-up comment or issue documenting the bypass), or accept that this merge bypassed the audit discipline. Surface to the user before proceeding.
+  > PR #N was merged but the merge-commit body lacks the canonical bypass-merge audit-trail signature ("Bot self-approval bypass per feedback*self_authored_pr_merge_constraints"). The bypass-merge path requires the audit trail to be auditable. **Task remains at IN-REVIEW.** Recovery: amend the bypass-merge process to include the audit phrase next time, OR file a follow-up issue documenting why this merge bypassed the audit discipline (which is itself the audit trail for \_this* particular merge), then manually set DONE only after the user has reviewed the documented exception.
+
+In either case, **this skill does not set DONE.** The `Never set DONE without both conditions` key principle is strict; the missing-phrase branch surfaces the gap and stops.
 
 If both conditions A and B are satisfied, proceed to step 4.
 

@@ -28,6 +28,26 @@ The parent agent gives you a task ID (e.g., "mt#348"), and — when the audit is
 - If you must read from local paths (e.g., the parent gave only local paths and no SHA), first cross-check the file size or a known anchor (recent commit's content) against the origin version. A line-count or word-count mismatch against the merged commit means the local copy is stale — switch to GitHub fetch.
 - **NEVER report FAIL based on a local file that disagrees with the merge commit.** That is a stale-source bug, not a verification failure. See `feedback_stale_local_main_in_adoption_check` for the pattern (mt#1485 produced a false-FAIL on 2026-05-01 because the auditor read pre-mt#1340 reviewer.md from a stale local main).
 
+**Concrete call shape:**
+
+```
+mcp__github__get_file_contents({
+  owner: "edobry",
+  repo: "minsky",
+  path: ".claude/agents/reviewer.md",
+  ref: "<merge-commit-sha>"  // or "main" / "task/mt-X" branch as a fallback
+})
+```
+
+The result is the file content as text. If the file does not exist at the ref, the call returns a 404 — treat that as a verification signal (the file was not added by the PR), not as a tool failure.
+
+**Baseline test execution (`Bash` calls in step 5).** The baseline checks below require running commands in a workspace. The local working directory may be at `main` (potentially stale) or at a session workspace (which is at the PR branch HEAD). Before running any `Bash` test/typecheck/lint/smoke command:
+
+- **If the local workspace is a session workspace** (running inside `mcp__minsky__session_exec` context, or the session_id is known): the workspace is at the PR branch HEAD (sessions check out from origin at session start). Baseline checks are safe to run.
+- **If the local workspace is the main checkout** (no session context): verify the workspace head matches the verified Source ref (typically the merge SHA) before running tests. Two options:
+  1. **Sync first:** ask the parent to dispatch via a session workspace at the merge SHA (preferred — clean isolation).
+  2. **Skip with rationale:** if no session is available and the local main does not match the Source ref, skip the baseline checks and record in the report: `Baseline tests skipped — local workspace at <local-sha>, Source ref at <merge-sha>; checks not safely runnable without a synchronized workspace.` Do NOT report FAIL on a stale-local test run; that is the same staleness class as a stale-local file read.
+
 # Protocol
 
 1. Fetch the task spec via `mcp__minsky__tasks_spec_get`
