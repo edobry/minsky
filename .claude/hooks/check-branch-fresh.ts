@@ -105,15 +105,18 @@ export interface BranchFreshnessResult {
 //   FETCH_TIMEOUT_RATIO  (0.55) — fetch can use 55% of overall budget
 //   GIT_TIMEOUT_RATIO    (0.17) — each local probe gets ~1/6 of overall budget
 //
-// Canonical derivation at the current 15s host cap (entrypoint values):
-//   OVERALL_BUDGET_MS = floor(15_000 * 0.6)              = 9000
-//   FETCH_TIMEOUT_MS  = floor(OVERALL_BUDGET_MS * 0.55)  = 4950
-//   GIT_TIMEOUT_MS    = floor(OVERALL_BUDGET_MS * 0.17)  = 1530
+// Canonical derivation at the current DEFAULT_HOST_CAP_SEC (`./types.ts`):
+//   OVERALL_BUDGET_MS = floor(DEFAULT_HOST_CAP_SEC * 1000 * 0.6)
+//   FETCH_TIMEOUT_MS  = floor(OVERALL_BUDGET_MS * 0.55)
+//   GIT_TIMEOUT_MS    = floor(OVERALL_BUDGET_MS * 0.17)
 //
-// (The pre-mt#1546 hardcoded values were 9000 / 5000 / 1500. The shift to
-// 9000 / 4950 / 1530 is intentional — the cost of removing magic-number
-// coupling between cap and constants. ±1-2% deviation, mathematically
-// exact. See `.minsky/rules/hook-files.mdc` "Budget derivation" section.)
+// At the current 15s default these resolve to 9000 / 4950 / 1530 ms; the
+// pre-mt#1546 hardcoded values were 9000 / 5000 / 1500 ms. The ±1-2%
+// shift is intentional — the cost of removing magic-number coupling
+// between cap and constants. Tests pin the derived values at multiple
+// caps; if `DEFAULT_HOST_CAP_SEC` changes, the resolved values above
+// re-derive automatically. See `.minsky/rules/hook-files.mdc` "Budget
+// derivation" section for the operator-facing contract.
 //
 // Each derived value is clamped to MIN_DERIVED_BUDGET_MS (100ms) inside
 // `deriveBudgets` so pathologically small caps don't zero out a probe

@@ -25,6 +25,7 @@ const SESSION_COMMIT_MATCHER = "mcp__minsky__session_commit";
 const HOOK_COMMAND_PATH = `$CLAUDE_PROJECT_DIR/.claude/hooks/${HOOK_FILENAME}`;
 const PROJECT_DIR_ENV = "CLAUDE_PROJECT_DIR";
 const FAKE_PROJECT_DIR = "/fake/project/root";
+const NO_MATCHER_FOUND_FRAGMENT = "No matcher entry found";
 
 // ---------------------------------------------------------------------------
 // Unit tests for formatBlockMessage (pure function)
@@ -615,7 +616,7 @@ describe("readHostCap (mt#1546)", () => {
     const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
-    expect(info.warning).toContain("No matcher entry found");
+    expect(info.warning).toContain(NO_MATCHER_FOUND_FRAGMENT);
   });
 
   test("falls back to default + warning when matched entry has missing timeout", () => {
@@ -717,7 +718,7 @@ describe("readHostCap (mt#1546)", () => {
     const info = findHostCapInSettings(trapSettings, HOOK_FILENAME);
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
-    expect(info.warning).toContain("No matcher entry found");
+    expect(info.warning).toContain(NO_MATCHER_FOUND_FRAGMENT);
   });
 
   test("rejects bare-substring collisions (`fresh.ts` does not match `check-branch-fresh.ts`)", () => {
@@ -939,6 +940,89 @@ describe("readHostCap (mt#1546)", () => {
     });
     const info = findHostCapInSettings(sQuoteSettings, HOOK_FILENAME);
     expect(info.hostCapSec).toBe(29);
+  });
+
+  // PR #958 R5 BLOCKING: false-positive prevention.
+  test("does NOT match when hook basename appears only as an argument value (PR #958 R5 BLOCKING)", () => {
+    // The actual executable is `other-hook.ts`; the check-branch-fresh.ts
+    // appears as an arg value. Pre-fix: tokenizer scanned all tokens and
+    // would falsely match arg position. Post-fix: only first 3 tokens
+    // checked, so arg-position matches are rejected.
+    const trapSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `bun run other-hook.ts --input $CLAUDE_PROJECT_DIR/.claude/hooks/${HOOK_FILENAME}`,
+                timeout: 99,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(trapSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
+    expect(info.source).toBe("default");
+    expect(info.warning).toContain(NO_MATCHER_FOUND_FRAGMENT);
+  });
+
+  test("does NOT match when hook basename appears only after token index 2 (PR #958 R5 BLOCKING)", () => {
+    // Only first 3 tokens checked; `echo check-branch-fresh.ts arg1 arg2` would
+    // match (token 1 IS the basename, position 1 ≤ 2) but a longer command
+    // with the basename at index 4+ should not.
+    const trapSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `env FOO=bar BAZ=qux some-wrapper ${HOOK_FILENAME}`,
+                timeout: 88,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(trapSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
+  });
+
+  // PR #958 R5 NON-BLOCKING #3: type discriminator validation.
+  test("ignores hook entries whose `type` is not 'command' (PR #958 R5 NON-BLOCKING #3)", () => {
+    // Hypothetical future schema with a non-command type that happens to
+    // include a `command`-shaped field — must NOT match.
+    const futureTypeSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "future-type",
+                command: HOOK_COMMAND_PATH,
+                timeout: 77,
+              },
+              {
+                type: "command",
+                command: HOOK_COMMAND_PATH,
+                timeout: 33,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(futureTypeSettings, HOOK_FILENAME);
+    // Should match the second entry (type === "command", timeout 33),
+    // not the first (timeout 77).
+    expect(info.hostCapSec).toBe(33);
   });
 
   test("matches `bun run` with quoted hook path + args (PR #958 R4 BLOCKING)", () => {

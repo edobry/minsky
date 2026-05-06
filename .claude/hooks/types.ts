@@ -225,18 +225,27 @@ export function readHostCap(
  * the wrong entry). Reaffirmed against R2 NON-BLOCKING #4 and R3
  * NON-BLOCKING #3.
  */
+// Number of leading tokens checked for the executable-path match. Real
+// command shapes put the script in token 0 (bare invocation), token 1
+// (`node X`, `bun X`), or token 2 (`bun run X`). Beyond that the tokens
+// are arguments — checking them risks attributing the wrong entry's
+// timeout to this hook when an argument path happens to end with the
+// hook's basename (PR #958 R5 BLOCKING fix).
+const MAX_EXECUTABLE_TOKEN_INDEX = 2;
+
 function commandMatchesHookFile(command: string, hookFilename: string): boolean {
   if (command === hookFilename) return true;
-  // Tokenise on whitespace and check each token. The hook script path is
-  // typically the first or second token (after a wrapper like `bun run`
-  // or `node`); flags/args appear later and never substring-match the
-  // basename suffix because they don't end with `.ts`.
-  // Each token has surrounding quotes stripped (single OR double) — common
-  // when settings.json wraps a path in quotes for shell safety, e.g.,
-  // `bun run "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts"`.
-  // PR #958 R4 BLOCKING fix.
+  // Tokenise on whitespace and check ONLY the first MAX_EXECUTABLE_TOKEN_INDEX+1
+  // tokens. The hook script path is typically the first non-wrapper token;
+  // checking arbitrary later tokens would let argument values that end with
+  // the basename produce false-positive matches.
+  // Each candidate token has surrounding quotes stripped (single OR double)
+  // — common when settings.json wraps a path in quotes for shell safety,
+  // e.g., `bun run "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts"`.
   const tokens = command.split(/\s+/).filter((t) => t.length > 0);
-  for (const token of tokens) {
+  const limit = Math.min(tokens.length, MAX_EXECUTABLE_TOKEN_INDEX + 1);
+  for (let i = 0; i < limit; i++) {
+    const token = tokens[i] as string;
     const dequoted = token.replace(/^['"]|['"]$/g, "");
     const normalised = dequoted.replace(/\\/g, "/");
     if (normalised === hookFilename) return true;
@@ -292,7 +301,12 @@ export function findHostCapInSettings(
       if (!Array.isArray(matcher.hooks)) continue;
       for (const hookDef of matcher.hooks) {
         if (!hookDef || typeof hookDef !== "object") continue;
-        const def = hookDef as { command?: unknown; timeout?: unknown };
+        const def = hookDef as { type?: unknown; command?: unknown; timeout?: unknown };
+        // Settings.json supports a `type` discriminator on hooks ("command"
+        // is the only one shipping today). Require an exact match so future
+        // schema additions don't let a non-command entry's `command`-shaped
+        // field misattribute a timeout (PR #958 R5 NON-BLOCKING #3).
+        if (def.type !== "command") continue;
         if (typeof def.command !== "string") continue;
         if (!commandMatchesHookFile(def.command, hookFilename)) continue;
         if (typeof def.timeout !== "number" || !Number.isFinite(def.timeout) || def.timeout <= 0) {
