@@ -35,6 +35,14 @@ import {
   DEFAULT_HOST_CAP_SEC,
 } from "./types";
 import type { ToolHookInput, HostCapInfo } from "./types";
+// PR #963 R1 NON-BLOCKING #2 fix: import the shared helper instead of
+// duplicating filename + write logic in this file. Keeps payload shape +
+// path canonical at one site (src/domain/session/freshness-marker.ts) so
+// schema changes can't drift between the write side (this hook) and the
+// read + CAS side (session_commit). The shared module imports only
+// node:fs / node:path / errors — no transitive dependency surface that
+// would slow hook startup.
+import { writeFreshnessMarker } from "../../src/domain/session/freshness-marker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,6 +85,14 @@ export interface BranchFreshnessResult {
    * (see header comment for the carve-out rationale).
    */
   silent?: boolean;
+  /**
+   * True iff the commits-ahead comparison (`listCommitsAhead`) actually ran
+   * to completion. Required to gate the mt#1522 CAS marker write — we must
+   * not capture a SHA when the budget-exhausted-before-comparison path
+   * returned with `mainRef` set but no real freshness validation. PR #963
+   * R1 BLOCKING #6 fix.
+   */
+  comparisonRan?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +274,21 @@ export function refreshRemoteRefs(repoDir: string): { ok: boolean; reason?: stri
 }
 
 /**
+ * Resolve a ref to its 40-char SHA. Returns null on any failure (ref doesn't
+ * exist, git command failed, etc.). Used to capture `origin/main` at
+ * allow time for the CAS marker (mt#1522).
+ */
+export function resolveRefSha(repoDir: string, ref: string): string | null {
+  const result = execWithPath(["git", "-C", repoDir, "rev-parse", ref], {
+    timeout: GIT_TIMEOUT_MS,
+  });
+  if (result.exitCode !== 0) return null;
+  const sha = result.stdout.trim();
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  return sha;
+}
+
+/**
  * List commits on `mainRef` that are NOT reachable from `branchRef`.
  * Returns up to `limit` subjects (oneline format) plus the total count.
  *
@@ -409,6 +440,7 @@ export function checkBranchFreshness(
       mainRef,
       silent: true,
       currentBranch,
+      comparisonRan: true,
     };
   }
 
@@ -419,6 +451,7 @@ export function checkBranchFreshness(
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
     mainRef,
     currentBranch,
+    comparisonRan: true,
   };
 }
 
@@ -529,6 +562,44 @@ if (import.meta.main) {
   const result = checkBranchFreshness(repoDir, undefined, hookStart);
 
   if (!result.blocked) {
+    // mt#1522: write the freshness CAS marker before emitting allow.
+    // Only fires when ALL of the following hold:
+    //   - tool === session_commit (spec scopes the CAS check there;
+    //     session_pr_create / session_pr_edit are too infrequent for the
+    //     seconds-class race to matter).
+    //   - result.mainRef is set (mainRef detected).
+    //   - result.comparisonRan === true (the listCommitsAhead probe
+    //     actually executed — guards against the budget-exhausted-
+    //     before-comparison path that returns mainRef without running
+    //     the comparison; PR #963 R1 BLOCKING #6 fix).
+    // Failure to write is non-fatal: surfaced as a warning so the operator
+    // knows the CAS check won't fire on the next push (no worse than the
+    // pre-mt#1522 baseline).
+    if (
+      input.tool_name === "mcp__minsky__session_commit" &&
+      result.mainRef &&
+      result.comparisonRan === true
+    ) {
+      const capturedSha = resolveRefSha(repoDir, result.mainRef);
+      if (capturedSha === null) {
+        warnings.push(
+          `Could not resolve ${result.mainRef} to SHA for CAS marker — push-time CAS check will bypass`
+        );
+      } else {
+        const writeResult = writeFreshnessMarker(repoDir, {
+          mainRef: result.mainRef,
+          sha: capturedSha,
+          toolName: input.tool_name,
+          ts: new Date().toISOString(),
+        });
+        if (!writeResult.ok) {
+          warnings.push(
+            `Could not write freshness marker (${writeResult.reason ?? "(no reason)"}) — push-time CAS check will bypass`
+          );
+        }
+      }
+    }
+
     // Behavioral Contract: silent paths emit no `reason` to stdout or
     // additionalContext. Non-silent paths (budget-exhausted) DO emit their
     // reason. Warnings (e.g., fetch failures) ALWAYS emit regardless of
