@@ -718,6 +718,16 @@ export const sessionPrReviewSubmitCommandParams = {
     description: "Optional inline line-level comments",
     required: false,
   },
+  identity: {
+    schema: z.enum(["implementer", "reviewer"]).optional(),
+    description:
+      "Bot identity to post the review under. Defaults: COMMENT → " +
+      "implementer (minsky-ai); APPROVE / REQUEST_CHANGES → reviewer " +
+      "(minsky-reviewer). APPROVE and REQUEST_CHANGES require " +
+      "`github.reviewer.serviceAccount` to be configured. Override only " +
+      "when you need to force a specific identity. Supersedes mt#1065.",
+    required: false,
+  },
   json: commonSessionParams.json,
 };
 

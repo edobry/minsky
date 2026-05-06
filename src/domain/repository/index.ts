@@ -276,6 +276,16 @@ export interface ReviewOperations {
       body: string;
       event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
       comments?: Array<{ path: string; line: number; body: string; side?: "LEFT" | "RIGHT" }>;
+      /**
+       * Optional bot identity override (mt#1510). Implementations route the
+       * review's GitHub API call through the matching service-account App.
+       * Defaults: COMMENT → implementer; APPROVE / REQUEST_CHANGES → reviewer.
+       * The richer `SubmitReviewOptions` shape (with `startLine`/`startSide`/
+       * `suggestion`) lives next to the implementation in
+       * `./github-pr-review.ts` — this interface intentionally exposes only
+       * the fields shared across forges.
+       */
+      identity?: "implementer" | "reviewer";
     }
   ): Promise<{ reviewId: number; htmlUrl: string }>;
   dismissReview?(
