@@ -978,7 +978,12 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
   it("exempts settings.json overlap when the colliding PR's change is append-only", () => {
     const exemptDeps = makeDeps({
       fetchOpenPrs: () => [
-        { number: 100, title: "feat(other-hook): add a hook", headRefName: "task/mt-100" },
+        {
+          number: 100,
+          title: "feat(other-hook): add a hook",
+          headRefName: "task/mt-100",
+          baseRefName: "main",
+        },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
       isFileChangeAppendOnly: (_repo, _from, _to, file) => {
@@ -1003,7 +1008,12 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
   it("does NOT exempt when the structural check returns false (modification, not append-only)", () => {
     const noExemptDeps = makeDeps({
       fetchOpenPrs: () => [
-        { number: 101, title: "feat(other): modify settings", headRefName: "task/mt-101" },
+        {
+          number: 101,
+          title: "feat(other): modify settings",
+          headRefName: "task/mt-101",
+          baseRefName: "main",
+        },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
       // Helper returns false → keep the collision.
@@ -1025,6 +1035,7 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
           number: 102,
           title: "feat(my-hook): same hook",
           headRefName: "task/mt-102",
+          baseRefName: "main",
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON, FIXTURE_NEW_HOOK_TS],
@@ -1062,11 +1073,17 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     expect(result.blocked).toBe(true);
   });
 
-  it("strips 'origin/' prefix from default branch ref before passing to structural check", () => {
+  it("pr.baseRefName takes priority over the detected repo default branch (PR #952 R10#2)", () => {
+    // The PR's own base is the source of truth for the structural check —
+    // detected default branch is irrelevant for the open-PR sweep when
+    // baseRefName is provided. Replaces the old 'origin/'-stripping test
+    // which is no longer reachable for the open-PR path.
     let observedBaseRef = "";
     const probeDeps = makeDeps({
       detectDefaultBranch: () => ({ ref: "origin/develop" }),
-      fetchOpenPrs: () => [{ number: 300, title: "feat", headRefName: "task/mt-300" }],
+      fetchOpenPrs: () => [
+        { number: 300, title: "feat", headRefName: "task/mt-300", baseRefName: "main" },
+      ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
       isFileChangeAppendOnly: (_repo, fromRef) => {
         observedBaseRef = fromRef;
@@ -1075,14 +1092,17 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     });
 
     runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", probeDeps);
-    expect(observedBaseRef).toBe("develop"); // not "origin/develop"
+    // PR's baseRefName ("main") wins, NOT the detected default ("develop").
+    expect(observedBaseRef).toBe("main");
   });
 
-  it("falls back to 'main' as base ref when default-branch detection fails", () => {
+  it("uses pr.baseRefName regardless of default-branch detection (PR #952 R10#2)", () => {
     let observedBaseRef = "";
     const probeDeps = makeDeps({
       detectDefaultBranch: () => ({ ref: null, warning: "all probes failed" }),
-      fetchOpenPrs: () => [{ number: 301, title: "feat", headRefName: "task/mt-301" }],
+      fetchOpenPrs: () => [
+        { number: 301, title: "feat", headRefName: "task/mt-301", baseRefName: "main" },
+      ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
       isFileChangeAppendOnly: (_repo, fromRef) => {
         observedBaseRef = fromRef;
@@ -1091,8 +1111,9 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     });
 
     runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", probeDeps);
-    // The recently-merged sweep is skipped when defaultBranchRef is null,
-    // but the open-PR sweep still runs and uses "main" as the base.
+    // The PR's own baseRefName is the source of truth; default-branch
+    // detection failure no longer affects the open-PR structural check
+    // (PR #952 R10#2 fail-closed when baseRefName itself is missing).
     expect(observedBaseRef).toBe("main");
   });
 
@@ -1118,6 +1139,7 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
           number: 500,
           title: "feat: forked PR",
           headRefName: "fork-author:feature-branch", // fork-only ref
+          baseRefName: "main",
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
@@ -1147,10 +1169,14 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
-      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+      isFileChangeAppendOnly: (_repo, _from, toRef, _file, _warnings, _cache, status) => {
         observedRefs.push(toRef);
-        // Simulate /head failure (returns false, fail-closed); /merge succeeds.
-        return toRef.endsWith("/merge");
+        if (toRef.endsWith("/head")) {
+          // Simulate fetch failure on /head — set status so caller retries.
+          if (status) status.fetchFailed = true;
+          return false;
+        }
+        return true; // /merge succeeds
       },
     });
 
@@ -1180,10 +1206,14 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
-      isFileChangeAppendOnly: (_repo, _from, toRef, _file, _warnings, contentCache) => {
+      isFileChangeAppendOnly: (_repo, _from, toRef, _file, _warnings, contentCache, status) => {
         cachesObserved.push(contentCache);
-        // /head fails, /merge succeeds → both attempts run
-        return toRef.endsWith("/merge");
+        if (toRef.endsWith("/head")) {
+          // Simulate fetch failure on /head — set status so caller retries.
+          if (status) status.fetchFailed = true;
+          return false;
+        }
+        return true; // /merge succeeds
       },
     });
 
@@ -1241,9 +1271,13 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     expect(observedFromRef).toBe("develop");
   });
 
-  it("falls back to repo default branch when pr.baseRefName is absent (PR #952 R7#4 fallback)", () => {
-    let observedFromRef = "";
-    const fallbackDeps = makeDeps({
+  it("fails closed when pr.baseRefName is absent (PR #952 R10#2)", () => {
+    // Behavior changed in R10#2: rather than falling back to the repo
+    // default branch (which can miscompare for non-default-base PRs),
+    // the structural exemption is skipped entirely when baseRefName is
+    // missing. The collision is preserved; an audit warning records why.
+    let appendOnlyCalls = 0;
+    const failClosedDeps = makeDeps({
       detectDefaultBranch: () => ({ ref: "origin/main" }),
       fetchOpenPrs: () => [
         {
@@ -1254,17 +1288,26 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
-      isFileChangeAppendOnly: (_repo, fromRef) => {
-        observedFromRef = fromRef;
-        return true;
+      isFileChangeAppendOnly: () => {
+        appendOnlyCalls += 1;
+        return true; // would exempt if called
       },
     });
 
-    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
-    expect(observedFromRef).toBe("main");
+    const result = runParallelWorkChecks(
+      taskInput,
+      "/tmp/anywhere",
+      "task/mt-9999",
+      failClosedDeps
+    );
+    // Structural check NOT invoked.
+    expect(appendOnlyCalls).toBe(0);
+    // Collision preserved (fail-closed).
+    expect(result.blocked).toBe(true);
+    // Audit warning naming the cause.
     expect(
       result.warnings.some((w) =>
-        w.includes("baseRefName unavailable — falling back to repo default branch 'main'")
+        w.includes("baseRefName unavailable — structural-config exemption skipped")
       )
     ).toBe(true);
   });
@@ -1277,6 +1320,7 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
           number: 501,
           title: "feat: same-repo PR",
           headRefName: "task/mt-501",
+          baseRefName: "main",
         },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
@@ -1296,7 +1340,12 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     // and the WHY surfaced for triage.
     const failClosedDeps = makeDeps({
       fetchOpenPrs: () => [
-        { number: 400, title: "feat(other): real conflict", headRefName: "task/mt-400" },
+        {
+          number: 400,
+          title: "feat(other): real conflict",
+          headRefName: "task/mt-400",
+          baseRefName: "main",
+        },
       ],
       fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
       isFileChangeAppendOnly: (_repo, _from, _to, _file, warnings) => {

@@ -383,7 +383,16 @@ export function isFileChangeAppendOnly(
    * Caches null values too so failed fetches are not retried within the
    * same scope.
    */
-  contentCache?: Map<string, string | null>
+  contentCache?: Map<string, string | null>,
+  /**
+   * Optional out-param status object (PR #952 R10#1). When provided, the
+   * function sets `status.fetchFailed = true` if either the fromRef or
+   * toRef content fetch returned null (or parsing failed). Lets callers
+   * distinguish "fetch failed, try fallback ref" from "definitive non-
+   * append-only result, don't retry." Default behavior unchanged when
+   * the param is omitted (still returns boolean).
+   */
+  status?: { fetchFailed: boolean }
 ): boolean {
   const cacheKey = (ref: string, p: string): string => `${ref}::${p}`;
   const fetchCached = (ref: string): string | null => {
@@ -399,6 +408,7 @@ export function isFileChangeAppendOnly(
   const beforeContent = fetchCached(fromRef);
   const afterContent = fetchCached(toRef);
   if (beforeContent === null || afterContent === null) {
+    if (status) status.fetchFailed = true;
     return false;
   }
 
@@ -411,6 +421,10 @@ export function isFileChangeAppendOnly(
     warnings.push(
       `Could not parse JSON for ${filePath} on ref pair ${fromRef}…${toRef}: ${err instanceof Error ? err.message : String(err)}`
     );
+    // Treat parse failure as fetch failure for fallback purposes — the
+    // ref returned non-JSON content, which is likely a corrupted or
+    // unexpected response from the API and a different ref might work.
+    if (status) status.fetchFailed = true;
     return false;
   }
 
@@ -634,7 +648,8 @@ export function checkOpenPrs(
     toRef: string,
     filePath: string,
     warnings: string[],
-    contentCache?: Map<string, string | null>
+    contentCache?: Map<string, string | null>,
+    status?: { fetchFailed: boolean }
   ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
   // Start the sweep budget timer BEFORE the fetchOpenPrs call so that the
@@ -716,22 +731,24 @@ export function checkOpenPrs(
     // (ref, file) pair when /head fails and /merge is retried — the
     // fromRef-side fetch is identical across both attempts.
     const prContentCache = new Map<string, string | null>();
-    // Use the PR's actual base branch as `fromRef` so the structural
-    // comparison reflects this PR's real diff (PR #952 R7#4). Falls back
-    // to the repo's default branch when baseRefName is unavailable
-    // (legacy test deps); production fetchOpenPrs always populates it.
-    const fromRef = pr.baseRefName ?? baseBranch;
+    // Use the PR's actual base branch as `fromRef` (PR #952 R7#4). When
+    // baseRefName is missing (legacy test deps / very old fetchOpenPrs
+    // implementations), fail-closed: skip the structured exemption for
+    // this PR rather than miscompare against the repo default branch
+    // (PR #952 R10#2). The structural check runs only with a definitive
+    // baseRefName.
+    const fromRef = pr.baseRefName;
     let baseFallbackWarned = false;
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
-      // Only emit the baseRefName-unavailable warning when the structural
-      // check actually uses fromRef (PR #952 R9#4). Avoids flooding logs
-      // for PRs whose overlap contains no allowlisted files.
-      if (!pr.baseRefName && !baseFallbackWarned) {
-        warnings.push(
-          `PR #${pr.number}: baseRefName unavailable — falling back to repo default branch '${baseBranch}' for structural-check fromRef`
-        );
-        baseFallbackWarned = true;
+      if (!fromRef) {
+        if (!baseFallbackWarned) {
+          warnings.push(
+            `PR #${pr.number}: baseRefName unavailable — structural-config exemption skipped (fail-closed, PR #952 R10#2)`
+          );
+          baseFallbackWarned = true;
+        }
+        return true; // keep collision (fail-closed)
       }
       // Mid-iteration budget recheck (PR #952 R5#4): each isAppendOnly call
       // can issue up to two `gh api` calls (BEFORE + AFTER content fetch).
@@ -743,17 +760,34 @@ export function checkOpenPrs(
         );
         return true;
       }
-      // Try each candidate ref; first one that returns true wins. False
-      // could mean either "real non-append-only diff" OR "fetch failure";
-      // the fallback handles the latter case for forked PRs whose /head
-      // isn't addressable from the base repo's Contents API.
+      // Try each candidate ref. False from isAppendOnly may be either a
+      // "definitive non-append-only" result OR a fetch/parse failure.
+      // Use the `status` out-param (PR #952 R10#1) to distinguish: only
+      // fall back to `/merge` when the prior attempt's fetch FAILED.
+      // A definitive false from `/head` short-circuits — the PR's diff is
+      // genuinely non-append-only and trying `/merge` could silently
+      // exempt a real collision.
       let isExempt = false;
       let usedRef = "";
       for (const candidateToRef of toRefCandidates) {
         if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) break;
-        if (isAppendOnly(input.repo, fromRef, candidateToRef, file, warnings, prContentCache)) {
+        const status = { fetchFailed: false };
+        const ok = isAppendOnly(
+          input.repo,
+          fromRef,
+          candidateToRef,
+          file,
+          warnings,
+          prContentCache,
+          status
+        );
+        if (ok) {
           isExempt = true;
           usedRef = candidateToRef;
+          break;
+        }
+        if (!status.fetchFailed) {
+          // Definitive non-append-only result — don't retry next candidate.
           break;
         }
       }
@@ -889,7 +923,8 @@ export function fetchRecentMerges(
     toRef: string,
     filePath: string,
     warnings: string[],
-    contentCache?: Map<string, string | null>
+    contentCache?: Map<string, string | null>,
+    status?: { fetchFailed: boolean }
   ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
   // Wall-clock budget for the merge sweep (PR #952 R5#5). Mirror of
@@ -1079,7 +1114,8 @@ export interface ParallelWorkCheckDeps {
     toRef: string,
     filePath: string,
     warnings: string[],
-    contentCache?: Map<string, string | null>
+    contentCache?: Map<string, string | null>,
+    status?: { fetchFailed: boolean }
   ) => boolean;
 }
 

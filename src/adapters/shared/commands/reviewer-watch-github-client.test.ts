@@ -29,6 +29,9 @@ function makeFakeTokenProvider(captureScope?: { scope?: string }): TokenProvider
     isServiceAccountConfigured() {
       return true;
     },
+    isRoleConfigured() {
+      return true;
+    },
   };
 }
 
