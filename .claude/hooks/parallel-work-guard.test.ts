@@ -926,6 +926,25 @@ describe("isAppendOnlyToJsonArrays", () => {
     expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
   });
 
+  it("rejects when b has extra keys not in a (PR #952 R9#7 explicit symmetric)", () => {
+    // Sanity check that the length-equality + presence-in-b check is
+    // effectively symmetric: if b has more keys than a, length differs
+    // and the function returns false. Pin this so future refactors of
+    // the key-comparison logic don't silently break symmetry.
+    const before = { x: 1 };
+    const after = { x: 1, y: 2 };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("rejects when a and b have same length but different keys (PR #952 R9#7)", () => {
+    // Length-equal but keys differ: a has y, b has z. Loop over a's keys
+    // hits y, hasOwnProperty on b is false, returns false. Symmetric in
+    // effect even without explicit set comparison.
+    const before = { x: 1, y: 2 };
+    const after = { x: 1, z: 2 };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
   it("treats NaN as equal to NaN for numeric primitives (PR #952 R8#2)", () => {
     // JSON.parse never produces NaN, but for non-JSON callers reusing the
     // helper, NaN-vs-NaN comparing as true matches intuitive equality.
@@ -1144,6 +1163,35 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     expect(
       result.warnings.some((w) => w.includes("exemption resolved via refs/pull/700/merge fallback"))
     ).toBe(true);
+  });
+
+  it("passes a per-PR contentCache to isAppendOnly across fallback attempts (PR #952 R9#6)", () => {
+    // Verify the cache is plumbed through: same Map instance is passed
+    // to BOTH isAppendOnly invocations (the /head try and the /merge try).
+    // The cache itself prevents fromRef re-fetches inside isFileChangeAppendOnly.
+    const cachesObserved: Array<Map<string, string | null> | undefined> = [];
+    const cacheDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 800,
+          title: "feat: PR exercising both fallback attempts",
+          headRefName: "task/mt-800",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef, _file, _warnings, contentCache) => {
+        cachesObserved.push(contentCache);
+        // /head fails, /merge succeeds → both attempts run
+        return toRef.endsWith("/merge");
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", cacheDeps);
+    // Both attempts received a cache; both received the SAME Map instance.
+    expect(cachesObserved).toHaveLength(2);
+    expect(cachesObserved[0]).toBeInstanceOf(Map);
+    expect(cachesObserved[0]).toBe(cachesObserved[1]); // same instance
   });
 
   it("does not retry /merge when /head succeeds (PR #952 R8#1 efficiency)", () => {

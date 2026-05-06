@@ -374,10 +374,30 @@ export function isFileChangeAppendOnly(
   fromRef: string,
   toRef: string,
   filePath: string,
-  warnings: string[]
+  warnings: string[],
+  /**
+   * Optional per-call-site content cache (PR #952 R9#6). Keyed by
+   * `${ref}::${filePath}`. When provided, avoids re-fetching the same
+   * (ref, file) pair on subsequent calls — e.g., when `/head` fails and
+   * the caller retries with `/merge`, the fromRef side is fetched once.
+   * Caches null values too so failed fetches are not retried within the
+   * same scope.
+   */
+  contentCache?: Map<string, string | null>
 ): boolean {
-  const beforeContent = fetchFileContentAtRef(repo, fromRef, filePath, warnings);
-  const afterContent = fetchFileContentAtRef(repo, toRef, filePath, warnings);
+  const cacheKey = (ref: string, p: string): string => `${ref}::${p}`;
+  const fetchCached = (ref: string): string | null => {
+    if (contentCache) {
+      const key = cacheKey(ref, filePath);
+      if (contentCache.has(key)) return contentCache.get(key) ?? null;
+      const content = fetchFileContentAtRef(repo, ref, filePath, warnings);
+      contentCache.set(key, content);
+      return content;
+    }
+    return fetchFileContentAtRef(repo, ref, filePath, warnings);
+  };
+  const beforeContent = fetchCached(fromRef);
+  const afterContent = fetchCached(toRef);
   if (beforeContent === null || afterContent === null) {
     return false;
   }
@@ -613,7 +633,8 @@ export function checkOpenPrs(
     fromRef: string,
     toRef: string,
     filePath: string,
-    warnings: string[]
+    warnings: string[],
+    contentCache?: Map<string, string | null>
   ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
   // Start the sweep budget timer BEFORE the fetchOpenPrs call so that the
@@ -691,6 +712,10 @@ export function checkOpenPrs(
     // Contents API, `/merge` provides a fallback addressable from base.
     // PR #952 R8#1.
     const toRefCandidates = [`refs/pull/${pr.number}/head`, `refs/pull/${pr.number}/merge`];
+    // Per-PR content cache (PR #952 R9#6): avoids re-fetching the same
+    // (ref, file) pair when /head fails and /merge is retried — the
+    // fromRef-side fetch is identical across both attempts.
+    const prContentCache = new Map<string, string | null>();
     // Use the PR's actual base branch as `fromRef` so the structural
     // comparison reflects this PR's real diff (PR #952 R7#4). Falls back
     // to the repo's default branch when baseRefName is unavailable
@@ -726,7 +751,7 @@ export function checkOpenPrs(
       let usedRef = "";
       for (const candidateToRef of toRefCandidates) {
         if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) break;
-        if (isAppendOnly(input.repo, fromRef, candidateToRef, file, warnings)) {
+        if (isAppendOnly(input.repo, fromRef, candidateToRef, file, warnings, prContentCache)) {
           isExempt = true;
           usedRef = candidateToRef;
           break;
@@ -863,7 +888,8 @@ export function fetchRecentMerges(
     fromRef: string,
     toRef: string,
     filePath: string,
-    warnings: string[]
+    warnings: string[],
+    contentCache?: Map<string, string | null>
   ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
   // Wall-clock budget for the merge sweep (PR #952 R5#5). Mirror of
@@ -1018,6 +1044,15 @@ export function fetchRecentMerges(
  *
  * fetchPrFiles accepts a warnings array so per-PR lookup failures are
  * surfaced without aborting the sweep.
+ *
+ * **Signature change in mt#1587 (PR #952 R9#5)**: `fetchRecentMerges`
+ * gained optional trailing parameters (`repo`, `warnings`, `isAppendOnly`)
+ * to support the structural-config exemption. `isFileChangeAppendOnly` is
+ * also a new dep. External callers that pass a custom `deps` object built
+ * before this change will receive extra arguments at call time —
+ * TypeScript tolerates extra args, but consumers should update their
+ * `fetchRecentMerges` signature to accept the new params if they care
+ * about the structural exemption applying to recently-merged commits.
  */
 export interface ParallelWorkCheckDeps {
   fetchOpenPrs: (repo: string) => PrInfo[];
@@ -1043,7 +1078,8 @@ export interface ParallelWorkCheckDeps {
     fromRef: string,
     toRef: string,
     filePath: string,
-    warnings: string[]
+    warnings: string[],
+    contentCache?: Map<string, string | null>
   ) => boolean;
 }
 
