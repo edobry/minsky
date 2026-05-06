@@ -32,14 +32,14 @@ The parent agent gives you a task ID (e.g., "mt#348"), and — when the audit is
 
 ```
 mcp__github__get_file_contents({
-  owner: "edobry",
-  repo: "minsky",
+  owner: "<owner>",     // derive from PR context: pr.head.repo.owner.login
+  repo: "<repo>",       // derive from PR context: pr.head.repo.name
   path: ".claude/agents/reviewer.md",
   ref: "<merge-commit-sha>"  // or "main" / "task/mt-X" branch as a fallback
 })
 ```
 
-The result is the file content as text. If the file does not exist at the ref, the call returns a 404 — treat that as a verification signal (the file was not added by the PR), not as a tool failure.
+The result is the file content as text. If the file does not exist at the ref, the call returns a 404 — treat that as a verification signal (the file was not added by the PR), not as a tool failure. Do not hardcode owner/repo across audits — different audits may target forks or different remotes; always derive these from the PR context the parent provided.
 
 **Baseline test execution (`Bash` calls in step 5).** The baseline checks below require running commands in a workspace. The local working directory may be at `main` (potentially stale) or at a session workspace (which is at the PR branch HEAD). Before running any `Bash` test/typecheck/lint/smoke command:
 

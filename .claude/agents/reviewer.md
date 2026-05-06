@@ -9,7 +9,8 @@ description: >-
   Cannot modify code — posting a GitHub review is an allowed write (Mode 2 only).
 tools: >-
   Read, Glob, Grep, Bash, mcp__minsky__session_pr_review_context,
-  mcp__minsky__session_pr_review_submit, mcp__minsky__tasks_spec_get
+  mcp__minsky__session_pr_review_submit, mcp__minsky__tasks_spec_get,
+  mcp__github__get_file_contents
 model: sonnet
 skills:
   - review-pr
@@ -70,12 +71,12 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 1. **Fetch PR context** — call `mcp__minsky__session_pr_review_context` with the task ID. This returns PR metadata, diff, parsed diff (as `parsedDiff: DiffFile[]`), CI check runs, and the task spec in a single call. If both `mcp__minsky__session_pr_review_context` and `mcp__minsky__tasks_spec_get` fail, submit a `COMMENT` review documenting the context-fetch failure, then stop. Do not return findings to the parent — Mode 2 is self-contained.
 2. **If spec is missing** — fall back to `mcp__minsky__tasks_spec_get` with the task ID.
 
-**Source freshness (required for adoption sweep at step 5b).** Local `Read`, `Glob`, and `Grep` are only safe to use for codebase-wide reads when the workspace is checked out at the PR HEAD:
+**Source freshness (required for adoption sweep at step 5b).** Local `Read`, `Glob`, and `Grep` are only safe to use for codebase-wide reads when the workspace is checked out at the PR HEAD. The two supported invocation modes:
 
-- **Dispatched by `/review-pr` into a session workspace** (the standard path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. This is the load-bearing case.
-- **Invoked outside a session workspace** (rare; ad-hoc review from main agent context): local reads may hit a stale main checkout. **Do not run adoption-sweep grep against the local workspace in this case.** Instead, constrain the sweep to the diff itself (consumers visible in `parsedDiff`) and explicitly note in the review that full-codebase adoption verification was skipped due to no-fresh-workspace; the reviewer-bot or a follow-up audit can re-run with a session-workspace dispatch.
+- **Dispatched by `/review-pr` into a session workspace** (the standard, preferred path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. **This is the canonical Mode 2 path; prefer it whenever possible.**
+- **Invoked outside a session workspace** (rare; ad-hoc review from main agent context): local reads MAY hit a stale main checkout. **Do NOT run adoption-sweep grep against the local workspace in this case.** Instead, perform adoption-sweep reads via `mcp__github__get_file_contents` with `ref` set to the PR head SHA from `session_pr_review_context`. This requires more explicit calls (one per file or directory) but guarantees the sweep targets the PR branch, not stale main. Constrain the file set to changed files plus their plausible consumers when full-codebase grep would exceed the cost-bounding rule (>10 new exports → file follow-up adoption task per step 5b).
 
-Confirm which case applies before step 5b. If unclear, prefer the constrained path (diff-only sweep) over the unsafe one (stale-main grep). The same staleness class that motivated the auditor's freshness preamble (mt#1485 false-FAIL) applies here — adoption findings based on stale-main reads are unreliable.
+The same staleness class that motivated the auditor's freshness preamble (mt#1485 false-FAIL) applies here. Adoption findings based on stale-main reads are unreliable and must not be reported as BLOCKING.
 
 3. **Analyze the diff** — for each file in the diff, follow steps 2–3 from Mode 1 above. For large PRs (200+ files), request Mode 1 sectioning from the parent instead of attempting a whole-PR review in one run.
 4. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
@@ -95,7 +96,7 @@ Confirm which case applies before step 5b. If unclear, prefer the constrained pa
 
    **Cost-bounding rule:** if the PR introduces more than 10 new public exports / commands / tools, do NOT do inline grep-for-callers across all of them — that exceeds your context budget. Instead, list the new exports in a "Missing consumers (deferred)" review-body section and file a single follow-up adoption task that walks the consumer sweep separately. The threshold (10) is the rough boundary at which inline sweep stops fitting comfortably in the reviewer's context window for a typical Minsky PR; revise upward if telemetry shows the limit is too tight in practice.
 
-   **5c. Smoke test.** Run at least one CLI command that exercises the changed code path against the PR branch. Examples: a DI-changing PR runs `bun src/cli.ts tasks list`; a session-mutation PR runs `bun src/cli.ts session list`; a docs/skill-only PR may skip with rationale. Record pass/fail and include the result in the review body's CI-status section. The smoke catches PR-introduced regressions that pre-merge CI may have missed (e.g., container init failures, command-registration breakage). It does NOT cover concurrent-merge interactions — those are tracked in mt#1592.
+   **5c. Smoke test.** Run at least one CLI command that exercises the changed code path against the PR branch. Examples: a DI-changing PR runs `bun src/cli.ts tasks list`; a session-mutation PR runs `bun src/cli.ts session list`; a docs/skill-only PR may skip with rationale. Record the outcome on a separate `**Smoke:**` line in the review body — NOT in the CI-status section. Allowed values: `pass — <command run>`, `fail — <command>: <stderr summary>` (BLOCKING finding), or `skipped — <rationale>` for docs/prompt-only PRs. The `Smoke:` line is an independent gate parsed by the pre-merge hook separately from the `CI status` line; CI N/M counts only GitHub Actions check_runs. The smoke catches PR-introduced regressions that pre-merge CI may have missed (e.g., container init failures, command-registration breakage). It does NOT cover concurrent-merge interactions — those are tracked in mt#1592.
 
 6. **Post the review directly** — call `mcp__minsky__session_pr_review_submit` with task, body, event, and `comments[]`. Do not return findings to the parent for posting; post them yourself.
 
@@ -340,7 +341,8 @@ When calling `mcp__minsky__session_pr_review_submit`, the `body` parameter is re
 ```markdown
 ## Review: <short description>
 
-**CI status:** <pass/fail/pending — N checks passed, M failed>
+**CI status:** <pass/fail/pending — N checks passed, M failed (GitHub Actions only; Smoke is independent — see Smoke line below)>
+**Smoke:** <one of: `pass — <command>` | `fail — <command>: <stderr summary>` | `skipped — <rationale>`>
 
 ### Summary
 
@@ -365,6 +367,20 @@ When calling `mcp__minsky__session_pr_review_submit`, the `body` parameter is re
 <If any criteria not met:>
 **Action required:** <spec update needed / follow-up task needed / blocking>
 
+#### Adoption sweep
+
+<For each new public export / CLI command / MCP tool / capability:>
+
+| Symbol / command | Consumers found  | Classification              |
+| ---------------- | ---------------- | --------------------------- |
+| <name>           | <list or "none"> | Adopted / Missing consumers |
+
+<If >10 new exports:>
+**Cost-bounded:** <N> new exports — inline sweep deferred per the cost-bounding rule. Filed follow-up adoption task: mt#<id>.
+
+<If any "Missing consumers":>
+**Recommendation:** file follow-up adoption task(s) to wire consumers (NON-BLOCKING unless spec explicitly required wiring).
+
 ### Documentation impact
 
 <One of:>
@@ -378,6 +394,8 @@ Updated <doc> in this PR.
 
 (Had Claude look into this — AI-assisted review)
 ```
+
+(The pre-merge hook parses `CI status` and `Smoke:` as independent gates. CI N/M counts only GitHub Actions check_runs. Smoke is its own gate: `fail` blocks merge, `skipped` is a valid value, `pass` is a positive signal.)
 
 All location-bearing findings MUST appear as `comments[]` entries, NOT in the body. The body summary may mention finding counts (e.g., "2 BLOCKING findings posted as inline comments") to orient the reviewer, but must not duplicate the full finding text.
 
