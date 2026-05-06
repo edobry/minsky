@@ -91,12 +91,21 @@ export function buildEvidenceSignature(action: ActionDescriptor): string {
  * Extract the signature-relevant portion of a file path.
  *
  * Returns the basename + extension. This treats moves as the same action.
- * Special directories (`tests`, `__tests__`, `migrations`) are kept as a
- * prefix so test/migration actions don't collide with their production
- * counterparts.
+ * Special directories (`tests`, `__tests__`, `migrations`, `scripts`) are
+ * kept as a prefix so test/migration actions don't collide with their
+ * production counterparts.
+ *
+ * Path-separator handling: splits on BOTH forward-slash and backslash so
+ * dismissal stability holds across POSIX, Windows, and mixed-separator
+ * inputs (e.g. tool callers that pass an os-specific path through). The
+ * specific test that caught this in PR #951 R1: a basename moved from
+ * `src/foo.ts` to `src\\foo.ts` would have produced different signatures
+ * under the previous `'/'-only split, defeating the "moves collapse"
+ * guarantee.
  */
 function extractPathSignature(filePath: string): string {
-  const segments = filePath.split("/").filter((s) => s.length > 0);
+  // Split on either separator; filter empties for leading/trailing slashes.
+  const segments = filePath.split(/[/\\]/).filter((s) => s.length > 0);
   const basename = segments[segments.length - 1] ?? filePath;
 
   const specialDirs = ["tests", "__tests__", "migrations", "scripts"];

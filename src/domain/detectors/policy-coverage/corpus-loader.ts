@@ -23,7 +23,7 @@ import { homedir } from "node:os";
 import { log } from "../../../utils/logger";
 
 // ---------------------------------------------------------------------------
-// Sync exec helper for task-spec loading (mirrors hook pattern)
+// Sync exec helper for task-spec loading
 // ---------------------------------------------------------------------------
 
 interface ExecResult {
@@ -34,8 +34,12 @@ interface ExecResult {
 
 /**
  * Synchronous exec helper with PATH augmentation.
- * Mirrors the `execWithPath` helper in `.claude/hooks/types.ts` so the corpus
- * loader can call the `minsky` CLI without depending on the hook layer.
+ *
+ * Uses `Bun.spawnSync` per project rule `bun_over_node.mdc` — the project's
+ * runtime is Bun (including `bun:test` which is the test runner), so Bun
+ * globals are available everywhere domain code runs. ESLint
+ * `no-restricted-imports` actively bans `node:child_process` for new code.
+ * Mirrors the `execWithPath` helper in `.claude/hooks/types.ts`.
  */
 function execWithPath(
   cmd: string[],
@@ -87,12 +91,14 @@ export interface PolicyCorpus {
 
 /**
  * Read a file's content, returning `null` on any error.
- * Wraps fs.readFile in a try/catch so corpus loading never throws.
+ *
+ * Uses `Bun.file(...).text()` per project rule `bun_over_node.mdc` — the
+ * test runner is `bun:test`, so Bun globals are available everywhere this
+ * module runs. Wraps in try/catch so corpus loading never throws.
  */
 async function safeReadFile(filePath: string): Promise<string | null> {
   try {
-    const result = Bun.file(filePath);
-    return await result.text();
+    return await Bun.file(filePath).text();
   } catch {
     return null;
   }
@@ -119,7 +125,8 @@ async function safeReaddir(dirPath: string): Promise<string[]> {
  * Load the task spec for the given task ID.
  *
  * Uses the minsky CLI to fetch the spec (same approach as parallel-work-guard).
- * Returns `null` if the task ID is absent or the fetch fails.
+ * Returns `null` if the task ID is absent or the fetch fails. Synchronous —
+ * `execWithPath` uses `Bun.spawnSync`.
  */
 export function loadTaskSpec(taskId: string | undefined): PolicyEntry | null {
   if (!taskId) return null;

@@ -20,8 +20,12 @@
 // Calibration: every firing (covered, uncovered, dismissed) appends a line
 // to `.minsky/policy-coverage-calibration.jsonl` for firing-rate analysis.
 //
-// Override: set MINSKY_DISABLE_POLICY_COVERAGE=1 in environment to disable
-// the detector entirely. Override is audit-logged on every PreToolUse call.
+// Mode override: set MINSKY_POLICY_COVERAGE_MODE in environment to control behavior:
+//   - unset / "log-only" (DEFAULT): always permit; record calibration data.
+//   - "block": deny uncovered actions with permissionDecision = "deny".
+//   - "disabled": skip entirely (no calibration write either; logs the bypass).
+// The hook prints a single audit line to stdout on each `disabled` invocation
+// so the bypass is observable in the session transcript.
 //
 // @see mt#1541 — Surface 1 detector implementation umbrella
 // @see mt#1574 — shared Detector core infrastructure (sibling)

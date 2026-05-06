@@ -192,6 +192,22 @@ describe("internal helpers", () => {
     expect(__TEST_ONLY.extractPathSignature("src/migrations/0001.sql")).toBe("migrations:0001.sql");
   });
 
+  it("extractPathSignature handles backslash separators (Windows / mixed) — PR #951 R1 fix", () => {
+    const forward = __TEST_ONLY.extractPathSignature("src/foo.ts");
+    const back = __TEST_ONLY.extractPathSignature("src\\foo.ts");
+    const mixed = __TEST_ONLY.extractPathSignature("src\\sub/foo.ts");
+    expect(forward).toBe("foo.ts");
+    expect(back).toBe("foo.ts");
+    expect(mixed).toBe("foo.ts");
+  });
+
+  it("extractPathSignature recognises special dirs under backslash separators", () => {
+    expect(__TEST_ONLY.extractPathSignature("src\\__tests__\\foo.ts")).toBe("__tests__:foo.ts");
+    expect(__TEST_ONLY.extractPathSignature("src\\migrations\\0001.sql")).toBe(
+      "migrations:0001.sql"
+    );
+  });
+
   it("formatQuestion is non-empty for every filter reason", () => {
     const reasons: Array<keyof typeof __TEST_ONLY.SEVERITY_BY_REASON> = [
       "new-file",
