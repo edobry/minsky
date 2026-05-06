@@ -26,6 +26,9 @@ import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
 import { SessionConflictError } from "../../../../errors/index";
 import { DrizzleAskRepository, type AskRepository } from "../../../../domain/ask/repository";
 import { log } from "../../../../utils/logger";
+import { safeTruncate } from "../../../../utils/safe-truncate";
+
+const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 800;
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -199,17 +202,17 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             if (hookKind === "commit-msg") {
               code = McpErrorCode.COMMIT_MSG_FAILED;
               summaryDetail = subprocessOutput
-                ? `commit-msg hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+                ? `commit-msg hook blocked the commit. Subprocess output (truncated):\n${safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT)}`
                 : "commit-msg hook blocked the commit";
             } else if (hookKind === "pre-commit") {
               code = McpErrorCode.PRE_COMMIT_FAILED;
               summaryDetail = subprocessOutput
-                ? `pre-commit hook blocked the commit. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+                ? `pre-commit hook blocked the commit. Subprocess output (truncated):\n${safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT)}`
                 : "pre-commit hook blocked the commit";
             } else {
               code = McpErrorCode.SUBPROCESS_FAILED;
               summaryDetail = subprocessOutput
-                ? `git commit failed. Subprocess output (truncated):\n${subprocessOutput.slice(-800)}`
+                ? `git commit failed. Subprocess output (truncated):\n${safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT)}`
                 : "git commit failed";
             }
             throw mcpStructuredError({
