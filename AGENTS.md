@@ -983,20 +983,40 @@ Use only when you have already reviewed main's new commits and confirmed no over
 **Budget derivation (mt#1546):**
 
 The hook's three timer constants (`OVERALL_BUDGET_MS`, `FETCH_TIMEOUT_MS`,
-`GIT_TIMEOUT_MS`) derive at module-load time from the host-imposed `timeout`
-field in `.claude/settings.json` for this hook's matcher entry. Bumping the
-host cap there scales the internal budgets proportionally, with no source
-edits required. Three named ratios encode the design choices:
+`GIT_TIMEOUT_MS`) derive at entrypoint time (before `hookStart` capture)
+from the host-imposed `timeout` field in `.claude/settings.json` for this
+hook's matcher entry. The read is deliberately deferred from module-load
+to entrypoint so importing the module has no fs/env side effects (relevant
+for tests and any non-entrypoint consumers). Bumping the host cap in
+settings.json scales the internal budgets proportionally, with no source
+edits required.
+
+Three named ratios encode the design choices:
 
 - `OVERALL_BUDGET_RATIO = 0.6` — overall budget = 60% of host cap.
 - `FETCH_TIMEOUT_RATIO = 0.55` — fetch can use 55% of overall budget.
 - `GIT_TIMEOUT_RATIO = 0.17` — each local git probe gets ~1/6 of budget.
 
+At the current 15-second host cap the derived values are 9000 / 4950 /
+1530 ms (overall / fetch / git). The `4950` and `1530` differ slightly
+from the legacy hardcoded `5000` and `1500` ms — within ±10%, which the
+test fixtures explicitly verify. The deviation is intentional: it is the
+cost of removing the magic-number coupling between cap and constants.
+
+Each derived value is also clamped to a minimum of 100 ms
+(`MIN_DERIVED_BUDGET_MS`) so pathologically small caps cannot zero-out a
+per-call budget. The clamp never fires for realistic caps (≥ 5s).
+
 If `.claude/settings.json` cannot be read, parsed, or contains no matching
-entry, the hook falls back to a 15-second default and emits a one-line
+entry, the hook falls back to the 15-second default and emits a one-line
 warning through the operator-warning channel. The shared
-`readHostCap(hookFilename, projectDir?)` helper in `.claude/hooks/types.ts`
-exposes this pattern for reuse by future hooks with the same constraint.
+`readHostCap(hookFilename, projectDir?, options?)` helper in
+`.claude/hooks/types.ts` exposes this pattern for reuse by future hooks
+with the same constraint. The `events` option (default
+`["PreToolUse"]`) scopes the matcher walk to a specific lifecycle event.
+The walker performs exact-or-suffix path-segment matching against the
+hook's basename — case-sensitive, separator-normalised so Windows-style
+backslash paths in settings.json work cross-platform.
 
 # User Preferences
 

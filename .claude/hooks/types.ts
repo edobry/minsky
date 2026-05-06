@@ -144,15 +144,22 @@ export interface HostCapInfo {
  *   R1 to disambiguate when multiple hooks share a filename suffix.
  * @param projectDir — optional override. When omitted, falls back to
  *   `process.env.CLAUDE_PROJECT_DIR`.
- * @param options — optional event-name allowlist (e.g., `{events: ["PreToolUse"]}`)
- *   to scope the walk and `readFile` adapter (default `node:fs.readFileSync`;
- *   tests inject a fake reader to keep tests pure).
+ * @param options — `events` allowlist defaults to `["PreToolUse"]` so
+ *   callers don't have to remember the safer default; pass a different
+ *   array (or `[]` for "all events") when the hook fires on a different
+ *   lifecycle event. `readFile` defaults to `node:fs.readFileSync`; tests
+ *   inject a fake reader to keep tests pure.
  *
  * Falls back to `DEFAULT_HOST_CAP_SEC` (15s) on any failure path with a
  * descriptive `warning` set.
  */
 export interface ReadHostCapOptions {
-  /** Restrict the walk to these event names (e.g., `["PreToolUse"]`). */
+  /**
+   * Restrict the walk to these event names. Defaults to `["PreToolUse"]`
+   * (the typical case). Pass `[]` to scan every event or a different array
+   * for PostToolUse/Stop/etc. hooks. The default makes the function
+   * footgun-free for the common case (PR #958 R2 NON-BLOCKING #3 fix).
+   */
   events?: readonly string[];
   /** Custom file reader (used by tests to avoid touching real fs). */
   readFile?: (path: string) => string;
@@ -164,6 +171,7 @@ export function readHostCap(
   options?: ReadHostCapOptions
 ): HostCapInfo {
   const readFile = options?.readFile ?? ((p: string) => readFileSync(p, "utf8"));
+  const events = options?.events ?? ["PreToolUse"];
   const root = projectDir ?? process.env["CLAUDE_PROJECT_DIR"] ?? null;
   if (!root) {
     return {
@@ -187,7 +195,7 @@ export function readHostCap(
   }
 
   return findHostCapInSettings(raw, hookFilename, {
-    events: options?.events,
+    events,
     settingsPathForErrors: settingsPath,
   });
 }
@@ -200,10 +208,17 @@ export function readHostCap(
  * that don't end at a path-segment boundary, so e.g. `"fresh.ts"` does NOT
  * match `"check-branch-fresh.ts"` and `"check-branch-fresh.ts"` does NOT
  * match `"check-branch-fresh.ts.bak"`.
+ *
+ * Cross-platform: backslash-separated paths in `command` (Windows-style,
+ * e.g., `C:\repo\.claude\hooks\check-branch-fresh.ts`) are normalised to
+ * forward slashes before the suffix check so the match works on any
+ * platform Bun runs on. Comparisons are case-sensitive (intentional —
+ * a casing typo in `settings.json` should fail loudly, not silently match).
  */
 function commandMatchesHookFile(command: string, hookFilename: string): boolean {
   if (command === hookFilename) return true;
-  return command.endsWith(`/${hookFilename}`);
+  const normalised = command.replace(/\\/g, "/");
+  return normalised.endsWith(`/${hookFilename}`);
 }
 
 interface FindHostCapOptions {
@@ -240,7 +255,10 @@ export function findHostCapInSettings(
   //   { hooks: { PreToolUse: [{ matcher, hooks: [{ command, timeout }] }] } }
   const settings = parsed as { hooks?: Record<string, unknown> };
   const allEvents = settings.hooks ?? {};
-  const eventFilter = options.events;
+  // Empty array means "no filter" (scan all events) — the safer way to
+  // express "any event" without conflating it with the default-PreToolUse
+  // shorthand. Undefined also means "no filter" for backwards compat.
+  const eventFilter = options.events && options.events.length > 0 ? options.events : null;
   for (const [eventName, eventEntries] of Object.entries(allEvents)) {
     if (eventFilter && !eventFilter.includes(eventName)) continue;
     if (!Array.isArray(eventEntries)) continue;

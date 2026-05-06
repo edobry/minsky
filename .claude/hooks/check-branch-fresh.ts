@@ -26,7 +26,14 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { readInput, writeOutput, execWithPath, readHostCap, deriveBudgets } from "./types";
+import {
+  readInput,
+  writeOutput,
+  execWithPath,
+  readHostCap,
+  deriveBudgets,
+  DEFAULT_HOST_CAP_SEC,
+} from "./types";
 import type { ToolHookInput, HostCapInfo } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -103,11 +110,13 @@ export interface BranchFreshnessResult {
 // Core check
 // ---------------------------------------------------------------------------
 
-// Initial budgets come from the default cap (15s). The hook entrypoint
-// reassigns these from settings.json before the check runs. `let` (not
-// `const`) so the entrypoint can override; the variables are module-scoped
-// because the helpers below close over them via direct reference.
-const DEFAULT_BUDGETS = deriveBudgets(15);
+// Initial budgets come from the default cap (DEFAULT_HOST_CAP_SEC = 15s).
+// The hook entrypoint reassigns these from settings.json before the check
+// runs. `let` (not `const`) so the entrypoint can override; the variables
+// are module-scoped because the helpers below close over them via direct
+// reference. Importing this module triggers no fs/env reads — only
+// `applyHostCap` (called from the entrypoint) does.
+const DEFAULT_BUDGETS = deriveBudgets(DEFAULT_HOST_CAP_SEC);
 let GIT_TIMEOUT_MS = DEFAULT_BUDGETS.gitTimeoutMs;
 let FETCH_TIMEOUT_MS = DEFAULT_BUDGETS.fetchTimeoutMs;
 let OVERALL_BUDGET_MS = DEFAULT_BUDGETS.overallBudgetMs;

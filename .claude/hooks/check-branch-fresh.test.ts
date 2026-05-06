@@ -782,6 +782,81 @@ describe("readHostCap (mt#1546)", () => {
     expect(info.hostCapSec).toBe(15);
     expect(info.source).toBe("settings.json");
   });
+
+  // PR #958 R2 BLOCKING #1: cross-platform path-separator normalisation.
+  test("matches a Windows-style backslash command (PR #958 R2 BLOCKING #1)", () => {
+    const winSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `C:\\repo\\.claude\\hooks\\${HOOK_FILENAME}`,
+                timeout: 18,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(winSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(18);
+    expect(info.source).toBe("settings.json");
+  });
+
+  // PR #958 R2 NON-BLOCKING #3: readHostCap defaults events to ["PreToolUse"].
+  test("readHostCap defaults events filter to ['PreToolUse'] (PR #958 R2 NON-BLOCKING #3)", () => {
+    // PostToolUse entry (timeout 99) MUST NOT be matched by default; the
+    // PreToolUse entry (timeout 22) wins.
+    const dualWiredSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 22 }],
+          },
+        ],
+        PostToolUse: [
+          {
+            matcher: "*",
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 99 }],
+          },
+        ],
+      },
+    });
+    const fakeRead = (_: string) => dualWiredSettings;
+    // No explicit events filter → default ["PreToolUse"] kicks in.
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
+    expect(info.hostCapSec).toBe(22);
+    expect(info.source).toBe("settings.json");
+  });
+
+  test("events: [] means no filter (scan all events)", () => {
+    // When the caller explicitly opts out of the default filter via empty
+    // array, the walker scans every event and returns the FIRST match in
+    // iteration order. Object.entries preserves insertion order in modern
+    // engines so this is deterministic per-shape.
+    const dualWiredSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 22 }],
+          },
+        ],
+        PostToolUse: [
+          {
+            matcher: "*",
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 99 }],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(dualWiredSettings, HOOK_FILENAME, { events: [] });
+    expect(info.hostCapSec).toBe(22);
+  });
 });
 
 // ---------------------------------------------------------------------------
