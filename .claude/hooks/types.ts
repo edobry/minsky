@@ -87,7 +87,7 @@ export function writeOutput(output: HookOutput): void {
 }
 
 // ---------------------------------------------------------------------------
-// Host-cap reader (mt#1546)
+// Host-cap reader + budget derivation (mt#1546)
 // ---------------------------------------------------------------------------
 //
 // PreToolUse/PostToolUse hooks declare a host-imposed `timeout` in
@@ -98,12 +98,24 @@ export function writeOutput(output: HookOutput): void {
 // relationship structural.
 //
 // `readHostCap` walks `hooks.<event>[*].hooks[*].command` for the entry that
-// references this hook's filename and returns its `timeout` field.
+// references this hook's basename (exact or `<dir>/<basename>` suffix match) and
+// returns its `timeout` field. Callers pass an optional `events` filter to
+// disambiguate when the same hook is wired into more than one event.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const DEFAULT_HOST_CAP_SEC = 15;
+
+/**
+ * Floor on derived per-call timeouts. Without a clamp, hostCaps in the
+ * single-digit seconds (or pathologically small values) can floor to 0 or
+ * a few ms, which is shorter than realistic git-call wall time and would
+ * make every probe instantly time out. 100ms is well below the typical
+ * git-probe latency (<= a few hundred ms in degraded conditions) but above
+ * the noise floor for spawn + exit overhead.
+ */
+export const MIN_DERIVED_BUDGET_MS = 100;
 
 export interface HostCapInfo {
   /** Resolved host cap in seconds. */
@@ -124,24 +136,34 @@ export interface HostCapInfo {
  * Read the host-imposed timeout cap (in seconds) for the matcher entry that
  * runs this hook.
  *
- * @param hookFilename — substring used to match against each hook entry's
- *   `command` field. The simplest invocation is the bare basename
- *   (`"check-branch-fresh.ts"`); the substring match also tolerates
- *   `$CLAUDE_PROJECT_DIR`-prefixed paths and other prefixes.
+ * @param hookFilename — basename of the hook script (e.g.,
+ *   `"check-branch-fresh.ts"`). Matched against each hook entry's `command`
+ *   field via exact equality OR `<dir>/<basename>` suffix match (so the typical
+ *   `$CLAUDE_PROJECT_DIR/.claude/hooks/<basename>` form is recognised).
+ *   Substring match was deliberately replaced with suffix match in PR #958
+ *   R1 to disambiguate when multiple hooks share a filename suffix.
  * @param projectDir — optional override. When omitted, falls back to
  *   `process.env.CLAUDE_PROJECT_DIR`.
- * @param readFile — optional file-reader adapter. Default reads via
- *   `node:fs.readFileSync`; tests inject a fake reader to keep tests pure
- *   (no real filesystem coupling).
+ * @param options — optional event-name allowlist (e.g., `{events: ["PreToolUse"]}`)
+ *   to scope the walk and `readFile` adapter (default `node:fs.readFileSync`;
+ *   tests inject a fake reader to keep tests pure).
  *
  * Falls back to `DEFAULT_HOST_CAP_SEC` (15s) on any failure path with a
  * descriptive `warning` set.
  */
+export interface ReadHostCapOptions {
+  /** Restrict the walk to these event names (e.g., `["PreToolUse"]`). */
+  events?: readonly string[];
+  /** Custom file reader (used by tests to avoid touching real fs). */
+  readFile?: (path: string) => string;
+}
+
 export function readHostCap(
   hookFilename: string,
   projectDir?: string,
-  readFile: (path: string) => string = (p) => readFileSync(p, "utf8")
+  options?: ReadHostCapOptions
 ): HostCapInfo {
+  const readFile = options?.readFile ?? ((p: string) => readFileSync(p, "utf8"));
   const root = projectDir ?? process.env["CLAUDE_PROJECT_DIR"] ?? null;
   if (!root) {
     return {
@@ -164,13 +186,35 @@ export function readHostCap(
     };
   }
 
-  return findHostCapInSettings(raw, hookFilename, settingsPath);
+  return findHostCapInSettings(raw, hookFilename, {
+    events: options?.events,
+    settingsPathForErrors: settingsPath,
+  });
+}
+
+/**
+ * True iff `command` references a hook whose script basename equals
+ * `hookFilename`. Accepts exact equality (when settings.json hardcodes a
+ * bare filename) AND `<dir>/<basename>` suffix match (the typical
+ * `$CLAUDE_PROJECT_DIR/.claude/hooks/<basename>` shape). Rejects substrings
+ * that don't end at a path-segment boundary, so e.g. `"fresh.ts"` does NOT
+ * match `"check-branch-fresh.ts"` and `"check-branch-fresh.ts"` does NOT
+ * match `"check-branch-fresh.ts.bak"`.
+ */
+function commandMatchesHookFile(command: string, hookFilename: string): boolean {
+  if (command === hookFilename) return true;
+  return command.endsWith(`/${hookFilename}`);
+}
+
+interface FindHostCapOptions {
+  events?: readonly string[];
+  settingsPathForErrors?: string;
 }
 
 /**
  * Pure JSON-walker: given the contents of `.claude/settings.json` (already
- * read from disk), find the matcher entry whose `command` includes
- * `hookFilename` and return its `timeout` field.
+ * read from disk), find the matcher entry whose `command` matches
+ * `hookFilename` (exact or `<dir>/<basename>` suffix) and return its `timeout`.
  *
  * Split out from `readHostCap` so tests can exercise the parse + walk +
  * validate paths without touching the real filesystem.
@@ -178,8 +222,9 @@ export function readHostCap(
 export function findHostCapInSettings(
   raw: string,
   hookFilename: string,
-  settingsPathForErrors = ".claude/settings.json"
+  options: FindHostCapOptions = {}
 ): HostCapInfo {
+  const settingsPathForErrors = options.settingsPathForErrors ?? ".claude/settings.json";
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -191,11 +236,13 @@ export function findHostCapInSettings(
     };
   }
 
-  // Walk hooks.<event>[*].hooks[*].command for a substring match. Settings
-  // shape: { hooks: { PreToolUse: [{ matcher, hooks: [{ command, timeout }] }] } }.
+  // Walk hooks.<event>[*].hooks[*].command. Settings shape:
+  //   { hooks: { PreToolUse: [{ matcher, hooks: [{ command, timeout }] }] } }
   const settings = parsed as { hooks?: Record<string, unknown> };
   const allEvents = settings.hooks ?? {};
-  for (const eventEntries of Object.values(allEvents)) {
+  const eventFilter = options.events;
+  for (const [eventName, eventEntries] of Object.entries(allEvents)) {
+    if (eventFilter && !eventFilter.includes(eventName)) continue;
     if (!Array.isArray(eventEntries)) continue;
     for (const matcherEntry of eventEntries) {
       if (!matcherEntry || typeof matcherEntry !== "object") continue;
@@ -205,7 +252,7 @@ export function findHostCapInSettings(
         if (!hookDef || typeof hookDef !== "object") continue;
         const def = hookDef as { command?: unknown; timeout?: unknown };
         if (typeof def.command !== "string") continue;
-        if (!def.command.includes(hookFilename)) continue;
+        if (!commandMatchesHookFile(def.command, hookFilename)) continue;
         if (typeof def.timeout !== "number" || !Number.isFinite(def.timeout) || def.timeout <= 0) {
           return {
             hostCapSec: DEFAULT_HOST_CAP_SEC,
@@ -222,5 +269,65 @@ export function findHostCapInSettings(
     hostCapSec: DEFAULT_HOST_CAP_SEC,
     source: "default",
     warning: `No matcher entry found referencing ${hookFilename} — using default host cap (15s)`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Budget derivation (shared util — mt#1546)
+// ---------------------------------------------------------------------------
+//
+// Three timer constants govern hook wall-clock behaviour. They derive from
+// the host-imposed `timeout` field via the ratios below. Future hooks with
+// the same constraint reuse `deriveBudgets` from this util — no need to
+// re-export the ratios from each hook module.
+
+/**
+ * Fraction of the host cap allocated to a hook's overall wall-clock budget.
+ * The remaining 40% is headroom for process startup, stdout writes, OS
+ * scheduling jitter, and a final-call overrun under the budget guard.
+ */
+export const OVERALL_BUDGET_RATIO = 0.6;
+
+/**
+ * Fraction of the overall budget granted to the network-bound `git fetch`.
+ * Fetch dominates worst-case wall time and is the only off-host call.
+ */
+export const FETCH_TIMEOUT_RATIO = 0.55;
+
+/**
+ * Fraction of the overall budget granted to each local git probe. ~1/6 means
+ * up to 6 sequential probes can run within budget.
+ */
+export const GIT_TIMEOUT_RATIO = 0.17;
+
+export interface DerivedBudgets {
+  /** Overall wall-clock budget for the hook (incl. fetch). */
+  overallBudgetMs: number;
+  /** Per-call timeout for the network-bound `git fetch`. */
+  fetchTimeoutMs: number;
+  /** Per-call timeout for fast local git operations. */
+  gitTimeoutMs: number;
+}
+
+/**
+ * Derive ms-valued budgets from a host cap (in seconds). Pure function.
+ *
+ * Each derived value is clamped to `MIN_DERIVED_BUDGET_MS` (100ms) so that
+ * pathologically small host caps don't produce zero-or-near-zero per-call
+ * budgets that every probe would instantly exceed. For realistic caps
+ * (>= 5s) the clamp never fires.
+ */
+export function deriveBudgets(hostCapSec: number): DerivedBudgets {
+  const overallBudgetMs = Math.max(
+    MIN_DERIVED_BUDGET_MS,
+    Math.floor(hostCapSec * 1000 * OVERALL_BUDGET_RATIO)
+  );
+  return {
+    overallBudgetMs,
+    fetchTimeoutMs: Math.max(
+      MIN_DERIVED_BUDGET_MS,
+      Math.floor(overallBudgetMs * FETCH_TIMEOUT_RATIO)
+    ),
+    gitTimeoutMs: Math.max(MIN_DERIVED_BUDGET_MS, Math.floor(overallBudgetMs * GIT_TIMEOUT_RATIO)),
   };
 }

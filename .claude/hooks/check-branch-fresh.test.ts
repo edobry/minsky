@@ -3,13 +3,20 @@ import {
   formatBlockMessage,
   checkBranchFreshness,
   refreshRemoteRefs,
+  applyHostCap,
+  getCurrentBudgets,
+  type BranchFreshnessResult,
+} from "./check-branch-fresh";
+import {
+  readHostCap,
+  findHostCapInSettings,
   deriveBudgets,
   OVERALL_BUDGET_RATIO,
   FETCH_TIMEOUT_RATIO,
   GIT_TIMEOUT_RATIO,
-  type BranchFreshnessResult,
-} from "./check-branch-fresh";
-import { readHostCap, findHostCapInSettings, DEFAULT_HOST_CAP_SEC } from "./types";
+  MIN_DERIVED_BUDGET_MS,
+  DEFAULT_HOST_CAP_SEC,
+} from "./types";
 
 // Shared fixtures for mt#1546 tests — extracted to avoid magic-string
 // duplication warnings.
@@ -563,7 +570,7 @@ describe("readHostCap (mt#1546)", () => {
 
   test("returns the matcher entry's timeout when settings.json is well-formed", () => {
     const fakeRead = (_: string) => settingsWithHook(30);
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(30);
     expect(info.source).toBe("settings.json");
     expect(info.warning).toBeUndefined();
@@ -573,7 +580,7 @@ describe("readHostCap (mt#1546)", () => {
     const fakeRead = (_: string) => {
       throw new Error("ENOENT: no such file or directory");
     };
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
     expect(info.warning).toContain("Could not read");
@@ -581,7 +588,7 @@ describe("readHostCap (mt#1546)", () => {
 
   test("falls back to default + warning when settings.json is malformed JSON", () => {
     const fakeRead = (_: string) => "{ this is not valid json";
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
     expect(info.warning).toContain("Could not parse");
@@ -605,7 +612,7 @@ describe("readHostCap (mt#1546)", () => {
       },
     });
     const fakeRead = (_: string) => otherHookSettings;
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
     expect(info.warning).toContain("No matcher entry found");
@@ -613,7 +620,7 @@ describe("readHostCap (mt#1546)", () => {
 
   test("falls back to default + warning when matched entry has missing timeout", () => {
     const fakeRead = (_: string) => settingsWithHook(undefined);
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
     expect(info.warning).toContain("missing/invalid timeout");
@@ -621,7 +628,7 @@ describe("readHostCap (mt#1546)", () => {
 
   test("falls back to default + warning when matched entry has invalid (non-positive) timeout", () => {
     const fakeRead = (_: string) => settingsWithHook(0);
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
     expect(info.source).toBe("default");
     expect(info.warning).toContain("missing/invalid timeout");
@@ -643,7 +650,7 @@ describe("readHostCap (mt#1546)", () => {
     }
   });
 
-  test("walks multiple matcher entries and finds the right one by substring match", () => {
+  test("walks multiple matcher entries and finds the right one by exact-or-suffix match", () => {
     const multiMatcherSettings = JSON.stringify({
       hooks: {
         PreToolUse: [
@@ -672,7 +679,7 @@ describe("readHostCap (mt#1546)", () => {
       },
     });
     const fakeRead = (_: string) => multiMatcherSettings;
-    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, fakeRead);
+    const info = readHostCap(HOOK_FILENAME, FAKE_PROJECT_DIR, { readFile: fakeRead });
     expect(info.hostCapSec).toBe(20);
     expect(info.source).toBe("settings.json");
   });
@@ -684,5 +691,158 @@ describe("readHostCap (mt#1546)", () => {
     const info = findHostCapInSettings(settingsWithHook(45), HOOK_FILENAME);
     expect(info.hostCapSec).toBe(45);
     expect(info.source).toBe("settings.json");
+  });
+
+  // PR #958 R1 BLOCKING #1: tighten loose substring match.
+  test("does NOT match a longer command whose suffix contains the hook filename inside another segment", () => {
+    // Pre-fix: `.includes("check-branch-fresh.ts")` would substring-match
+    // `.../check-branch-fresh.ts.bak`. Post-fix: only exact equality OR
+    // `*/<basename>` suffix matches.
+    const trapSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `${HOOK_COMMAND_PATH}.bak`,
+                timeout: 99,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(trapSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
+    expect(info.source).toBe("default");
+    expect(info.warning).toContain("No matcher entry found");
+  });
+
+  test("rejects bare-substring collisions (`fresh.ts` does not match `check-branch-fresh.ts`)", () => {
+    // `"fresh.ts"` is a substring of `"check-branch-fresh.ts"` BUT not a
+    // path-segment suffix — the segment is `check-branch-fresh.ts`, not
+    // `fresh.ts`. Suffix match correctly rejects.
+    const collisionSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 20 }],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(collisionSettings, "fresh.ts");
+    expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
+    expect(info.source).toBe("default");
+  });
+
+  test("matches an exact-equality command (no path prefix)", () => {
+    // Pure-basename `command` (no `$CLAUDE_PROJECT_DIR/.claude/hooks/`
+    // prefix) — exact equality must match.
+    const bareSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [{ type: "command", command: HOOK_FILENAME, timeout: 25 }],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(bareSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(25);
+    expect(info.source).toBe("settings.json");
+  });
+
+  test("events filter restricts walk to specified events (PR #958 R1 BLOCKING #1)", () => {
+    // Same hook wired into both PreToolUse and PostToolUse with different
+    // timeouts. The events filter should pin the lookup to PreToolUse.
+    const dualWiredSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 15 }],
+          },
+        ],
+        PostToolUse: [
+          {
+            matcher: "*",
+            hooks: [{ type: "command", command: HOOK_COMMAND_PATH, timeout: 99 }],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(dualWiredSettings, HOOK_FILENAME, {
+      events: ["PreToolUse"],
+    });
+    expect(info.hostCapSec).toBe(15);
+    expect(info.source).toBe("settings.json");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Minimum-budget clamp (mt#1546 PR #958 R1 NON-BLOCKING #4)
+// ---------------------------------------------------------------------------
+
+describe("deriveBudgets minimum-budget clamp", () => {
+  test("clamps git timeout to MIN_DERIVED_BUDGET_MS for pathologically small caps", () => {
+    // Without the clamp, hostCapSec = 0.5 → overall = floor(500 * 0.6) = 300,
+    //   git = floor(300 * 0.17) = 51, BELOW the 100ms minimum.
+    // With the clamp: git = max(100, 51) = 100.
+    const { gitTimeoutMs } = deriveBudgets(0.5);
+    expect(gitTimeoutMs).toBe(MIN_DERIVED_BUDGET_MS);
+  });
+
+  test("clamps overall budget to MIN_DERIVED_BUDGET_MS at hostCapSec=0", () => {
+    // hostCapSec = 0 would zero out everything without the clamp.
+    const { overallBudgetMs, fetchTimeoutMs, gitTimeoutMs } = deriveBudgets(0);
+    expect(overallBudgetMs).toBe(MIN_DERIVED_BUDGET_MS);
+    expect(fetchTimeoutMs).toBe(MIN_DERIVED_BUDGET_MS);
+    expect(gitTimeoutMs).toBe(MIN_DERIVED_BUDGET_MS);
+  });
+
+  test("clamp does NOT fire for realistic caps (>=5s)", () => {
+    // Sanity: at 5s the smallest derived (git) should still be > MIN.
+    const { gitTimeoutMs } = deriveBudgets(5);
+    expect(gitTimeoutMs).toBeGreaterThan(MIN_DERIVED_BUDGET_MS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyHostCap entrypoint integration (mt#1546 PR #958 R1 BLOCKING #2)
+// ---------------------------------------------------------------------------
+
+describe("applyHostCap (mt#1546)", () => {
+  // applyHostCap mutates module-level budgets, so each test restores the
+  // default after running.
+  function withDefaultBudgets(fn: () => void): void {
+    try {
+      fn();
+    } finally {
+      applyHostCap(DEFAULT_HOST_CAP_SEC);
+    }
+  }
+
+  test("module-level budgets default to deriveBudgets(15) at import time (no fs/env coupling)", () => {
+    const expected = deriveBudgets(DEFAULT_HOST_CAP_SEC);
+    const actual = getCurrentBudgets();
+    expect(actual.overallBudgetMs).toBe(expected.overallBudgetMs);
+    expect(actual.fetchTimeoutMs).toBe(expected.fetchTimeoutMs);
+    expect(actual.gitTimeoutMs).toBe(expected.gitTimeoutMs);
+  });
+
+  test("applyHostCap reassigns module-level budgets to the supplied cap", () => {
+    withDefaultBudgets(() => {
+      applyHostCap(30);
+      const expected = deriveBudgets(30);
+      const actual = getCurrentBudgets();
+      expect(actual.overallBudgetMs).toBe(expected.overallBudgetMs);
+      expect(actual.fetchTimeoutMs).toBe(expected.fetchTimeoutMs);
+      expect(actual.gitTimeoutMs).toBe(expected.gitTimeoutMs);
+    });
   });
 });
