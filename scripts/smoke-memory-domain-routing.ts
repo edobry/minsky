@@ -16,6 +16,8 @@
  *   2 — skip (required env vars not set)
  */
 
+import "reflect-metadata";
+
 const dbUrl = process.env.DATABASE_URL || process.env.MINSKY_POSTGRES_URL;
 
 if (!dbUrl) {
@@ -83,7 +85,8 @@ async function run(): Promise<void> {
   ) => unknown;
 
   // Check 3: domain "memory" returns an instance
-  const memVs = domainMethod("memory", 1536);
+  // Use .call(provider, ...) to preserve `this` binding — bare method reference loses it
+  const memVs = domainMethod.call(provider, "memory", 1536);
   if (memVs) {
     pass("getVectorStorageForDomain('memory', 1536)", "returned instance");
   } else {
@@ -91,7 +94,7 @@ async function run(): Promise<void> {
   }
 
   // Check 4: domain "tasks" returns an instance
-  const tasksVs = domainMethod("tasks", 1536);
+  const tasksVs = domainMethod.call(provider, "tasks", 1536);
   if (tasksVs) {
     pass("getVectorStorageForDomain('tasks', 1536)", "returned instance");
   } else {
@@ -100,11 +103,12 @@ async function run(): Promise<void> {
 
   // Check 5: memories_embeddings table exists (raw query)
   try {
-    const { getDatabaseConnection } = provider as {
+    const providerWithConnection = provider as {
       getDatabaseConnection?: () => Promise<unknown>;
     };
-    if (typeof getDatabaseConnection === "function") {
-      const rawDb = await getDatabaseConnection();
+    if (typeof providerWithConnection.getDatabaseConnection === "function") {
+      // Call through provider to preserve `this` binding
+      const rawDb = await providerWithConnection.getDatabaseConnection();
       if (rawDb) {
         const { sql } = await import("drizzle-orm");
         // Use Drizzle's execute — rawDb satisfies this at runtime (PostgresJsDatabase)
