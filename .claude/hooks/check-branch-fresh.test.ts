@@ -833,6 +833,92 @@ describe("readHostCap (mt#1546)", () => {
     expect(info.source).toBe("settings.json");
   });
 
+  // PR #958 R3 BLOCKING #1: matcher must handle commands with arguments.
+  test("matches a command with trailing arguments (PR #958 R3 BLOCKING #1)", () => {
+    const argsSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `${HOOK_COMMAND_PATH} --quiet --debug`,
+                timeout: 17,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(argsSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(17);
+    expect(info.source).toBe("settings.json");
+  });
+
+  test("matches a command wrapped in `bun run` with trailing args (PR #958 R3 BLOCKING #1)", () => {
+    const wrapperSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `bun run ${HOOK_COMMAND_PATH} --flag value`,
+                timeout: 19,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(wrapperSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(19);
+  });
+
+  test("matches a command wrapped in `node` (PR #958 R3 BLOCKING #1)", () => {
+    const nodeSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `node /abs/path/to/${HOOK_FILENAME}`,
+                timeout: 21,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(nodeSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(21);
+  });
+
+  test("matches a Windows-path-with-args command (cross-platform regression)", () => {
+    const winArgsSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `C:\\repo\\.claude\\hooks\\${HOOK_FILENAME} --flag`,
+                timeout: 23,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(winArgsSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(23);
+  });
+
   test("events: [] means no filter (scan all events)", () => {
     // When the caller explicitly opts out of the default filter via empty
     // array, the walker scans every event and returns the FIRST match in

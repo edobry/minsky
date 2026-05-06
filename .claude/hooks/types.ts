@@ -177,8 +177,7 @@ export function readHostCap(
     return {
       hostCapSec: DEFAULT_HOST_CAP_SEC,
       source: "default",
-      warning:
-        "CLAUDE_PROJECT_DIR not set and no projectDir override — using default host cap (15s)",
+      warning: `CLAUDE_PROJECT_DIR not set and no projectDir override — using default host cap (${DEFAULT_HOST_CAP_SEC}s)`,
     };
   }
 
@@ -190,7 +189,7 @@ export function readHostCap(
     return {
       hostCapSec: DEFAULT_HOST_CAP_SEC,
       source: "default",
-      warning: `Could not read ${settingsPath}: ${err instanceof Error ? err.message : String(err)} — using default host cap (15s)`,
+      warning: `Could not read ${settingsPath}: ${err instanceof Error ? err.message : String(err)} — using default host cap (${DEFAULT_HOST_CAP_SEC}s)`,
     };
   }
 
@@ -202,23 +201,43 @@ export function readHostCap(
 
 /**
  * True iff `command` references a hook whose script basename equals
- * `hookFilename`. Accepts exact equality (when settings.json hardcodes a
- * bare filename) AND `<dir>/<basename>` suffix match (the typical
- * `$CLAUDE_PROJECT_DIR/.claude/hooks/<basename>` shape). Rejects substrings
- * that don't end at a path-segment boundary, so e.g. `"fresh.ts"` does NOT
- * match `"check-branch-fresh.ts"` and `"check-branch-fresh.ts"` does NOT
- * match `"check-branch-fresh.ts.bak"`.
+ * `hookFilename`. Accepts:
+ *   - exact equality (`command === hookFilename`)
+ *   - `<dir>/<basename>` path-segment suffix on any whitespace-delimited
+ *     token in `command`
  *
- * Cross-platform: backslash-separated paths in `command` (Windows-style,
+ * Tokenising on whitespace lets the matcher recognise wrapper invocations
+ * (`bun run .claude/hooks/check-branch-fresh.ts --flag`,
+ * `node $CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts`) AND
+ * trailing-args invocations (`.claude/hooks/check-branch-fresh.ts --quiet`)
+ * — PR #958 R3 BLOCKING #1 fix.
+ *
+ * Rejects substrings that don't end at a path-segment boundary, so e.g.
+ * `"fresh.ts"` does NOT match `"check-branch-fresh.ts"` and
+ * `"check-branch-fresh.ts"` does NOT match `"check-branch-fresh.ts.bak"`.
+ *
+ * Cross-platform: backslash-separated paths in tokens (Windows-style,
  * e.g., `C:\repo\.claude\hooks\check-branch-fresh.ts`) are normalised to
- * forward slashes before the suffix check so the match works on any
- * platform Bun runs on. Comparisons are case-sensitive (intentional —
- * a casing typo in `settings.json` should fail loudly, not silently match).
+ * forward slashes before the suffix check.
+ *
+ * Case-sensitive (intentional — a casing typo in `settings.json` should
+ * fail loudly with a "no matcher entry found" warning, not silently match
+ * the wrong entry). Reaffirmed against R2 NON-BLOCKING #4 and R3
+ * NON-BLOCKING #3.
  */
 function commandMatchesHookFile(command: string, hookFilename: string): boolean {
   if (command === hookFilename) return true;
-  const normalised = command.replace(/\\/g, "/");
-  return normalised.endsWith(`/${hookFilename}`);
+  // Tokenise on whitespace and check each token. The hook script path is
+  // typically the first or second token (after a wrapper like `bun run`
+  // or `node`); flags/args appear later and never substring-match the
+  // basename suffix because they don't end with `.ts`.
+  const tokens = command.split(/\s+/).filter((t) => t.length > 0);
+  for (const token of tokens) {
+    const normalised = token.replace(/\\/g, "/");
+    if (normalised === hookFilename) return true;
+    if (normalised.endsWith(`/${hookFilename}`)) return true;
+  }
+  return false;
 }
 
 interface FindHostCapOptions {
@@ -247,7 +266,7 @@ export function findHostCapInSettings(
     return {
       hostCapSec: DEFAULT_HOST_CAP_SEC,
       source: "default",
-      warning: `Could not parse ${settingsPathForErrors}: ${err instanceof Error ? err.message : String(err)} — using default host cap (15s)`,
+      warning: `Could not parse ${settingsPathForErrors}: ${err instanceof Error ? err.message : String(err)} — using default host cap (${DEFAULT_HOST_CAP_SEC}s)`,
     };
   }
 
@@ -275,7 +294,7 @@ export function findHostCapInSettings(
           return {
             hostCapSec: DEFAULT_HOST_CAP_SEC,
             source: "default",
-            warning: `Settings entry for ${hookFilename} has missing/invalid timeout — using default host cap (15s)`,
+            warning: `Settings entry for ${hookFilename} has missing/invalid timeout — using default host cap (${DEFAULT_HOST_CAP_SEC}s)`,
           };
         }
         return { hostCapSec: def.timeout, source: "settings.json" };
@@ -286,7 +305,7 @@ export function findHostCapInSettings(
   return {
     hostCapSec: DEFAULT_HOST_CAP_SEC,
     source: "default",
-    warning: `No matcher entry found referencing ${hookFilename} — using default host cap (15s)`,
+    warning: `No matcher entry found referencing ${hookFilename} — using default host cap (${DEFAULT_HOST_CAP_SEC}s)`,
   };
 }
 

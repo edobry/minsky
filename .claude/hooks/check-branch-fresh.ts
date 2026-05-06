@@ -83,26 +83,39 @@ export interface BranchFreshnessResult {
 // Budget derivation from host cap (mt#1546)
 // ---------------------------------------------------------------------------
 //
-// Three timer constants govern this hook's wall-clock behaviour. They derive
-// from the host-imposed PreToolUse `timeout` field in `.claude/settings.json`
-// via three named ratios (in `./types.ts`):
+// Two-phase derivation — designed so module import has ZERO side effects:
+//
+//   Phase 1 (module load): seed module-level `let` bindings from
+//     `deriveBudgets(DEFAULT_HOST_CAP_SEC)`. No fs read, no env read. These
+//     are PROVISIONAL defaults so the helpers below have valid values to
+//     close over even if the entrypoint never runs (e.g., test imports).
+//
+//   Phase 2 (entrypoint, authoritative): the `if (import.meta.main)` block
+//     calls `readHostCap("check-branch-fresh.ts", undefined, { events:
+//     ["PreToolUse"] })`, then `applyHostCap(hostCapInfo.hostCapSec)`. This
+//     mutates the same `let` bindings to settings-derived values BEFORE
+//     `hookStart` is captured and BEFORE any check runs.
+//
+// `getCurrentBudgets()` returns the post-mutation values for tests; do
+// not rely on literals in this comment for current state.
+//
+// Three named ratios (defined in `./types.ts`) drive `deriveBudgets`:
 //
 //   OVERALL_BUDGET_RATIO (0.6)  — overall budget = 60% of host cap
 //   FETCH_TIMEOUT_RATIO  (0.55) — fetch can use 55% of overall budget
 //   GIT_TIMEOUT_RATIO    (0.17) — each local probe gets ~1/6 of overall budget
 //
-// Initial values are derived from `DEFAULT_HOST_CAP_SEC` (15s) so module
-// import has zero side effects (no fs, no env). The hook entrypoint
-// (`if (import.meta.main)` block) calls `readHostCap` and reassigns the
-// budgets to settings-derived values before the freshness check runs.
+// Canonical derivation at the current 15s host cap (entrypoint values):
+//   OVERALL_BUDGET_MS = floor(15_000 * 0.6)              = 9000
+//   FETCH_TIMEOUT_MS  = floor(OVERALL_BUDGET_MS * 0.55)  = 4950
+//   GIT_TIMEOUT_MS    = floor(OVERALL_BUDGET_MS * 0.17)  = 1530
 //
-// Derivation chain (with the current 15s host cap):
-//   hostCapSec       = 15  (read from settings.json at entrypoint)
-//   OVERALL_BUDGET_MS = floor(15_000 * 0.6)            = 9000
-//   FETCH_TIMEOUT_MS  = floor(OVERALL_BUDGET_MS * 0.55) = 4950  (legacy: 5000)
-//   GIT_TIMEOUT_MS    = floor(OVERALL_BUDGET_MS * 0.17) = 1530  (legacy: 1500)
+// (The pre-mt#1546 hardcoded values were 9000 / 5000 / 1500. The shift to
+// 9000 / 4950 / 1530 is intentional — the cost of removing magic-number
+// coupling between cap and constants. ±1-2% deviation, mathematically
+// exact. See `.minsky/rules/hook-files.mdc` "Budget derivation" section.)
 //
-// Each derived value is also clamped to MIN_DERIVED_BUDGET_MS (100ms) inside
+// Each derived value is clamped to MIN_DERIVED_BUDGET_MS (100ms) inside
 // `deriveBudgets` so pathologically small caps don't zero out a probe
 // budget. The clamp never fires for realistic caps (>= 5s).
 
