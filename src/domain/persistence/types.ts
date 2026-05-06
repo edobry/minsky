@@ -10,6 +10,7 @@ import type { VectorStorage } from "../storage/vector/types";
 import type { DatabaseStorage as StorageDatabaseStorage } from "../storage/database-storage";
 import type { SessionRecord } from "../session/types";
 import type { SessionDbState } from "../session/session-db";
+import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory";
 
 /**
  * Capabilities exposed by different persistence providers
@@ -77,7 +78,10 @@ export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
  */
 export interface VectorCapablePersistenceProvider extends BasePersistenceProvider {
   capabilities: PersistenceCapabilities & { vectorStorage: true };
+  /** @deprecated Use getVectorStorageForDomain(domain, dimension) to avoid cross-domain table contamination */
   getVectorStorage(dimension: number): VectorStorage;
+  /** Preferred API: routes to the correct embeddings table for the given domain */
+  getVectorStorageForDomain(domain: VectorDomain, dimension: number): VectorStorage;
 }
 
 /**
@@ -96,7 +100,10 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   // callers that need typed connections should narrow via SqlCapablePersistenceProvider.
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
+  /** @deprecated Use getVectorStorageForDomain(domain, dimension) */
   getVectorStorage?(dimension: number): VectorStorage | Promise<VectorStorage | null>;
+  /** Preferred: routes to the correct embeddings table per domain */
+  getVectorStorageForDomain?(domain: VectorDomain, dimension: number): VectorStorage;
 }
 
 /**

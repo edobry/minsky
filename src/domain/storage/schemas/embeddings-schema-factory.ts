@@ -66,4 +66,29 @@ export const EMBEDDINGS_CONFIGS = {
     vectorColumn: "vector",
     indexedAtColumn: "indexed_at",
   },
+  memory: {
+    tableName: "memories_embeddings",
+    idColumn: "memory_id",
+    vectorColumn: "vector",
+    indexedAtColumn: "indexed_at",
+  },
+  // knowledge domain (mt#1605 audit): knowledge_embeddings table exists (migration 0020)
+  // and uses document_id as the id column. Knowledge consumers do NOT currently go
+  // through getVectorStorageForDomain — they use a separate code path. Adding this
+  // entry here ensures correct routing if knowledge is wired through the standard
+  // factory in the future. See PR body for full audit finding.
+  knowledge: {
+    tableName: "knowledge_embeddings",
+    idColumn: "document_id",
+    vectorColumn: "vector",
+    indexedAtColumn: "indexed_at",
+  },
 } as const;
+
+/**
+ * Finite union of vector-storage domains.
+ * Each domain maps to a distinct embeddings table via EMBEDDINGS_CONFIGS.
+ * Using a union (option b from mt#1605 spec) makes routing type-safe and
+ * prevents accidental cross-domain contamination.
+ */
+export type VectorDomain = keyof typeof EMBEDDINGS_CONFIGS;
