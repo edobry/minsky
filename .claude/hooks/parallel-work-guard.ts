@@ -397,6 +397,14 @@ interface PrInfo {
   number: number;
   title: string;
   headRefName: string;
+  /**
+   * The PR's actual base branch name. Used as `fromRef` in the structural
+   * exemption check so the comparison reflects the PR's real diff, not a
+   * comparison against the repo's default branch (PR #952 R7#4). Optional
+   * because legacy test deps may not provide it; production fetchOpenPrs
+   * always populates it.
+   */
+  baseRefName?: string;
 }
 
 /**
@@ -447,7 +455,7 @@ export function fetchOpenPrs(repo: string): PrInfo[] {
       "--limit",
       String(FETCH_OPEN_PRS_LIMIT),
       "--json",
-      "number,title,headRefName",
+      "number,title,headRefName,baseRefName",
     ],
     { timeout: GH_GIT_TIMEOUT_MS }
   );
@@ -669,6 +677,16 @@ export function checkOpenPrs(
     // (which used pr.headRefOid — a fork-only SHA for forked PRs, not
     // addressable via the base repo's Contents API).
     const toRef = `refs/pull/${pr.number}/head`;
+    // Use the PR's actual base branch as `fromRef` so the structural
+    // comparison reflects this PR's real diff (PR #952 R7#4). Falls back
+    // to the repo's default branch when baseRefName is unavailable
+    // (legacy test deps); production fetchOpenPrs always populates it.
+    const fromRef = pr.baseRefName ?? baseBranch;
+    if (!pr.baseRefName) {
+      warnings.push(
+        `PR #${pr.number}: baseRefName unavailable — falling back to repo default branch '${baseBranch}' for structural-check fromRef`
+      );
+    }
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
       // Mid-iteration budget recheck (PR #952 R5#4): each isAppendOnly call
@@ -681,7 +699,7 @@ export function checkOpenPrs(
         );
         return true;
       }
-      const isExempt = isAppendOnly(input.repo, baseBranch, toRef, file, warnings);
+      const isExempt = isAppendOnly(input.repo, fromRef, toRef, file, warnings);
       if (isExempt) {
         warnings.push(
           `PR #${pr.number}: ${file} change is append-only into JSON arrays — exempted from collision`

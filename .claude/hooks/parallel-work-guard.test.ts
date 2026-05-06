@@ -1107,6 +1107,58 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     expect(observedToRef).toBe("refs/pull/500/head");
   });
 
+  it("uses pr.baseRefName as fromRef when present (PR #952 R7#4)", () => {
+    let observedFromRef = "";
+    const baseDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      fetchOpenPrs: () => [
+        {
+          number: 600,
+          title: "feat: PR targeting develop branch",
+          headRefName: "task/mt-600",
+          baseRefName: "develop",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, fromRef) => {
+        observedFromRef = fromRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", baseDeps);
+    // PR's actual base branch (develop) used, NOT the repo default (main).
+    expect(observedFromRef).toBe("develop");
+  });
+
+  it("falls back to repo default branch when pr.baseRefName is absent (PR #952 R7#4 fallback)", () => {
+    let observedFromRef = "";
+    const fallbackDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      fetchOpenPrs: () => [
+        {
+          number: 601,
+          title: "feat: legacy test PR without baseRefName",
+          headRefName: "task/mt-601",
+          // baseRefName intentionally omitted
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, fromRef) => {
+        observedFromRef = fromRef;
+        return true;
+      },
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
+    expect(observedFromRef).toBe("main");
+    expect(
+      result.warnings.some((w) =>
+        w.includes("baseRefName unavailable — falling back to repo default branch 'main'")
+      )
+    ).toBe(true);
+  });
+
   it("uses refs/pull/<num>/head for same-repo PRs too (PR #952 R4#1 consistency)", () => {
     let observedToRef = "";
     const sameRepoDeps = makeDeps({
