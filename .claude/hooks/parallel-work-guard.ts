@@ -361,8 +361,11 @@ export function fetchFileContentAtRef(
  * `git rev-parse <sha>^`).
  *
  * Typical refs:
- *   - For open PRs: fromRef = base branch name (e.g., "main"),
- *     toRef = `refs/pull/<num>/head`.
+ *   - For open PRs: fromRef = base branch name (e.g., the PR's
+ *     `baseRefName`, or "main" as fallback), toRef = `refs/pull/<num>/head`.
+ *     `refs/pull/<num>/merge` is also valid and is used as a fallback by
+ *     `checkOpenPrs` for forked PRs whose `/head` ref may not be
+ *     addressable from the base repo's Contents API (PR #952 R8#1).
  *   - For recently-merged commits: fromRef = parent SHA resolved via
  *     `git rev-parse <sha>^`, toRef = the merge commit SHA.
  */
@@ -693,13 +696,18 @@ export function checkOpenPrs(
     // to the repo's default branch when baseRefName is unavailable
     // (legacy test deps); production fetchOpenPrs always populates it.
     const fromRef = pr.baseRefName ?? baseBranch;
-    if (!pr.baseRefName) {
-      warnings.push(
-        `PR #${pr.number}: baseRefName unavailable — falling back to repo default branch '${baseBranch}' for structural-check fromRef`
-      );
-    }
+    let baseFallbackWarned = false;
     const realOverlapping = overlapping.filter((file) => {
       if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
+      // Only emit the baseRefName-unavailable warning when the structural
+      // check actually uses fromRef (PR #952 R9#4). Avoids flooding logs
+      // for PRs whose overlap contains no allowlisted files.
+      if (!pr.baseRefName && !baseFallbackWarned) {
+        warnings.push(
+          `PR #${pr.number}: baseRefName unavailable — falling back to repo default branch '${baseBranch}' for structural-check fromRef`
+        );
+        baseFallbackWarned = true;
+      }
       // Mid-iteration budget recheck (PR #952 R5#4): each isAppendOnly call
       // can issue up to two `gh api` calls (BEFORE + AFTER content fetch).
       // If the budget is nearly exhausted, fail-closed rather than risking
