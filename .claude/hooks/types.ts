@@ -225,32 +225,82 @@ export function readHostCap(
  * the wrong entry). Reaffirmed against R2 NON-BLOCKING #4 and R3
  * NON-BLOCKING #3.
  */
-// Number of leading tokens checked for the executable-path match. Real
-// command shapes put the script in token 0 (bare invocation), token 1
-// (`node X`, `bun X`), or token 2 (`bun run X`). Beyond that the tokens
-// are arguments — checking them risks attributing the wrong entry's
-// timeout to this hook when an argument path happens to end with the
-// hook's basename (PR #958 R5 BLOCKING fix).
-const MAX_EXECUTABLE_TOKEN_INDEX = 2;
+// Known runtime wrappers that may precede the hook script in `command`.
+// When found at the head, the wrapper (and its subcommand, if any) is
+// skipped before evaluating the executable token. This handles invocations
+// like `bun run X`, `node X`, `npx tsx X`, etc. PR #958 R6 BLOCKING fix.
+const KNOWN_WRAPPERS: ReadonlySet<string> = new Set([
+  "env",
+  "bun",
+  "bunx",
+  "node",
+  "npx",
+  "tsx",
+  "ts-node",
+  "deno",
+]);
+
+// Wrappers that take a subcommand before the script (e.g., `bun run X`,
+// `deno run X`). When the wrapper matches, the subcommand is also skipped
+// so the executable token resolves to the script path.
+const KNOWN_WRAPPER_SUBCOMMANDS: Readonly<Record<string, ReadonlySet<string>>> = {
+  bun: new Set(["run", "x"]),
+  deno: new Set(["run"]),
+};
+
+// Pattern for `NAME=value` env var assignments at the head of a command
+// (e.g., `FOO=1 BAR=2 bun run X` or `env FOO=1 X`). PR #958 R6 BLOCKING
+// fix.
+const ENV_VAR_ASSIGNMENT_RE = /^[A-Z_][A-Z_0-9]*=/;
+
+/**
+ * Locate the executable token in a tokenised command — i.e., the first
+ * token that is neither a `NAME=value` env-var assignment nor a known
+ * wrapper (with optional subcommand). This is the only token whose
+ * basename is checked against the hook filename — arguments after it are
+ * never considered, which prevents false-positive matches from arg values
+ * that happen to end with the hook's basename (PR #958 R5 + R6).
+ */
+function findExecutableToken(tokens: readonly string[]): string | null {
+  let i = 0;
+  while (i < tokens.length) {
+    const t = tokens[i] as string;
+    if (ENV_VAR_ASSIGNMENT_RE.test(t)) {
+      i++;
+      continue;
+    }
+    if (KNOWN_WRAPPERS.has(t)) {
+      const wrapper = t;
+      i++;
+      const subs = KNOWN_WRAPPER_SUBCOMMANDS[wrapper];
+      if (subs && i < tokens.length && subs.has(tokens[i] as string)) {
+        i++;
+      }
+      continue;
+    }
+    break;
+  }
+  return tokens[i] ?? null;
+}
 
 function commandMatchesHookFile(command: string, hookFilename: string): boolean {
   if (command === hookFilename) return true;
-  // Tokenise on whitespace and check ONLY the first MAX_EXECUTABLE_TOKEN_INDEX+1
-  // tokens. The hook script path is typically the first non-wrapper token;
-  // checking arbitrary later tokens would let argument values that end with
-  // the basename produce false-positive matches.
-  // Each candidate token has surrounding quotes stripped (single OR double)
-  // — common when settings.json wraps a path in quotes for shell safety,
-  // e.g., `bun run "$CLAUDE_PROJECT_DIR/.claude/hooks/check-branch-fresh.ts"`.
+  // Tokenise on whitespace, then resolve the executable token by skipping
+  // leading env-var assignments and known wrappers. Only that one token's
+  // basename is checked. This rejects:
+  //   - argument values that end with the hook basename (false positive)
+  //   - non-executable strings in args (e.g., `echo X` — `echo` is not a
+  //     wrapper so it becomes the exec token, doesn't match)
+  // and accepts:
+  //   - bare paths, wrapper invocations (`bun run X`, `node X`), env-prefix
+  //     forms (`FOO=1 bun run X`, `env FOO=1 X`), quoted paths.
   const tokens = command.split(/\s+/).filter((t) => t.length > 0);
-  const limit = Math.min(tokens.length, MAX_EXECUTABLE_TOKEN_INDEX + 1);
-  for (let i = 0; i < limit; i++) {
-    const token = tokens[i] as string;
-    const dequoted = token.replace(/^['"]|['"]$/g, "");
-    const normalised = dequoted.replace(/\\/g, "/");
-    if (normalised === hookFilename) return true;
-    if (normalised.endsWith(`/${hookFilename}`)) return true;
-  }
+  const execToken = findExecutableToken(tokens);
+  if (execToken === null) return false;
+  const dequoted = execToken.replace(/^['"]|['"]$/g, "");
+  const normalised = dequoted.replace(/\\/g, "/");
+  if (normalised === hookFilename) return true;
+  if (normalised.endsWith(`/${hookFilename}`)) return true;
   return false;
 }
 

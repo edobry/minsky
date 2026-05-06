@@ -970,10 +970,9 @@ describe("readHostCap (mt#1546)", () => {
     expect(info.warning).toContain(NO_MATCHER_FOUND_FRAGMENT);
   });
 
-  test("does NOT match when hook basename appears only after token index 2 (PR #958 R5 BLOCKING)", () => {
-    // Only first 3 tokens checked; `echo check-branch-fresh.ts arg1 arg2` would
-    // match (token 1 IS the basename, position 1 ≤ 2) but a longer command
-    // with the basename at index 4+ should not.
+  test("rejects when an unknown wrapper precedes the basename (PR #958 R5/R6)", () => {
+    // `some-unknown-wrapper` is not in KNOWN_WRAPPERS, so it IS the exec
+    // token. The basename appearing later is an argument, not the script.
     const trapSettings = JSON.stringify({
       hooks: {
         PreToolUse: [
@@ -982,8 +981,96 @@ describe("readHostCap (mt#1546)", () => {
             hooks: [
               {
                 type: "command",
-                command: `env FOO=bar BAZ=qux some-wrapper ${HOOK_FILENAME}`,
+                command: `some-unknown-wrapper --flag ${HOOK_FILENAME}`,
                 timeout: 88,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(trapSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(DEFAULT_HOST_CAP_SEC);
+  });
+
+  // PR #958 R6 BLOCKING: env-prefixed commands.
+  test("matches `FOO=1 BAR=2 bun run X` env-prefixed wrapper invocation (PR #958 R6 BLOCKING)", () => {
+    const envPrefixedSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `FOO=1 BAR=2 bun run ${HOOK_COMMAND_PATH} --flag`,
+                timeout: 41,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(envPrefixedSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(41);
+  });
+
+  test("matches `env FOO=1 node X` env-wrapper invocation (PR #958 R6 BLOCKING)", () => {
+    const envWrapperSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `env FOO=1 node ${HOOK_COMMAND_PATH}`,
+                timeout: 43,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(envWrapperSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(43);
+  });
+
+  test("matches `env FOO=1 BAR=2 bun run X` (env wrapper + env vars + bun-run) (PR #958 R6 BLOCKING)", () => {
+    const composedSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `env FOO=1 BAR=2 bun run ${HOOK_COMMAND_PATH}`,
+                timeout: 47,
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const info = findHostCapInSettings(composedSettings, HOOK_FILENAME);
+    expect(info.hostCapSec).toBe(47);
+  });
+
+  test("rejects when the env-prefix never reveals the hook script (false-positive regression)", () => {
+    // After skipping FOO=1 and bun+run, the executable token is `other.ts`.
+    // The basename appears as an argument value, not as the executable.
+    // Must still NOT match.
+    const trapSettings = JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: SESSION_COMMIT_MATCHER,
+            hooks: [
+              {
+                type: "command",
+                command: `FOO=1 bun run other.ts --input $CLAUDE_PROJECT_DIR/.claude/hooks/${HOOK_FILENAME}`,
+                timeout: 99,
               },
             ],
           },
