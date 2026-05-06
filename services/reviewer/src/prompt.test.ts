@@ -512,6 +512,79 @@ describe("buildCriticConstitution — output tools mode (mt#1401)", () => {
   });
 });
 
+describe("buildCriticConstitution — Markdown formatting guidance (mt#1590)", () => {
+  const MARKDOWN_FORMATTING_HEADING = "### Markdown formatting";
+  const INLINE_CODE_PHRASE = "Apply inline code (single backticks)";
+  const FENCED_CODE_PHRASE = "fenced code blocks with the appropriate language tag";
+  const CLOSING_PHRASE = "Your goal is high-signal review";
+
+  test("prose output format (outputToolsActive=false) includes Markdown formatting subsection", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    expect(prompt).toContain(MARKDOWN_FORMATTING_HEADING);
+    expect(prompt).toContain(INLINE_CODE_PHRASE);
+    expect(prompt).toContain(FENCED_CODE_PHRASE);
+  });
+
+  test("tools output format (outputToolsActive=true) includes Markdown formatting subsection", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain(MARKDOWN_FORMATTING_HEADING);
+    expect(prompt).toContain(INLINE_CODE_PHRASE);
+    expect(prompt).toContain(FENCED_CODE_PHRASE);
+  });
+
+  test("prose format guidance enumerates identifiers, function calls, file paths, and env vars", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    expect(prompt).toContain("Identifiers");
+    expect(prompt).toContain("Function calls including parens");
+    expect(prompt).toContain("File paths");
+    expect(prompt).toContain("environment variables");
+  });
+
+  test("tools format guidance enumerates identifiers, function calls, file paths, and env vars", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    expect(prompt).toContain("Identifiers");
+    expect(prompt).toContain("Function calls including parens");
+    expect(prompt).toContain("File paths");
+    expect(prompt).toContain("environment variables");
+  });
+
+  test("both output formats mention file:line reference backtick convention", () => {
+    for (const outputToolsActive of [false, true]) {
+      const prompt = buildCriticConstitution(true, "normal", outputToolsActive);
+      expect(prompt).toContain("File:line references");
+    }
+  });
+
+  test("Markdown formatting subsection appears before closing paragraph in prose format", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    const markdownIdx = prompt.indexOf(MARKDOWN_FORMATTING_HEADING);
+    const closingIdx = prompt.indexOf(CLOSING_PHRASE);
+    expect(markdownIdx).toBeGreaterThan(0);
+    expect(markdownIdx).toBeLessThan(closingIdx);
+  });
+
+  test("Markdown formatting subsection appears before closing paragraph in tools format", () => {
+    const prompt = buildCriticConstitution(true, "normal", true);
+    const markdownIdx = prompt.indexOf(MARKDOWN_FORMATTING_HEADING);
+    const closingIdx = prompt.indexOf(CLOSING_PHRASE);
+    expect(markdownIdx).toBeGreaterThan(0);
+    expect(markdownIdx).toBeLessThan(closingIdx);
+  });
+
+  test("tools format Markdown guidance includes the evidence field (PR #955 R1 fix)", () => {
+    // The submit_spec_verification tool has an evidence field that frequently
+    // contains file:line references and code identifiers. Omitting it from
+    // the formatting field-list creates inconsistent expectations across
+    // tool-emitted fields and contradicts uniform-formatting intent.
+    const prompt = buildCriticConstitution(true, "normal", true);
+    const formattingIdx = prompt.indexOf(MARKDOWN_FORMATTING_HEADING);
+    const closingIdx = prompt.indexOf(CLOSING_PHRASE, formattingIdx);
+    const formattingSection = prompt.slice(formattingIdx, closingIdx);
+    expect(formattingSection).toContain("evidence");
+    expect(formattingSection).toContain("submit_spec_verification");
+  });
+});
+
 describe("buildCriticConstitution — scope-aware calibration (mt#1188)", () => {
   test("trivial-or-docs scope includes the calibration section header", () => {
     const prompt = buildCriticConstitution(true, "trivial-or-docs");
