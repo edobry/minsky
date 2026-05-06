@@ -43,6 +43,12 @@ export function safeTruncate(str: string, maxLen: number, side: "tail" | "head" 
     return str.slice(start);
   }
 
+  // Head mode: explicit guard for maxLen === 0 — without it `charCodeAt(-1)`
+  // returns NaN, which the surrogate range check below would handle correctly
+  // (NaN comparisons are false), but the explicit early return is clearer and
+  // avoids relying on NaN semantics. PR #962 R1 reviewer note.
+  if (maxLen === 0) return "";
+
   let end = maxLen;
   const lastCode = str.charCodeAt(end - 1);
   if (lastCode >= 0xd800 && lastCode <= 0xdbff) {

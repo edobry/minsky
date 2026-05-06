@@ -29,6 +29,12 @@ function makeFakeTokenProvider(captureScope?: { scope?: string }): TokenProvider
     isServiceAccountConfigured() {
       return true;
     },
+    // Drive-by fix for broken-on-main: mt#1510 added `isRoleConfigured` to
+    // `TokenProvider` but missed updating this fake. Tracking task: see PR
+    // #962 description (filed alongside the surrogate-safe-truncation fix).
+    isRoleConfigured() {
+      return true;
+    },
   };
 }
 

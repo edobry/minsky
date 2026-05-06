@@ -140,6 +140,15 @@ describe("safeTruncate", () => {
     });
   });
 
+  test("maxLen=0 returns empty string for both sides without crashing", () => {
+    // Head mode: explicit guard against charCodeAt(-1) returning NaN (PR #962 R1).
+    expect(safeTruncate("abc", 0, "head")).toBe("");
+    expect(safeTruncate("abc", 0, "tail")).toBe("");
+    // Surrogate-pair input at maxLen=0 stays empty (no lone-surrogate emission).
+    expect(safeTruncate("🔍🚀", 0, "head")).toBe("");
+    expect(safeTruncate("🔍🚀", 0, "tail")).toBe("");
+  });
+
   test("result length never exceeds maxLen", () => {
     const s = `${"🔍".repeat(50)}abc`;
     for (let n = 0; n <= s.length + 5; n++) {

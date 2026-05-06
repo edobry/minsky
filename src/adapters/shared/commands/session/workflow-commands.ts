@@ -28,7 +28,51 @@ import { DrizzleAskRepository, type AskRepository } from "../../../../domain/ask
 import { log } from "../../../../utils/logger";
 import { safeTruncate } from "../../../../utils/safe-truncate";
 
-const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 800;
+export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 800;
+
+/**
+ * Build the structured-error payload fields for a `git commit` subprocess
+ * failure. Keeps `summary` terse (≤120 chars per `McpErrorPayload` contract)
+ * and parks the truncated subprocess preview in `details.tail`, full text in
+ * `subprocessOutput`. PR #962 R1: the previous shape stuffed up to
+ * SUBPROCESS_OUTPUT_TRUNCATE_LIMIT chars of preview into `summary`, violating
+ * the contract.
+ */
+export function buildSubprocessFailurePayload(
+  hookKind: "commit-msg" | "pre-commit" | "unknown" | "none",
+  subprocessOutput: string
+): {
+  code: (typeof McpErrorCode)[keyof typeof McpErrorCode];
+  summary: string;
+  subprocessOutput: string;
+  details?: Record<string, unknown>;
+} {
+  let code: (typeof McpErrorCode)[keyof typeof McpErrorCode];
+  let summary: string;
+  if (hookKind === "commit-msg") {
+    code = McpErrorCode.COMMIT_MSG_FAILED;
+    summary = "commit-msg hook blocked the commit";
+  } else if (hookKind === "pre-commit") {
+    code = McpErrorCode.PRE_COMMIT_FAILED;
+    summary = "pre-commit hook blocked the commit";
+  } else {
+    code = McpErrorCode.SUBPROCESS_FAILED;
+    summary = "git commit failed";
+  }
+  if (!subprocessOutput) {
+    return { code, summary, subprocessOutput };
+  }
+  const wasTruncated = subprocessOutput.length > SUBPROCESS_OUTPUT_TRUNCATE_LIMIT;
+  return {
+    code,
+    summary,
+    subprocessOutput,
+    details: {
+      tail: safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT),
+      truncated: wasTruncated,
+    },
+  };
+}
 /** Minimal container interface required by buildSessionMergeDeps. */
 type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown };
 
@@ -197,29 +241,7 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
             //                  (we know `git commit` exited non-zero with output, but
             //                  we cannot identify a specific hook — fabricating a
             //                  "git commit hook" name would be misleading).
-            let code: (typeof McpErrorCode)[keyof typeof McpErrorCode];
-            let summaryDetail: string;
-            if (hookKind === "commit-msg") {
-              code = McpErrorCode.COMMIT_MSG_FAILED;
-              summaryDetail = subprocessOutput
-                ? `commit-msg hook blocked the commit. Subprocess output (truncated):\n${safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT)}`
-                : "commit-msg hook blocked the commit";
-            } else if (hookKind === "pre-commit") {
-              code = McpErrorCode.PRE_COMMIT_FAILED;
-              summaryDetail = subprocessOutput
-                ? `pre-commit hook blocked the commit. Subprocess output (truncated):\n${safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT)}`
-                : "pre-commit hook blocked the commit";
-            } else {
-              code = McpErrorCode.SUBPROCESS_FAILED;
-              summaryDetail = subprocessOutput
-                ? `git commit failed. Subprocess output (truncated):\n${safeTruncate(subprocessOutput, SUBPROCESS_OUTPUT_TRUNCATE_LIMIT)}`
-                : "git commit failed";
-            }
-            throw mcpStructuredError({
-              code,
-              summary: summaryDetail,
-              subprocessOutput,
-            });
+            throw mcpStructuredError(buildSubprocessFailurePayload(hookKind, subprocessOutput));
           }
           throw err;
         }
