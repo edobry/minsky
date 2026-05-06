@@ -58,7 +58,11 @@
 import "reflect-metadata";
 
 import { createTokenProvider } from "../src/domain/auth";
-import { getConfiguration } from "../src/domain/configuration";
+import {
+  CustomConfigFactory,
+  getConfiguration,
+  initializeConfiguration,
+} from "../src/domain/configuration";
 import { submitReview } from "../src/domain/repository/github-pr-review";
 import type { TokenRole } from "../src/domain/auth/token-provider";
 
@@ -74,6 +78,14 @@ if (!OWNER || !REPO || PR === undefined || Number.isNaN(PR)) {
   );
   process.exit(2);
 }
+
+// Mirrors the production bootstrap path used by every other Minsky entry
+// point: configuration must be initialized before getConfiguration() can be
+// called, otherwise the global ConfigurationProvider is uninitialized and
+// throws. See `src/config-setup.ts` for the canonical wiring.
+await initializeConfiguration(new CustomConfigFactory(), {
+  workingDirectory: process.cwd(),
+});
 
 const cfg = getConfiguration();
 const userToken = cfg.github?.token ?? process.env.GITHUB_TOKEN;
