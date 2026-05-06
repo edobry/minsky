@@ -118,9 +118,13 @@ Search the **entire codebase** (not just changed files) for:
 
 Any hits are **blocking findings** — they indicate incomplete removal.
 
-### 6. Verify against task spec
+### 6. Verify against task spec, run adoption sweep, run smoke test
 
-**This step is mandatory.** If a task spec exists:
+**This step is mandatory.** Per mt#1551, the reviewer subagent (and `/review-pr`) is now the canonical verification surface — `/verify-task` no longer re-runs the auditor post-merge. This step consolidates three sub-checks: spec verification, adoption sweep, and a smoke test against the PR branch.
+
+#### 6.1 Spec verification
+
+If a task spec exists:
 
 1. Read every success criterion in the spec
 2. For each criterion, verify the PR actually delivers it by checking the code
@@ -132,6 +136,43 @@ Any hits are **blocking findings** — they indicate incomplete removal.
    - The task spec must be updated to reflect actual scope
    - Follow-up tasks must be created for deferred items
    - The review must explicitly list what was deferred and why
+
+The spec-verification table goes in the review body (see step 9).
+
+#### 6.2 Adoption sweep
+
+For each new public export (function, class, type), CLI command, MCP tool, hook, or capability introduced by the diff, sweep the post-PR codebase for consumers:
+
+1. **Identify the new exports** by reading the diff (look for new function declarations, class exports, command registrations, MCP tool registrations, etc.).
+2. **Search for consumers**: `grep` for the symbol/command/tool name across `src/`, `tests/`, docs, CLAUDE.md, AGENTS.md, and any service-specific scripts.
+3. **Classify each as**:
+   - **Adopted** — at least one consumer exists (test, CLI integration, docs reference, calling code).
+   - **Missing consumers** — no callers found.
+
+**Findings**: Missing consumers are reported as **NON-BLOCKING** with a recommendation to file a follow-up adoption task — UNLESS the spec explicitly requires consumer wiring, in which case they are **BLOCKING**.
+
+**Cost-bounding rule:** if the PR introduces **more than 10** new public exports / commands / tools, do NOT do inline grep-for-callers across all of them — that exceeds your context budget. Instead, list the new exports in a "Missing consumers (deferred)" review-body section and file a single follow-up adoption task that walks the consumer sweep separately. The threshold (10) is the rough boundary at which inline sweep stops fitting comfortably in the reviewer's context window for a typical Minsky PR; revise upward if telemetry shows the limit is too tight in practice.
+
+The adoption-sweep results go in the review body under an "Adoption sweep" sub-section of the spec-verification block (see step 9).
+
+#### 6.3 Smoke test
+
+Run at least one CLI command that exercises the changed code path against the PR branch. Examples:
+
+- DI-changing PR → `bun src/cli.ts tasks list` to verify the container initializes correctly
+- Session-mutation PR → `bun src/cli.ts session list`
+- New CLI command → invoke the new command with a representative argument
+- Docs / prompt-only PR → may skip with rationale recorded in the review body
+
+Record one of three outcomes for the review body's `Smoke:` line:
+
+- `pass — <command run>` if the command exited 0
+- `fail — <command run>: <stderr summary>` if it exited non-zero (BLOCKING finding)
+- `skipped — <rationale>` for docs / prompt-only / config-only PRs where no code path runs (`skipped` is acceptable; the pre-merge hook treats it as a valid value, not as missing)
+
+**Smoke is an independent gate, not part of CI-status counts.** The `CI status` line counts only GitHub Actions check_runs (build, lint, placeholder-test detection, etc.); the Smoke line is a separate review-body field that the pre-merge hook parses independently. A Smoke=`fail` blocks merge regardless of CI N/M; a Smoke=`skipped` is treated as a valid value (not as missing); a Smoke=`pass` is a positive signal but does not increment CI N. The two surfaces measure different things — CI = pre-merge automation, Smoke = the reviewer's manual run-through.
+
+The smoke catches PR-introduced regressions that pre-merge CI may have missed (container init failures, command-registration breakage, etc.). It does **not** cover concurrent-merge interactions — those (two PRs that pass CI individually but interact badly post-merge) are tracked separately in mt#1592.
 
 ### 6a. Assess documentation impact
 
@@ -327,7 +368,10 @@ The body is for summary and metadata — NOT for inline findings. All location-b
 ```markdown
 ## Review: <short description>
 
-**CI status:** <pass/fail/pending — N checks passed, M failed>
+**CI status:** <pass/fail/pending — N checks passed, M failed (GitHub Actions only; Smoke is independent — see Smoke line below)>
+**Smoke:** <one of: `pass — <command>` | `fail — <command>: <stderr summary>` | `skipped — <rationale>`>
+
+(The pre-merge hook parses `CI status` and `Smoke:` as independent gates. CI N/M counts only GitHub Actions check_runs. Smoke is its own gate: `fail` blocks merge, `skipped` is a valid value, `pass` is a positive signal.)
 
 ### Summary
 
@@ -351,6 +395,20 @@ The body is for summary and metadata — NOT for inline findings. All location-b
 
 <If any criteria not met:>
 **Action required:** <spec update needed / follow-up task needed / blocking>
+
+#### Adoption sweep
+
+<For each new public export / CLI command / MCP tool / capability:>
+
+| Symbol / command | Consumers found  | Classification              |
+| ---------------- | ---------------- | --------------------------- |
+| <name>           | <list or "none"> | Adopted / Missing consumers |
+
+<If >10 new exports:>
+**Cost-bounded:** <N> new exports — inline sweep deferred per the cost-bounding rule. Filed follow-up adoption task: mt#<id>.
+
+<If any "Missing consumers":>
+**Recommendation:** file follow-up adoption task(s) to wire consumers (NON-BLOCKING unless spec explicitly required wiring).
 
 ### Documentation impact
 
