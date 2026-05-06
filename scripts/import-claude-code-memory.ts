@@ -393,7 +393,7 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { createEmbeddingServiceFromConfig } = await import(
     "../src/domain/ai/embedding-service-factory"
   );
-  const { createVectorStorageFromConfig } = await import(
+  const { createVectorStorageForDomain } = await import(
     "../src/domain/storage/vector/vector-storage-factory"
   );
   const { MemoryService } = await import("../src/domain/memory");
@@ -437,7 +437,7 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const db = connection as MemoryServiceDb;
 
   const embeddingService = await createEmbeddingServiceFromConfig();
-  const vectorStorage = await createVectorStorageFromConfig(1536, persistence);
+  const vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
 
   return new MemoryService({ db, vectorStorage, embeddingService });
 }
