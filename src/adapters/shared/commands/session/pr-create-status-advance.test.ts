@@ -16,7 +16,7 @@ import type { SessionCommandDependencies } from "./types";
 describe("buildSessionPrCreateDeps (mt#1266)", () => {
   it("threads taskService, sessionDB from DI deps", () => {
     const stubTaskService = { marker: "task" } as any;
-    const stubSessionProvider = { marker: "sessiondb" } as any;
+    const stubSessionProvider = { marker: "persistence" } as any;
 
     const prCreateDeps = buildSessionPrCreateDeps(
       {

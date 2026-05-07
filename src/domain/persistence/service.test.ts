@@ -9,18 +9,18 @@
  */
 import { describe, test, expect, mock } from "bun:test";
 import { PersistenceService, buildPersistenceConfigFrom } from "./service";
+import { LegacySessiondbConfigError } from "../configuration/persistence-config";
 import type { Configuration } from "../configuration/schemas";
 
 const FAKE_CONNECTION_STRING = "postgresql://fake";
 const DB_UNAVAILABLE = "DB unavailable";
-const SESSIONDB_CONN = "postgresql://from-sessiondb";
 
 /**
- * Minimal Configuration shapes used to exercise the fallback resolution.
+ * Minimal Configuration shapes used to exercise resolution behavior.
  * Casts to Configuration are unavoidable because the full schema requires
  * many unrelated keys we don't care about for these tests.
  */
-const makeConfig = (parts: Partial<Configuration> & { sessiondb?: unknown }): Configuration =>
+const makeConfig = (parts: Partial<Configuration> & Record<string, unknown>): Configuration =>
   parts as unknown as Configuration;
 
 describe("PersistenceService (instance)", () => {
@@ -124,7 +124,7 @@ describe("PersistenceService (instance)", () => {
     }
   });
 
-  describe("buildPersistenceConfigFrom (mt#1271 — runtime fallback)", () => {
+  describe("buildPersistenceConfigFrom (modern persistence-only resolution)", () => {
     test("modern persistence.* path: returns postgres backend with connection string", () => {
       const config = makeConfig({
         persistence: {
@@ -138,46 +138,11 @@ describe("PersistenceService (instance)", () => {
       expect(out.postgres?.connectionString).toBe("postgresql://modern");
     });
 
-    test("precedence: explicit persistence.backend wins over sessiondb.backend", () => {
-      // Documented order in getEffectivePersistenceConfig: modern `persistence.*`
-      // takes precedence over the legacy `sessiondb.*` shape. We verify this
-      // specifically for the case where both are populated to disambiguate.
-      const config = makeConfig({
-        persistence: {
-          backend: "sqlite",
-          sqlite: { dbPath: "/default/sqlite.db" },
-        },
-        sessiondb: {
-          backend: "postgres",
-          postgres: { connectionString: SESSIONDB_CONN },
-        },
-      });
-      const out = buildPersistenceConfigFrom(config);
-      expect(out.backend).toBe("sqlite");
-    });
-
-    test("hosted-deploy path: persistence undefined, sessiondb.* alone resolves to postgres", () => {
-      // The exact hosted Railway scenario after mt#1271: container has
-      // MINSKY_SESSIONDB_BACKEND=postgres + MINSKY_SESSIONDB_POSTGRES_URL set.
-      // No `persistence.*` block in any committed config or env mapping.
-      // (We omit `persistence` entirely here to simulate the absence of the
-      // defaults-source contribution — see the follow-up note below.)
-      const config = makeConfig({
-        sessiondb: {
-          backend: "postgres",
-          postgres: { connectionString: SESSIONDB_CONN },
-        },
-      });
-      const out = buildPersistenceConfigFrom(config);
-      expect(out.backend).toBe("postgres");
-      expect(out.postgres?.connectionString).toBe(SESSIONDB_CONN);
-    });
-
     test("postgres backend with no connection string anywhere: postgres entry omitted", () => {
       // Edge case: backend says postgres but no connection string set. Caller
-      // (factory.create) will throw "PostgreSQL configuration required". We
+      // (factory.create) will throw 'PostgreSQL configuration required'. We
       // verify we don't fabricate a postgres entry.
-      const config = makeConfig({ sessiondb: { backend: "postgres" } });
+      const config = makeConfig({ persistence: { backend: "postgres" } });
       const out = buildPersistenceConfigFrom(config);
       expect(out.backend).toBe("postgres");
       expect(out.postgres).toBeUndefined();
@@ -199,7 +164,7 @@ describe("PersistenceService (instance)", () => {
       const prev = process.env.MINSKY_POSTGRES_URL;
       process.env.MINSKY_POSTGRES_URL = "postgresql://from-env";
       try {
-        const config = makeConfig({ sessiondb: { backend: "postgres" } });
+        const config = makeConfig({ persistence: { backend: "postgres" } });
         const out = buildPersistenceConfigFrom(config);
         expect(out.backend).toBe("postgres");
         expect(out.postgres?.connectionString).toBe("postgresql://from-env");
@@ -207,6 +172,18 @@ describe("PersistenceService (instance)", () => {
         if (prev === undefined) delete process.env.MINSKY_POSTGRES_URL;
         else process.env.MINSKY_POSTGRES_URL = prev;
       }
+    });
+
+    test("legacy sessiondb config throws LegacySessiondbConfigError (mt#1610)", () => {
+      // Loud-fail-on-legacy: any merged config still containing a sessiondb:
+      // block must throw with migration guidance, not silently strip the key.
+      const config = makeConfig({
+        sessiondb: {
+          backend: "postgres",
+          postgres: { connectionString: "postgresql://legacy" },
+        },
+      });
+      expect(() => buildPersistenceConfigFrom(config)).toThrow(LegacySessiondbConfigError);
     });
   });
 

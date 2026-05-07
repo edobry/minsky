@@ -19,9 +19,9 @@ const mockLoadConfiguration = mock(() =>
         backend: "minsky", // Modern tasks backend configuration
         strictIds: false,
       },
-      sessiondb: {
+      persistence: {
         backend: "sqlite",
-        path: ".minsky/sessions.db",
+        sqlite: { dbPath: ".minsky/sessions.db" },
       },
       workspace: ".",
       defaultBranch: "main",
@@ -183,19 +183,19 @@ describe("Custom Configuration System", () => {
       const config = provider.getConfig();
       expect(config).toBeDefined();
       expect(config.tasks.backend).toBeDefined(); // Use tasks.backend instead of deprecated backend
-      expect(config.sessiondb).toBeDefined();
+      expect(config.persistence).toBeDefined();
     });
 
     test("should implement get() method with path access", () => {
       // backend property is deprecated and may not exist, test tasks.backend instead
       expect(provider.get("tasks.backend")).toBeDefined();
-      expect(provider.get(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND)).toBeDefined();
+      expect(provider.get(CONFIG_TEST_PATTERNS.PERSISTENCE_BACKEND)).toBeDefined();
     });
 
     test("should implement has() method for path checking", () => {
       // backend property is deprecated and may not exist, test tasks.backend instead
       expect(provider.has("tasks.backend")).toBe(true);
-      expect(provider.has(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND)).toBe(true);
+      expect(provider.has(CONFIG_TEST_PATTERNS.PERSISTENCE_BACKEND)).toBe(true);
       expect(provider.has("nonexistent.path")).toBe(false);
     });
 
@@ -218,7 +218,7 @@ describe("Custom Configuration System", () => {
 
       // Check required fields exist (backend is deprecated, use tasks.backend)
       expect(config.tasks.backend).toBeDefined();
-      expect(config.sessiondb).toBeDefined();
+      expect(config.persistence).toBeDefined();
       expect(config.github).toBeDefined();
       expect(config.ai).toBeDefined();
     });
@@ -279,7 +279,7 @@ describe("Custom Configuration System", () => {
 
       for (let i = 0; i < iterations; i++) {
         provider.get("tasks.backend"); // Use tasks.backend instead of deprecated backend
-        provider.get(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND);
+        provider.get(CONFIG_TEST_PATTERNS.PERSISTENCE_BACKEND);
         provider.has("github.token");
       }
 
