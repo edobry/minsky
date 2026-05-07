@@ -625,10 +625,23 @@ export async function callOpenAIWithClient(
           const path = typeof args.path === "string" ? args.path : "";
 
           if (fnName === "read_file") {
-            const content = await tools.readFile(path);
+            // mt#1086 PR #969 R1 BLOCKING #2: defense-in-depth — wrap the
+            // tool call in withTimeout here so the timeout budget is
+            // enforced regardless of what the caller wired into
+            // `tools.readFile`. The production path in runReview already
+            // passes config.githubTimeoutMs into readFileAtRef, but a test
+            // seam, mock, or future provider could pass an unwrapped tool
+            // context. The model-timeout budget is the right ceiling for
+            // tool calls because they happen inside the same model-round
+            // budget — the model is waiting for the result.
+            const content = await withTimeout("tools.read_file", timeoutMs, () =>
+              tools.readFile(path)
+            );
             resultContent = JSON.stringify(buildReadFileEnvelope(content));
           } else if (fnName === "list_directory") {
-            const entries = await tools.listDirectory(path);
+            const entries = await withTimeout("tools.list_directory", timeoutMs, () =>
+              tools.listDirectory(path)
+            );
             resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
           } else {
             resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });

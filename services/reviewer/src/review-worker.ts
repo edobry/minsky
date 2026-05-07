@@ -76,7 +76,16 @@ export type PriorReviewFetcherFn = (
   octokit: InstanceType<typeof import("@octokit/rest").Octokit>,
   owner: string,
   repo: string,
-  prNumber: number
+  prNumber: number,
+  // mt#1086 PR #969 R1 BLOCKING #1: type alias must include the new
+  // optional timeoutMs parameter to match `fetchPriorReviews`'s extended
+  // signature. Otherwise the call site at the `?? fetchPriorReviews`
+  // fallback in runReview produces a 5-vs-4 arity mismatch when typed
+  // strictly. Optional + defaulted on the fetchPriorReviews side keeps
+  // existing test mocks compatible: a mock providing only the 4-param
+  // shape still assigns to PriorReviewFetcherFn, and runReview's call
+  // with `config.githubTimeoutMs` is silently ignored by the mock.
+  timeoutMs?: number
 ) => Promise<PriorReview[]>;
 
 export interface ReviewResult {
