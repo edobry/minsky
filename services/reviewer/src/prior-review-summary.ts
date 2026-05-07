@@ -10,6 +10,8 @@
  * Pure function — no side effects, no I/O. All tests can run synchronously.
  */
 
+import { safeTruncate } from "../../../src/utils/safe-truncate.ts";
+
 /**
  * A single prior review posted by the bot reviewer on this PR.
  * Populated by github-client.ts fetchPriorReviews.
@@ -212,7 +214,7 @@ export function extractFindings(body: string): string {
 
   // Fallback: return full body, truncated to 1000 chars to avoid blowing up
   // the summary budget for an unexpected format.
-  return body.length > 1000 ? `${body.slice(0, 1000)}\n…(truncated)` : body;
+  return body.length > 1000 ? `${safeTruncate(body, 1000, "head")}\n…(truncated)` : body;
 }
 
 /**

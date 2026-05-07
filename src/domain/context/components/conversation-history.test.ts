@@ -65,6 +65,7 @@ describe("conversation-history truncateContent — surrogate safety (mt#1615)", 
 
   test("every cut length 0..MAX_LEN on emoji content produces valid UTF-16", () => {
     const content = EMOJIS.join("").repeat(20); // 160 code units, repeated → 3200+ chars
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- test fixture: slicing to build a fixed-length input; content is emoji-only so split is expected and tested below
     const longContent = content.slice(0, 350); // > 300 code units
     for (let n = 3; n <= MAX_LEN; n++) {
       const result = truncateContent(longContent, n);

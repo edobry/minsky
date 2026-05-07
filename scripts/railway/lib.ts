@@ -237,6 +237,7 @@ export function assertHttpOk(status: number, statusText: string, bodyText: strin
   if (status >= 200 && status < 300) return;
   throw new Error(
     `Railway API request failed: HTTP ${status} ${statusText}. ` +
+      // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII JSON/HTML
       `Body: ${bodyText.slice(0, 500)}. ` +
       `Check your Railway token and network connectivity.`
   );

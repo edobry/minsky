@@ -40,6 +40,7 @@ import {
   type DowngradeAuditEntry,
   type FlatPriorFinding,
 } from "./severity-recovery";
+import { safeTruncate } from "../../../src/utils/safe-truncate.ts";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -1162,7 +1163,7 @@ export function parseReviewEvent(
 
   // Look for an explicit event marker in the last 400 chars — the prompt asks
   // the model to conclude with one.
-  const tail = text.slice(-400).toUpperCase();
+  const tail = safeTruncate(text, 400, "tail").toUpperCase();
   if (/\bREQUEST_CHANGES\b/.test(tail)) return "REQUEST_CHANGES";
   if (/\bAPPROVE\b/.test(tail)) return "APPROVE";
   return "COMMENT";
