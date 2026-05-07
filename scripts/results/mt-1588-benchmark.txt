@@ -1,0 +1,66 @@
+[mt#1588] memory enrichment benchmark
+  n=50, taskId=mt#1012
+  warm-up: 3 discarded samples per condition
+
+[mt#1588] sanity check — first search:
+  backend=embeddings, degraded=false, results=3
+
+Baseline (MINSKY_MCP_MEMORY_ENRICHMENT=0):
+  n=50
+  total: 0.2ms
+  mean: 0.00ms
+  p50: 0.00ms
+  p95: 0.01ms
+  p99: 0.02ms
+  min: 0.00ms
+  max: 0.02ms
+
+Enriched (full middleware):
+  n=50
+  total: 40812.4ms
+  mean: 816.25ms
+  p50: 835.05ms
+  p95: 945.55ms
+  p99: 1212.04ms
+  min: 607.66ms
+  max: 1212.04ms
+
+Overhead (enriched - baseline):
+  p50: +835.05ms
+  p95: +945.54ms
+
+---JSON---
+{
+  "n": 50,
+  "taskId": "mt#1012",
+  "baseline": {
+    "n": 50,
+    "totalMs": 0.21424800000022515,
+    "meanMs": 0.004284960000004503,
+    "p50Ms": 0.004167000000052212,
+    "p95Ms": 0.009875000000192813,
+    "p99Ms": 0.019083000000136963,
+    "minMs": 0.0019170000000485743,
+    "maxMs": 0.019083000000136963
+  },
+  "enriched": {
+    "n": 50,
+    "totalMs": 40812.369662,
+    "meanMs": 816.24739324,
+    "p50Ms": 835.0527090000032,
+    "p95Ms": 945.5492079999967,
+    "p99Ms": 1212.0393330000006,
+    "minMs": 607.658500000005,
+    "maxMs": 1212.0393330000006
+  },
+  "overhead": {
+    "p50Ms": 835.0485420000032,
+    "p95Ms": 945.5393329999965
+  },
+  "memorySanity": {
+    "backend": "embeddings",
+    "degraded": false,
+    "resultCount": 3
+  },
+  "timestamp": "2026-05-07T20:29:03.987Z"
+}
