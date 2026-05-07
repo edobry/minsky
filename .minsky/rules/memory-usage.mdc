@@ -18,7 +18,7 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 
 ## Bridge mechanism (Claude Code only)
 
-`.claude/hooks/memory-search.ts` is a `UserPromptSubmit` hook that auto-injects top-K `memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). It restores preamble-parity for Claude Code only and is explicitly **temporary**: other harnesses don't have it, so the memory system isn't yet fully harness-agnostic at the read layer.
+`.claude/hooks/memory-search.ts` is a `UserPromptSubmit` hook that auto-injects top-K `mcp__minsky__memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). It restores preamble-parity for Claude Code only and is explicitly **temporary**: other harnesses don't have it, so the memory system isn't yet fully harness-agnostic at the read layer.
 
 - **Tracking task (retirement):** mt#1588 — MCP middleware enrichment on `CallToolRequestSchema`. When that ships, every MCP-capable agent gets memory enrichment for free, the harness-specific hook is deleted, and the mechanism is fully agnostic.
 - **Budget:** escalate if mt#1588 is still TODO 5 days after this rule lands in its final state, OR if the Claude Code hook fires 3+ times in 24h without the underlying user-quality issue being investigated. Per CLAUDE.md `§Temporary mechanism budget`.
