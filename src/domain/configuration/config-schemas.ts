@@ -9,18 +9,9 @@
 import { z } from "zod";
 
 // Base schemas for common types
-const SessionDbBackendSchema = z.enum(["sqlite", "postgres"]);
 const LoggerModeSchema = z.enum(["HUMAN", "STRUCTURED", "auto"]);
 const LoggerLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 const _BackendTypeSchema = z.enum(["github-issues", "minsky"]);
-
-// SessionDB configuration schema
-export const SessionDbConfigSchema = z.object({
-  backend: SessionDbBackendSchema,
-  baseDir: z.string().optional().nullable(),
-  dbPath: z.string().optional().nullable(),
-  connectionString: z.string().optional().nullable(),
-});
 
 // AI provider configuration schema
 export const AIProviderConfigSchema = z.object({
@@ -68,7 +59,6 @@ export const BackendConfigSchema = z.record(z.string(), z.unknown());
 export const ConfigSchema = z.object({
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfigSchema.default({}),
-  sessiondb: SessionDbConfigSchema,
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
   logger: LoggerConfigSchema.default({
@@ -81,14 +71,6 @@ export const ConfigSchema = z.object({
 // Repository configuration schema
 export const RepositoryConfigSchema = z.object({
   version: z.number(),
-  sessiondb: z
-    .object({
-      backend: SessionDbBackendSchema,
-      base_dir: z.string().optional(),
-      db_path: z.string().optional(),
-      connection_string: z.string().optional(),
-    })
-    .optional(),
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
   logger: LoggerConfigSchema.optional(),
@@ -97,13 +79,6 @@ export const RepositoryConfigSchema = z.object({
 // Global user configuration schema
 export const GlobalUserConfigSchema = z.object({
   version: z.number(),
-  sessiondb: z
-    .object({
-      base_dir: z.string().optional(),
-      db_path: z.string().optional(),
-      connection_string: z.string().optional(),
-    })
-    .optional(),
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
   logger: LoggerConfigSchema.optional(),
@@ -178,7 +153,6 @@ export function validateGlobalUserConfig(config: unknown): ValidationResult {
 }
 
 // Type exports from schemas
-export type SessionDbConfig = z.infer<typeof SessionDbConfigSchema>;
 export type AIConfig = z.infer<typeof AIConfigSchema>;
 export type AIProviderConfig = z.infer<typeof AIProviderConfigSchema>;
 export type GitHubConfig = z.infer<typeof GitHubConfigSchema>;

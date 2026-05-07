@@ -154,9 +154,6 @@ export class ConfigurationValidator {
     // Validate GitHub configuration
     this.validateGitHubConfig(config, issues);
 
-    // Validate session database configuration
-    this.validateSessionDbConfig(config, issues);
-
     // Validate AI provider configuration
     this.validateAIConfig(config, issues);
 
@@ -191,47 +188,6 @@ export class ConfigurationValidator {
           suggestion: "Add 'owner' and 'repo' to backendConfig.github-issues",
         });
       }
-    }
-  }
-
-  /**
-   * Validate session database configuration
-   */
-  private validateSessionDbConfig(config: Configuration, issues: ValidationIssue[]): void {
-    const sessiondb = config.sessiondb as
-      | {
-          backend?: string;
-          postgres?: { connectionString?: string };
-          sqlite?: { path?: string; baseDir?: string };
-        }
-      | undefined;
-
-    if (!sessiondb) return;
-
-    // Check backend-specific requirements
-    switch (sessiondb.backend) {
-      case "postgres":
-        if (!sessiondb.postgres?.connectionString) {
-          issues.push({
-            path: "sessiondb.postgres.connectionString",
-            message: "PostgreSQL backend requires a connection string",
-            severity: ValidationSeverity.ERROR,
-            suggestion: "Add connectionString to sessiondb.postgres configuration",
-          });
-        }
-        break;
-
-      case "sqlite":
-        // SQLite is more flexible, but warn about default behavior
-        if (!sessiondb.sqlite?.path && !sessiondb.sqlite?.baseDir) {
-          issues.push({
-            path: "sessiondb.sqlite",
-            message: "SQLite backend will use default database location",
-            severity: ValidationSeverity.INFO,
-            suggestion: "Consider specifying 'path' or 'baseDir' for explicit control",
-          });
-        }
-        break;
     }
   }
 
