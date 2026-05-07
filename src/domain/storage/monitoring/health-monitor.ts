@@ -67,7 +67,7 @@ const StorageBackendFactory = {
   },
 };
 
-export class SessionDbHealthMonitor {
+export class PersistenceHealthMonitor {
   private static metrics: PerformanceMetrics[] = [];
   private static readonly MAX_METRICS = 1000; // Keep last 1000 metrics
   private static readonly HEALTH_CHECK_TIMEOUT = 5000; // 5 seconds

@@ -15,12 +15,12 @@ import type { Config } from "drizzle-kit";
  * Get Postgres connection string from environment variables.
  *
  * Priority:
- * 1. MINSKY_SESSIONDB_POSTGRES_URL (set by Minsky migration commands)
+ * 1. MINSKY_PERSISTENCE_POSTGRES_URL (set by Minsky migration commands)
  * 2. MINSKY_POSTGRES_URL (direct env override)
  * 3. Development fallback
  */
 function getPostgresConnectionString(): string {
-  const envUrl = process.env.MINSKY_SESSIONDB_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
+  const envUrl = process.env.MINSKY_PERSISTENCE_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
   if (envUrl) {
     return envUrl;
   }
