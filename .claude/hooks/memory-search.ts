@@ -29,9 +29,9 @@
 // @see mt#1012 — Phase 1 memory-system migration (bridge-policy b)
 // @see feedback_temporary_mechanism_budget — discipline this hook is bound by
 
-import { readInput, execWithPath } from "./types";
+import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { existsSync, statSync, renameSync, appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,11 +84,37 @@ export const MIN_PROMPT_LENGTH = 20;
 /** Hard cap on prompt length sent to memory_search — embeddings get noisy past a few hundred chars. */
 const MAX_QUERY_LENGTH = 500;
 
-/** Per-call timeout for `minsky memory search`. Hook-wide timeout is set in settings.json. */
-const SEARCH_TIMEOUT_MS = 8_000;
+/**
+ * Fraction of the host cap (set in `.claude/settings.json`) we allow the
+ * subprocess search call to consume. The remaining ~30% is headroom for
+ * process startup, stdout writes, log I/O, and OS scheduling jitter so the
+ * host doesn't SIGKILL us mid-call. Pattern matches `deriveBudgets` in
+ * `./types` (mt#1546) — using a single-call ratio because this hook makes
+ * exactly one external call.
+ */
+const SEARCH_TIMEOUT_RATIO = 0.7;
 
-/** Single-word affirmatives/short phatic responses we skip. Case-insensitive, punctuation-stripped. */
-const AFFIRMATIVE_WORDS = new Set([
+/** Floor on the derived search timeout. Below ~1s, even a healthy local CLI invocation gets SIGTERM'd. */
+const MIN_SEARCH_TIMEOUT_MS = 1_000;
+
+/**
+ * Hook filename for `readHostCap` lookup. Must match the `command` field's
+ * basename in `.claude/settings.json`'s UserPromptSubmit entry.
+ */
+const HOOK_FILENAME = "memory-search.ts";
+
+/**
+ * Single-word affirmatives + short phatic responses we skip. Case-insensitive,
+ * punctuation-stripped. Per PR review (round-1 BLOCKING #1), this set is
+ * narrowed to **affirmatives only** — negations (no/nope), control words
+ * (stop/cancel), and unrelated phatic openers (hi/hello/please) are NOT in
+ * this set, so a user starting a turn with one of those still gets memory
+ * injected. The narrow definition matches the spec wording ("single-word
+ * affirmatives").
+ *
+ * Exported so tests can verify membership without re-declaring the set.
+ */
+export const AFFIRMATIVE_WORDS = new Set([
   "ok",
   "okay",
   "k",
@@ -98,10 +124,6 @@ const AFFIRMATIVE_WORDS = new Set([
   "yeah",
   "yup",
   "y",
-  "no",
-  "nope",
-  "nah",
-  "n",
   "sure",
   "thanks",
   "thx",
@@ -109,15 +131,7 @@ const AFFIRMATIVE_WORDS = new Set([
   "proceed",
   "continue",
   "go",
-  "stop",
-  "halt",
-  "cancel",
-  "hi",
-  "hello",
-  "hey",
   "done",
-  "please",
-  "plz",
   "ack",
   "noted",
 ]);
@@ -165,10 +179,11 @@ export function isTrivialPrompt(
     return true;
   }
 
-  // Length-based skip — ignore whitespace inside the trim
+  // Length-based skip: trimmed.length strictly less than `minLength` (default
+  // 20) is trivial; `minLength` and longer is non-trivial. Even short prompts
+  // can be questions ("why?"), but the spec calls for a simple length floor;
+  // keep it simple per "iterate later if too aggressive".
   if (trimmed.length < minLength) {
-    // Even short prompts can be questions ("why?"). But the spec calls for a
-    // simple length floor; keep it simple per "iterate later if too aggressive".
     return true;
   }
 
@@ -332,6 +347,9 @@ export function buildInjection(
   // Sort by score desc — we want highest-relevance first.
   const ranked = [...results].sort((a, b) => b.score - a.score);
 
+  const TRUNCATION_MARKER = "\n\n[truncated to fit budget]";
+  const truncationMarkerChars = TRUNCATION_MARKER.length;
+
   const included: string[] = [];
   let tokensSoFar = envelopeTokens;
 
@@ -344,10 +362,12 @@ export function buildInjection(
       // Otherwise stop — partial entries are confusing in the rendered output.
       if (included.length === 0) {
         const remainingChars = (tokenBudget - tokensSoFar) * 4;
+        // Need enough chars for marker + meaningful content. The 200 floor
+        // ensures the truncated entry is substantive, not a useless stub.
         if (remainingChars > 200) {
-          const truncated = `${rendered.slice(0, remainingChars - 50)}\n\n[truncated to fit budget]`;
+          const sliceLen = Math.max(0, remainingChars - truncationMarkerChars);
+          const truncated = `${rendered.slice(0, sliceLen)}${TRUNCATION_MARKER}`;
           included.push(truncated);
-          tokensSoFar = tokenBudget;
         }
       }
       break;
@@ -362,7 +382,11 @@ export function buildInjection(
 
   const body = included.join("\n\n");
   const text = `${ENVELOPE_HEADER}${body}${ENVELOPE_FOOTER}`;
-  return { text, included: included.length, tokens: tokensSoFar };
+  // Re-estimate from the actual produced text rather than carrying the
+  // running counter forward. The truncation path's char-based slicing means
+  // the running counter can drift slightly from reality; the caller (and the
+  // log) deserves the actual token count, not a fiction pinned at the cap.
+  return { text, included: included.length, tokens: estimateTokens(text) };
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +421,7 @@ export interface LogFsDeps {
   statSync: (path: string) => { size: number };
   renameSync: (from: string, to: string) => void;
   appendFileSync: (path: string, data: string, encoding: "utf8") => void;
+  unlinkSync: (path: string) => void;
 }
 
 const REAL_FS_DEPS: LogFsDeps = {
@@ -404,12 +429,19 @@ const REAL_FS_DEPS: LogFsDeps = {
   statSync,
   renameSync,
   appendFileSync,
+  unlinkSync,
 };
 
 /**
  * Single-generation log rotation. When the file exceeds `LOG_ROTATE_BYTES`,
- * rename it to `<path>.1` (overwriting any prior `.1`) and start fresh.
- * Tiny enough to be self-contained — keeps the hook footprint minimal.
+ * rename it to `<path>.1` and start fresh. Pre-deletes any existing `.1`
+ * before the rename for cross-platform parity: POSIX `rename(2)` overwrites
+ * an existing destination, but Windows `rename` throws `EEXIST`. Without
+ * the pre-delete, the rotation would silently fail on Windows and the log
+ * would grow past the threshold.
+ *
+ * All operations are best-effort; failures are swallowed so the hook never
+ * blocks the user prompt on log housekeeping.
  */
 export function rotateLogIfNeeded(
   path: string = LOG_PATH,
@@ -420,7 +452,11 @@ export function rotateLogIfNeeded(
   try {
     const size = fs.statSync(path).size;
     if (size <= maxBytes) return;
-    fs.renameSync(path, `${path}.1`);
+    const rotatedPath = `${path}.1`;
+    if (fs.existsSync(rotatedPath)) {
+      fs.unlinkSync(rotatedPath);
+    }
+    fs.renameSync(path, rotatedPath);
   } catch {
     // Rotation failures are silent — logging is best-effort.
   }
@@ -449,23 +485,48 @@ export function writeLog(
 // ---------------------------------------------------------------------------
 
 /**
+ * Derive the per-call search timeout from the host cap declared in
+ * `.claude/settings.json`. Returns `{timeoutMs, warning?}` so callers can
+ * surface fallback warnings to the debug log.
+ *
+ * Pattern: mt#1546 introduced `readHostCap` precisely to avoid the
+ * hardcoded-timeout drift this PR's first round flagged. We use a single
+ * 70% ratio rather than `deriveBudgets`'s git-tailored ratios because this
+ * hook makes one external call (not a sequence of git probes).
+ */
+export function deriveSearchTimeoutMs(): { timeoutMs: number; warning?: string } {
+  const cap = readHostCap(HOOK_FILENAME, undefined, { events: ["UserPromptSubmit"] });
+  const timeoutMs = Math.max(
+    MIN_SEARCH_TIMEOUT_MS,
+    Math.floor(cap.hostCapSec * 1000 * SEARCH_TIMEOUT_RATIO)
+  );
+  return { timeoutMs, warning: cap.warning };
+}
+
+/**
  * Invoke `minsky memory search` and return the parsed response.
  *
  * Returns null when the CLI fails, times out, or produces unparseable output.
  * The caller treats null as "skip injection" — same posture as degraded results.
+ *
+ * `timeoutMs` defaults to the value derived from the host cap; tests can
+ * override to exercise edge cases hermetically.
  */
 export function runMemorySearch(
   query: string,
-  k: number = DEFAULT_K
+  k: number = DEFAULT_K,
+  timeoutMs?: number
 ): { response: MemorySearchResponseLite | null; latencyMs: number; error?: string } {
   // Truncate overlong queries — embeddings degrade past ~500 chars and we don't
   // want to ship multi-page prompts as the search input.
   const truncatedQuery = query.length > MAX_QUERY_LENGTH ? query.slice(0, MAX_QUERY_LENGTH) : query;
 
+  const effectiveTimeout = timeoutMs ?? deriveSearchTimeoutMs().timeoutMs;
+
   const start = Date.now();
   const result = execWithPath(
     ["minsky", "memory", "search", truncatedQuery, "--limit", String(k)],
-    { timeout: SEARCH_TIMEOUT_MS }
+    { timeout: effectiveTimeout }
   );
   const latencyMs = Date.now() - start;
 
@@ -581,14 +642,15 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Emit
+  // Emit via the shared writer so any future schema changes / instrumentation
+  // in `writeOutput` apply uniformly across hooks (PR review round-1 BLOCKING #3).
   const output: HookOutput = {
     hookSpecificOutput: {
       hookEventName: "UserPromptSubmit",
       additionalContext: injection.text,
     },
   };
-  process.stdout.write(JSON.stringify(output));
+  writeOutput(output);
 
   writeLog({
     ts: new Date().toISOString(),

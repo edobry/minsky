@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  AFFIRMATIVE_WORDS,
   buildInjection,
   estimateTokens,
   HOOK_VERSION,
@@ -45,6 +46,10 @@ function makeMockFs(initial: Record<string, string> = {}): MockFs {
     appendFileSync: (path: string, data: string, _encoding: "utf8") => {
       files.set(path, (files.get(path) ?? "") + data);
     },
+    unlinkSync: (path: string) => {
+      if (!files.has(path)) throw new Error(`ENOENT: ${path}`);
+      files.delete(path);
+    },
   };
 }
 
@@ -82,6 +87,51 @@ describe("isTrivialPrompt", () => {
     expect(isTrivialPrompt("yes!")).toBe(true);
     expect(isTrivialPrompt("ok?")).toBe(true);
     expect(isTrivialPrompt("'sure'")).toBe(true);
+  });
+
+  it("does NOT skip negations and control words (length permitting)", () => {
+    // These are single-word but NOT affirmatives. They should still trigger
+    // search if they pass the length floor — using a custom minLength=1 to
+    // exercise the affirmative-only check independent of length.
+    for (const word of ["no", "nope", "nah", "stop", "halt", "cancel", "please", "hi", "hello"]) {
+      expect(isTrivialPrompt(word, { minLength: 1 })).toBe(false);
+    }
+  });
+
+  it("AFFIRMATIVE_WORDS contains only affirmatives — sanity guard", () => {
+    // Spec wording is "single-word affirmatives". Negations / control words /
+    // greetings must NOT be in the set; the test above covers the runtime
+    // behavior, this test prevents future drift in the constant itself.
+    for (const forbidden of [
+      "no",
+      "nope",
+      "nah",
+      "n",
+      "stop",
+      "halt",
+      "cancel",
+      "please",
+      "plz",
+      "hi",
+      "hello",
+      "hey",
+    ]) {
+      expect(AFFIRMATIVE_WORDS.has(forbidden)).toBe(false);
+    }
+    for (const expected of [
+      "ok",
+      "yes",
+      "yeah",
+      "sure",
+      "thanks",
+      "proceed",
+      "continue",
+      "done",
+      "ack",
+      "noted",
+    ]) {
+      expect(AFFIRMATIVE_WORDS.has(expected)).toBe(true);
+    }
   });
 
   it("returns false for prompts at or over the 20-char threshold that aren't affirmatives", () => {
@@ -319,6 +369,16 @@ describe("buildInjection", () => {
     expect(injection?.text).toContain("huge");
   });
 
+  it("reports actual token count from rendered text (not a fiction pinned at the cap)", () => {
+    // After truncation, `tokens` must reflect the actual estimateTokens(text)
+    // for the produced text — not be set to tokenBudget regardless of reality.
+    const result = makeResult("only", 0.9, 20_000);
+    const injection = buildInjection([result], 500);
+    expect(injection).not.toBe(null);
+    const expected = estimateTokens(injection?.text ?? "");
+    expect(injection?.tokens).toBe(expected);
+  });
+
   it("respects DEFAULT_TOKEN_BUDGET as the default", () => {
     const result = makeResult("a", 0.9, 100);
     const injection = buildInjection([result]);
@@ -375,6 +435,47 @@ describe("rotateLogIfNeeded", () => {
     });
     rotateLogIfNeeded("/mock/rotate.log", 1000, fs);
     expect(fs.files.get("/mock/rotate.log.1")).toBe(newContent);
+  });
+
+  it("pre-deletes existing .1 before rename for cross-platform parity", () => {
+    // Simulates Windows-style fs where rename(from, to) throws if `to` exists.
+    // Without the pre-unlink, this would silently fail rotation.
+    const newContent = "x".repeat(2000);
+    const files = new Map<string, string>([
+      ["/mock/rotate.log", newContent],
+      ["/mock/rotate.log.1", "old rotated content"],
+    ]);
+    const unlinkCalls: string[] = [];
+    const renameCalls: Array<{ from: string; to: string }> = [];
+    const winLikeFs: LogFsDeps = {
+      existsSync: (path: string) => files.has(path),
+      statSync: (path: string) => {
+        const c = files.get(path);
+        if (c === undefined) throw new Error("ENOENT");
+        return { size: c.length };
+      },
+      renameSync: (from: string, to: string) => {
+        if (files.has(to)) throw new Error("EEXIST");
+        const c = files.get(from);
+        if (c === undefined) throw new Error("ENOENT");
+        files.delete(from);
+        files.set(to, c);
+        renameCalls.push({ from, to });
+      },
+      appendFileSync: (path: string, data: string, _e: "utf8") => {
+        files.set(path, (files.get(path) ?? "") + data);
+      },
+      unlinkSync: (path: string) => {
+        if (!files.has(path)) throw new Error("ENOENT");
+        files.delete(path);
+        unlinkCalls.push(path);
+      },
+    };
+    rotateLogIfNeeded("/mock/rotate.log", 1000, winLikeFs);
+    expect(unlinkCalls).toEqual(["/mock/rotate.log.1"]);
+    expect(renameCalls).toEqual([{ from: "/mock/rotate.log", to: "/mock/rotate.log.1" }]);
+    expect(files.get("/mock/rotate.log.1")).toBe(newContent);
+    expect(files.has("/mock/rotate.log")).toBe(false);
   });
 });
 
