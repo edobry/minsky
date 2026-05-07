@@ -138,10 +138,10 @@ Make the changes. This typically means editing some combination of:
 
 - `CLAUDE.md` — policy and protocol updates
 - `.claude/skills/*/SKILL.md` — process step additions
-- **Memory entries** — call `memory_create` to persist durable feedback (do NOT write to memory `.md` files)
-- `.cursor/rules/*.mdc` — enforcement rules
+- **Memory entries** — call `mcp__minsky__memory_create` to persist durable feedback. The Minsky DB is the canonical store; **do not** write to `~/.claude/projects/.../memory/*.md` files (per `memory-usage` rule).
+- `.minsky/rules/*.mdc` — enforcement rules (Minsky-native source; `.cursor/rules/` is a compiled output)
 
-Use sessions for any repo file changes. Call `memory_create` directly for persistent feedback entries — the memory system stores durably in the database, not in files.
+Use sessions for any repo file changes. Call `mcp__minsky__memory_create` directly for persistent feedback entries — the memory system stores durably in the Minsky DB, not in files.
 
 **Tier choice — file structural task NOW vs memory bridge only**
 
