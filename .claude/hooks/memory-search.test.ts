@@ -105,6 +105,12 @@ describe("isTrivialPrompt", () => {
     // Spec wording is "single-word affirmatives". Negations / control words /
     // greetings must NOT be in the set; the test above covers the runtime
     // behavior, this test prevents future drift in the constant itself.
+    //
+    // Per round-6 NON-BLOCKING #1: "go" was removed because it's ambiguous
+    // (could be "go build", a language name, or a continuation signal). The
+    // length floor still skips bare "go" (2 chars), so the user-visible
+    // behaviour for short "go" is unchanged; longer prompts starting with
+    // "go" now correctly get memory injection.
     for (const forbidden of [
       "no",
       "nope",
@@ -118,6 +124,7 @@ describe("isTrivialPrompt", () => {
       "hi",
       "hello",
       "hey",
+      "go",
     ]) {
       expect(AFFIRMATIVE_WORDS.has(forbidden)).toBe(false);
     }

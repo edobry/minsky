@@ -1,17 +1,19 @@
 #!/usr/bin/env bun
 // UserPromptSubmit hook: inject `memory_search` results into the conversation context.
 //
-// Restores Claude Code preamble-parity under mt#1012 bridge-policy (b), where the
-// auto-loaded MEMORY.md file has been deleted and memory now lives only in the DB.
-// Without this hook, every conversation starts cold; agents must explicitly call
-// memory_search to retrieve relevant context. The CLAUDE.md directive alone is not
-// enough — directives skip on routine turns.
+// Per mt#1012 bridge-policy (b), the auto-loaded memory preamble was removed and
+// memory now lives only in the DB. Without this hook, every conversation starts
+// cold; agents must explicitly call `memory_search` to retrieve relevant context.
+// The directive alone is not enough — directives skip on routine turns. This hook
+// closes the gap on Claude Code specifically; mt#1588 generalizes to all harnesses.
 //
 // Behaviour:
 //   - Skips trivial prompts (length < 20 chars, or single-word affirmatives).
 //   - Invokes `minsky memory search "<prompt>" --limit K` (K=5 default).
 //   - Skips silently when the CLI returns degraded results, empty results, or fails.
-//   - Truncates results from lowest score upward to fit a token budget (default 2000).
+//   - Token-budgets injection: rank results by score desc, accumulate greedily up
+//     to ~2000 tokens, stop on overflow. Single oversized hit gets truncated with
+//     a marker. (See `buildInjection` for full algorithm + what it does NOT do.)
 //   - Wraps results in a <system-reminder> block injected via additionalContext.
 //   - Logs every invocation to a rotated debug file so we can observe load-bearingness.
 //
@@ -130,7 +132,6 @@ export const AFFIRMATIVE_WORDS = new Set([
   "ty",
   "proceed",
   "continue",
-  "go",
   "done",
   "ack",
   "noted",
@@ -187,10 +188,14 @@ export function isTrivialPrompt(
     return true;
   }
 
-  // Single-word affirmative skip — split on whitespace, strip punctuation
+  // Single-word affirmative skip — split on whitespace, strip non-ASCII-alnum.
+  // ASCII-only character class (`A-Za-z0-9`) per the repo's "Ensure ASCII Code
+  // Symbols" rule — all entries in `AFFIRMATIVE_WORDS` are ASCII, so the
+  // Unicode property escapes (`\p{L}\p{N}`) used previously were unnecessary
+  // and added cross-runtime risk (round-6 BLOCKING #2).
   const words = trimmed.split(/\s+/);
   if (words.length === 1) {
-    const stripped = words[0].replace(/[^\p{L}\p{N}]/gu, "").toLowerCase();
+    const stripped = words[0].replace(/[^A-Za-z0-9]/g, "").toLowerCase();
     if (affirmatives.has(stripped)) {
       return true;
     }
