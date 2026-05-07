@@ -625,22 +625,20 @@ export async function callOpenAIWithClient(
           const path = typeof args.path === "string" ? args.path : "";
 
           if (fnName === "read_file") {
-            // mt#1086 PR #969 R1 BLOCKING #2: defense-in-depth — wrap the
-            // tool call in withTimeout here so the timeout budget is
-            // enforced regardless of what the caller wired into
-            // `tools.readFile`. The production path in runReview already
-            // passes config.githubTimeoutMs into readFileAtRef, but a test
-            // seam, mock, or future provider could pass an unwrapped tool
-            // context. The model-timeout budget is the right ceiling for
-            // tool calls because they happen inside the same model-round
-            // budget — the model is waiting for the result.
-            const content = await withTimeout("tools.read_file", timeoutMs, () =>
-              tools.readFile(path)
+            // mt#1086 PR #969 R1 BLOCKING #2 + R2 BLOCKING #2:
+            // Defense-in-depth wrap around the tool call AND propagate
+            // the AbortSignal into the inner function so abort actually
+            // cancels the underlying GitHub request (the R1 wrap by itself
+            // only short-circuited locally). The signal flows:
+            //   withTimeout → tools.readFile → readFileAtRef.callerSignal
+            //   → Octokit `request: { signal }`.
+            const content = await withTimeout("tools.read_file", timeoutMs, (signal) =>
+              tools.readFile(path, signal)
             );
             resultContent = JSON.stringify(buildReadFileEnvelope(content));
           } else if (fnName === "list_directory") {
-            const entries = await withTimeout("tools.list_directory", timeoutMs, () =>
-              tools.listDirectory(path)
+            const entries = await withTimeout("tools.list_directory", timeoutMs, (signal) =>
+              tools.listDirectory(path, signal)
             );
             resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
           } else {

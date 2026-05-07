@@ -268,7 +268,9 @@ describe("callOpenAIWithClient tool-use loop", () => {
 
     const result = await callOpenAIWithClient(client, MODEL, "system", "user", tools);
     expect(result.text).toBe("final review");
-    expect(readFileMock).toHaveBeenCalledWith("src/foo.ts");
+    // mt#1086: tool calls now receive (path, signal?) — assert the path
+    // arg only; signal is an internal cancellation plumbing detail.
+    expect(readFileMock.mock.calls[0]?.[0]).toBe("src/foo.ts");
 
     // On the second round the conversation carries the tool result message;
     // parse its content and assert the envelope shape.
@@ -323,7 +325,8 @@ describe("callOpenAIWithClient tool-use loop", () => {
 
     const result = await callOpenAIWithClient(client, MODEL, "system", "user", tools);
     expect(result.text).toBe("dir review");
-    expect(listDirectoryMock).toHaveBeenCalledWith("src");
+    // mt#1086: tool calls now receive (path, signal?) — assert path only.
+    expect(listDirectoryMock.mock.calls[0]?.[0]).toBe("src");
 
     expect(JSON.parse(extractToolMessageContent(capturedMessages[1]))).toEqual({
       ok: true,

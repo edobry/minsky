@@ -108,12 +108,17 @@ export async function fetchListFiles(
 ): Promise<string[]> {
   let allFiles: Array<{ filename: string }>;
   try {
-    allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, () =>
+    // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
+    // via `request: { signal }` so the underlying HTTP request is
+    // actually cancelled when the timeout fires (not just the
+    // Promise.race short-circuited locally).
+    allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, (signal) =>
       octokit.paginate(octokit.rest.pulls.listFiles, {
         owner,
         repo,
         pull_number: prNumber,
         per_page: 100,
+        request: { signal },
       })
     );
   } catch (err: unknown) {
@@ -158,15 +163,18 @@ export async function fetchPullRequestContext(
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PullRequestContext> {
   const [prResponse, diffResponse, filesChanged] = await Promise.all([
-    withTimeout("github.pulls.get", timeoutMs, () =>
-      octokit.rest.pulls.get({ owner, repo, pull_number: prNumber })
+    // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
+    // via `request: { signal }` so abort actually cancels the request.
+    withTimeout("github.pulls.get", timeoutMs, (signal) =>
+      octokit.rest.pulls.get({ owner, repo, pull_number: prNumber, request: { signal } })
     ),
-    withTimeout("github.pulls.get.diff", timeoutMs, () =>
+    withTimeout("github.pulls.get.diff", timeoutMs, (signal) =>
       octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
         owner,
         repo,
         pull_number: prNumber,
         mediaType: { format: "diff" },
+        request: { signal },
       })
     ),
     fetchListFiles(octokit, owner, repo, prNumber, timeoutMs),
@@ -218,13 +226,15 @@ export async function submitReview(
   // for rationale).
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<SubmittedReview> {
-  const response = await withTimeout("github.pulls.createReview", timeoutMs, () =>
+  // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
+  const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) =>
     octokit.rest.pulls.createReview({
       owner,
       repo,
       pull_number: prNumber,
       event,
       body,
+      request: { signal },
     })
   );
 
@@ -265,12 +275,14 @@ export async function fetchPriorReviews(
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PriorReview[]> {
   // paginate fetches all pages automatically. listReviews returns oldest-first.
-  const allReviews = await withTimeout("github.pulls.listReviews", timeoutMs, () =>
+  // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
+  const allReviews = await withTimeout("github.pulls.listReviews", timeoutMs, (signal) =>
     octokit.paginate(octokit.rest.pulls.listReviews, {
       owner,
       repo,
       pull_number: prNumber,
       per_page: 100,
+      request: { signal },
     })
   );
 
@@ -400,18 +412,28 @@ export async function readFileAtRef(
   path: string,
   ref: string,
   // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
-  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  // mt#1086 PR #969 R2 BLOCKING #2: optional caller-provided AbortSignal.
+  // When the OpenAI tool loop wraps the tool call in its own withTimeout,
+  // it passes that signal through here so abort actually cancels the
+  // Octokit request rather than leaving it running in the background.
+  // Combined with the internal withTimeout's signal via AbortSignal.any
+  // — whichever fires first wins.
+  callerSignal?: AbortSignal
 ): Promise<ReadFileResult | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await withTimeout("github.repos.getContent.file", timeoutMs, () =>
-      octokit.rest.repos.getContent({
+    const response = await withTimeout("github.repos.getContent.file", timeoutMs, (innerSignal) => {
+      const signal =
+        callerSignal !== undefined ? AbortSignal.any([innerSignal, callerSignal]) : innerSignal;
+      return octokit.rest.repos.getContent({
         owner,
         repo,
         path: normalizedPath,
         ref,
-      })
-    );
+        request: { signal },
+      });
+    });
     const data = response.data;
     // getContent returns an array for directories; a single object for files.
     if (Array.isArray(data)) {
@@ -463,18 +485,24 @@ export async function listDirectoryAtRef(
   path: string,
   ref: string,
   // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
-  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  // mt#1086 PR #969 R2 BLOCKING #2: optional caller-provided AbortSignal.
+  // See readFileAtRef above for rationale.
+  callerSignal?: AbortSignal
 ): Promise<DirEntry[] | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await withTimeout("github.repos.getContent.dir", timeoutMs, () =>
-      octokit.rest.repos.getContent({
+    const response = await withTimeout("github.repos.getContent.dir", timeoutMs, (innerSignal) => {
+      const signal =
+        callerSignal !== undefined ? AbortSignal.any([innerSignal, callerSignal]) : innerSignal;
+      return octokit.rest.repos.getContent({
         owner,
         repo,
         path: normalizedPath,
         ref,
-      })
-    );
+        request: { signal },
+      });
+    });
     const data = response.data;
     if (!Array.isArray(data)) {
       throw new Error(`Path "${path}" is not a directory`);

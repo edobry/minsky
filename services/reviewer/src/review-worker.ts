@@ -683,16 +683,29 @@ export async function runReview(
   // the base repo. Passing (owner=base, repo=base, ref=headSha) to getContent
   // 404s. Use the head coords so tool calls resolve correctly on forks too.
   const toolContext: ReviewerToolContext = {
-    readFile: (path: string) =>
-      readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha, config.githubTimeoutMs),
-    listDirectory: (path: string) =>
+    // mt#1086 PR #969 R2 BLOCKING #2: forward the caller signal from the
+    // OpenAI tool loop's withTimeout through to readFileAtRef /
+    // listDirectoryAtRef so it propagates into Octokit and actually cancels
+    // the underlying request when the budget elapses.
+    readFile: (path: string, signal?: AbortSignal) =>
+      readFileAtRef(
+        octokit,
+        pr.headOwner,
+        pr.headRepo,
+        path,
+        pr.headSha,
+        config.githubTimeoutMs,
+        signal
+      ),
+    listDirectory: (path: string, signal?: AbortSignal) =>
       listDirectoryAtRef(
         octokit,
         pr.headOwner,
         pr.headRepo,
         path,
         pr.headSha,
-        config.githubTimeoutMs
+        config.githubTimeoutMs,
+        signal
       ),
   };
 
