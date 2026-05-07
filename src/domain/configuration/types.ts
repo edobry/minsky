@@ -73,17 +73,7 @@ export interface RepositoryConfig {
       repo: string;
     };
   };
-  sessiondb?: {
-    backend?: "sqlite" | "postgres";
-    sqlite?: {
-      path?: string;
-    };
-    postgres?: {
-      connection_string?: string;
-    };
-    base_dir?: string;
-  };
-  persistence?: PersistenceConfig; // New persistence configuration
+  persistence?: PersistenceConfig;
   ai?: AIConfig;
   github?: GitHubConfig;
   logger?: LoggerConfig;
@@ -92,13 +82,7 @@ export interface RepositoryConfig {
 export interface GlobalUserConfig {
   version: number;
   github?: GitHubConfig;
-  sessiondb?: {
-    sqlite?: {
-      path?: string;
-    };
-    base_dir?: string;
-  };
-  persistence?: PersistenceConfig; // New persistence configuration
+  persistence?: PersistenceConfig;
   ai?: AIConfig;
   postgres?: PostgresConfig;
   logger?: LoggerConfig;
@@ -122,13 +106,6 @@ export interface BackendConfig {
     owner: string;
     repo: string;
   };
-}
-
-export interface SessionDbConfig {
-  backend: "sqlite" | "postgres";
-  dbPath?: string;
-  baseDir?: string;
-  connectionString?: string;
 }
 
 export interface PersistenceConfig {
@@ -232,11 +209,6 @@ export const _ENV_VARS = {
   GITHUB_TOKEN: "GITHUB_TOKEN",
   // AI provider credentials are now handled automatically by node-config
   // through custom-environment-variables.yaml
-  // SessionDB configuration
-  SESSIONDB_BACKEND: "MINSKY_SESSIONDB_BACKEND",
-  SESSIONDB_SQLITE_PATH: "MINSKY_SESSIONDB_SQLITE_PATH",
-  SESSIONDB_POSTGRES_URL: "MINSKY_SESSIONDB_POSTGRES_URL",
-  SESSIONDB_BASE_DIR: "MINSKY_SESSIONDB_BASE_DIR",
   // Logger configuration
   LOGGER_MODE: "MINSKY_LOG_MODE",
   LOGGER_LEVEL: "LOGLEVEL",

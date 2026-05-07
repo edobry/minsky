@@ -1,13 +1,16 @@
 /**
- * SessionDB Health Monitoring Service
+ * Persistence Health Monitoring Service
  *
  * Provides health checks, performance monitoring, and diagnostics
- * for all SessionDB storage backends.
+ * for all persistence storage backends.
  */
 
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
-import { SessionDbConfig } from "../../configuration/types";
+import {
+  getEffectivePersistenceConfig,
+  type EffectivePersistenceConfig,
+} from "../../configuration/persistence-config";
 
 import { getConfiguration } from "../../configuration/index";
 import { getErrorMessage } from "../../../errors";
@@ -52,7 +55,7 @@ export interface SystemHealth {
  * Local factory for creating storage backends for health checks
  */
 const StorageBackendFactory = {
-  createFromConfig(_config: SessionDbConfig): {
+  createFromConfig(_config: EffectivePersistenceConfig): {
     initialize: () => Promise<boolean>;
     readState: () => Promise<{ success: boolean; data: Record<string, unknown> }>;
   } {
@@ -72,28 +75,29 @@ export class SessionDbHealthMonitor {
   /**
    * Perform comprehensive health check
    */
-  static async performHealthCheck(sessionDbConfig?: SessionDbConfig): Promise<SystemHealth> {
+  static async performHealthCheck(
+    persistenceConfig?: EffectivePersistenceConfig
+  ): Promise<SystemHealth> {
     const startTime = Date.now();
 
     try {
-      // Load configuration if not provided
-      if (!sessionDbConfig) {
-        const config = getConfiguration() as Record<string, unknown>;
-        sessionDbConfig = config["sessiondb"] as SessionDbConfig;
+      // Resolve configuration if not provided
+      if (!persistenceConfig) {
+        persistenceConfig = getEffectivePersistenceConfig(getConfiguration());
       }
 
-      if (!sessionDbConfig) {
-        throw new Error("No SessionDB configuration available");
+      if (!persistenceConfig) {
+        throw new Error("No persistence configuration available");
       }
 
       // Check backend health
-      const backendHealth = await this.checkBackendHealth(sessionDbConfig);
+      const backendHealth = await this.checkBackendHealth(persistenceConfig);
 
       // Analyze performance metrics
       const performance = this.analyzePerformance();
 
       // Check storage-specific metrics
-      const storage = await this.checkStorageMetrics(sessionDbConfig);
+      const storage = await this.checkStorageMetrics(persistenceConfig);
 
       // Generate recommendations
       const recommendations = this.generateRecommendations(backendHealth, performance, storage);
@@ -125,7 +129,7 @@ export class SessionDbHealthMonitor {
         overall: "unhealthy",
         backend: {
           healthy: false,
-          backend: sessionDbConfig?.backend || "unknown",
+          backend: persistenceConfig?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
           errors: [`Health check failed: ${getErrorMessage(error)}`],
@@ -144,7 +148,9 @@ export class SessionDbHealthMonitor {
   /**
    * Check specific backend health
    */
-  private static async checkBackendHealth(config: SessionDbConfig): Promise<HealthStatus> {
+  private static async checkBackendHealth(
+    config: EffectivePersistenceConfig
+  ): Promise<HealthStatus> {
     const startTime = Date.now();
     const status: HealthStatus = {
       healthy: false,
@@ -215,7 +221,7 @@ export class SessionDbHealthMonitor {
    * Perform backend-specific health checks
    */
   private static async performBackendSpecificChecks(
-    config: SessionDbConfig,
+    config: EffectivePersistenceConfig,
     status: HealthStatus
   ): Promise<void> {
     switch (config.backend as string) {
@@ -232,7 +238,7 @@ export class SessionDbHealthMonitor {
    * SQLite backend specific health checks
    */
   private static async checkSqliteBackendHealth(
-    config: SessionDbConfig,
+    config: EffectivePersistenceConfig,
     status: HealthStatus
   ): Promise<void> {
     try {
@@ -273,7 +279,7 @@ export class SessionDbHealthMonitor {
    * PostgreSQL backend specific health checks
    */
   private static async checkPostgresBackendHealth(
-    config: SessionDbConfig,
+    config: EffectivePersistenceConfig,
     status: HealthStatus
   ): Promise<void> {
     try {
@@ -352,7 +358,7 @@ export class SessionDbHealthMonitor {
   /**
    * Check storage-specific metrics
    */
-  private static async checkStorageMetrics(config: SessionDbConfig): Promise<{
+  private static async checkStorageMetrics(config: EffectivePersistenceConfig): Promise<{
     diskUsage?: number;
     connectionCount?: number;
     locksHeld?: number;
@@ -471,13 +477,13 @@ export class SessionDbHealthMonitor {
 
     // Log performance issues
     if (!metric.success) {
-      log.warn("SessionDB operation failed", {
+      log.warn("Persistence operation failed", {
         operation: metric.operationType,
         backend: metric.backend,
         duration: metric.duration,
       });
     } else if (metric.duration > 2000) {
-      log.warn("Slow SessionDB operation", {
+      log.warn("Slow persistence operation", {
         operation: metric.operationType,
         backend: metric.backend,
         duration: metric.duration,
