@@ -128,6 +128,14 @@ export const LOG_PATH = "/tmp/claude-memory-search-hook.log";
 /** Rotate log when size exceeds this. */
 const LOG_ROTATE_BYTES = 1_000_000;
 
+/**
+ * Hook version tag, included in every log entry. Bump this when behavior
+ * changes so post-hoc log analysis can attribute observations (e.g. the
+ * load-bearingness budget signal in the spec) to the correct hook version.
+ * Pure cosmetic for log readers — runtime behavior is unaffected.
+ */
+export const HOOK_VERSION = "1";
+
 // ---------------------------------------------------------------------------
 // Trivial-prompt heuristic
 // ---------------------------------------------------------------------------
@@ -362,6 +370,8 @@ export function buildInjection(
 // ---------------------------------------------------------------------------
 
 export interface LogEntry {
+  /** Hook version (`HOOK_VERSION`) — set by `writeLog`. */
+  v?: string;
   ts: string;
   sessionId: string;
   promptPrefix: string;
@@ -427,7 +437,8 @@ export function writeLog(
 ): void {
   try {
     rotateLogIfNeeded(path, LOG_ROTATE_BYTES, fs);
-    fs.appendFileSync(path, `${JSON.stringify(entry)}\n`, "utf8");
+    const stamped: LogEntry = { v: HOOK_VERSION, ...entry };
+    fs.appendFileSync(path, `${JSON.stringify(stamped)}\n`, "utf8");
   } catch {
     // Logging is best-effort.
   }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   buildInjection,
   estimateTokens,
+  HOOK_VERSION,
   isTrivialPrompt,
   parseSearchOutput,
   renderResult,
@@ -397,6 +398,17 @@ describe("writeLog", () => {
     expect(parsed.sessionId).toBe("s1");
     expect(parsed.skipped).toBe(true);
     expect(parsed.skipReason).toBe("trivial");
+  });
+
+  it("stamps each entry with HOOK_VERSION under key 'v'", () => {
+    const fs = makeMockFs();
+    writeLog(
+      { ts: "t", sessionId: "s", promptPrefix: "p", promptLength: 1, skipped: true },
+      "/mock/v.log",
+      fs
+    );
+    const parsed = JSON.parse((fs.files.get("/mock/v.log") ?? "").trim());
+    expect(parsed.v).toBe(HOOK_VERSION);
   });
 
   it("appends multiple entries on separate lines", () => {
