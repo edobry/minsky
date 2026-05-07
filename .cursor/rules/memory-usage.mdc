@@ -5,4 +5,12 @@ alwaysApply: true
 tags:
   - memory
 ---
-Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.
+Memory is canonical in the Minsky DB. Per mt#1012 bridge-policy (b), the file-based memory directory `~/.claude/projects/<hash>/memory/` is being phased out: its contents have been imported to the DB (mt#1605 completed the embedding migration; 116 entries indexed). The file directory itself remains during the transition pending mt#1589 (the Claude Code bridge hook); deletion is tracked as **mt#1613** and gated on mt#1589 shipping.
+
+**At conversation start.** For any non-trivial conversation, call `memory_search` with a query matching the user's intent before deciding what to do. This is how relevant prior context surfaces. Trivial turns (single-word affirmatives, status checks, "ok") don't need it. Note: the auto-loaded `MEMORY.md` preamble may still appear in your context until mt#1613 completes, but **the DB is the source of truth** — if `memory_search` returns something different from the preamble, the DB wins.
+
+**On durable findings.** Call `memory_create` when you learn something durable that's not derivable from code, git history, specs, or rules. Do NOT write to filesystem memory files — the canonical store is the DB. Any new file-based memory writes during the transition will be lost when mt#1613 ships.
+
+**Harness-specific bridge:** mt#1589 — Claude Code `UserPromptSubmit` hook that injects `memory_search` results automatically at conversation start, restoring preamble-parity once the file-based preamble is gone. Until that hook ships, on-demand `memory_search` is the only retrieval mechanism — the discipline lives in this directive.
+
+**Long-term retirement:** mt#1588 — MCP middleware enrichment surfaces memory through the MCP server itself, available to every MCP-capable agent (not just Claude Code). When that lands, mt#1589's harness-specific hook gets retired and the cross-harness gap closes.
