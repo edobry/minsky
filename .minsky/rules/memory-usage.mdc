@@ -1,6 +1,6 @@
 ---
 name: Memory Usage
-description: Memory is stored in the Minsky DB. Agents retrieve it on-demand via `memory_search`; durable findings are saved with `memory_create`.
+description: Memory is stored in the Minsky DB. Agents retrieve it on-demand via `mcp__minsky__memory_search`; durable findings are saved with `mcp__minsky__memory_create`.
 alwaysApply: true
 tags:
   - minsky
