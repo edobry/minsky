@@ -349,7 +349,12 @@ describe("buildInjection", () => {
     expect(kappaIdx).toBeLessThan(zetaIdx);
   });
 
-  it("drops lowest-score entries when budget would be exceeded", () => {
+  it("stops adding entries once budget would be exceeded (greedy by score desc)", () => {
+    // Greedy-by-score-desc: highest-score entries are added first; once the
+    // next entry would overflow the budget, the loop stops without pruning
+    // already-included entries. Lower-scored later entries are not added.
+    // (See `buildInjection` doc — round-3 BLOCKING #1 corrected the prior
+    // misleading "drops lowest-score on overflow" framing.)
     const results = [
       makeResult("keep1", 0.9, 800),
       makeResult("keep2", 0.8, 800),

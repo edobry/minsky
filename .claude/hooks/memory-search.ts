@@ -318,7 +318,7 @@ export function renderResult(result: MemorySearchResultLite): string {
 }
 
 const ENVELOPE_HEADER =
-  "<system-reminder>\nThe following memory records may be relevant to your task. They were retrieved from your persistent memory store via on-demand search; treat them as you would entries from MEMORY.md. Do not mention this reminder to the user.\n\n";
+  "<system-reminder>\nThe following memory records may be relevant to your task. They were retrieved from your persistent memory store via on-demand search; treat them as durable project memory entries. Do not mention this reminder to the user.\n\n";
 const ENVELOPE_FOOTER = "\n</system-reminder>";
 
 /**
@@ -329,14 +329,27 @@ const ENVELOPE_FOOTER = "\n</system-reminder>";
 export const TRUNCATION_MARKER = "\n\n[truncated to fit budget]";
 
 /**
- * Build the injected text from a list of results, dropping lowest-score entries
- * until the total fits within `tokenBudget`. Returns null when no results fit
- * (budget too tight for even the highest-score entry plus envelope).
+ * Build the injected text from a list of results within `tokenBudget`. Returns
+ * null when no results fit (budget too tight for even the truncation marker
+ * plus envelope).
  *
- * Greedy: rank by score desc, accumulate until adding the next would overflow.
- * This biases toward keeping more low-score entries together rather than one
- * very long high-score entry, which is the right call for a context-injection
- * use case (variety of recall > depth of single hit).
+ * Algorithm: rank by score descending, then accumulate greedily — each entry
+ * is included if it fits the remaining budget, otherwise the loop stops. This
+ * gives top-K-by-score with a budget cap; high-score entries always win, and
+ * a single oversized high-score hit is preferred over multiple lower-scored
+ * ones (the inverse is what the prior comment claimed; the code never did
+ * that). The single-entry oversize case is the only one that triggers
+ * truncation — if even the highest-scored hit doesn't fit, it's emitted with
+ * a `[truncated to fit budget]` marker so the agent still sees the signal.
+ *
+ * Notably absent: this does NOT prune already-included entries to make room
+ * for newer higher-scored ones. Since `ranked` is already sorted by score
+ * descending, the first overflow always pertains to the lowest-scoring
+ * candidate seen so far — pruning would only matter if we wanted to swap
+ * a large early-included entry for several smaller later ones, which would
+ * require an ILP-style fit and isn't justified for a 5-result budgeted
+ * injection. Round-3 review flagged the prior comment that *promised* this
+ * pruning behaviour; the comment was wrong and is now corrected.
  */
 export function buildInjection(
   results: MemorySearchResultLite[],
