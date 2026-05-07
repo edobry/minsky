@@ -31,6 +31,8 @@ import { registerMemoryTools } from "../../adapters/mcp/memory";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
+import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
+import type { AppContainerInterface } from "../../composition/types";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -243,6 +245,59 @@ async function startHttpServer(
 }
 
 /**
+ * Construct a MemoryService for the mt#1588 spike enrichment middleware.
+ *
+ * Spike-scope inline duplication of `resolveMemoryService`'s real-path branch
+ * in `src/adapters/shared/commands/memory/index.ts`. If this spike graduates,
+ * extract the shared construction logic into a `src/domain/memory/build.ts`
+ * helper and have both call sites consume it.
+ *
+ * Returns null on any construction failure — the middleware degrades to a
+ * no-op (the dispatcher behaves identically to pre-mt#1588).
+ *
+ * @see mt#1588 — this spike
+ */
+async function buildMemoryServiceForSpike(
+  container: AppContainerInterface
+): Promise<MemoryServiceSurface | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const { createEmbeddingServiceFromConfig } = await import(
+      "../../domain/ai/embedding-service-factory"
+    );
+    const embeddingService = await createEmbeddingServiceFromConfig();
+
+    const { createVectorStorageForDomain } = await import(
+      "../../domain/storage/vector/vector-storage-factory"
+    );
+    const vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
+
+    const { MemoryService } = await import("../../domain/memory");
+    type MemoryServiceDb = import("../../domain/memory/memory-service").MemoryServiceDb;
+    return new MemoryService({
+      db: connection as MemoryServiceDb,
+      vectorStorage,
+      embeddingService,
+    });
+  } catch (err) {
+    log.debug("[mt#1588] buildMemoryServiceForSpike threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
+
+/**
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
@@ -338,6 +393,26 @@ export function createStartCommand(
         // (must happen after registerAllTools which triggers container.initialize())
         if (container) {
           server.setContainer(container);
+        }
+
+        // mt#1588 spike: construct a MemoryService and wire it into the server
+        // for the enrichment middleware. Construction failure (missing embedding
+        // service, no Postgres-backed persistence, etc.) leaves the middleware
+        // as a no-op — the dispatcher behaves identically to pre-mt#1588 in
+        // that case. Lazy-imported so non-MCP code paths don't pay the cost.
+        if (container) {
+          buildMemoryServiceForSpike(container)
+            .then((memoryService) => {
+              if (memoryService) {
+                server.setMemoryService(memoryService);
+                log.debug("[mt#1588] Memory enrichment middleware wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1588] Memory enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
         }
 
         // Register knowledge MCP resources on the server
