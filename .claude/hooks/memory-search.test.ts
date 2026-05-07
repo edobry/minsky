@@ -8,11 +8,14 @@ import {
   parseSearchOutput,
   renderResult,
   rotateLogIfNeeded,
+  TRUNCATION_MARKER,
   writeLog,
   type LogFsDeps,
   type MemorySearchResultLite,
   DEFAULT_TOKEN_BUDGET,
 } from "./memory-search";
+
+const TRUNCATION_MARKER_TEXT = TRUNCATION_MARKER.trim();
 
 // ---------------------------------------------------------------------------
 // In-memory fs mock — used by rotateLogIfNeeded/writeLog tests so we don't
@@ -365,8 +368,21 @@ describe("buildInjection", () => {
     const result = makeResult("huge", 0.9, 20_000);
     const injection = buildInjection([result], 500);
     expect(injection).not.toBe(null);
-    expect(injection?.text).toContain("[truncated to fit budget]");
+    expect(injection?.text).toContain(TRUNCATION_MARKER_TEXT);
     expect(injection?.text).toContain("huge");
+  });
+
+  it("always truncates a single oversized hit even under tight budgets (no hidden floor)", () => {
+    // Budget just past the real envelope cost (~70 tokens). Per round-2
+    // BLOCKING #1, we must NOT silently drop the only candidate — even when
+    // remainingChars is tiny, we should truncate and emit (worst case: only
+    // the marker survives). The previous behavior had a 200-char floor that
+    // would silently drop the only hit on tight budgets.
+    const result = makeResult("oversized-but-still-emitted", 0.9, 20_000);
+    const injection = buildInjection([result], 100);
+    expect(injection).not.toBe(null);
+    expect(injection?.text).toContain(TRUNCATION_MARKER_TEXT);
+    expect(injection?.included).toBe(1);
   });
 
   it("reports actual token count from rendered text (not a fiction pinned at the cap)", () => {

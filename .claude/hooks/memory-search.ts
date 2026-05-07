@@ -322,6 +322,13 @@ const ENVELOPE_HEADER =
 const ENVELOPE_FOOTER = "\n</system-reminder>";
 
 /**
+ * Marker appended when a single oversized hit is truncated to fit the
+ * remaining token budget. Exported so tests reference the source-of-truth
+ * rather than duplicating the literal (per `custom/no-magic-string-duplication`).
+ */
+export const TRUNCATION_MARKER = "\n\n[truncated to fit budget]";
+
+/**
  * Build the injected text from a list of results, dropping lowest-score entries
  * until the total fits within `tokenBudget`. Returns null when no results fit
  * (budget too tight for even the highest-score entry plus envelope).
@@ -347,7 +354,6 @@ export function buildInjection(
   // Sort by score desc — we want highest-relevance first.
   const ranked = [...results].sort((a, b) => b.score - a.score);
 
-  const TRUNCATION_MARKER = "\n\n[truncated to fit budget]";
   const truncationMarkerChars = TRUNCATION_MARKER.length;
 
   const included: string[] = [];
@@ -358,17 +364,21 @@ export function buildInjection(
     // Each entry adds its own size + 2 chars for the "\n\n" separator (~1 token).
     const entryTokens = estimateTokens(rendered) + 1;
     if (tokensSoFar + entryTokens > tokenBudget) {
-      // If we haven't fit even one, truncate this entry to fit the remaining budget.
-      // Otherwise stop — partial entries are confusing in the rendered output.
+      // If we haven't fit even one, truncate this entry to fit the remaining
+      // budget. Otherwise stop — partial entries are confusing mid-list.
+      //
+      // Per round-2 BLOCKING #1: no hidden char floor here. The envelope-fits
+      // gate at the top of `buildInjection` is the only "is the budget large
+      // enough to inject anything" check; once we're past it, a single oversized
+      // hit always truncates and emits, even if `remainingChars` is small.
+      // Worst case: `sliceLen = 0` and the output is just the truncation marker
+      // — still a structural signal to the agent that memory matched but
+      // didn't fit. The user prompt is never blocked either way.
       if (included.length === 0) {
-        const remainingChars = (tokenBudget - tokensSoFar) * 4;
-        // Need enough chars for marker + meaningful content. The 200 floor
-        // ensures the truncated entry is substantive, not a useless stub.
-        if (remainingChars > 200) {
-          const sliceLen = Math.max(0, remainingChars - truncationMarkerChars);
-          const truncated = `${rendered.slice(0, sliceLen)}${TRUNCATION_MARKER}`;
-          included.push(truncated);
-        }
+        const remainingChars = Math.max(0, (tokenBudget - tokensSoFar) * 4);
+        const sliceLen = Math.max(0, remainingChars - truncationMarkerChars);
+        const truncated = `${rendered.slice(0, sliceLen)}${TRUNCATION_MARKER}`;
+        included.push(truncated);
       }
       break;
     }
@@ -409,6 +419,12 @@ export interface LogEntry {
   backend?: string;
   latencyMs?: number;
   error?: string;
+  /**
+   * Host-cap fallback warning surfaced from `deriveSearchTimeoutMs`. Present
+   * when settings.json couldn't be read / parsed / matched, so operators can
+   * detect misconfiguration. Round-2 BLOCKING #2.
+   */
+  warning?: string;
 }
 
 /**
@@ -509,19 +525,38 @@ export function deriveSearchTimeoutMs(): { timeoutMs: number; warning?: string }
  * Returns null when the CLI fails, times out, or produces unparseable output.
  * The caller treats null as "skip injection" — same posture as degraded results.
  *
+ * The returned `warning` carries any host-cap fallback signal from
+ * `deriveSearchTimeoutMs` (CLAUDE_PROJECT_DIR unset, settings.json missing,
+ * no matcher entry). Operators see this in the debug log so misconfigured
+ * `.claude/settings.json` is detectable. Per round-2 BLOCKING #2.
+ *
  * `timeoutMs` defaults to the value derived from the host cap; tests can
- * override to exercise edge cases hermetically.
+ * override to exercise edge cases hermetically. When provided, no warning
+ * is generated (the caller has already taken responsibility for the value).
  */
 export function runMemorySearch(
   query: string,
   k: number = DEFAULT_K,
   timeoutMs?: number
-): { response: MemorySearchResponseLite | null; latencyMs: number; error?: string } {
+): {
+  response: MemorySearchResponseLite | null;
+  latencyMs: number;
+  error?: string;
+  warning?: string;
+} {
   // Truncate overlong queries — embeddings degrade past ~500 chars and we don't
   // want to ship multi-page prompts as the search input.
   const truncatedQuery = query.length > MAX_QUERY_LENGTH ? query.slice(0, MAX_QUERY_LENGTH) : query;
 
-  const effectiveTimeout = timeoutMs ?? deriveSearchTimeoutMs().timeoutMs;
+  let effectiveTimeout: number;
+  let derivationWarning: string | undefined;
+  if (typeof timeoutMs === "number") {
+    effectiveTimeout = timeoutMs;
+  } else {
+    const derived = deriveSearchTimeoutMs();
+    effectiveTimeout = derived.timeoutMs;
+    derivationWarning = derived.warning;
+  }
 
   const start = Date.now();
   const result = execWithPath(
@@ -531,22 +566,28 @@ export function runMemorySearch(
   const latencyMs = Date.now() - start;
 
   if (result.timedOut) {
-    return { response: null, latencyMs, error: "timeout" };
+    return { response: null, latencyMs, error: "timeout", warning: derivationWarning };
   }
   if (result.exitCode !== 0) {
     return {
       response: null,
       latencyMs,
       error: `exit ${result.exitCode}: ${(result.stderr || result.stdout).slice(0, 200)}`,
+      warning: derivationWarning,
     };
   }
 
   const parsed = parseSearchOutput(result.stdout);
   if (!parsed) {
-    return { response: null, latencyMs, error: "unparseable output" };
+    return {
+      response: null,
+      latencyMs,
+      error: "unparseable output",
+      warning: derivationWarning,
+    };
   }
 
-  return { response: parsed, latencyMs };
+  return { response: parsed, latencyMs, warning: derivationWarning };
 }
 
 // ---------------------------------------------------------------------------
@@ -579,8 +620,10 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Run search
-  const { response, latencyMs, error } = runMemorySearch(prompt, DEFAULT_K);
+  // Run search. The warning carries any host-cap fallback signal so operators
+  // can detect misconfigured settings.json — surfaced on every log path
+  // (round-2 BLOCKING #2).
+  const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
 
   if (!response) {
     writeLog({
@@ -591,6 +634,7 @@ if (import.meta.main) {
       skipped: true,
       skipReason: error ?? "search-failed",
       latencyMs,
+      warning,
     });
     process.exit(0);
   }
@@ -607,6 +651,7 @@ if (import.meta.main) {
       degraded: true,
       backend: response.backend,
       latencyMs,
+      warning,
     });
     process.exit(0);
   }
@@ -622,6 +667,7 @@ if (import.meta.main) {
       skipReason: "empty",
       backend: response.backend,
       latencyMs,
+      warning,
     });
     process.exit(0);
   }
@@ -638,6 +684,7 @@ if (import.meta.main) {
       skipReason: "no-fit",
       backend: response.backend,
       latencyMs,
+      warning,
     });
     process.exit(0);
   }
@@ -663,6 +710,7 @@ if (import.meta.main) {
     injectedCount: injection.included,
     backend: response.backend,
     latencyMs,
+    warning,
   });
 
   process.exit(0);
