@@ -21,6 +21,7 @@ import { describe, test, expect } from "bun:test";
 import type { CognitionProvider, CognitionResult, CognitionTask } from "../cognition/types";
 import type { ExtractedTurn } from "./turn-extractor";
 import { SummaryGenerator } from "./summary-generator";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -284,5 +285,75 @@ describe("SummaryGenerator", () => {
 
       expect(caught).toBe(underlyingError);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surrogate-pair safety regression tests (mt#1615)
+// ---------------------------------------------------------------------------
+
+function hasUnpairedSurrogate(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      i++;
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+}
+
+function jsonRoundtrips(s: string): boolean {
+  try {
+    const encoded = JSON.stringify({ s });
+    const decoded = JSON.parse(encoded) as { s: string };
+    return decoded.s === s;
+  } catch {
+    return false;
+  }
+}
+
+// The per-turn truncation limit in summary-generator.ts
+const MAX_CHARS_PER_TURN = 1000;
+
+describe("summary-generator buildUserPrompt truncation — surrogate safety (mt#1615)", () => {
+  const EMOJIS = ["🔍", "🚀", "🎯", "🤖"];
+
+  test("every cut length 0..MAX_CHARS_PER_TURN on emoji turn text produces valid UTF-16", () => {
+    const emojiBlock = EMOJIS.join("").repeat(130); // 1040 code units
+    for (let n = 0; n <= MAX_CHARS_PER_TURN; n++) {
+      const result = safeTruncate(emojiBlock, n, "head");
+      expect(hasUnpairedSurrogate(result)).toBe(false);
+      expect(jsonRoundtrips(result)).toBe(true);
+    }
+  });
+
+  test("boundary cut at exactly 1000 on text ending with emoji is surrogate-safe", () => {
+    const prefix = "a".repeat(999);
+    const userText = `${prefix}🔍 more text here`;
+    // Naive .slice(0, 1000) → 999 ASCII + high surrogate (lone)
+    const result = safeTruncate(userText, MAX_CHARS_PER_TURN, "head");
+    expect(hasUnpairedSurrogate(result)).toBe(false);
+    expect(jsonRoundtrips(result)).toBe(true);
+    expect(result).toBe(prefix); // stepped back from high surrogate
+  });
+
+  test("all four spec emojis at the 1000-char boundary", () => {
+    for (const emoji of EMOJIS) {
+      const userText = `${"a".repeat(999) + emoji}trailing`;
+      const result = safeTruncate(userText, MAX_CHARS_PER_TURN, "head");
+      expect(hasUnpairedSurrogate(result)).toBe(false);
+      expect(jsonRoundtrips(result)).toBe(true);
+    }
+  });
+
+  test("short turn text returned unchanged", () => {
+    const short = "What does this function do? 🔍";
+    const result = safeTruncate(short, MAX_CHARS_PER_TURN, "head");
+    expect(result).toBe(short);
+    expect(hasUnpairedSurrogate(result)).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ import { join } from "path";
 import { glob } from "glob";
 
 import type { Ask } from "./types";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Policy text types
@@ -211,8 +212,9 @@ function isListContinuation(lines: string[]): boolean {
 
 /** Truncate a long quote for the citation; preserves the matching line. */
 function truncateQuote(text: string, maxLength = 200): string {
-  if (text.length <= maxLength) return text.trim();
-  return `${text.trim().slice(0, maxLength - 3)}...`;
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${safeTruncate(trimmed, maxLength - 3, "head")}...`;
 }
 
 // ---------------------------------------------------------------------------
