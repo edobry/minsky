@@ -1333,3 +1333,5 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - 10 custom ESLint rules enforce architectural patterns
 
 Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.
+
+Under Claude Code specifically, the `.claude/hooks/memory-search.ts` `UserPromptSubmit` hook auto-injects top-K `memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). The hook is **temporary** — it restores the auto-loaded preamble behavior that mt#1012's bridge-policy (b) removed when the file-based MEMORY.md directory was deleted. The structural retirement target is **mt#1588** (MCP middleware enrichment), which graduates the mechanism from a Claude-Code-specific shim to a cross-harness one. Per the temporary-mechanism budget: if mt#1588 is still TODO 5 days after the hook lands, OR the hook fires 3+ times in 24h without an underlying user-quality investigation, surface for reprioritization.
