@@ -18,8 +18,8 @@ minsky sessions start --sessiondb-backend=sqlite
 ### 2. Environment Variables
 
 ```bash
-export MINSKY_SESSIONDB_BACKEND=postgres
-export MINSKY_SESSIONDB_POSTGRES_CONNECTION_STRING="postgresql://user:pass@localhost/minsky"
+export MINSKY_PERSISTENCE_BACKEND=postgres
+export MINSKY_PERSISTENCE_POSTGRES_URL="postgresql://user:pass@localhost/minsky"
 export MINSKY_AI_DEFAULT_PROVIDER=openai
 export MINSKY_WORKSPACE_MAIN_PATH="/absolute/path/to/main/workspace"  # NEW
 ```
@@ -30,10 +30,10 @@ export MINSKY_WORKSPACE_MAIN_PATH="/absolute/path/to/main/workspace"  # NEW
 version: 1
 workspace:
   mainPath: "/absolute/path/to/main/workspace" # NEW
-sessiondb:
+persistence:
   backend: sqlite
   sqlite:
-    path: "~/.local/state/minsky/sessions.db"
+    dbPath: "~/.local/state/minsky/sessions.db"
 ```
 
 ### 4. Repository Configuration File (`.minsky/config.yaml`)
