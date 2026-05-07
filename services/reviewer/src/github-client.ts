@@ -13,6 +13,18 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
 import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
+import { withTimeout } from "./with-timeout";
+
+/**
+ * Default GitHub-API timeout used when these helpers are called without an
+ * explicit value (tests, scripts that don't load config). Matches the
+ * production default in `config.ts` (`REVIEWER_GITHUB_TIMEOUT_MS`); kept in
+ * sync manually because the test surface that calls these helpers directly
+ * doesn't load config.
+ *
+ * mt#1086.
+ */
+const DEFAULT_GITHUB_TIMEOUT_MS = 30_000;
 
 export async function createOctokit(config: ReviewerConfig): Promise<Octokit> {
   const auth = createAppAuth({
@@ -88,16 +100,22 @@ export async function fetchListFiles(
   octokit: Octokit,
   owner: string,
   repo: string,
-  prNumber: number
+  prNumber: number,
+  // mt#1086: per-call timeout. Optional + defaulted so existing test
+  // sites and scripts that call this directly continue to work; production
+  // callers pass `config.githubTimeoutMs`.
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<string[]> {
   let allFiles: Array<{ filename: string }>;
   try {
-    allFiles = await octokit.paginate(octokit.rest.pulls.listFiles, {
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-    });
+    allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, () =>
+      octokit.paginate(octokit.rest.pulls.listFiles, {
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: 100,
+      })
+    );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.log(
@@ -133,17 +151,25 @@ export async function fetchPullRequestContext(
   octokit: Octokit,
   owner: string,
   repo: string,
-  prNumber: number
+  prNumber: number,
+  // mt#1086: per-call timeout — applied independently to each of the three
+  // parallel sub-requests, so the overall wall-clock is bounded by
+  // max(timeoutMs) rather than 3*timeoutMs.
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PullRequestContext> {
   const [prResponse, diffResponse, filesChanged] = await Promise.all([
-    octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }),
-    octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
-      owner,
-      repo,
-      pull_number: prNumber,
-      mediaType: { format: "diff" },
-    }),
-    fetchListFiles(octokit, owner, repo, prNumber),
+    withTimeout("github.pulls.get", timeoutMs, () =>
+      octokit.rest.pulls.get({ owner, repo, pull_number: prNumber })
+    ),
+    withTimeout("github.pulls.get.diff", timeoutMs, () =>
+      octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+        owner,
+        repo,
+        pull_number: prNumber,
+        mediaType: { format: "diff" },
+      })
+    ),
+    fetchListFiles(octokit, owner, repo, prNumber, timeoutMs),
   ]);
 
   const pr = prResponse.data;
@@ -187,15 +213,20 @@ export async function submitReview(
   repo: string,
   prNumber: number,
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT",
-  body: string
+  body: string,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles
+  // for rationale).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<SubmittedReview> {
-  const response = await octokit.rest.pulls.createReview({
-    owner,
-    repo,
-    pull_number: prNumber,
-    event,
-    body,
-  });
+  const response = await withTimeout("github.pulls.createReview", timeoutMs, () =>
+    octokit.rest.pulls.createReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      event,
+      body,
+    })
+  );
 
   return {
     id: response.data.id,
@@ -229,15 +260,19 @@ export async function fetchPriorReviews(
   octokit: Octokit,
   owner: string,
   repo: string,
-  prNumber: number
+  prNumber: number,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PriorReview[]> {
   // paginate fetches all pages automatically. listReviews returns oldest-first.
-  const allReviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
-    owner,
-    repo,
-    pull_number: prNumber,
-    per_page: 100,
-  });
+  const allReviews = await withTimeout("github.pulls.listReviews", timeoutMs, () =>
+    octokit.paginate(octokit.rest.pulls.listReviews, {
+      owner,
+      repo,
+      pull_number: prNumber,
+      per_page: 100,
+    })
+  );
 
   let rawReviews = allReviews;
   if (rawReviews.length > MAX_REVIEWS_FETCHED) {
@@ -363,16 +398,20 @@ export async function readFileAtRef(
   owner: string,
   repo: string,
   path: string,
-  ref: string
+  ref: string,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<ReadFileResult | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: normalizedPath,
-      ref,
-    });
+    const response = await withTimeout("github.repos.getContent.file", timeoutMs, () =>
+      octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: normalizedPath,
+        ref,
+      })
+    );
     const data = response.data;
     // getContent returns an array for directories; a single object for files.
     if (Array.isArray(data)) {
@@ -422,16 +461,20 @@ export async function listDirectoryAtRef(
   owner: string,
   repo: string,
   path: string,
-  ref: string
+  ref: string,
+  // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles).
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<DirEntry[] | null> {
   const normalizedPath = normalizeContentPath(path);
   try {
-    const response = await octokit.rest.repos.getContent({
-      owner,
-      repo,
-      path: normalizedPath,
-      ref,
-    });
+    const response = await withTimeout("github.repos.getContent.dir", timeoutMs, () =>
+      octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path: normalizedPath,
+        ref,
+      })
+    );
     const data = response.data;
     if (!Array.isArray(data)) {
       throw new Error(`Path "${path}" is not a directory`);

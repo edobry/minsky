@@ -553,7 +553,7 @@ export async function runReview(
 
   const octokit = await createOctokit(config);
 
-  const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber);
+  const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber, config.githubTimeoutMs);
   const tier = await resolveTier(prNumber, pr.body, config);
 
   // Classify the PR scope (mt#1188): drives prompt-variant selection to
@@ -616,7 +616,13 @@ export async function runReview(
   // cost twice.
   let priorFlatFindings: FlatPriorFinding[] = [];
   try {
-    const rawPriorReviews = await priorReviewFetcherFn(octokit, owner, repo, prNumber);
+    const rawPriorReviews = await priorReviewFetcherFn(
+      octokit,
+      owner,
+      repo,
+      prNumber,
+      config.githubTimeoutMs
+    );
     // SC-2 (mt#1189): sanitize each prior review body before ingestion so that
     // CoT scratch leaked into a prior review cannot contaminate this iteration's
     // prompt. sanitizeReviewBody is non-throwing — it always returns a result.
@@ -668,9 +674,17 @@ export async function runReview(
   // the base repo. Passing (owner=base, repo=base, ref=headSha) to getContent
   // 404s. Use the head coords so tool calls resolve correctly on forks too.
   const toolContext: ReviewerToolContext = {
-    readFile: (path: string) => readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
+    readFile: (path: string) =>
+      readFileAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha, config.githubTimeoutMs),
     listDirectory: (path: string) =>
-      listDirectoryAtRef(octokit, pr.headOwner, pr.headRepo, path, pr.headSha),
+      listDirectoryAtRef(
+        octokit,
+        pr.headOwner,
+        pr.headRepo,
+        path,
+        pr.headSha,
+        config.githubTimeoutMs
+      ),
   };
 
   // Gate tool wiring via the pure helper. For forked PRs on OpenAI the probe
@@ -730,7 +744,15 @@ export async function runReview(
     // status=error return + GitHub silent" against a submission-side cause
     // (rate limit, transient 5xx, identity issue) rather than guessing.
     try {
-      await submitReview(octokit, owner, repo, prNumber, "COMMENT", skipNotice);
+      await submitReview(
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        "COMMENT",
+        skipNotice,
+        config.githubTimeoutMs
+      );
     } catch (submitErr) {
       console.log(
         JSON.stringify(
@@ -895,7 +917,15 @@ export async function runReview(
     }
 
     const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
-    const review = await submitReview(octokit, owner, repo, prNumber, event, reviewBody);
+    const review = await submitReview(
+      octokit,
+      owner,
+      repo,
+      prNumber,
+      event,
+      reviewBody,
+      config.githubTimeoutMs
+    );
 
     const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce(
       (acc, n) => acc + n,
@@ -985,7 +1015,8 @@ export async function runReview(
         repo,
         prNumber,
         outcome.event,
-        annotateReviewBody(sanitized.body, output, tier, isSelfReview)
+        annotateReviewBody(sanitized.body, output, tier, isSelfReview),
+        config.githubTimeoutMs
       );
     } catch (submitErr) {
       // Log the secondary failure (mt#1370). Without this, a CoT-leak followed
@@ -1027,7 +1058,8 @@ export async function runReview(
     repo,
     prNumber,
     outcome.event,
-    annotateReviewBody(sanitized.body, output, tier, isSelfReview)
+    annotateReviewBody(sanitized.body, output, tier, isSelfReview),
+    config.githubTimeoutMs
   );
 
   // Best-effort count of BLOCKING findings in the submitted review body.
