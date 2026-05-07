@@ -15,12 +15,12 @@ async function main() {
     // Extract database configuration
     const dbConfig = {
       postgres: {
-        connectionString: config.sessiondb?.postgres?.connectionString || null,
+        connectionString: config.persistence?.postgres?.connectionString || null,
       },
       sqlite: {
-        path: config.sessiondb?.sqlite?.path || null,
+        path: config.persistence?.sqlite?.dbPath || null,
       },
-      backend: config.sessiondb?.backend || "sqlite",
+      backend: config.persistence?.backend || "sqlite",
     };
 
     // Output as JSON for consumption by drizzle config

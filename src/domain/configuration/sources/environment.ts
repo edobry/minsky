@@ -56,14 +56,6 @@ export const environmentMappings = {
   MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
   MINSKY_PERSISTENCE_POSTGRES_URL: "persistence.postgres.connectionString",
 
-  // SessionDB configuration (legacy — kept for back-compat, deprecated)
-  // These populate the legacy `sessiondb.*` key; `getEffectivePersistenceConfig`
-  // reads both shapes. New deployments should use `MINSKY_PERSISTENCE_*` above.
-  MINSKY_SESSIONDB_BACKEND: "sessiondb.backend",
-  MINSKY_SESSIONDB_SQLITE_PATH: "sessiondb.sqlite.path",
-  MINSKY_SESSIONDB_POSTGRES_URL: "sessiondb.postgres.connectionString",
-  MINSKY_SESSIONDB_BASE_DIR: "sessiondb.baseDir",
-
   // Persistence configuration (modern key). MINSKY_POSTGRES_URL is the canonical
   // escape hatch documented in persistence-config.ts and surfaced in factory /
   // validation error messages; it requires an explicit mapping because the
@@ -193,16 +185,6 @@ function envVarToConfigPath(envVar: string): string | null {
     const provider = elementAt(parts, 2, "env var AI provider part");
     const field = parts.slice(3).join("_");
     return `ai.providers.${provider}.${camelCase(field)}`;
-  }
-
-  if (parts[0] === "sessiondb") {
-    // SESSIONDB_BACKEND -> sessiondb.backend
-    // SESSIONDB_SQLITE_PATH -> sessiondb.sqlite.path
-    if (parts.length === 2) {
-      return `sessiondb.${camelCase(elementAt(parts, 1, "sessiondb field"))}`;
-    } else if (parts.length === 3) {
-      return `sessiondb.${parts[1]}.${camelCase(elementAt(parts, 2, "sessiondb subfield"))}`;
-    }
   }
 
   if (parts[0] === "persistence") {

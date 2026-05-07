@@ -51,10 +51,10 @@ Define consistent SessionDB settings for your entire team in `.minsky/config.yam
 ```yaml
 # .minsky/config.yaml
 version: 1
-sessiondb:
+persistence:
   backend: "postgres"
-  connectionString: "${MINSKY_POSTGRES_URL}"
-  baseDir: "/shared/minsky/sessions"
+  postgres:
+    connectionString: "${MINSKY_POSTGRES_URL}"
 backends:
   default: "github-issues"
   github-issues:
@@ -62,7 +62,7 @@ backends:
     repo: "my-project"
 ```
 
-### User-Level SessionDB Configuration
+### User-Level Persistence Configuration
 
 Store personal SessionDB preferences and credentials in `~/.config/minsky/config.yaml`:
 
@@ -72,13 +72,10 @@ version: 1
 github:
   credentials:
     token: "ghp_xxxxxxxxxxxxxxxxxxxx"
-postgres:
-  connection_string: "postgresql://user:password@localhost:5432/minsky"
-sessiondb:
+persistence:
   backend: "sqlite"
   sqlite:
-    path: "~/.local/state/minsky/sessions.db"
-  base_dir: "~/.local/state/minsky/git"
+    dbPath: "~/.local/state/minsky/sessions.db"
 ```
 
 ### Environment Variable Overrides
@@ -114,10 +111,10 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
     ```yaml
     # .minsky/config.yaml
     version: 1
-    sessiondb:
+    persistence:
       backend: "postgres"
-      connectionString: "${MINSKY_POSTGRES_URL}"
-      baseDir: "/shared/minsky/sessions"
+      postgres:
+        connectionString: "${MINSKY_POSTGRES_URL}"
     backends:
       default: "github-issues"
       github-issues:
@@ -153,10 +150,10 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
     github:
       credentials:
         token: "ghp_xxxxxxxxxxxxxxxxxxxx"
-    sessiondb:
+    persistence:
       backend: "sqlite"
       sqlite:
-        path: "~/.local/state/minsky/sessions.db"
+        dbPath: "~/.local/state/minsky/sessions.db"
     ```
 
 4.  From now on, any `minsky` command in any repository will automatically use this global token.

@@ -189,14 +189,14 @@ export class StorageErrorClassifier {
             type: "REPAIR" as const,
             description: "Attempt database recovery",
             autoExecutable: true,
-            command: "minsky sessiondb repair --backend sqlite --auto-recover",
+            command: "minsky persistence repair --backend sqlite --auto-recover",
             estimatedTime: "2-10 minutes",
           },
           {
             type: "FALLBACK" as const,
             description: "Restore from backup",
             autoExecutable: true,
-            command: "minsky sessiondb restore --backup <latest> --to sqlite",
+            command: "minsky persistence restore --backup <latest> --to sqlite",
           },
         ],
       };
@@ -230,7 +230,7 @@ export class StorageErrorClassifier {
             type: "REPAIR" as const,
             description: "Initialize database schema",
             autoExecutable: true,
-            command: "minsky sessiondb init --backend sqlite --force",
+            command: "minsky persistence init --backend sqlite --force",
           },
         ],
       };
@@ -281,7 +281,7 @@ export class StorageErrorClassifier {
             type: "MANUAL" as const,
             description: "Verify database credentials",
             autoExecutable: false,
-            command: "minsky config get sessiondb.connectionString",
+            command: "minsky config get persistence.postgres.connectionString",
           },
         ],
       };
@@ -321,7 +321,7 @@ export class StorageErrorClassifier {
             type: "REPAIR" as const,
             description: "Initialize database schema",
             autoExecutable: true,
-            command: "minsky sessiondb init --backend postgres --force",
+            command: "minsky persistence init --backend postgres --force",
           },
         ],
       };

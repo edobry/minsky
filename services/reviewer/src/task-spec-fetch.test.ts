@@ -18,6 +18,8 @@ const baseConfig: ReviewerConfig = {
   mcpToken: "token",
   port: 3000,
   logLevel: "info",
+  modelTimeoutMs: 120_000,
+  githubTimeoutMs: 30_000,
 };
 
 const stubFetcher =

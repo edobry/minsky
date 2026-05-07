@@ -16,10 +16,6 @@ const PERSISTENCE_KEYS = [
   "MINSKY_PERSISTENCE_BACKEND",
   "MINSKY_PERSISTENCE_POSTGRES_URL",
   "MINSKY_POSTGRES_URL",
-  "MINSKY_SESSIONDB_BACKEND",
-  "MINSKY_SESSIONDB_POSTGRES_URL",
-  "MINSKY_SESSIONDB_SQLITE_PATH",
-  "MINSKY_SESSIONDB_BASE_DIR",
 ];
 
 /**
@@ -31,9 +27,6 @@ const PERSISTENCE_KEYS = [
 type ExpectedShape = {
   persistence?: {
     backend?: string;
-    postgres?: { connectionString?: string };
-  };
-  sessiondb?: {
     postgres?: { connectionString?: string };
   };
 };
@@ -73,18 +66,12 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
   test("MINSKY_PERSISTENCE_POSTGRES_URL maps to persistence.postgres.connectionString (mt#1267)", () => {
     // Locks in the explicit mapping for the modern var name. Without this
     // mapping the auto-conversion fallback would route it to
-    // `persistence.postgres.url` (note `_URL` → `.url`, not `.connectionString`),
+    // `persistence.postgres.url` (note `_URL` -> `.url`, not `.connectionString`),
     // a non-schema key that the persistence factory would silently ignore. This
     // is the var name `scripts/deploy-minsky-mcp.ts` ENV_SPEC uploads to Railway.
     process.env.MINSKY_PERSISTENCE_POSTGRES_URL = TEST_POSTGRES_URL;
     const config = loadAsExpected();
     expect(config.persistence?.postgres?.connectionString).toBe(TEST_POSTGRES_URL);
-  });
-
-  test("MINSKY_SESSIONDB_POSTGRES_URL still maps to sessiondb.postgres.connectionString", () => {
-    process.env.MINSKY_SESSIONDB_POSTGRES_URL = TEST_POSTGRES_URL;
-    const config = loadAsExpected();
-    expect(config.sessiondb?.postgres?.connectionString).toBe(TEST_POSTGRES_URL);
   });
 
   test("MINSKY_PERSISTENCE_BACKEND auto-maps to persistence.backend", () => {

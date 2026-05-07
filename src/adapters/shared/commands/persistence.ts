@@ -212,7 +212,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           const configuredBackend = effectivePersistence.backend as "sqlite" | "postgres";
           if (!configuredBackend) {
             throw new Error(
-              "No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config."
+              "No persistence backend configured. Configure sqlite or postgres in persistence config."
             );
           }
 
@@ -356,7 +356,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           if (!connectionString) {
             throw new Error(
               "PostgreSQL connection string not found. " +
-                "Please configure persistence.postgres.connectionString (or sessiondb.postgres.connectionString) in config file or set MINSKY_POSTGRES_URL environment variable."
+                "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
             );
           }
 

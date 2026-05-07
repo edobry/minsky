@@ -49,8 +49,8 @@
     "secrets:scan": "gitleaks detect --source . --verbose",
     "db:generate:pg": "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
     "db:generate:reviewer": "cd services/reviewer && bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
-    "db:migrate": "bun src/cli.ts sessiondb migrate --dry-run",
-    "db:migrate:apply": "bun src/cli.ts sessiondb migrate --execute"
+    "db:migrate": "bun src/cli.ts persistence migrate --dry-run",
+    "db:migrate:apply": "bun src/cli.ts persistence migrate --execute"
   },
   "bin": {
     "minsky": "./src/cli.ts"

@@ -16,6 +16,8 @@ const mcpConfig: ReviewerConfig = {
   mcpToken: "test-token",
   port: 3000,
   logLevel: "info",
+  modelTimeoutMs: 120_000,
+  githubTimeoutMs: 30_000,
 };
 
 const tier2On: ReviewerConfig = {
@@ -31,6 +33,8 @@ const tier2On: ReviewerConfig = {
   mcpToken: undefined,
   port: 3000,
   logLevel: "info",
+  modelTimeoutMs: 120_000,
+  githubTimeoutMs: 30_000,
 };
 
 const tier2Off: ReviewerConfig = { ...tier2On, tier2Enabled: false };

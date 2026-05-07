@@ -412,13 +412,6 @@ export const config = {
   },
 
   /**
-   * Get session database configuration
-   */
-  get sessiondb() {
-    return getConfiguration().sessiondb;
-  },
-
-  /**
    * Get GitHub configuration
    */
   get github() {

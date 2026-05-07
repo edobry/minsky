@@ -22,10 +22,6 @@ describe("DB wiring for minsky backend", () => {
           connectionString: "postgresql://localhost:5432/testdb",
         },
       },
-      sessiondb: {
-        backend: "postgres" as const,
-        connectionString: "postgresql://localhost:5432/testdb",
-      },
     };
 
     const factory = new CustomConfigFactory();
