@@ -465,6 +465,23 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
 - mt#1508 — the audit task that produced this corpus
 
+# Memory Usage
+
+Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/projects/<hash>/memory/`) has been removed per mt#1012 bridge-policy (b); the DB is the canonical store.
+
+**At conversation start.** For any non-trivial conversation, call `mcp__minsky__memory_search` with a query matching the user's intent before deciding what to do. That's how relevant prior context surfaces. Trivial turns (single-word affirmatives, status checks) don't need it.
+
+**On durable findings.** Call `mcp__minsky__memory_create` when you learn something durable that's not derivable from code, git history, specs, or rules. Do **NOT** write to filesystem memory files — the canonical store is the DB. If you observe code paths still writing to `~/.claude/projects/.../memory/`, file separate bug tasks; the directive above is unambiguous post-deletion.
+
+**On divergence.** If you encounter old file-based memory artifacts (e.g., in stale checkouts, cached harness state, or third-party tooling), the DB wins. Do not re-save them as files.
+
+## Bridge mechanism (Claude Code only)
+
+`.claude/hooks/memory-search.ts` is a `UserPromptSubmit` hook that auto-injects top-K `mcp__minsky__memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). It restores preamble-parity for Claude Code only and is explicitly **temporary**: other harnesses don't have it, so the memory system isn't yet fully harness-agnostic at the read layer.
+
+- **Tracking task (retirement):** mt#1588 — MCP middleware enrichment on `CallToolRequestSchema`. When that ships, every MCP-capable agent gets memory enrichment for free, the harness-specific hook is deleted, and the mechanism is fully agnostic.
+- **Budget:** escalate if mt#1588 is still TODO 5 days after this rule lands in its final state, OR if the Claude Code hook fires 3+ times in 24h without the underlying user-quality issue being investigated. Per CLAUDE.md `§Temporary mechanism budget`.
+
 # Key Workflows (via skills)
 
 - **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
@@ -582,7 +599,3 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
 - 10 custom ESLint rules enforce architectural patterns
-
-Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.
-
-Under Claude Code specifically, the `.claude/hooks/memory-search.ts` `UserPromptSubmit` hook auto-injects top-K `memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). The hook is **temporary** — it restores the auto-loaded preamble behavior that mt#1012's bridge-policy (b) removed when the file-based MEMORY.md directory was deleted. The structural retirement target is **mt#1588** (MCP middleware enrichment), which graduates the mechanism from a Claude-Code-specific shim to a cross-harness one. Per the temporary-mechanism budget: if mt#1588 is still TODO 5 days after the hook lands, OR the hook fires 3+ times in 24h without an underlying user-quality investigation, surface for reprioritization.
