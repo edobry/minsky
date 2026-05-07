@@ -16,11 +16,6 @@ export interface ResolvedConfigShape {
     sqlite?: { dbPath?: string };
     postgres?: { connectionString?: string };
   };
-  sessiondb?: {
-    backend?: string;
-    sqlite?: { dbPath?: string };
-    postgres?: { connectionString?: string };
-  };
   backendConfig?: Record<string, Record<string, unknown>>;
   credentials?: Record<string, unknown>;
   github?: { token?: string; organization?: string; baseUrl?: string };

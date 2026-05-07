@@ -110,7 +110,7 @@ export class DatabaseIntegrityChecker {
           result.suggestedActions.push({
             type: "create",
             description: "Initialize new database",
-            command: `minsky sessiondb init --backend ${expectedFormat}`,
+            command: `minsky persistence init --backend ${expectedFormat}`,
             autoExecutable: true,
             priority: "medium",
           });
@@ -140,7 +140,7 @@ export class DatabaseIntegrityChecker {
           result.suggestedActions.push({
             type: "repair",
             description: "Attempt to repair corrupted database",
-            command: `minsky sessiondb repair --file ${filePath}`,
+            command: `minsky persistence repair --file ${filePath}`,
             autoExecutable: true,
             priority: "high",
           });
@@ -162,7 +162,7 @@ export class DatabaseIntegrityChecker {
         result.suggestedActions.push({
           type: "repair",
           description: "Attempt database repair",
-          command: `minsky sessiondb repair --file ${filePath}`,
+          command: `minsky persistence repair --file ${filePath}`,
           autoExecutable: false,
           priority: "medium",
         });

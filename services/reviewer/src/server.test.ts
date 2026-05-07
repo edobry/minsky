@@ -45,6 +45,8 @@ const BASE_CONFIG: ReviewerConfig = {
   mcpToken: undefined,
   port: 0, // ephemeral — Bun will pick a random free port
   logLevel: "info",
+  modelTimeoutMs: 120_000,
+  githubTimeoutMs: 30_000,
 };
 
 const STUB_REVIEW_RESULT: ReviewResult = {

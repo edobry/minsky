@@ -23,7 +23,7 @@ export function getMinskyConfigContentYaml(
       backend: backend,
       strictIds: false,
     },
-    sessiondb: {
+    persistence: {
       backend: "sqlite",
     },
     logger: {

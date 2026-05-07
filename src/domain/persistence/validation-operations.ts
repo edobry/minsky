@@ -113,9 +113,7 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
     if (!connectionString) {
       issues.push("No PostgreSQL connection string configured");
       suggestions.push(
-        "Set persistence.postgres.connectionString " +
-          "(or sessiondb.postgres.connectionString) in config " +
-          "or MINSKY_POSTGRES_URL env var"
+        "Set persistence.postgres.connectionString in config or MINSKY_POSTGRES_URL env var"
       );
       return {
         success: false,
