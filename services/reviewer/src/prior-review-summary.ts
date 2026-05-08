@@ -10,7 +10,7 @@
  * Pure function — no side effects, no I/O. All tests can run synchronously.
  */
 
-import { safeTruncate } from "../../../src/utils/safe-truncate";
+import { safeTruncate } from "./utils/safe-truncate";
 
 /**
  * A single prior review posted by the bot reviewer on this PR.
