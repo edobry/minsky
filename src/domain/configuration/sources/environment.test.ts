@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { loadEnvironmentConfiguration } from "./environment";
+import { loadEnvironmentConfiguration, getEnvironmentConfiguration } from "./environment";
 
 const TEST_POSTGRES_URL = "postgresql://user:pass@host:5432/db";
 
@@ -141,6 +141,8 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
     "MINSKY_TWO_STRIKES_MODE",
   ];
 
+  const TWO_STRIKES_PATH = "/tmp/minsky-two-strikes";
+
   let originalValues: Record<string, string | undefined>;
 
   beforeEach(() => {
@@ -175,7 +177,7 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
   });
 
   test("MINSKY_TWO_STRIKES_STATE_DIR does NOT produce a `two` config key", () => {
-    process.env.MINSKY_TWO_STRIKES_STATE_DIR = "/tmp/minsky-two-strikes";
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = TWO_STRIKES_PATH;
     const config = loadEnvironmentConfiguration() as Record<string, unknown>;
     expect(config.two).toBeUndefined();
   });
@@ -189,10 +191,28 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
   test("hook-only vars set together produce no top-level pollution", () => {
     process.env.MINSKY_FORCE_PARALLEL = "1";
     process.env.MINSKY_SKIP_FRESHNESS = "1";
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = TWO_STRIKES_PATH;
     process.env.MINSKY_TWO_STRIKES_MODE = "live";
     const config = loadEnvironmentConfiguration() as Record<string, unknown>;
     expect(config.force).toBeUndefined();
     expect(config.skip).toBeUndefined();
     expect(config.two).toBeUndefined();
+  });
+
+  test("getEnvironmentConfiguration() metadata also excludes hook-only env vars", () => {
+    // Reviewer-bot caught this gap (PR #983 R1): the loader was patched but
+    // getEnvironmentConfiguration's metadata-reporting loop was not, producing
+    // a divergence where diagnostics would still report MINSKY_FORCE_PARALLEL
+    // as "loaded" with mapping "force.parallel" even though the loader skipped
+    // it. Both paths must stay in sync.
+    process.env.MINSKY_FORCE_PARALLEL = "1";
+    process.env.MINSKY_SKIP_FRESHNESS = "1";
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = TWO_STRIKES_PATH;
+    process.env.MINSKY_TWO_STRIKES_MODE = "live";
+    const { metadata } = getEnvironmentConfiguration();
+    for (const key of HOOK_ONLY_KEYS) {
+      expect(metadata.loadedVariables).not.toContain(key);
+      expect(metadata.mappings[key]).toBeUndefined();
+    }
   });
 });
