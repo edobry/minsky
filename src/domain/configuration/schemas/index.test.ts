@@ -10,6 +10,8 @@
 import { describe, test, expect } from "bun:test";
 import { configurationSchema } from "./index";
 
+const UNRECOGNIZED_KEYS = "unrecognized_keys";
+
 describe("configurationSchema — strict top-level mode (mt#1612)", () => {
   test("rejects unknown top-level keys with unrecognized_keys", () => {
     const result = configurationSchema.safeParse({ foo: "bar" });
@@ -18,7 +20,7 @@ describe("configurationSchema — strict top-level mode (mt#1612)", () => {
     if (result.success) return;
 
     const unrecognizedIssues = result.error.issues.filter(
-      (issue) => issue.code === "unrecognized_keys"
+      (issue) => issue.code === UNRECOGNIZED_KEYS
     );
     expect(unrecognizedIssues.length).toBeGreaterThan(0);
 
@@ -37,7 +39,7 @@ describe("configurationSchema — strict top-level mode (mt#1612)", () => {
     if (result.success) return;
 
     const unrecognizedIssues = result.error.issues.filter(
-      (issue) => issue.code === "unrecognized_keys"
+      (issue) => issue.code === UNRECOGNIZED_KEYS
     );
     const allUnrecognizedKeys = unrecognizedIssues.flatMap((issue) =>
       "keys" in issue && Array.isArray(issue.keys) ? issue.keys : []
@@ -53,5 +55,43 @@ describe("configurationSchema — strict top-level mode (mt#1612)", () => {
   test("accepts an empty config object (all top-level keys optional or have defaults)", () => {
     const result = configurationSchema.safeParse({});
     expect(result.success).toBe(true);
+  });
+});
+
+describe("configurationSchema — supabase slot (mt#1633)", () => {
+  test("accepts supabase.accessToken as a string", () => {
+    const result = configurationSchema.safeParse({
+      supabase: { accessToken: "sbp_test123" },
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test("accepts an empty supabase block (accessToken is optional)", () => {
+    const result = configurationSchema.safeParse({ supabase: {} });
+    expect(result.success).toBe(true);
+  });
+
+  test("rejects unknown nested keys under supabase (nested strict)", () => {
+    const result = configurationSchema.safeParse({
+      supabase: { unknownKey: "x" },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    const unrecognizedIssues = result.error.issues.filter(
+      (issue) => issue.code === UNRECOGNIZED_KEYS
+    );
+    const allUnrecognizedKeys = unrecognizedIssues.flatMap((issue) =>
+      "keys" in issue && Array.isArray(issue.keys) ? issue.keys : []
+    );
+    expect(allUnrecognizedKeys).toContain("unknownKey");
+  });
+
+  test("rejects accessToken typos (e.g., `accesToken`) at the nested level", () => {
+    const result = configurationSchema.safeParse({
+      supabase: { accesToken: "sbp_test456" },
+    });
+    expect(result.success).toBe(false);
   });
 });
