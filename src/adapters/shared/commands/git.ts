@@ -368,6 +368,7 @@ const blameCommandParams = composeParams(
 const pullCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {
     remote: {
@@ -391,6 +392,7 @@ const pullCommandParams = composeParams(
 const statusCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {}
 ) satisfies CommandParameterMap;
@@ -401,6 +403,7 @@ const statusCommandParams = composeParams(
 const stashCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {
     message: {
@@ -422,6 +425,7 @@ const stashCommandParams = composeParams(
 const stashPopCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {
     ref: {
@@ -438,6 +442,7 @@ const stashPopCommandParams = composeParams(
 const stashListCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {}
 ) satisfies CommandParameterMap;
@@ -448,6 +453,7 @@ const stashListCommandParams = composeParams(
 const stashDropCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {
     ref: {
@@ -470,6 +476,7 @@ const stashDropCommandParams = composeParams(
 const restoreCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {
     paths: {
@@ -487,6 +494,7 @@ const restoreCommandParams = composeParams(
 const resetCommandParams = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
   {
     mode: {
@@ -997,12 +1005,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     description:
       "Pull latest changes from remote using --ff-only. Returns structured error naming conflicting files when local changes block the merge.",
     parameters: pullCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.pull command", { params });
       const { pullFromParams } = await import("../../../domain/git");
 
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
       const result = await pullFromParams({
-        repo: params.repo,
+        repo,
         remote: params.remote,
         branch: params.branch,
       });
@@ -1023,11 +1033,13 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     description:
       "Get structured working-tree status (branch, ahead/behind, staged/unstaged/untracked/conflicted files).",
     parameters: statusCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.status command", { params });
       const { statusFromParams } = await import("../../../domain/git");
 
-      const result = await statusFromParams({ repo: params.repo });
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await statusFromParams({ repo });
 
       return {
         success: true,
@@ -1050,12 +1062,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     name: "stash",
     description: "Stash working-tree changes. Returns stashRef or null when nothing to stash.",
     parameters: stashCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.stash command", { params });
       const { stashFromParams } = await import("../../../domain/git");
 
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
       const result = await stashFromParams({
-        repo: params.repo,
+        repo,
         message: params.message,
         paths: params.paths,
       });
@@ -1076,12 +1090,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     name: "stash_pop",
     description: "Pop (apply + drop) a stash entry. Returns any conflict paths.",
     parameters: stashPopCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.stash_pop command", { params });
       const { stashPopFromParams } = await import("../../../domain/git");
 
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
       const result = await stashPopFromParams({
-        repo: params.repo,
+        repo,
         ref: params.ref,
       });
 
@@ -1102,11 +1118,13 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     description:
       "List all stash entries with structured metadata (ref, message, branch, timestamp).",
     parameters: stashListCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.stash_list command", { params });
       const { stashListFromParams } = await import("../../../domain/git");
 
-      const result = await stashListFromParams({ repo: params.repo });
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
+      const result = await stashListFromParams({ repo });
 
       return {
         success: true,
@@ -1124,12 +1142,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     description:
       "Drop a specific stash entry. Requires confirmDrop: true (irreversible destructive operation).",
     parameters: stashDropCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.stash_drop command", { params });
       const { stashDropFromParams } = await import("../../../domain/git");
 
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
       const result = await stashDropFromParams({
-        repo: params.repo,
+        repo,
         ref: params.ref,
         confirmDrop: params.confirmDrop,
       });
@@ -1150,12 +1170,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     description:
       "Discard unstaged working-tree changes for specific paths (git restore). Less destructive than reset --hard.",
     parameters: restoreCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.restore command", { params });
       const { restoreFromParams } = await import("../../../domain/git");
 
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
       const result = await restoreFromParams({
-        repo: params.repo,
+        repo,
         paths: params.paths,
       });
 
@@ -1175,12 +1197,14 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     description:
       "Run git reset with explicit mode (soft/mixed/hard). mode=hard requires confirmHard: true.",
     parameters: resetCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.reset command", { params });
       const { resetFromParams } = await import("../../../domain/git");
 
+      const repo = await resolveSessionToRepo(params.session, params.repo, container);
+
       const result = await resetFromParams({
-        repo: params.repo,
+        repo,
         mode: params.mode,
         target: params.target,
         confirmHard: params.confirmHard,
