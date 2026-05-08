@@ -28,6 +28,11 @@ const RESERVE_BLOCKING = "reserve BLOCKING severity";
 const DIFF_VS_DESC_EXCEPTION = "Exception — diff-vs-description mismatch on in-repo paths";
 const INTERNAL_SCRATCH = "internal scratch";
 
+// Verification-mode preamble (mt#1656 / mt#1640 Fix 1) signature phrases.
+// Extracted to satisfy custom/no-magic-string-duplication.
+const VERIFICATION_PREAMBLE_R2_PHRASE = "subsequent round of review";
+const VERIFICATION_PREAMBLE_TASK_PHRASE = "verification, not fresh adversarial discovery";
+
 describe("buildCriticConstitution", () => {
   test("includes the Tool access section when toolsAvailable=true", () => {
     const prompt = buildCriticConstitution(true);
@@ -78,6 +83,109 @@ describe("buildCriticConstitution", () => {
 describe("CRITIC_CONSTITUTION legacy export", () => {
   test("matches buildCriticConstitution(true) for backwards compatibility", () => {
     expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true));
+  });
+});
+
+// ----- Verification-mode preamble (mt#1656 / mt#1640 Fix 1) -----
+//
+// When priorReviewsPresent=true, swap the standard adversarial preamble for
+// a verification-mode preamble that defaults to APPROVE when prior BLOCKING
+// findings have been addressed and no critical defects remain. The reframe
+// cancels the asymmetric incentive (find-SOMETHING-every-round) that produces
+// the no-stopping-rule iteration pattern named in mt#1640.
+
+describe("buildCriticConstitution — verification-mode preamble (mt#1656)", () => {
+  test("priorReviewsPresent=false (default) uses the standard adversarial preamble", () => {
+    const prompt = buildCriticConstitution(true, "normal", false);
+    // Standard preamble's "Your role is structurally adversarial" sentence
+    // must be present.
+    expect(prompt).toContain("Your role is structurally adversarial");
+    // Standard preamble's asymmetric-incentive sentence must be present.
+    expect(prompt).toContain('A review that says "looks good to me" is a failed review');
+    // Verification-specific phrasing must NOT appear in R1 mode.
+    expect(prompt).not.toContain(VERIFICATION_PREAMBLE_R2_PHRASE);
+    expect(prompt).not.toContain(VERIFICATION_PREAMBLE_TASK_PHRASE);
+  });
+
+  test("priorReviewsPresent=true substitutes the verification-mode preamble", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    // Verification preamble identifies itself as R≥2.
+    expect(prompt).toContain(VERIFICATION_PREAMBLE_R2_PHRASE);
+    expect(prompt).toContain(VERIFICATION_PREAMBLE_TASK_PHRASE);
+    // Standard preamble's asymmetric-incentive sentence must NOT appear in
+    // verification mode (it's the precise framing being swapped out).
+    expect(prompt).not.toContain('A review that says "looks good to me" is a failed review');
+    expect(prompt).not.toContain("Your role is structurally adversarial");
+  });
+
+  test("verification preamble explicitly names the two legitimate-new-BLOCKING criteria", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    // (a) introduced by the fix itself
+    expect(prompt).toContain("introduced or modified by the fix commit itself");
+    // (b) critical issues R1 missed and would block production
+    expect(prompt).toContain("critical correctness, security, or data-loss issue that R1 missed");
+    expect(prompt).toContain("would block production");
+  });
+
+  test("verification preamble explicitly names the default-APPROVE branch", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    expect(prompt).toContain("If neither (a) nor (b) applies, your event verdict is APPROVE");
+  });
+
+  test("verification preamble names bikeshedding-class concerns to suppress", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    // The categories the preamble explicitly enumerates as suppressible at R≥2.
+    expect(prompt).toContain("regex robustness on inputs that won't occur");
+    expect(prompt).toContain("allowlist completeness");
+    expect(prompt).toContain("error-message phrasing");
+  });
+
+  test("verification preamble preserves the severity-monotonicity paragraph verbatim", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    // The current-commit-only / no-re-litigate constraint is load-bearing in
+    // both modes and must be preserved verbatim in the verification preamble.
+    expect(prompt).toContain("You do NOT re-litigate prior rounds");
+    expect(prompt).toContain(
+      "Re-escalating a prior NON-BLOCKING or PRE-EXISTING finding to BLOCKING without new code evidence"
+    );
+    expect(prompt).toContain("it is what your role IS");
+  });
+
+  test("priorReviewsPresent works across scope buckets and output-tools modes", () => {
+    // The verification preamble swap is independent of scope and output-tools
+    // mode. All four combinations must include the verification framing.
+    const matrix: Array<{
+      scope: "normal" | "trivial-or-docs" | "test-only";
+      outputTools: boolean;
+    }> = [
+      { scope: "normal", outputTools: false },
+      { scope: "normal", outputTools: true },
+      { scope: "trivial-or-docs", outputTools: false },
+      { scope: "test-only", outputTools: true },
+    ];
+    for (const { scope, outputTools } of matrix) {
+      const prompt = buildCriticConstitution(true, scope, outputTools, true);
+      expect(prompt).toContain(VERIFICATION_PREAMBLE_R2_PHRASE);
+      expect(prompt).toContain(VERIFICATION_PREAMBLE_TASK_PHRASE);
+    }
+  });
+
+  test("priorReviewsPresent=true with toolsAvailable=false still swaps the preamble", () => {
+    // The verification-mode swap is orthogonal to tool availability. Even on
+    // the no-tools path (Gemini, Anthropic, fork-blocked), R≥2 reviews still
+    // get the verification preamble.
+    const prompt = buildCriticConstitution(false, "normal", false, true);
+    expect(prompt).toContain(VERIFICATION_PREAMBLE_R2_PHRASE);
+    expect(prompt).toContain(VERIFICATION_PREAMBLE_TASK_PHRASE);
+  });
+
+  test("default value for priorReviewsPresent is false (legacy CRITIC_CONSTITUTION unchanged)", () => {
+    // Backward compatibility: the legacy export must not switch into
+    // verification mode silently. CRITIC_CONSTITUTION is built without the
+    // priorReviewsPresent flag and must remain byte-identical to the
+    // 4-arg false call.
+    expect(CRITIC_CONSTITUTION).toBe(buildCriticConstitution(true, "normal", false, false));
+    expect(CRITIC_CONSTITUTION).not.toContain(VERIFICATION_PREAMBLE_R2_PHRASE);
   });
 });
 
