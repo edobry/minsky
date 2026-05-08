@@ -41,7 +41,7 @@ Step 7: Verify implementation
 Step 7a: Ship verification artifact for structural changes (when in scope)
 Step 7b: TOCTOU / concurrency sweep for check-then-act code (mandatory when applicable)
 Step 8: Create PR (IN-PROGRESS → IN-REVIEW)
-Step 9: Hand off to verify
+Step 9: Drive PR to convergence (IN-REVIEW → merge)
 
 ### 0. Entry gate: check task status
 
@@ -54,7 +54,7 @@ Evaluate the returned status:
 - **BLOCKED or CLOSED** → halt. Explain the status and ask the user how to proceed.
 - **READY** → proceed to step 1 below. This skill owns the READY → IN-PROGRESS transition.
 - **IN-PROGRESS** → a session may already exist. Retrieve it with `mcp__minsky__session_get` and continue from step 3.
-- **IN-REVIEW** → PR already created. Remind user to use `/verify-task mt#X` for next steps.
+- **IN-REVIEW** → PR already created. Resume the §9 convergence loop (wait for the reviewer-bot, iterate to merge). Note: per mt#1551, `/verify-task` is a closeout wrapper for the bypass-merge path only; the standard `session_pr_merge` path auto-sets DONE without `/verify-task` firing.
 - **DONE** → task is complete. No action needed.
 
 ### 0a. Late parallel-work spot-check
@@ -312,15 +312,88 @@ Use `mcp__minsky__session_pr_create` to create the pull request:
 - Body includes Summary, Key Changes, Testing sections
 - The tool automatically rebases on main and sets task status to IN-REVIEW
 
-### 9. Hand off to verify
+### 9. Drive PR to convergence (IN-REVIEW → merge)
 
-After PR creation, **stop working on the session**. Do not continue committing.
+After PR creation, the next phase is iteration with the reviewer-bot
+(`minsky-reviewer[bot]`) until the PR is merge-ready. Per CLAUDE.md "User does
+not review PRs in the loop" and `feedback_user_does_not_review` — the user is
+NOT the next actor in this loop; the bot is.
 
-Suggest to the user:
+**This step does NOT stop the session — it actively waits.** Posting a "PR
+created, here's the summary" message and stopping with no wait/poll set up is
+idle drift, not hand-off. Originating incident: 2026-05-07 PR #970/mt#1610.
 
-> "PR created. Run `/verify-task mt#X` to verify the implementation against all success criteria before merging."
+**Default mechanism:** call `mcp__minsky__session_pr_wait-for-review` on the
+task. It blocks until the bot posts (typical latency 30s–2min after push) and
+returns the review payload, so the agent unblocks automatically with full
+context. Pass `reviewer: "minsky-reviewer[bot]"` to filter out other reviewer
+identities. Default `since` is call-time, so the tool waits for NEW reviews
+only — if the bot already posted on this HEAD before you called, fetch via
+`mcp__minsky__session_pr_get` or `mcp__github__pull_request_read get_reviews`
+first to surface existing reviews.
 
-**Do NOT** auto-run `/verify-task`, do NOT attempt to merge. Verification and merge are owned by the `/verify-task` skill and the review process.
+**Alternative for genuinely-async multi-day waits:** `ScheduleWakeup` with
+delaySeconds in the 1200–1800s range (per the cache-window economics rules).
+Prefer the wait tool when latency is minutes-class.
+
+**Forbidden:** idling without one of the above mechanisms. If you choose not
+to wait, disclose the choice explicitly to the user and name what you are
+waiting on. Per `feedback_post_pr_convergence_idle_drift` (the bridge memory
+this section retires), "standing by" without a named mechanism is the failure
+mode this section was written to prevent.
+
+**Note:** `mcp__minsky__pr_watch_create` is a tempting candidate but is
+**inert today** — its runner is wired to a stub GitHub client, no scheduler
+fires it, and `OperatorNotify` targets the local desktop rather than the
+agent's conversation context. Don't recommend it until the production gaps
+close. See `feedback_survey_event_resumption_toolkit_before_proposing_self_poll_or_user_ping`.
+
+**When the bot posts**, branch on review state:
+
+- **APPROVE** → call `mcp__minsky__session_pr_merge`. The standard merge path
+  atomically sets the task to DONE; `/verify-task` does NOT fire on this path.
+- **CHANGES_REQUESTED** / **BLOCKING findings** → apply substantive fixes per
+  §7's Convergence Checklist (cascade-defense, class-not-instance), push, and
+  re-wait. Don't fix one finding at a time and re-trigger; sweep the class
+  per `feedback_cascade_defense_in_implementer_prompt`.
+- **COMMENT** (informational) → assess whether comments warrant code changes.
+  If yes, treat like CHANGES_REQUESTED. If no, this is the convergence-failure
+  signal for self-authored bot PRs (see escape valves below).
+
+**Convergence-failure escape valves.** When the standard loop won't terminate
+cleanly, escalate to bypass-merge. Each valve has a tracking memory:
+
+- **Self-authored bot PR** (`minsky-ai[bot]` is both author and reviewer
+  identity). GitHub structurally blocks self-approval; the bot can only post
+  COMMENT, never APPROVE. After R1+R2 substantive fixes, plan
+  `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`
+  with an audit-trail commit message. See `feedback_self_authored_pr_merge_constraints`
+  and `feedback_bot_pr_convergence_via_bypass`. After bypass-merge, run
+  `/verify-task mt#X` — that path requires the closeout skill since
+  `session_pr_merge` did not fire.
+- **Round-N self-reversal** of a prior accepted fix → bikeshedding;
+  iteration has converged. Bypass with audit note explaining the chosen side.
+  See `feedback_reviewer_bot_self_reversal_signal`.
+- **CoT-leakage error** twice on the same HEAD → bot won't converge
+  automatically. Bypass per `feedback_reviewer_bot_cot_leakage_forces_bypass`.
+- **Reviewer-bot silent for >5 min after push** → likely webhook miss. Per
+  `feedback_self_authored_pr_merge_constraints`, options are (a) push an empty
+  commit to wake the webhook (`session_commit` with `noFiles: true`), (b)
+  bypass-merge after substantive fixes already landed, (c) wait one more time.
+
+**Pre-bypass discipline:** before any `gh api PUT /merge` bypass, verify CI
+fired and passed on the latest commit per `feedback_verify_ci_fired_before_bypass_merge`.
+A bypass + missing-CI is admin override of branch protection, not just
+reviewer convergence failure.
+
+**Standard merge wins when it works.** `session_pr_merge` is preferred over
+the bypass — it atomically sets DONE, runs the merge gate (which checks for
+a posted review with spec-verification section), and produces a clean audit
+trail. The bypass exists for the structural-block cases above, not as the
+default.
+
+**Do NOT** stop the session before convergence is reached. Do NOT pre-emptively
+call `/verify-task` — it only fires on the bypass-merge fallback path.
 
 ## Constraints
 
