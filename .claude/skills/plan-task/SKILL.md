@@ -44,6 +44,14 @@ a status transition; everything else is investigation and gate-check.
 - Step 2: Read and verify the spec
 - Step 2.5: Premise audit (four checks — must run before the gate)
 - Step 3: Run the PLANNING → READY gate check
+  - (a) Required spec sections present
+  - (b) Success criteria are testable
+  - (c) Scope is bounded
+  - (d) No blocking questions
+  - (e) File:line references are fresh
+  - (f) Subtasks filed for multi-phase work
+  - (g) No parallel work in flight
+  - Gate criterion (h) — Contract-propagation enumeration
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -231,6 +239,80 @@ overlap.
 
 If no check hits, this criterion passes.
 
+#### Gate criterion (h) — Contract-propagation enumeration
+
+When the task retires or modifies a contract — a function/type signature, skill text, command
+name, env-var name, config key, or schema field — the spec's `## Scope` → `In scope` section
+must explicitly enumerate the downstream consumers of that contract. A spec that names the
+retired or changed artifact without listing who reads or depends on it is incomplete and must
+not proceed to READY.
+
+Rationale: four incidents on 2026-05-06/08 traced to exactly this gap. In each case the spec
+correctly identified the artifact being changed but missed one or more consumer classes,
+causing silent breakage after merge:
+
+- **mt#1551** — retired the `/verify-task` audit gate without enumerating the skill files
+  referencing it; caused idle-drift on PR #970.
+- **mt#1086** — added required fields to `ReviewerConfig` without enumerating test fixtures;
+  CI on main was broken for ~24 hours.
+- **mt#1610 (doc-side)** — enumerated 25+ in-scope code sites but missed three documentation
+  files (`docs/configuration-guide.md`, `docs/repository-configuration.md`,
+  `docs/github-issues-backend-guide.md`).
+- **mt#1610 (Railway env-var side)** — spec claimed "Sole consumer is `~/.config/minsky/config.yaml`"
+  but the Railway-deployed `minsky-mcp` service was also a consumer with its own
+  `MINSKY_SESSIONDB_*` env vars. Production crashed 2026-05-08T00:09Z; fixed via mt#1624 / PR #976.
+
+This criterion encodes the escalation policy of the `contract_propagation_at_design_time`
+memory (id `513934fa-3000-4f67-8869-2d50598f484b`): when a fourth instance surfaces, add gate
+criterion (h).
+
+**Trigger condition.** This criterion fires when the spec describes any of:
+
+- Retiring, renaming, or changing the signature of a function, type, interface, or class
+- Renaming or retiring a skill, command, or CLI subcommand
+- Renaming or retiring an env-var or config key
+- Changing a schema field name, type, or required-status
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(h) No contract modification — criterion passes."
+
+**Consumer enumeration heuristic by change type.** For each category of change, the spec's
+`## Scope` → `In scope` list must cover all of the following:
+
+| Change type               | Consumers to enumerate                                                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Function / type signature | All call sites and imports in `src/`, `tests/`, `services/`, `.github/`                                                          |
+| Skill text / command name | All skill files under `.claude/skills/` and `.claude/agents/`, all `CLAUDE.md` sections that reference the skill/command by name |
+| Env-var rename            | All reads in `src/`, `services/`, `scripts/`, `.github/` **and** deployed-environment artifacts (see below)                      |
+| Config key / schema field | All reads in `src/`, `tests/`, `services/`, `.github/`, `docs/` **and** deployed-environment artifacts (see below)               |
+
+**Deployed-environment artifacts (required callout for env-var and config-key changes).**
+Source-code consumers are not the only consumers. When an env-var or config key changes, the
+following deployed-environment locations must be explicitly checked and enumerated or ruled out:
+
+- **Railway service env vars** — any Railway service that sets or reads the variable
+  (visible in `services/*/railway.config.ts`, Railway dashboard env-var declarations, and
+  `railway.json` / `railway.toml` files if present)
+- **CI/CD env declarations** — `.github/workflows/*.yml` files that set the variable via
+  `env:` blocks or `secrets:` references
+- **In-tree service configs** — `services/*/railway.config.ts` and any other
+  service-config files in the `services/` directory that reference the key
+
+**Check steps:**
+
+1. Read the spec and identify whether it describes any of the trigger-condition change types.
+   If not, record "(h) passes — no contract modification."
+2. If triggered, identify the specific artifact(s) being changed (names, paths, key names).
+3. For each artifact, look up its consumer class in the heuristic table above.
+4. Verify the spec's `## Scope` → `In scope` list covers each consumer class. Missing
+   consumer classes are blocking gaps.
+5. For env-var and config-key changes specifically: confirm the spec explicitly addresses each
+   of the three deployed-environment artifact categories, either enumerating consumers or
+   stating "no consumers in this category."
+
+A spec that says "sole consumer is X" without a verified sweep of the consumer classes does
+not satisfy this criterion — the claim must be grounded in an actual search, not an assumption.
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -257,6 +339,28 @@ If no check hits, this criterion passes.
 2. <concrete action the user or agent must take>
 
 To re-run the gate after fixes: `/plan-task mt#X`
+```
+
+**Example (h) failure.** For a task that renames a config key (e.g., `sessionDbPath` →
+`sessiondb.path`) whose spec says "Sole consumer is `~/.config/minsky/config.yaml`":
+
+```
+## Gap Report for mt#1610 (PLANNING — not yet READY)
+
+### Blocking gaps
+- (h) Contract-propagation enumeration: spec claims sole consumer of `MINSKY_SESSIONDB_*`
+  is `~/.config/minsky/config.yaml` but does not enumerate deployed-environment consumers.
+  Missing: Railway service env vars (`MINSKY_SESSIONDB_PATH`, `MINSKY_SESSIONDB_AUTH_TOKEN`
+  set on `minsky-mcp` Railway service), CI/CD env declarations (`.github/workflows/`
+  references), and in-tree service configs (`services/*/railway.config.ts`).
+
+### Required actions before READY
+1. Add the Railway env-var consumers to `## Scope` → `In scope`:
+   "Railway `minsky-mcp` service env vars: MINSKY_SESSIONDB_PATH, MINSKY_SESSIONDB_AUTH_TOKEN"
+2. State explicitly whether CI/CD workflows or in-tree service configs reference this key
+   (or confirm they do not after a verified grep).
+
+To re-run the gate after fixes: `/plan-task mt#1610`
 ```
 
 4. Stop. Do not attempt to patch the spec automatically unless the user explicitly asks.
