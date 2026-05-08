@@ -30,14 +30,3 @@ export function registerPersistenceTools(
 
   log.debug("Persistence commands registered successfully via shared integration");
 }
-
-/**
- * Legacy sessiondb tools registration (for backward compatibility)
- */
-export function registerSessiondbTools(
-  commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
-): void {
-  // Forward to persistence tools for backward compatibility
-  registerPersistenceTools(commandMapper, container);
-}

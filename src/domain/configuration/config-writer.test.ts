@@ -105,7 +105,7 @@ describe("ConfigWriter", () => {
         { fs: mockFs, getUserConfigDir: () => mockConfigDir, userConfigFiles: ["config.yaml"] }
       );
 
-      const result = await writer.setConfigValue("sessiondb.backend", "sqlite");
+      const result = await writer.setConfigValue("persistence.backend", "sqlite");
 
       expect(result.success).toBe(true);
       expect(result.previousValue).toBeUndefined();

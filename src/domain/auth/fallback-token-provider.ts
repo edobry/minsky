@@ -37,4 +37,12 @@ export class FallbackTokenProvider implements TokenProvider {
   isServiceAccountConfigured(): boolean {
     return false;
   }
+
+  /**
+   * In fallback mode no service-account App is configured, so neither role
+   * has dedicated credentials. Always returns false.
+   */
+  isRoleConfigured(_role: TokenRole): boolean {
+    return false;
+  }
 }

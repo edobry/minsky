@@ -138,10 +138,10 @@ Make the changes. This typically means editing some combination of:
 
 - `CLAUDE.md` — policy and protocol updates
 - `.claude/skills/*/SKILL.md` — process step additions
-- **Memory entries** — call `memory_create` to persist durable feedback (do NOT write to memory `.md` files)
-- `.cursor/rules/*.mdc` — enforcement rules
+- **Memory entries** — call `mcp__minsky__memory_create` to persist durable feedback. The Minsky DB is the canonical store; **do not** write to `~/.claude/projects/.../memory/*.md` files (per `memory-usage` rule).
+- `.minsky/rules/*.mdc` — enforcement rules (Minsky-native source; `.cursor/rules/` is a compiled output)
 
-Use sessions for any repo file changes. Call `memory_create` directly for persistent feedback entries — the memory system stores durably in the database, not in files.
+Use sessions for any repo file changes. Call `mcp__minsky__memory_create` directly for persistent feedback entries — the memory system stores durably in the Minsky DB, not in files.
 
 **Tier choice — file structural task NOW vs memory bridge only**
 
@@ -149,7 +149,7 @@ Before saving a memory entry as the implementation, decide whether the structura
 
 - **Decision criterion**: if you can name the file/tool/skill that needs to change AND describe the specific change required, the shape IS clear. If you can only name the symptom or the rough direction, the shape is NOT clear yet.
 
-- **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create` / canonical `mcp__minsky__tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands. Before saving the bridge memory, search memory for an existing entry on the same pattern (`memory_search`); if one exists, update it with the new task ID rather than creating a near-duplicate.
+- **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create` / canonical `mcp__minsky__tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands. Before saving the bridge memory, search memory for an existing entry on the same pattern (`mcp__minsky__memory_search`); if one exists, update it with the new task ID rather than creating a near-duplicate.
 
 - **Shape is unclear** → memory tier alone is acceptable while you investigate. The memory entry should record what you DID see (the symptom) and an explicit "fix shape unknown — investigation needed" note so a future agent recognizes it as bridge-only, not the resolution.
 

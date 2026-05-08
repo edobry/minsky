@@ -12,6 +12,7 @@ import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrReviewSubmitCommandParams } from "./session-parameters";
 import { sessionPrReviewSubmit } from "../../../../domain/session/commands/pr-subcommands";
 import type { ReviewComment } from "../../../../domain/repository/github-pr-review";
+import type { TokenRole } from "../../../../domain/auth/token-provider";
 
 export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {
@@ -37,6 +38,7 @@ export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): Co
               body: params.body as string,
               event: params.event as "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
               comments: params.comments as ReviewComment[] | undefined,
+              identity: params.identity as TokenRole | undefined,
             },
             { sessionDB: deps.sessionProvider }
           );

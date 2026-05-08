@@ -176,7 +176,7 @@ export class ToolKeywordBackend implements SimilarityBackend {
       ai: ["ai", "embedding", "similarity", "search", "semantic", "intelligent", "smart"],
 
       // Database related
-      sessiondb: ["database", "db", "data", "store", "persist", "save", "query", "record"],
+      persistence: ["database", "db", "data", "store", "persist", "save", "query", "record"],
 
       // Testing related
       test: ["test", "testing", "spec", "verify", "validate", "check", "assert"],

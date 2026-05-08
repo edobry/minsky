@@ -40,10 +40,10 @@ export class TestConfigurationBuilder {
   }
 
   /**
-   * Set session database configuration
+   * Set persistence configuration
    */
-  sessionDb(backend: "sqlite" | "postgres", options?: Record<string, unknown>): this {
-    this.config.sessiondb = {
+  persistence(backend: "sqlite" | "postgres", options?: Record<string, unknown>): this {
+    this.config.persistence = {
       backend,
       ...options,
     };
@@ -218,7 +218,7 @@ export const testConfigurations = {
    * Minimal valid configuration
    */
   minimal(): PartialConfiguration {
-    return new TestConfigurationBuilder().backend("minsky").sessionDb("sqlite").build();
+    return new TestConfigurationBuilder().backend("minsky").persistence("sqlite").build();
   },
 
   /**
@@ -227,7 +227,7 @@ export const testConfigurations = {
   development(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("minsky")
-      .sessionDb("sqlite", { path: ":memory:" })
+      .persistence("sqlite", { sqlite: { dbPath: ":memory:" } })
       .logger({ level: "debug", mode: "HUMAN" })
       .build();
   },
@@ -238,7 +238,7 @@ export const testConfigurations = {
   production(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("github-issues")
-      .sessionDb("postgres", {
+      .persistence("postgres", {
         postgres: { connectionString: "postgresql://localhost/minsky_prod" },
       })
       .github({ token: "prod-token" })
@@ -252,7 +252,7 @@ export const testConfigurations = {
   testing(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("minsky")
-      .sessionDb("sqlite", { sqlite: { path: "/tmp/test.db" } })
+      .persistence("sqlite", { sqlite: { dbPath: "/tmp/test.db" } })
       .logger({ level: "warn", mode: "auto" })
       .build();
   },
@@ -263,7 +263,7 @@ export const testConfigurations = {
   withAI(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("minsky")
-      .sessionDb("sqlite")
+      .persistence("sqlite")
       .ai({
         defaultProvider: "openai",
         providers: {
@@ -284,7 +284,7 @@ export const testConfigurations = {
   withGitHub(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("github-issues")
-      .sessionDb("sqlite")
+      .persistence("sqlite")
       .github({
         token: "github-token",
         organization: "test-org",
@@ -356,7 +356,7 @@ export const testEnvironmentVariables = {
       MINSKY_LOG_LEVEL: "silent",
       MINSKY_LOG_MODE: "test",
       MINSKY_BACKEND: "minsky",
-      MINSKY_SESSIONDB_BACKEND: "sqlite",
+      MINSKY_PERSISTENCE_BACKEND: "sqlite",
     });
   },
 };
@@ -373,7 +373,7 @@ export const testAssertions = {
     const c = config as Record<string, unknown>;
     return (
       typeof c.backend === "string" &&
-      typeof c.sessiondb === "object" &&
+      typeof c.persistence === "object" &&
       typeof c.github === "object" &&
       typeof c.ai === "object" &&
       typeof c.logger === "object"

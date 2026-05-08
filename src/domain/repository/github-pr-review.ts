@@ -16,6 +16,7 @@ import { MinskyError } from "../../errors/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { parseUnifiedDiff } from "../../utils/parse-diff";
+import type { TokenRole } from "../auth/token-provider";
 import { validateDiffAnchors } from "./diff-anchor-validator";
 import { handleOctokitError } from "./github-error-handler";
 import {
@@ -141,6 +142,21 @@ export interface SubmitReviewOptions {
   event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
   /** Optional inline (line-level) comments */
   comments?: ReviewComment[];
+  /**
+   * Optional bot identity to post the review under. When omitted, the
+   * identity is derived from `event`:
+   *   - COMMENT          → "implementer" (minsky-ai App)
+   *   - APPROVE / REQUEST_CHANGES → "reviewer" (minsky-reviewer App)
+   *
+   * The reviewer App must be configured (`github.reviewer.serviceAccount`)
+   * for "reviewer" to actually be used; APPROVE and REQUEST_CHANGES requests
+   * fail loudly when reviewer is not configured (rather than silently posting
+   * under the implementer identity, which would re-introduce the
+   * self-approval bug for App-authored PRs).
+   *
+   * Supersedes the event-type token workaround from mt#1065.
+   */
+  identity?: TokenRole;
 }
 
 export interface SubmitReviewResult {
@@ -148,6 +164,75 @@ export interface SubmitReviewResult {
   reviewId: number;
   /** Web URL of the submitted review */
   htmlUrl: string;
+}
+
+/**
+ * Resolve the bot identity (TokenRole) that should post a given review event.
+ *
+ * Mapping (when `identity` is omitted):
+ *   - COMMENT                       → "implementer"
+ *   - APPROVE / REQUEST_CHANGES     → "reviewer"
+ *
+ * Explicit `identity` always wins over the event-derived default. The
+ * reviewer-vs-implementer split exists to satisfy the Critic Constitution
+ * (mt#1083): adversarial events must come from a separately-credentialed
+ * App so GitHub's self-approval block doesn't apply on bot-authored PRs.
+ *
+ * Supersedes the event-type token workaround from mt#1065 — that task's
+ * narrower mechanism is replaced by this fully role-keyed routing.
+ */
+export function resolveReviewerRole(
+  event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
+  identity?: TokenRole
+): TokenRole {
+  if (identity !== undefined) return identity;
+  return event === "COMMENT" ? "implementer" : "reviewer";
+}
+
+/**
+ * Throw a typed error when an APPROVE or REQUEST_CHANGES review is requested
+ * under the reviewer role but the reviewer App is not configured. Without
+ * this guard, `gh.getToken("reviewer")` would silently fall back to the
+ * implementer App's token — which GitHub then rejects on APPROVE (self-
+ * approval block) or accepts on REQUEST_CHANGES under the wrong identity
+ * (Critic Constitution violation). Either outcome is worse than failing
+ * loudly with an actionable error.
+ *
+ * Implementer-default events (COMMENT) are not gated — the implementer App
+ * is always present whenever any service-account is configured, and COMMENT
+ * is never blocked by GitHub's self-approval rule.
+ */
+export function assertReviewerRoleAvailable(
+  event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES",
+  resolvedRole: TokenRole,
+  isRoleConfigured: ((role: TokenRole) => boolean) | undefined
+): void {
+  // Only the reviewer role on adversarial events needs the guard. Anything
+  // else (COMMENT, or an explicit identity: "implementer" override) passes
+  // through unchanged.
+  if (resolvedRole !== "reviewer") return;
+  if (event === "COMMENT") return;
+
+  // If the context has no isRoleConfigured (older test stubs), proceed —
+  // the test stub is responsible for providing a token resolver that
+  // accurately models its own configuration. Production code paths populated
+  // by `requireGitHubContext` always supply this.
+  if (!isRoleConfigured) return;
+
+  if (!isRoleConfigured("reviewer")) {
+    throw new MinskyError(
+      `Cannot post a ${event} review under the reviewer identity because ` +
+        `the reviewer App is not configured. Set ` +
+        `\`github.reviewer.serviceAccount\` (with appId, installationId, and ` +
+        `privateKey or privateKeyFile) to enable APPROVE and REQUEST_CHANGES ` +
+        `reviews from a separately-credentialed identity. Alternatively, post ` +
+        `the review as COMMENT (which uses the implementer identity), or pass ` +
+        `\`identity: "implementer"\` to bypass the role check — note that ` +
+        `GitHub blocks self-approval for App-authored PRs, so APPROVE under the ` +
+        `implementer identity will still be rejected when the PR was authored ` +
+        `by the same App.`
+    );
+  }
 }
 
 /**
@@ -164,14 +249,26 @@ export async function submitReview(
   prIdentifier: string | number,
   options: SubmitReviewOptions
 ): Promise<SubmitReviewResult> {
+  // Resolve the bot identity for this review BEFORE any GitHub API call so
+  // we can fail fast on misconfiguration rather than burning a network round
+  // trip to discover it. mt#1510 / supersedes mt#1065.
+  const resolvedRole = resolveReviewerRole(options.event, options.identity);
+  assertReviewerRoleAvailable(options.event, resolvedRole, gh.isRoleConfigured);
+
   const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    // Branch-name → PR-number lookup is a read-only listing; the role doesn't
+    // affect the result, so use the default (implementer) token here. The
+    // resolved role is used only for the actual review-write call below.
     const token = await gh.getToken();
     const ok = createOctokit(token);
     return findPRNumberForBranch(branch, gh, ok);
   });
 
   try {
-    const token = await gh.getToken();
+    // The review-write itself MUST use the resolved role's token so the
+    // review is attributed to the correct App identity (minsky-ai for
+    // COMMENT, minsky-reviewer for APPROVE / REQUEST_CHANGES by default).
+    const token = await gh.getToken(resolvedRole);
     const octokit = createOctokit(token);
 
     // Validate PR is open before submitting

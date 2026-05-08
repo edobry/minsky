@@ -66,4 +66,29 @@ export const EMBEDDINGS_CONFIGS = {
     vectorColumn: "vector",
     indexedAtColumn: "indexed_at",
   },
+  memory: {
+    tableName: "memories_embeddings",
+    idColumn: "memory_id",
+    vectorColumn: "vector",
+    indexedAtColumn: "indexed_at",
+  },
+  // knowledge domain: knowledge_embeddings table (migration 0020) with document_id
+  // as the id column. Knowledge consumers (`commands/knowledge/index.ts`,
+  // `commands/mcp/scheduler-wiring.ts`) route through createVectorStorageForDomain
+  // to land in this table; pre-mt#1611 they used the legacy createVectorStorageFromConfig
+  // alias which silently routed to tasks_embeddings — see mt#1611 for the migration.
+  knowledge: {
+    tableName: "knowledge_embeddings",
+    idColumn: "document_id",
+    vectorColumn: "vector",
+    indexedAtColumn: "indexed_at",
+  },
 } as const;
+
+/**
+ * Finite union of vector-storage domains.
+ * Each domain maps to a distinct embeddings table via EMBEDDINGS_CONFIGS.
+ * Using a union (option b from mt#1605 spec) makes routing type-safe and
+ * prevents accidental cross-domain contamination.
+ */
+export type VectorDomain = keyof typeof EMBEDDINGS_CONFIGS;

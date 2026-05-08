@@ -13,7 +13,6 @@ export const commandCategorySchema = z.enum([
   "REPO",
   "TASKS",
   "SESSION",
-  "SESSIONDB",
   "PERSISTENCE",
   "RULES",
   "INIT",

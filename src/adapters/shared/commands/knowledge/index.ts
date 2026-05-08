@@ -519,10 +519,10 @@ export function registerKnowledgeCommands(
         let vectorStorage: VectorStorage;
 
         if (persistence) {
-          const { createVectorStorageFromConfig } = await import(
+          const { createVectorStorageForDomain } = await import(
             "../../../../domain/storage/vector/vector-storage-factory"
           );
-          vectorStorage = await createVectorStorageFromConfig(1536, persistence);
+          vectorStorage = await createVectorStorageForDomain("knowledge", 1536, persistence);
         } else {
           log.warn("[knowledge.sync] No persistence provider; using in-memory vector storage");
           const { MemoryVectorStorage } = await import(

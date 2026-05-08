@@ -6,12 +6,18 @@
  *
  * Read operations (fetching PR details, diff, CI status) stay on the GitHub MCP
  * server; this subcommand covers only the write path.
+ *
+ * Identity routing (mt#1510): COMMENT events default to the `minsky-ai`
+ * implementer App; APPROVE and REQUEST_CHANGES default to the `minsky-reviewer`
+ * App when configured. Callers can pass an explicit `identity` to override.
+ * This supersedes the narrower event-type token workaround from mt#1065.
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import type { SessionProviderInterface } from "../types";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
+import type { TokenRole } from "../../auth/token-provider";
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackendConfig } from "../../repository/index";
 import type { ReviewComment } from "../../repository/github-pr-review";
@@ -33,6 +39,17 @@ export interface SessionPrReviewSubmitParams {
   event: "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
   /** Optional inline line-level comments */
   comments?: ReviewComment[];
+  /**
+   * Optional bot identity override. When omitted, the identity is derived
+   * from `event` (COMMENT → implementer, APPROVE/REQUEST_CHANGES → reviewer).
+   * APPROVE / REQUEST_CHANGES under the reviewer identity require
+   * `github.reviewer.serviceAccount` to be configured; otherwise the
+   * underlying `submitReview` raises a typed error rather than silently
+   * falling back to the implementer identity.
+   *
+   * Supersedes the event-type token workaround from mt#1065.
+   */
+  identity?: TokenRole;
 }
 
 export interface SessionPrReviewSubmitResult {
@@ -108,12 +125,20 @@ export async function sessionPrReviewSubmit(
     sessionId: resolvedContext.sessionId,
     prNumber,
     event: params.event,
+    identity: params.identity,
   });
 
+  // mt#1510: identity routing — backend.review.submitReview reads
+  // `options.identity` and resolves the role at call time. Default mapping
+  // (COMMENT → implementer, APPROVE/REQUEST_CHANGES → reviewer) lives in
+  // `resolveReviewerRole` inside the GitHub backend; the typed-error guard
+  // for missing reviewer config lives in `assertReviewerRoleAvailable`.
+  // This supersedes the event-type token workaround from mt#1065.
   const result = await backend.review.submitReview(prNumber, {
     body: params.body,
     event: params.event,
     comments: params.comments,
+    identity: params.identity,
   });
 
   return {

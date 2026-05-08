@@ -21,16 +21,21 @@ import { getEffectivePersistenceConfig } from "../configuration/persistence-conf
 import type { Configuration } from "../configuration/schemas";
 import { log } from "../../utils/logger";
 import type { VectorStorage } from "../storage/vector/types";
+import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory";
 
 /**
- * Build a PersistenceConfig from a Configuration via the documented fallback
- * chain (`persistence.*` → `sessiondb.*` → MINSKY_POSTGRES_URL → defaults).
+ * Build a PersistenceConfig from a Configuration.
  *
- * Exported for test coverage of the legacy fallback path. Production code
- * goes through `PersistenceService.loadConfiguration` which calls this with
- * `getConfiguration()`. Lifting it to a pure function makes the env-var-only
- * hosted-deploy path (mt#1271) directly unit-testable without mocking the
- * global configuration provider.
+ * Resolution priority (see getEffectivePersistenceConfig):
+ *   1. config.persistence.*
+ *   2. MINSKY_POSTGRES_URL env var (connection string only)
+ *   3. Hard-coded defaults (backend = sqlite, default sqlite path)
+ *
+ * Throws LegacySessiondbConfigError if the merged config still contains a
+ * sessiondb: block (see mt#1610).
+ *
+ * Exported as a pure function so the env-var-only resolution path is unit-
+ * testable without mocking the global configuration provider.
  */
 export function buildPersistenceConfigFrom(runtimeConfig: Configuration): PersistenceConfig {
   const effective = getEffectivePersistenceConfig(runtimeConfig);
@@ -112,16 +117,18 @@ export class PersistenceService {
   }
 
   /**
-   * Get vector storage — type-safe approach using interface checking.
+   * Get vector storage for a specific domain — preferred API.
+   * Routes to the correct embeddings table via EMBEDDINGS_CONFIGS, preventing
+   * cross-domain table contamination.
    */
-  getVectorStorage(dimension: number): VectorStorage {
+  getVectorStorageForDomain(domain: VectorDomain, dimension: number): VectorStorage {
     const provider = this.getProvider();
 
     if (!this.isVectorCapable(provider)) {
       throw new CapabilityNotSupportedError("vectorStorage", provider.constructor.name);
     }
 
-    return provider.getVectorStorage(dimension);
+    return provider.getVectorStorageForDomain(domain, dimension);
   }
 
   private isVectorCapable(
@@ -129,8 +136,8 @@ export class PersistenceService {
   ): provider is VectorCapablePersistenceProvider {
     return (
       provider.capabilities.vectorStorage === true &&
-      "getVectorStorage" in provider &&
-      typeof provider.getVectorStorage === "function"
+      "getVectorStorageForDomain" in provider &&
+      typeof (provider as VectorCapablePersistenceProvider).getVectorStorageForDomain === "function"
     );
   }
 

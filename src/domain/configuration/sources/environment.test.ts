@@ -16,10 +16,6 @@ const PERSISTENCE_KEYS = [
   "MINSKY_PERSISTENCE_BACKEND",
   "MINSKY_PERSISTENCE_POSTGRES_URL",
   "MINSKY_POSTGRES_URL",
-  "MINSKY_SESSIONDB_BACKEND",
-  "MINSKY_SESSIONDB_POSTGRES_URL",
-  "MINSKY_SESSIONDB_SQLITE_PATH",
-  "MINSKY_SESSIONDB_BASE_DIR",
 ];
 
 /**
@@ -31,9 +27,6 @@ const PERSISTENCE_KEYS = [
 type ExpectedShape = {
   persistence?: {
     backend?: string;
-    postgres?: { connectionString?: string };
-  };
-  sessiondb?: {
     postgres?: { connectionString?: string };
   };
 };
@@ -73,18 +66,12 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
   test("MINSKY_PERSISTENCE_POSTGRES_URL maps to persistence.postgres.connectionString (mt#1267)", () => {
     // Locks in the explicit mapping for the modern var name. Without this
     // mapping the auto-conversion fallback would route it to
-    // `persistence.postgres.url` (note `_URL` → `.url`, not `.connectionString`),
+    // `persistence.postgres.url` (note `_URL` -> `.url`, not `.connectionString`),
     // a non-schema key that the persistence factory would silently ignore. This
     // is the var name `scripts/deploy-minsky-mcp.ts` ENV_SPEC uploads to Railway.
     process.env.MINSKY_PERSISTENCE_POSTGRES_URL = TEST_POSTGRES_URL;
     const config = loadAsExpected();
     expect(config.persistence?.postgres?.connectionString).toBe(TEST_POSTGRES_URL);
-  });
-
-  test("MINSKY_SESSIONDB_POSTGRES_URL still maps to sessiondb.postgres.connectionString", () => {
-    process.env.MINSKY_SESSIONDB_POSTGRES_URL = TEST_POSTGRES_URL;
-    const config = loadAsExpected();
-    expect(config.sessiondb?.postgres?.connectionString).toBe(TEST_POSTGRES_URL);
   });
 
   test("MINSKY_PERSISTENCE_BACKEND auto-maps to persistence.backend", () => {
@@ -108,5 +95,31 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
     // a top-level `postgres` key from the auto-mapping fallback.
     const config = loadEnvironmentConfiguration() as Record<string, unknown>;
     expect(config.postgres).toBeUndefined();
+  });
+});
+
+describe("environment configuration source — supabase mapping (mt#1633)", () => {
+  let original: string | undefined;
+
+  beforeEach(() => {
+    original = process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+    delete process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+  });
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+    } else {
+      process.env.MINSKY_SUPABASE_ACCESS_TOKEN = original;
+    }
+  });
+
+  test("MINSKY_SUPABASE_ACCESS_TOKEN maps to supabase.accessToken", () => {
+    const TEST_PAT = "sbp_test_routing_check";
+    process.env.MINSKY_SUPABASE_ACCESS_TOKEN = TEST_PAT;
+    const config = loadEnvironmentConfiguration() as {
+      supabase?: { accessToken?: string };
+    };
+    expect(config.supabase?.accessToken).toBe(TEST_PAT);
   });
 });
