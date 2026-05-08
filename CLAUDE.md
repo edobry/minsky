@@ -705,4 +705,4 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - ES5 trailing commas, LF line endings
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
-- 10 custom ESLint rules enforce architectural patterns
+- Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety
