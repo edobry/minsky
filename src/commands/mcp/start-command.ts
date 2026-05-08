@@ -70,24 +70,6 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
 }
 
 /**
- * Stub body returned by the `/oauth/authorize` and `/oauth/token` flow
- * endpoints (mt#1657). DCR / authorization / token issuance are not
- * implemented in the stub tier; full implementation is mt#1634's scope.
- *
- * The endpoints exist because Claude Code's MCP SDK validates the
- * authorization-server metadata document for required string fields
- * (`authorization_endpoint`, `token_endpoint`) — see the discovery handler
- * docstring. If the SDK or any other client actually attempts the OAuth flow
- * against these endpoints, they get this parseable error explaining the
- * static-bearer path is the working alternative.
- */
-export const OAUTH_FLOW_NOT_SUPPORTED_BODY = Object.freeze({
-  error: "oauth_not_supported",
-  error_description:
-    "OAuth flows are not implemented; this server uses static bearer token authentication via the Authorization header. The authorization_endpoint and token_endpoint advertised in /.well-known/oauth-authorization-server exist solely to satisfy SDK metadata validators.",
-} as const);
-
-/**
  * Register all MCP tool adapters on the given command mapper.
  */
 async function registerAllTools(
@@ -372,12 +354,52 @@ async function startHttpServer(
     }
   });
 
-  app.get("/oauth/authorize", (_req, res) => {
-    res.status(400).json(OAUTH_FLOW_NOT_SUPPORTED_BODY);
+  // OAuth authorize + token endpoints (mt#1665).
+  // Delegates to the OAuthIdentityProvider (oidc-provider under the hood),
+  // which enforces PKCE (S256 only), refresh-token rotation, and RFC 8707
+  // audience binding internally.
+  // When no provider is available (no DB), returns 503 service_unavailable —
+  // consistent with the discovery endpoint pattern from mt#1664.
+  app.get("/oauth/authorize", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.authorize(req, res);
+    } catch (err) {
+      log.error("OAuth authorize error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Authorization endpoint error",
+        });
+      }
+    }
   });
 
-  app.post("/oauth/token", (_req, res) => {
-    res.status(400).json(OAUTH_FLOW_NOT_SUPPORTED_BODY);
+  app.post("/oauth/token", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.token(req, res);
+    } catch (err) {
+      log.error("OAuth token error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Token endpoint error",
+        });
+      }
+    }
   });
 
   // Start the HTTP server
