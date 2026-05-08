@@ -534,3 +534,5 @@ Is this an external event the agent needs to know about?
 
 This decision flow is a starting point — concrete cases (matrix in §3) override it. When
 in doubt, choose the _class_ first, then the cheapest _mechanism_ in that class.
+
+<!-- mt#1519 catalog v0.1 — see PR #988 for context. -->
