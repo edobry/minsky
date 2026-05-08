@@ -15,6 +15,11 @@ export type AgentHarness = "claude-code" | "cursor" | "standalone";
 /**
  * The set of MCP client applications that Minsky can register itself with.
  * Extend this union as new clients are implemented.
+ *
+ * `openhands` is included for the `--client openhands` registration code path
+ * but is intentionally excluded from `detectInstalledClients()` auto-detection
+ * (no reliable filesystem signature; it's an agent framework rather than a
+ * user-installed app). Callers must opt in explicitly.
  */
 export type ManagedClient =
   | "cursor"
@@ -46,6 +51,8 @@ export function detectAgentHarness(): AgentHarness {
     process.env.CLAUDECODE ||
     process.env.CLAUDE_CODE_ENTRYPOINT ||
     process.env.CLAUDE_CODE_SESSION_ID ||
+    process.env.CLAUDE_CODE_SUBAGENT_MODEL ||
+    process.env.CLAUDE_CODE_EXECPATH ||
     process.env.CLAUDE_PROJECT_DIR ||
     // Legacy variant accepted for backward compatibility — never observed in
     // the wild but kept in case future Claude Code versions or third-party
@@ -55,7 +62,14 @@ export function detectAgentHarness(): AgentHarness {
     return "claude-code";
   }
 
-  // Cursor sets various CURSOR_* env vars (it's a VS Code fork)
+  // Cursor sets CURSOR_SESSION_ID / CURSOR_TRACE_ID; both Cursor and stock VS
+  // Code set VSCODE_PID (Cursor is a VS Code fork). Treating VSCODE_PID alone
+  // as "cursor" is intentional — for our purposes (native subagent support
+  // detection at hasNativeSubagentSupport() and downstream prompt-generation
+  // dispatch), VS Code and Cursor are equivalent: neither has native subagent
+  // support yet, so both fall through to the standalone-style fat-prompt path.
+  // If future native-subagent support diverges between the two, split this
+  // branch and rename the harness label.
   if (process.env.CURSOR_SESSION_ID || process.env.CURSOR_TRACE_ID || process.env.VSCODE_PID) {
     return "cursor";
   }

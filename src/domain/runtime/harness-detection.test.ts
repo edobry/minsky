@@ -14,6 +14,8 @@ const CLAUDE_AND_CURSOR_ENV_VARS = [
   "CLAUDE_CODE",
   "CLAUDE_CODE_ENTRYPOINT",
   "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_SUBAGENT_MODEL",
+  "CLAUDE_CODE_EXECPATH",
   "CLAUDE_PROJECT_DIR",
   "CURSOR_SESSION_ID",
   "CURSOR_TRACE_ID",
@@ -58,6 +60,16 @@ describe("detectAgentHarness", () => {
 
   test("returns 'claude-code' when CLAUDE_CODE_SESSION_ID is set", () => {
     process.env.CLAUDE_CODE_SESSION_ID = "abc-123";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when CLAUDE_CODE_SUBAGENT_MODEL is set", () => {
+    process.env.CLAUDE_CODE_SUBAGENT_MODEL = "sonnet";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when CLAUDE_CODE_EXECPATH is set", () => {
+    process.env.CLAUDE_CODE_EXECPATH = "/Users/me/.local/share/claude/versions/2.1.136";
     expect(detectAgentHarness()).toBe("claude-code");
   });
 
