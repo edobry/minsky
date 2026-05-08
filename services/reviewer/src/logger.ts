@@ -13,7 +13,7 @@
  *   HUMAN      — concise human-readable lines to stdout. Default when stdout IS a TTY.
  *
  * Log level:
- *   Controlled by LOGLEVEL env var: debug | info | warn | error. Default: info.
+ *   Controlled by LOG_LEVEL env var: debug | info | warn | error. Default: info.
  *
  * Redaction contract (enforced by this module):
  *   - Bearer tokens / mcpToken values MUST NOT appear in any log line.
@@ -60,11 +60,11 @@ export function resolveLogMode(): LogMode {
 }
 
 /**
- * Resolve the log level from the LOGLEVEL env var.
+ * Resolve the log level from the LOG_LEVEL env var.
  * Falls back to "info" for unknown values.
  */
 export function resolveLogLevel(): LogLevel {
-  const raw = process.env["LOGLEVEL"];
+  const raw = process.env["LOG_LEVEL"];
   if (raw === "debug" || raw === "info" || raw === "warn" || raw === "error") {
     return raw;
   }
@@ -77,16 +77,19 @@ export function resolveLogLevel(): LogLevel {
 
 // Patterns that must NEVER appear in emitted log output.
 const BEARER_RE = /Bearer\s+\S+/gi;
-const PEM_HEADER_RE = /-----BEGIN [A-Z ]+-----/g;
+// Match an entire PEM block (header + base64 body + footer). [\s\S] handles
+// the multi-line body without needing the /s flag. Lazy quantifier (*?) so
+// adjacent PEM blocks don't get coalesced into one match.
+const PEM_BLOCK_RE = /-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g;
 
 /**
  * Redact sensitive values from a string before it is logged.
  *
  * - "Bearer <token>" → "Bearer ***"
- * - PEM headers (-----BEGIN …-----) → "[REDACTED PEM]"
+ * - Full PEM blocks (BEGIN through END) → "[REDACTED PEM]"
  */
 export function redactString(value: string): string {
-  return value.replace(BEARER_RE, "Bearer ***").replace(PEM_HEADER_RE, "[REDACTED PEM]");
+  return value.replace(BEARER_RE, "Bearer ***").replace(PEM_BLOCK_RE, "[REDACTED PEM]");
 }
 
 /**

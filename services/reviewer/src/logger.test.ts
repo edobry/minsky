@@ -3,7 +3,7 @@
  *
  * Covers:
  *   - LogMode resolution (HUMAN / STRUCTURED via env var and TTY detection)
- *   - LogLevel resolution (LOGLEVEL env var precedence)
+ *   - LogLevel resolution (LOG_LEVEL env var precedence)
  *   - redactString: Bearer token and PEM redaction
  *   - redactContext: sensitive-key redaction and Bearer-in-string-values
  *   - createLogger / singleton: mode is correctly wired through
@@ -26,7 +26,7 @@ import {
 // Helpers to capture env vars and reset between tests
 // ---------------------------------------------------------------------------
 
-const savedEnvKeys = ["MINSKY_LOG_MODE", "LOGLEVEL"] as const;
+const savedEnvKeys = ["MINSKY_LOG_MODE", "LOG_LEVEL"] as const;
 type EnvSnapshot = Partial<Record<(typeof savedEnvKeys)[number], string>>;
 
 let envSnapshot: EnvSnapshot = {};
@@ -98,29 +98,37 @@ describe("resolveLogMode", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveLogLevel", () => {
-  test("defaults to info when LOGLEVEL is unset", () => {
-    delete process.env["LOGLEVEL"];
+  test("defaults to info when LOG_LEVEL is unset", () => {
+    delete process.env["LOG_LEVEL"];
     expect(resolveLogLevel()).toBe("info");
   });
 
-  test("returns debug when LOGLEVEL=debug", () => {
-    process.env["LOGLEVEL"] = "debug";
+  test("returns debug when LOG_LEVEL=debug", () => {
+    process.env["LOG_LEVEL"] = "debug";
     expect(resolveLogLevel()).toBe("debug");
   });
 
-  test("returns warn when LOGLEVEL=warn", () => {
-    process.env["LOGLEVEL"] = "warn";
+  test("returns warn when LOG_LEVEL=warn", () => {
+    process.env["LOG_LEVEL"] = "warn";
     expect(resolveLogLevel()).toBe("warn");
   });
 
-  test("returns error when LOGLEVEL=error", () => {
-    process.env["LOGLEVEL"] = "error";
+  test("returns error when LOG_LEVEL=error", () => {
+    process.env["LOG_LEVEL"] = "error";
     expect(resolveLogLevel()).toBe("error");
   });
 
-  test("falls back to info for unknown LOGLEVEL values", () => {
-    process.env["LOGLEVEL"] = "verbose";
+  test("falls back to info for unknown LOG_LEVEL values", () => {
+    process.env["LOG_LEVEL"] = "verbose";
     expect(resolveLogLevel()).toBe("info");
+  });
+
+  test("uses LOG_LEVEL (with underscore), matching config.ts:logLevel convention", () => {
+    // Regression for PR #1014 R1 BLOCKING #1 — earlier draft used LOGLEVEL
+    // which silently fell back to "info" in production where LOG_LEVEL is set.
+    process.env["LOG_LEVEL"] = "debug";
+    process.env["LOGLEVEL"] = "error"; // legacy/wrong name must NOT win
+    expect(resolveLogLevel()).toBe("debug");
   });
 });
 
@@ -139,12 +147,34 @@ describe("redactString", () => {
     expect(result).toBe("Bearer ***");
   });
 
-  test("replaces PEM header with [REDACTED PEM]", () => {
-    const result = redactString(
-      "-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----"
-    );
+  test("replaces full PEM block (header + base64 body + footer) with [REDACTED PEM]", () => {
+    const pem =
+      "-----BEGIN RSA PRIVATE KEY-----\n" +
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDV+secret+body+\n" +
+      "-----END RSA PRIVATE KEY-----";
+    const result = redactString(pem);
+    // BEGIN/body/END must all be replaced by the placeholder
     expect(result).toContain("[REDACTED PEM]");
     expect(result).not.toContain("BEGIN RSA PRIVATE KEY");
+    expect(result).not.toContain("END RSA PRIVATE KEY");
+    expect(result).not.toContain("MIIEvQIBADAN");
+    expect(result).not.toContain("secret+body");
+  });
+
+  test("redacts each PEM block independently when multiple are present", () => {
+    const twoPems =
+      "-----BEGIN RSA PRIVATE KEY-----\nAAA\n-----END RSA PRIVATE KEY-----" +
+      " between " +
+      "-----BEGIN CERTIFICATE-----\nBBB\n-----END CERTIFICATE-----";
+    const result = redactString(twoPems);
+    // Lazy matching means each block is redacted on its own — adjacent " between "
+    // text is preserved, both AAA and BBB bodies are gone.
+    expect(result).toContain("between");
+    expect(result).not.toContain("AAA");
+    expect(result).not.toContain("BBB");
+    // Both blocks replaced; expect two placeholders.
+    const placeholderCount = result.split("[REDACTED PEM]").length - 1;
+    expect(placeholderCount).toBe(2);
   });
 
   test("leaves non-sensitive strings unchanged", () => {

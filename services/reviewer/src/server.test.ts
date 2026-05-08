@@ -286,63 +286,71 @@ describe("gracefulShutdown", () => {
   test("logs shutdown_drain_start with correct inflightCount, then shutdown_drain_complete", async () => {
     const { logs, restore } = captureConsoleLogs();
 
-    // Use a blocking runReview to keep reviews in inflight during drain.
-    let releaseReviews: () => void = () => {};
-    const reviewsBlocked = new Promise<void>((res) => {
-      releaseReviews = res;
-    });
+    try {
+      // Use a blocking runReview to keep reviews in inflight during drain.
+      let releaseReviews: () => void = () => {};
+      const reviewsBlocked = new Promise<void>((res) => {
+        releaseReviews = res;
+      });
 
-    const blockingRunReview: RunReviewFn = async () => {
-      await reviewsBlocked;
-      return STUB_REVIEW_RESULT;
-    };
+      const blockingRunReview: RunReviewFn = async () => {
+        await reviewsBlocked;
+        return STUB_REVIEW_RESULT;
+      };
 
-    const { server: blockServer, gracefulShutdown: blockShutdown } = createApp(
-      BASE_CONFIG,
-      blockingRunReview
-    );
-    const blockBase = `http://localhost:${blockServer.port}`;
+      const { server: blockServer, gracefulShutdown: blockShutdown } = createApp(
+        BASE_CONFIG,
+        blockingRunReview
+      );
+      const blockBase = `http://localhost:${blockServer.port}`;
 
-    // Send two webhooks — both will be in inflight (blocked on reviewsBlocked).
-    await Promise.all([
-      sendWebhook(blockBase, buildPRPayload({ prNumber: 1 })),
-      sendWebhook(blockBase, buildPRPayload({ prNumber: 2 })),
-    ]);
+      // Send two webhooks — both will be in inflight (blocked on reviewsBlocked).
+      await Promise.all([
+        sendWebhook(blockBase, buildPRPayload({ prNumber: 1 })),
+        sendWebhook(blockBase, buildPRPayload({ prNumber: 2 })),
+      ]);
 
-    // Give event loop a tick so both promises are registered in inflight.
-    await new Promise<void>((r) => setTimeout(r, 20));
+      // Give event loop a tick so both promises are registered in inflight.
+      await new Promise<void>((r) => setTimeout(r, 20));
 
-    // Start shutdown, then release reviews so drain completes.
-    const shutdownPromise = blockShutdown();
-    releaseReviews();
-    await shutdownPromise;
-    restore();
+      // Start shutdown, then release reviews so drain completes.
+      const shutdownPromise = blockShutdown();
+      releaseReviews();
+      await shutdownPromise;
 
-    const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
-    const drainComplete = findLogEvent(logs, EVENT_DRAIN_COMPLETE);
+      const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
+      const drainComplete = findLogEvent(logs, EVENT_DRAIN_COMPLETE);
 
-    expect(drainStart).toBeTruthy();
-    expect(drainComplete).toBeTruthy();
+      expect(drainStart).toBeTruthy();
+      expect(drainComplete).toBeTruthy();
 
-    // drain_start must appear before drain_complete in log order.
-    const startIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_START));
-    const completeIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_COMPLETE));
-    expect(startIdx).toBeLessThan(completeIdx);
+      // drain_start must appear before drain_complete in log order.
+      const startIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_START));
+      const completeIdx = logs.findIndex((l) => l.includes(EVENT_DRAIN_COMPLETE));
+      expect(startIdx).toBeLessThan(completeIdx);
 
-    // inflightCount in drain_start must be a number.
-    expect(typeof (drainStart as Record<string, unknown>)["inflightCount"]).toBe("number");
+      // inflightCount in drain_start must be a number.
+      expect(typeof (drainStart as Record<string, unknown>)["inflightCount"]).toBe("number");
+    } finally {
+      // Always restore stdout, even if an assertion above threw — otherwise
+      // the patched write leaks into sibling tests and causes flake.
+      restore();
+    }
   });
 
   test("shutdown_drain_start carries inflightCount=0 when no reviews in flight", async () => {
     const { logs, restore } = captureConsoleLogs();
 
-    const { gracefulShutdown } = createApp(BASE_CONFIG, async () => STUB_REVIEW_RESULT);
-    await gracefulShutdown();
-    restore();
+    try {
+      const { gracefulShutdown } = createApp(BASE_CONFIG, async () => STUB_REVIEW_RESULT);
+      await gracefulShutdown();
 
-    const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
-    expect(drainStart).toBeTruthy();
-    expect((drainStart as Record<string, unknown>)["inflightCount"]).toBe(0);
+      const drainStart = findLogEvent(logs, EVENT_DRAIN_START);
+      expect(drainStart).toBeTruthy();
+      expect((drainStart as Record<string, unknown>)["inflightCount"]).toBe(0);
+    } finally {
+      restore();
+    }
   });
 
   test("review errors do NOT prevent graceful shutdown from completing", async () => {
