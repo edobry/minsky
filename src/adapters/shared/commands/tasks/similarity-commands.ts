@@ -359,8 +359,8 @@ export async function createTaskSimilarityService(
   // Check vector capability
   if (
     !resolvedProvider.capabilities.vectorStorage ||
-    !("getVectorStorage" in resolvedProvider) ||
-    typeof (resolvedProvider as Record<string, unknown>).getVectorStorage !== "function"
+    !("getVectorStorageForDomain" in resolvedProvider) ||
+    typeof (resolvedProvider as Record<string, unknown>).getVectorStorageForDomain !== "function"
   ) {
     throw new Error(
       `Persistence provider ${resolvedProvider.constructor.name} does not support vector storage`
@@ -368,7 +368,7 @@ export async function createTaskSimilarityService(
   }
   const vectorStorage = (
     resolvedProvider as import("../../../../domain/persistence/types").VectorCapablePersistenceProvider
-  ).getVectorStorage(dimension);
+  ).getVectorStorageForDomain("tasks", dimension);
 
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});

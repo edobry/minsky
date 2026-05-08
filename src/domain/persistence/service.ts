@@ -131,17 +131,6 @@ export class PersistenceService {
     return provider.getVectorStorageForDomain(domain, dimension);
   }
 
-  /**
-   * Get vector storage — type-safe approach using interface checking.
-   *
-   * @deprecated Use getVectorStorageForDomain(domain, dimension) to specify the
-   * correct domain. This method defaults to the "tasks" domain, which is WRONG
-   * for memory, rules, tools, and knowledge embeddings.
-   */
-  getVectorStorage(dimension: number): VectorStorage {
-    return this.getVectorStorageForDomain("tasks", dimension);
-  }
-
   private isVectorCapable(
     provider: PersistenceProvider
   ): provider is VectorCapablePersistenceProvider {

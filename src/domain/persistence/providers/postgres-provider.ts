@@ -339,9 +339,6 @@ export class PostgresVectorPersistenceProvider
    * Get vector storage for a specific domain.
    * Each domain has its own embeddings table (EMBEDDINGS_CONFIGS); this method
    * routes to the correct table, preventing cross-domain contamination.
-   *
-   * This is the preferred API. The legacy getVectorStorage(dimension) delegates
-   * here with domain="tasks" for backward compatibility.
    */
   getVectorStorageForDomain(domain: VectorDomain, dimension: number): VectorStorage {
     if (!this.isInitialized) {
@@ -359,17 +356,6 @@ export class PostgresVectorPersistenceProvider
       embeddingColumn: config.vectorColumn,
       lastIndexedAtColumn: config.indexedAtColumn,
     });
-  }
-
-  /**
-   * Get vector storage instance (type-safe - only exists on vector provider)
-   *
-   * @deprecated Use getVectorStorageForDomain(domain, dimension) to specify
-   * the correct domain. This method defaults to the "tasks" domain for backward
-   * compatibility, which is WRONG for memory, rules, tools, and knowledge domains.
-   */
-  getVectorStorage(dimension: number): VectorStorage {
-    return this.getVectorStorageForDomain("tasks", dimension);
   }
 
   getConnectionInfo(): string {

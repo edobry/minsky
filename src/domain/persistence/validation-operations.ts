@@ -172,7 +172,7 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
         // Test vector storage if supported
         if (provider.getCapabilities().vectorStorage) {
           try {
-            const vectorStorage = await provider.getVectorStorage?.(1536); // OpenAI embedding dimension
+            const vectorStorage = await provider.getVectorStorageForDomain?.("tasks", 1536); // OpenAI embedding dimension
             if (vectorStorage) {
               // Try a simple vector operation with a dummy vector (all zeros)
               const dummyVector = new Array(1536).fill(0);
