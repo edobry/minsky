@@ -20,7 +20,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { sign } from "@octokit/webhooks-methods";
 import type { ReviewerConfig } from "./config";
-import { createApp } from "./server";
+import { createApp, extractTaskIdFromBranch } from "./server";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -461,5 +461,44 @@ describe("pull_request.closed webhook — MCP session not found", () => {
     } finally {
       server.stop(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: extractTaskIdFromBranch — relaxed regex (PR #1010 R1 NB)
+// ---------------------------------------------------------------------------
+
+describe("extractTaskIdFromBranch — branch-suffix variants", () => {
+  test("matches plain task/mt-N", () => {
+    expect(extractTaskIdFromBranch("task/mt-1614")).toBe("mt#1614");
+    expect(extractTaskIdFromBranch("task/mt-1")).toBe("mt#1");
+  });
+
+  test("matches task/mt-N-suffix", () => {
+    expect(extractTaskIdFromBranch("task/mt-1234-fixups")).toBe("mt#1234");
+    expect(extractTaskIdFromBranch("task/mt-99-v2")).toBe("mt#99");
+  });
+
+  test("matches task/mt-N/suffix", () => {
+    expect(extractTaskIdFromBranch("task/mt-1234/cleanup")).toBe("mt#1234");
+    expect(extractTaskIdFromBranch("task/mt-77/round-3")).toBe("mt#77");
+  });
+
+  test("matches task/mt-N_suffix and task/mt-N.suffix", () => {
+    expect(extractTaskIdFromBranch("task/mt-1234_v2")).toBe("mt#1234");
+    expect(extractTaskIdFromBranch("task/mt-42.beta")).toBe("mt#42");
+  });
+
+  test("rejects non-task branches", () => {
+    expect(extractTaskIdFromBranch("main")).toBeNull();
+    expect(extractTaskIdFromBranch("feature/foo")).toBeNull();
+    expect(extractTaskIdFromBranch("task/foo")).toBeNull();
+    expect(extractTaskIdFromBranch("task/mt-")).toBeNull();
+    expect(extractTaskIdFromBranch("task/mt-abc")).toBeNull();
+  });
+
+  test("rejects branches with adjoining digits (no separator)", () => {
+    // task/mt-1234abc — no separator after digits, ambiguous, reject
+    expect(extractTaskIdFromBranch("task/mt-1234abc")).toBeNull();
   });
 });

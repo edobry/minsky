@@ -44,6 +44,12 @@ function makePullRequestInfo(overrides: Partial<PullRequestInfo> = {}): PullRequ
     headBranch: "task/mt-1614",
     baseBranch: "main",
     lastSynced: new Date().toISOString(),
+    github: {
+      id: 12345,
+      nodeId: "PR_kwDOOgUIMM7Y2PaI",
+      htmlUrl: "https://github.com/owner/repo/pull/42",
+      author: "minsky-ai[bot]",
+    },
     ...overrides,
   };
 }
@@ -163,6 +169,21 @@ describe("applyPostMergeStateSync — all five effects (SC#1)", () => {
 
     const updated = await deps.sessionDB.getSession(SESSION_ID);
     expect(updated?.pullRequest?.state).toBe("closed");
+  });
+
+  it("(d) persists mergeSha on pullRequest.github.mergeCommitSha (PR #1010 R1)", async () => {
+    const params: PostMergeStateSyncParams = {
+      sessionId: SESSION_ID,
+      mergeSha: MERGE_SHA,
+      mergedAt: MERGED_AT,
+      cleanupSession: false,
+      trigger: "webhook",
+    };
+
+    await applyPostMergeStateSync(params, deps);
+
+    const updated = await deps.sessionDB.getSession(SESSION_ID);
+    expect(updated?.pullRequest?.github?.mergeCommitSha).toBe(MERGE_SHA);
   });
 });
 

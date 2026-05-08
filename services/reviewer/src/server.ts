@@ -65,9 +65,11 @@ function isMergedClosedPayload(
 }
 
 /** Extract a Minsky task ID from a GitHub head branch name (e.g. "task/mt-1614" → "mt#1614"). */
-function extractTaskIdFromBranch(headRef: string): string | null {
-  // Matches: task/mt-1614, task/mt-123, task/mt-1
-  const match = /^task\/mt-(\d+)$/.exec(headRef);
+export function extractTaskIdFromBranch(headRef: string): string | null {
+  // Matches: task/mt-1614, task/mt-123-fixups, task/mt-1234/cleanup, task/mt-99_v2.
+  // The numeric ID is captured from the start; any [-/_.] separator + suffix is
+  // accepted (PR #1010 R1 NB: relax from `^task/mt-(\d+)$`).
+  const match = /^task\/mt-(\d+)(?:[-/_.].*)?$/.exec(headRef);
   if (match) {
     return `mt#${match[1]}`;
   }
@@ -124,20 +126,42 @@ export function createApp(
     toolName: string,
     args: Record<string, unknown>
   ): Promise<string | null> {
+    // 15s timeout matches the sweeper pattern in merge-state-sweeper.ts.
+    // PR #1010 R1: without this, a hung MCP call kept the detached promise
+    // in `inflight` indefinitely, leaking memory and blocking graceful shutdown.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
     try {
-      const response = await fetch(mcpUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${mcpToken}`,
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: `at-merge-handler-${Date.now()}`,
-          method: "tools/call",
-          params: { name: toolName, arguments: args },
-        }),
-      });
+      let response: Response;
+      try {
+        response = await fetch(mcpUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${mcpToken}`,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: `at-merge-handler-${Date.now()}`,
+            method: "tools/call",
+            params: { name: toolName, arguments: args },
+          }),
+          signal: controller.signal,
+        });
+      } catch (fetchErr) {
+        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+        const aborted = controller.signal.aborted;
+        console.warn(
+          JSON.stringify({
+            event: "at_merge_handler.mcp_fetch_error",
+            tool: toolName,
+            error: msg,
+            timed_out: aborted,
+          })
+        );
+        return null;
+      }
 
       if (!response.ok) {
         await response.text().catch(() => undefined);
@@ -184,6 +208,8 @@ export function createApp(
       return chunks.length > 0 ? chunks.join("") : null;
     } catch {
       return null;
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

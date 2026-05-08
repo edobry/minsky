@@ -194,18 +194,17 @@ export async function applyPostMergeStateSync(
         state: "closed",
         mergedAt: existing.mergedAt ?? mergedAt,
         lastSynced: new Date().toISOString(),
-        // Attach mergeSha if provided — stored in github sub-object if present.
+        // Persist mergeSha on github sub-object so it survives across sessions
+        // (PR #1010 R1: previously the SHA was logged but silently dropped).
         ...(mergeSha && existing.github
           ? {
               github: {
                 ...existing.github,
+                mergeCommitSha: mergeSha,
               },
             }
           : {}),
       };
-      // If mergeSha is provided, store it in a way accessible later.
-      // PullRequestInfo doesn't have a top-level mergeSha field; we store in mergedAt
-      // and log the sha for audit purposes.
       if (mergeSha) {
         log.info(
           `applyPostMergeStateSync: PR record synced for session ${sessionId}, ` +
