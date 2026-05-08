@@ -641,7 +641,6 @@ export function checkOpenPrs(
   fetchPrs: (repo: string) => PrInfo[] = fetchOpenPrs,
   fetchFiles: (repo: string, prNumber: number, warnings: string[]) => string[] = fetchPrFiles,
   warnings: string[] = [],
-  baseBranch: string = "main",
   isAppendOnly: (
     repo: string,
     fromRef: string,
@@ -1108,7 +1107,14 @@ export interface ParallelWorkCheckDeps {
     ) => boolean
   ) => ParallelWorkCollision[];
   detectDefaultBranch: (repoDir: string) => { ref: string | null; warning?: string };
-  isFileChangeAppendOnly: (
+  /**
+   * Optional in mt#1587 (PR #952 R11#3): pre-mt#1587 callers that built a
+   * `deps` object without this field still type-check. When omitted, the
+   * structural-config exemption is disabled (every allowlisted file change
+   * is treated as a real collision — fail-closed). External callers that
+   * want the exemption must pass `isFileChangeAppendOnly`.
+   */
+  isFileChangeAppendOnly?: (
     repo: string,
     fromRef: string,
     toRef: string,
@@ -1162,19 +1168,10 @@ export function runParallelWorkChecks(
     const msg = err instanceof Error ? err.message : String(err);
     warnings.push(`Default-branch detection failed (non-blocking): ${msg}`);
   }
-  const baseBranch = defaultBranchRef ? defaultBranchRef.replace(/^origin\//, "") : "main";
-  if (defaultBranchRef === null) {
-    // Mirror the recently-merged sweep's explicit signaling: when default
-    // detection fails, the open-PR sweep still runs but uses 'main' as its
-    // structural-check base. Surface the assumption so operators know why
-    // an exemption may have fired against a non-canonical base
-    // (PR #952 R1 NON-BLOCKING #3).
-    warnings.push(
-      "Open-PR structural-check baseBranch defaulted to 'main' (default-branch detection failed)"
-    );
-  }
-
-  // Check A: open PRs
+  // Check A: open PRs. Open-PR structural exemption uses each PR's own
+  // baseRefName (fail-closed when missing, PR #952 R10#2) so it does NOT
+  // depend on the repo-level default-branch detection above. Only the
+  // recently-merged sweep below needs `defaultBranchRef`.
   try {
     const prCollisions = checkOpenPrs(
       input,
@@ -1182,8 +1179,7 @@ export function runParallelWorkChecks(
       deps.fetchOpenPrs,
       deps.fetchPrFiles,
       warnings,
-      baseBranch,
-      deps.isFileChangeAppendOnly
+      deps.isFileChangeAppendOnly ?? (() => false)
     );
     collisions.push(...prCollisions);
   } catch (err) {

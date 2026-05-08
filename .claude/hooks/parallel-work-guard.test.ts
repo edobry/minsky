@@ -1117,18 +1117,28 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     expect(observedBaseRef).toBe("main");
   });
 
-  it("emits a warning when default-branch detection fails (open-PR fallback to 'main') (PR #952 R1 NON-BLOCKING #3)", () => {
-    const fallbackDeps = makeDeps({
-      detectDefaultBranch: () => ({ ref: null, warning: "all probes failed" }),
-      fetchOpenPrs: () => [],
-    });
+  it("falls back to a no-op exemption when deps omit isFileChangeAppendOnly (PR #952 R11#3)", () => {
+    // Pre-mt#1587 callers that constructed a `deps` object before the
+    // structural-config exemption shipped should still type-check (the
+    // field is optional) AND behave fail-closed at runtime — every
+    // allowlisted overlap is treated as a real collision because the
+    // no-op fallback returns false (cannot prove append-only → unsafe).
+    const legacyDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [
+        { number: 700, title: "legacy", headRefName: "task/mt-700", baseRefName: "main" },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      fetchRecentMerges: () => [],
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      // isFileChangeAppendOnly intentionally omitted
+    };
 
-    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
-    expect(
-      result.warnings.some((w) =>
-        w.includes("Open-PR structural-check baseBranch defaulted to 'main'")
-      )
-    ).toBe(true);
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", legacyDeps);
+
+    // No exemption applied → settings.json overlap remains a collision.
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0].overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
   });
 
   it("uses refs/pull/<num>/head as toRef regardless of fork status (PR #952 R4#1)", () => {
