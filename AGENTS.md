@@ -912,6 +912,18 @@ criterion (g) and `/implement-task` §0a.
 1. Open-PR sweep — any open PR whose changed files overlap the task's `## Scope` → `In scope` list.
 2. Recently-merged sweep — commits on the repo's **default branch** (auto-detected via `git symbolic-ref` / `git remote show origin` / probes for `origin/main` and `origin/master`; only when all probes fail does the sweep skip with a warning) in the last 24 hours touching in-scope paths.
 
+**Structural-config exemption (mt#1587):** Files in `STRUCTURED_CONFIG_ALLOWLIST`
+(currently `.claude/settings.json` and `.claude/settings.local.json`) are exempted
+from collision detection when the change is **append-only into JSON arrays** — i.e.,
+two PRs each adding a new entry to a hooks array structurally cannot conflict on
+intent; only on textual git-merge resolution (which 3-way merge handles
+automatically). The check is **fail-closed**: any fetch failure, parse error, or
+non-append-only diff (re-ordering, modification, key changes) preserves the
+collision. Each exempted file emits an audit warning so operators can see what
+was filtered. The override below is therefore rarely needed for the pure-hook-PR
+case but remains the escape valve for non-append-only changes and for files
+outside the allowlist.
+
 **On hit:** the hook blocks `session_start` with a structured message listing the colliding
 PR/commit, overlapping files, and four recommended actions (wait / coordinate / reframe / override).
 
@@ -924,7 +936,10 @@ MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
 The override is **logged to session stdout** (task ID, ISO timestamp).
 The line is visible in the session transcript but is **not** written to a durable
 audit file — once the session log is rotated, the record is gone. Use only when
-parallel work has been explicitly acknowledged and coordinated.
+parallel work has been explicitly acknowledged and coordinated. After mt#1587 the
+override is rarely needed for routine hook PRs (settings.json append-only diffs
+no longer collide); it remains in scope for non-append-only changes,
+non-allowlisted files, and operator-judgment overrides.
 
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
