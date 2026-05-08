@@ -9,7 +9,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { computeMedian, computeMean, computeStats } from "./reviewer-benchmark";
+import { computeMedian, computeMean, computeStats, isTier3ByBody } from "./reviewer-benchmark";
 
 // ---------------------------------------------------------------------------
 // computeMedian
@@ -122,5 +122,47 @@ describe("computeStats", () => {
     expect(stats.maxMs).toBe(40000);
     expect(stats.medianMs).toBe(25000);
     expect(stats.meanMs).toBe(25000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isTier3ByBody — whitespace-tolerant marker matching
+// ---------------------------------------------------------------------------
+
+describe("isTier3ByBody", () => {
+  test("returns false for null body", () => {
+    expect(isTier3ByBody(null)).toBe(false);
+  });
+
+  test("returns false for empty body", () => {
+    expect(isTier3ByBody("")).toBe(false);
+  });
+
+  test("returns false for body without the marker", () => {
+    expect(isTier3ByBody("Some PR description with no marker.")).toBe(false);
+  });
+
+  test("matches the canonical marker", () => {
+    expect(isTier3ByBody("<!-- minsky:tier=3 -->")).toBe(true);
+  });
+
+  test("matches the marker embedded in surrounding text", () => {
+    expect(isTier3ByBody("## Summary\n\n<!-- minsky:tier=3 -->\n\nDetails here.")).toBe(true);
+  });
+
+  test("tolerates extra interior whitespace around the directive", () => {
+    expect(isTier3ByBody("<!--  minsky:tier=3  -->")).toBe(true);
+  });
+
+  test("tolerates no leading whitespace inside the comment", () => {
+    expect(isTier3ByBody("<!--minsky:tier=3-->")).toBe(true);
+  });
+
+  test("rejects a different tier", () => {
+    expect(isTier3ByBody("<!-- minsky:tier=2 -->")).toBe(false);
+  });
+
+  test("rejects a similar marker outside the comment form", () => {
+    expect(isTier3ByBody("minsky:tier=3")).toBe(false);
   });
 });

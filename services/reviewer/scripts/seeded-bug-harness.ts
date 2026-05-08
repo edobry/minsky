@@ -242,8 +242,11 @@ function makeBranchName(): string {
  *
  * TOCTOU note: this is a pure local computation on a string already fetched;
  * no race window exists here.
+ *
+ * Exported so tests exercise the real implementation rather than a parallel
+ * reimplementation (mt#1515 R1 review feedback).
  */
-function checkCitation(
+export function checkCitation(
   reviewBody: string,
   injectedFilename: string,
   injectedLine: number

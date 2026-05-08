@@ -127,14 +127,20 @@ export function computeStats(deltas: number[]): BenchmarkStats {
 
 /**
  * A PR is Tier 3 if:
- *   (a) its body contains `<!-- minsky:tier=3 -->`, OR
+ *   (a) its body contains an `<!-- minsky:tier=3 -->` marker (whitespace-tolerant), OR
  *   (b) it has at least one review posted by `minsky-reviewer[bot]`.
  *
  * Condition (b) catches PRs where the tier marker was present at review time
  * but has since been edited out of the body.
+ *
+ * The marker regex is whitespace-tolerant (`\s*` around the colon-equal pair)
+ * so variants like `<!--  minsky:tier=3  -->` still match. This matches the
+ * tolerance the reviewer service applies when routing.
  */
-function isTier3ByBody(prBody: string | null): boolean {
-  return (prBody ?? "").includes("<!-- minsky:tier=3 -->");
+const TIER3_MARKER_RE = /<!--\s*minsky:tier=3\s*-->/;
+
+export function isTier3ByBody(prBody: string | null): boolean {
+  return TIER3_MARKER_RE.test(prBody ?? "");
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +186,7 @@ async function fetchBotReviews(
       state: r.state,
       body: r.body,
     }))
-    .sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+    .sort((a, b) => Date.parse(a.submittedAt) - Date.parse(b.submittedAt));
 }
 
 /**
@@ -225,11 +231,15 @@ async function fetchCommitContext(
 
   // Find the last commit BEFORE the review was submitted. This approximates
   // the commit the reviewer was reacting to (the webhook trigger commit).
-  // We compare ISO-8601 strings lexicographically (valid for UTC dates).
-  const reviewAt = reviewSubmittedAt;
+  // Parse to numeric timestamps to avoid relying on lexicographic ordering of
+  // ISO-8601 strings (works today because GitHub returns normalized UTC, but
+  // would silently break if a future API revision returned offset notation).
+  const reviewAtMs = Date.parse(reviewSubmittedAt);
   const commitsBeforeReview = commits.filter((c) => {
     const date = c.commit.committer?.date;
-    return date != null && date <= reviewAt;
+    if (date == null) return false;
+    const dateMs = Date.parse(date);
+    return Number.isFinite(dateMs) && dateMs <= reviewAtMs;
   });
 
   // Use the last commit before the review (or the first commit if all are
