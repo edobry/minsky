@@ -892,7 +892,10 @@ export function createStartCommand(
                 } catch {
                   oauthConfig = undefined;
                 }
-                oauthProvider = resolveOAuthProvider(oauthConfig, { db });
+                oauthProvider = resolveOAuthProvider(oauthConfig, {
+                  db,
+                  endpointPath: normalizeEndpointPath(options.endpoint),
+                });
                 log.debug("[mt#1664] OAuth provider wired for HTTP DCR + discovery endpoints");
               } else {
                 log.warn("[mt#1664] No DB connection available; OAuth provider not wired");
