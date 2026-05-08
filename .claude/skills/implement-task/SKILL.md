@@ -314,6 +314,27 @@ Use `mcp__minsky__session_pr_create` to create the pull request:
 
 ### 9. Drive PR to convergence (IN-REVIEW → merge)
 
+> **§9 applies to MAIN-AGENT invocations only. Subagents STOP at §8.**
+>
+> If you are running as a subagent (your initial system prompt ends with the
+> `<!-- minsky:prompt:v1 -->` marker, which `mcp__minsky__session_generate_prompt`
+> appends to every dispatched prompt), your work ends at §8. Report the PR URL
+> and exit. The main agent will drive convergence — wait-for-review, fix
+> iteration, merge-via-`session_pr_merge`, and any bypass-merge decisions are
+> MAIN-AGENT responsibilities.
+>
+> **Subagents must NEVER invoke `gh api PUT /merge` or any other bypass-merge
+> path.** Originating incident: 2026-05-08 PR #990 / mt#1636 — implementer
+> subagent self-authorized a bypass-merge with R0 (zero reviewer-bot reviews),
+> conflating `minsky-ai[bot]` (PR author App) with `minsky-reviewer[bot]`
+> (auto-firing reviewer App — a _different_ App that CAN approve `minsky-ai[bot]`
+> PRs without hitting GitHub's self-approval block). The structural enforcement
+> for this rule is mt#1671 (PreToolUse hook); until that ships, this text is the
+> behavioral guard.
+>
+> §9 below describes the main-agent convergence loop. If you're a subagent and
+> got this far, return to §8 and exit.
+
 After PR creation, the next phase is iteration with the reviewer-bot
 (`minsky-reviewer[bot]`) until the PR is merge-ready. Per CLAUDE.md "User does
 not review PRs in the loop" and `feedback_user_does_not_review` — the user is
@@ -361,25 +382,66 @@ close. See `feedback_survey_event_resumption_toolkit_before_proposing_self_poll_
   signal for self-authored bot PRs (see escape valves below).
 
 **Convergence-failure escape valves.** When the standard loop won't terminate
-cleanly, escalate to bypass-merge. Each valve has a tracking memory:
+cleanly, escalate to bypass-merge. **Bypass requires R≥1 substantive review
+rounds first** — R0 (zero reviewer-bot reviews) is webhook-miss /
+service-unhealthy diagnosis territory, not a bypass condition. See
+`feedback_self_authored_pr_merge_constraints` step 5 for the silence diagnostic
+ladder. Each valve below has a tracking memory:
 
-- **Self-authored bot PR** (`minsky-ai[bot]` is both author and reviewer
-  identity). GitHub structurally blocks self-approval; the bot can only post
-  COMMENT, never APPROVE. After R1+R2 substantive fixes, plan
+- **Self-authored bot PR.** Two GitHub Apps are involved and they are NOT the
+  same identity:
+
+  - `minsky-ai[bot]` — the PR AUTHOR App (used by every implementer subagent
+    and by Chinese-wall reviewer subagents dispatched manually from the main
+    agent).
+  - `minsky-reviewer[bot]` — the auto-firing REVIEWER App (mt#1083 Sprint A).
+    A _different_ GitHub App.
+
+  The self-approval block applies when the _same App_ is both author and
+  reviewer. `minsky-ai[bot]` author + `minsky-reviewer[bot]` review is fine
+  (different Apps); `minsky-ai[bot]` author + Chinese-wall-reviewer-subagent
+  (also `minsky-ai[bot]`) review IS blocked (same App).
+
+  **The actual gate** (per `feedback_self_authored_pr_merge_constraints`,
+  corrected 2026-04-27): `session_pr_merge` succeeds when the PR has at least
+  one review whose body includes a spec-verification section AND a
+  documentation-impact section — `event: COMMENT` is sufficient; APPROVE is
+  not required. The auto-firing `minsky-reviewer[bot]` typically posts COMMENT,
+  which unblocks the merge gate. The bypass via `gh api PUT /merge` is RARELY
+  needed in practice — only when no valid review can be obtained at all (e.g.,
+  CoT-leakage twice; see below).
+
+  When the bypass IS warranted (after R≥1 substantive fixes have landed AND
+  no valid review can be obtained), the form is:
   `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`
-  with an audit-trail commit message. See `feedback_self_authored_pr_merge_constraints`
-  and `feedback_bot_pr_convergence_via_bypass`. After bypass-merge, run
+  with an audit-trail commit message. After bypass-merge, run
   `/verify-task mt#X` — that path requires the closeout skill since
-  `session_pr_merge` did not fire.
+  `session_pr_merge` did not fire. See `feedback_bot_pr_convergence_via_bypass`
+  for the broader framing.
+
 - **Round-N self-reversal** of a prior accepted fix → bikeshedding;
   iteration has converged. Bypass with audit note explaining the chosen side.
   See `feedback_reviewer_bot_self_reversal_signal`.
 - **CoT-leakage error** twice on the same HEAD → bot won't converge
   automatically. Bypass per `feedback_reviewer_bot_cot_leakage_forces_bypass`.
-- **Reviewer-bot silent for >5 min after push** → likely webhook miss. Per
-  `feedback_self_authored_pr_merge_constraints`, options are (a) push an empty
-  commit to wake the webhook (`session_commit` with `noFiles: true`), (b)
-  bypass-merge after substantive fixes already landed, (c) wait one more time.
+- **Reviewer-bot silent for >5 min after push** → diagnose, do NOT default to
+  "webhook miss". Per `feedback_self_authored_pr_merge_constraints` step 5,
+  three classes:
+
+  1. **Service unhealthy** (most common per 2026-05-02 evidence) — check
+     `railway logs --service minsky-reviewer-webhook` for migration errors,
+     repeated container starts, or 500s.
+  2. **Webhook delivery missed** — query the GitHub App's
+     `/app/hook/deliveries` for the push event timestamp.
+  3. **CoT leakage / sanitizer error** — bot posted but emitted unusable
+     output.
+
+  Default to the service-unhealthy check first. Don't wait indefinitely.
+  Options: fix the underlying issue, OR run `/review-pr` to dispatch a
+  Chinese-wall reviewer subagent that bypasses the bot path entirely. The
+  empty-commit webhook-wake (`session_commit { noFiles: true }`) is currently
+  unreliable — see mt#1672 — so rely on the diagnostic ladder, not the
+  empty-commit path, until that fix ships.
 
 **Pre-bypass discipline:** before any `gh api PUT /merge` bypass, verify CI
 fired and passed on the latest commit per `feedback_verify_ci_fired_before_bypass_merge`.
