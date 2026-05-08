@@ -16,11 +16,6 @@ import { log } from "../../utils/logger";
 import { deepMergeConfigs } from "./deep-merge";
 
 /**
- * Configuration type that preserves known fields but allows additional unknown ones
- */
-type ConfigurationWithUnknown = Configuration & Record<string, unknown>;
-
-/**
  * Configuration source metadata
  */
 export interface ConfigurationSourceMetadata {
@@ -118,13 +113,13 @@ export class ConfigurationLoader {
       // Merge configurations with proper precedence
       const mergedConfig = this.mergeConfigurations(sourceResults);
 
-      // Build effective values for provenance tracking (needed for validation warnings)
+      // Build effective values for provenance tracking (consumed by callers via the load result)
       const effectiveValues = this.buildEffectiveValues(sourceResults);
 
-      // Validate final configuration with provenance information
+      // Validate final configuration against the strict schema
       const validationResult = this.options.skipValidation
         ? { success: true, data: mergedConfig as Configuration }
-        : this.validateConfiguration(mergedConfig, effectiveValues);
+        : this.validateConfiguration(mergedConfig);
 
       // Handle validation errors
       if (!validationResult.success && this.options.failOnValidationError) {
@@ -274,100 +269,23 @@ export class ConfigurationLoader {
   }
 
   /**
-   * Validate merged configuration with provenance information
+   * Validate merged configuration against the strict top-level schema.
+   *
+   * Unknown top-level keys produce a ZodError with `unrecognized_keys` —
+   * caught here so typos and stale legacy keys fail loudly at load time
+   * instead of being silently stripped or passed through.
    */
-  private validateConfiguration(
-    config: PartialConfiguration,
-    effectiveValues?: Record<string, { value: unknown; source: string; path: string }>
-  ): ConfigurationValidationResult {
+  private validateConfiguration(config: PartialConfiguration): ConfigurationValidationResult {
     const result = configurationSchema.safeParse(config);
 
     if (result.success) {
-      return {
-        success: true,
-        data: result.data,
-      };
-    } else {
-      // Get validation configuration from the config (with fallback defaults)
-      const validationConfig = {
-        strictMode: config.validation?.strictMode ?? false,
-        warnOnUnknown: config.validation?.warnOnUnknown ?? true,
-        includePathInWarnings: config.validation?.includePathInWarnings ?? true,
-        includeCodeInWarnings: config.validation?.includeCodeInWarnings ?? false,
-      };
-
-      // Filter out "unrecognized key" errors based on strictMode setting
-      const unrecognizedKeyIssues = result.error.issues.filter(
-        (issue) =>
-          issue.code === "unrecognized_keys" ||
-          (issue.message && issue.message.includes("Unrecognized key"))
-      );
-
-      const criticalIssues = result.error.issues.filter(
-        (issue) =>
-          !(
-            issue.code === "unrecognized_keys" ||
-            (issue.message && issue.message.includes("Unrecognized key"))
-          )
-      );
-
-      // Handle unrecognized keys based on validation configuration
-      if (unrecognizedKeyIssues.length > 0) {
-        if (validationConfig.strictMode) {
-          // In strict mode, treat unrecognized keys as errors
-          return {
-            success: false,
-            error: result.error,
-            issues: result.error.issues,
-          };
-        } else if (validationConfig.warnOnUnknown) {
-          // Log warnings for unrecognized keys using clean user-friendly format
-          unrecognizedKeyIssues.forEach((issue) => {
-            const path = issue.path?.length > 0 ? issue.path.join(".") : "root";
-
-            // Extract the unknown key from the message
-            const messageMatch = issue.message.match(/Unrecognized key\(s\) in object: '([^']+)'/);
-            const unknownKey = messageMatch ? messageMatch[1] || "unknown" : "unknown";
-
-            // Create a clean, user-friendly warning message
-            let warningMessage = `⚠️  Unknown configuration field '${unknownKey}'`;
-
-            if (validationConfig.includePathInWarnings && path !== "root") {
-              warningMessage += ` in configuration section '${path}'`;
-            }
-
-            // Add provenance information if available
-            if (effectiveValues) {
-              const fieldPath = path !== "root" ? `${path}.${unknownKey}` : unknownKey;
-              const provenance = effectiveValues[fieldPath];
-              if (provenance) {
-                warningMessage += ` (from ${provenance.source})`;
-              }
-            }
-
-            warningMessage += " (will be ignored)";
-
-            // Log as a simple string message instead of structured data
-            // Use cli logging for clean user output instead of structured warning
-            log.cli(warningMessage);
-          });
-        }
-      }
-
-      // If only unrecognized key errors and not in strict mode, treat as success
-      if (criticalIssues.length === 0 && !validationConfig.strictMode) {
-        return {
-          success: true,
-          data: config as ConfigurationWithUnknown,
-        };
-      }
-
-      return {
-        success: false,
-        error: result.error,
-        issues: criticalIssues.length > 0 ? criticalIssues : result.error.issues,
-      };
+      return { success: true, data: result.data };
     }
+    return {
+      success: false,
+      error: result.error,
+      issues: result.error.issues,
+    };
   }
 
   /**

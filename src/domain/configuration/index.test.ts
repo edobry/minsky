@@ -235,9 +235,12 @@ describe("Custom Configuration System", () => {
 
   describe("Configuration Initialization", () => {
     test("should initialize with custom factory", async () => {
-      // Create isolated factory instance for this test
+      // Create isolated factory instance for this test.
+      // skipValidation isolates the test from whatever vestige keys may live
+      // in the developer's real ~/.config/minsky/config.yaml — strict mode
+      // would otherwise reject unknown top-level keys at load time.
       const factory = new CustomConfigFactory();
-      const isolatedProvider = await factory.createProvider({});
+      const isolatedProvider = await factory.createProvider({ skipValidation: true });
 
       // Test isolated provider access (no global state)
       const config = isolatedProvider.getConfig();
@@ -309,7 +312,7 @@ describe("Custom Configuration System", () => {
   describe("Configuration Factory", () => {
     test("should create provider with default options", async () => {
       const factory = new CustomConfigFactory();
-      const provider = await factory.createProvider();
+      const provider = await factory.createProvider({ skipValidation: true });
 
       expect(provider).toBeDefined();
       expect(provider.getConfig).toBeDefined();
@@ -322,6 +325,7 @@ describe("Custom Configuration System", () => {
       const provider = await factory.createProvider({
         overrides: { tasks: { strictIds: true } }, // Test that overrides work
         enableCache: false,
+        skipValidation: true,
       });
 
       const config = provider.getConfig();
