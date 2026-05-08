@@ -14,13 +14,14 @@
  * pass PolicyText[] inline and need no filesystem access.
  */
 
-import { describe, expect, it, beforeEach, afterEach } from "bun:test";
+import { describe, expect, it, beforeEach, afterEach, test } from "bun:test";
 import { mkdtemp, writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 
 import { isCovered, loadClaudeMd, loadProjectRules, loadTaskSpec } from "./policy";
 import type { Ask } from "./types";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Shared constants (avoid magic-string-duplication warnings)
@@ -269,5 +270,79 @@ describe("loadTaskSpec", () => {
 
   it("returns empty array for empty string", () => {
     expect(loadTaskSpec("")).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surrogate-pair safety regression tests (mt#1615)
+// ---------------------------------------------------------------------------
+
+function hasUnpairedSurrogate(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      i++;
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+}
+
+function jsonRoundtrips(s: string): boolean {
+  try {
+    const encoded = JSON.stringify({ s });
+    const decoded = JSON.parse(encoded) as { s: string };
+    return decoded.s === s;
+  } catch {
+    return false;
+  }
+}
+
+// Mirror of the patched truncateQuote() in policy.ts
+function truncateQuote(text: string, maxLength = 200): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${safeTruncate(trimmed, maxLength - 3, "head")}...`;
+}
+
+describe("policy truncateQuote — surrogate safety (mt#1615)", () => {
+  const EMOJIS = ["🔍", "🚀", "🎯", "🤖"];
+  const MAX_QUOTE_LEN = 200;
+
+  test("quote truncated at 200 is surrogate-safe", () => {
+    const prefix = "a".repeat(198);
+    const quote = `${prefix}🔍 more policy text`;
+    const result = truncateQuote(quote, MAX_QUOTE_LEN);
+    expect(hasUnpairedSurrogate(result)).toBe(false);
+    expect(jsonRoundtrips(result)).toBe(true);
+    expect(result.endsWith("...")).toBe(true);
+  });
+
+  test("every cut length 0..200 on emoji quote produces valid UTF-16", () => {
+    const quote = EMOJIS.join("").repeat(30); // 240 code units
+    for (let n = 3; n <= MAX_QUOTE_LEN; n++) {
+      const result = truncateQuote(quote, n);
+      expect(hasUnpairedSurrogate(result)).toBe(false);
+      expect(jsonRoundtrips(result)).toBe(true);
+    }
+  });
+
+  test("short quote returned unchanged (trimmed)", () => {
+    const quote = "  Use safeTruncate 🔍  ";
+    const result = truncateQuote(quote);
+    expect(result).toBe(quote.trim());
+    expect(hasUnpairedSurrogate(result)).toBe(false);
+  });
+
+  test("all four spec emojis at the 200-char boundary", () => {
+    for (const emoji of EMOJIS) {
+      const quote = `${"a".repeat(198) + emoji}extra`;
+      const result = truncateQuote(quote, MAX_QUOTE_LEN);
+      expect(hasUnpairedSurrogate(result)).toBe(false);
+      expect(jsonRoundtrips(result)).toBe(true);
+    }
   });
 });

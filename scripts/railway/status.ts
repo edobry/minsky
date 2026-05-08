@@ -25,6 +25,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { RailwayConfig } from "./lib";
+import { safeTruncate } from "../../src/utils/safe-truncate";
 
 const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
 const GRAPHQL_TIMEOUT_MS = 30_000;
@@ -108,6 +109,7 @@ export async function graphql<T>(
   const bodyText = await res.text();
 
   if (!res.ok) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII
     const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
     throw new ApiError(
       `Railway API request failed: HTTP ${res.status} ${res.statusText}. ` +
@@ -120,6 +122,7 @@ export async function graphql<T>(
   try {
     body = JSON.parse(bodyText) as typeof body;
   } catch (parseErr) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII
     const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
     throw new ApiError(
       `Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`,
@@ -212,7 +215,8 @@ export function formatDeploymentsTable(deployments: DeploymentNode[]): string {
   for (const d of deployments) {
     const commitHash = d.meta?.commitHash?.slice(0, 8) ?? "(none)";
     const rawMessage = d.meta?.commitMessage ?? "";
-    const commitMessage = rawMessage.length > 60 ? `${rawMessage.slice(0, 60)}...` : rawMessage;
+    const commitMessage =
+      rawMessage.length > 60 ? `${safeTruncate(rawMessage, 60, "head")}...` : rawMessage;
     const statusLabel = NON_SUCCESS_STATUSES.has(d.status) ? `[${d.status}]` : d.status;
     lines.push(
       `${statusLabel.padEnd(12)} ${d.createdAt}  ${d.id}  ${commitHash}  ${commitMessage}`

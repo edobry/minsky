@@ -10,6 +10,7 @@
  */
 
 import { log } from "../../utils/logger";
+import { safeTruncate } from "../../utils/safe-truncate.ts";
 
 export interface PgPoolRetryOptions {
   maxAttempts?: number;
@@ -115,7 +116,8 @@ export async function withPgPoolRetry<T>(
       const e = err as { code?: unknown; message?: unknown };
       const errCode = typeof e.code === "string" ? e.code : "?";
       const rawMessage = typeof e.message === "string" ? e.message : String(err);
-      const errSummary = rawMessage.length > 120 ? `${rawMessage.slice(0, 117)}...` : rawMessage;
+      const errSummary =
+        rawMessage.length > 120 ? `${safeTruncate(rawMessage, 117, "head")}...` : rawMessage;
       log.warn(
         `[retry ${attempt}/${maxAttempts}] ${label}: pg pool saturation (code=${errCode}): ${errSummary} — retrying in ${delay}ms`
       );

@@ -54,5 +54,6 @@ export function safeTruncate(str: string, maxLen: number, side: "tail" | "head" 
   if (lastCode >= 0xd800 && lastCode <= 0xdbff) {
     end -= 1;
   }
+  // eslint-disable-next-line custom/no-unsafe-string-truncation -- implementation: `end` is already surrogate-pair-safe (adjusted above)
   return str.slice(0, end);
 }

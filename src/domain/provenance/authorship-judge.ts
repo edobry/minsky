@@ -17,6 +17,7 @@ import type { TranscriptMessage } from "./transcript-service";
 import type { TierSignals } from "./types";
 import { AuthorshipTier } from "./types";
 import { log } from "../../utils/logger";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 /** Policy version for this judging logic. Bump when prompt or tier criteria change. */
 export const AUTHORSHIP_POLICY_VERSION = "1.0.0";
@@ -73,8 +74,8 @@ function summarizeMessage(msg: TranscriptMessage, index: number): string {
     content = "[non-text content]";
   }
 
-  // Truncate to keep prompt compact
-  const truncated = content.length > 300 ? `${content.slice(0, 300)}…` : content;
+  // Truncate to keep prompt compact (safeTruncate ensures no split surrogate pairs)
+  const truncated = content.length > 300 ? `${safeTruncate(content, 300, "head")}…` : content;
   return `[${index + 1}] ${role}: ${truncated}`;
 }
 

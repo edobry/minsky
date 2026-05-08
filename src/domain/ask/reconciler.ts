@@ -18,6 +18,7 @@ import type { Ask, AskState } from "./types";
 import type { OperatorNotify } from "../notify/operator-notify";
 import { buildAttentionCost } from "./accounting/index";
 import { LoggingWakeSignalSink, dispatchWake, type WakeSignalSink } from "./wake-on-respond";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // GitHub client interface — narrow projection used by the reconciler.
@@ -157,11 +158,12 @@ export interface ReconcileResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Truncate a string to at most `max` characters, appending "…" when truncated.
+ * Truncate a string to at most `max` characters, appending "..." when truncated.
+ * Uses safeTruncate to avoid splitting UTF-16 surrogate pairs (emoji safety).
  */
 function truncate(str: string, max: number): string {
   if (str.length <= max) return str;
-  return `${str.slice(0, max)}...`;
+  return `${safeTruncate(str, max, "head")}...`;
 }
 
 /**

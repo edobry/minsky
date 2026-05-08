@@ -21,6 +21,7 @@ import { z } from "zod";
 
 import type { CognitionProvider } from "../cognition/types";
 import type { ExtractedTurn } from "./turn-extractor";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 // ── Schema ─────────────────────────────────────────────────────────────────────
 
@@ -54,11 +55,11 @@ function buildUserPrompt(turns: ExtractedTurn[]): string {
   for (const turn of effectiveTurns) {
     lines.push(`--- Turn ${turn.turnIndex + 1} ---`);
     if (turn.userText) {
-      const text = turn.userText.slice(0, MAX_CHARS_PER_TURN);
+      const text = safeTruncate(turn.userText, MAX_CHARS_PER_TURN, "head");
       lines.push(`User: ${text}${turn.userText.length > MAX_CHARS_PER_TURN ? " [truncated]" : ""}`);
     }
     if (turn.assistantText) {
-      const text = turn.assistantText.slice(0, MAX_CHARS_PER_TURN);
+      const text = safeTruncate(turn.assistantText, MAX_CHARS_PER_TURN, "head");
       lines.push(
         `Assistant: ${text}${turn.assistantText.length > MAX_CHARS_PER_TURN ? " [truncated]" : ""}`
       );
