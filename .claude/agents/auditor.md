@@ -101,15 +101,26 @@ After checking all spec criteria, ALWAYS run these baseline checks regardless of
 1. **Full test suite**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain` — report pass count and any failures
 2. **Type check**: `bun run tsc --noEmit` — report clean or errors
 3. **Lint**: `bun run lint` — report new errors (pre-existing errors in unrelated files are noted but not blocking)
-4. **State-coupled live probe (mt#1606).** Run at least one CLI command that exercises the changed code path. For success criteria of the form "feature X works," "feature X returns Y," "feature X is callable," or "feature X is registered," the probe MUST be **state-coupled**: it asserts execution evidence through the production wiring, not just non-error invocation. Per-category probe forms:
+4. **State-coupled production probe (aka live probe) (mt#1606).** Run at least one command that exercises the changed code path. For success criteria of the form "feature X works," "feature X returns Y," "feature X is callable," or "feature X is registered," the probe MUST be **state-coupled**: it asserts execution evidence through the production wiring, not just non-error invocation.
 
-   - **Persistence**: create-then-read round-trip; assert read returns the created entity.
-   - **Search / embedding**: insert-then-search round-trip; assert search returns the inserted entity (not just non-empty).
-   - **MCP tool surface**: call the tool; assert response shape matches the spec.
-   - **Cross-process / cross-harness**: spawn fresh process/conversation; assert state propagates.
-   - **Schema migration**: confirm the declared table/column exists in the live DB post-migration (catches mt#1611's shadow-failure pattern where the migration was tracked-applied but the table did not exist).
+   **Probe safety preamble (mandatory)** — state-coupled probes write to or query real systems. Apply ALL of the following safeguards before running:
 
-   If the live probe cannot be run (missing env var, target not deployed, rate-limit, production-credential carve-out), record `skipped — <reason>` and flag as AMBIGUOUS rather than PASS — code-shape verification is insufficient evidence for feature-shipped SCs. Originating incidents: mt#1008, mt#1611.
+   1. **Target preference**: staging or a dedicated test tenant when available; production only with explicit user authorization naming the prod target.
+   2. **Unique probe markers**: every entity created carries an identifiable prefix (e.g., `_probe_${uuid}_`) so leakage is greppable and cleanable.
+   3. **Cleanup is part of the probe**: DELETE inserted rows / unindex inserted documents / terminate spawned processes BEFORE recording PASS.
+   4. **Read-only where possible**: schema migrations and registration probes verify via `information_schema` / `pg_indexes` / tool-registry queries; they do NOT mutate.
+   5. **Avoid side-effecting MCP tools**: prefer `*_get`, `*_list`, `*_search`. Never call tools that send notifications, emails, or webhooks during a probe.
+   6. **Transaction wrap when feasible**: persistence probes run in a transaction with ROLLBACK; assertion happens against in-transaction state, no commit means no production effect.
+
+   Per-category probe forms (each obeys the safety preamble above):
+
+   - **Persistence**: create-then-read round-trip with marker prefix and explicit DELETE cleanup. Assert read returns the created entity, then verify cleanup succeeded.
+   - **Search / embedding**: insert-then-search round-trip with marker prefix; unindex + DELETE after assertion.
+   - **MCP tool surface**: prefer read-only tools; assert response shape matches the spec.
+   - **Cross-process / cross-harness**: spawn ephemeral process, assert state propagates, terminate the process.
+   - **Schema migration (READ-ONLY)**: confirm declared table/column exists via `SELECT FROM information_schema.tables` or `pg_indexes` — do NOT run the migration's CREATE statements or INSERT test rows. Read-only inspection is sufficient. Catches mt#1611's shadow-failure pattern where the migration was tracked-applied but the table did not exist.
+
+   If the live probe cannot be run (missing env var, target not deployed, rate-limit, production-credential carve-out, no safe target available), record the affected SC's verdict as **AMBIGUOUS** rather than PASS — code-shape verification is insufficient evidence for feature-shipped SCs. For audits where a feature-shipped SC's probe cannot be run AT ALL, AMBIGUOUS becomes the recommendation gate: the audit's overall recommendation is "needs live verification before sign-off," not PASS. Originating incidents: mt#1008, mt#1611.
 
 5. **Documentation staleness**: Check if `docs/architecture.md` has content related to the task's domain — if so, verify it's still accurate post-change
 
