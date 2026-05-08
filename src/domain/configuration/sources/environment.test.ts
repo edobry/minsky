@@ -123,3 +123,76 @@ describe("environment configuration source — supabase mapping (mt#1633)", () =
     expect(config.supabase?.accessToken).toBe(TEST_PAT);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#1644: hook-only MINSKY_* env vars must NOT be coerced into the config
+// object. Before this fix, `MINSKY_FORCE_PARALLEL=1 minsky session start ...`
+// crashed at config load with `root: Unrecognized key: "force"` because the
+// auto-mapping fallback routed it to a `force.parallel` path that mt#1612's
+// strict-mode validation rejected. Same failure shape applied to
+// MINSKY_SKIP_FRESHNESS, MINSKY_TWO_STRIKES_STATE_DIR, MINSKY_TWO_STRIKES_MODE.
+// ---------------------------------------------------------------------------
+
+describe("environment configuration source — hook-only env vars (mt#1644)", () => {
+  const HOOK_ONLY_KEYS = [
+    "MINSKY_FORCE_PARALLEL",
+    "MINSKY_SKIP_FRESHNESS",
+    "MINSKY_TWO_STRIKES_STATE_DIR",
+    "MINSKY_TWO_STRIKES_MODE",
+  ];
+
+  let originalValues: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    originalValues = {};
+    for (const key of HOOK_ONLY_KEYS) {
+      originalValues[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of HOOK_ONLY_KEYS) {
+      const value = originalValues[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  test("MINSKY_FORCE_PARALLEL=1 does NOT produce a `force` config key", () => {
+    process.env.MINSKY_FORCE_PARALLEL = "1";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.force).toBeUndefined();
+  });
+
+  test("MINSKY_SKIP_FRESHNESS=1 does NOT produce a `skip` config key", () => {
+    process.env.MINSKY_SKIP_FRESHNESS = "1";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.skip).toBeUndefined();
+  });
+
+  test("MINSKY_TWO_STRIKES_STATE_DIR does NOT produce a `two` config key", () => {
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = "/tmp/minsky-two-strikes";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.two).toBeUndefined();
+  });
+
+  test("MINSKY_TWO_STRIKES_MODE=live does NOT produce a `two` config key", () => {
+    process.env.MINSKY_TWO_STRIKES_MODE = "live";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.two).toBeUndefined();
+  });
+
+  test("hook-only vars set together produce no top-level pollution", () => {
+    process.env.MINSKY_FORCE_PARALLEL = "1";
+    process.env.MINSKY_SKIP_FRESHNESS = "1";
+    process.env.MINSKY_TWO_STRIKES_MODE = "live";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.force).toBeUndefined();
+    expect(config.skip).toBeUndefined();
+    expect(config.two).toBeUndefined();
+  });
+});

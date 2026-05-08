@@ -81,6 +81,28 @@ export const environmentMappings = {
 } as const;
 
 /**
+ * Hook-only environment variables (mt#1644).
+ *
+ * These vars are read by `.claude/hooks/*.ts` subprocesses but have NO
+ * config-schema home — they're consumed directly by hook code via
+ * `process.env[...]`. They are deliberately NOT in `environmentMappings`.
+ *
+ * Without this skip-list, the auto-mapping fallback in
+ * `loadEnvironmentConfiguration` would route them to camelCase config paths
+ * (e.g. `MINSKY_FORCE_PARALLEL` -> `force.parallel`), which mt#1612's
+ * strict-mode top-level validation rejects, crashing the CLI at startup.
+ *
+ * Add new entries here whenever a new hook-only `MINSKY_*` env var is
+ * introduced.
+ */
+const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+  "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
+  "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
+  "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
+  "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
+]);
+
+/**
  * Type conversion functions for environment variables
  */
 const typeConverters = {
@@ -162,6 +184,9 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
     if (envVar.startsWith("MINSKY_") && value !== undefined && value !== "") {
       // Skip if already handled by explicit mapping
       if (envVar in environmentMappings) continue;
+
+      // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
 
       // Convert MINSKY_PREFIX to config path
       const configPath = envVarToConfigPath(envVar);
