@@ -49,7 +49,8 @@ export default defineRailwayConfig({
     // 1. `MINSKY_OAUTH_ISSUER` — when absent, InProcessOAuthProvider derives
     //    the issuer from the incoming request's Host/X-Forwarded-Host headers.
     //    This works correctly behind Railway's TLS terminator (`trust proxy 1`
-    //    is set in start-command.ts:284). Setting it explicitly is only needed
+    //    is set in startHttpServer in start-command.ts). Setting it explicitly
+    //    is only needed
     //    if the service ever runs behind multiple hostnames.
     //
     // 2. `MINSKY_OAUTH_SIGNING_KEY` — when absent, InProcessOAuthProvider
