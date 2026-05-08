@@ -7,6 +7,7 @@ import {
   buildProtectedResourceMetadata,
   composeRequestBaseUrl,
   normalizeEndpointPath,
+  OAUTH_FLOW_NOT_SUPPORTED_BODY,
   OAUTH_REGISTER_NOT_SUPPORTED_BODY,
 } from "./start-command";
 
@@ -283,6 +284,9 @@ describe("OAuth Discovery pure-function builders (mt#1655)", () => {
     const meta = buildAuthorizationServerMetadata("https://example.com");
     expect(meta.issuer).toBe("https://example.com");
     expect(meta.response_types_supported).toEqual([]);
+    // mt#1657: SDK validators require these as strings even with no flows.
+    expect(meta.authorization_endpoint).toBe("https://example.com/oauth/authorize");
+    expect(meta.token_endpoint).toBe("https://example.com/oauth/token");
     expect(Object.isFrozen(meta)).toBe(true);
   });
 
@@ -296,6 +300,13 @@ describe("OAuth Discovery pure-function builders (mt#1655)", () => {
     expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
     expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
     expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
+  });
+
+  test("OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657) is a frozen error body for /oauth/* stubs", () => {
+    expect(OAUTH_FLOW_NOT_SUPPORTED_BODY.error).toBe("oauth_not_supported");
+    expect(typeof OAUTH_FLOW_NOT_SUPPORTED_BODY.error_description).toBe("string");
+    expect(OAUTH_FLOW_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+    expect(Object.isFrozen(OAUTH_FLOW_NOT_SUPPORTED_BODY)).toBe(true);
   });
 });
 
@@ -400,9 +411,12 @@ describe("OAuth Discovery HTTP routes (mt#1655 integration)", () => {
       const body = (await response.json()) as Record<string, unknown>;
       expect(body.issuer).toBeTypeOf("string");
       expect(body.response_types_supported).toEqual([]);
-      // Strict-subset assertion (R1 BLOCKING #1's "pin the body shape"):
-      expect(body.authorization_endpoint).toBeUndefined();
-      expect(body.token_endpoint).toBeUndefined();
+      // mt#1657: these are now present (SDK schema requires them as strings).
+      expect(body.authorization_endpoint).toBeTypeOf("string");
+      expect((body.authorization_endpoint as string).endsWith("/oauth/authorize")).toBe(true);
+      expect(body.token_endpoint).toBeTypeOf("string");
+      expect((body.token_endpoint as string).endsWith("/oauth/token")).toBe(true);
+      // registration_endpoint stays absent — /register returns 400 directly.
       expect(body.registration_endpoint).toBeUndefined();
     } finally {
       child.kill("SIGTERM");
@@ -470,6 +484,54 @@ describe("OAuth Discovery HTTP routes (mt#1655 integration)", () => {
       expect(response.status).toBe(400);
       const body = (await response.json()) as Record<string, unknown>;
       expect(body.error).toBe("registration_not_supported");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  // mt#1657: /oauth/authorize and /oauth/token stub handlers exist because
+  // Claude Code's MCP SDK validates the authorization-server metadata
+  // schema (requiring authorization_endpoint/token_endpoint as strings).
+  // The handlers return 400 if any client actually attempts the flow.
+
+  const PORT_OAUTH_AUTHORIZE = 41005;
+  const PORT_OAUTH_TOKEN = 41006;
+
+  test("GET /oauth/authorize returns 400 + OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_OAUTH_AUTHORIZE);
+    try {
+      await ready;
+      const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_AUTHORIZE}/oauth/authorize`);
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe(OAUTH_FLOW_NOT_SUPPORTED_BODY.error);
+      expect(typeof body.error_description).toBe("string");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("POST /oauth/token returns 400 + OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_OAUTH_TOKEN);
+    try {
+      await ready;
+      const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_TOKEN}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe(OAUTH_FLOW_NOT_SUPPORTED_BODY.error);
+      expect(typeof body.error_description).toBe("string");
     } finally {
       child.kill("SIGTERM");
       await waitForExit(child, 10000).catch(() => {
