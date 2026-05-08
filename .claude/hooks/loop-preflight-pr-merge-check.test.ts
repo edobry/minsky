@@ -7,7 +7,6 @@ import {
   checkTaskState,
   runLoopPreflightCheck,
   formatBlockMessage,
-  parseGitHubRemoteUrl,
   TERMINAL_TASK_STATUSES,
   type TaskCheckOutcome,
 } from "./loop-preflight-pr-merge-check";
@@ -17,12 +16,14 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("extractPrNumbers", () => {
-  it("extracts bare hash-prefixed PR numbers", () => {
+  it("extracts PR with hash prefix (PR #NNN)", () => {
     expect(extractPrNumbers("See PR #922")).toEqual([922]);
   });
 
-  it("extracts multiple PR numbers", () => {
-    expect(extractPrNumbers("drive PR #920/#921/#922 to convergence")).toEqual([920, 921, 922]);
+  it("extracts multiple PR-cued numbers in one phrase (PR #1002 R1#2: only PR-cued counts)", () => {
+    // Only "PR #920" matches the PR cue; bare "#921" and "#922" are
+    // intentionally NOT extracted (they could be issue refs).
+    expect(extractPrNumbers("drive PR #920 #921 #922 to convergence")).toEqual([920]);
   });
 
   it("extracts PR NNN (bare number after PR word)", () => {
@@ -38,7 +39,6 @@ describe("extractPrNumbers", () => {
   });
 
   it("does NOT extract task IDs like mt#922 as PR numbers", () => {
-    // mt#922 should not produce PR #922
     expect(extractPrNumbers("mt#922 task")).toEqual([]);
   });
 
@@ -46,8 +46,17 @@ describe("extractPrNumbers", () => {
     expect(extractPrNumbers("md#409 task")).toEqual([]);
   });
 
-  it("deduplicates repeated PR numbers", () => {
-    expect(extractPrNumbers("#922 and also #922")).toEqual([922]);
+  it("does NOT extract bare hash refs without PR cue (PR #1002 R1#2)", () => {
+    // "investigate #922" likely refers to an issue, not a PR. Hook must
+    // not over-match — only explicit `PR <num>`, `PR #<num>`, or
+    // `pull(s)?/<num>` count.
+    expect(extractPrNumbers("investigate #922")).toEqual([]);
+    expect(extractPrNumbers("close #100")).toEqual([]);
+    expect(extractPrNumbers("see #922 and #921")).toEqual([]);
+  });
+
+  it("deduplicates repeated PR-cued numbers", () => {
+    expect(extractPrNumbers("PR #922 and also PR #922")).toEqual([922]);
   });
 
   it("returns empty array when no PRs found", () => {
@@ -102,32 +111,6 @@ describe("extractTaskIds", () => {
 });
 
 // ---------------------------------------------------------------------------
-// parseGitHubRemoteUrl
-// ---------------------------------------------------------------------------
-
-describe("parseGitHubRemoteUrl", () => {
-  it("parses SCP-style SSH URLs", () => {
-    expect(parseGitHubRemoteUrl("git@github.com:edobry/minsky.git")).toBe("edobry/minsky");
-  });
-
-  it("parses HTTPS URLs", () => {
-    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky.git")).toBe("edobry/minsky");
-  });
-
-  it("parses HTTPS URLs without .git", () => {
-    expect(parseGitHubRemoteUrl("https://github.com/edobry/minsky")).toBe("edobry/minsky");
-  });
-
-  it("returns null for non-GitHub URLs", () => {
-    expect(parseGitHubRemoteUrl("https://gitlab.com/edobry/minsky.git")).toBeNull();
-  });
-
-  it("returns null for empty strings", () => {
-    expect(parseGitHubRemoteUrl("")).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
 // TERMINAL_TASK_STATUSES
 // ---------------------------------------------------------------------------
 
@@ -155,7 +138,7 @@ describe("TERMINAL_TASK_STATUSES", () => {
 
 // Helper: make a checkPr dep that returns terminal for specific PR numbers
 function makeTerminalPrDep(terminalPrNumbers: number[]): typeof checkPrState {
-  return (repo, prNumber, warnings, _timeoutMs) => {
+  return (_repoDir, prNumber, _warnings, _timeoutMs) => {
     if (terminalPrNumbers.includes(prNumber)) {
       return {
         kind: "terminal",
@@ -181,7 +164,7 @@ function makeTerminalTaskDep(terminalTaskIds: string[]): typeof checkTaskState {
 
 // Helper: make a checkPr dep that errors for specific PR numbers
 function makeErrorPrDep(errorPrNumbers: number[]): typeof checkPrState {
-  return (repo, prNumber, warnings, _timeoutMs) => {
+  return (_repoDir, prNumber, warnings, _timeoutMs) => {
     if (errorPrNumbers.includes(prNumber)) {
       const warning = `Could not check PR #${prNumber}: gh exited 404: Not Found`;
       warnings.push(warning);

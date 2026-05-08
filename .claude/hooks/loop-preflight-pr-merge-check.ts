@@ -65,13 +65,16 @@ const FALLBACK_TIMEOUT_MS = 5_000;
 export function extractPrNumbers(text: string): number[] {
   const seen = new Set<number>();
   const results: number[] = [];
-
-  // Pattern 1: bare `#NNN` or `PR #NNN` / `PR NNN`
-  // Require word boundary or start-of-word before `#` so task IDs like
-  // `mt#922` don't match. The negative lookbehind `(?<!\w)` handles this.
-  const hashRe = /(?<!\w)#(\d+)/g;
   let m: RegExpExecArray | null;
-  while ((m = hashRe.exec(text)) !== null) {
+
+  // Pattern 1: `PR #NNN` or `PR NNN` (explicit PR cue, with or without hash).
+  // Bare `#NNN` is intentionally NOT matched (PR #952 R1#2): hash-only refs
+  // commonly mean issues, not PRs, and over-matching would block on issue
+  // references. Require explicit `PR` prefix — false-negatives (operator
+  // typed `#922` meaning a PR) are recoverable; false-positives (treating
+  // an issue as a PR and blocking) are confusing.
+  const prCuedRe = /\bPR\s*#?\s*(\d+)\b/gi;
+  while ((m = prCuedRe.exec(text)) !== null) {
     const n = parseInt(m[1] as string, 10);
     if (!isNaN(n) && !seen.has(n)) {
       seen.add(n);
@@ -79,17 +82,8 @@ export function extractPrNumbers(text: string): number[] {
     }
   }
 
-  // Pattern 2: `PR NNN` (bare number, no hash)
-  const prBareRe = /\bPR\s+(\d+)\b/gi;
-  while ((m = prBareRe.exec(text)) !== null) {
-    const n = parseInt(m[1] as string, 10);
-    if (!isNaN(n) && !seen.has(n)) {
-      seen.add(n);
-      results.push(n);
-    }
-  }
-
-  // Pattern 3: `pull/NNN` or `pulls/NNN` (GitHub URL path segments)
+  // Pattern 2: `pull/NNN` or `pulls/NNN` (GitHub URL path segments — these
+  // are unambiguous PR refs, not issue refs).
   const urlRe = /\bpulls?\/(\d+)\b/gi;
   while ((m = urlRe.exec(text)) !== null) {
     const n = parseInt(m[1] as string, 10);
@@ -159,20 +153,30 @@ export type PrCheckOutcome =
  * so the caller can permit the tool call gracefully (partial-coverage posture).
  */
 export function checkPrState(
-  repo: string,
+  repoDir: string,
   prNumber: number,
   warnings: string[],
   timeoutMs: number = FALLBACK_TIMEOUT_MS
 ): PrCheckOutcome {
+  // Use `gh pr view <num>` rather than `gh api repos/<owner>/<repo>/pulls/<n>`:
+  //   1. Auto-resolves repo from `repoDir`'s git config — works on GitHub
+  //      Enterprise (any GH_HOST), not just github.com (PR #952 R1#1).
+  //   2. Returns non-zero exit when the number is an issue, not a PR — provides
+  //      defense-in-depth against `extractPrNumbers` over-matching, on top of
+  //      the regex tightening (PR #952 R1#2). An issue number leaks here as a
+  //      "could not check" warning, which permits the loop (fail-open).
   const result = execWithPath(
     [
       "gh",
-      "api",
-      `repos/${repo}/pulls/${prNumber}`,
+      "pr",
+      "view",
+      String(prNumber),
+      "--json",
+      "state,title",
       "--jq",
-      '.state + "\\t" + (.merged | tostring) + "\\t" + .title',
+      '.state + "\\t" + .title',
     ],
-    { timeout: timeoutMs }
+    { cwd: repoDir, timeout: timeoutMs }
   );
 
   if (result.exitCode !== 0) {
@@ -182,15 +186,18 @@ export function checkPrState(
   }
 
   const parts = result.stdout.trim().split("\t");
-  if (parts.length < 3) {
+  if (parts.length < 2) {
     const warning = `Could not parse PR #${prNumber} response: '${result.stdout.trim()}'`;
     warnings.push(warning);
     return { kind: "error", prNumber, warning };
   }
 
-  const state = (parts[0] as string).toLowerCase() === "open" ? "open" : "closed";
-  const merged = (parts[1] as string).toLowerCase() === "true";
-  const title = parts.slice(2).join("\t");
+  // `gh pr view` returns state values: "OPEN", "CLOSED", "MERGED" (uppercase).
+  // Normalize to the open/closed + merged shape used downstream.
+  const rawState = (parts[0] as string).toUpperCase();
+  const merged = rawState === "MERGED";
+  const state: "open" | "closed" = rawState === "OPEN" ? "open" : "closed";
+  const title = parts.slice(1).join("\t");
 
   const prResult: PrStateResult = { prNumber, state, merged, title };
   const isTerminal = state === "closed" || merged;
@@ -262,52 +269,6 @@ export function checkTaskState(
   const isTerminal = TERMINAL_TASK_STATUSES.has(status.toUpperCase());
   const taskResult: TaskStateResult = { taskId, status };
   return { kind: isTerminal ? "terminal" : "active", result: taskResult };
-}
-
-// ---------------------------------------------------------------------------
-// Repo derivation
-// ---------------------------------------------------------------------------
-
-/**
- * Parse an `owner/repo` slug from a GitHub remote URL.
- * Supports SCP-style SSH, URL-style SSH, and HTTPS forms.
- * Pure function — no I/O.
- */
-export function parseGitHubRemoteUrl(url: string): string | null {
-  const trimmed = url.trim();
-
-  // SCP-style SSH: git@github.com:owner/repo[.git]
-  const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
-  if (sshMatch) return sshMatch[1] as string;
-
-  // URL-style SSH (with optional port): ssh://[git@]github.com[:port]/owner/repo[.git][/]
-  const sshUrlMatch = trimmed.match(
-    /^(?:git\+)?ssh:\/\/(?:[^@]+@)?github\.com(?::\d+)?\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
-  );
-  if (sshUrlMatch) return sshUrlMatch[1] as string;
-
-  // HTTPS form: https://[token@]github.com/owner/repo[.git][/]
-  const httpsMatch = trimmed.match(
-    /^https:\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
-  );
-  if (httpsMatch) return httpsMatch[1] as string;
-
-  return null;
-}
-
-/**
- * Derive the GitHub `owner/repo` slug from the `origin` remote of the given
- * git working directory. Returns null if the remote can't be read or parsed.
- */
-export function deriveRepoFromGit(
-  repoDir: string,
-  timeoutMs: number = FALLBACK_TIMEOUT_MS
-): string | null {
-  const result = execWithPath(["git", "-C", repoDir, "remote", "get-url", "origin"], {
-    timeout: timeoutMs,
-  });
-  if (result.exitCode !== 0 || !result.stdout.trim()) return null;
-  return parseGitHubRemoteUrl(result.stdout);
 }
 
 // ---------------------------------------------------------------------------
@@ -386,11 +347,11 @@ export interface LoopPreflightResult {
 export function runLoopPreflightCheck(
   prNumbers: number[],
   taskIds: string[],
-  repo: string,
+  repoDir: string,
   warnings: string[],
   timeoutMs: number = FALLBACK_TIMEOUT_MS,
   checkPr: (
-    repo: string,
+    repoDir: string,
     prNumber: number,
     warnings: string[],
     timeoutMs: number
@@ -405,7 +366,7 @@ export function runLoopPreflightCheck(
   const terminalTasks: TerminalTaskItem[] = [];
 
   for (const prNumber of prNumbers) {
-    const outcome = checkPr(repo, prNumber, warnings, timeoutMs);
+    const outcome = checkPr(repoDir, prNumber, warnings, timeoutMs);
     if (outcome.kind === "terminal") {
       terminalPrs.push({
         prNumber: outcome.result.prNumber,
@@ -475,26 +436,13 @@ if (import.meta.main) {
 
   const warnings: string[] = [];
 
-  // Derive repo from git remote
+  // PR checks are run via `gh pr view <num>` with cwd set to the session's
+  // working directory; gh resolves the host (github.com or GH_HOST for
+  // Enterprise) from the repo's git config. No manual remote-URL parsing
+  // needed (PR #952 R1#1).
   const repoDir = input.cwd;
-  const repo = deriveRepoFromGit(repoDir, timeoutMs);
-  if (!repo) {
-    process.stdout.write(
-      `[loop-preflight] Could not derive owner/repo from git remote — PR check skipped\n`
-    );
-    // Still check tasks even if repo derivation fails
-    if (taskIds.length === 0) {
-      process.exit(0);
-    }
-  }
 
-  const result = runLoopPreflightCheck(
-    repo ? prNumbers : [], // skip PR checks if no repo
-    taskIds,
-    repo ?? "",
-    warnings,
-    timeoutMs
-  );
+  const result = runLoopPreflightCheck(prNumbers, taskIds, repoDir, warnings, timeoutMs);
 
   for (const w of warnings) {
     process.stdout.write(`[loop-preflight] ${w}\n`);
