@@ -182,6 +182,29 @@ describe("memory-enrichment / buildQuery", () => {
     expect(q).toBe("test.tool ids");
     expect(q).not.toContain("[");
   });
+  test("redacts string values when key matches sensitive-key pattern", () => {
+    const q1 = buildQuery("test.tool", { token: "sk-abc-secret-XYZ" });
+    expect(q1).toBe("test.tool token");
+    expect(q1).not.toContain("sk-abc");
+
+    const q2 = buildQuery("test.tool", { password: "hunter2" });
+    expect(q2).toBe("test.tool password");
+    expect(q2).not.toContain("hunter2");
+
+    const q3 = buildQuery("test.tool", { apiKey: "AIzaSyXXX" });
+    expect(q3).toBe("test.tool apiKey");
+    expect(q3).not.toContain("AIzaSy");
+
+    const q4 = buildQuery("test.tool", { authorization: "Bearer xyz" });
+    expect(q4).toBe("test.tool authorization");
+    expect(q4).not.toContain("Bearer");
+
+    const q5 = buildQuery("test.tool", { auth: "x" });
+    expect(q5).toBe("test.tool auth");
+
+    // Non-sensitive keys still pass values through.
+    expect(buildQuery("test.tool", { taskId: "mt#1588" })).toBe("test.tool mt#1588");
+  });
   test("includes key context for non-string scalars (key=value form)", () => {
     const q = buildQuery("test.tool", { retries: 3, verbose: true, ratio: 0.5 });
     expect(q).toContain("retries=3");

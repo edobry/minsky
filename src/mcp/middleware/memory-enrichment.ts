@@ -59,6 +59,20 @@ const PER_RESULT_CHAR_BUDGET = 500;
 const MAX_QUERY_LENGTH = 500;
 
 /**
+ * Conservative regex for sensitive-arg key names. When a string arg's KEY
+ * matches this pattern, the VALUE is redacted in `buildQuery` (key included
+ * as a hint that the arg was set, value dropped) — same shape as
+ * object/array redaction. Bounds the spike's data-exposure surface for
+ * future allowlist expansions where arbitrary string args might appear
+ * (PR #974 R4 BLOCKING #3).
+ *
+ * Spike scope: a hardcoded conservative pattern is enough today since the
+ * allowlist contains only `tasks.get` (no sensitive args possible). A
+ * configurable per-tool key allowlist is mt#1631-class follow-on work.
+ */
+const SENSITIVE_KEY_PATTERN = /(token|secret|password|apikey|api_key|authorization|auth)/i;
+
+/**
  * Default timeout (ms) for the memory_search call inside enrichToolResponse.
  * Configurable via `MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS`. Defensive default
  * — sized to let a normal embedding-API + pgvector call complete while bounding
@@ -101,33 +115,41 @@ export function shouldEnrich(toolName: string): boolean {
 }
 
 /**
- * Build the search query from tool name + scalar args. Object and array values
- * are redacted (key included, value dropped) to avoid embedding arbitrarily
- * large payloads or sensitive data — only primitive scalar args contribute
- * their values to the query (PR #974 R1 BLOCKING).
+ * Build the search query from tool name + scalar args.
  *
- * The constructed query is hard-capped at MAX_QUERY_LENGTH chars and truncated
- * with an ellipsis if exceeded.
+ * Redaction policy:
+ * - Object and array values: redacted (key included as hint, value dropped)
+ *   to avoid embedding arbitrarily large payloads.
+ * - String values whose KEY matches `SENSITIVE_KEY_PATTERN`: redacted (key
+ *   included, value dropped). Bounds data-exposure for future allowlist
+ *   expansions (PR #974 R4 BLOCKING #3).
+ * - Other primitive scalars: included with key context (`key=value`) for
+ *   non-strings; bare value for strings (the value carries its own meaning).
+ *
+ * The constructed query is hard-capped at MAX_QUERY_LENGTH chars and
+ * truncated with an ellipsis if exceeded.
  *
  * Examples:
  * - `("tasks.get", {taskId: "mt#1588"})` → `"tasks.get mt#1588"`
  * - `("session.list", {})` → `"session.list"`
- * - `("tool", {filter: {status: "DONE"}})` → `"tool filter"` (object value redacted)
+ * - `("tool", {filter: {status: "DONE"}})` → `"tool filter"` (object redacted)
+ * - `("tool", {token: "sk-abc"})` → `"tool token"` (sensitive-key redacted)
+ * - `("tool", {retries: 3})` → `"tool retries=3"` (non-string scalar)
  */
 export function buildQuery(toolName: string, args: Record<string, unknown>): string {
   const argParts: string[] = [];
   for (const [k, v] of Object.entries(args)) {
     if (v === undefined || v === null || v === "") continue;
     if (typeof v === "string") {
-      argParts.push(v);
+      if (SENSITIVE_KEY_PATTERN.test(k)) {
+        // Sensitive key — redact the value.
+        argParts.push(k);
+      } else {
+        argParts.push(v);
+      }
     } else if (typeof v === "number" || typeof v === "boolean") {
-      // Include key context for non-string scalars so retrieval has semantic
-      // grounding (PR #974 R2 NON-BLOCKING). String args still carry their
-      // own meaning so they're appended bare.
       argParts.push(`${k}=${String(v)}`);
     } else {
-      // Redact non-scalar values: include the key as a hint that it was set,
-      // but drop the value to avoid leaking unbounded content into the query.
       argParts.push(k);
     }
   }
