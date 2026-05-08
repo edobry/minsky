@@ -81,6 +81,34 @@ export const environmentMappings = {
 } as const;
 
 /**
+ * Hook-only environment variables (mt#1644).
+ *
+ * These vars are read by `.claude/hooks/*.ts` subprocesses (external
+ * consumers — the hook tree lives outside this package's import graph) but
+ * have NO config-schema home. They are deliberately NOT in
+ * `environmentMappings`.
+ *
+ * Without this skip-list, the auto-mapping fallback in
+ * `loadEnvironmentConfiguration` would route them to camelCase config paths
+ * (e.g. `MINSKY_FORCE_PARALLEL` -> `force.parallel`), which mt#1612's
+ * strict-mode top-level validation rejects, crashing the CLI at startup.
+ *
+ * Both `loadEnvironmentConfiguration` and `getEnvironmentConfiguration`
+ * honor this set so the loaded-config and metadata-reporting paths stay
+ * consistent — diagnostics that consume `metadata.loadedVariables` see the
+ * same view of "what env vars affected configuration" that the loader used.
+ *
+ * Keep in sync with `.claude/hooks/*.ts` as new hook-only `MINSKY_*` env
+ * vars are introduced.
+ */
+const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+  "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
+  "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
+  "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
+  "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
+]);
+
+/**
  * Type conversion functions for environment variables
  */
 const typeConverters = {
@@ -162,6 +190,9 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
     if (envVar.startsWith("MINSKY_") && value !== undefined && value !== "") {
       // Skip if already handled by explicit mapping
       if (envVar in environmentMappings) continue;
+
+      // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
 
       // Convert MINSKY_PREFIX to config path
       const configPath = envVarToConfigPath(envVar);
@@ -277,6 +308,11 @@ export function getEnvironmentConfiguration(): {
   // Track MINSKY_ prefixed variables
   for (const envVar of Object.keys(process.env)) {
     if (envVar.startsWith("MINSKY_") && !(envVar in environmentMappings)) {
+      // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
+      // Stays in sync with loadEnvironmentConfiguration so metadata reporting
+      // does not diverge from actual load behavior.
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+
       const configPath = envVarToConfigPath(envVar);
       if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {
         loadedVariables.push(envVar);

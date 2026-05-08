@@ -85,6 +85,7 @@ async function graphql<T>(query: string, variables: Record<string, unknown>): Pr
   try {
     body = JSON.parse(bodyText) as typeof body;
   } catch (parseErr) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP response bodies are ASCII JSON/HTML error pages
     const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
     throw new Error(`Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`, {
       cause: parseErr,

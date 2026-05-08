@@ -108,6 +108,7 @@ async function main(): Promise<void> {
       observe(
         "tasks-create",
         "gap",
+        // eslint-disable-next-line custom/no-unsafe-string-truncation -- PoC diagnostic script; truncation is for log readability only
         `Could not parse task ID from response: ${text.slice(0, 120)}`
       );
       throw new Error("Task ID not parseable — cannot continue lifecycle");
@@ -166,6 +167,7 @@ async function main(): Promise<void> {
       sessionId = idMatch?.[1];
     }
     if (!sessionId) {
+      // eslint-disable-next-line custom/no-unsafe-string-truncation -- PoC diagnostic script; truncation is for log readability only
       observe("session-start", "gap", `Could not parse session ID: ${text.slice(0, 200)}`);
       throw new Error("Session ID not parseable — cannot continue lifecycle");
     }
@@ -261,6 +263,7 @@ async function main(): Promise<void> {
         "Git hooks (portable enforcement) fired without any harness involvement — expected result"
       );
     } else {
+      // eslint-disable-next-line custom/no-unsafe-string-truncation -- PoC diagnostic script; truncation is for log readability only
       observe("session-commit", "friction", `Commit output unclear: ${text.slice(0, 200)}`);
     }
   } catch (err) {
@@ -291,6 +294,7 @@ async function main(): Promise<void> {
     if (prUrl) {
       observe("pr-create", "success", `Draft PR created: ${prUrl}`);
     } else {
+      // eslint-disable-next-line custom/no-unsafe-string-truncation -- PoC diagnostic script; truncation is for log readability only
       observe("pr-create", "friction", `PR created but URL not parseable: ${text.slice(0, 200)}`);
     }
   } catch (err) {

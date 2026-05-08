@@ -17,6 +17,7 @@ describe("graphql() parse-error path — truncation behavior", () => {
   // throw new Error(`Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`, { cause: parseErr });
 
   function buildParseErrorMessage(status: number, bodyText: string): string {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP response bodies are ASCII (test mirrors apply.ts behavior)
     const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
     return `Railway API returned non-JSON response (HTTP ${status}): ${truncated}`;
   }

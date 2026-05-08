@@ -13,6 +13,7 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 import {
   reconcile,
@@ -510,5 +511,80 @@ describe("reconcile", () => {
     expect(after?.routedAt).toBeDefined();
     expect(after?.suspendedAt).toBeDefined();
     expect(after?.respondedAt).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Surrogate-pair safety regression tests (mt#1615)
+// ---------------------------------------------------------------------------
+
+function hasUnpairedSurrogate(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
+      if (next < 0xdc00 || next > 0xdfff) return true;
+      i++;
+      continue;
+    }
+    if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+}
+
+function jsonRoundtrips(s: string): boolean {
+  try {
+    const encoded = JSON.stringify({ s });
+    const decoded = JSON.parse(encoded) as { s: string };
+    return decoded.s === s;
+  } catch {
+    return false;
+  }
+}
+
+// Mirror of the patched truncate() in reconciler.ts
+function truncate(str: string, max: number): string {
+  if (str.length <= max) return str;
+  return `${safeTruncate(str, max, "head")}...`;
+}
+
+describe("reconciler truncate — surrogate safety (mt#1615)", () => {
+  const EMOJIS = ["🔍", "🚀", "🎯", "🤖"];
+  // Reviewer bodies routinely contain emoji (minsky-reviewer[bot] output)
+  const MAX_PREVIEW = 100;
+
+  test("reviewer body preview truncated at 100 is surrogate-safe", () => {
+    // Simulate a reviewer body where position 100 falls inside an emoji
+    const prefix = "a".repeat(99);
+    const body = `${prefix}🔍 additional reviewer content`;
+    const result = truncate(body, MAX_PREVIEW);
+    expect(hasUnpairedSurrogate(result)).toBe(false);
+    expect(jsonRoundtrips(result)).toBe(true);
+    expect(result.endsWith("...")).toBe(true);
+  });
+
+  test("every cut length 0..100 on emoji body produces valid UTF-16", () => {
+    const body = EMOJIS.join("").repeat(15); // 120 code units
+    for (let n = 0; n <= MAX_PREVIEW; n++) {
+      const result = truncate(body, n);
+      expect(hasUnpairedSurrogate(result)).toBe(false);
+      expect(jsonRoundtrips(result)).toBe(true);
+    }
+  });
+
+  test("short body returned unchanged", () => {
+    const short = "LGTM 🚀";
+    const result = truncate(short, MAX_PREVIEW);
+    expect(result).toBe(short);
+    expect(hasUnpairedSurrogate(result)).toBe(false);
+  });
+
+  test("all four spec emojis at boundary", () => {
+    for (const emoji of EMOJIS) {
+      const body = `${"a".repeat(99) + emoji}trailing`;
+      const result = truncate(body, MAX_PREVIEW);
+      expect(hasUnpairedSurrogate(result)).toBe(false);
+      expect(jsonRoundtrips(result)).toBe(true);
+    }
   });
 });

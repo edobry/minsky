@@ -24,6 +24,7 @@ import noValidationErrorInExecute from "./eslint-rules/no-validation-error-in-ex
 import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
 import requireInjectable from "./eslint-rules/require-injectable.js";
 import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
+import noUnsafeStringTruncation from "./eslint-rules/no-unsafe-string-truncation.js";
 
 export default [
   js.configs.recommended,
@@ -128,6 +129,7 @@ export default [
           "no-domain-singleton": noDomainSingleton,
           "require-injectable": requireInjectable,
           "no-skipped-tests": noSkippedTests,
+          "no-unsafe-string-truncation": noUnsafeStringTruncation,
         },
       },
     },
@@ -233,6 +235,17 @@ export default [
           ],
         },
       ], // Require @injectable() on domain Service/Storage/Adapter classes (mt#916)
+
+      // === SURROGATE-SAFE STRING TRUNCATION ===
+      // Detects .slice(0,N) / .substring(0,N) on plausibly-string receivers — these
+      // may split UTF-16 surrogate pairs (emoji). Use safeTruncate() instead (mt#1615).
+      // Known-ASCII paths (SHA prefixes, timestamps) can use eslint-disable-next-line.
+      "custom/no-unsafe-string-truncation": [
+        "warn",
+        {
+          allowlist: [], // Per-instance allowlists use eslint-disable-next-line comments
+        },
+      ],
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [

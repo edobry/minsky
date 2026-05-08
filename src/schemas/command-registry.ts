@@ -28,6 +28,7 @@ export const commandCategorySchema = z.enum([
   "COMPILE",
   "WORKSPACE",
   "TRANSCRIPTS",
+  "DETECTORS",
 ]);
 
 /**

@@ -2,6 +2,7 @@
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import { openSync, writeSync, closeSync, writeFileSync } from "fs";
+import { safeTruncate } from "../../src/utils/safe-truncate";
 
 const COLORS: [number, number, number][] = [
   [86, 182, 194], // teal
@@ -36,7 +37,7 @@ function emitITermEscapes(taskId: string, title: string): void {
     return;
   }
 
-  const shortTitle = title.length > 50 ? `${title.slice(0, 47)}...` : title;
+  const shortTitle = title.length > 50 ? `${safeTruncate(title, 47, "head")}...` : title;
   const tabLabel = `${taskId} — ${shortTitle}`;
 
   // Set tab title via OSC 1 and tab color via OSC 6

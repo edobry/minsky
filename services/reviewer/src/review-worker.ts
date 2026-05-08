@@ -40,6 +40,7 @@ import {
   type DowngradeAuditEntry,
   type FlatPriorFinding,
 } from "./severity-recovery";
+import { safeTruncate } from "../../../src/utils/safe-truncate";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -723,7 +724,18 @@ export async function runReview(
   // both toolsActive and provider=openai, the model sees and uses output tools.
   const outputToolsActive = toolsActive && config.provider === "openai";
 
-  const systemPrompt = buildCriticConstitution(toolsActive, scopeBucket, outputToolsActive);
+  // mt#1656 / mt#1640 Fix 1: when prior reviews exist on this PR (R≥2), swap
+  // the standard preamble for a verification-mode preamble that defaults to
+  // APPROVE when prior BLOCKING findings have been addressed and no critical
+  // defects remain. Cancels the asymmetric incentive that produces no-stopping-
+  // rule iteration on subsequent rounds.
+  const priorReviewsPresent = priorReviewsMarkdown.trim().length > 0;
+  const systemPrompt = buildCriticConstitution(
+    toolsActive,
+    scopeBucket,
+    outputToolsActive,
+    priorReviewsPresent
+  );
 
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
@@ -1162,7 +1174,7 @@ export function parseReviewEvent(
 
   // Look for an explicit event marker in the last 400 chars — the prompt asks
   // the model to conclude with one.
-  const tail = text.slice(-400).toUpperCase();
+  const tail = safeTruncate(text, 400, "tail").toUpperCase();
   if (/\bREQUEST_CHANGES\b/.test(tail)) return "REQUEST_CHANGES";
   if (/\bAPPROVE\b/.test(tail)) return "APPROVE";
   return "COMMENT";
