@@ -191,12 +191,12 @@ When `MINSKY_MCP_AUTH_TOKEN` is unset and the OAuth provider IS wired (Postgres 
 
 To rotate the signing key in production:
 
-1. Generate a new RSA JWK (or use the existing one as a starting point).
-2. Set `MINSKY_OAUTH_SIGNING_KEY` to the new JWK JSON via the synthesizer.
+1. Generate a new RSA JWK (kty=RSA, use=sig, alg=RS256). The value MUST be a JWK JSON object as a string — NOT a raw hex secret. Example generator: `node -e 'const jose = require("jose"); jose.generateKeyPair("RS256").then(async ({privateKey}) => console.log(JSON.stringify(await jose.exportJWK(privateKey))))'`.
+2. Set `MINSKY_OAUTH_SIGNING_KEY` to the new JWK JSON via the synthesizer (`services/minsky-mcp/railway.config.ts`).
 3. Apply via `bun scripts/railway/apply.ts services/minsky-mcp --execute`.
 4. Trigger redeploy. All issued access tokens become invalid immediately; clients re-authorize.
 
-For zero-downtime rotation (multiple keys advertised in JWKS during a transition window), use a separate task — out of scope for v1.
+For zero-downtime rotation (multiple keys advertised in JWKS during a transition window): `oidc-provider` supports an array of signing keys via `jwks.keys` config — staging a new key while the old one is still advertised lets clients pick up the new key before the old is removed. Wiring this through `InProcessOAuthProvider` is out of scope for v1; tracked as a follow-up.
 
 ## Verify deployment
 

@@ -59,9 +59,15 @@ export default defineRailwayConfig({
     //    after Railway redeploys (every push to main triggers a redeploy).
     //    For v1 (claude.ai web wiring acceptance), this is acceptable — users
     //    re-authorize on token-invalidation. For production hardening,
-    //    generate a JWK once (`openssl rand -hex 32` for HMAC, or use
-    //    `jose` to generate an RSA JWK) and set this var. Tracking task
-    //    for the production-posture migration: see mt#1683 sibling work.
+    //    generate a persistent RSA JWK and set this var. The expected value
+    //    is the JWK JSON object as a string (kty=RSA, use=sig, alg=RS256),
+    //    NOT a raw hex string — oidc-provider parses this field as JWK JSON
+    //    and will fail provider initialization on a bare hex value.
+    //    Generate via `node -e 'require("jose").generateKeyPair("RS256")
+    //    .then(async ({privateKey}) => console.log(JSON.stringify(
+    //    await require("jose").exportJWK(privateKey))))'` or any RFC 7517
+    //    JWK generator. Tracking task for the production-posture migration:
+    //    see mt#1683 sibling work.
     // -------------------------------------------------------------------
   },
 });
