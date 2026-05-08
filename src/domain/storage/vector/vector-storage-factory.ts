@@ -3,85 +3,82 @@
  *
  * Creates vector storage instances using the persistence provider.
  * Uses dependency injection pattern with PersistenceProvider (required).
+ *
+ * The only API is createVectorStorageForDomain(domain, dimension, provider), which
+ * routes each domain to its correct embeddings table (EMBEDDINGS_CONFIGS). Typed
+ * per-domain helpers (createRulesVectorStorageFromConfig, createToolsVectorStorageFromConfig,
+ * createMemoryVectorStorageFromConfig) hard-code the domain at definition time and
+ * are equivalent to calling createVectorStorageForDomain directly.
  */
 
 import type { VectorStorage } from "./types";
 import { MemoryVectorStorage } from "./memory-vector-storage";
 import type { PersistenceProvider } from "../../persistence/types";
 import { log } from "../../../utils/logger";
+import type { VectorDomain } from "../schemas/embeddings-schema-factory";
 
 /**
- * Create vector storage using persistence provider
+ * Create vector storage for a specific domain using the persistence provider.
+ * This is the preferred API — it routes each domain to its correct embeddings table
+ * via EMBEDDINGS_CONFIGS, preventing cross-domain contamination.
  */
-export async function createVectorStorageFromConfig(
+export async function createVectorStorageForDomain(
+  domain: VectorDomain,
   dimension: number,
   persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
-  const provider = persistenceProvider;
-
-  // Check if provider supports vector storage
-  if (!provider.capabilities.vectorStorage) {
-    log.warn("Current persistence provider does not support vector storage, using memory backend");
+  if (!persistenceProvider.capabilities.vectorStorage) {
+    log.warn(
+      `[vector-storage] Provider does not support vector storage for domain "${domain}", using memory backend`
+    );
     return new MemoryVectorStorage(dimension);
   }
 
-  // Get vector storage from provider
-  const vectorStorage = await provider.getVectorStorage?.(dimension);
-
-  if (!vectorStorage) {
-    log.warn("Provider returned null for vector storage, using memory backend");
-    return new MemoryVectorStorage(dimension);
+  if (
+    "getVectorStorageForDomain" in persistenceProvider &&
+    typeof persistenceProvider.getVectorStorageForDomain === "function"
+  ) {
+    const vectorStorage = persistenceProvider.getVectorStorageForDomain(domain, dimension);
+    if (!vectorStorage) {
+      log.warn(
+        `[vector-storage] Provider returned null for domain "${domain}", using memory backend`
+      );
+      return new MemoryVectorStorage(dimension);
+    }
+    return vectorStorage;
   }
 
-  return vectorStorage;
+  log.warn(`[vector-storage] Provider has no vector storage methods, using memory backend`);
+  return new MemoryVectorStorage(dimension);
 }
 
 /**
  * Create a VectorStorage configured for rules embeddings.
- * Domain-specific convenience that keeps vector storage generic.
  */
 export async function createRulesVectorStorageFromConfig(
   dimension: number,
   persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
-  // For now, use the same implementation as tasks
-  // In the future, this could create a separate vector storage instance
-  // with different table/collection names
-  return createVectorStorageFromConfig(dimension, persistenceProvider);
+  return createVectorStorageForDomain("rules", dimension, persistenceProvider);
 }
 
 /**
  * Create a VectorStorage configured for tool embeddings.
- * Domain-specific convenience for tools embeddings.
  */
 export async function createToolsVectorStorageFromConfig(
   dimension: number,
   persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
-  // For now, use the same implementation as tasks
-  // In the future, this could create a separate vector storage instance
-  // with different table/collection names
-  return createVectorStorageFromConfig(dimension, persistenceProvider);
-}
-
-/** Minimal interface for providers that may offer vector storage, avoiding circular dependency */
-interface VectorCapableProvider {
-  capabilities?: { vectorStorage?: boolean };
-  getVectorStorage?(dimension: number): Promise<VectorStorage | null> | VectorStorage | null;
+  return createVectorStorageForDomain("tools", dimension, persistenceProvider);
 }
 
 /**
- * Create vector storage with explicit persistence provider
- * (for testing or when you need to specify a particular provider)
+ * Create a VectorStorage configured for memory embeddings.
+ * Uses memories_embeddings table with memory_id as the id column.
  */
-export async function createVectorStorage(
-  provider: VectorCapableProvider,
-  dimension: number
+export async function createMemoryVectorStorageFromConfig(
+  dimension: number,
+  persistenceProvider: PersistenceProvider
 ): Promise<VectorStorage> {
-  if (!provider.capabilities?.vectorStorage) {
-    return new MemoryVectorStorage(dimension);
-  }
-
-  const vectorStorage = await provider.getVectorStorage?.(dimension);
-  return vectorStorage || new MemoryVectorStorage(dimension);
+  return createVectorStorageForDomain("memory", dimension, persistenceProvider);
 }

@@ -39,8 +39,9 @@ Step 5: Plan the implementation
 Step 6: Develop
 Step 7: Verify implementation
 Step 7a: Ship verification artifact for structural changes (when in scope)
+Step 7b: TOCTOU / concurrency sweep for check-then-act code (mandatory when applicable)
 Step 8: Create PR (IN-PROGRESS → IN-REVIEW)
-Step 9: Hand off to verify
+Step 9: Drive PR to convergence (IN-REVIEW → merge)
 
 ### 0. Entry gate: check task status
 
@@ -53,7 +54,7 @@ Evaluate the returned status:
 - **BLOCKED or CLOSED** → halt. Explain the status and ask the user how to proceed.
 - **READY** → proceed to step 1 below. This skill owns the READY → IN-PROGRESS transition.
 - **IN-PROGRESS** → a session may already exist. Retrieve it with `mcp__minsky__session_get` and continue from step 3.
-- **IN-REVIEW** → PR already created. Remind user to use `/verify-task mt#X` for next steps.
+- **IN-REVIEW** → PR already created. Resume the §9 convergence loop (wait for the reviewer-bot, iterate to merge). Note: per mt#1551, `/verify-task` is a closeout wrapper for the bypass-merge path only; the standard `session_pr_merge` path auto-sets DONE without `/verify-task` firing.
 - **DONE** → task is complete. No action needed.
 
 ### 0a. Late parallel-work spot-check
@@ -213,6 +214,94 @@ This pattern was established by mt#1399 (smoke test for output-tools wiring — 
 - The redacted live-run output from running the artifact, OR
 - A documented override: the artifact has not been run because (a) the target has not been deployed yet, (b) the author lacks live-target access per documented policy, or (c) the target has a rate-limit or maintenance-window constraint. "I read the code carefully" is not a valid override.
 
+### 7b. TOCTOU / concurrency sweep for check-then-act code
+
+**Mandatory** when this implementation introduces or modifies a check-then-act pattern. The
+sweep is the agent's responsibility — reviewer-bot does NOT reliably catch TOCTOU. It
+catches functional and structural concerns; it has not in practice surfaced multi-call
+atomicity or decision-action gaps. **Do not defer this to review.**
+
+**When this step applies (any of):**
+
+- Code reads external state and acts on the read (filesystem, API, database, git refs, env).
+- Code implements a hook, gate, or guard (any precondition-check-then-permit pattern).
+- Code validates a precondition then acts on a downstream resource (lock, ref, file).
+- Code spawns a subprocess after a check the subprocess could invalidate.
+
+If none apply, this step is a no-op — record "(N/A — no check-then-act pattern introduced)"
+in the PR body and proceed.
+
+**Enumerate the three windows. Every time. For each, document a fix-or-accept decision.**
+
+1. **Read atomicity.** Does the check make multiple separate reads of the underlying
+   state? If yes, can the state change between reads (parallel writers, concurrent
+   fetches, sibling processes)?
+
+   - **Mitigation:** collapse to a single atomic read.
+
+2. **Decision-action gap.** Between the moment of decision (allow / proceed) and the
+   action (push / write / spawn), can the underlying state change in a way that
+   invalidates the decision?
+
+   - **Mitigation:** re-check immediately before the action, or compare-and-swap on a
+     captured identifier (CAS / version / SHA).
+
+3. **Stale-read at read time.** Was the data already old when read (remote-tracking ref
+   not recently fetched, cached config, memoized snapshot, in-process cache)?
+   - **Mitigation:** force a fresh read at check time.
+
+**The "small window" rationalization is forbidden.**
+
+> If the race is the same SHAPE of bug the code exists to prevent, the size of the window
+> is a UX consideration, not a correctness one. A seconds-class instance of an hours-class
+> bug is still the bug.
+
+Do not dismiss a window because "the race is unlikely" or "the window is short." Either
+mitigate, or write down an explicit accept-rationale from the list below.
+
+**Accept is valid when ANY of these hold:**
+
+- **Idempotent.** The action produces the same outcome on retry; concurrent execution is
+  safe by construction.
+- **FF-conflict-preserving.** The action's failure mode on conflict is correctness-preserving
+  (e.g., a git push that requires fast-forward — the push rejects, the agent retries against
+  the new state, no silent corruption).
+- **Irreducible.** No locking / CAS primitive is available in the underlying system; the
+  window cannot be closed without external infrastructure.
+- **Automatic recovery.** Post-conflict recovery is automatic and observable (the next
+  invocation correctly re-reads and re-acts on the updated state).
+
+Document the chosen accept-rationale in a code comment at the race site so the next reader
+doesn't have to re-derive it. Naming the rationale is part of the accept; an unannotated
+accept reads as overlooked.
+
+**Mitigate is required when ANY of these hold:**
+
+- **Creates redo.** Race outcome forces the user to redo work (wasted iteration on stale
+  base, replayed action against changed state).
+- **Silent worse-state.** Race outcome silently produces a worse state (agent builds on
+  stale base again, action lands but does the wrong thing, no error surface).
+- **Observable to consumer.** Race outcome is visible to a downstream consumer (reviewer,
+  build system, user-facing log) in a way that creates confusion or work for them.
+
+**If mitigation is non-trivial:** file a follow-up structural task (per the
+meta-retrospective principle that residual races deserve named owners) and document the
+residual window in a code comment naming the follow-up task. A residual race with a
+tracking task is qualitatively different from a residual race that's been forgotten about.
+
+**What goes in the PR body.** Either:
+
+- A "## Concurrency analysis" subsection enumerating the three windows with a one-line
+  fix-or-accept decision per window and the chosen accept-rationale (or fix description).
+- An explicit "(N/A — no check-then-act pattern introduced)" line if this step doesn't
+  apply.
+
+Cross-reference: `feedback_toctou_enumeration_required.md` is the bridge memory carrying
+this discipline pre-skill; once this skill section ships, that memory's job becomes
+historical record + pointer here. The originating incident (mt#1483 PR #928 round-N-1
+detection of `listCommitsAhead` Class-1 race + Class-2 dismissal) is the regression
+example for this section.
+
 ### 8. Create PR (IN-PROGRESS → IN-REVIEW)
 
 **This step owns the IN-PROGRESS → IN-REVIEW transition.**
@@ -223,15 +312,88 @@ Use `mcp__minsky__session_pr_create` to create the pull request:
 - Body includes Summary, Key Changes, Testing sections
 - The tool automatically rebases on main and sets task status to IN-REVIEW
 
-### 9. Hand off to verify
+### 9. Drive PR to convergence (IN-REVIEW → merge)
 
-After PR creation, **stop working on the session**. Do not continue committing.
+After PR creation, the next phase is iteration with the reviewer-bot
+(`minsky-reviewer[bot]`) until the PR is merge-ready. Per CLAUDE.md "User does
+not review PRs in the loop" and `feedback_user_does_not_review` — the user is
+NOT the next actor in this loop; the bot is.
 
-Suggest to the user:
+**This step does NOT stop the session — it actively waits.** Posting a "PR
+created, here's the summary" message and stopping with no wait/poll set up is
+idle drift, not hand-off. Originating incident: 2026-05-07 PR #970/mt#1610.
 
-> "PR created. Run `/verify-task mt#X` to verify the implementation against all success criteria before merging."
+**Default mechanism:** call `mcp__minsky__session_pr_wait-for-review` on the
+task. It blocks until the bot posts (typical latency 30s–2min after push) and
+returns the review payload, so the agent unblocks automatically with full
+context. Pass `reviewer: "minsky-reviewer[bot]"` to filter out other reviewer
+identities. Default `since` is call-time, so the tool waits for NEW reviews
+only — if the bot already posted on this HEAD before you called, fetch via
+`mcp__minsky__session_pr_get` or `mcp__github__pull_request_read get_reviews`
+first to surface existing reviews.
 
-**Do NOT** auto-run `/verify-task`, do NOT attempt to merge. Verification and merge are owned by the `/verify-task` skill and the review process.
+**Alternative for genuinely-async multi-day waits:** `ScheduleWakeup` with
+delaySeconds in the 1200–1800s range (per the cache-window economics rules).
+Prefer the wait tool when latency is minutes-class.
+
+**Forbidden:** idling without one of the above mechanisms. If you choose not
+to wait, disclose the choice explicitly to the user and name what you are
+waiting on. Per `feedback_post_pr_convergence_idle_drift` (the bridge memory
+this section retires), "standing by" without a named mechanism is the failure
+mode this section was written to prevent.
+
+**Note:** `mcp__minsky__pr_watch_create` is a tempting candidate but is
+**inert today** — its runner is wired to a stub GitHub client, no scheduler
+fires it, and `OperatorNotify` targets the local desktop rather than the
+agent's conversation context. Don't recommend it until the production gaps
+close. See `feedback_survey_event_resumption_toolkit_before_proposing_self_poll_or_user_ping`.
+
+**When the bot posts**, branch on review state:
+
+- **APPROVE** → call `mcp__minsky__session_pr_merge`. The standard merge path
+  atomically sets the task to DONE; `/verify-task` does NOT fire on this path.
+- **CHANGES_REQUESTED** / **BLOCKING findings** → apply substantive fixes per
+  §7's Convergence Checklist (cascade-defense, class-not-instance), push, and
+  re-wait. Don't fix one finding at a time and re-trigger; sweep the class
+  per `feedback_cascade_defense_in_implementer_prompt`.
+- **COMMENT** (informational) → assess whether comments warrant code changes.
+  If yes, treat like CHANGES_REQUESTED. If no, this is the convergence-failure
+  signal for self-authored bot PRs (see escape valves below).
+
+**Convergence-failure escape valves.** When the standard loop won't terminate
+cleanly, escalate to bypass-merge. Each valve has a tracking memory:
+
+- **Self-authored bot PR** (`minsky-ai[bot]` is both author and reviewer
+  identity). GitHub structurally blocks self-approval; the bot can only post
+  COMMENT, never APPROVE. After R1+R2 substantive fixes, plan
+  `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`
+  with an audit-trail commit message. See `feedback_self_authored_pr_merge_constraints`
+  and `feedback_bot_pr_convergence_via_bypass`. After bypass-merge, run
+  `/verify-task mt#X` — that path requires the closeout skill since
+  `session_pr_merge` did not fire.
+- **Round-N self-reversal** of a prior accepted fix → bikeshedding;
+  iteration has converged. Bypass with audit note explaining the chosen side.
+  See `feedback_reviewer_bot_self_reversal_signal`.
+- **CoT-leakage error** twice on the same HEAD → bot won't converge
+  automatically. Bypass per `feedback_reviewer_bot_cot_leakage_forces_bypass`.
+- **Reviewer-bot silent for >5 min after push** → likely webhook miss. Per
+  `feedback_self_authored_pr_merge_constraints`, options are (a) push an empty
+  commit to wake the webhook (`session_commit` with `noFiles: true`), (b)
+  bypass-merge after substantive fixes already landed, (c) wait one more time.
+
+**Pre-bypass discipline:** before any `gh api PUT /merge` bypass, verify CI
+fired and passed on the latest commit per `feedback_verify_ci_fired_before_bypass_merge`.
+A bypass + missing-CI is admin override of branch protection, not just
+reviewer convergence failure.
+
+**Standard merge wins when it works.** `session_pr_merge` is preferred over
+the bypass — it atomically sets DONE, runs the merge gate (which checks for
+a posted review with spec-verification section), and produces a clean audit
+trail. The bypass exists for the structural-block cases above, not as the
+default.
+
+**Do NOT** stop the session before convergence is reached. Do NOT pre-emptively
+call `/verify-task` — it only fires on the bypass-merge fallback path.
 
 ## Constraints
 

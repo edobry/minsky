@@ -33,7 +33,6 @@ export interface ValidationResult {
 export interface ConfigValidator {
   validateConfiguration(): ValidationResult;
   validateBackend(): ValidationResult;
-  validateSessionDb(): ValidationResult;
   validateAI(): ValidationResult;
   validateGitHub(): ValidationResult;
 }
@@ -158,17 +157,6 @@ export class DefaultConfigValidator implements ConfigValidator {
       valid: errors.length === 0,
       errors,
       warnings,
-    };
-  }
-
-  /**
-   * Validate session database configuration
-   */
-  validateSessionDb(): ValidationResult {
-    return {
-      valid: true,
-      errors: [],
-      warnings: [],
     };
   }
 

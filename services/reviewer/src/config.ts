@@ -31,6 +31,38 @@ export interface ReviewerConfig {
 
   port: number;
   logLevel: "debug" | "info" | "warn" | "error";
+
+  // mt#1086: per-operation network-call timeouts. Bun's fetch has no
+  // default timeout; without these the webhook response stays open until
+  // the platform kills the worker. Defaults are deliberately generous:
+  // gpt-5 reviewer runs can take 60-90s; GitHub API calls should always
+  // return within seconds even on cold paths.
+  modelTimeoutMs: number;
+  githubTimeoutMs: number;
+}
+
+/**
+ * Parse a positive-integer env var with a default fallback. Throws at
+ * config-load time on `=abc`, `=-5`, `=0`, `=NaN`, `=3.14`, `= ` — any
+ * non-positive-integer value. This is mt#1086's stricter cousin of the
+ * loose `parseInt` pattern used elsewhere in this file; only the new
+ * timeout fields use it, to make misconfigured timeouts a fail-fast
+ * boot error rather than a silent NaN that triggers infinite waits.
+ *
+ * Exported for tests.
+ */
+export function parsePositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  // Strict integer parse: no leading whitespace, optional + sign, digits.
+  if (!/^\+?\d+$/.test(raw)) {
+    throw new Error(`minsky-reviewer: ${name} must be a positive integer (got "${raw}")`);
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`minsky-reviewer: ${name} must be a positive integer (got "${raw}")`);
+  }
+  return value;
 }
 
 function requireEnv(name: string): string {
@@ -105,5 +137,14 @@ export function loadConfig(): ReviewerConfig {
 
     port: parseInt(optionalEnv("PORT", "3000"), 10),
     logLevel: optionalEnv("LOG_LEVEL", "info") as ReviewerConfig["logLevel"],
+
+    // mt#1086 — defaults sized to actual production traffic patterns:
+    //   model: 120s — gpt-5 with reasoning_effort=high on a Tier-3 PR
+    //          regularly takes 60-90s end-to-end including tool-use rounds.
+    //   github: 30s — every GitHub REST call we make returns in <5s on the
+    //          happy path; 30s buys headroom for transient slow paths
+    //          without holding webhooks open through GitHub's own timeout.
+    modelTimeoutMs: parsePositiveIntEnv("REVIEWER_MODEL_TIMEOUT_MS", 120_000),
+    githubTimeoutMs: parsePositiveIntEnv("REVIEWER_GITHUB_TIMEOUT_MS", 30_000),
   };
 }

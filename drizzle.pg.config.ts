@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 
 // Helper function to get PostgreSQL connection string from Minsky config system
 function getPostgresConnectionString(): string {
-  // Environment variables set by Minsky's sessiondb migrate command
+  // Environment variables set by Minsky's persistence migrate command
   // which loads the full configuration system and exports the necessary values
 
   // 1. Check for Minsky-loaded database config (set by migration command)
@@ -19,7 +19,7 @@ function getPostgresConnectionString(): string {
   }
 
   // 2. Fall back to direct environment variables
-  const envUrl = process.env.MINSKY_SESSIONDB_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
+  const envUrl = process.env.MINSKY_PERSISTENCE_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
   if (envUrl) {
     return envUrl;
   }

@@ -26,8 +26,23 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { readInput, writeOutput, execWithPath } from "./types";
-import type { ToolHookInput } from "./types";
+import {
+  readInput,
+  writeOutput,
+  execWithPath,
+  readHostCap,
+  deriveBudgets,
+  DEFAULT_HOST_CAP_SEC,
+} from "./types";
+import type { ToolHookInput, HostCapInfo } from "./types";
+// PR #963 R1 NON-BLOCKING #2 fix: import the shared helper instead of
+// duplicating filename + write logic in this file. Keeps payload shape +
+// path canonical at one site (src/domain/session/freshness-marker.ts) so
+// schema changes can't drift between the write side (this hook) and the
+// read + CAS side (session_commit). The shared module imports only
+// node:fs / node:path / errors — no transitive dependency surface that
+// would slow hook startup.
+import { writeFreshnessMarker } from "../../src/domain/session/freshness-marker";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,32 +85,94 @@ export interface BranchFreshnessResult {
    * (see header comment for the carve-out rationale).
    */
   silent?: boolean;
+  /**
+   * True iff the commits-ahead comparison (`listCommitsAhead`) actually ran
+   * to completion. Required to gate the mt#1522 CAS marker write — we must
+   * not capture a SHA when the budget-exhausted-before-comparison path
+   * returned with `mainRef` set but no real freshness validation. PR #963
+   * R1 BLOCKING #6 fix.
+   */
+  comparisonRan?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Budget derivation from host cap (mt#1546)
+// ---------------------------------------------------------------------------
+//
+// Two-phase derivation — designed so module import has ZERO side effects:
+//
+//   Phase 1 (module load): seed module-level `let` bindings from
+//     `deriveBudgets(DEFAULT_HOST_CAP_SEC)`. No fs read, no env read. These
+//     are PROVISIONAL defaults so the helpers below have valid values to
+//     close over even if the entrypoint never runs (e.g., test imports).
+//
+//   Phase 2 (entrypoint, authoritative): the `if (import.meta.main)` block
+//     calls `readHostCap("check-branch-fresh.ts", undefined, { events:
+//     ["PreToolUse"] })`, then `applyHostCap(hostCapInfo.hostCapSec)`. This
+//     mutates the same `let` bindings to settings-derived values BEFORE
+//     `hookStart` is captured and BEFORE any check runs.
+//
+// `getCurrentBudgets()` returns the post-mutation values for tests; do
+// not rely on literals in this comment for current state.
+//
+// Three named ratios (defined in `./types.ts`) drive `deriveBudgets`:
+//
+//   OVERALL_BUDGET_RATIO (0.6)  — overall budget = 60% of host cap
+//   FETCH_TIMEOUT_RATIO  (0.55) — fetch can use 55% of overall budget
+//   GIT_TIMEOUT_RATIO    (0.17) — each local probe gets ~1/6 of overall budget
+//
+// Canonical derivation at the current DEFAULT_HOST_CAP_SEC (`./types.ts`):
+//   OVERALL_BUDGET_MS = floor(DEFAULT_HOST_CAP_SEC * 1000 * 0.6)
+//   FETCH_TIMEOUT_MS  = floor(OVERALL_BUDGET_MS * 0.55)
+//   GIT_TIMEOUT_MS    = floor(OVERALL_BUDGET_MS * 0.17)
+//
+// At the current 15s default these resolve to 9000 / 4950 / 1530 ms; the
+// pre-mt#1546 hardcoded values were 9000 / 5000 / 1500 ms. The ±1-2%
+// shift is intentional — the cost of removing magic-number coupling
+// between cap and constants. Tests pin the derived values at multiple
+// caps; if `DEFAULT_HOST_CAP_SEC` changes, the resolved values above
+// re-derive automatically. See `.minsky/rules/hook-files.mdc` "Budget
+// derivation" section for the operator-facing contract.
+//
+// Each derived value is clamped to MIN_DERIVED_BUDGET_MS (100ms) inside
+// `deriveBudgets` so pathologically small caps don't zero out a probe
+// budget. The clamp never fires for realistic caps (>= 5s).
 
 // ---------------------------------------------------------------------------
 // Core check
 // ---------------------------------------------------------------------------
 
-/**
- * Per-call timeout for fast local git operations. Realistic git invocations
- * complete in <100ms; 1.5s is generous for degraded conditions.
- */
-const GIT_TIMEOUT_MS = 1_500;
+// Initial budgets come from the default cap (DEFAULT_HOST_CAP_SEC = 15s).
+// The hook entrypoint reassigns these from settings.json before the check
+// runs. `let` (not `const`) so the entrypoint can override; the variables
+// are module-scoped because the helpers below close over them via direct
+// reference. Importing this module triggers no fs/env reads — only
+// `applyHostCap` (called from the entrypoint) does.
+const DEFAULT_BUDGETS = deriveBudgets(DEFAULT_HOST_CAP_SEC);
+let GIT_TIMEOUT_MS = DEFAULT_BUDGETS.gitTimeoutMs;
+let FETCH_TIMEOUT_MS = DEFAULT_BUDGETS.fetchTimeoutMs;
+let OVERALL_BUDGET_MS = DEFAULT_BUDGETS.overallBudgetMs;
 
 /**
- * Per-call timeout for the network-bound `git fetch`. Higher than other calls
- * because it's the only one going over the wire.
+ * Reassign the module-level budget constants from a host cap (in seconds).
+ * Called once from the entrypoint after `readHostCap`. Exposed for tests
+ * that need to exercise the entrypoint path with a non-default cap.
  */
-const FETCH_TIMEOUT_MS = 5_000;
+export function applyHostCap(hostCapSec: number): void {
+  const budgets = deriveBudgets(hostCapSec);
+  GIT_TIMEOUT_MS = budgets.gitTimeoutMs;
+  FETCH_TIMEOUT_MS = budgets.fetchTimeoutMs;
+  OVERALL_BUDGET_MS = budgets.overallBudgetMs;
+}
 
-/**
- * Overall wall-clock budget for the hook from `hookStart` (which is captured
- * BEFORE the fetch — so fetch IS counted in this budget). Worst-case wall
- * time = OVERALL_BUDGET_MS + GIT_TIMEOUT_MS_for_last_call_started ≈ 10.5s,
- * leaving ~4.5s headroom under the 15s PreToolUse cap for process startup,
- * stdout writes, and OS scheduling jitter.
- */
-const OVERALL_BUDGET_MS = 9_000;
+/** Test-only: read the current module-level budgets (post-`applyHostCap`). */
+export function getCurrentBudgets() {
+  return {
+    overallBudgetMs: OVERALL_BUDGET_MS,
+    fetchTimeoutMs: FETCH_TIMEOUT_MS,
+    gitTimeoutMs: GIT_TIMEOUT_MS,
+  };
+}
 
 /**
  * Budget guard. Returns true if there's enough remaining wall-clock time to
@@ -194,6 +271,21 @@ export function refreshRemoteRefs(repoDir: string): { ok: boolean; reason?: stri
     };
   }
   return { ok: true };
+}
+
+/**
+ * Resolve a ref to its 40-char SHA. Returns null on any failure (ref doesn't
+ * exist, git command failed, etc.). Used to capture `origin/main` at
+ * allow time for the CAS marker (mt#1522).
+ */
+export function resolveRefSha(repoDir: string, ref: string): string | null {
+  const result = execWithPath(["git", "-C", repoDir, "rev-parse", ref], {
+    timeout: GIT_TIMEOUT_MS,
+  });
+  if (result.exitCode !== 0) return null;
+  const sha = result.stdout.trim();
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null;
+  return sha;
 }
 
 /**
@@ -348,6 +440,7 @@ export function checkBranchFreshness(
       mainRef,
       silent: true,
       currentBranch,
+      comparisonRan: true,
     };
   }
 
@@ -358,6 +451,7 @@ export function checkBranchFreshness(
     reason: `${mainRef} is ${count} commit(s) ahead of origin/${currentBranch}`,
     mainRef,
     currentBranch,
+    comparisonRan: true,
   };
 }
 
@@ -429,6 +523,17 @@ if (import.meta.main) {
   }
 
   const repoDir = input.cwd;
+
+  // Read host cap from settings.json and apply derived budgets BEFORE
+  // hookStart capture so the OVERALL_BUDGET_MS guard inside
+  // checkBranchFreshness counts fetch time toward the budget. The read is
+  // deferred to entrypoint (vs module load) so importing this module has
+  // zero side effects — see PR #958 R1 fix.
+  const hostCapInfo: HostCapInfo = readHostCap("check-branch-fresh.ts", undefined, {
+    events: ["PreToolUse"],
+  });
+  applyHostCap(hostCapInfo.hostCapSec);
+
   // Capture hookStart BEFORE fetch so the OVERALL_BUDGET_MS guard inside
   // checkBranchFreshness counts fetch time toward the budget. This prevents
   // worst-case wall-time = fetch + budget exceeding the 15s PreToolUse cap.
@@ -439,6 +544,11 @@ if (import.meta.main) {
   // not block the agent's commit. The decision then runs against possibly-stale
   // refs, which is no worse than the pre-hook baseline.
   const warnings: string[] = [];
+  // Surface the host-cap-read warning (if any) so operators see when budgets
+  // were derived from the default 15s rather than from settings.json.
+  if (hostCapInfo.warning) {
+    warnings.push(hostCapInfo.warning);
+  }
   const fetchResult = refreshRemoteRefs(repoDir);
   if (!fetchResult.ok) {
     warnings.push(
@@ -452,6 +562,44 @@ if (import.meta.main) {
   const result = checkBranchFreshness(repoDir, undefined, hookStart);
 
   if (!result.blocked) {
+    // mt#1522: write the freshness CAS marker before emitting allow.
+    // Only fires when ALL of the following hold:
+    //   - tool === session_commit (spec scopes the CAS check there;
+    //     session_pr_create / session_pr_edit are too infrequent for the
+    //     seconds-class race to matter).
+    //   - result.mainRef is set (mainRef detected).
+    //   - result.comparisonRan === true (the listCommitsAhead probe
+    //     actually executed — guards against the budget-exhausted-
+    //     before-comparison path that returns mainRef without running
+    //     the comparison; PR #963 R1 BLOCKING #6 fix).
+    // Failure to write is non-fatal: surfaced as a warning so the operator
+    // knows the CAS check won't fire on the next push (no worse than the
+    // pre-mt#1522 baseline).
+    if (
+      input.tool_name === "mcp__minsky__session_commit" &&
+      result.mainRef &&
+      result.comparisonRan === true
+    ) {
+      const capturedSha = resolveRefSha(repoDir, result.mainRef);
+      if (capturedSha === null) {
+        warnings.push(
+          `Could not resolve ${result.mainRef} to SHA for CAS marker — push-time CAS check will bypass`
+        );
+      } else {
+        const writeResult = writeFreshnessMarker(repoDir, {
+          mainRef: result.mainRef,
+          sha: capturedSha,
+          toolName: input.tool_name,
+          ts: new Date().toISOString(),
+        });
+        if (!writeResult.ok) {
+          warnings.push(
+            `Could not write freshness marker (${writeResult.reason ?? "(no reason)"}) — push-time CAS check will bypass`
+          );
+        }
+      }
+    }
+
     // Behavioral Contract: silent paths emit no `reason` to stdout or
     // additionalContext. Non-silent paths (budget-exhausted) DO emit their
     // reason. Warnings (e.g., fetch failures) ALWAYS emit regardless of

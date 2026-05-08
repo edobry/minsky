@@ -51,12 +51,14 @@ describe("maskCredentials — uses SENSITIVE_KEY_REGEX recursively", () => {
     expect(openai.apiKey).toMatch(/\*{20} \(configured\)/);
   });
 
-  test("masks connectionString (sessiondb pattern)", () => {
-    const cfg = { sessiondb: { connectionString: "postgres://user:pass@host/db" } };
+  test("masks connectionString (persistence pattern)", () => {
+    const cfg = {
+      persistence: { postgres: { connectionString: "postgres://user:pass@host/db" } },
+    };
     const result = maskCredentials(cfg, false);
-    expect((result.sessiondb as Record<string, unknown>).connectionString).toMatch(
-      /\*{20} \(configured\)/
-    );
+    const persistence = result.persistence as Record<string, unknown>;
+    const pg = persistence.postgres as Record<string, unknown>;
+    expect(pg.connectionString).toMatch(/\*{20} \(configured\)/);
   });
 
   test("does not mask non-sensitive keys", () => {

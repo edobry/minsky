@@ -1,17 +1,23 @@
 /**
- * Unit tests for multi-line review comment support in github-pr-review.ts (mt#1337).
+ * Unit tests for github-pr-review.ts.
  *
  * Covers:
- *  - validateReviewComment: reject invalid startLine/startSide combos
+ *  - validateReviewComment: reject invalid startLine/startSide combos (mt#1337)
  *  - Octokit payload mapping: start_line/start_side present for multi-line, absent for single-line
  *  - Side inference: when only startSide is provided, side inherits from it
+ *  - resolveReviewerRole + assertReviewerRoleAvailable: identity routing (mt#1510)
  *
  * Mapping is tested via a local helper that mirrors production logic. submitReview
  * itself is exercised end-to-end through the MCP tool layer, not in this file.
  */
 
 import { describe, expect, test } from "bun:test";
-import { validateReviewComment, type ReviewComment } from "./github-pr-review";
+import {
+  validateReviewComment,
+  resolveReviewerRole,
+  assertReviewerRoleAvailable,
+  type ReviewComment,
+} from "./github-pr-review";
 import { MinskyError } from "../../errors/index";
 
 // ---------------------------------------------------------------------------
@@ -432,5 +438,118 @@ describe("Octokit payload mapping", () => {
     const fenceStr = openMatch[1];
     // Closing fence must be present at the end.
     expect(body.endsWith(`\n${fenceStr}`)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveReviewerRole — event-type → bot identity mapping (mt#1510)
+// ---------------------------------------------------------------------------
+
+describe("resolveReviewerRole", () => {
+  test("COMMENT defaults to implementer when no identity is supplied", () => {
+    expect(resolveReviewerRole("COMMENT")).toBe("implementer");
+  });
+
+  test("APPROVE defaults to reviewer when no identity is supplied", () => {
+    expect(resolveReviewerRole("APPROVE")).toBe("reviewer");
+  });
+
+  test("REQUEST_CHANGES defaults to reviewer when no identity is supplied", () => {
+    expect(resolveReviewerRole("REQUEST_CHANGES")).toBe("reviewer");
+  });
+
+  test("explicit identity overrides the COMMENT default", () => {
+    // Override path: a caller can deliberately post a COMMENT under the
+    // reviewer identity (e.g., to surface an adversarial observation as a
+    // non-blocking comment from the reviewer App).
+    expect(resolveReviewerRole("COMMENT", "reviewer")).toBe("reviewer");
+  });
+
+  test("explicit identity overrides the APPROVE default", () => {
+    // Override path: post an APPROVE under the implementer identity. GitHub
+    // will still block self-approval for App-authored PRs, but this is a
+    // legitimate request shape — the role check is the caller's choice, and
+    // the spec calls for explicit override behaviour even when the default
+    // would normally win.
+    expect(resolveReviewerRole("APPROVE", "implementer")).toBe("implementer");
+  });
+
+  test("explicit identity overrides the REQUEST_CHANGES default", () => {
+    expect(resolveReviewerRole("REQUEST_CHANGES", "implementer")).toBe("implementer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertReviewerRoleAvailable — reviewer-not-configured guard (mt#1510)
+// ---------------------------------------------------------------------------
+
+describe("assertReviewerRoleAvailable", () => {
+  test("passes when COMMENT is requested under the implementer role", () => {
+    // The implementer App is always configured when any service-account
+    // is in use, so COMMENT requests never hit the guard.
+    expect(() => assertReviewerRoleAvailable("COMMENT", "implementer", () => true)).not.toThrow();
+  });
+
+  test("passes when APPROVE is requested under the implementer role", () => {
+    // Explicit override path: the caller is consciously bypassing the
+    // event→role default, so the reviewer-config check doesn't apply.
+    expect(() => assertReviewerRoleAvailable("APPROVE", "implementer", () => false)).not.toThrow();
+  });
+
+  test("passes when APPROVE+reviewer is requested AND reviewer is configured", () => {
+    expect(() =>
+      assertReviewerRoleAvailable("APPROVE", "reviewer", (role) => role === "reviewer")
+    ).not.toThrow();
+  });
+
+  test("passes when REQUEST_CHANGES+reviewer is requested AND reviewer is configured", () => {
+    expect(() =>
+      assertReviewerRoleAvailable("REQUEST_CHANGES", "reviewer", (role) => role === "reviewer")
+    ).not.toThrow();
+  });
+
+  test("passes when COMMENT+reviewer is requested AND reviewer is unconfigured", () => {
+    // The guard explicitly skips COMMENT — even with an explicit reviewer
+    // override, COMMENTs aren't subject to GitHub's self-approval block, so
+    // a silent fallback is acceptable here. (The reviewer-not-configured
+    // signal is communicated separately via getServiceIdentity, not a throw.)
+    expect(() => assertReviewerRoleAvailable("COMMENT", "reviewer", () => false)).not.toThrow();
+  });
+
+  test("throws when APPROVE+reviewer is requested but reviewer is NOT configured", () => {
+    expect(() => assertReviewerRoleAvailable("APPROVE", "reviewer", () => false)).toThrow(
+      MinskyError
+    );
+  });
+
+  test("throws when REQUEST_CHANGES+reviewer is requested but reviewer is NOT configured", () => {
+    expect(() => assertReviewerRoleAvailable("REQUEST_CHANGES", "reviewer", () => false)).toThrow(
+      MinskyError
+    );
+  });
+
+  test("error message names github.reviewer.serviceAccount and the requested event", () => {
+    let caught: unknown;
+    try {
+      assertReviewerRoleAvailable("APPROVE", "reviewer", () => false);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(MinskyError);
+    const msg = (caught as MinskyError).message;
+    expect(msg).toContain("github.reviewer.serviceAccount");
+    expect(msg).toContain("APPROVE");
+    // The actionable hint must surface the COMMENT and identity:"implementer"
+    // alternatives so the caller sees a path forward without grepping docs.
+    expect(msg).toContain("COMMENT");
+    expect(msg).toContain('identity: "implementer"');
+  });
+
+  test("passes when isRoleConfigured is undefined (older test-stub fallback)", () => {
+    // Production code paths populated by `requireGitHubContext` always supply
+    // isRoleConfigured. Older test stubs that build a GitHubContext literal
+    // and omit it should not be retroactively broken — the guard treats
+    // missing isRoleConfigured as 'trust the caller'.
+    expect(() => assertReviewerRoleAvailable("APPROVE", "reviewer", undefined)).not.toThrow();
   });
 });
