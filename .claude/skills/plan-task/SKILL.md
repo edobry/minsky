@@ -51,7 +51,7 @@ a status transition; everything else is investigation and gate-check.
   - (e) File:line references are fresh
   - (f) Subtasks filed for multi-phase work
   - (g) No parallel work in flight
-  - Gate criterion (h) — Contract-propagation enumeration
+  - (h) Contract-propagation enumeration
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -263,8 +263,8 @@ causing silent breakage after merge:
   `MINSKY_SESSIONDB_*` env vars. Production crashed 2026-05-08T00:09Z; fixed via mt#1624 / PR #976.
 
 This criterion encodes the escalation policy of the `contract_propagation_at_design_time`
-memory (id `513934fa-3000-4f67-8869-2d50598f484b`): when a fourth instance surfaces, add gate
-criterion (h).
+memory (id `513934fa-3000-4f67-8869-2d50598f484b`): when a fourth instance surfaces, add
+Gate criterion (h).
 
 **Trigger condition.** This criterion fires when the spec describes any of:
 
@@ -341,6 +341,8 @@ not satisfy this criterion — the claim must be grounded in an actual search, n
 To re-run the gate after fixes: `/plan-task mt#X`
 ```
 
+4. Stop. Do not attempt to patch the spec automatically unless the user explicitly asks.
+
 **Example (h) failure.** For a task that renames a config key (e.g., `sessionDbPath` →
 `sessiondb.path`) whose spec says "Sole consumer is `~/.config/minsky/config.yaml`":
 
@@ -362,8 +364,6 @@ To re-run the gate after fixes: `/plan-task mt#X`
 
 To re-run the gate after fixes: `/plan-task mt#1610`
 ```
-
-4. Stop. Do not attempt to patch the spec automatically unless the user explicitly asks.
 
 ## State transition map
 
