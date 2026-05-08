@@ -118,8 +118,12 @@ export async function pullImpl(
       );
     }
 
-    // Non-fast-forward rejection
-    if (stderr.includes("Not possible to fast-forward") || stderr.includes("CONFLICT")) {
+    // Non-fast-forward rejection. Match only canonical non-FF markers — do NOT
+    // match "CONFLICT" alone, which could appear in other states unrelated to
+    // non-FF rejection (`--ff-only` aborts before merge, so genuine conflicts
+    // shouldn't surface here, but matching `CONFLICT` would also catch weird
+    // intermediate states we'd rather propagate raw).
+    if (stderr.includes("Not possible to fast-forward") || stderr.includes("non-fast-forward")) {
       throw new Error(
         `Pull rejected: cannot fast-forward. The remote has diverged from the local branch. ` +
           `Use \`mcp__minsky__git_status\` to inspect the state, then decide whether to rebase or merge manually.`
