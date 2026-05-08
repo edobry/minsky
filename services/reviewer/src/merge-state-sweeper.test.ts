@@ -56,6 +56,14 @@ type FetchHandler = (url: string, init: RequestInit) => Promise<Response>;
 let originalFetch: typeof globalThis.fetch;
 let fetchHandler: FetchHandler | null = null;
 
+// Store original console methods to restore after each test.
+// The sweeper calls console.warn and console.log internally. Replacing them
+// per-test prevents cross-file contamination when bun test runs files in
+// parallel with other tests that use spyOn(console, "warn").
+let originalConsoleWarn: typeof console.warn;
+let originalConsoleLog: typeof console.log;
+let originalConsoleError: typeof console.error;
+
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   fetchHandler = null;
@@ -68,10 +76,22 @@ beforeEach(() => {
     }
     throw new Error(`fetch called but no handler installed: ${url}`);
   };
+
+  // Isolate console to prevent sweeper's internal console calls from
+  // contaminating concurrent test files' console spies.
+  originalConsoleWarn = console.warn;
+  originalConsoleLog = console.log;
+  originalConsoleError = console.error;
+  console.warn = () => {};
+  console.log = () => {};
+  console.error = () => {};
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+  console.warn = originalConsoleWarn;
+  console.log = originalConsoleLog;
+  console.error = originalConsoleError;
 });
 
 /** Build a fake Response with given JSON body. */
