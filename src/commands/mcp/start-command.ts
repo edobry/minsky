@@ -417,6 +417,78 @@ async function startHttpServer(
  *
  * @see mt#1588 — this spike
  */
+/**
+ * Build the wake-pending service + session resolver for the mt#1661 v0
+ * wake-enrichment middleware. Returns null when persistence is unavailable.
+ *
+ * The session resolver mirrors `writeAgentIdToSession`'s args-extraction order
+ * (session/sessionId direct → task/taskId via session lookup). v0 covers only
+ * the unambiguous addressing case; cross-session / agent-handoff delivery is
+ * out of scope per mt#1506.
+ *
+ * @see mt#1661 — v0 short-term bridge spec
+ * @see mt#1506 — long-term InterfaceBinding model that retires this v0
+ */
+async function buildWakeServiceForBridge(container: AppContainerInterface): Promise<{
+  service: import("../../mcp/middleware/wake-enrichment").WakeServiceSurface;
+  resolver: import("../../mcp/middleware/wake-enrichment").SessionResolver;
+} | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const { DrizzleWakePendingRepository } = await import(
+      "../../domain/ask/wake-pending-repository"
+    );
+    const wakeRepo = new DrizzleWakePendingRepository(
+      connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+
+    const sessionProvider = container.has("sessionProvider")
+      ? (container.get(
+          "sessionProvider"
+        ) as import("../../domain/session/types").SessionProviderInterface)
+      : undefined;
+
+    const resolver: import("../../mcp/middleware/wake-enrichment").SessionResolver = {
+      async resolveParentSessionId(args: Record<string, unknown>): Promise<string | null> {
+        // Priority 1: direct session arg matches `Ask.parentSessionId` produced
+        // by mt#1180-class call sites that file Asks with parentSessionId = sessionId.
+        const sessionName =
+          (typeof args.session === "string" ? args.session : undefined) ||
+          (typeof args.sessionId === "string" ? args.sessionId : undefined);
+        if (sessionName) return sessionName;
+
+        // Priority 2: task → session lookup. Mirrors `writeAgentIdToSession`'s
+        // taskId-normalization (strip "mt#" prefix). Returns null when no
+        // session exists for the task or sessionProvider is unavailable.
+        const taskId =
+          (typeof args.task === "string" ? args.task : undefined) ||
+          (typeof args.taskId === "string" ? args.taskId : undefined);
+        if (!taskId || !sessionProvider) return null;
+        const storageTaskId = taskId.replace(/^mt#/i, "");
+        const record = await sessionProvider.getSessionByTaskId(storageTaskId);
+        return record?.sessionId ?? null;
+      },
+    };
+
+    return { service: wakeRepo, resolver };
+  } catch (err) {
+    log.debug("[mt#1661] buildWakeServiceForBridge threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
+}
+
 async function buildMemoryServiceForSpike(
   container: AppContainerInterface
 ): Promise<MemoryServiceSurface | null> {
@@ -582,6 +654,28 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#1588] Memory enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#1661 v0: wire wake-pending service + session resolver for the
+        // wake-enrichment middleware. When persistence + sessionProvider are
+        // available, the middleware drains undelivered `quality.review` Ask
+        // wake events on subsequent allowlisted MCP tool calls. v0 covers
+        // only the unambiguous addressing case (caller args carry session/task).
+        // No env-var gate — the wake_pending table only fills when reconcile
+        // runs, so an empty table makes the middleware a quiet no-op.
+        if (container) {
+          buildWakeServiceForBridge(container)
+            .then((wired) => {
+              if (wired) {
+                server.setWakeService(wired.service, wired.resolver);
+                log.debug("[mt#1661] Wake-enrichment middleware wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1661] Wake-enrichment middleware unavailable", {
                 error: getErrorMessage(err),
               });
             });

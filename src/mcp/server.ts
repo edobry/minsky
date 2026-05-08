@@ -25,6 +25,11 @@ import type { AppContainerInterface } from "../composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
 import type { MemoryServiceSurface } from "../domain/memory/memory-service";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
+import {
+  enrichWakeResponse,
+  type SessionResolver as WakeSessionResolver,
+  type WakeServiceSurface,
+} from "./middleware/wake-enrichment";
 
 /**
  * Transport type for MCP server
@@ -153,6 +158,18 @@ export class MinskyMCPServer {
    * start command after `registerAllTools` resolves the persistence provider.
    */
   private memoryService: MemoryServiceSurface | undefined;
+  /**
+   * Wake-pending service for the mt#1661 v0 wake-enrichment middleware. Optional —
+   * when absent, the middleware is a no-op. Set via `setWakeService` from the
+   * MCP start command after the persistence provider resolves.
+   */
+  private wakeService: WakeServiceSurface | undefined;
+  /**
+   * Session resolver paired with `wakeService`. Maps tool-call args to a Minsky
+   * session UUID. v0 production resolver maps `args.session`/`args.sessionId`
+   * directly and `args.task`/`args.taskId` via session lookup.
+   */
+  private wakeSessionResolver: WakeSessionResolver | undefined;
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
@@ -714,6 +731,20 @@ export class MinskyMCPServer {
             this.memoryService
           );
 
+          // mt#1661 v0: wake-enrichment middleware. For allowlisted tools, drains
+          // undelivered wake_pending rows for the calling session and appends a
+          // `<wake-events>` content block. No-op when the wakeService /
+          // sessionResolver are unset, the tool is not allowlisted, the caller
+          // carried no resolvable session arg, or there were no pending wakes.
+          // Errors are logged at `wake.enrichment.failed` and suppressed —
+          // enrichment failure must NEVER break the underlying tool call.
+          const wakeBlock = await enrichWakeResponse(
+            request.params.name,
+            request.params.arguments || {},
+            this.wakeService,
+            this.wakeSessionResolver
+          );
+
           // Return MCP-compliant tool response
           return {
             content: [
@@ -722,6 +753,7 @@ export class MinskyMCPServer {
                 text: responseText,
               },
               ...(enrichmentBlock ? [enrichmentBlock] : []),
+              ...(wakeBlock ? [wakeBlock] : []),
             ],
           };
         } catch (error) {
@@ -850,6 +882,20 @@ export class MinskyMCPServer {
    */
   setMemoryService(service: MemoryServiceSurface): void {
     this.memoryService = service;
+  }
+
+  /**
+   * Set the wake-pending service + session resolver used by the mt#1661 v0
+   * wake-enrichment middleware. Optional — when unset, the middleware is a
+   * no-op. Called from the MCP start command after the persistence provider
+   * resolves.
+   *
+   * @see mt#1661 — v0 short-term bridge
+   * @see mt#1506 — long-term InterfaceBinding model that retires this v0
+   */
+  setWakeService(service: WakeServiceSurface, sessionResolver: WakeSessionResolver): void {
+    this.wakeService = service;
+    this.wakeSessionResolver = sessionResolver;
   }
 
   /**

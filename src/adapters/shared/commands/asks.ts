@@ -30,6 +30,13 @@ import { ConcurrentTransitionError } from "../../../domain/ask/repository";
 import type { Ask, AskKind, AskState, AskOption, ContextRef } from "../../../domain/ask/types";
 import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler";
 import {
+  CompositeWakeSignalSink,
+  LoggingWakeSignalSink,
+  PersistentWakeSignalSink,
+  type WakeSignalSink,
+} from "../../../domain/ask/wake-on-respond";
+import { DrizzleWakePendingRepository } from "../../../domain/ask/wake-pending-repository";
+import {
   policyFirstRoute,
   type RoutedAsk,
   type SuspendedAsk,
@@ -75,6 +82,39 @@ const ALL_KINDS: AskKind[] = [
 // ---------------------------------------------------------------------------
 // Repository factory
 // ---------------------------------------------------------------------------
+
+/**
+ * Build a `CompositeWakeSignalSink` for `reconcile()` that fans out wake events
+ * to both the logging sink (operator stdout — mt#1481) and the persistent sink
+ * (wake_pending table — mt#1661 v0). When the persistence provider is
+ * unavailable, falls back to logging-only so reconcile keeps working.
+ *
+ * mt#1519 §5 / mt#1661 v0 — pull-on-tool-call delivery via wake-enrichment
+ * middleware drains the persistent sink at subsequent MCP tool calls.
+ */
+async function buildCompositeWakeSink(
+  container: AppContainerInterface | undefined
+): Promise<WakeSignalSink> {
+  const sinks: WakeSignalSink[] = [new LoggingWakeSignalSink()];
+
+  if (container?.has("persistence")) {
+    try {
+      const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+      if (persistenceProvider.getDatabaseConnection) {
+        const db = await persistenceProvider.getDatabaseConnection();
+        if (db) {
+          sinks.push(new PersistentWakeSignalSink(new DrizzleWakePendingRepository(db)));
+        }
+      }
+    } catch (err: unknown) {
+      log.warn("asks.reconcile: could not initialize PersistentWakeSignalSink", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return new CompositeWakeSignalSink(sinks);
+}
 
 /**
  * Build a `DrizzleAskRepository` from the persistence provider's DB connection.
@@ -726,7 +766,13 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         const githubClient = makeProductionGithubReviewClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
-        return reconcile(repo, githubClient, operatorNotify);
+        // mt#1661 v0: compose LoggingWakeSignalSink + PersistentWakeSignalSink so
+        // both fire in parallel on every quality.review wake. The persistent sink
+        // writes to the wake_pending table; the MCP wake-enrichment middleware
+        // drains it on subsequent allowlisted tool calls (pull-on-tool-call
+        // delivery — Class B in mt#1519's catalog).
+        const wakeSink = await buildCompositeWakeSink(container);
+        return reconcile(repo, githubClient, operatorNotify, wakeSink);
       },
     })
   );

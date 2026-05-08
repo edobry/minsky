@@ -225,6 +225,13 @@
       "when": 1778198400000,
       "tag": "0031_oauth_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1778284800000,
+      "tag": "0032_wake_pending",
+      "breakpoints": true
     }
   ]
 }

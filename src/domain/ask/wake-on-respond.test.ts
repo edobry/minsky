@@ -15,11 +15,14 @@ import { FakeAskRepository } from "./repository";
 import { reconcile, type GithubReview, type GithubReviewClient } from "./reconciler";
 import type { OperatorNotify } from "../notify/operator-notify";
 import {
+  CompositeWakeSignalSink,
   dispatchWake,
   LoggingWakeSignalSink,
+  PersistentWakeSignalSink,
   type WakeSignalPayload,
   type WakeSignalSink,
 } from "./wake-on-respond";
+import { FakeWakePendingRepository } from "./wake-pending-repository";
 
 // ---------------------------------------------------------------------------
 // Shared constants — avoid magic-string duplication.
@@ -403,5 +406,123 @@ describe("LoggingWakeSignalSink", () => {
     expect(fields.reviewState).toBe("APPROVED");
     expect(fields.reviewAuthor).toBe(REVIEWER_LOGIN);
     expect(fields.prNumber).toBe(99);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PersistentWakeSignalSink (mt#1661 v0)
+// ---------------------------------------------------------------------------
+
+describe("PersistentWakeSignalSink", () => {
+  test("emit() writes one row preserving all seven WakeSignalPayload fields", async () => {
+    const repo = new FakeWakePendingRepository();
+    const sink = new PersistentWakeSignalSink(repo);
+    const payload: WakeSignalPayload = {
+      askId: "ask-1",
+      parentSessionId: "session-1",
+      parentTaskId: "mt#1661",
+      reviewBody: "looks good",
+      reviewState: "APPROVED",
+      reviewAuthor: REVIEWER_LOGIN,
+      prNumber: 42,
+    };
+
+    await sink.emit(payload);
+
+    const rows = repo.listAll();
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    expect(row?.parentSessionId).toBe("session-1");
+    expect(row?.askId).toBe("ask-1");
+    expect(row?.payload).toEqual(payload);
+    expect(row?.drainedAt).toBeNull();
+  });
+
+  test("emit() rethrows on repository failure", async () => {
+    const failingRepo = {
+      async insert(): Promise<void> {
+        throw new Error("DB unavailable");
+      },
+      async drainBySession(): Promise<WakeSignalPayload[]> {
+        return [];
+      },
+    };
+    const sink = new PersistentWakeSignalSink(failingRepo);
+    const payload: WakeSignalPayload = {
+      askId: "ask-x",
+      parentSessionId: "session-x",
+      parentTaskId: undefined,
+      reviewBody: "",
+      reviewState: "COMMENT",
+      reviewAuthor: null,
+      prNumber: 1,
+    };
+
+    await expect(sink.emit(payload)).rejects.toThrow("DB unavailable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CompositeWakeSignalSink (mt#1661 v0)
+// ---------------------------------------------------------------------------
+
+describe("CompositeWakeSignalSink", () => {
+  const PAYLOAD: WakeSignalPayload = {
+    askId: "ask-c",
+    parentSessionId: "session-c",
+    parentTaskId: "mt#1661",
+    reviewBody: "",
+    reviewState: "APPROVED",
+    reviewAuthor: REVIEWER_LOGIN,
+    prNumber: 7,
+  };
+
+  test("emit() fans out to all underlying sinks", async () => {
+    const sink1 = new SpyWakeSink();
+    const sink2 = new SpyWakeSink();
+    const composite = new CompositeWakeSignalSink([sink1, sink2]);
+
+    await composite.emit(PAYLOAD);
+
+    expect(sink1.signals).toHaveLength(1);
+    expect(sink2.signals).toHaveLength(1);
+    expect(sink1.signals[0]).toEqual(PAYLOAD);
+    expect(sink2.signals[0]).toEqual(PAYLOAD);
+  });
+
+  test("one child failure does not prevent other children from firing", async () => {
+    const failing: WakeSignalSink = {
+      emit() {
+        throw new Error("first sink failed");
+      },
+    };
+    const succeeding = new SpyWakeSink();
+    const composite = new CompositeWakeSignalSink([failing, succeeding]);
+
+    // Composite returns normally — at least one child succeeded.
+    await composite.emit(PAYLOAD);
+
+    expect(succeeding.signals).toHaveLength(1);
+  });
+
+  test("emit() throws when ALL children fail", async () => {
+    const failing1: WakeSignalSink = {
+      emit() {
+        throw new Error("sink-1 down");
+      },
+    };
+    const failing2: WakeSignalSink = {
+      emit() {
+        throw new Error("sink-2 down");
+      },
+    };
+    const composite = new CompositeWakeSignalSink([failing1, failing2]);
+
+    await expect(composite.emit(PAYLOAD)).rejects.toThrow(/all 2 sinks failed/);
+  });
+
+  test("empty sink list is a silent no-op", async () => {
+    const composite = new CompositeWakeSignalSink([]);
+    await composite.emit(PAYLOAD); // no throw
   });
 });
