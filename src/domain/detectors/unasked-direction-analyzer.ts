@@ -22,6 +22,7 @@ import type { DefaultAICompletionService } from "../ai/completion-service";
 import type { TranscriptMessage } from "../provenance/transcript-service";
 import type { DetectionSignal } from "./types";
 import { log } from "../../utils/logger";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -132,7 +133,7 @@ function summarizeMessage(msg: TranscriptMessage, index: number): string {
 
   const truncated =
     content.length > MESSAGE_TRUNCATE_CHARS
-      ? `${content.slice(0, MESSAGE_TRUNCATE_CHARS)}…`
+      ? `${safeTruncate(content, MESSAGE_TRUNCATE_CHARS, "head")}…`
       : content;
   return `[${index + 1}] ${role}: ${truncated}`;
 }

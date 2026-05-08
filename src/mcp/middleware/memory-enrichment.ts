@@ -34,6 +34,7 @@
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { MemorySearchResult } from "../../domain/memory/types";
 import { log } from "../../utils/logger";
+import { safeTruncate } from "../../utils/safe-truncate";
 
 /**
  * Tools the spike enriches. Hardcoded for spike scope. Production graduation
@@ -166,7 +167,8 @@ function formatResult(result: MemorySearchResult, charBudget: number): string {
   const header = `[${record.type}] ${record.name} — score ${score.toFixed(2)}`;
   const body = record.description ?? record.content ?? "";
   const snippetBudget = Math.max(0, charBudget - header.length - 4);
-  const snippet = body.length > snippetBudget ? `${body.slice(0, snippetBudget - 1)}…` : body;
+  const snippet =
+    body.length > snippetBudget ? `${safeTruncate(body, snippetBudget - 1, "head")}…` : body;
   return `${header}\n  ${snippet}`;
 }
 

@@ -106,6 +106,7 @@ export async function graphql<T>(
   const bodyText = await res.text();
 
   if (!res.ok) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII
     const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
     throw new ApiError(
       `Railway API request failed: HTTP ${res.status} ${res.statusText}. ` +
@@ -118,6 +119,7 @@ export async function graphql<T>(
   try {
     body = JSON.parse(bodyText) as typeof body;
   } catch (parseErr) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII
     const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
     throw new ApiError(
       `Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`,

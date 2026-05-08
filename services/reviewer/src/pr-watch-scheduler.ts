@@ -41,6 +41,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { safeTruncate } from "../../../src/utils/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -112,7 +113,7 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
         JSON.stringify({
           event: "pr_watch_scheduler.mcp_http_error",
           status: response.status,
-          body: text.slice(0, 200),
+          body: safeTruncate(text, 200, "head"),
         })
       );
       return { success: false, error: `HTTP ${response.status}` };

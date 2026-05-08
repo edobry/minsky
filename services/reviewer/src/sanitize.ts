@@ -19,7 +19,7 @@
  * Task: mt#1212
  */
 
-import { safeTruncate } from "../../../src/utils/safe-truncate.ts";
+import { safeTruncate } from "../../../src/utils/safe-truncate";
 
 export type SanitizeAction = "passthrough" | "stripped" | "errored";
 
