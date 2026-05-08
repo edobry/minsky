@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
-import { checkBearerAuth } from "./start-command";
+import {
+  checkBearerAuth,
+  OAUTH_DISCOVERY_NOT_SUPPORTED_BODY,
+  OAUTH_REGISTER_NOT_SUPPORTED_BODY,
+} from "./start-command";
 
 // ---------------------------------------------------------------------------
 // Helpers for integration tests
@@ -264,5 +268,33 @@ describe("checkBearerAuth", () => {
 
   test("trims trailing whitespace on the token", () => {
     expect(checkBearerAuth(`Bearer ${TOKEN}   `, TOKEN)).toBe(true);
+  });
+});
+
+describe("OAuth Discovery stub bodies (mt#1635)", () => {
+  // The .well-known and /register endpoints exist solely to give probing MCP
+  // clients (notably Claude Code's /mcp UI) a parseable JSON error response
+  // instead of Express's default HTML 404. These tests pin the JSON shape so
+  // a future change can't accidentally regress the SDK fall-through path.
+
+  test("OAUTH_DISCOVERY_NOT_SUPPORTED_BODY has the expected error shape", () => {
+    expect(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY.error).toBe("not_supported");
+    expect(typeof OAUTH_DISCOVERY_NOT_SUPPORTED_BODY.error_description).toBe("string");
+    expect(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+  });
+
+  test("OAUTH_REGISTER_NOT_SUPPORTED_BODY uses RFC 7591 error key conventions", () => {
+    expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
+    expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
+    expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+  });
+
+  test("both bodies are JSON-serializable round-trip", () => {
+    expect(JSON.parse(JSON.stringify(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY))).toEqual(
+      OAUTH_DISCOVERY_NOT_SUPPORTED_BODY as unknown as Record<string, string>
+    );
+    expect(JSON.parse(JSON.stringify(OAUTH_REGISTER_NOT_SUPPORTED_BODY))).toEqual(
+      OAUTH_REGISTER_NOT_SUPPORTED_BODY as unknown as Record<string, string>
+    );
   });
 });

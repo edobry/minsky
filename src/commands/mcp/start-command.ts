@@ -9,8 +9,7 @@ import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
-import { exit } from "../../utils/process";
-
+import { exit } from "process";
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerRepoTools } from "../../adapters/mcp/repo";
@@ -67,6 +66,28 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
   const presented = match?.[1]?.trim();
   return !!presented && presented === expectedToken;
 }
+
+/**
+ * OAuth Discovery JSON body returned by the stub `.well-known` endpoints
+ * (mt#1635). MCP clients probe these paths; returning parseable JSON instead
+ * of Express's HTML 404 lets them fall through cleanly to the static-bearer
+ * authentication path. Exported for unit testing.
+ */
+export const OAUTH_DISCOVERY_NOT_SUPPORTED_BODY = {
+  error: "not_supported",
+  error_description:
+    "this server does not implement OAuth; use static bearer token via Authorization header",
+} as const;
+
+/**
+ * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
+ * (mt#1635). Exported for unit testing.
+ */
+export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = {
+  error: "registration_not_supported",
+  error_description:
+    "Dynamic Client Registration is not implemented; this server uses static bearer token authentication",
+} as const;
 
 /**
  * Register all MCP tool adapters on the given command mapper.
@@ -239,6 +260,30 @@ async function startHttpServer(
       transport: "http",
       timestamp: new Date().toISOString(),
     });
+  });
+
+  // OAuth discovery + Dynamic Client Registration stubs (mt#1635).
+  //
+  // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
+  // determine whether the server supports OAuth. When the endpoints return
+  // Express's default HTML 404, the SDK fails to parse the body as JSON and
+  // surfaces a misleading "auth failed" status, even though the static
+  // `Authorization: Bearer` header path is working fine.
+  //
+  // These stubs return parseable JSON error responses so probing SDKs can
+  // gracefully fall through to the static-token path. They explicitly do
+  // NOT implement OAuth — full OAuth (DCR + PKCE + token issuance) is the
+  // mt#1634 umbrella's scope.
+  app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+    res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
+  });
+
+  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+    res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
+  });
+
+  app.post("/register", (_req, res) => {
+    res.status(400).json(OAUTH_REGISTER_NOT_SUPPORTED_BODY);
   });
 
   // Start the HTTP server
