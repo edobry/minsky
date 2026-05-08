@@ -95,6 +95,55 @@ Both tools use the `contents: read` permission the App already holds.
 
 The envelope structurally disambiguates "missing file" from "file whose content happens to be the literal string `null`" — a failure mode of the earlier raw-string protocol.
 
+## Re-running the harness (mt#1515)
+
+Two scripts under `services/reviewer/scripts/` codify the acceptance tests for the reviewer service fidelity and latency:
+
+| Script                  | Purpose                                                                                                                                             | Output                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| `seeded-bug-harness.ts` | Fidelity: creates a real PR with a deliberate known-location bug, asserts the reviewer catches it with `CHANGES_REQUESTED` and a file:line citation | `scripts/seeded-bug-results.json`         |
+| `reviewer-benchmark.ts` | Latency: measures end-to-end wall time for recent Tier-3 PRs                                                                                        | `scripts/reviewer-benchmark-results.json` |
+
+### Prerequisites
+
+```
+bun install   # run from services/reviewer/ — this service has its own node_modules
+```
+
+### Required environment variables
+
+| Variable       | Required by          | Notes                                                                                                                               |
+| -------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_TOKEN` | Both scripts         | PAT or App-installation token. Harness needs `repo` write scope (branch + PR create/close/delete). Benchmark needs read-only scope. |
+| `OWNER`        | Both (optional)      | GitHub owner. Defaults to `edobry`.                                                                                                 |
+| `REPO`         | Both (optional)      | GitHub repository. Defaults to `minsky`.                                                                                            |
+| `BASE_BRANCH`  | Harness (optional)   | Base branch for the seeded-bug PR. Defaults to `main`.                                                                              |
+| `LIMIT`        | Benchmark (optional) | Number of Tier-3 samples to collect. Defaults to `3`.                                                                               |
+
+### Running the harness
+
+```bash
+# From services/reviewer/
+GITHUB_TOKEN=<your-token> bun scripts/seeded-bug-harness.ts
+```
+
+The harness creates a branch, opens a PR, polls for a `minsky-reviewer[bot]` review (up to 5 min), asserts the finding, writes results, then closes the PR and deletes the branch. Exit code 0 = passed, 1 = failed or timed out.
+
+### Running the benchmark
+
+```bash
+# From services/reviewer/
+GITHUB_TOKEN=<your-token> bun scripts/reviewer-benchmark.ts
+```
+
+The benchmark lists recent merged PRs, identifies Tier-3 ones by body marker or reviewer presence, computes latency from last commit time to first bot review, and writes structured stats. Exit code 0 = collected at least `LIMIT` samples, 1 = insufficient samples.
+
+### Notes
+
+- **Do not add these scripts to CI.** They consume real GitHub API quota, create real PRs (harness), and require live credentials. Run manually for baseline collection.
+- The seeded-bug target directory (`scripts/__seeded_bug_targets__/`) is gitignored locally. Harness runs write files there but do not commit them; the remote branch is deleted by the harness in its cleanup step.
+- Results files (`seeded-bug-results.json`, `reviewer-benchmark-results.json`) are written locally in the `scripts/` directory. Commit them manually if you want to checkpoint a baseline.
+
 ## Self-hosting
 
 The service is deliberately stateless. Any deployment target that supports Node.js webhooks works (Railway, Fly, Vercel Functions, Render). Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely.
