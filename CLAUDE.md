@@ -2,6 +2,97 @@
 
 # Project Instructions
 
+# MCP disconnect cadence and escalation threshold
+
+The Minsky MCP server tracks disconnect, reconnect, and process-lifecycle
+events for both the local stdio server and the hosted HTTP server. Operators
+read the cadence via `mcp__minsky__debug_systemInfo` (under `mcpDisconnects`)
+and the persisted JSONL log at
+`~/.local/state/minsky/mcp-disconnect-log.json`.
+
+## Cause classes
+
+A single `stdin_close` reading would conflate four real-world classes that
+the tracker now distinguishes (mt#1682):
+
+1. **Harness-driven cycling** — Claude Code spawns short-lived MCP server
+   processes for subagents, hooks, and pre-flight probes. Recorded as
+   `cause: "stdin_close"` with `uptimeMs < 5_000`. **Excluded from
+   escalation** as a normal harness lifecycle pattern.
+2. **Server-initiated `staleness_exit`** — mt#1315's stale-source mechanism
+   intentionally exits the process so the next call gets a fresh server
+   loaded from the new HEAD. Recorded as `cause: "staleness_exit"`.
+   **Excluded from escalation** as by-design behavior.
+3. **Genuine long-lived-session closure** — the harness closes a session
+   that had been doing real work. Recorded as `cause: "stdin_close"` with
+   `uptimeMs >= 5_000`. **Counts toward escalation** — this is the
+   user-visible reliability concern.
+4. **Signal-driven shutdowns** — process received SIGTERM, SIGINT, or
+   SIGHUP. Recorded as `signal_sigterm` / `signal_sigint` / `signal_sighup`.
+   **Excluded from escalation** as by-design behavior.
+5. **Stdout pollution** — terminal escape codes, build progress text, and
+   status emoji from subprocesses leaking onto the MCP stdio's stdout.
+   Currently tolerated by Claude Code (logged as "Ignoring non-JSON line on
+   stdout") and is **not a disconnect cause** but is a framing-corruption
+   hazard worth tracking. Cleanup is a separate concern.
+
+## Recurrence-threshold escalation
+
+The tracker emits `escalation: "none" | "session" | "daily"` in the
+`debug.systemInfo` payload, computed from the in-memory event list:
+
+- `daily` fires when **escalation-eligible** disconnects in the last 24h
+  exceed 3.
+- `session` fires when escalation-eligible disconnects in the current
+  server-process lifetime exceed 1.
+
+"Escalation-eligible" means `kind: "disconnect"` AND
+`cause ∉ {staleness_exit, signal_sigterm, signal_sigint, signal_sighup, server_close, idle_timeout}`
+AND `uptimeMs >= 5_000` (or `uptimeMs` absent — legacy mt#1645 events
+without uptime are counted conservatively).
+
+When `escalation` is non-`none`, file or update the structural-fix follow-up
+task. The threshold is calibrated against the empirically observed cadence
+(2026-05-08: ~7 disconnects in 4 hours, of which most were class 1 / 2 /
+4 — only class 3 events drive the eligible count).
+
+## Reading the persisted log
+
+The log file is **append-only JSONL**: one JSON object per line, no
+enclosing array. Each line carries:
+
+- `timestamp`, `serverName`, `kind`, `cause` (always)
+- `uptimeMs` on `disconnect` and `transport_error` events
+- `pid` on `process_start` events
+- `error` on `transport_error` and (optionally) `disconnect` events
+
+The legacy mt#1645 single-array JSON format is still readable on load
+(backward-compat migration). After upgrade, new events append as JSONL
+lines after the legacy array; both halves load on the next restart.
+
+Quick consumer commands:
+
+```bash
+# Cause distribution today
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq -r '.cause' | sort | uniq -c
+
+# Eligible-only count (long-lived harness closures)
+grep -h '"kind":"disconnect"' ~/.local/state/minsky/mcp-disconnect-log.json \
+  | jq 'select(.uptimeMs >= 5000 and .cause == "stdin_close")'
+
+# Process count today
+grep -c '"kind":"process_start"' ~/.local/state/minsky/mcp-disconnect-log.json
+```
+
+## Cross-references
+
+- `mt#1645` — measurement layer (parent task)
+- `mt#1682` — cause classification + append-only log (this rule)
+- `src/mcp/disconnect-tracker.ts` — implementation
+- `src/mcp/server.ts` — `wireDisconnectHooks`, `installSignalHandlers`,
+  `triggerStaleSignal` integration points
+
 # Terminal Command Best Practices
 
 ## Core Guidelines for run_terminal_cmd Tool Usage
