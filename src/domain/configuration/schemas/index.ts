@@ -41,6 +41,12 @@ import {
   type KnowledgeReconciliationConfig,
 } from "./knowledge-reconciliation";
 import { supabaseConfigSchema, type SupabaseConfig } from "./supabase";
+import {
+  oauthConfigSchema,
+  oauthProviderSchema,
+  type OAuthConfig,
+  type OAuthProvider,
+} from "./oauth";
 
 /**
  * Complete application configuration schema
@@ -105,6 +111,9 @@ export const configurationSchema = z.strictObject({
 
   // Supabase Management API credentials (developer-local; consumed by `just supabase-usage`)
   supabase: supabaseConfigSchema,
+
+  // OAuth identity provider configuration (mt#1634 / mt#1662)
+  oauth: oauthConfigSchema,
 });
 // strictObject: unknown top-level keys are rejected with an `unrecognized_keys`
 // ZodError. Catches typos (e.g. `persistance:` for `persistence:`) and stale
@@ -150,6 +159,8 @@ export type {
   MemoryLoadingMode,
   KnowledgeReconciliationConfig,
   SupabaseConfig,
+  OAuthConfig,
+  OAuthProvider,
 };
 
 // Re-export schemas for external use
@@ -170,6 +181,8 @@ export {
   memoryConfigSchema,
   knowledgeReconciliationSchema,
   supabaseConfigSchema,
+  oauthConfigSchema,
+  oauthProviderSchema,
 };
 
 // Export the main schema as default
