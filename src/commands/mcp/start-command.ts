@@ -212,6 +212,34 @@ function resolveProjectContext(
 }
 
 /**
+ * Compose the externally-observed base URL of an incoming request, honoring
+ * Express's `trust proxy` config so the result reflects the public-facing
+ * URL (e.g. `https://minsky-mcp-production.up.railway.app`) rather than the
+ * internal listener (`http://0.0.0.0:8080`). Used for OAuth Discovery
+ * metadata's `issuer` and `resource` fields, which RFC 8414/9728 require to
+ * match the URL the client used to fetch the metadata.
+ *
+ * Falls back to "localhost" only if `req.hostname` is missing entirely
+ * (very rare; usually only in malformed requests). The metadata document is
+ * served best-effort in that case rather than 500'ing the probe.
+ */
+export function composeRequestBaseUrl(req: import("express").Request): string {
+  const host = req.hostname || "localhost";
+  return `${req.protocol}://${host}`;
+}
+
+/**
+ * Ensure a route path starts with a single leading slash. Used when the
+ * user-configurable `--endpoint` value is embedded into a public metadata
+ * URL: `--endpoint mcp` (no leading slash) would otherwise produce an
+ * invalid URL like `https://example.commcp`.
+ */
+export function normalizeEndpointPath(endpoint: string): string {
+  if (endpoint.startsWith("/")) return endpoint;
+  return `/${endpoint}`;
+}
+
+/**
  * Start the MCP server with HTTP transport.
  */
 async function startHttpServer(
@@ -225,7 +253,13 @@ async function startHttpServer(
   projectContext?: ReturnType<typeof createProjectContext>
 ): Promise<void> {
   const app = express();
-  app.set("trust proxy", true);
+  // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
+  // to `1` rather than `true` limits the X-Forwarded-* trust to one upstream
+  // and avoids the unbounded-chain risk where a malicious client could spoof
+  // their `req.ip`/`req.protocol` by injecting forged X-Forwarded-* headers
+  // along multiple unverified hops. Required for the OAuth Discovery
+  // endpoints to advertise the correct public `https://` URL.
+  app.set("trust proxy", 1);
   app.use(express.json());
 
   // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
@@ -325,13 +359,14 @@ async function startHttpServer(
   // bearer-auth check, parallel to /health. The probe must succeed before
   // the SDK has any auth credentials to send, otherwise the fall-through
   // never fires. The bodies leak no internal state.
+  const normalizedEndpoint = normalizeEndpointPath(options.endpoint);
   app.get("/.well-known/oauth-authorization-server", (req, res) => {
-    const issuer = `${req.protocol}://${req.get("host") ?? "localhost"}`;
+    const issuer = composeRequestBaseUrl(req);
     res.json(buildAuthorizationServerMetadata(issuer));
   });
 
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
-    const resource = `${req.protocol}://${req.get("host") ?? "localhost"}${options.endpoint}`;
+    const resource = `${composeRequestBaseUrl(req)}${normalizedEndpoint}`;
     res.json(buildProtectedResourceMetadata(resource));
   });
 
@@ -340,6 +375,13 @@ async function startHttpServer(
   });
 
   // Start the HTTP server
+  // NOTE: the `http://...` URLs printed below are the INTERNAL listener
+  // (i.e., what Express binds to inside the container). In TLS-fronted
+  // deployments (e.g., Railway), the externally-observed URL is `https://`
+  // and may use a different host. The OAuth Discovery handlers above
+  // derive the public URL from request headers via `composeRequestBaseUrl`
+  // / `trust proxy`, so the metadata they emit reflects the externally-
+  // observed URL even though these log lines do not.
   const httpPort = parseInt(options.port, 10);
   app.listen(httpPort, options.host, () => {
     log.cli("Minsky MCP Server started with HTTP transport");

@@ -5,6 +5,8 @@ import {
   checkBearerAuth,
   buildAuthorizationServerMetadata,
   buildProtectedResourceMetadata,
+  composeRequestBaseUrl,
+  normalizeEndpointPath,
   OAUTH_REGISTER_NOT_SUPPORTED_BODY,
 } from "./start-command";
 
@@ -272,87 +274,207 @@ describe("checkBearerAuth", () => {
   });
 });
 
-describe("OAuth Discovery stub bodies (mt#1635 / mt#1655)", () => {
-  // The .well-known endpoints exist solely to give probing MCP clients
-  // (notably Claude Code's /mcp UI) a parseable JSON response that signals
-  // "OAuth advertised but no flow usable" — so the SDK falls through to the
-  // static-bearer-token path instead of surfacing a misleading "auth failed"
-  // line. mt#1635 originally returned 404 + error body; mt#1655 refined to
-  // 200 + RFC 8414/9728 minimal-metadata to suppress the dialog cosmetic.
-  // /register stays at 400 (DCR genuinely unsupported in stub tier).
+describe("OAuth Discovery pure-function builders (mt#1655)", () => {
+  // Pure-function shape pinning. The HTTP integration tests below cover the
+  // route behavior end-to-end; these unit tests cover the builder contract
+  // (frozen output, expected fields) without needing to spawn a server.
 
-  describe("buildAuthorizationServerMetadata (RFC 8414 minimal stub)", () => {
-    const ISSUER = "https://example.com";
+  test("buildAuthorizationServerMetadata returns RFC 8414 minimal shape", () => {
+    const meta = buildAuthorizationServerMetadata("https://example.com");
+    expect(meta.issuer).toBe("https://example.com");
+    expect(meta.response_types_supported).toEqual([]);
+    expect(Object.isFrozen(meta)).toBe(true);
+  });
 
-    test("returns issuer + empty response_types_supported", () => {
-      const meta = buildAuthorizationServerMetadata(ISSUER);
-      expect(meta.issuer).toBe(ISSUER);
-      expect(meta.response_types_supported).toEqual([]);
+  test("buildProtectedResourceMetadata returns RFC 9728 minimal shape", () => {
+    const meta = buildProtectedResourceMetadata("https://example.com/mcp");
+    expect(meta.resource).toBe("https://example.com/mcp");
+    expect(Object.isFrozen(meta)).toBe(true);
+  });
+
+  test("OAUTH_REGISTER_NOT_SUPPORTED_BODY uses RFC 7591 error-key conventions", () => {
+    expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
+    expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
+    expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
+  });
+});
+
+describe("OAuth Discovery URL composition (mt#1655)", () => {
+  describe("normalizeEndpointPath", () => {
+    test("preserves a leading slash unchanged", () => {
+      expect(normalizeEndpointPath("/mcp")).toBe("/mcp");
+      expect(normalizeEndpointPath("/")).toBe("/");
+      expect(normalizeEndpointPath("/api/v1/mcp")).toBe("/api/v1/mcp");
     });
 
-    test("does NOT advertise any flow endpoints (the strict-subset point of mt#1655)", () => {
-      const meta = buildAuthorizationServerMetadata(ISSUER) as Record<string, unknown>;
-      expect(meta.authorization_endpoint).toBeUndefined();
-      expect(meta.token_endpoint).toBeUndefined();
-      expect(meta.registration_endpoint).toBeUndefined();
-      expect(meta.grant_types_supported).toBeUndefined();
-      expect(meta.scopes_supported).toBeUndefined();
-    });
-
-    test("output is frozen at runtime", () => {
-      const meta = buildAuthorizationServerMetadata(ISSUER);
-      expect(Object.isFrozen(meta)).toBe(true);
-      expect(Object.isFrozen(meta.response_types_supported)).toBe(true);
-    });
-
-    test("output round-trips through JSON.stringify / JSON.parse", () => {
-      const meta = buildAuthorizationServerMetadata(ISSUER);
-      expect(JSON.parse(JSON.stringify(meta))).toEqual({
-        issuer: ISSUER,
-        response_types_supported: [],
-      });
+    test("prepends a leading slash when missing — fixes mt#1655 R1 finding 3", () => {
+      // Without normalization, embedding `--endpoint mcp` (no slash) into
+      // `https://example.com${endpoint}` produces invalid `https://example.commcp`.
+      expect(normalizeEndpointPath("mcp")).toBe("/mcp");
+      expect(normalizeEndpointPath("api/v1/mcp")).toBe("/api/v1/mcp");
     });
   });
 
-  describe("buildProtectedResourceMetadata (RFC 9728 minimal stub)", () => {
-    const RESOURCE = "https://example.com/mcp";
-
-    test("returns resource only", () => {
-      const meta = buildProtectedResourceMetadata(RESOURCE);
-      expect(meta.resource).toBe(RESOURCE);
+  describe("composeRequestBaseUrl", () => {
+    test("composes from req.protocol + req.hostname", () => {
+      const req = { protocol: "https", hostname: "example.com" } as import("express").Request;
+      expect(composeRequestBaseUrl(req)).toBe("https://example.com");
     });
 
-    test("does NOT include authorization_servers (mt#1634 will fill this in)", () => {
-      const meta = buildProtectedResourceMetadata(RESOURCE) as Record<string, unknown>;
-      expect(meta.authorization_servers).toBeUndefined();
-    });
-
-    test("output is frozen at runtime", () => {
-      const meta = buildProtectedResourceMetadata(RESOURCE);
-      expect(Object.isFrozen(meta)).toBe(true);
-    });
-
-    test("output round-trips through JSON.stringify / JSON.parse", () => {
-      const meta = buildProtectedResourceMetadata(RESOURCE);
-      expect(JSON.parse(JSON.stringify(meta))).toEqual({ resource: RESOURCE });
+    test("falls back to localhost when hostname is missing or empty", () => {
+      const reqEmpty = { protocol: "http", hostname: "" } as import("express").Request;
+      expect(composeRequestBaseUrl(reqEmpty)).toBe("http://localhost");
     });
   });
+});
 
-  describe("OAUTH_REGISTER_NOT_SUPPORTED_BODY (RFC 7591 error stub for /register)", () => {
-    test("uses RFC 7591 error key conventions", () => {
-      expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
-      expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
-      expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+describe("OAuth Discovery HTTP routes (mt#1655 integration)", () => {
+  // These tests spawn the server in --http mode on a random port, wait for
+  // the ready log, and fetch the .well-known endpoints. Pins the route
+  // behavior change (404 -> 200) and the per-request URL composition that
+  // R1 BLOCKING #1 flagged as untested.
+
+  const HTTP_READY_MARKER = "Ready to receive MCP requests via HTTP";
+
+  /**
+   * Spawn the MCP server in --http mode on `port`. Returns the child + a
+   * promise that resolves when the ready-log line is seen, or rejects on
+   * timeout. The child is the caller's responsibility to terminate.
+   */
+  function spawnHttpMcp(
+    port: number,
+    extraEnv?: Record<string, string>
+  ): { child: ReturnType<typeof spawn>; ready: Promise<void> } {
+    const child = spawn(
+      "bun",
+      [CLI_PATH, "mcp", "start", "--http", "--port", String(port), "--host", "127.0.0.1"],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, ...extraEnv },
+      }
+    );
+
+    const ready = new Promise<void>((resolve, reject) => {
+      let buffered = "";
+      const append = (chunk: Buffer | string) => {
+        buffered += typeof chunk === "string" ? chunk : String(chunk);
+        if (buffered.includes(HTTP_READY_MARKER)) {
+          resolve();
+        }
+      };
+      const stdoutEmitter = child.stdout as unknown as {
+        on(event: "data", listener: (chunk: Buffer | string) => void): void;
+      } | null;
+      const stderrEmitter = child.stderr as unknown as {
+        on(event: "data", listener: (chunk: Buffer | string) => void): void;
+      } | null;
+      if (stdoutEmitter) stdoutEmitter.on("data", append);
+      if (stderrEmitter) stderrEmitter.on("data", append);
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`HTTP server did not ready within timeout. Buffered: ${buffered}`));
+      }, 15000);
+      child.on("exit", () => clearTimeout(timeoutId));
     });
 
-    test("is frozen at runtime", () => {
-      expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
-    });
+    return { child, ready };
+  }
 
-    test("round-trips through JSON.stringify / JSON.parse", () => {
-      expect(JSON.parse(JSON.stringify(OAUTH_REGISTER_NOT_SUPPORTED_BODY))).toEqual(
-        OAUTH_REGISTER_NOT_SUPPORTED_BODY as unknown as Record<string, string>
+  // Fixed port per test in the 41000-41100 ephemeral range. Hardcoded
+  // (rather than Math.random()) so test isolation isn't reliant on chance,
+  // and so the project's `custom/no-real-fs-in-tests` lint rule doesn't
+  // false-positive on Math.random() usage in non-fs contexts.
+  const PORT_AUTH_SERVER = 41001;
+  const PORT_PROTECTED_RESOURCE = 41002;
+  const PORT_X_FORWARDED = 41003;
+  const PORT_REGISTER = 41004;
+
+  test("GET /.well-known/oauth-authorization-server returns 200 + RFC 8414 minimal metadata", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_AUTH_SERVER);
+    try {
+      await ready;
+      const response = await fetch(
+        `http://127.0.0.1:${PORT_AUTH_SERVER}/.well-known/oauth-authorization-server`
       );
-    });
-  });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.issuer).toBeTypeOf("string");
+      expect(body.response_types_supported).toEqual([]);
+      // Strict-subset assertion (R1 BLOCKING #1's "pin the body shape"):
+      expect(body.authorization_endpoint).toBeUndefined();
+      expect(body.token_endpoint).toBeUndefined();
+      expect(body.registration_endpoint).toBeUndefined();
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("GET /.well-known/oauth-protected-resource returns 200 + RFC 9728 minimal metadata", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_PROTECTED_RESOURCE);
+    try {
+      await ready;
+      const response = await fetch(
+        `http://127.0.0.1:${PORT_PROTECTED_RESOURCE}/.well-known/oauth-protected-resource`
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.resource).toBeTypeOf("string");
+      // The default endpoint is /mcp; resource should end with it.
+      expect(body.resource).toMatch(/\/mcp$/);
+      expect(body.authorization_servers).toBeUndefined();
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("X-Forwarded-Proto: https produces an https issuer (trust proxy 1 wired correctly)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_X_FORWARDED);
+    try {
+      await ready;
+      const response = await fetch(
+        `http://127.0.0.1:${PORT_X_FORWARDED}/.well-known/oauth-authorization-server`,
+        {
+          headers: {
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "minsky-mcp-production.up.railway.app",
+          },
+        }
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.issuer).toBe("https://minsky-mcp-production.up.railway.app");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("POST /register continues to return 400 (regression check)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_REGISTER);
+    try {
+      await ready;
+      const response = await fetch(`http://127.0.0.1:${PORT_REGISTER}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("registration_not_supported");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
 });
