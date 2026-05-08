@@ -125,6 +125,7 @@ export async function sessionCommit(
     all?: boolean;
     amend?: boolean;
     noStage?: boolean;
+    noFiles?: boolean;
   },
   sessionProvider: import("./types").SessionProviderInterface,
   askRepository?: AskRepository
@@ -209,14 +210,22 @@ export async function sessionCommit(
     }
 
     if (!params.amend && isCleanTree) {
-      log.debug("Nothing to commit in session (clean working tree)", { session: params.session });
-      return {
-        success: true,
-        nothingToCommit: true,
-        commitHash: null,
-        message: "Nothing to commit, working tree clean",
-        pushed: false,
-      };
+      // When noFiles is true, the caller wants an empty commit to wake a webhook
+      // or produce an audit-trail commit. Use --allow-empty and proceed to push.
+      // When noFiles is false (default), return the existing no-op result.
+      if (!params.noFiles) {
+        log.debug("Nothing to commit in session (clean working tree)", { session: params.session });
+        return {
+          success: true,
+          nothingToCommit: true,
+          commitHash: null,
+          message: "Nothing to commit, working tree clean",
+          pushed: false,
+        };
+      }
+      log.debug("Creating empty commit (noFiles=true, clean tree) for webhook wake", {
+        session: params.session,
+      });
     }
 
     // Emit authorization.approve Ask (best-effort — never blocks the commit)
@@ -250,13 +259,43 @@ export async function sessionCommit(
       // Commit changes using session-scoped git command
       let commitResult!: { commitHash: string; message: string };
       try {
-        commitResult = await commitChangesFromParams({
-          message: params.message,
-          repo: workdir,
-          all: params.all,
-          amend: params.amend,
-          noStage: params.noStage,
-        });
+        // When noFiles is true and tree is clean, use --allow-empty so that a real
+        // commit is created even without staged changes. This is the webhook-wake
+        // mechanism: the push triggers pull_request.synchronize.
+        const allowEmpty = params.noFiles === true && isCleanTree && !params.amend;
+        if (allowEmpty) {
+          const gitServiceForEmpty = createGitService();
+          const rawHash = await gitServiceForEmpty.execInRepository(
+            workdir,
+            `git commit --allow-empty -m "${params.message.replace(/"/g, '\\"')}"`
+          );
+          const hash = rawHash.trim().match(/[0-9a-f]{40}/i)?.[0] ?? null;
+          // Fallback: read the latest commit hash if the output did not contain it directly
+          let finalHash = hash;
+          if (!finalHash) {
+            try {
+              const logOut = await gitServiceForEmpty.execInRepository(
+                workdir,
+                "git log -1 --pretty=format:%H"
+              );
+              finalHash = logOut.trim() || null;
+            } catch {
+              finalHash = null;
+            }
+          }
+          commitResult = {
+            commitHash: finalHash ?? "",
+            message: params.message,
+          };
+        } else {
+          commitResult = await commitChangesFromParams({
+            message: params.message,
+            repo: workdir,
+            all: params.all,
+            amend: params.amend,
+            noStage: params.noStage,
+          });
+        }
       } catch (commitErr: unknown) {
         // Handle "nothing to commit" gracefully — not an error condition
         if (commitErr instanceof NothingToCommitError) {
