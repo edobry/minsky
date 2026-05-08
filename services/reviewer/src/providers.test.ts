@@ -1229,11 +1229,15 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(reminderLogs).toHaveLength(0);
   });
 
-  test("no forced pass when no output tools were emitted (gate semantics)", async () => {
-    // Model uses only read_file then exits without emitting any output tools.
-    // The post-loop pass must NOT fire — there's no review to wrap up.
+  test("forced pass fires (emitted_nothing branch) when no output tools were emitted (mt#1639)", async () => {
+    // mt#1639: Model uses only read_file then exits without emitting any output
+    // tools (no findings, no inline comments, no conclude_review). The post-loop
+    // pass MUST fire with gate_branch:"emitted_nothing" so the reviewer never
+    // submits a literally-empty review body. Previously this case was skipped
+    // by the `&& hasEmittedOutputCalls` guard (mt#1471 gate gap, live instance
+    // PR #973 / 2026-05-07 18:54Z).
     const { client, capturedParams } = makeFakeClient([
-      // Round 0: read_file call
+      // Round 0: read_file call (no output tools)
       {
         choices: [
           {
@@ -1256,6 +1260,24 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         choices: [{ message: { content: "Nothing to review.", tool_calls: undefined } }],
         usage: makeUsage(),
       },
+      // Post-loop forced pass: model emits conclude_review (COMMENT — no findings)
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall(
+                  "cr1",
+                  "conclude_review",
+                  JSON.stringify({ event: "COMMENT", summary: "No issues found." })
+                ),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
     ]);
 
     const tools: ReviewerToolContext = {
@@ -1267,10 +1289,25 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
       callOpenAIWithClient(client, MODEL, "system", "user", tools)
     );
 
-    expect(result.toolCalls).toHaveLength(0);
+    // conclude_review was emitted by the forced pass and appended to toolCalls.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("conclude_review");
 
-    // Only 2 main-loop calls; no post-loop forced pass triggered.
-    expect(capturedParams).toHaveLength(2);
+    // 3 API calls total: 2 main-loop rounds + 1 forced post-loop pass.
+    expect(capturedParams).toHaveLength(3);
+
+    // The forced call constrains tool_choice to conclude_review.
+    const forcedCallParams = capturedParams[2];
+    expect(forcedCallParams?.tool_choice).toEqual({
+      type: "function",
+      function: { name: "conclude_review" },
+    });
+
+    // Forced pass uses conclude_review-only tool list (same as emitted_no_conclude branch).
+    const forcedTools = forcedCallParams?.tools as Array<{ function: { name: string } }>;
+    expect(Array.isArray(forcedTools)).toBe(true);
+    expect(forcedTools).toHaveLength(1);
+    expect(forcedTools[0]?.function.name).toBe("conclude_review");
 
     const reminderLogs = events.filter(
       (e) =>
@@ -1278,7 +1315,13 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         e !== null &&
         (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
     );
-    expect(reminderLogs).toHaveLength(0);
+    // Forced-pass log fires with emitted_nothing discriminator.
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["finally_emitted"]).toBe(true);
+    expect(log["gate_branch"]).toBe("emitted_nothing");
+    expect(log["reminder_count"]).toBe(1);
+    expect(log["fired_at_turn"]).toBe(2);
   });
 
   test("post-loop forced pass fires when main loop exhausts MAX_TOOL_ROUNDS without conclude_review (production failure mode)", async () => {
@@ -1648,6 +1691,119 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     );
     expect(reminderLogs).toHaveLength(1);
     expect((reminderLogs[0] as Record<string, unknown>)["mode"]).toBe("post_loop_forced");
+  });
+
+  // ----- mt#1639: gate_branch discriminator tests -----
+
+  test("mt#1639: audit log includes gate_branch:'emitted_nothing' when main loop produces zero output calls", async () => {
+    // Unit test for Acceptance Test #3 (audit log gate_branch discriminator).
+    // When the main loop terminates with hasEmittedOutputCalls=false, the
+    // conclude_review_reminder log must carry gate_branch:"emitted_nothing".
+    const { client } = makeFakeClient([
+      // Round 0: exits immediately with no tool calls at all
+      {
+        choices: [{ message: { content: "Looks fine.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: model emits conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [
+                makeOutputToolCall(
+                  "cr1",
+                  "conclude_review",
+                  JSON.stringify({ event: "COMMENT", summary: "No issues found." })
+                ),
+              ],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // conclude_review appended from the forced pass.
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]?.name).toBe("conclude_review");
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    expect(log["gate_branch"]).toBe("emitted_nothing");
+    expect(log["finally_emitted"]).toBe(true);
+    expect(log["reminder_count"]).toBe(1);
+    expect(log["fired_at_turn"]).toBe(1); // 1 main-loop round
+  });
+
+  test("mt#1639: audit log includes gate_branch:'emitted_no_conclude' on partial-output path (no regression)", async () => {
+    // Unit test for Acceptance Test #2 + #3: mt#1471's existing path
+    // (hasEmittedOutputCalls=true && !hasConcludeReview) still fires AND its
+    // audit log now carries gate_branch:"emitted_no_conclude" for segmentation.
+    const { client } = makeFakeClient([
+      // Round 0: 1 finding, no conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c1", "submit_finding", VALID_FINDING_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+      // Round 1: model exits without conclude_review
+      {
+        choices: [{ message: { content: "Done.", tool_calls: undefined } }],
+        usage: makeUsage(),
+      },
+      // Post-loop forced pass: emits conclude_review
+      {
+        choices: [
+          {
+            message: {
+              content: null,
+              tool_calls: [makeOutputToolCall("c2", "conclude_review", VALID_CONCLUDE_ARGS)],
+            },
+          },
+        ],
+        usage: makeUsage(),
+      },
+    ]);
+
+    const { events, result } = await withCapturedLogs(async () =>
+      callOpenAIWithClient(client, MODEL, "system", "user", defaultTools)
+    );
+
+    // submit_finding + conclude_review both in toolCalls.
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls[0]?.name).toBe("submit_finding");
+    expect(result.toolCalls[1]?.name).toBe("conclude_review");
+
+    const reminderLogs = events.filter(
+      (e) =>
+        typeof e === "object" &&
+        e !== null &&
+        (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
+    );
+    expect(reminderLogs).toHaveLength(1);
+    const log = reminderLogs[0] as Record<string, unknown>;
+    // Discriminator must be emitted_no_conclude on the partial-output path.
+    expect(log["gate_branch"]).toBe("emitted_no_conclude");
+    expect(log["finally_emitted"]).toBe(true);
+    expect(log["reminder_count"]).toBe(1);
   });
 
   test("post-loop forced pass: API-error path logs reminder with finally_emitted:false and error message (PR #915 R3)", async () => {
