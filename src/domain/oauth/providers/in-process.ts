@@ -227,8 +227,12 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
             };
           },
         },
-        // Disable features not used in our flows
-        devInteractions: { enabled: false },
+        // mt#1665: enable oidc-provider's built-in consent UI. Without this,
+        // the authorization-code flow stalls at /interaction/:uid (404) because
+        // no custom interaction handlers are registered. The built-in UI is
+        // intentionally minimal HTML — sufficient for v1; a Minsky-branded
+        // custom consent template can land as a follow-up.
+        devInteractions: { enabled: true },
         introspection: { enabled: false },
         revocation: { enabled: false },
       },
