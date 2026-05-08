@@ -81,6 +81,14 @@ export {
   mergeFromParams,
   checkoutFromParams,
   rebaseFromParams,
+  pullFromParams,
+  statusFromParams,
+  stashFromParams,
+  stashPopFromParams,
+  stashListFromParams,
+  stashDropFromParams,
+  restoreFromParams,
+  resetFromParams,
 } from "./git/git-params-facade";
 
 /**

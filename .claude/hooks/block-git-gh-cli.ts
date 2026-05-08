@@ -110,11 +110,12 @@ export const gitDenials: DenialRule[] = [
   {
     match: (args) => args[0] === "fetch",
     reason:
-      "Fetch is handled automatically by `mcp__minsky__session_update` and other session ops.",
+      "Fetch is handled automatically by `mcp__minsky__session_update` and other session ops. For main-workspace fast-forward updates, use `mcp__minsky__git_pull`.",
   },
   {
     match: (args) => args[0] === "pull",
-    reason: "Pulling is handled by the post-merge-pull hook automatically.",
+    reason:
+      "For main-workspace pulls use `mcp__minsky__git_pull` (--ff-only). For session pulls, `session_update` handles it automatically.",
   },
   {
     match: (args) => args[0] === "clone",
@@ -139,15 +140,22 @@ export const gitDenials: DenialRule[] = [
   {
     match: (args) => args[0] === "reset",
     reason:
-      "Use `mcp__minsky__session_exec(task, 'git reset ...')` if you genuinely need a reset in a session. This is a destructive operation — consider the revert alternative first.",
+      "Use `mcp__minsky__git_reset` for main-workspace (requires `mode` and `confirmHard: true` for hard mode), or `mcp__minsky__session_exec(task, 'git reset ...')` in a session. This is destructive — consider a revert alternative first.",
     // On session_exec itself, `git reset` is the recommended escape hatch — don't block.
     allowedInSessionExec: true,
   },
   {
     match: (args) => args[0] === "stash",
     reason:
-      "No first-class MCP equivalent. If you need to stash in a session, use `mcp__minsky__session_exec(task, 'git stash')` — the call runs server-side and is not blocked by this hook.",
+      "For main workspace, use `mcp__minsky__git_stash` / `git_stash_pop` / `git_stash_list` / `git_stash_drop`. For sessions, use `session_exec(task, 'git stash')`.",
     // On session_exec itself, `git stash` is the recommended escape hatch — don't block.
+    allowedInSessionExec: true,
+  },
+  {
+    match: (args) => args[0] === "restore",
+    reason:
+      "Use `mcp__minsky__git_restore <paths>` for main-workspace single-file discard. For sessions, use `session_exec(task, 'git restore ...')`.",
+    // On session_exec itself, `git restore` is the recommended escape hatch — don't block.
     allowedInSessionExec: true,
   },
 ];

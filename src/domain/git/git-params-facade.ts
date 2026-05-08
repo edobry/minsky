@@ -13,6 +13,21 @@ import type { CloneResult } from "./clone-operations";
 import type { PushResult } from "./push-operations";
 import type { BranchResult, PrResult } from "./types";
 import type { EnhancedMergeResult } from "./conflict-detection";
+import { execAsync } from "../../utils/exec";
+import { pullImpl, type PullImplResult } from "./pull-operations";
+import { statusImpl, type StatusResult } from "./status-operations";
+import {
+  stashImpl,
+  stashPopImpl,
+  stashListImpl,
+  stashDropImpl,
+  type StashImplResult,
+  type StashPopResult,
+  type StashListResult,
+  type StashDropResult,
+} from "./stash-operations";
+import { restoreImpl, type RestoreResult } from "./restore-operations";
+import { resetImpl, type ResetResult } from "./reset-operations";
 
 /**
  * Interface-agnostic function to create a pull request
@@ -142,4 +157,103 @@ export async function rebaseFromParams(params: {
   };
 }> {
   return await modularGitCommandsManager.rebaseFromParams(params);
+}
+
+/** Default deps using project execAsync */
+const defaultExecDeps = { execAsync };
+
+/**
+ * Pull latest changes from remote using --ff-only.
+ */
+export async function pullFromParams(params: {
+  repo?: string;
+  remote?: string;
+  branch?: string;
+}): Promise<PullImplResult> {
+  return pullImpl(
+    { repoPath: params.repo, remote: params.remote, branch: params.branch },
+    defaultExecDeps
+  );
+}
+
+/**
+ * Get working tree status for the main workspace.
+ */
+export async function statusFromParams(params: { repo?: string }): Promise<StatusResult> {
+  return statusImpl({ repoPath: params.repo }, defaultExecDeps);
+}
+
+/**
+ * Push changes onto the stash.
+ */
+export async function stashFromParams(params: {
+  repo?: string;
+  message?: string;
+  paths?: string[];
+}): Promise<StashImplResult> {
+  return stashImpl(
+    { repoPath: params.repo, message: params.message, paths: params.paths },
+    defaultExecDeps
+  );
+}
+
+/**
+ * Pop the most recent stash (or a specific stash by ref).
+ */
+export async function stashPopFromParams(params: {
+  repo?: string;
+  ref?: string;
+}): Promise<StashPopResult> {
+  return stashPopImpl({ repoPath: params.repo, ref: params.ref }, defaultExecDeps);
+}
+
+/**
+ * List all stash entries.
+ */
+export async function stashListFromParams(params: { repo?: string }): Promise<StashListResult> {
+  return stashListImpl({ repoPath: params.repo }, defaultExecDeps);
+}
+
+/**
+ * Drop a specific stash entry (requires confirmDrop: true).
+ */
+export async function stashDropFromParams(params: {
+  repo?: string;
+  ref: string;
+  confirmDrop: boolean;
+}): Promise<StashDropResult> {
+  return stashDropImpl(
+    { repoPath: params.repo, ref: params.ref, confirmDrop: params.confirmDrop },
+    defaultExecDeps
+  );
+}
+
+/**
+ * Restore (discard) unstaged working-tree changes for specific paths.
+ */
+export async function restoreFromParams(params: {
+  repo?: string;
+  paths: string[];
+}): Promise<RestoreResult> {
+  return restoreImpl({ repoPath: params.repo, paths: params.paths }, defaultExecDeps);
+}
+
+/**
+ * Run git reset with an explicit mode.
+ */
+export async function resetFromParams(params: {
+  repo?: string;
+  mode: "soft" | "mixed" | "hard";
+  target?: string;
+  confirmHard?: boolean;
+}): Promise<ResetResult> {
+  return resetImpl(
+    {
+      repoPath: params.repo,
+      mode: params.mode,
+      target: params.target,
+      confirmHard: params.confirmHard,
+    },
+    defaultExecDeps
+  );
 }
