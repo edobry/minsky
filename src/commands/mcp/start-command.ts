@@ -68,22 +68,59 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
 }
 
 /**
- * OAuth Discovery JSON body returned by the stub `.well-known` endpoints
- * (mt#1635). MCP clients probe these paths; returning parseable JSON instead
- * of Express's HTML 404 lets them fall through cleanly to the static-bearer
- * authentication path. Exported for unit testing. Frozen at module-load to
- * protect against accidental mutation by importers.
+ * RFC 8414 (OAuth 2.0 Authorization Server Metadata) minimal-stub builder
+ * for the `/.well-known/oauth-authorization-server` discovery endpoint
+ * (mt#1655, follow-up to mt#1635).
+ *
+ * Returns a strict-subset metadata document that advertises the server's
+ * existence as an "OAuth authority" but declares zero usable flows
+ * (`response_types_supported: []`, no `authorization_endpoint`, no
+ * `token_endpoint`, no `registration_endpoint`). Spec-conformant SDKs treat
+ * this as "OAuth advertised but no flow usable -> fall through to the
+ * static-bearer-token path." mt#1635 originally shipped a 404 here, but the
+ * MCP SDK in Claude Code framed any non-2xx OAuth probe as `SDK auth
+ * failed: ...` in the dialog; this 200-with-empty-flows shape suppresses
+ * that misleading line.
+ *
+ * The `issuer` URL is derived per-request from `X-Forwarded-Proto` /
+ * `X-Forwarded-Host` (Railway's edge proxy) so the document is correct in
+ * any deployment.
+ *
+ * mt#1634 (the umbrella OAuth task) extends this document with real flow
+ * advertisements (authorization_endpoint, token_endpoint, etc.) — this
+ * stub is a strict-subset foundation, not throw-away work.
  */
-export const OAUTH_DISCOVERY_NOT_SUPPORTED_BODY = Object.freeze({
-  error: "not_supported",
-  error_description:
-    "this server does not implement OAuth; use static bearer token via Authorization header",
-} as const);
+export function buildAuthorizationServerMetadata(issuer: string): Readonly<{
+  issuer: string;
+  response_types_supported: readonly string[];
+}> {
+  return Object.freeze({
+    issuer,
+    response_types_supported: Object.freeze([] as readonly string[]),
+  });
+}
+
+/**
+ * RFC 9728 (OAuth 2.0 Protected Resource Metadata) minimal-stub builder
+ * for the `/.well-known/oauth-protected-resource` discovery endpoint
+ * (mt#1655). Advertises the protected resource URL but declares no
+ * `authorization_servers`, signaling "this resource exists but has no
+ * usable authorization-server flow yet." mt#1634 will fill in the
+ * `authorization_servers` array.
+ */
+export function buildProtectedResourceMetadata(resource: string): Readonly<{
+  resource: string;
+}> {
+  return Object.freeze({
+    resource,
+  });
+}
 
 /**
  * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
  * (mt#1635). Exported for unit testing. Frozen at module-load to protect
- * against accidental mutation by importers.
+ * against accidental mutation by importers. mt#1634 will replace this with
+ * a real implementation.
  */
 export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = Object.freeze({
   error: "registration_not_supported",
@@ -175,6 +212,34 @@ function resolveProjectContext(
 }
 
 /**
+ * Compose the externally-observed base URL of an incoming request, honoring
+ * Express's `trust proxy` config so the result reflects the public-facing
+ * URL (e.g. `https://minsky-mcp-production.up.railway.app`) rather than the
+ * internal listener (`http://0.0.0.0:8080`). Used for OAuth Discovery
+ * metadata's `issuer` and `resource` fields, which RFC 8414/9728 require to
+ * match the URL the client used to fetch the metadata.
+ *
+ * Falls back to "localhost" only if `req.hostname` is missing entirely
+ * (very rare; usually only in malformed requests). The metadata document is
+ * served best-effort in that case rather than 500'ing the probe.
+ */
+export function composeRequestBaseUrl(req: import("express").Request): string {
+  const host = req.hostname || "localhost";
+  return `${req.protocol}://${host}`;
+}
+
+/**
+ * Ensure a route path starts with a single leading slash. Used when the
+ * user-configurable `--endpoint` value is embedded into a public metadata
+ * URL: `--endpoint mcp` (no leading slash) would otherwise produce an
+ * invalid URL like `https://example.commcp`.
+ */
+export function normalizeEndpointPath(endpoint: string): string {
+  if (endpoint.startsWith("/")) return endpoint;
+  return `/${endpoint}`;
+}
+
+/**
  * Start the MCP server with HTTP transport.
  */
 async function startHttpServer(
@@ -188,6 +253,13 @@ async function startHttpServer(
   projectContext?: ReturnType<typeof createProjectContext>
 ): Promise<void> {
   const app = express();
+  // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
+  // to `1` rather than `true` limits the X-Forwarded-* trust to one upstream
+  // and avoids the unbounded-chain risk where a malicious client could spoof
+  // their `req.ip`/`req.protocol` by injecting forged X-Forwarded-* headers
+  // along multiple unverified hops. Required for the OAuth Discovery
+  // endpoints to advertise the correct public `https://` URL.
+  app.set("trust proxy", 1);
   app.use(express.json());
 
   // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
@@ -264,30 +336,38 @@ async function startHttpServer(
     });
   });
 
-  // OAuth discovery + Dynamic Client Registration stubs (mt#1635).
+  // OAuth discovery + Dynamic Client Registration stubs (mt#1635, refined mt#1655).
   //
   // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
-  // determine whether the server supports OAuth. When the endpoints return
-  // Express's default HTML 404, the SDK fails to parse the body as JSON and
-  // surfaces a misleading "auth failed" status, even though the static
-  // `Authorization: Bearer` header path is working fine.
+  // determine whether the server supports OAuth. mt#1635 originally returned
+  // 404 with a JSON `not_supported` error; that fixed the JSON-parse failure
+  // (the original symptom) but the MCP SDK still framed any non-2xx OAuth
+  // probe as `SDK auth failed: ...` in the dialog, surfacing a misleading
+  // line even with green status badges.
   //
-  // These stubs return parseable JSON error responses so probing SDKs can
-  // gracefully fall through to the static-token path. They explicitly do
-  // NOT implement OAuth — full OAuth (DCR + PKCE + token issuance) is the
-  // mt#1634 umbrella's scope.
+  // mt#1655 refined the response shape: return 200 with RFC 8414/9728 minimal
+  // metadata that advertises the server's existence but declares NO usable
+  // flows (empty `response_types_supported`, no `authorization_endpoint`,
+  // etc.). Spec-conformant SDKs treat this as "OAuth advertised but no flow
+  // usable -> fall through to static-bearer," which suppresses the
+  // misleading dialog line entirely.
+  //
+  // /register stays at 400 — DCR is genuinely unsupported in the stub tier;
+  // mt#1634 (umbrella) will switch it to a real implementation.
   //
   // Public-access posture (intentional): these endpoints sit outside the
   // bearer-auth check, parallel to /health. The probe must succeed before
   // the SDK has any auth credentials to send, otherwise the fall-through
-  // never fires. The bodies leak no internal state — they advertise the
-  // (deliberate) absence of OAuth and point at the bearer path.
-  app.get("/.well-known/oauth-authorization-server", (_req, res) => {
-    res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
+  // never fires. The bodies leak no internal state.
+  const normalizedEndpoint = normalizeEndpointPath(options.endpoint);
+  app.get("/.well-known/oauth-authorization-server", (req, res) => {
+    const issuer = composeRequestBaseUrl(req);
+    res.json(buildAuthorizationServerMetadata(issuer));
   });
 
-  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
-    res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
+  app.get("/.well-known/oauth-protected-resource", (req, res) => {
+    const resource = `${composeRequestBaseUrl(req)}${normalizedEndpoint}`;
+    res.json(buildProtectedResourceMetadata(resource));
   });
 
   app.post("/register", (_req, res) => {
@@ -295,6 +375,13 @@ async function startHttpServer(
   });
 
   // Start the HTTP server
+  // NOTE: the `http://...` URLs printed below are the INTERNAL listener
+  // (i.e., what Express binds to inside the container). In TLS-fronted
+  // deployments (e.g., Railway), the externally-observed URL is `https://`
+  // and may use a different host. The OAuth Discovery handlers above
+  // derive the public URL from request headers via `composeRequestBaseUrl`
+  // / `trust proxy`, so the metadata they emit reflects the externally-
+  // observed URL even though these log lines do not.
   const httpPort = parseInt(options.port, 10);
   app.listen(httpPort, options.host, () => {
     log.cli("Minsky MCP Server started with HTTP transport");
