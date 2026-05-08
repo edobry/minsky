@@ -107,6 +107,13 @@ tsTester.run("no-escape-deploy-context", rule, {
       filename: f("services", "minsky-mcp", "railway.config.ts"),
       options: [{ packageRoots: PACKAGE_ROOTS, excludeGlobs: ["services/*/railway.config.ts"] }],
     },
+
+    // excludeGlobs — `?` matches exactly one char (single-char-suffix env file).
+    {
+      code: 'import { defineRailwayConfig } from "../../scripts/railway/lib";',
+      filename: f("services", "minsky-mcp", "railway.config.a.ts"),
+      options: [{ packageRoots: PACKAGE_ROOTS, excludeGlobs: ["services/*/railway.config.?.ts"] }],
+    },
   ],
 
   invalid: [

@@ -32,13 +32,10 @@ import path from "node:path";
 function isPathInside(parent, child) {
   const rel = path.relative(parent, child);
   if (rel === "") return true; // same directory
-  if (rel === "..") return false;
-  if (rel.startsWith("..")) {
-    // Must not match e.g. "..a/b" — only true ".." segments
-    const sep = path.sep;
-    return !(rel === ".." || rel.startsWith(`..${sep}`));
-  }
-  if (path.isAbsolute(rel)) return false;
+  if (path.isAbsolute(rel)) return false; // different drive on Windows
+  // True parent-of-child returns ".." or "../foo/...". A path like "..foo"
+  // is a sibling-named-with-dotdot-prefix, which is still a child.
+  if (rel === ".." || rel.startsWith(`..${path.sep}`)) return false;
   return true;
 }
 
@@ -54,8 +51,9 @@ function isRelativeImport(spec) {
 
 /**
  * Convert a simple glob pattern to an anchored RegExp. Supports `*` (match
- * any characters except `/`) and `**` (match any characters including `/`).
- * Other regex-meaningful characters are escaped.
+ * any characters except `/`), `**` (match any characters including `/`), and
+ * `?` (match exactly one non-`/` char). Other regex-meaningful characters are
+ * escaped.
  */
 function globToRegExp(glob) {
   const specials = /[.+^${}()|[\]\\]/g;
@@ -71,6 +69,9 @@ function globToRegExp(glob) {
         out += "[^/]*";
         i += 1;
       }
+    } else if (c === "?") {
+      out += "[^/]";
+      i += 1;
     } else {
       out += c.replace(specials, "\\$&");
       i += 1;

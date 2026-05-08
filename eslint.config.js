@@ -258,10 +258,12 @@ export default [
       // - `services/*/railway.config.ts`: deploy-config files consumed by scripts/railway/apply.ts
       //   from the host (see services/{reviewer,minsky-mcp}/Dockerfile — neither is COPYed
       //   into the image).
-      // - Reviewer scripts/migrations live alongside src/ but are not packaged by the
-      //   reviewer Dockerfile either; smoke and ad-hoc helpers can use the canonical
-      //   monorepo paths without affecting the deployed runtime. (services/reviewer/Dockerfile
-      //   only COPYs src/ + migrations/ + tsconfig.json + package.json + bun.lock.)
+      //
+      // Note: services/*/scripts/** is intentionally NOT excluded. Those scripts run from
+      // the monorepo (smoke tests, ad-hoc helpers) and could in principle reach across the
+      // tree — but rewriting an escaping import to a vendored path is cheap, and forcing
+      // every scripts/* file to use the in-package path keeps the codebase consistent. If
+      // a script genuinely needs a parent-tree dependency, add it here.
       "custom/no-escape-deploy-context": [
         "error",
         {
