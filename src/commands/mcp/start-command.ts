@@ -33,6 +33,8 @@ import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { AppContainerInterface } from "../../composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
+import { resolveOAuthProvider } from "../../domain/oauth/registry";
+import type { OAuthIdentityProvider } from "../../domain/oauth/types";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -68,86 +70,21 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
 }
 
 /**
- * RFC 8414 (OAuth 2.0 Authorization Server Metadata) minimal-stub builder
- * for the `/.well-known/oauth-authorization-server` discovery endpoint
- * (mt#1635, refined mt#1655, extended mt#1657).
- *
- * Returns a metadata document that advertises the server as an OAuth
- * authority but declares zero usable flows (`response_types_supported: []`).
- * The `authorization_endpoint` and `token_endpoint` fields point at stub
- * handlers (`/oauth/authorize`, `/oauth/token`) that return JSON 400 when
- * actually called — required because Claude Code's MCP SDK validates
- * these fields as required strings even when no flows are advertised
- * (mt#1657 empirical finding post-mt#1655 deploy).
- *
- * Spec-conformant SDKs that honor `response_types_supported` will skip
- * flow attempts; SDKs that don't (Claude Code's) will still validate the
- * shape and fall through gracefully because the stub handlers return
- * parseable error responses.
- *
- * mt#1634 (umbrella) replaces the stubs at the same paths with real
- * flow logic. The metadata document and route paths are a strict-subset
- * foundation, not throw-away work.
- */
-export function buildAuthorizationServerMetadata(issuer: string): Readonly<{
-  issuer: string;
-  authorization_endpoint: string;
-  token_endpoint: string;
-  response_types_supported: readonly string[];
-}> {
-  return Object.freeze({
-    issuer,
-    authorization_endpoint: `${issuer}/oauth/authorize`,
-    token_endpoint: `${issuer}/oauth/token`,
-    response_types_supported: Object.freeze([] as readonly string[]),
-  });
-}
-
-/**
- * RFC 9728 (OAuth 2.0 Protected Resource Metadata) minimal-stub builder
- * for the `/.well-known/oauth-protected-resource` discovery endpoint
- * (mt#1655). Advertises the protected resource URL but declares no
- * `authorization_servers`, signaling "this resource exists but has no
- * usable authorization-server flow yet." mt#1634 will fill in the
- * `authorization_servers` array.
- */
-export function buildProtectedResourceMetadata(resource: string): Readonly<{
-  resource: string;
-}> {
-  return Object.freeze({
-    resource,
-  });
-}
-
-/**
  * Stub body returned by the `/oauth/authorize` and `/oauth/token` flow
  * endpoints (mt#1657). DCR / authorization / token issuance are not
  * implemented in the stub tier; full implementation is mt#1634's scope.
  *
  * The endpoints exist because Claude Code's MCP SDK validates the
  * authorization-server metadata document for required string fields
- * (`authorization_endpoint`, `token_endpoint`) — see
- * `buildAuthorizationServerMetadata` docstring. If the SDK or any other
- * client actually attempts the OAuth flow against these endpoints, they
- * get this parseable error explaining the static-bearer path is the
- * working alternative.
+ * (`authorization_endpoint`, `token_endpoint`) — see the discovery handler
+ * docstring. If the SDK or any other client actually attempts the OAuth flow
+ * against these endpoints, they get this parseable error explaining the
+ * static-bearer path is the working alternative.
  */
 export const OAUTH_FLOW_NOT_SUPPORTED_BODY = Object.freeze({
   error: "oauth_not_supported",
   error_description:
     "OAuth flows are not implemented; this server uses static bearer token authentication via the Authorization header. The authorization_endpoint and token_endpoint advertised in /.well-known/oauth-authorization-server exist solely to satisfy SDK metadata validators.",
-} as const);
-
-/**
- * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
- * (mt#1635). Exported for unit testing. Frozen at module-load to protect
- * against accidental mutation by importers. mt#1634 will replace this with
- * a real implementation.
- */
-export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = Object.freeze({
-  error: "registration_not_supported",
-  error_description:
-    "Dynamic Client Registration is not implemented; this server uses static bearer token authentication",
 } as const);
 
 /**
@@ -272,7 +209,8 @@ async function startHttpServer(
     endpoint: string;
     requireAuth?: boolean;
   },
-  projectContext?: ReturnType<typeof createProjectContext>
+  projectContext?: ReturnType<typeof createProjectContext>,
+  oauthProvider?: OAuthIdentityProvider
 ): Promise<void> {
   const app = express();
   // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
@@ -358,44 +296,80 @@ async function startHttpServer(
     });
   });
 
-  // OAuth discovery + Dynamic Client Registration stubs (mt#1635, refined mt#1655, extended mt#1657).
+  // OAuth discovery + Dynamic Client Registration (mt#1634c).
   //
   // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
-  // determine whether the server supports OAuth. Evolution:
-  //
-  //   mt#1635: returned 404 + JSON not_supported body. Fixed JSON-parse
-  //            failure but SDK framed any non-2xx as `SDK auth failed`.
-  //   mt#1655: returned 200 with RFC 8414/9728 minimal metadata + empty
-  //            response_types_supported. Spec-conformant SDKs would fall
-  //            through; Claude Code's SDK validated the metadata against a
-  //            schema requiring authorization_endpoint/token_endpoint as
-  //            strings (regardless of response_types_supported).
-  //   mt#1657: also include authorization_endpoint / token_endpoint in
-  //            the metadata (pointing at stub handlers below) so the
-  //            SDK validation passes. response_types_supported stays
-  //            empty for spec-conformant SDKs that honor it.
-  //
-  // /register (mt#1635) and /oauth/{authorize,token} (mt#1657) all return
-  // 400 with parseable JSON. mt#1634 (umbrella) will switch them to real
-  // implementations.
+  // determine whether the server supports OAuth. When an oauthProvider is
+  // available (wired via resolveOAuthProvider from the persistence container),
+  // the real RFC 8414/9728/7591 implementations are used. Without a provider
+  // (e.g., no DB at startup), the well-known endpoints return 503 Service
+  // Unavailable and /register returns 400 with a parseable RFC 7591 error.
   //
   // Public-access posture (intentional): all of these endpoints sit
   // outside the bearer-auth check, parallel to /health. The probe must
   // succeed before the SDK has any auth credentials to send, otherwise
   // the fall-through never fires. The bodies leak no internal state.
-  const normalizedEndpoint = normalizeEndpointPath(options.endpoint);
-  app.get("/.well-known/oauth-authorization-server", (req, res) => {
-    const issuer = composeRequestBaseUrl(req);
-    res.json(buildAuthorizationServerMetadata(issuer));
+  app.get("/.well-known/oauth-authorization-server", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      const metadata = await oauthProvider.discoveryMetadata(req);
+      res.json(metadata);
+    } catch (err) {
+      log.error("OAuth discovery metadata error", { error: getErrorMessage(err) });
+      res.status(500).json({
+        error: "server_error",
+        error_description: "Failed to build OAuth authorization server metadata",
+      });
+    }
   });
 
-  app.get("/.well-known/oauth-protected-resource", (req, res) => {
-    const resource = `${composeRequestBaseUrl(req)}${normalizedEndpoint}`;
-    res.json(buildProtectedResourceMetadata(resource));
+  app.get("/.well-known/oauth-protected-resource", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      const metadata = await oauthProvider.protectedResourceMetadata(req);
+      res.json(metadata);
+    } catch (err) {
+      log.error("OAuth protected-resource metadata error", { error: getErrorMessage(err) });
+      res.status(500).json({
+        error: "server_error",
+        error_description: "Failed to build OAuth protected resource metadata",
+      });
+    }
   });
 
-  app.post("/register", (_req, res) => {
-    res.status(400).json(OAUTH_REGISTER_NOT_SUPPORTED_BODY);
+  app.post("/register", async (req, res) => {
+    if (!oauthProvider) {
+      res.status(400).json({
+        error: "registration_not_supported",
+        error_description:
+          "Dynamic Client Registration is not available; database connection required",
+      });
+      return;
+    }
+    try {
+      const result = await oauthProvider.registerClient(req.body);
+      res.status(201).json(result);
+    } catch (err) {
+      const message = getErrorMessage(err);
+      log.error("DCR /register error", { error: message });
+      // RFC 7591 §3.2.2: registration errors use error + error_description
+      res.status(400).json({
+        error: "invalid_client_metadata",
+        error_description: message,
+      });
+    }
   });
 
   app.get("/oauth/authorize", (_req, res) => {
@@ -616,6 +590,50 @@ export function createStartCommand(
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
 
+        // Resolve the OAuth identity provider for HTTP-mode DCR + discovery endpoints.
+        // Requires a SQL-capable persistence provider (Postgres). Falls back to
+        // undefined (provider-less mode) when no DB is available — the route handlers
+        // return 503/400 gracefully in that case.
+        let oauthProvider: OAuthIdentityProvider | undefined;
+        if (transportType === "http" && container) {
+          try {
+            const persistence = container.has("persistence")
+              ? container.get("persistence")
+              : undefined;
+            const persistenceAny = persistence as Record<string, unknown> | undefined;
+            if (persistenceAny && typeof persistenceAny["getDatabaseConnection"] === "function") {
+              const db = await (
+                persistenceAny["getDatabaseConnection"] as () => Promise<
+                  import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+                >
+              )();
+              if (db) {
+                // Read oauth config from the configuration subsystem (best-effort).
+                // Falls back to undefined so the provider uses its defaults
+                // (provider = "in-process", issuer derived from request host).
+                let oauthConfig: import("../../domain/configuration/schemas/oauth").OAuthConfig;
+                try {
+                  const { getConfiguration } = await import("../../domain/configuration/index");
+                  const fullConfig = getConfiguration() as {
+                    oauth?: import("../../domain/configuration/schemas/oauth").OAuthConfig;
+                  };
+                  oauthConfig = fullConfig.oauth;
+                } catch {
+                  oauthConfig = undefined;
+                }
+                oauthProvider = resolveOAuthProvider(oauthConfig, { db });
+                log.debug("[mt#1664] OAuth provider wired for HTTP DCR + discovery endpoints");
+              } else {
+                log.warn("[mt#1664] No DB connection available; OAuth provider not wired");
+              }
+            }
+          } catch (err) {
+            log.warn("[mt#1664] OAuth provider construction failed; proceeding without it", {
+              error: getErrorMessage(err),
+            });
+          }
+        }
+
         // Launch inspector if requested
         if (options.withInspector) {
           if (!isInspectorAvailable()) {
@@ -660,7 +678,8 @@ export function createStartCommand(
               endpoint: options.endpoint,
               requireAuth: options.requireAuth,
             },
-            projectContext
+            projectContext,
+            oauthProvider
           );
         } else {
           // Stdio transport
