@@ -127,14 +127,23 @@ export default {
       return {};
     }
 
-    const repoRoot = context.cwd ?? process.cwd();
+    // ESLint v8.57+ exposes `context.cwd` and `context.physicalFilename`; older
+    // versions and some editor adapters require the getter form. Try both, then
+    // fall back to `process.cwd()` so the rule never silently no-ops.
+    const repoRoot =
+      context.cwd ?? (typeof context.getCwd === "function" ? context.getCwd() : process.cwd());
     const absoluteRoots = packageRoots.map((p) => ({
       configured: p,
       absolute: path.resolve(repoRoot, p),
     }));
     const excludeRegexps = excludeGlobs.map(globToRegExp);
 
-    const sourceFile = context.physicalFilename ?? context.filename ?? "";
+    const sourceFile =
+      context.physicalFilename ??
+      (typeof context.getPhysicalFilename === "function" ? context.getPhysicalFilename() : null) ??
+      context.filename ??
+      (typeof context.getFilename === "function" ? context.getFilename() : "") ??
+      "";
     if (!sourceFile || !path.isAbsolute(sourceFile)) {
       return {};
     }

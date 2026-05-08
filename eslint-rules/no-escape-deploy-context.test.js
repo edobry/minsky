@@ -99,6 +99,13 @@ tsTester.run("no-escape-deploy-context", rule, {
       options: RULE_OPTIONS,
     },
 
+    // Dynamic import() smoke — intra-package
+    {
+      code: 'const m = import("./B");',
+      filename: f("services", "reviewer", "src", "A.ts"),
+      options: RULE_OPTIONS,
+    },
+
     // excludeGlobs — file matching the glob is exempt even if its import escapes.
     // Mirrors the real-world case: services/*/railway.config.ts is deploy-config
     // consumed by scripts/railway/apply.ts on the host, not packaged into the image.
@@ -146,6 +153,14 @@ tsTester.run("no-escape-deploy-context", rule, {
     // require() escape-up smoke
     {
       code: 'const safeTruncate = require("../../../src/utils/safe-truncate");',
+      filename: f("services", "reviewer", "src", "A.ts"),
+      options: RULE_OPTIONS,
+      errors: [{ messageId: MSG_ESCAPE }],
+    },
+
+    // Dynamic import() escape-up smoke
+    {
+      code: 'const m = import("../../../src/utils/safe-truncate");',
       filename: f("services", "reviewer", "src", "A.ts"),
       options: RULE_OPTIONS,
       errors: [{ messageId: MSG_ESCAPE }],
