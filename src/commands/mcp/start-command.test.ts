@@ -3,7 +3,8 @@ import { spawn } from "child_process";
 import path from "path";
 import {
   checkBearerAuth,
-  OAUTH_DISCOVERY_NOT_SUPPORTED_BODY,
+  buildAuthorizationServerMetadata,
+  buildProtectedResourceMetadata,
   OAUTH_REGISTER_NOT_SUPPORTED_BODY,
 } from "./start-command";
 
@@ -271,38 +272,87 @@ describe("checkBearerAuth", () => {
   });
 });
 
-describe("OAuth Discovery stub bodies (mt#1635)", () => {
-  // The .well-known and /register endpoints exist solely to give probing MCP
-  // clients (notably Claude Code's /mcp UI) a parseable JSON error response
-  // instead of Express's default HTML 404. These tests pin the JSON shape so
-  // a future change can't accidentally regress the SDK fall-through path.
+describe("OAuth Discovery stub bodies (mt#1635 / mt#1655)", () => {
+  // The .well-known endpoints exist solely to give probing MCP clients
+  // (notably Claude Code's /mcp UI) a parseable JSON response that signals
+  // "OAuth advertised but no flow usable" — so the SDK falls through to the
+  // static-bearer-token path instead of surfacing a misleading "auth failed"
+  // line. mt#1635 originally returned 404 + error body; mt#1655 refined to
+  // 200 + RFC 8414/9728 minimal-metadata to suppress the dialog cosmetic.
+  // /register stays at 400 (DCR genuinely unsupported in stub tier).
 
-  test("OAUTH_DISCOVERY_NOT_SUPPORTED_BODY has the expected error shape", () => {
-    expect(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY.error).toBe("not_supported");
-    expect(typeof OAUTH_DISCOVERY_NOT_SUPPORTED_BODY.error_description).toBe("string");
-    expect(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+  describe("buildAuthorizationServerMetadata (RFC 8414 minimal stub)", () => {
+    const ISSUER = "https://example.com";
+
+    test("returns issuer + empty response_types_supported", () => {
+      const meta = buildAuthorizationServerMetadata(ISSUER);
+      expect(meta.issuer).toBe(ISSUER);
+      expect(meta.response_types_supported).toEqual([]);
+    });
+
+    test("does NOT advertise any flow endpoints (the strict-subset point of mt#1655)", () => {
+      const meta = buildAuthorizationServerMetadata(ISSUER) as Record<string, unknown>;
+      expect(meta.authorization_endpoint).toBeUndefined();
+      expect(meta.token_endpoint).toBeUndefined();
+      expect(meta.registration_endpoint).toBeUndefined();
+      expect(meta.grant_types_supported).toBeUndefined();
+      expect(meta.scopes_supported).toBeUndefined();
+    });
+
+    test("output is frozen at runtime", () => {
+      const meta = buildAuthorizationServerMetadata(ISSUER);
+      expect(Object.isFrozen(meta)).toBe(true);
+      expect(Object.isFrozen(meta.response_types_supported)).toBe(true);
+    });
+
+    test("output round-trips through JSON.stringify / JSON.parse", () => {
+      const meta = buildAuthorizationServerMetadata(ISSUER);
+      expect(JSON.parse(JSON.stringify(meta))).toEqual({
+        issuer: ISSUER,
+        response_types_supported: [],
+      });
+    });
   });
 
-  test("OAUTH_REGISTER_NOT_SUPPORTED_BODY uses RFC 7591 error key conventions", () => {
-    expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
-    expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
-    expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+  describe("buildProtectedResourceMetadata (RFC 9728 minimal stub)", () => {
+    const RESOURCE = "https://example.com/mcp";
+
+    test("returns resource only", () => {
+      const meta = buildProtectedResourceMetadata(RESOURCE);
+      expect(meta.resource).toBe(RESOURCE);
+    });
+
+    test("does NOT include authorization_servers (mt#1634 will fill this in)", () => {
+      const meta = buildProtectedResourceMetadata(RESOURCE) as Record<string, unknown>;
+      expect(meta.authorization_servers).toBeUndefined();
+    });
+
+    test("output is frozen at runtime", () => {
+      const meta = buildProtectedResourceMetadata(RESOURCE);
+      expect(Object.isFrozen(meta)).toBe(true);
+    });
+
+    test("output round-trips through JSON.stringify / JSON.parse", () => {
+      const meta = buildProtectedResourceMetadata(RESOURCE);
+      expect(JSON.parse(JSON.stringify(meta))).toEqual({ resource: RESOURCE });
+    });
   });
 
-  test("both bodies are JSON-serializable round-trip", () => {
-    expect(JSON.parse(JSON.stringify(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY))).toEqual(
-      OAUTH_DISCOVERY_NOT_SUPPORTED_BODY as unknown as Record<string, string>
-    );
-    expect(JSON.parse(JSON.stringify(OAUTH_REGISTER_NOT_SUPPORTED_BODY))).toEqual(
-      OAUTH_REGISTER_NOT_SUPPORTED_BODY as unknown as Record<string, string>
-    );
-  });
+  describe("OAUTH_REGISTER_NOT_SUPPORTED_BODY (RFC 7591 error stub for /register)", () => {
+    test("uses RFC 7591 error key conventions", () => {
+      expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
+      expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
+      expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+    });
 
-  test("both bodies are frozen at runtime to prevent accidental mutation", () => {
-    // R1 reviewer non-blocking nit: the bodies are exported constants used
-    // across handlers; freezing protects against an importer mutating them
-    // and altering the response shape mid-process.
-    expect(Object.isFrozen(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY)).toBe(true);
-    expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
+    test("is frozen at runtime", () => {
+      expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
+    });
+
+    test("round-trips through JSON.stringify / JSON.parse", () => {
+      expect(JSON.parse(JSON.stringify(OAUTH_REGISTER_NOT_SUPPORTED_BODY))).toEqual(
+        OAUTH_REGISTER_NOT_SUPPORTED_BODY as unknown as Record<string, string>
+      );
+    });
   });
 });
