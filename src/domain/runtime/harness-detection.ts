@@ -28,14 +28,30 @@ export type ManagedClient =
 /**
  * Detect the current agent harness from environment signals.
  *
+ * Claude Code 2.1.x sets `CLAUDECODE=1` (no underscore) plus a family of
+ * `CLAUDE_CODE_*`-namespaced vars (`CLAUDE_CODE_ENTRYPOINT`,
+ * `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_SUBAGENT_MODEL`,
+ * `CLAUDE_CODE_EXECPATH`). It does NOT set bare `CLAUDE_CODE`. Hook contexts
+ * additionally set `CLAUDE_PROJECT_DIR`. We accept any of these signals to
+ * recognize Claude Code regardless of which surface the MCP server was
+ * launched under.
+ *
  * Detection priority:
- * 1. CLAUDE_CODE env var → Claude Code
+ * 1. Any Claude Code env signal → Claude Code
  * 2. CURSOR_* env vars or VS Code fork context → Cursor
  * 3. Neither → standalone / unknown
  */
 export function detectAgentHarness(): AgentHarness {
-  // Claude Code sets CLAUDE_CODE=1 or CLAUDE_PROJECT_DIR in the agent environment
-  if (process.env.CLAUDE_CODE || process.env.CLAUDE_PROJECT_DIR) {
+  if (
+    process.env.CLAUDECODE ||
+    process.env.CLAUDE_CODE_ENTRYPOINT ||
+    process.env.CLAUDE_CODE_SESSION_ID ||
+    process.env.CLAUDE_PROJECT_DIR ||
+    // Legacy variant accepted for backward compatibility — never observed in
+    // the wild but kept in case future Claude Code versions or third-party
+    // shims set it.
+    process.env.CLAUDE_CODE
+  ) {
     return "claude-code";
   }
 
