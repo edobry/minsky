@@ -155,6 +155,283 @@ export function extractInScopeFiles(specContent: string): {
 }
 
 // ---------------------------------------------------------------------------
+// Append-only structured-config exemption
+// ---------------------------------------------------------------------------
+
+/**
+ * Files where overlap is structurally non-conflicting when both PRs only
+ * append entries to existing JSON arrays. These are config files that
+ * register independent items (hooks, plugins, rules) — adding a new entry
+ * doesn't conflict with another PR adding a different entry.
+ *
+ * The mechanism: `isAppendOnlyToJsonArrays` performs a structural check
+ * comparing BEFORE and AFTER JSON. When the change is purely "added new
+ * elements to existing arrays" (no modifications to existing values, no
+ * new object keys), the change is exempt from the parallel-work guard.
+ *
+ * @see mt#1587 — origin task; see also `feedback_check_parallel_work_before_decomposing`
+ */
+export const STRUCTURED_CONFIG_ALLOWLIST: readonly string[] = [
+  ".claude/settings.json",
+  ".claude/settings.local.json",
+] as const;
+
+/**
+ * True iff `after` differs from `before` only by appending new elements to
+ * existing JSON arrays at any depth. Specifically:
+ *   - At every object path, AFTER must have the SAME set of keys as BEFORE
+ *     (no added keys, no removed keys).
+ *   - At every array path, AFTER must equal BEFORE in the first
+ *     `before.length` positions (i.e., BEFORE is a prefix of AFTER).
+ *     New elements may appear after BEFORE's last index.
+ *   - At every primitive path, AFTER must equal BEFORE exactly.
+ *
+ * Returns false on any deviation (modified value, deleted key, added key
+ * outside an array, array shrunk, array element modified at an existing
+ * index). The caller treats false as "real conflict, keep collision."
+ *
+ * Pure function — no I/O.
+ */
+export function isAppendOnlyToJsonArrays(before: unknown, after: unknown): boolean {
+  // Arrays: AFTER must extend BEFORE at the tail; existing indices must match.
+  if (Array.isArray(before)) {
+    if (!Array.isArray(after)) return false;
+    if (after.length < before.length) return false;
+    for (let i = 0; i < before.length; i++) {
+      if (!deepJsonEqual(before[i], after[i])) return false;
+    }
+    return true;
+  }
+
+  // Objects: same key set, recursively compatible values.
+  if (before !== null && typeof before === "object") {
+    if (after === null || typeof after !== "object" || Array.isArray(after)) {
+      return false;
+    }
+    const beforeRecord = before as Record<string, unknown>;
+    const afterRecord = after as Record<string, unknown>;
+    const beforeKeys = Object.keys(beforeRecord);
+    const afterKeys = Object.keys(afterRecord);
+    if (afterKeys.length !== beforeKeys.length) {
+      // AFTER added or removed object keys — not append-only-to-arrays.
+      return false;
+    }
+    for (const key of beforeKeys) {
+      if (!Object.prototype.hasOwnProperty.call(afterRecord, key)) return false;
+      if (!isAppendOnlyToJsonArrays(beforeRecord[key], afterRecord[key])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Primitives (and null): strict equality.
+  return deepJsonEqual(before, after);
+}
+
+/**
+ * Order-insensitive structural deep-equality (PR #952 R3#2 fix).
+ *
+ * For objects, compares the same key SET regardless of insertion order; for
+ * arrays, compares element-by-element at the same index (order matters);
+ * for primitives, strict equality. This avoids the false-non-exemption that
+ * a JSON.stringify-based check produced when two semantically-equal objects
+ * had different key insertion orders across refs (e.g., one prettified, one
+ * hand-edited).
+ *
+ * Sufficient for our use case (settings.json contents — no functions, no
+ * Dates, no cycles).
+ */
+function deepJsonEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+
+  if (Array.isArray(a)) {
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!deepJsonEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
+  if (a !== null && typeof a === "object") {
+    if (b === null || typeof b !== "object" || Array.isArray(b)) return false;
+    const aRecord = a as Record<string, unknown>;
+    const bRecord = b as Record<string, unknown>;
+    const aKeys = Object.keys(aRecord);
+    const bKeys = Object.keys(bRecord);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const key of aKeys) {
+      if (!Object.prototype.hasOwnProperty.call(bRecord, key)) return false;
+      if (!deepJsonEqual(aRecord[key], bRecord[key])) return false;
+    }
+    return true;
+  }
+
+  // Primitives + null: strict equality already handled by top `a === b`.
+  // Treat NaN-vs-NaN as equal for numeric primitives (PR #952 R8#2):
+  // JSON.parse never produces NaN, but the helper is exported and may be
+  // reused by callers with non-JSON numeric sources; treating NaN as equal
+  // to NaN aligns with intuitive equality semantics.
+  if (typeof a === "number" && typeof b === "number" && Number.isNaN(a) && Number.isNaN(b)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Fetch file content at a specific git ref via the GitHub Contents API.
+ * Returns the decoded UTF-8 content, or null on failure.
+ *
+ * Adds a warning to the provided array on failure so the caller can surface
+ * partial-coverage notes without aborting the whole sweep.
+ */
+export function fetchFileContentAtRef(
+  repo: string,
+  ref: string,
+  filePath: string,
+  warnings: string[]
+): string | null {
+  // Hard guard: the GitHub Contents API rejects rev-spec expressions like
+  // <sha>^, <sha>~1, HEAD^, etc. — only branch names, tags, refs/pull/N/head,
+  // and 40-char SHAs are accepted. Callers must resolve rev-specs to
+  // concrete SHAs BEFORE calling this function (see fetchRecentMerges'
+  // git rev-parse). Defense-in-depth against future regressions
+  // reintroducing the bug — PR #952 R4#2.
+  if (/[\^~]/.test(ref)) {
+    warnings.push(
+      `Refusing to fetch ${filePath}@${ref}: ref contains rev-spec syntax (^/~) which the GitHub Contents API rejects. Resolve to a concrete SHA before calling fetchFileContentAtRef.`
+    );
+    return null;
+  }
+
+  // Encode each path SEGMENT separately and rejoin with '/'. encodeURIComponent
+  // on the full path encodes '/' as '%2F', which the GitHub Contents API
+  // rejects with 404 — disabling the exemption entirely (PR #952 R1 BLOCKING).
+  // The ref query parameter is still fully encoded.
+  const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+  const result = execWithPath(
+    [
+      "gh",
+      "api",
+      `repos/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(ref)}`,
+      "--jq",
+      ".content",
+    ],
+    { timeout: GH_GIT_TIMEOUT_MS }
+  );
+
+  if (result.exitCode !== 0) {
+    warnings.push(
+      `Could not fetch ${filePath}@${ref}: gh exited ${result.exitCode}: ${result.stderr || result.stdout}`
+    );
+    return null;
+  }
+
+  const base64 = result.stdout.trim().replace(/\n/g, "");
+  if (!base64) {
+    warnings.push(`Empty content for ${filePath}@${ref}`);
+    return null;
+  }
+
+  try {
+    return Buffer.from(base64, "base64").toString("utf8");
+  } catch (err) {
+    warnings.push(
+      `Could not decode ${filePath}@${ref}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    return null;
+  }
+}
+
+/**
+ * Check whether the change to `filePath` between `fromRef` and `toRef` is
+ * append-only into JSON arrays.
+ *
+ * Fetches the file content at both refs via `gh api`, parses both as JSON,
+ * and runs `isAppendOnlyToJsonArrays`. Returns false on any fetch, parse,
+ * or structural-check failure (fail-closed: preserve the collision if we
+ * can't prove it's safe).
+ *
+ * Used to filter STRUCTURED_CONFIG_ALLOWLIST hits out of the open-PR and
+ * recently-merged collision lists. Both refs MUST be concrete refs the
+ * GitHub Contents API can resolve — branch names, tags, full SHAs, or
+ * `refs/pull/<num>/head`. Rev-spec syntax (`^`, `~`) is rejected by
+ * `fetchFileContentAtRef`; callers must resolve parent SHAs ahead of
+ * time (see `fetchRecentMerges` for the canonical pattern using
+ * `git rev-parse <sha>^`).
+ *
+ * Typical refs:
+ *   - For open PRs: fromRef = base branch name (e.g., the PR's
+ *     `baseRefName`, or "main" as fallback), toRef = `refs/pull/<num>/head`.
+ *     `refs/pull/<num>/merge` is also valid and is used as a fallback by
+ *     `checkOpenPrs` for forked PRs whose `/head` ref may not be
+ *     addressable from the base repo's Contents API (PR #952 R8#1).
+ *   - For recently-merged commits: fromRef = parent SHA resolved via
+ *     `git rev-parse <sha>^`, toRef = the merge commit SHA.
+ */
+export function isFileChangeAppendOnly(
+  repo: string,
+  fromRef: string,
+  toRef: string,
+  filePath: string,
+  warnings: string[],
+  /**
+   * Optional per-call-site content cache (PR #952 R9#6). Keyed by
+   * `${ref}::${filePath}`. When provided, avoids re-fetching the same
+   * (ref, file) pair on subsequent calls — e.g., when `/head` fails and
+   * the caller retries with `/merge`, the fromRef side is fetched once.
+   * Caches null values too so failed fetches are not retried within the
+   * same scope.
+   */
+  contentCache?: Map<string, string | null>,
+  /**
+   * Optional out-param status object (PR #952 R10#1). When provided, the
+   * function sets `status.fetchFailed = true` if either the fromRef or
+   * toRef content fetch returned null (or parsing failed). Lets callers
+   * distinguish "fetch failed, try fallback ref" from "definitive non-
+   * append-only result, don't retry." Default behavior unchanged when
+   * the param is omitted (still returns boolean).
+   */
+  status?: { fetchFailed: boolean }
+): boolean {
+  const cacheKey = (ref: string, p: string): string => `${ref}::${p}`;
+  const fetchCached = (ref: string): string | null => {
+    if (contentCache) {
+      const key = cacheKey(ref, filePath);
+      if (contentCache.has(key)) return contentCache.get(key) ?? null;
+      const content = fetchFileContentAtRef(repo, ref, filePath, warnings);
+      contentCache.set(key, content);
+      return content;
+    }
+    return fetchFileContentAtRef(repo, ref, filePath, warnings);
+  };
+  const beforeContent = fetchCached(fromRef);
+  const afterContent = fetchCached(toRef);
+  if (beforeContent === null || afterContent === null) {
+    if (status) status.fetchFailed = true;
+    return false;
+  }
+
+  let beforeJson: unknown;
+  let afterJson: unknown;
+  try {
+    beforeJson = JSON.parse(beforeContent);
+    afterJson = JSON.parse(afterContent);
+  } catch (err) {
+    warnings.push(
+      `Could not parse JSON for ${filePath} on ref pair ${fromRef}…${toRef}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    // Treat parse failure as fetch failure for fallback purposes — the
+    // ref returned non-JSON content, which is likely a corrupted or
+    // unexpected response from the API and a different ref might work.
+    if (status) status.fetchFailed = true;
+    return false;
+  }
+
+  return isAppendOnlyToJsonArrays(beforeJson, afterJson);
+}
+
+// ---------------------------------------------------------------------------
 // Check A: Open-PR sweep
 // ---------------------------------------------------------------------------
 
@@ -162,6 +439,14 @@ interface PrInfo {
   number: number;
   title: string;
   headRefName: string;
+  /**
+   * The PR's actual base branch name. Used as `fromRef` in the structural
+   * exemption check so the comparison reflects the PR's real diff, not a
+   * comparison against the repo's default branch (PR #952 R7#4). Optional
+   * because legacy test deps may not provide it; production fetchOpenPrs
+   * always populates it.
+   */
+  baseRefName?: string;
 }
 
 /**
@@ -212,7 +497,7 @@ export function fetchOpenPrs(repo: string): PrInfo[] {
       "--limit",
       String(FETCH_OPEN_PRS_LIMIT),
       "--json",
-      "number,title,headRefName",
+      "number,title,headRefName,baseRefName",
     ],
     { timeout: GH_GIT_TIMEOUT_MS }
   );
@@ -355,7 +640,16 @@ export function checkOpenPrs(
   currentBranch?: string | null,
   fetchPrs: (repo: string) => PrInfo[] = fetchOpenPrs,
   fetchFiles: (repo: string, prNumber: number, warnings: string[]) => string[] = fetchPrFiles,
-  warnings: string[] = []
+  warnings: string[] = [],
+  isAppendOnly: (
+    repo: string,
+    fromRef: string,
+    toRef: string,
+    filePath: string,
+    warnings: string[],
+    contentCache?: Map<string, string | null>,
+    status?: { fetchFailed: boolean }
+  ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
   // Start the sweep budget timer BEFORE the fetchOpenPrs call so that the
   // time spent fetching the PR list counts against the 25s budget. Without
@@ -410,12 +704,115 @@ export function checkOpenPrs(
     scannedCount += 1;
     const overlapping = findOverlappingFiles(input.inScopeFiles, prFiles);
 
-    if (overlapping.length > 0) {
+    if (overlapping.length === 0) {
+      continue;
+    }
+
+    // Filter out STRUCTURED_CONFIG_ALLOWLIST files whose change in this PR
+    // is purely append-only into JSON arrays — those don't conflict with
+    // a peer PR also adding entries (mt#1587). Each filtered file emits a
+    // warning so operators can audit the exemption. Allowlisted files that
+    // FAIL the structural check also emit a triage hint (PR #952 R1 inline
+    // nit) so operators understand why a collision was kept.
+    // Use `refs/pull/<num>/head` — the canonical PR-head ref that GitHub
+    // always provides in the base repo's namespace, regardless of whether
+    // the PR is from a fork. PR #952 R4#1 fix replacing the R3#1 attempt
+    // (which used pr.headRefOid — a fork-only SHA for forked PRs, not
+    // addressable via the base repo's Contents API).
+    // Try `refs/pull/<num>/head` first, then `refs/pull/<num>/merge` as a
+    // fallback. The `/head` ref is the PR's actual head commit; `/merge` is
+    // the GitHub-materialized merge-commit-with-base. For private/deleted
+    // forks where `/head` may not be addressable from the base repo's
+    // Contents API, `/merge` provides a fallback addressable from base.
+    // PR #952 R8#1.
+    const toRefCandidates = [`refs/pull/${pr.number}/head`, `refs/pull/${pr.number}/merge`];
+    // Per-PR content cache (PR #952 R9#6): avoids re-fetching the same
+    // (ref, file) pair when /head fails and /merge is retried — the
+    // fromRef-side fetch is identical across both attempts.
+    const prContentCache = new Map<string, string | null>();
+    // Use the PR's actual base branch as `fromRef` (PR #952 R7#4). When
+    // baseRefName is missing (legacy test deps / very old fetchOpenPrs
+    // implementations), fail-closed: skip the structured exemption for
+    // this PR rather than miscompare against the repo default branch
+    // (PR #952 R10#2). The structural check runs only with a definitive
+    // baseRefName.
+    const fromRef = pr.baseRefName;
+    let baseFallbackWarned = false;
+    const realOverlapping = overlapping.filter((file) => {
+      if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
+      if (!fromRef) {
+        if (!baseFallbackWarned) {
+          warnings.push(
+            `PR #${pr.number}: baseRefName unavailable — structural-config exemption skipped (fail-closed, PR #952 R10#2)`
+          );
+          baseFallbackWarned = true;
+        }
+        return true; // keep collision (fail-closed)
+      }
+      // Mid-iteration budget recheck (PR #952 R5#4): each isAppendOnly call
+      // can issue up to two `gh api` calls (BEFORE + AFTER content fetch).
+      // If the budget is nearly exhausted, fail-closed rather than risking
+      // SIGTERM mid-fetch.
+      if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) {
+        warnings.push(
+          `PR #${pr.number}: ${file} structural-config exemption skipped (budget exhausted) — keeping collision`
+        );
+        return true;
+      }
+      // Try each candidate ref. False from isAppendOnly may be either a
+      // "definitive non-append-only" result OR a fetch/parse failure.
+      // Use the `status` out-param (PR #952 R10#1) to distinguish: only
+      // fall back to `/merge` when the prior attempt's fetch FAILED.
+      // A definitive false from `/head` short-circuits — the PR's diff is
+      // genuinely non-append-only and trying `/merge` could silently
+      // exempt a real collision.
+      let isExempt = false;
+      let usedRef = "";
+      for (const candidateToRef of toRefCandidates) {
+        if (Date.now() - sweepStart >= OPEN_PR_SWEEP_BUDGET_MS) break;
+        const status = { fetchFailed: false };
+        const ok = isAppendOnly(
+          input.repo,
+          fromRef,
+          candidateToRef,
+          file,
+          warnings,
+          prContentCache,
+          status
+        );
+        if (ok) {
+          isExempt = true;
+          usedRef = candidateToRef;
+          break;
+        }
+        if (!status.fetchFailed) {
+          // Definitive non-append-only result — don't retry next candidate.
+          break;
+        }
+      }
+      if (isExempt && usedRef.endsWith("/merge")) {
+        warnings.push(
+          `PR #${pr.number}: ${file} exemption resolved via ${usedRef} fallback (head ref not addressable)`
+        );
+      }
+      if (isExempt) {
+        warnings.push(
+          `PR #${pr.number}: ${file} change is append-only into JSON arrays — exempted from collision`
+        );
+      } else {
+        warnings.push(
+          `PR #${pr.number}: ${file} is allowlisted but its change is NOT append-only — keeping collision`
+        );
+      }
+      return !isExempt;
+    });
+
+    if (realOverlapping.length > 0) {
       collisions.push({
         type: "open-pr",
         prNumber: pr.number,
         prTitle: pr.title,
-        overlappingFiles: overlapping,
+        overlappingFiles: realOverlapping,
       });
     }
   }
@@ -516,8 +913,26 @@ export function fetchRecentMerges(
   repoDir: string,
   inScopeFiles: string[],
   hours: number,
-  defaultBranchRef?: string
+  defaultBranchRef?: string,
+  repo?: string,
+  warnings: string[] = [],
+  isAppendOnly: (
+    repo: string,
+    fromRef: string,
+    toRef: string,
+    filePath: string,
+    warnings: string[],
+    contentCache?: Map<string, string | null>,
+    status?: { fetchFailed: boolean }
+  ) => boolean = isFileChangeAppendOnly
 ): ParallelWorkCollision[] {
+  // Wall-clock budget for the merge sweep (PR #952 R5#5). Mirror of
+  // OPEN_PR_SWEEP_BUDGET_MS — a per-commit `git rev-parse` plus up to two
+  // `gh api` calls per allowlisted file can blow the 30s PreToolUse cap on
+  // busy repos with many recent merges.
+  const sweepStart = Date.now();
+  const MERGE_SWEEP_BUDGET_MS = 25_000;
+
   // ISO timestamp for `hours` ago
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
@@ -566,16 +981,87 @@ export function fetchRecentMerges(
 
   // Find overlapping commits
   const collisions: ParallelWorkCollision[] = [];
+  let mergeBudgetAborted = false;
   for (const entry of entries) {
+    // Per-commit wall-clock budget check (PR #952 R5#5). Stop early if
+    // the cumulative scan time approaches the 30s hook timeout.
+    if (Date.now() - sweepStart >= MERGE_SWEEP_BUDGET_MS) {
+      mergeBudgetAborted = true;
+      break;
+    }
+
     const overlapping = findOverlappingFiles(inScopeFiles, entry.files);
-    if (overlapping.length > 0) {
+    if (overlapping.length === 0) {
+      continue;
+    }
+
+    // Filter out STRUCTURED_CONFIG_ALLOWLIST files whose change in this
+    // commit was append-only into JSON arrays. Skip the filter when `repo`
+    // wasn't supplied (legacy callers / tests) — preserve original behavior.
+    let realOverlapping = overlapping;
+    if (repo) {
+      // Resolve <sha>^ to a real 40-char SHA before passing to the GitHub
+      // Contents API. The Contents API rejects rev-spec expressions like
+      // "<sha>^" or "<sha>~1" — only branch names, tags, and full SHAs work.
+      // PR #952 R3#3 fix.
+      const parentResult = execWithPath(["git", "-C", repoDir, "rev-parse", `${entry.sha}^`], {
+        timeout: GH_GIT_TIMEOUT_MS,
+      });
+      const parentSha = parentResult.exitCode === 0 ? parentResult.stdout.trim() : null;
+      if (!parentSha) {
+        warnings.push(
+          `Commit ${entry.sha.slice(0, 7)}: could not resolve parent SHA via git rev-parse — keeping all overlapping files as collisions`
+        );
+      }
+      realOverlapping = overlapping.filter((file) => {
+        if (!STRUCTURED_CONFIG_ALLOWLIST.includes(file)) return true;
+        if (!parentSha) return true; // fail-closed: keep collision
+        // Mid-iteration budget recheck (PR #952 R5#5): each isAppendOnly
+        // call adds two `gh api` calls. Fail-closed if budget exhausted.
+        if (Date.now() - sweepStart >= MERGE_SWEEP_BUDGET_MS) {
+          warnings.push(
+            `Commit ${entry.sha.slice(0, 7)}: ${file} structural-config exemption skipped (budget exhausted) — keeping collision`
+          );
+          return true;
+        }
+        const isExempt = isAppendOnly(repo, parentSha, entry.sha, file, warnings);
+        if (isExempt) {
+          warnings.push(
+            `Commit ${entry.sha.slice(0, 7)}: ${file} change is append-only into JSON arrays — exempted from collision`
+          );
+        } else {
+          warnings.push(
+            `Commit ${entry.sha.slice(0, 7)}: ${file} is allowlisted but its change is NOT append-only — keeping collision`
+          );
+        }
+        return !isExempt;
+      });
+    } else {
+      // Surface the skipped-exemption case explicitly so operators can see
+      // when an allowlisted file was kept as a collision because no `repo`
+      // slug was available (PR #952 R1 NON-BLOCKING #4).
+      const skippedAllowlisted = overlapping.filter((f) => STRUCTURED_CONFIG_ALLOWLIST.includes(f));
+      if (skippedAllowlisted.length > 0) {
+        warnings.push(
+          `Commit ${entry.sha.slice(0, 7)}: structural-config exemption skipped for ${skippedAllowlisted.join(", ")} — no GitHub repo slug supplied`
+        );
+      }
+    }
+
+    if (realOverlapping.length > 0) {
       collisions.push({
         type: "recently-merged",
         commitSha: entry.sha.slice(0, 7),
         commitMessage: entry.message,
-        overlappingFiles: overlapping,
+        overlappingFiles: realOverlapping,
       });
     }
+  }
+
+  if (mergeBudgetAborted) {
+    warnings.push(
+      `Recently-merged sweep aborted after ${Math.round((Date.now() - sweepStart) / 1000)}s (partial scan; 30s hook budget approaching)`
+    );
   }
 
   return collisions;
@@ -592,6 +1078,15 @@ export function fetchRecentMerges(
  *
  * fetchPrFiles accepts a warnings array so per-PR lookup failures are
  * surfaced without aborting the sweep.
+ *
+ * **Signature change in mt#1587 (PR #952 R9#5)**: `fetchRecentMerges`
+ * gained optional trailing parameters (`repo`, `warnings`, `isAppendOnly`)
+ * to support the structural-config exemption. `isFileChangeAppendOnly` is
+ * also a new dep. External callers that pass a custom `deps` object built
+ * before this change will receive extra arguments at call time —
+ * TypeScript tolerates extra args, but consumers should update their
+ * `fetchRecentMerges` signature to accept the new params if they care
+ * about the structural exemption applying to recently-merged commits.
  */
 export interface ParallelWorkCheckDeps {
   fetchOpenPrs: (repo: string) => PrInfo[];
@@ -600,9 +1095,34 @@ export interface ParallelWorkCheckDeps {
     repoDir: string,
     inScopeFiles: string[],
     hours: number,
-    defaultBranchRef?: string
+    defaultBranchRef?: string,
+    repo?: string,
+    warnings?: string[],
+    isAppendOnly?: (
+      repo: string,
+      fromRef: string,
+      toRef: string,
+      filePath: string,
+      warnings: string[]
+    ) => boolean
   ) => ParallelWorkCollision[];
   detectDefaultBranch: (repoDir: string) => { ref: string | null; warning?: string };
+  /**
+   * Optional in mt#1587 (PR #952 R11#3): pre-mt#1587 callers that built a
+   * `deps` object without this field still type-check. When omitted, the
+   * structural-config exemption is disabled (every allowlisted file change
+   * is treated as a real collision — fail-closed). External callers that
+   * want the exemption must pass `isFileChangeAppendOnly`.
+   */
+  isFileChangeAppendOnly?: (
+    repo: string,
+    fromRef: string,
+    toRef: string,
+    filePath: string,
+    warnings: string[],
+    contentCache?: Map<string, string | null>,
+    status?: { fetchFailed: boolean }
+  ) => boolean;
 }
 
 const DEFAULT_DEPS: ParallelWorkCheckDeps = {
@@ -610,6 +1130,7 @@ const DEFAULT_DEPS: ParallelWorkCheckDeps = {
   fetchPrFiles,
   fetchRecentMerges,
   detectDefaultBranch,
+  isFileChangeAppendOnly,
 };
 
 /**
@@ -635,14 +1156,30 @@ export function runParallelWorkChecks(
     return { blocked: false, collisions, warnings };
   }
 
-  // Check A: open PRs
+  // Detect default branch up-front so both sweeps can use the bare branch
+  // name (e.g., "main") for `gh api` content lookups in the structural
+  // append-only check (mt#1587).
+  let defaultBranchRef: string | null = null;
+  try {
+    const detected = deps.detectDefaultBranch(repoDir);
+    if (detected.warning) warnings.push(detected.warning);
+    defaultBranchRef = detected.ref;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    warnings.push(`Default-branch detection failed (non-blocking): ${msg}`);
+  }
+  // Check A: open PRs. Open-PR structural exemption uses each PR's own
+  // baseRefName (fail-closed when missing, PR #952 R10#2) so it does NOT
+  // depend on the repo-level default-branch detection above. Only the
+  // recently-merged sweep below needs `defaultBranchRef`.
   try {
     const prCollisions = checkOpenPrs(
       input,
       currentBranch,
       deps.fetchOpenPrs,
       deps.fetchPrFiles,
-      warnings
+      warnings,
+      deps.isFileChangeAppendOnly ?? (() => false)
     );
     collisions.push(...prCollisions);
   } catch (err) {
@@ -650,12 +1187,8 @@ export function runParallelWorkChecks(
     warnings.push(`Open-PR sweep failed (non-blocking): ${msg}`);
   }
 
-  // Check B: recently merged — detect default branch first
+  // Check B: recently merged — uses the default branch detected above.
   try {
-    const { ref: defaultBranchRef, warning: branchWarning } = deps.detectDefaultBranch(repoDir);
-    if (branchWarning) {
-      warnings.push(branchWarning);
-    }
     if (defaultBranchRef === null) {
       // All probes failed; skip the sweep rather than running against a wrong ref
     } else {
@@ -663,7 +1196,10 @@ export function runParallelWorkChecks(
         repoDir,
         input.inScopeFiles,
         input.lookbackHours,
-        defaultBranchRef
+        defaultBranchRef,
+        input.repo,
+        warnings,
+        deps.isFileChangeAppendOnly
       );
       collisions.push(...mergeCollisions);
     }
