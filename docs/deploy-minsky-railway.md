@@ -159,6 +159,45 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 **Critical ordering gotcha (from `feedback_railway_config.md`):** if `source.rootDirectory` needs to be set, set it via JSON patch BEFORE creating the deployment trigger. Trigger creation fires an immediate build using whatever rootDirectory is currently on the service; missing config → build from the wrong directory → service crashes. For Minsky at repo root, `rootDirectory` defaults to `/` and no config is needed.
 
+## OAuth runbook (mt#1634, shipped May 2026)
+
+The hosted Minsky MCP supports OAuth 2.1 in addition to the static-bearer-token path. claude.ai web requires the OAuth flow as a precondition for adding remote MCP servers; mt#1634 shipped the full discovery + DCR + PKCE + RFC 8707 audience-binding flow backed by `oidc-provider`.
+
+### Required env vars (none new for v1)
+
+The InProcessOAuthProvider works with zero additional configuration in v1:
+
+- **Issuer URL** — derived from `req.hostname` + `req.protocol` (Express's `trust proxy 1` setting honors Railway's `X-Forwarded-Proto` / `X-Forwarded-Host`). Setting `MINSKY_OAUTH_ISSUER` is only necessary if the service runs behind multiple hostnames.
+- **Signing key** — when `MINSKY_OAUTH_SIGNING_KEY` is unset, the provider generates an ephemeral RSA-2048 keypair at startup and logs a WARN. **Tradeoff:** tokens are invalidated on every Railway redeploy. For v1 (claude.ai web acceptance) this is acceptable — users re-authorize when their token becomes invalid. Production hardening tracked separately.
+
+### Onboarding claude.ai web users
+
+1. The user opens claude.ai → Settings → Custom integrations → Add MCP server.
+2. They enter `https://minsky-mcp-production.up.railway.app/mcp` as the server URL.
+3. claude.ai fetches `/.well-known/oauth-protected-resource`, sees the OAuth requirement, and initiates the flow.
+4. claude.ai performs Dynamic Client Registration (`POST /register`) per RFC 7591 — receives a `client_id` + `client_secret`.
+5. claude.ai redirects the user to `/oauth/authorize?response_type=code&client_id=...&code_challenge=...&code_challenge_method=S256&resource=https://minsky-mcp-production.up.railway.app/mcp&redirect_uri=...`.
+6. The browser sees the consent screen rendered by `oidc-provider`'s built-in interaction UI (mt#1683 will replace this with a Minsky-branded template).
+7. After consent: `oidc-provider` issues an authorization code; claude.ai exchanges it at `/oauth/token` for an access + refresh token pair.
+8. claude.ai sends `Authorization: Bearer <access_token>` on subsequent `/mcp` requests; the token-validation middleware accepts it and injects `agentId: oauth:claude-ai:user-<sub>` into the MCP request context.
+
+### Coexistence with the static-bearer-token path
+
+The local Claude Code daemon and CI scripts continue to authenticate via `Authorization: Bearer ${MINSKY_MCP_AUTH_TOKEN}` exactly as before. The token-validation middleware tries the static-bearer match first (short-circuits when configured), then falls through to OAuth validation when the OAuth provider is wired. Setting both `MINSKY_MCP_AUTH_TOKEN` and the OAuth provider is fine; either path can authenticate.
+
+When `MINSKY_MCP_AUTH_TOKEN` is unset and the OAuth provider IS wired (Postgres available), `/mcp` enforces OAuth-only auth — fixed in mt#1666 R1 after the auto-reviewer-bot caught the original gating bug.
+
+### Signing-key rotation
+
+To rotate the signing key in production:
+
+1. Generate a new RSA JWK (kty=RSA, use=sig, alg=RS256). The value MUST be a JWK JSON object as a string — NOT a raw hex secret. Example generator: `node -e 'const jose = require("jose"); jose.generateKeyPair("RS256").then(async ({privateKey}) => console.log(JSON.stringify(await jose.exportJWK(privateKey))))'`.
+2. Set `MINSKY_OAUTH_SIGNING_KEY` to the new JWK JSON via the synthesizer (`services/minsky-mcp/railway.config.ts`).
+3. Apply via `bun scripts/railway/apply.ts services/minsky-mcp --execute`.
+4. Trigger redeploy. All issued access tokens become invalid immediately; clients re-authorize.
+
+For zero-downtime rotation (multiple keys advertised in JWKS during a transition window): `oidc-provider` supports an array of signing keys via `jwks.keys` config — staging a new key while the old one is still advertised lets clients pick up the new key before the old is removed. Wiring this through `InProcessOAuthProvider` is out of scope for v1; tracked as a follow-up.
+
 ## Verify deployment
 
 Run the automated verify phase:
