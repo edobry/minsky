@@ -44,7 +44,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
-import { safeTruncate } from "../../../src/utils/safe-truncate";
+import { safeTruncate } from "./utils/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
