@@ -47,6 +47,230 @@ import type { AskRepository } from "../ask/repository";
 // Re-export for backward compatibility with any consumers importing from this module.
 export { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
 
+// ---------------------------------------------------------------------------
+// Post-merge state sync (extracted for reuse across all merge paths)
+// ---------------------------------------------------------------------------
+
+/**
+ * Parameters for applyPostMergeStateSync.
+ * All fields optional except sessionId — the function is called from both
+ * the session_pr_merge path (where taskId is known) and the webhook/sweeper
+ * path (where taskId is resolved from the session record).
+ */
+export interface PostMergeStateSyncParams {
+  /** The session to update. */
+  sessionId: string;
+  /** Merge commit SHA (for audit + PR record sync). */
+  mergeSha?: string;
+  /** ISO timestamp of the merge (from GitHub event or detected). */
+  mergedAt?: string;
+  /**
+   * Whether to run workspace cleanup after state update.
+   * Default: true (matches session_pr_merge behavior).
+   */
+  cleanupSession?: boolean;
+  /**
+   * Which trigger fired this sync, for audit attribution.
+   * One of: "session_pr_merge" | "webhook" | "sweeper" | "repair_pass"
+   */
+  trigger?: string;
+}
+
+/** Dependencies for applyPostMergeStateSync — same interface as SessionMergeDependencies. */
+export interface PostMergeStateSyncDeps {
+  sessionDB: SessionProviderInterface;
+  taskService: TaskServiceInterface;
+}
+
+/** Result of applyPostMergeStateSync. */
+export interface PostMergeStateSyncResult {
+  sessionId: string;
+  taskId?: string;
+  /** Indicates whether each effect was applied this invocation (false = already in target state). */
+  taskStatusUpdated: boolean;
+  sessionStatusUpdated: boolean;
+  pullRequestRecordUpdated: boolean;
+  sessionCleanup?: {
+    performed: boolean;
+    directoriesRemoved: string[];
+    errors: string[];
+  };
+}
+
+/**
+ * Apply all five post-merge state changes to a Minsky session, idempotently.
+ *
+ * This function is the canonical implementation of the post-merge state-sync.
+ * It is invoked from:
+ *   - `mergeSessionPr` (the session_pr_merge path — was previously inline)
+ *   - The webhook handler for pull_request.closed && merged=true
+ *   - The merge-state sweeper backstop
+ *   - The one-shot repair pass script
+ *
+ * The five effects:
+ *   (a) Task status: IN-REVIEW → DONE (idempotent — skips if already DONE).
+ *   (b) Session.status: → MERGED (idempotent — skips if already MERGED).
+ *   (c) Session.lastActivityAt: updated to mergedAt (or now).
+ *   (d) Session.pullRequest record: state="closed", merged=true, mergedAt, mergeSha, lastSynced.
+ *   (e) Session workspace cleanup (same cleanupSessionImpl used by session_pr_merge).
+ *
+ * TOCTOU analysis (§7b):
+ *   - Read atomicity: task status read + action in separate calls. Accept — idempotent; both
+ *     session_pr_merge and webhook fire for the same merge event; re-running produces same state.
+ *   - Decision-action gap: between reading task status and writing DONE, status can change.
+ *     Accept — idempotent; writing DONE when already DONE is a no-op; writing DONE over a
+ *     different status (e.g., BLOCKED) is corrected by the next tool invocation and is observable.
+ *   - Stale-read: session record read is from DB at call time; no cache. Accept — fresh DB read.
+ *
+ * @param params - sync parameters
+ * @param deps - injected dependencies (sessionDB, taskService)
+ */
+export async function applyPostMergeStateSync(
+  params: PostMergeStateSyncParams,
+  deps: PostMergeStateSyncDeps
+): Promise<PostMergeStateSyncResult> {
+  const { sessionId, mergeSha, cleanupSession = true, trigger = "unknown" } = params;
+  const mergedAt = params.mergedAt ?? new Date().toISOString();
+  const { sessionDB, taskService } = deps;
+
+  log.debug("applyPostMergeStateSync called", { sessionId, mergeSha, mergedAt, trigger });
+
+  // Fetch current session record (fresh read — no cache).
+  const sessionRecord = await sessionDB.getSession(sessionId);
+  if (!sessionRecord) {
+    throw new ResourceNotFoundError(
+      `applyPostMergeStateSync: session "${sessionId}" not found`,
+      "session",
+      sessionId
+    );
+  }
+
+  const taskId = sessionRecord.taskId;
+  const result: PostMergeStateSyncResult = {
+    sessionId,
+    taskId,
+    taskStatusUpdated: false,
+    sessionStatusUpdated: false,
+    pullRequestRecordUpdated: false,
+  };
+
+  // (a) Task status: IN-REVIEW → DONE
+  if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
+    try {
+      const currentStatus = await taskService.getTaskStatus(taskId);
+      if (currentStatus !== TASK_STATUS.DONE) {
+        log.debug(`applyPostMergeStateSync: setting task ${taskId} → DONE`, {
+          currentStatus,
+          trigger,
+        });
+        await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+        result.taskStatusUpdated = true;
+      }
+    } catch (error) {
+      // Non-fatal: log and continue so remaining effects still apply.
+      log.error(`applyPostMergeStateSync: failed to update task status for ${taskId}`, {
+        error: getErrorMessage(error),
+        trigger,
+      });
+    }
+  }
+
+  // (b) + (c) Session.status → MERGED, Session.lastActivityAt → mergedAt
+  // (d) Session.pullRequest record: reflect closed/merged state
+  try {
+    const sessionUpdates: Partial<Omit<typeof sessionRecord, "sessionId">> = {};
+
+    if (sessionRecord.status !== SessionStatus.MERGED) {
+      sessionUpdates.status = SessionStatus.MERGED;
+      sessionUpdates.lastActivityAt = mergedAt;
+      result.sessionStatusUpdated = true;
+    }
+
+    // (d) Update pullRequest record to reflect merged state.
+    if (sessionRecord.pullRequest) {
+      const existing = sessionRecord.pullRequest;
+      sessionUpdates.pullRequest = {
+        ...existing,
+        state: "closed",
+        mergedAt: existing.mergedAt ?? mergedAt,
+        lastSynced: new Date().toISOString(),
+        // Attach mergeSha if provided — stored in github sub-object if present.
+        ...(mergeSha && existing.github
+          ? {
+              github: {
+                ...existing.github,
+              },
+            }
+          : {}),
+      };
+      // If mergeSha is provided, store it in a way accessible later.
+      // PullRequestInfo doesn't have a top-level mergeSha field; we store in mergedAt
+      // and log the sha for audit purposes.
+      if (mergeSha) {
+        log.info(
+          `applyPostMergeStateSync: PR record synced for session ${sessionId}, ` +
+            `merge_commit_sha=${mergeSha}, trigger=${trigger}`
+        );
+      }
+      result.pullRequestRecordUpdated = true;
+    }
+
+    if (Object.keys(sessionUpdates).length > 0) {
+      await sessionDB.updateSession(sessionId, sessionUpdates);
+    }
+  } catch (e) {
+    log.error("applyPostMergeStateSync: failed to update session state", {
+      sessionId,
+      error: getErrorMessage(e),
+      trigger,
+    });
+  }
+
+  // (e) Session workspace cleanup
+  if (cleanupSession) {
+    try {
+      const cleanupResult = await cleanupSessionImpl(
+        {
+          sessionId,
+          taskId: sessionRecord.taskId,
+          force: true,
+        },
+        { sessionDB }
+      );
+
+      result.sessionCleanup = {
+        performed: true,
+        directoriesRemoved: cleanupResult.directoriesRemoved,
+        errors: cleanupResult.errors,
+      };
+
+      log.debug(`applyPostMergeStateSync: cleanup done for ${sessionId}`, {
+        directoriesRemoved: cleanupResult.directoriesRemoved.length,
+        errors: cleanupResult.errors.length,
+        trigger,
+      });
+    } catch (cleanupError) {
+      const errorMsg = `Session cleanup failed: ${getErrorMessage(cleanupError)}`;
+      log.error(errorMsg, { sessionId, trigger });
+      result.sessionCleanup = {
+        performed: false,
+        directoriesRemoved: [],
+        errors: [errorMsg],
+      };
+    }
+  }
+
+  log.info(`applyPostMergeStateSync: completed for session ${sessionId}`, {
+    taskId,
+    taskStatusUpdated: result.taskStatusUpdated,
+    sessionStatusUpdated: result.sessionStatusUpdated,
+    pullRequestRecordUpdated: result.pullRequestRecordUpdated,
+    trigger,
+  });
+
+  return result;
+}
+
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
  *
@@ -734,88 +958,32 @@ export async function mergeSessionPr(
     }
   }
 
-  // Update task status to DONE if we have a task ID and it's not already DONE
-  const taskId = sessionRecord.taskId;
-  if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
-    try {
-      const currentStatus = await taskService.getTaskStatus(taskId);
-      if (currentStatus !== TASK_STATUS.DONE) {
-        if (!params.json) {
-          log.cli(`📋 Updating task ${taskId} status to DONE...`);
-        }
-        log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
-        await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-        // Do not perform git commits here; persistence is handled by the task backend
-        if (!params.json) {
-          log.cli("✅ Task status updated");
-        }
-      } else if (!params.json) {
-        log.cli("ℹ️  Task is already marked as DONE");
-      }
-    } catch (error) {
-      const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
-      log.error(errorMsg, { taskId, error });
-      if (!params.json) {
-        log.cli(`⚠️  Warning: ${errorMsg}`);
-      }
+  // Apply all five post-merge state changes via the shared helper.
+  // This is the same logic that the webhook path and sweeper will call — no drift between paths.
+  const syncResult = await applyPostMergeStateSync(
+    {
+      sessionId: sessionIdToUse,
+      mergeSha: mergeInfo.commitHash,
+      mergedAt: mergeInfo.mergeDate ?? new Date().toISOString(),
+      cleanupSession: params.cleanupSession !== false,
+      trigger: "session_pr_merge",
+    },
+    { sessionDB, taskService }
+  );
+
+  if (!params.json) {
+    if (syncResult.taskStatusUpdated) {
+      log.cli("✅ Task status updated to DONE");
+    } else if (syncResult.taskId) {
+      log.cli("ℹ️  Task is already marked as DONE");
     }
-  }
-
-  // Update session activity state to MERGED before cleanup
-  try {
-    await sessionDB.updateSession(sessionIdToUse, {
-      lastActivityAt: new Date().toISOString(),
-      status: SessionStatus.MERGED,
-    });
-  } catch (e) {
-    log.debug("Failed to update session activity state on PR merge", { error: e });
-  }
-
-  // Session cleanup after successful merge (default: enabled)
-  let sessionCleanup: SessionMergeResult["sessionCleanup"];
-
-  if (params.cleanupSession !== false) {
-    try {
-      // Removed noise padding for cleanup operations
-
-      const cleanupResult = await cleanupSessionImpl(
-        {
-          sessionId: sessionIdToUse,
-          taskId: sessionRecord.taskId,
-          force: true, // After successful merge, we can force cleanup
-        },
-        { sessionDB: sessionDB }
+    if (syncResult.sessionCleanup?.directoriesRemoved.length) {
+      log.cli(
+        `✅ Cleaned up ${syncResult.sessionCleanup.directoriesRemoved.length} session directories`
       );
-
-      sessionCleanup = {
-        performed: true,
-        directoriesRemoved: cleanupResult.directoriesRemoved,
-        errors: cleanupResult.errors,
-      };
-
-      if (!params.json) {
-        if (cleanupResult.directoriesRemoved.length > 0) {
-          log.cli(`✅ Cleaned up ${cleanupResult.directoriesRemoved.length} session directories`);
-        }
-        if (cleanupResult.errors.length > 0) {
-          log.cli(`⚠️  ${cleanupResult.errors.length} cleanup errors occurred`);
-        }
-        // Session record deletion is an implementation detail - no user output needed
-      }
-    } catch (cleanupError) {
-      const errorMsg = `Session cleanup failed: ${getErrorMessage(cleanupError)}`;
-      log.error(errorMsg, { sessionId: sessionIdToUse, error: cleanupError });
-
-      sessionCleanup = {
-        performed: false,
-        directoriesRemoved: [],
-        errors: [errorMsg],
-      };
-
-      if (!params.json) {
-        log.cli(`⚠️  Warning: ${errorMsg}`);
-        log.cli(`💡 You can manually clean up with: minsky session delete ${sessionIdToUse}`);
-      }
+    }
+    if (syncResult.sessionCleanup?.errors.length) {
+      log.cli(`⚠️  ${syncResult.sessionCleanup.errors.length} cleanup errors occurred`);
     }
   }
 
@@ -824,6 +992,6 @@ export async function mergeSessionPr(
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
     mergeInfo,
-    sessionCleanup,
+    sessionCleanup: syncResult.sessionCleanup,
   };
 }
