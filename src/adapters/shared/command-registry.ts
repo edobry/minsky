@@ -48,6 +48,7 @@ export enum CommandCategory {
   COMPILE = "COMPILE",
   WORKSPACE = "WORKSPACE",
   TRANSCRIPTS = "TRANSCRIPTS",
+  DETECTORS = "DETECTORS",
 }
 
 /**
