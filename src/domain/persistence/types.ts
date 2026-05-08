@@ -78,9 +78,7 @@ export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
  */
 export interface VectorCapablePersistenceProvider extends BasePersistenceProvider {
   capabilities: PersistenceCapabilities & { vectorStorage: true };
-  /** @deprecated Use getVectorStorageForDomain(domain, dimension) to avoid cross-domain table contamination */
-  getVectorStorage(dimension: number): VectorStorage;
-  /** Preferred API: routes to the correct embeddings table for the given domain */
+  /** Routes to the correct embeddings table for the given domain */
   getVectorStorageForDomain(domain: VectorDomain, dimension: number): VectorStorage;
 }
 
@@ -100,9 +98,7 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   // callers that need typed connections should narrow via SqlCapablePersistenceProvider.
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
-  /** @deprecated Use getVectorStorageForDomain(domain, dimension) */
-  getVectorStorage?(dimension: number): VectorStorage | Promise<VectorStorage | null>;
-  /** Preferred: routes to the correct embeddings table per domain */
+  /** Routes to the correct embeddings table per domain */
   getVectorStorageForDomain?(domain: VectorDomain, dimension: number): VectorStorage;
 }
 

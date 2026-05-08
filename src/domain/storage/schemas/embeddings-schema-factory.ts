@@ -72,11 +72,11 @@ export const EMBEDDINGS_CONFIGS = {
     vectorColumn: "vector",
     indexedAtColumn: "indexed_at",
   },
-  // knowledge domain (mt#1605 audit): knowledge_embeddings table exists (migration 0020)
-  // and uses document_id as the id column. Knowledge consumers do NOT currently go
-  // through getVectorStorageForDomain — they use a separate code path. Adding this
-  // entry here ensures correct routing if knowledge is wired through the standard
-  // factory in the future. See PR body for full audit finding.
+  // knowledge domain: knowledge_embeddings table (migration 0020) with document_id
+  // as the id column. Knowledge consumers (`commands/knowledge/index.ts`,
+  // `commands/mcp/scheduler-wiring.ts`) route through createVectorStorageForDomain
+  // to land in this table; pre-mt#1611 they used the legacy createVectorStorageFromConfig
+  // alias which silently routed to tasks_embeddings — see mt#1611 for the migration.
   knowledge: {
     tableName: "knowledge_embeddings",
     idColumn: "document_id",
