@@ -101,17 +101,47 @@ async function sendWebhook(
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Collect console.log lines for structured-log assertions. */
+/**
+ * Capture lines written to process.stdout during a test.
+ *
+ * Winston's Console transport writes to process.stdout.write directly,
+ * bypassing console.log. We intercept at the stream level so that both
+ * the old console.log path and the new winston path are captured.
+ */
 function captureConsoleLogs(): { logs: string[]; restore: () => void } {
   const logs: string[] = [];
-  const original = console.log.bind(console);
-  console.log = (...args: unknown[]) => {
-    logs.push(args.map(String).join(" "));
+  const originalWrite = process.stdout.write.bind(process.stdout);
+
+  // process.stdout.write can be called with (string | Buffer, ...) — we only
+  // care about the string form that winston produces.
+  process.stdout.write = (
+    chunk: string | Uint8Array,
+    encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
+    cb?: (err?: Error | null) => void
+  ): boolean => {
+    const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+    // Winston emits one JSON object per line followed by "\n".
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed) logs.push(trimmed);
+    }
+    // Call the real write so other transports / the terminal still work.
+    if (typeof encodingOrCb === "function") {
+      return originalWrite(chunk, encodingOrCb);
+    }
+    if (cb !== undefined) {
+      return originalWrite(chunk, encodingOrCb as BufferEncoding, cb);
+    }
+    if (encodingOrCb !== undefined) {
+      return originalWrite(chunk, encodingOrCb as BufferEncoding);
+    }
+    return originalWrite(chunk);
   };
+
   return {
     logs,
     restore: () => {
-      console.log = original;
+      process.stdout.write = originalWrite;
     },
   };
 }
