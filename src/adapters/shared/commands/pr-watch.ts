@@ -19,11 +19,8 @@ import {
   type CreatePrWatchInput,
 } from "../../../domain/pr-watch/repository";
 import type { PrWatch, PrWatchEvent } from "../../../domain/pr-watch/types";
-import {
-  runWatcher,
-  stubGithubPrClient,
-  type WatcherResult,
-} from "../../../domain/pr-watch/watcher";
+import { runWatcher, type WatcherResult } from "../../../domain/pr-watch/watcher";
+import { makeProductionGithubPrClient } from "../../../domain/pr-watch/github-client";
 import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
@@ -59,6 +56,37 @@ async function buildPrWatchRepository(
       error: err instanceof Error ? err.message : String(err),
     });
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TokenProvider factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a TokenProvider from the project's standard configuration.
+ *
+ * Mirrors the pattern used in reviewer-watch.ts — lazy dynamic import so
+ * this module remains importable without a live config (e.g. in tests).
+ */
+async function buildTokenProviderFromConfig(): Promise<{
+  tokenProvider: import("../../../domain/auth").TokenProvider;
+}> {
+  try {
+    const { getConfiguration } = await import("../../../domain/configuration/index");
+    const { createTokenProvider } = await import("../../../domain/auth");
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+    return { tokenProvider };
+  } catch (err: unknown) {
+    const cause = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      "pr.watch.run requires Minsky configuration to be initialized. " +
+        "Run `minsky setup` (or the appropriate init step) before calling pr.watch.run. " +
+        `Cause: ${cause}`,
+      { cause: err instanceof Error ? err : new Error(String(err)) }
+    );
   }
 }
 
@@ -241,7 +269,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
       category: CommandCategory.TOOLS,
       name: "run",
       description:
-        "Run one watcher pass: poll GitHub for all active watches and fire notifications on matches. In v1, uses a stub GitHub client (production wiring is a follow-up to mt#1295).",
+        "Run one watcher pass: poll GitHub for all active watches and fire notifications on matches.",
       requiresSetup: true,
       parameters: prWatchRunParams,
       execute: async (): Promise<WatcherResult> => {
@@ -252,8 +280,10 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
           );
         }
 
+        const { tokenProvider } = await buildTokenProviderFromConfig();
+        const githubClient = makeProductionGithubPrClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
-        return runWatcher(prWatchRepository, stubGithubPrClient, operatorNotify);
+        return runWatcher(prWatchRepository, githubClient, operatorNotify);
       },
     })
   );

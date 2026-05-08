@@ -23,6 +23,8 @@ import { resolveAgentId } from "../domain/agent-identity/resolve";
 import type { RequestExtras } from "../domain/agent-identity/layer2";
 import type { AppContainerInterface } from "../composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
+import type { MemoryServiceSurface } from "../domain/memory/memory-service";
+import { enrichToolResponse } from "./middleware/memory-enrichment";
 
 /**
  * Transport type for MCP server
@@ -144,6 +146,13 @@ export class MinskyMCPServer {
   private stalenessDetector: StalenessDetector;
   private diag: DiagnosticCapture;
   private container: AppContainerInterface | undefined;
+  /**
+   * Memory service for the mt#1588 spike enrichment middleware. Optional —
+   * when absent, enrichment middleware is a no-op (the dispatcher behaves
+   * identically to pre-mt#1588). Set via `setMemoryService` from the MCP
+   * start command after `registerAllTools` resolves the persistence provider.
+   */
+  private memoryService: MemoryServiceSurface | undefined;
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
@@ -693,6 +702,18 @@ export class MinskyMCPServer {
             this.triggerStaleSignal(server);
           }
 
+          // mt#1588 spike: memory enrichment middleware. For allowlisted tools,
+          // append a second `{type:"text"}` content block carrying top-K
+          // memory_search results. No-op for non-allowlisted tools, when the
+          // memoryService is unset, or when the env-var kill switch is set
+          // (used by the benchmark script). Errors and degraded results are
+          // silently dropped — enrichment must never break the tool call.
+          const enrichmentBlock = await enrichToolResponse(
+            request.params.name,
+            request.params.arguments || {},
+            this.memoryService
+          );
+
           // Return MCP-compliant tool response
           return {
             content: [
@@ -700,6 +721,7 @@ export class MinskyMCPServer {
                 type: "text",
                 text: responseText,
               },
+              ...(enrichmentBlock ? [enrichmentBlock] : []),
             ],
           };
         } catch (error) {
@@ -817,6 +839,17 @@ export class MinskyMCPServer {
    */
   setContainer(container: AppContainerInterface): void {
     this.container = container;
+  }
+
+  /**
+   * Set the memory service used by the mt#1588 spike enrichment middleware.
+   * Optional — when unset, the middleware is a no-op. Called from the MCP
+   * start command after `registerAllTools` resolves the persistence provider.
+   *
+   * @see mt#1588 — spike that introduces this surface
+   */
+  setMemoryService(service: MemoryServiceSurface): void {
+    this.memoryService = service;
   }
 
   /**
