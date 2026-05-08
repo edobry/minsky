@@ -660,20 +660,45 @@ export async function callOpenAIWithClient(
     }
   }
 
-  // Post-loop forced conclude_review pass (mt#1471).
+  // Post-loop forced conclude_review pass (mt#1471 + mt#1639).
   //
-  // The main loop has exited. If the model emitted output tool calls (findings,
-  // inline comments, or spec verifications) but did NOT emit conclude_review,
-  // run one more API call with `tool_choice` constrained to conclude_review.
-  // This is the structural fix for the 1/15 production emission rate of
-  // mt#1450's in-loop reminder: the post-loop pass is decoupled from the
-  // round budget and uses tool_choice to force compliance.
+  // The main loop has exited. If the model did NOT emit conclude_review, run
+  // one more API call with `tool_choice` constrained to conclude_review. This
+  // covers two gate branches:
+  //
+  //   - "emitted_no_conclude": model emitted output tool calls (findings,
+  //     inline comments, or spec verifications) but omitted conclude_review.
+  //     This was mt#1471's original gate (`!hasConcludeReview &&
+  //     hasEmittedOutputCalls`).
+  //
+  //   - "emitted_nothing": model exited the loop without emitting any output
+  //     tool calls at all — no findings, no inline comments, no spec
+  //     verifications, no conclude_review. mt#1471's gate skipped this case
+  //     (`hasEmittedOutputCalls=false`), leaving the reviewer to submit an
+  //     empty structural-envelope review. mt#1639 closes the gap by dropping
+  //     the `&& hasEmittedOutputCalls` clause so both cases reach the forced
+  //     pass. Live instance: PR #973 (mt#1618, 2026-05-07 18:54Z).
+  //
+  // Tool-list scope for the empty-case forced pass: narrow to conclude_review
+  // only, matching mt#1471's behavior for consistency. Alternative not taken:
+  // include the full ALL_TOOL_DEFINITIONS list so the model could retroactively
+  // emit findings before concluding. Rejected because the forced pass is a
+  // last-resort structural backstop — retroactive findings from an otherwise-
+  // empty pass would be unanchored from the read_file / list_directory evidence
+  // the model never gathered, producing hallucinated severity assessments.
+  //
+  // The `gate_branch` discriminator on the audit log distinguishes the two
+  // branches for downstream segmentation without a separate event name.
   //
   // Composition-side severity-derived event recovery (mt#1413) remains the
   // safety net if the forced pass fails to emit a parseable conclude_review.
   const hasConcludeReview = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
   const hasEmittedOutputCalls = accumulatedToolCalls.length > 0;
-  if (!hasConcludeReview && hasEmittedOutputCalls) {
+  if (!hasConcludeReview) {
+    // Discriminator for audit log: which gate branch fired.
+    const gateBranch: "emitted_no_conclude" | "emitted_nothing" = hasEmittedOutputCalls
+      ? "emitted_no_conclude"
+      : "emitted_nothing";
     try {
       const forced = await forceConcludeReview(
         client,
@@ -695,6 +720,7 @@ export async function callOpenAIWithClient(
           fired_at_turn: totalRoundsUsed,
           reminder_count: 1,
           finally_emitted: forced.emitted,
+          gate_branch: gateBranch,
         })
       );
     } catch (err: unknown) {
@@ -708,6 +734,7 @@ export async function callOpenAIWithClient(
           fired_at_turn: totalRoundsUsed,
           reminder_count: 1,
           finally_emitted: false,
+          gate_branch: gateBranch,
           error: err instanceof Error ? err.message : String(err),
         })
       );
