@@ -50,7 +50,8 @@ stopping condition is reached or the user cancels.
 ### Steps
 
 0. **Preflight: check PR/task terminal state.** If the parsed prompt names PRs
-   (`#NNN`, `PR NNN`) or task IDs (`mt#NNNN`, `md#NNN`), call
+   (`PR #NNN`, `PR NNN`, or `pull(s)?/NNN` URL paths) or task IDs (`mt#NNNN`,
+   `md#NNN`), call
    `mcp__github__pull_request_read get` and/or `mcp__minsky__tasks_status_get`
    for each. If any PR is merged/closed or any task is DONE/CLOSED, surface the
    terminal state and STOP — do not iterate.

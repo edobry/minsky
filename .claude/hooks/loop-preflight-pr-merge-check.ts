@@ -51,14 +51,16 @@ const FALLBACK_TIMEOUT_MS = 5_000;
  * Extract PR numbers from a free-form string.
  *
  * Accepted patterns (case-insensitive):
- *   - `#922`               (hash-prefixed number)
  *   - `PR #922`            (word "PR" then hash-prefixed number)
  *   - `PR 922`             (word "PR" then bare number)
  *   - `pull/922`           (path segment, for GitHub URLs)
  *   - `pulls/922`          (path segment, for GitHub URLs)
  *
- * Excludes task-ID patterns like `mt#922` or `md#922` by requiring that the
- * `#` prefix not be preceded by word characters.
+ * Bare `#NNN` is intentionally NOT matched: in typical GitHub vernacular
+ * `#NNN` more often refers to issues than PRs, and over-matching would
+ * cause false-positive blocks (PR #1002 R1#2). Task-ID patterns like
+ * `mt#922` or `md#922` are also excluded because the `PR` cue requirement
+ * structurally prevents them from matching.
  *
  * Returns a deduplicated array of number-typed PR numbers.
  */
