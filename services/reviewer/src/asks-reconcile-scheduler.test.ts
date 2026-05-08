@@ -209,7 +209,8 @@ describe("startAsksReconcileScheduler — enabled", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     // Replace global fetch with a stub that returns a successful MCP response.
-    globalThis.fetch = async () => {
+    // Cast required: Bun's fetch type includes `preconnect` property not present on plain async fns.
+    globalThis.fetch = (async () => {
       return new Response(
         JSON.stringify({
           result: {
@@ -222,7 +223,7 @@ describe("startAsksReconcileScheduler — enabled", () => {
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
-    };
+    }) as unknown as typeof globalThis.fetch;
   });
 
   afterEach(() => {
@@ -290,7 +291,8 @@ describe("startAsksReconcileScheduler — reentrancy guard", () => {
   test("skips tick with skipped_overlap event when previous tick still running", async () => {
     // Simulate a slow MCP call that never resolves during the test window.
     let fetchResolve: (() => void) | null = null;
-    globalThis.fetch = async () => {
+    // Cast required: Bun's fetch type includes `preconnect` property not present on plain async fns.
+    globalThis.fetch = (async () => {
       await new Promise<void>((resolve) => {
         fetchResolve = resolve;
       });
@@ -298,7 +300,7 @@ describe("startAsksReconcileScheduler — reentrancy guard", () => {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    };
+    }) as unknown as typeof globalThis.fetch;
 
     const warns: string[] = [];
     const logs: string[] = [];
