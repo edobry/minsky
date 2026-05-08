@@ -226,32 +226,43 @@ export async function enrichToolResponse(
   const query = buildQuery(toolName, args);
   if (!query) return null;
 
+  // Bound the search call so an accidentally-enabled middleware can't hang
+  // the dispatcher indefinitely. Tagged-union discriminant on the race
+  // outcome (PR #974 R3 BLOCKING) — avoids the prior Symbol-sentinel
+  // pattern that relied on TypeScript inference rather than an explicit
+  // runtime shape check. Timeout handle is cleared on the success path so
+  // the timer doesn't outlive the call.
+  type RaceOutcome =
+    | { kind: "ok"; response: Awaited<ReturnType<MemoryServiceSurface["search"]>> }
+    | { kind: "timeout" };
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Bound the search call so an accidentally-enabled middleware can't hang
-    // the dispatcher indefinitely. Timeout fires return null (silently
-    // dropped, like any other failure path).
-    const searchPromise = memoryService.search(query, { limit: k });
-    const timeoutSignal = Symbol("memory-enrichment-timeout");
-    const timeoutPromise = new Promise<typeof timeoutSignal>((resolve) => {
-      setTimeout(() => resolve(timeoutSignal), timeoutMs);
+    const searchPromise: Promise<RaceOutcome> = memoryService
+      .search(query, { limit: k })
+      .then((response) => ({ kind: "ok" as const, response }));
+    const timeoutPromise = new Promise<RaceOutcome>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve({ kind: "timeout" as const }), timeoutMs);
     });
-    const raced = await Promise.race([searchPromise, timeoutPromise]);
-    if (raced === timeoutSignal) {
+    const outcome = await Promise.race([searchPromise, timeoutPromise]);
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    if (outcome.kind === "timeout") {
       log.debug("[memory-enrichment] search timed out; skipping", {
         tool: toolName,
         timeoutMs,
       });
       return null;
     }
-    if (raced.degraded) {
+    if (outcome.response.degraded) {
       log.debug("[memory-enrichment] search degraded; skipping", {
         tool: toolName,
-        backend: raced.backend,
+        backend: outcome.response.backend,
       });
       return null;
     }
-    return buildBlock(toolName, raced.results, charBudget);
+    return buildBlock(toolName, outcome.response.results, charBudget);
   } catch (error) {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     log.debug("[memory-enrichment] search failed; skipping", {
       tool: toolName,
       error: error instanceof Error ? error.message : String(error),
