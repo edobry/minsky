@@ -22,6 +22,7 @@ export MINSKY_PERSISTENCE_BACKEND=postgres
 export MINSKY_PERSISTENCE_POSTGRES_URL="postgresql://user:pass@localhost/minsky"
 export MINSKY_AI_DEFAULT_PROVIDER=openai
 export MINSKY_WORKSPACE_MAIN_PATH="/absolute/path/to/main/workspace"  # NEW
+export MINSKY_SUPABASE_ACCESS_TOKEN="sbp_..."  # Supabase Management API PAT (see docs/supabase-alerts.md)
 ```
 
 ### 3. User Configuration File (`~/.config/minsky/config.yaml`)

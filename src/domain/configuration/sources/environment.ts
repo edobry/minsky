@@ -63,6 +63,11 @@ export const environmentMappings = {
   // "persistence.postgres.connectionString".
   MINSKY_POSTGRES_URL: "persistence.postgres.connectionString",
 
+  // Supabase Management API credentials (developer-local; consumed by
+  // `just supabase-usage`). Distinct from the Postgres connection string,
+  // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
+  MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
+
   // Logger configuration
   MINSKY_LOG_MODE: "logger.mode",
   LOG_MODE: "logger.mode",

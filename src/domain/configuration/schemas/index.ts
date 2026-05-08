@@ -40,6 +40,7 @@ import {
   knowledgeReconciliationSchema,
   type KnowledgeReconciliationConfig,
 } from "./knowledge-reconciliation";
+import { supabaseConfigSchema, type SupabaseConfig } from "./supabase";
 
 /**
  * Complete application configuration schema
@@ -101,6 +102,9 @@ export const configurationSchema = z.strictObject({
 
   // Knowledge reconciliation configuration (freshness + authority ranking)
   knowledgeReconciliation: knowledgeReconciliationSchema.optional(),
+
+  // Supabase Management API credentials (developer-local; consumed by `just supabase-usage`)
+  supabase: supabaseConfigSchema,
 });
 // strictObject: unknown top-level keys are rejected with an `unrecognized_keys`
 // ZodError. Catches typos (e.g. `persistance:` for `persistence:`) and stale
@@ -145,6 +149,7 @@ export type {
   MemoryConfig,
   MemoryLoadingMode,
   KnowledgeReconciliationConfig,
+  SupabaseConfig,
 };
 
 // Re-export schemas for external use
@@ -164,6 +169,7 @@ export {
   knowledgeBasesConfigSchema,
   memoryConfigSchema,
   knowledgeReconciliationSchema,
+  supabaseConfigSchema,
 };
 
 // Export the main schema as default
