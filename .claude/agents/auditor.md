@@ -101,7 +101,16 @@ After checking all spec criteria, ALWAYS run these baseline checks regardless of
 1. **Full test suite**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain` — report pass count and any failures
 2. **Type check**: `bun run tsc --noEmit` — report clean or errors
 3. **Lint**: `bun run lint` — report new errors (pre-existing errors in unrelated files are noted but not blocking)
-4. **E2E smoke test**: Run at least one CLI command that exercises the changed code path (e.g., if the task changed DI, run `bun src/cli.ts tasks list` to verify the container initializes correctly)
+4. **State-coupled live probe (mt#1606).** Run at least one CLI command that exercises the changed code path. For success criteria of the form "feature X works," "feature X returns Y," "feature X is callable," or "feature X is registered," the probe MUST be **state-coupled**: it asserts execution evidence through the production wiring, not just non-error invocation. Per-category probe forms:
+
+   - **Persistence**: create-then-read round-trip; assert read returns the created entity.
+   - **Search / embedding**: insert-then-search round-trip; assert search returns the inserted entity (not just non-empty).
+   - **MCP tool surface**: call the tool; assert response shape matches the spec.
+   - **Cross-process / cross-harness**: spawn fresh process/conversation; assert state propagates.
+   - **Schema migration**: confirm the declared table/column exists in the live DB post-migration (catches mt#1611's shadow-failure pattern where the migration was tracked-applied but the table did not exist).
+
+   If the live probe cannot be run (missing env var, target not deployed, rate-limit, production-credential carve-out), record `skipped — <reason>` and flag as AMBIGUOUS rather than PASS — code-shape verification is insufficient evidence for feature-shipped SCs. Originating incidents: mt#1008, mt#1611.
+
 5. **Documentation staleness**: Check if `docs/architecture.md` has content related to the task's domain — if so, verify it's still accurate post-change
 
 Include these in the output table as "Baseline" criteria. Note: as of mt#1551, the smoke test (item 4) is also folded into `/review-pr`'s pre-merge gate; this auditor running it post-merge is now a redundancy retained for ad-hoc audits, not a primary regression-detection surface.
@@ -114,3 +123,15 @@ Include these in the output table as "Baseline" criteria. Note: as of mt#1551, t
 - If the spec is vague about a criterion, mark it AMBIGUOUS and explain what's unclear
 - Never treat "CI passed" as sufficient evidence for "all tests pass" — run the suite yourself on the post-merge codebase
 - **Never report FAIL based on a stale-local-main read.** If the parent gives a merge SHA, read from origin via `mcp__github__get_file_contents`. If the parent gives only local paths, cross-check against the merge commit before reporting. A local file that disagrees with the merge commit is a stale-source bug, not a verification failure.
+
+## Code-shape vs execution-evidence (mt#1606)
+
+For feature-shipped SCs, code-shape verification is insufficient. Each of these is a known false-positive shape that has shipped DONE despite the feature being broken in production:
+
+- **"Tests pass" ≠ "feature works"** — Unit tests exercise the service in isolation with stubbed dependencies. They prove the service-side logic is correct given working dependencies. They cannot prove the dependencies are correctly wired in production.
+- **"Code exists" ≠ "code runs end-to-end"** — A function being defined, exported, and called in a unit test is necessary but not sufficient. The production code path must be exercised against real (or production-parity) dependencies.
+- **"Schema defined" ≠ "runtime wired"** — An entity having a database schema with the right columns is necessary but not sufficient. The runtime API that constructs queries against that schema must be parameterized to use it (vs hardcoded to a different schema).
+- **"Acceptance test exists" ≠ "execution evidence produced"** — A test file that contains the right assertion is necessary but not sufficient. The test must have been run against the production target and produced non-trivial output.
+- **"Migration tracked as applied" ≠ "schema in DB matches declared schema"** (added 2026-05-08 from mt#1611) — A row in `drizzle.__drizzle_migrations` for the migration's hash does NOT prove the migration's SQL had its intended effect on the live DB. Verify post-apply schema state against declared schema for migration-touching PRs.
+
+The state-coupled probe in baseline check #4 catches all five failure modes. Originating patterns: `feedback_static_helper_completeness_vs_production_wiring` (escalation budget for the recurring class), `feedback_behavior_detecting_artifacts_need_execution_evidence` (sibling pattern), and `feedback_adoption_check` (adjacent pattern: meeting spec criteria ≠ feature adopted).

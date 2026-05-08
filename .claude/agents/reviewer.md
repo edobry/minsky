@@ -114,6 +114,20 @@ The same staleness class that motivated the auditor's freshness preamble (mt#148
 
    **5c. Smoke test.** Run at least one CLI command that exercises the changed code path against the PR branch. Examples: a DI-changing PR runs `bun src/cli.ts tasks list`; a session-mutation PR runs `bun src/cli.ts session list`; a docs/skill-only PR may skip with rationale. Record the outcome on a separate `**Smoke:**` line in the review body — NOT in the CI-status section. Allowed values: `pass — <command run>`, `fail — <command>: <stderr summary>` (BLOCKING finding), or `skipped — <rationale>` for docs/prompt-only PRs. The `Smoke:` line is an independent gate parsed by the pre-merge hook separately from the `CI status` line; CI N/M counts only GitHub Actions check_runs. The smoke catches PR-introduced regressions that pre-merge CI may have missed (e.g., container init failures, command-registration breakage). It does NOT cover concurrent-merge interactions — those are tracked in mt#1592.
 
+   **State-coupled production probe (mt#1606).** When the spec contains success criteria of the form "feature X works," "feature X returns Y," "feature X is callable," or "feature X is registered," the smoke for those criteria MUST be **state-coupled**: it asserts execution evidence through the production wiring, not just non-error invocation. "Code shape exists" is insufficient — the production code path must be exercised against real (or production-parity) dependencies.
+
+   Per-category probe forms:
+
+   - **Persistence**: create-then-read round-trip. Insert an entity via the production code path, then read it back via the production code path; assert the read returns the inserted entity.
+   - **Search / embedding**: insert-then-search round-trip. Index an entity, then search for it; assert search returns the inserted entity (not just non-empty results).
+   - **MCP tool surface**: call the tool from the agent context; assert the response shape matches the spec.
+   - **Cross-process / cross-harness**: spawn a fresh process or fresh conversation; assert state propagates correctly.
+   - **Schema migration**: confirm the declared table/column exists in the live DB after the migration runs (catches the mt#1611 shadow-failure pattern where a migration was tracked-as-applied but the table did not exist).
+
+   If the live probe cannot be run from the reviewer's context (missing env var, target not deployed, rate-limit, production-credential carve-out), record `Smoke: skipped — <reason>` AND emit a NON-BLOCKING `[live-probe-deferred]` finding directing the implementer to run the probe post-PR-create per the live-verification gap pattern (mt#1399 / mt#1403 / mt#1611): subagent ships the artifact, main agent runs it from a context with credentials, output goes in the PR body's "## Live verification" section. Code-shape verification ("the function exists") is insufficient evidence for feature-shipped SCs.
+
+   Originating incidents: mt#1008 (memory_search degraded — code-shape passed isolated tests but production wiring was broken); mt#1611 (knowledge sync routing — code-shape passed but the `knowledge_embeddings` table didn't exist on production despite being tracked-as-applied per `drizzle.__drizzle_migrations`). The state-coupled requirement makes both bug classes structurally impossible to reach DONE without the probe firing.
+
 6. **Post the review directly** — call `mcp__minsky__session_pr_review_submit` with task, body, event, and `comments[]`. Do not return findings to the parent for posting; post them yourself.
 
 Event selection for Mode 2:
@@ -427,3 +441,15 @@ All location-bearing findings MUST appear as `comments[]` entries, NOT in the bo
 - _Putting location-bearing findings only in the body_ (Mode 2) → Every PR-introduced finding with a specific file:line must be a `comments[]` entry. Body is for summary, spec table, CI status, cross-cutting concerns, and PRE-EXISTING findings (not introduced by this PR).
 - _Mode 1 subagent committing anchored comments[] directly_ → Mode 1 subs emit raw observations only; the parent aggregator validates anchors against `parsedDiff` and constructs the final `comments[]`. A subagent that posts directly bypasses anchor validation and risks 422-rejecting the entire review.
 - _Mode 1 subagent including severity prefixes in observation bodies_ → Severity is a parent decision — only the parent has the spec, CI, and global view to calibrate per the Critic Constitution. Subagent observations carry `concern` + `evidence` as raw fields; the parent constructs the severity-prefixed `comments[].body` from them.
+
+## Code-shape vs execution-evidence (mt#1606)
+
+For feature-shipped SCs, code-shape verification is insufficient. Each of the patterns below is a known false-positive shape that has shipped DONE despite the feature being broken in production:
+
+- _"Tests pass" ≠ "feature works"_ → Unit tests exercise the service in isolation with stubbed dependencies. They prove the service-side logic is correct **given working dependencies.** They cannot prove the dependencies are correctly wired in production.
+- _"Code exists" ≠ "code runs end-to-end"_ → A function being defined, exported, and called in a unit test is necessary but not sufficient. The production code path must be exercised against real (or production-parity) dependencies.
+- _"Schema defined" ≠ "runtime wired"_ → An entity having a database schema with the right columns is necessary but not sufficient. The runtime API that constructs queries against that schema must be parameterized to use it (vs hardcoded to a different schema).
+- _"Acceptance test exists" ≠ "acceptance test produced execution evidence"_ → A test file that contains the right assertion is necessary but not sufficient. The test must have been run against the production target and produced non-trivial output.
+- _"Migration tracked as applied" ≠ "schema in DB matches declared schema"_ (added 2026-05-08 from mt#1611) → A row in `drizzle.__drizzle_migrations` for the migration's hash does NOT prove the migration's SQL had its intended effect on the live DB. Verify post-apply schema state against declared schema for migration-touching PRs.
+
+The state-coupled probe in step 5c catches all five failure modes. Originating patterns: `feedback_static_helper_completeness_vs_production_wiring` (escalation budget for the recurring class) and `feedback_behavior_detecting_artifacts_need_execution_evidence` (sibling pattern: tests/probes/retries can't be verified by code-shape alone).
