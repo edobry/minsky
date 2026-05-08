@@ -434,7 +434,10 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       principal: {
         sub: row.sub,
         clientId: row.clientId,
-        agentId: `oauth:mcp:user-${row.sub}`,
+        // ADR-006 Decision B format: oauth:claude-ai:user-<sub>
+        // conv-<convId> suffix is omitted in v1 — conversation propagation
+        // is not yet wired through the HTTP layer. See mt#1666.
+        agentId: `oauth:claude-ai:user-${row.sub}`,
       },
       scopes,
       audience: row.audience ?? null,

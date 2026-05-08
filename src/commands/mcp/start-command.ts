@@ -34,7 +34,8 @@ import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { AppContainerInterface } from "../../composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import { resolveOAuthProvider } from "../../domain/oauth/registry";
-import type { OAuthIdentityProvider } from "../../domain/oauth/types";
+import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
+import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -67,6 +68,68 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
   const match = header.match(/^Bearer\s+(.+)$/i);
   const presented = match?.[1]?.trim();
   return !!presented && presented === expectedToken;
+}
+
+/**
+ * Extract the raw bearer token string from an Authorization header.
+ *
+ * Returns the token string (without the "Bearer " prefix) if the header is
+ * well-formed, or null if the header is absent or malformed.
+ *
+ * Exported for tests.
+ */
+export function extractBearer(header: string | undefined): string | null {
+  if (!header) return null;
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  const token = match?.[1]?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+/**
+ * Validate an OAuth bearer token and enforce RFC 8707 audience binding.
+ *
+ * - Calls `oauthProvider.validateToken(bearer)`.
+ * - On `{ valid: true }`, checks that the token's `audience` matches `endpointUrl`
+ *   (audience is allowed to be null only when endpointUrl is also null, i.e., no
+ *   audience binding required — currently unused; production always passes an endpointUrl).
+ *
+ * Returns:
+ *   `{ ok: true, agentId }` — token valid, audience matches, agentId ready to inject.
+ *   `{ ok: false, reason }` — validation failed or audience mismatch.
+ *
+ * Exported for tests.
+ */
+export async function validateOAuthBearer(
+  bearer: string,
+  oauthProvider: OAuthIdentityProvider,
+  endpointUrl: string | null
+): Promise<
+  | { ok: true; agentId: string; validation: OAuthValidationResult & { valid: true } }
+  | { ok: false; reason: string }
+> {
+  let result: OAuthValidationResult;
+  try {
+    result = await oauthProvider.validateToken(bearer);
+  } catch (err) {
+    log.error("[mt#1666] validateToken threw unexpectedly", { error: getErrorMessage(err) });
+    return { ok: false, reason: "malformed" };
+  }
+
+  if (!result.valid) {
+    return { ok: false, reason: result.reason };
+  }
+
+  // RFC 8707 audience binding: when the token was issued for a specific resource,
+  // it must match the resource being accessed.
+  if (result.audience !== null && endpointUrl !== null && result.audience !== endpointUrl) {
+    log.warn("[mt#1666] audience mismatch", {
+      tokenAudience: result.audience,
+      endpointUrl,
+    });
+    return { ok: false, reason: "audience_mismatch" };
+  }
+
+  return { ok: true, agentId: result.principal.agentId, validation: result };
 }
 
 /**
@@ -244,7 +307,81 @@ async function startHttpServer(
   app.all(options.endpoint, async (req, res) => {
     if (auth.enabled) {
       const header = req.header("authorization") ?? req.header("Authorization");
-      if (!checkBearerAuth(header, auth.token)) {
+      const staticOk = checkBearerAuth(header, auth.token);
+
+      if (staticOk) {
+        // Static-bearer path: existing agentId logic (Layer 1 / Layer 2 from _meta).
+        // No agentId injection needed — caller may declare their own via _meta.
+      } else if (oauthProvider) {
+        // OAuth-token path: try to validate as an OAuth-issued token.
+        const bearer = extractBearer(header);
+        if (!bearer) {
+          res.status(401).json({
+            error: "unauthorized",
+            message: "valid bearer token required",
+          });
+          return;
+        }
+
+        // Compose the endpoint URL for RFC 8707 audience binding.
+        // The audience in the token must match the resource URL the token was issued for.
+        const baseUrl = composeRequestBaseUrl(req);
+        const endpointUrl = `${baseUrl}${normalizeEndpointPath(options.endpoint)}`;
+
+        const oauthResult = await validateOAuthBearer(bearer, oauthProvider, endpointUrl);
+        if (!oauthResult.ok) {
+          const errorCode =
+            oauthResult.reason === "audience_mismatch" ? "invalid_token" : "unauthorized";
+          const description =
+            oauthResult.reason === "audience_mismatch"
+              ? "audience mismatch"
+              : oauthResult.reason === "expired"
+                ? "token expired"
+                : oauthResult.reason === "revoked"
+                  ? "token revoked"
+                  : "invalid token";
+          res.status(401).json({
+            error: errorCode,
+            error_description: description,
+          });
+          return;
+        }
+
+        // Inject agentId into the MCP request body's _meta so Layer 2 picks it up.
+        // Only inject for POST requests that carry a body — GET (SSE) connections
+        // don't carry a JSON body and don't have tool-call context.
+        if (req.method === "POST" && req.body && typeof req.body === "object") {
+          // For a batch request (array), inject into each item; for a single
+          // request (object), inject into the top-level _meta.
+          const injectMeta = (msg: Record<string, unknown>): Record<string, unknown> => {
+            const existingMeta =
+              msg._meta && typeof msg._meta === "object" && !Array.isArray(msg._meta)
+                ? (msg._meta as Record<string, unknown>)
+                : {};
+            // Only inject if the caller has not already declared an agentId
+            // (cooperative Layer 2: caller-declared _meta wins over OAuth-derived).
+            if (existingMeta[AGENT_ID_META_KEY]) return msg;
+            return {
+              ...msg,
+              _meta: {
+                ...existingMeta,
+                [AGENT_ID_META_KEY]: oauthResult.agentId,
+              },
+            };
+          };
+
+          if (Array.isArray(req.body)) {
+            req.body = req.body.map((item: unknown) =>
+              item && typeof item === "object" && !Array.isArray(item)
+                ? injectMeta(item as Record<string, unknown>)
+                : item
+            );
+          } else {
+            req.body = injectMeta(req.body as Record<string, unknown>);
+          }
+        }
+      } else {
+        // No OAuth provider available; static-bearer check already failed.
         res.status(401).json({
           error: "unauthorized",
           message: "valid bearer token required",
