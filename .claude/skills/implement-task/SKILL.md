@@ -414,10 +414,10 @@ ladder. Each valve below has a tracking memory:
   When the bypass IS warranted (after R≥1 substantive fixes have landed AND
   no valid review can be obtained), the form is:
   `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`
-  with an audit-trail commit message. After bypass-merge, run `/verify-task
-mt#X` — that path requires the closeout skill since `session_pr_merge` did
-  not fire. See `feedback_bot_pr_convergence_via_bypass` for the broader
-  framing.
+  with an audit-trail commit message. After bypass-merge, run
+  `/verify-task mt#X` — that path requires the closeout skill since
+  `session_pr_merge` did not fire. See `feedback_bot_pr_convergence_via_bypass`
+  for the broader framing.
 
 - **Round-N self-reversal** of a prior accepted fix → bikeshedding;
   iteration has converged. Bypass with audit note explaining the chosen side.
