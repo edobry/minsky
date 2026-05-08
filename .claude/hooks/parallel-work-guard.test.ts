@@ -2,12 +2,15 @@ import { describe, expect, it } from "bun:test";
 
 import {
   extractInScopeFiles,
+  fetchFileContentAtRef,
   findOverlappingFiles,
   formatBlockMessage,
   runParallelWorkChecks,
   parseGitHubRemoteUrl,
   isOwnBranch,
   detectDefaultBranch,
+  isAppendOnlyToJsonArrays,
+  STRUCTURED_CONFIG_ALLOWLIST,
   type ParallelWorkCheckInput,
   type ParallelWorkCheckDeps,
   type ParallelWorkCollision,
@@ -29,6 +32,9 @@ function makeDeps(overrides: Partial<ParallelWorkCheckDeps> = {}): ParallelWorkC
     fetchPrFiles: () => [],
     fetchRecentMerges: () => [],
     detectDefaultBranch: () => ({ ref: "origin/main" }),
+    // Default to "no exemption" so existing tests keep their semantics — any
+    // mt#1587 tests opt in by overriding this dep.
+    isFileChangeAppendOnly: () => false,
     ...overrides,
   };
 }
@@ -37,6 +43,8 @@ const FIXTURE_SETTINGS_JSON = ".claude/settings.json";
 const FIXTURE_ASK_TS = "src/domain/ask/ask.ts";
 const FIXTURE_ASK_TEST_TS = "src/domain/ask/ask.test.ts";
 const FIXTURE_HOOK_TS = ".claude/hooks/parallel-work-guard.ts";
+// mt#1587: append-only structured-config exemption fixtures
+const FIXTURE_NEW_HOOK_TS = ".claude/hooks/my-new-hook.ts";
 
 // ---------------------------------------------------------------------------
 // extractInScopeFiles
@@ -795,4 +803,646 @@ describe("runParallelWorkChecks — round-5 PR cap behaviour", () => {
     expect(result.warnings.some((w) => w.includes("capped at 200"))).toBe(true);
     expect(result.blocked).toBe(false);
   });
+});
+
+// ---------------------------------------------------------------------------
+// isAppendOnlyToJsonArrays — append-only structured-config check (mt#1587)
+// ---------------------------------------------------------------------------
+
+describe("isAppendOnlyToJsonArrays", () => {
+  it("returns true for identical objects", () => {
+    const before = { a: 1, b: [1, 2, 3] };
+    const after = { a: 1, b: [1, 2, 3] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("returns true when an array grows at the tail (existing elements unchanged)", () => {
+    const before = { hooks: [{ matcher: "tool1" }] };
+    const after = { hooks: [{ matcher: "tool1" }, { matcher: "tool2" }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("returns true for nested array growth in real settings.json shape", () => {
+    const before = {
+      env: { CLAUDE_CODE_SUBAGENT_MODEL: "sonnet" },
+      hooks: {
+        PreToolUse: [{ matcher: "tool1", hooks: [{ type: "command", command: "x" }] }],
+      },
+    };
+    const after = {
+      env: { CLAUDE_CODE_SUBAGENT_MODEL: "sonnet" },
+      hooks: {
+        PreToolUse: [
+          { matcher: "tool1", hooks: [{ type: "command", command: "x" }] },
+          { matcher: "tool2", hooks: [{ type: "command", command: "y" }] },
+        ],
+      },
+    };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("returns false when an array shrinks", () => {
+    const before = { hooks: [{ a: 1 }, { a: 2 }] };
+    const after = { hooks: [{ a: 1 }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when an existing array element is modified", () => {
+    const before = { hooks: [{ matcher: "tool1" }] };
+    const after = { hooks: [{ matcher: "tool1-renamed" }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when a top-level object key is added", () => {
+    const before = { env: { X: "Y" } };
+    const after = { env: { X: "Y" }, newKey: "value" };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when a nested object key is added", () => {
+    const before = { env: { X: "Y" } };
+    const after = { env: { X: "Y", Z: "W" } };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when a primitive value changes", () => {
+    const before = { env: { X: "Y" } };
+    const after = { env: { X: "Z" } };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when an array element is inserted at the head (shifts existing indices)", () => {
+    const before = { hooks: [{ a: 1 }] };
+    const after = { hooks: [{ a: 0 }, { a: 1 }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when array becomes object", () => {
+    const before = { hooks: [{ a: 1 }] };
+    const after = { hooks: { 0: { a: 1 } } };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("returns false when object becomes array", () => {
+    const before = { hooks: { foo: 1 } };
+    const after = { hooks: [{ foo: 1 }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("handles deep array growth (array of arrays)", () => {
+    const before = { matrix: [[1, 2]] };
+    const after = {
+      matrix: [
+        [1, 2],
+        [3, 4],
+      ],
+    };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("rejects growth in a nested array's existing row", () => {
+    // Adding to the inner array at index 0 means modifying an existing
+    // element of the OUTER array — not append-only at the outer level.
+    const before = { matrix: [[1, 2]] };
+    const after = { matrix: [[1, 2, 3]] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("STRUCTURED_CONFIG_ALLOWLIST contains the expected paths", () => {
+    expect(STRUCTURED_CONFIG_ALLOWLIST).toContain(FIXTURE_SETTINGS_JSON);
+    expect(STRUCTURED_CONFIG_ALLOWLIST).toContain(
+      `${FIXTURE_SETTINGS_JSON.replace(".json", ".local.json")}`
+    );
+  });
+
+  it("treats objects with same keys in different order as equal (PR #952 R3#2)", () => {
+    // Two semantically-identical objects with different key insertion order
+    // — possible when one ref's settings.json was prettified and another
+    // was hand-edited. Pre-R3#2, JSON.stringify-based equality returned
+    // false here, defeating the exemption. Now the recursive equality
+    // ignores object key order.
+    const before = { matcher: "tool1", hooks: [{ a: 1, b: 2 }] };
+    const after = { hooks: [{ b: 2, a: 1 }], matcher: "tool1" };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("rejects when b has extra keys not in a (PR #952 R9#7 explicit symmetric)", () => {
+    // Sanity check that the length-equality + presence-in-b check is
+    // effectively symmetric: if b has more keys than a, length differs
+    // and the function returns false. Pin this so future refactors of
+    // the key-comparison logic don't silently break symmetry.
+    const before = { x: 1 };
+    const after = { x: 1, y: 2 };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("rejects when a and b have same length but different keys (PR #952 R9#7)", () => {
+    // Length-equal but keys differ: a has y, b has z. Loop over a's keys
+    // hits y, hasOwnProperty on b is false, returns false. Symmetric in
+    // effect even without explicit set comparison.
+    const before = { x: 1, y: 2 };
+    const after = { x: 1, z: 2 };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+
+  it("treats NaN as equal to NaN for numeric primitives (PR #952 R8#2)", () => {
+    // JSON.parse never produces NaN, but for non-JSON callers reusing the
+    // helper, NaN-vs-NaN comparing as true matches intuitive equality.
+    const before = { value: NaN };
+    const after = { value: NaN };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(true);
+  });
+
+  it("array order still matters even with order-insensitive object compare (PR #952 R3#2)", () => {
+    // Sanity check: arrays remain order-sensitive — only OBJECT keys are
+    // treated as orderless. Reordering array elements must still register
+    // as a structural change.
+    const before = { hooks: [{ a: 1 }, { a: 2 }] };
+    const after = { hooks: [{ a: 2 }, { a: 1 }] };
+    expect(isAppendOnlyToJsonArrays(before, after)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runParallelWorkChecks — structured-config exemption integration (mt#1587)
+// ---------------------------------------------------------------------------
+
+describe("runParallelWorkChecks — structured-config exemption", () => {
+  const taskInput: ParallelWorkCheckInput = {
+    taskId: "mt#9999",
+    inScopeFiles: [FIXTURE_SETTINGS_JSON, FIXTURE_NEW_HOOK_TS],
+    repo: "owner/repo",
+    lookbackHours: 24,
+  };
+
+  it("exempts settings.json overlap when the colliding PR's change is append-only", () => {
+    const exemptDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 100,
+          title: "feat(other-hook): add a hook",
+          headRefName: "task/mt-100",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, _to, file) => {
+        // Simulate: the PR's change to settings.json IS append-only.
+        return file === FIXTURE_SETTINGS_JSON;
+      },
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", exemptDeps);
+    // The only overlapping file was settings.json, which got exempted.
+    // No collision should be reported.
+    expect(result.blocked).toBe(false);
+    expect(result.collisions).toHaveLength(0);
+    // The exemption should be visible in warnings for audit.
+    expect(
+      result.warnings.some((w) =>
+        w.includes(`${FIXTURE_SETTINGS_JSON} change is append-only into JSON arrays`)
+      )
+    ).toBe(true);
+  });
+
+  it("does NOT exempt when the structural check returns false (modification, not append-only)", () => {
+    const noExemptDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 101,
+          title: "feat(other): modify settings",
+          headRefName: "task/mt-101",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      // Helper returns false → keep the collision.
+      isFileChangeAppendOnly: () => false,
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", noExemptDeps);
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]?.overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
+  });
+
+  it("keeps a collision when overlap includes BOTH allowlisted AND non-allowlisted files", () => {
+    // Even if settings.json is exempt, the parallel hook source file is a
+    // real conflict — collision must still fire.
+    const mixedDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 102,
+          title: "feat(my-hook): same hook",
+          headRefName: "task/mt-102",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON, FIXTURE_NEW_HOOK_TS],
+      isFileChangeAppendOnly: (_repo, _from, _to, file) => file === FIXTURE_SETTINGS_JSON,
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", mixedDeps);
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    // settings.json filtered out; hook .ts file remains as the real conflict.
+    expect(result.collisions[0]?.overlappingFiles).toEqual([FIXTURE_NEW_HOOK_TS]);
+  });
+
+  it("does NOT call the structural check for non-allowlisted files", () => {
+    const otherTask: ParallelWorkCheckInput = {
+      taskId: "mt#9998",
+      inScopeFiles: ["src/foo.ts"],
+      repo: "owner/repo",
+      lookbackHours: 24,
+    };
+    let appendOnlyCalls = 0;
+    const counterDeps = makeDeps({
+      fetchOpenPrs: () => [
+        { number: 200, title: "feat(other): src change", headRefName: "task/mt-200" },
+      ],
+      fetchPrFiles: () => ["src/foo.ts"],
+      isFileChangeAppendOnly: () => {
+        appendOnlyCalls += 1;
+        return true; // would exempt if called
+      },
+    });
+
+    const result = runParallelWorkChecks(otherTask, "/tmp/anywhere", "task/mt-9998", counterDeps);
+    expect(appendOnlyCalls).toBe(0);
+    expect(result.blocked).toBe(true);
+  });
+
+  it("pr.baseRefName takes priority over the detected repo default branch (PR #952 R10#2)", () => {
+    // The PR's own base is the source of truth for the structural check —
+    // detected default branch is irrelevant for the open-PR sweep when
+    // baseRefName is provided. Replaces the old 'origin/'-stripping test
+    // which is no longer reachable for the open-PR path.
+    let observedBaseRef = "";
+    const probeDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/develop" }),
+      fetchOpenPrs: () => [
+        { number: 300, title: "feat", headRefName: "task/mt-300", baseRefName: "main" },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, fromRef) => {
+        observedBaseRef = fromRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", probeDeps);
+    // PR's baseRefName ("main") wins, NOT the detected default ("develop").
+    expect(observedBaseRef).toBe("main");
+  });
+
+  it("uses pr.baseRefName regardless of default-branch detection (PR #952 R10#2)", () => {
+    let observedBaseRef = "";
+    const probeDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: null, warning: "all probes failed" }),
+      fetchOpenPrs: () => [
+        { number: 301, title: "feat", headRefName: "task/mt-301", baseRefName: "main" },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, fromRef) => {
+        observedBaseRef = fromRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", probeDeps);
+    // The PR's own baseRefName is the source of truth; default-branch
+    // detection failure no longer affects the open-PR structural check
+    // (PR #952 R10#2 fail-closed when baseRefName itself is missing).
+    expect(observedBaseRef).toBe("main");
+  });
+
+  it("falls back to a no-op exemption when deps omit isFileChangeAppendOnly (PR #952 R11#3)", () => {
+    // Pre-mt#1587 callers that constructed a `deps` object before the
+    // structural-config exemption shipped should still type-check (the
+    // field is optional) AND behave fail-closed at runtime — every
+    // allowlisted overlap is treated as a real collision because the
+    // no-op fallback returns false (cannot prove append-only → unsafe).
+    const legacyDeps: ParallelWorkCheckDeps = {
+      fetchOpenPrs: () => [
+        { number: 700, title: "legacy", headRefName: "task/mt-700", baseRefName: "main" },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      fetchRecentMerges: () => [],
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      // isFileChangeAppendOnly intentionally omitted
+    };
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", legacyDeps);
+
+    // No exemption applied → settings.json overlap remains a collision.
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0].overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
+  });
+
+  it("uses refs/pull/<num>/head as toRef regardless of fork status (PR #952 R4#1)", () => {
+    let observedToRef = "";
+    const refsDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 500,
+          title: "feat: forked PR",
+          headRefName: "fork-author:feature-branch", // fork-only ref
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedToRef = toRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", refsDeps);
+    // Canonical PR-head ref — addressable via the base repo's API for both
+    // same-repo and forked PRs. Replaces the R3#1 attempt that used
+    // headRefOid (a fork-only SHA, not in the base repo's git database).
+    expect(observedToRef).toBe("refs/pull/500/head");
+  });
+
+  it("falls back to refs/pull/<num>/merge when /head fetch fails (PR #952 R8#1)", () => {
+    const observedRefs: string[] = [];
+    const fallbackDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      fetchOpenPrs: () => [
+        {
+          number: 700,
+          title: "feat: forked PR with private head",
+          headRefName: "fork:branch",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef, _file, _warnings, _cache, status) => {
+        observedRefs.push(toRef);
+        if (toRef.endsWith("/head")) {
+          // Simulate fetch failure on /head — set status so caller retries.
+          if (status) status.fetchFailed = true;
+          return false;
+        }
+        return true; // /merge succeeds
+      },
+    });
+
+    const result = runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", fallbackDeps);
+    // Both refs were tried in order.
+    expect(observedRefs).toEqual(["refs/pull/700/head", "refs/pull/700/merge"]);
+    // Exemption succeeded via fallback — no collision recorded.
+    expect(result.blocked).toBe(false);
+    // Audit warning records the fallback was used.
+    expect(
+      result.warnings.some((w) => w.includes("exemption resolved via refs/pull/700/merge fallback"))
+    ).toBe(true);
+  });
+
+  it("passes a per-PR contentCache to isAppendOnly across fallback attempts (PR #952 R9#6)", () => {
+    // Verify the cache is plumbed through: same Map instance is passed
+    // to BOTH isAppendOnly invocations (the /head try and the /merge try).
+    // The cache itself prevents fromRef re-fetches inside isFileChangeAppendOnly.
+    const cachesObserved: Array<Map<string, string | null> | undefined> = [];
+    const cacheDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 800,
+          title: "feat: PR exercising both fallback attempts",
+          headRefName: "task/mt-800",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef, _file, _warnings, contentCache, status) => {
+        cachesObserved.push(contentCache);
+        if (toRef.endsWith("/head")) {
+          // Simulate fetch failure on /head — set status so caller retries.
+          if (status) status.fetchFailed = true;
+          return false;
+        }
+        return true; // /merge succeeds
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", cacheDeps);
+    // Both attempts received a cache; both received the SAME Map instance.
+    expect(cachesObserved).toHaveLength(2);
+    expect(cachesObserved[0]).toBeInstanceOf(Map);
+    expect(cachesObserved[0]).toBe(cachesObserved[1]); // same instance
+  });
+
+  it("does not retry /merge when /head succeeds (PR #952 R8#1 efficiency)", () => {
+    const observedRefs: string[] = [];
+    const headSuccessDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 701,
+          title: "feat: same-repo PR /head works",
+          headRefName: "task/mt-701",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedRefs.push(toRef);
+        return true; // /head succeeds first try
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", headSuccessDeps);
+    // Only /head was tried; /merge was not invoked.
+    expect(observedRefs).toEqual(["refs/pull/701/head"]);
+  });
+
+  it("uses pr.baseRefName as fromRef when present (PR #952 R7#4)", () => {
+    let observedFromRef = "";
+    const baseDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      fetchOpenPrs: () => [
+        {
+          number: 600,
+          title: "feat: PR targeting develop branch",
+          headRefName: "task/mt-600",
+          baseRefName: "develop",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, fromRef) => {
+        observedFromRef = fromRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", baseDeps);
+    // PR's actual base branch (develop) used, NOT the repo default (main).
+    expect(observedFromRef).toBe("develop");
+  });
+
+  it("fails closed when pr.baseRefName is absent (PR #952 R10#2)", () => {
+    // Behavior changed in R10#2: rather than falling back to the repo
+    // default branch (which can miscompare for non-default-base PRs),
+    // the structural exemption is skipped entirely when baseRefName is
+    // missing. The collision is preserved; an audit warning records why.
+    let appendOnlyCalls = 0;
+    const failClosedDeps = makeDeps({
+      detectDefaultBranch: () => ({ ref: "origin/main" }),
+      fetchOpenPrs: () => [
+        {
+          number: 601,
+          title: "feat: legacy test PR without baseRefName",
+          headRefName: "task/mt-601",
+          // baseRefName intentionally omitted
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: () => {
+        appendOnlyCalls += 1;
+        return true; // would exempt if called
+      },
+    });
+
+    const result = runParallelWorkChecks(
+      taskInput,
+      "/tmp/anywhere",
+      "task/mt-9999",
+      failClosedDeps
+    );
+    // Structural check NOT invoked.
+    expect(appendOnlyCalls).toBe(0);
+    // Collision preserved (fail-closed).
+    expect(result.blocked).toBe(true);
+    // Audit warning naming the cause.
+    expect(
+      result.warnings.some((w) =>
+        w.includes("baseRefName unavailable — structural-config exemption skipped")
+      )
+    ).toBe(true);
+  });
+
+  it("uses refs/pull/<num>/head for same-repo PRs too (PR #952 R4#1 consistency)", () => {
+    let observedToRef = "";
+    const sameRepoDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 501,
+          title: "feat: same-repo PR",
+          headRefName: "task/mt-501",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, toRef) => {
+        observedToRef = toRef;
+        return true;
+      },
+    });
+
+    runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", sameRepoDeps);
+    expect(observedToRef).toBe("refs/pull/501/head");
+  });
+
+  it("preserves collision and emits a triage warning when allowlisted file is NOT append-only (PR #952 R1 inline nit)", () => {
+    // Simulates the gh API failure / parse failure path: structural check
+    // returns false (cannot prove append-only), collision must be preserved
+    // and the WHY surfaced for triage.
+    const failClosedDeps = makeDeps({
+      fetchOpenPrs: () => [
+        {
+          number: 400,
+          title: "feat(other): real conflict",
+          headRefName: "task/mt-400",
+          baseRefName: "main",
+        },
+      ],
+      fetchPrFiles: () => [FIXTURE_SETTINGS_JSON],
+      isFileChangeAppendOnly: (_repo, _from, _to, _file, warnings) => {
+        // Simulate the helper writing a fetch-failure warning, then
+        // returning false (fail-closed).
+        warnings.push("Could not fetch .claude/settings.json@feature-branch: gh exited 4");
+        return false;
+      },
+    });
+
+    const result = runParallelWorkChecks(
+      taskInput,
+      "/tmp/anywhere",
+      "task/mt-9999",
+      failClosedDeps
+    );
+    // Fail-closed: collision preserved.
+    expect(result.blocked).toBe(true);
+    expect(result.collisions).toHaveLength(1);
+    expect(result.collisions[0]?.overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
+    // Operator-facing: gh failure warning AND keeping-collision triage hint
+    // both visible.
+    expect(result.warnings.some((w) => w.includes("Could not fetch"))).toBe(true);
+    expect(
+      result.warnings.some((w) =>
+        w.includes(`${FIXTURE_SETTINGS_JSON} is allowlisted but its change is NOT append-only`)
+      )
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchFileContentAtRef — path-encoding regression (PR #952 R1 BLOCKING)
+// ---------------------------------------------------------------------------
+
+describe("fetchFileContentAtRef — path-encoding regression (PR #952 R1 BLOCKING)", () => {
+  // The PR #952 R1 BLOCKING was: encodeURIComponent on the FULL filePath
+  // encoded '/' as '%2F', causing GitHub Contents API to 404 every fetch
+  // and disabling the exemption entirely. The fix encodes each path SEGMENT
+  // separately and rejoins with '/', preserving slashes in the URL path.
+  it("encodes path segments individually and rejoins with '/' (no '%2F' in path)", () => {
+    const filePath = FIXTURE_SETTINGS_JSON;
+    const encoded = filePath.split("/").map(encodeURIComponent).join("/");
+    expect(encoded).toBe(FIXTURE_SETTINGS_JSON); // slashes preserved
+    expect(encoded).not.toContain("%2F");
+  });
+
+  it("encodes special characters in segments while keeping slashes", () => {
+    const filePath = "src/My Component.tsx";
+    const encoded = filePath.split("/").map(encodeURIComponent).join("/");
+    expect(encoded).toBe("src/My%20Component.tsx"); // space encoded inside segment
+    expect(encoded).not.toContain("%2F");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchFileContentAtRef — rev-spec ref guard (PR #952 R4#2 BLOCKING)
+// ---------------------------------------------------------------------------
+
+describe("fetchFileContentAtRef — rev-spec ref guard (PR #952 R4#2)", () => {
+  // The GitHub Contents API rejects rev-spec expressions like <sha>^,
+  // <sha>~1, HEAD^. Defense-in-depth: fetchFileContentAtRef now refuses
+  // any ref containing ^ or ~ before issuing the API call, preventing
+  // future regressions that reintroduce <sha>^ as a fromRef.
+  it("refuses refs containing ^ (parent-spec) and emits a triage warning", () => {
+    const warnings: string[] = [];
+    const result = fetchFileContentAtRef("owner/repo", "abc123^", FIXTURE_SETTINGS_JSON, warnings);
+    expect(result).toBeNull();
+    expect(warnings.some((w) => w.includes("rev-spec syntax"))).toBe(true);
+  });
+
+  it("refuses refs containing ~ (ancestor-spec)", () => {
+    const warnings: string[] = [];
+    const result = fetchFileContentAtRef("owner/repo", "abc123~1", FIXTURE_SETTINGS_JSON, warnings);
+    expect(result).toBeNull();
+    expect(warnings.some((w) => w.includes("rev-spec syntax"))).toBe(true);
+  });
+
+  it("refuses HEAD^ as a ref", () => {
+    const warnings: string[] = [];
+    const result = fetchFileContentAtRef("owner/repo", "HEAD^", FIXTURE_SETTINGS_JSON, warnings);
+    expect(result).toBeNull();
+    expect(warnings.some((w) => w.includes("rev-spec syntax"))).toBe(true);
+  });
+
+  // Note: positive-path tests (valid SHA / branch / refs/pull/N/head)
+  // require live `gh api` execution and are out of scope for unit tests.
+  // The rev-spec guard is sufficient to prevent the BLOCKING regression
+  // class; integration coverage lives in mt#1497-style replay scripts.
 });

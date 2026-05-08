@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "../../../utils/logger";
+import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -144,6 +145,12 @@ export function registerDebugCommands(): void {
           external: 0,
         };
 
+        // mt#1645: include MCP disconnect cadence in system info.
+        // Uses the process-wide DisconnectTracker singleton; if no MCP server
+        // has been started in this process the tracker falls back to a default
+        // server name so the call never throws.
+        const disconnectSummary = DisconnectTracker.getInstance("minsky").getSummary();
+
         // Return formatted system information
         return {
           nodejs: {
@@ -158,6 +165,24 @@ export function registerDebugCommands(): void {
             heapUsed: formatBytes(memory.heapUsed),
             external: formatBytes(memory.external),
           },
+          /**
+           * MCP disconnect cadence (mt#1645).
+           *
+           * Recurrence-threshold escalation rule:
+           *   > 1 disconnect per active session  → file a structural-fix task
+           *   > 3 disconnects per active day     → file a structural-fix task
+           *
+           * Calibrate thresholds after week-1 observation. The 2026-05-07 planning
+           * session for this task already observed 3 disconnects in ~70 minutes,
+           * exceeding the "1 per active session" baseline. The structural-fix task
+           * (auto-reconnect / keepalive) is already justified based on that data.
+           *
+           * `escalation` field values:
+           *   "none"    = below both thresholds — no action needed
+           *   "session" = > 1 disconnect this session — file structural-fix task
+           *   "daily"   = > 3 disconnects in last 24h — file structural-fix task
+           */
+          mcpDisconnects: disconnectSummary,
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };

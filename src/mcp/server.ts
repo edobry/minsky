@@ -30,6 +30,7 @@ import {
   type SessionResolver as WakeSessionResolver,
   type WakeServiceSurface,
 } from "./middleware/wake-enrichment";
+import { DisconnectTracker } from "./disconnect-tracker";
 
 /**
  * Transport type for MCP server
@@ -215,6 +216,13 @@ export class MinskyMCPServer {
 
   // Staleness signal tracking
   private hasTriggeredStaleSignal = false;
+
+  /**
+   * Disconnect/reconnect event tracker for cadence measurement (mt#1645).
+   * Records structured events to `~/.local/state/minsky/mcp-disconnect-log.json`
+   * and exposes a summary via `debug.systemInfo`.
+   */
+  private disconnectTracker: DisconnectTracker;
   /** Indirection for process.exit so tests can intercept without spawning a process. */
   private exit = (code: number) => process.exit(code);
 
@@ -261,6 +269,11 @@ export class MinskyMCPServer {
     this.stalenessDetector = new StalenessDetector(
       this.projectContext.repositoryPath || process.cwd()
     );
+
+    // mt#1645: disconnect/reconnect cadence tracker. Server name is the
+    // MCP server name as configured (e.g. "Minsky MCP Server", "minsky",
+    // "minsky-hosted"). Normalised to the short form for readability in logs.
+    this.disconnectTracker = DisconnectTracker.getInstance(this.options.name);
 
     // mt#953 — agent identity research diagnostic capture (env-gated)
     this.diag = createDiagnosticCapture();
@@ -497,6 +510,12 @@ export class MinskyMCPServer {
       // onmessage handlers the SDK installs during connect() are captured
       // below when we chain our own.
       await server.connect(transport);
+      // mt#1645: wire disconnect/reconnect tracking on this per-session Server.
+      // HTTP sessions use "unknown" as the default cause — the transport close
+      // event does not distinguish client-initiated vs. server-initiated closes
+      // at the protocol level.
+      this.wireDisconnectHooks(server, "unknown");
+      this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
         transport: StreamableHTTPServerTransport;
@@ -1020,6 +1039,41 @@ export class MinskyMCPServer {
   }
 
   /**
+   * Wire disconnect/reconnect tracking hooks onto an SDK Server instance
+   * (mt#1645). Chains onto any existing `onclose`/`onerror` callbacks rather
+   * than replacing them so other SDK internals continue to work.
+   *
+   * @param server   The SDK Server to instrument.
+   * @param defaultCause  Cause to record when `onclose` fires without an
+   *                 accompanying transport error (e.g. `"stdin_close"` for
+   *                 stdio, `"unknown"` for HTTP sessions).
+   */
+  private wireDisconnectHooks(
+    server: Server,
+    defaultCause: import("./disconnect-tracker").McpDisconnectCause
+  ): void {
+    const prevOnclose = server.onclose;
+    server.onclose = () => {
+      prevOnclose?.();
+      this.disconnectTracker.recordDisconnect(defaultCause);
+    };
+
+    const prevOnerror = server.onerror;
+    server.onerror = (error: Error) => {
+      prevOnerror?.(error);
+      this.disconnectTracker.recordTransportError(getErrorMessage(error));
+    };
+  }
+
+  /**
+   * Expose the disconnect tracker for use by the `debug.systemInfo` command.
+   * Read-only — callers must not mutate the tracker.
+   */
+  getDisconnectTracker(): DisconnectTracker {
+    return this.disconnectTracker;
+  }
+
+  /**
    * Add a tool to the server
    */
   addTool(tool: ToolDefinition): void {
@@ -1052,6 +1106,12 @@ export class MinskyMCPServer {
       if (this.options.transportType === "stdio") {
         log.systemDebug("[MCP] Connecting to stdio transport");
         await this.server.connect(this.transport);
+        // mt#1645: wire disconnect/reconnect hooks on the SDK Server after connect().
+        // onclose fires when the stdio pipe closes (client-side disconnect or process exit).
+        // onerror fires on transport-level errors (I/O errors on stdin/stdout).
+        this.wireDisconnectHooks(this.server, "stdin_close");
+        // Record the reconnect event (this process starting = a reconnect from the client's POV)
+        this.disconnectTracker.recordReconnect();
         log.cli("Minsky MCP Server started with stdio transport");
         log.systemDebug("[MCP] Stdio transport connected successfully");
       } else {
