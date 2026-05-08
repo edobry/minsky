@@ -70,32 +70,35 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
 /**
  * RFC 8414 (OAuth 2.0 Authorization Server Metadata) minimal-stub builder
  * for the `/.well-known/oauth-authorization-server` discovery endpoint
- * (mt#1655, follow-up to mt#1635).
+ * (mt#1635, refined mt#1655, extended mt#1657).
  *
- * Returns a strict-subset metadata document that advertises the server's
- * existence as an "OAuth authority" but declares zero usable flows
- * (`response_types_supported: []`, no `authorization_endpoint`, no
- * `token_endpoint`, no `registration_endpoint`). Spec-conformant SDKs treat
- * this as "OAuth advertised but no flow usable -> fall through to the
- * static-bearer-token path." mt#1635 originally shipped a 404 here, but the
- * MCP SDK in Claude Code framed any non-2xx OAuth probe as `SDK auth
- * failed: ...` in the dialog; this 200-with-empty-flows shape suppresses
- * that misleading line.
+ * Returns a metadata document that advertises the server as an OAuth
+ * authority but declares zero usable flows (`response_types_supported: []`).
+ * The `authorization_endpoint` and `token_endpoint` fields point at stub
+ * handlers (`/oauth/authorize`, `/oauth/token`) that return JSON 400 when
+ * actually called — required because Claude Code's MCP SDK validates
+ * these fields as required strings even when no flows are advertised
+ * (mt#1657 empirical finding post-mt#1655 deploy).
  *
- * The `issuer` URL is derived per-request from `X-Forwarded-Proto` /
- * `X-Forwarded-Host` (Railway's edge proxy) so the document is correct in
- * any deployment.
+ * Spec-conformant SDKs that honor `response_types_supported` will skip
+ * flow attempts; SDKs that don't (Claude Code's) will still validate the
+ * shape and fall through gracefully because the stub handlers return
+ * parseable error responses.
  *
- * mt#1634 (the umbrella OAuth task) extends this document with real flow
- * advertisements (authorization_endpoint, token_endpoint, etc.) — this
- * stub is a strict-subset foundation, not throw-away work.
+ * mt#1634 (umbrella) replaces the stubs at the same paths with real
+ * flow logic. The metadata document and route paths are a strict-subset
+ * foundation, not throw-away work.
  */
 export function buildAuthorizationServerMetadata(issuer: string): Readonly<{
   issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
   response_types_supported: readonly string[];
 }> {
   return Object.freeze({
     issuer,
+    authorization_endpoint: `${issuer}/oauth/authorize`,
+    token_endpoint: `${issuer}/oauth/token`,
     response_types_supported: Object.freeze([] as readonly string[]),
   });
 }
@@ -115,6 +118,25 @@ export function buildProtectedResourceMetadata(resource: string): Readonly<{
     resource,
   });
 }
+
+/**
+ * Stub body returned by the `/oauth/authorize` and `/oauth/token` flow
+ * endpoints (mt#1657). DCR / authorization / token issuance are not
+ * implemented in the stub tier; full implementation is mt#1634's scope.
+ *
+ * The endpoints exist because Claude Code's MCP SDK validates the
+ * authorization-server metadata document for required string fields
+ * (`authorization_endpoint`, `token_endpoint`) — see
+ * `buildAuthorizationServerMetadata` docstring. If the SDK or any other
+ * client actually attempts the OAuth flow against these endpoints, they
+ * get this parseable error explaining the static-bearer path is the
+ * working alternative.
+ */
+export const OAUTH_FLOW_NOT_SUPPORTED_BODY = Object.freeze({
+  error: "oauth_not_supported",
+  error_description:
+    "OAuth flows are not implemented; this server uses static bearer token authentication via the Authorization header. The authorization_endpoint and token_endpoint advertised in /.well-known/oauth-authorization-server exist solely to satisfy SDK metadata validators.",
+} as const);
 
 /**
  * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
@@ -336,29 +358,31 @@ async function startHttpServer(
     });
   });
 
-  // OAuth discovery + Dynamic Client Registration stubs (mt#1635, refined mt#1655).
+  // OAuth discovery + Dynamic Client Registration stubs (mt#1635, refined mt#1655, extended mt#1657).
   //
   // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
-  // determine whether the server supports OAuth. mt#1635 originally returned
-  // 404 with a JSON `not_supported` error; that fixed the JSON-parse failure
-  // (the original symptom) but the MCP SDK still framed any non-2xx OAuth
-  // probe as `SDK auth failed: ...` in the dialog, surfacing a misleading
-  // line even with green status badges.
+  // determine whether the server supports OAuth. Evolution:
   //
-  // mt#1655 refined the response shape: return 200 with RFC 8414/9728 minimal
-  // metadata that advertises the server's existence but declares NO usable
-  // flows (empty `response_types_supported`, no `authorization_endpoint`,
-  // etc.). Spec-conformant SDKs treat this as "OAuth advertised but no flow
-  // usable -> fall through to static-bearer," which suppresses the
-  // misleading dialog line entirely.
+  //   mt#1635: returned 404 + JSON not_supported body. Fixed JSON-parse
+  //            failure but SDK framed any non-2xx as `SDK auth failed`.
+  //   mt#1655: returned 200 with RFC 8414/9728 minimal metadata + empty
+  //            response_types_supported. Spec-conformant SDKs would fall
+  //            through; Claude Code's SDK validated the metadata against a
+  //            schema requiring authorization_endpoint/token_endpoint as
+  //            strings (regardless of response_types_supported).
+  //   mt#1657: also include authorization_endpoint / token_endpoint in
+  //            the metadata (pointing at stub handlers below) so the
+  //            SDK validation passes. response_types_supported stays
+  //            empty for spec-conformant SDKs that honor it.
   //
-  // /register stays at 400 — DCR is genuinely unsupported in the stub tier;
-  // mt#1634 (umbrella) will switch it to a real implementation.
+  // /register (mt#1635) and /oauth/{authorize,token} (mt#1657) all return
+  // 400 with parseable JSON. mt#1634 (umbrella) will switch them to real
+  // implementations.
   //
-  // Public-access posture (intentional): these endpoints sit outside the
-  // bearer-auth check, parallel to /health. The probe must succeed before
-  // the SDK has any auth credentials to send, otherwise the fall-through
-  // never fires. The bodies leak no internal state.
+  // Public-access posture (intentional): all of these endpoints sit
+  // outside the bearer-auth check, parallel to /health. The probe must
+  // succeed before the SDK has any auth credentials to send, otherwise
+  // the fall-through never fires. The bodies leak no internal state.
   const normalizedEndpoint = normalizeEndpointPath(options.endpoint);
   app.get("/.well-known/oauth-authorization-server", (req, res) => {
     const issuer = composeRequestBaseUrl(req);
@@ -372,6 +396,14 @@ async function startHttpServer(
 
   app.post("/register", (_req, res) => {
     res.status(400).json(OAUTH_REGISTER_NOT_SUPPORTED_BODY);
+  });
+
+  app.get("/oauth/authorize", (_req, res) => {
+    res.status(400).json(OAUTH_FLOW_NOT_SUPPORTED_BODY);
+  });
+
+  app.post("/oauth/token", (_req, res) => {
+    res.status(400).json(OAUTH_FLOW_NOT_SUPPORTED_BODY);
   });
 
   // Start the HTTP server
