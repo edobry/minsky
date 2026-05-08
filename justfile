@@ -62,8 +62,8 @@ PROJECT_REF := "yvkkrpyjhoiilmizlnac"  # minsky (dev 2)
 
 # List the project's daily/usage stats — useful for setting threshold values
 supabase-usage:
-    #!/usr/bin/env bash
-    set -euo pipefail
+    #!/bin/sh
+    set -eu
     token="${SUPABASE_ACCESS_TOKEN:-}"
     if [ -z "$token" ]; then
         token="$(minsky config get supabase.accessToken 2>/dev/null || true)"
@@ -72,8 +72,11 @@ supabase-usage:
         echo "Supabase access token not found; see justfile header for sources" >&2
         exit 1
     fi
-    curl -fsS -H "Authorization: Bearer $token" \
-        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/usage" | jq
+    # Capture curl output separately so a non-zero curl exit (e.g., 401, 5xx)
+    # is not masked by jq's exit code under POSIX `sh` (no `pipefail`).
+    response="$(curl -fsS -H "Authorization: Bearer $token" \
+        "https://api.supabase.com/v1/projects/{{PROJECT_REF}}/usage")"
+    printf '%s\n' "$response" | jq
 
 # Probe DB health via the local supabase CLI's auth (no PAT required if linked)
 supabase-health:
