@@ -929,6 +929,38 @@ parallel work has been explicitly acknowledged and coordinated.
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
 
+## Subagent Bypass-Merge Guard
+
+A PreToolUse hook on `Bash` and `mcp__minsky__session_exec` blocks subagent invocations
+of `gh api -X PUT /repos/.../pulls/.../merge`. Subagents must not invoke the bypass-merge
+path — merge handling (including the documented escape-valve cases) is the main agent's
+responsibility per `## Verification surfaces` below.
+
+**Hook file:** `.claude/hooks/block-subagent-bypass-merge.ts`
+
+**Detection signal:** The `agent_id` field in `ToolHookInput` is set by the Claude Code
+harness on every subagent invocation (spawned via the `Agent` tool). When it is set and
+non-empty, the call is from a subagent. When it is null/undefined, it is the main agent.
+This is the canonical harness-native structural signal — no env var or prompt inspection
+required.
+
+**On block:** The hook returns a denial with this message:
+> "Subagents cannot bypass-merge PRs via `gh api PUT /merge`. Merge handling is the main
+> agent's responsibility per CLAUDE.md `## Verification surfaces`. Report the PR URL +
+> bot status to the parent and exit. If you believe the bypass is warranted, surface to
+> the user with the conditions per `feedback_self_authored_pr_merge_constraints`
+> (R≥1 substantive review rounds + reviewer convergence failure)."
+
+**No subagent override.** The bypass-merge escape valve belongs to the main agent only.
+Main agent invocations (`agent_id` null/undefined) pass through without restriction.
+
+**Tracking task:** mt#1671. **Originating incident:** PR #990 / mt#1636 (2026-05-08) —
+implementer subagent invoked `gh api PUT /merge` at R0 (zero reviewer-bot reviews).
+
+**Relationship to `block-git-gh-cli.ts`:** That sibling hook enforces `merge_method=merge`
+on the same endpoint (mt#1228). Both hooks run on every `Bash`/`session_exec` call;
+the subagent context denial (this hook) fires first in the matcher order.
+
 ## Branch Freshness Guard
 
 A PreToolUse hook on `mcp__minsky__session_commit`, `mcp__minsky__session_pr_create`, and
