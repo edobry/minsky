@@ -69,8 +69,12 @@ interface Stats {
 function computeStats(samples: number[]): Stats {
   const sorted = [...samples].sort((a, b) => a - b);
   const total = samples.reduce((sum, x) => sum + x, 0);
+  // Nearest-rank percentile: index = ceil(p * n) - 1, clamped into [0, n-1].
+  // Replaces the prior `Math.floor(sorted.length * p)` form which had an
+  // off-by-one bias for small N (PR #974 R1 NON-BLOCKING).
   const pct = (p: number): number => {
-    const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * p));
+    if (sorted.length === 0) return 0;
+    const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * p) - 1));
     return sorted[idx];
   };
   return {
@@ -224,17 +228,20 @@ async function main(): Promise<void> {
   }
   console.log();
 
-  // Baseline: kill-switched. Measures the (negligible) cost of the
-  // env-var check + allowlist check + early return.
-  process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "0";
-  const baseline = await runBenchmark("Baseline (MINSKY_MCP_MEMORY_ENRICHMENT=0)", args.n, () =>
+  // Baseline: opt-in disabled (default state). Measures the (negligible)
+  // cost of the env-var check + allowlist check + early return on the same
+  // code path. PR #974 R1 inverted the env-var polarity: default OFF, opt-in
+  // via MINSKY_MCP_MEMORY_ENRICHMENT=1.
+  delete process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
+  const baseline = await runBenchmark("Baseline (opt-in disabled — default)", args.n, () =>
     enrichToolResponse("tasks.get", argsRecord, memoryService)
   );
   console.log();
 
-  // Enriched: full middleware path including memory_search + format.
-  delete process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
-  const enriched = await runBenchmark("Enriched (full middleware)", args.n, () =>
+  // Enriched: explicit opt-in via MINSKY_MCP_MEMORY_ENRICHMENT=1. Full
+  // middleware path including memory_search + format.
+  process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "1";
+  const enriched = await runBenchmark("Enriched (MINSKY_MCP_MEMORY_ENRICHMENT=1)", args.n, () =>
     enrichToolResponse("tasks.get", argsRecord, memoryService)
   );
   console.log();

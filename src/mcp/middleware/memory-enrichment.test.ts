@@ -3,20 +3,20 @@
  *
  * Covers:
  * - Allowlist filtering (only `tasks.get` is enriched in the spike)
- * - Env-var kill switch (`MINSKY_MCP_MEMORY_ENRICHMENT=0`)
+ * - Env-var opt-in (`MINSKY_MCP_MEMORY_ENRICHMENT=1` enables; default disabled)
  * - Missing memoryService → null
  * - search() throwing → null (no propagation)
  * - search() returning degraded → null
  * - search() returning empty → null
  * - Result formatting + budget enforcement
- * - Query construction
+ * - Query construction including size cap + object-arg redaction
  */
 
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import {
   buildQuery,
   enrichToolResponse,
-  isEnrichmentDisabled,
+  isEnrichmentEnabled,
   shouldEnrich,
 } from "./memory-enrichment";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
@@ -95,11 +95,18 @@ function makeMemoryService(opts: {
   };
 }
 
-// Save and restore env between tests since the kill-switch reads process.env.
+/** Shared constant: the canonical query string buildQuery emits for the
+ * representative `tasks.get(taskId: "mt#1588")` call. Used in the buildQuery
+ * stringification test and in the search-passthrough tests below. */
+const TEST_TASK_GET_QUERY = "tasks.get mt#1588";
+
+// Save and restore env between tests since the opt-in reads process.env.
 let savedEnv: string | undefined;
 beforeEach(() => {
   savedEnv = process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
-  delete process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
+  // Default each test to ENABLED so the test's intent is what's exercised;
+  // tests that want the disabled path explicitly delete the var.
+  process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "1";
 });
 afterEach(() => {
   if (savedEnv === undefined) {
@@ -124,25 +131,34 @@ describe("memory-enrichment / shouldEnrich", () => {
   });
 });
 
-describe("memory-enrichment / isEnrichmentDisabled", () => {
-  test("returns false when env var is unset", () => {
-    expect(isEnrichmentDisabled()).toBe(false);
-  });
-  test("returns true when env var is exactly '0'", () => {
-    process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "0";
-    expect(isEnrichmentDisabled()).toBe(true);
-  });
-  test("returns false when env var is '1' or any other non-'0' value", () => {
+describe("memory-enrichment / isEnrichmentEnabled", () => {
+  test("returns true when env var is '1'", () => {
     process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "1";
-    expect(isEnrichmentDisabled()).toBe(false);
+    expect(isEnrichmentEnabled()).toBe(true);
+  });
+  test("returns true when env var is 'true'", () => {
+    process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "true";
+    expect(isEnrichmentEnabled()).toBe(true);
+  });
+  test("returns false when env var is unset (default disabled)", () => {
+    delete process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
+    expect(isEnrichmentEnabled()).toBe(false);
+  });
+  test("returns false when env var is '0'", () => {
+    process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "0";
+    expect(isEnrichmentEnabled()).toBe(false);
+  });
+  test("returns false for any other non-truthy value", () => {
     process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "false";
-    expect(isEnrichmentDisabled()).toBe(false);
+    expect(isEnrichmentEnabled()).toBe(false);
+    process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "yes";
+    expect(isEnrichmentEnabled()).toBe(false);
   });
 });
 
 describe("memory-enrichment / buildQuery", () => {
   test("stringifies tool name + scalar args", () => {
-    expect(buildQuery("tasks.get", { taskId: "mt#1588" })).toBe("tasks.get mt#1588");
+    expect(buildQuery("tasks.get", { taskId: "mt#1588" })).toBe(TEST_TASK_GET_QUERY);
   });
   test("filters out empty/null/undefined values", () => {
     expect(
@@ -154,24 +170,44 @@ describe("memory-enrichment / buildQuery", () => {
       })
     ).toBe("tasks.get mt#1588");
   });
-  test("encodes object values as key=JSON", () => {
+  test("redacts object values to key-only (value dropped, key included as hint)", () => {
     const q = buildQuery("test.tool", { filter: { status: "DONE" } });
-    expect(q).toContain("test.tool");
-    expect(q).toContain('filter={"status":"DONE"}');
+    expect(q).toBe("test.tool filter");
+    expect(q).not.toContain("DONE");
+    expect(q).not.toContain("status");
+    expect(q).not.toContain("{");
+  });
+  test("redacts array values to key-only", () => {
+    const q = buildQuery("test.tool", { ids: ["a", "b", "c"] });
+    expect(q).toBe("test.tool ids");
+    expect(q).not.toContain("[");
   });
   test("returns just the tool name for empty args", () => {
     expect(buildQuery("session.list", {})).toBe("session.list");
   });
+  test("hard-caps the query at MAX_QUERY_LENGTH chars with ellipsis suffix", () => {
+    const longArg = "x".repeat(2000);
+    const q = buildQuery("tasks.get", { taskId: longArg });
+    expect(q.length).toBeLessThanOrEqual(500);
+    expect(q.endsWith("…")).toBe(true);
+  });
 });
 
 describe("memory-enrichment / enrichToolResponse", () => {
-  test("returns null for non-allowlisted tool", async () => {
-    const service = makeMemoryService({});
-    const result = await enrichToolResponse("session.get", { sessionId: "x" }, service);
+  test("returns null when env-var opt-in is unset (default disabled)", async () => {
+    delete process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
+    const service = makeMemoryService({
+      searchResponse: {
+        results: [makeSearchResult()],
+        backend: "embeddings",
+        degraded: false,
+      },
+    });
+    const result = await enrichToolResponse("tasks.get", { taskId: "mt#1588" }, service);
     expect(result).toBeNull();
   });
 
-  test("returns null when env-var kill switch is set", async () => {
+  test("returns null when env-var is set to '0'", async () => {
     process.env.MINSKY_MCP_MEMORY_ENRICHMENT = "0";
     const service = makeMemoryService({
       searchResponse: {
@@ -181,6 +217,12 @@ describe("memory-enrichment / enrichToolResponse", () => {
       },
     });
     const result = await enrichToolResponse("tasks.get", { taskId: "mt#1588" }, service);
+    expect(result).toBeNull();
+  });
+
+  test("returns null for non-allowlisted tool", async () => {
+    const service = makeMemoryService({});
+    const result = await enrichToolResponse("session.get", { sessionId: "x" }, service);
     expect(result).toBeNull();
   });
 
@@ -276,15 +318,16 @@ describe("memory-enrichment / enrichToolResponse", () => {
     });
     expect(result).not.toBeNull();
     if (result === null) throw new Error("unreachable");
-    // Total text size must be at or near the requested budget.
     expect(result.text.length).toBeLessThanOrEqual(600);
   });
 
   test("requests the configured K from search", async () => {
     let capturedLimit: number | undefined;
+    let capturedQuery: string | undefined;
     const service: MemoryServiceSurface = {
-      async search(_query, opts) {
+      async search(query, opts) {
         capturedLimit = opts?.limit;
+        capturedQuery = query;
         return { results: [], backend: "embeddings", degraded: false };
       },
       async get() {
@@ -312,5 +355,46 @@ describe("memory-enrichment / enrichToolResponse", () => {
     };
     await enrichToolResponse("tasks.get", { taskId: "mt#1588" }, service, { k: 7 });
     expect(capturedLimit).toBe(7);
+    expect(capturedQuery).toBe(TEST_TASK_GET_QUERY);
+  });
+
+  test("redacts object args before passing query to search", async () => {
+    let capturedQuery: string | undefined;
+    const service: MemoryServiceSurface = {
+      async search(query) {
+        capturedQuery = query;
+        return { results: [], backend: "embeddings", degraded: false };
+      },
+      async get() {
+        return null;
+      },
+      async list() {
+        return [];
+      },
+      async create() {
+        throw new Error("not implemented");
+      },
+      async update() {
+        return null;
+      },
+      async delete() {},
+      async similar() {
+        return [];
+      },
+      async supersede() {
+        throw new Error("not implemented");
+      },
+      async lineage() {
+        return { chain: [], truncated: false };
+      },
+    };
+    await enrichToolResponse(
+      "tasks.get",
+      { taskId: "mt#1588", filter: { status: "DONE", body: "x".repeat(10000) } },
+      service
+    );
+    expect(capturedQuery).toBe("tasks.get mt#1588 filter");
+    expect(capturedQuery).not.toContain("DONE");
+    expect(capturedQuery).not.toContain("x".repeat(100));
   });
 });

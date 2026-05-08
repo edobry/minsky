@@ -33,6 +33,7 @@ import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { AppContainerInterface } from "../../composition/types";
+import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -396,16 +397,17 @@ export function createStartCommand(
         }
 
         // mt#1588 spike: construct a MemoryService and wire it into the server
-        // for the enrichment middleware. Construction failure (missing embedding
-        // service, no Postgres-backed persistence, etc.) leaves the middleware
-        // as a no-op — the dispatcher behaves identically to pre-mt#1588 in
-        // that case. Lazy-imported so non-MCP code paths don't pay the cost.
-        if (container) {
+        // for the enrichment middleware. Gated behind the
+        // MINSKY_MCP_MEMORY_ENRICHMENT opt-in env var (default OFF) per PR #974
+        // R1 BLOCKING — the spike's "iterate, do not graduate" decision means
+        // the wiring must not activate in production unless explicitly opted
+        // in. Construction failure leaves the middleware as a no-op.
+        if (container && isEnrichmentEnabled()) {
           buildMemoryServiceForSpike(container)
             .then((memoryService) => {
               if (memoryService) {
                 server.setMemoryService(memoryService);
-                log.debug("[mt#1588] Memory enrichment middleware wired");
+                log.debug("[mt#1588] Memory enrichment middleware wired (opt-in)");
               }
             })
             .catch((err) => {

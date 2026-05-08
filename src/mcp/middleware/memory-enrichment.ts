@@ -18,7 +18,13 @@
  * - Stringified `toolName + args` as query (no per-tool query shaping)
  * - K=3 results max, ~2000-char total budget
  * - Errors and `degraded: true` returns are silently dropped (no-op)
- * - Env-var kill switch (`MINSKY_MCP_MEMORY_ENRICHMENT=0`) for benchmarking
+ * - **Opt-in env var**: `MINSKY_MCP_MEMORY_ENRICHMENT=1` (or `"true"`) enables the
+ *   middleware. Default is disabled — spike wiring must NOT activate in
+ *   production unless explicitly opted in (PR #974 R1 BLOCKING).
+ * - Object/array argument values are redacted (key included, value dropped) to
+ *   avoid embedding arbitrarily large payloads or sensitive data into the
+ *   memory_search query (PR #974 R1 BLOCKING).
+ * - Query is hard-capped at MAX_QUERY_LENGTH chars to bound embedding cost.
  *
  * @see mt#1588 — this spike
  * @see mt#1589 — the harness-specific hook this is the structural retirement target for
@@ -44,6 +50,14 @@ const DEFAULT_CHAR_BUDGET = 2000;
 /** Max length per result snippet — embeddings get chatty without trimming. */
 const PER_RESULT_CHAR_BUDGET = 500;
 
+/**
+ * Hard cap on the constructed search query in characters. Mirrors the
+ * `MAX_QUERY_LENGTH = 500` constant used by mt#1589's UserPromptSubmit hook.
+ * Embeddings get noisy past a few hundred chars and arbitrary tool args could
+ * embed unbounded content (PR #974 R1 BLOCKING).
+ */
+const MAX_QUERY_LENGTH = 500;
+
 export interface EnrichmentOptions {
   k?: number;
   charBudget?: number;
@@ -55,12 +69,17 @@ export interface EnrichmentBlock {
 }
 
 /**
- * Returns true when the env-var kill switch is set to disable enrichment.
- * Used by the benchmark script to measure baseline-vs-enriched latency on
- * the same code path.
+ * Returns true when the env-var opt-in is set, enabling the enrichment
+ * middleware. Default (env var unset, or set to anything other than `"1"` or
+ * `"true"`) is **disabled** — spike wiring must not activate in production
+ * unless explicitly opted in.
+ *
+ * Used both by the dispatcher (early-return when disabled) and by the
+ * benchmark script (set the var to `"1"` to measure enriched performance).
  */
-export function isEnrichmentDisabled(): boolean {
-  return process.env.MINSKY_MCP_MEMORY_ENRICHMENT === "0";
+export function isEnrichmentEnabled(): boolean {
+  const v = process.env.MINSKY_MCP_MEMORY_ENRICHMENT;
+  return v === "1" || v === "true";
 }
 
 /**
@@ -71,24 +90,34 @@ export function shouldEnrich(toolName: string): boolean {
 }
 
 /**
- * Build the search query from tool name + args. Naive stringification — the
- * spike report is supposed to comment on signal-to-noise observed with this
- * shape vs. per-tool query shaping (which is out of scope per spec §3 q2).
+ * Build the search query from tool name + scalar args. Object and array values
+ * are redacted (key included, value dropped) to avoid embedding arbitrarily
+ * large payloads or sensitive data — only primitive scalar args contribute
+ * their values to the query (PR #974 R1 BLOCKING).
+ *
+ * The constructed query is hard-capped at MAX_QUERY_LENGTH chars and truncated
+ * with an ellipsis if exceeded.
  *
  * Examples:
  * - `("tasks.get", {taskId: "mt#1588"})` → `"tasks.get mt#1588"`
  * - `("session.list", {})` → `"session.list"`
+ * - `("tool", {filter: {status: "DONE"}})` → `"tool filter"` (object value redacted)
  */
 export function buildQuery(toolName: string, args: Record<string, unknown>): string {
-  const argParts = Object.entries(args)
-    .filter(([, v]) => v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => {
-      if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-        return String(v);
-      }
-      return `${k}=${JSON.stringify(v)}`;
-    });
-  return [toolName, ...argParts].join(" ").trim();
+  const argParts: string[] = [];
+  for (const [k, v] of Object.entries(args)) {
+    if (v === undefined || v === null || v === "") continue;
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+      argParts.push(String(v));
+    } else {
+      // Redact non-scalar values: include the key as a hint that it was set,
+      // but drop the value to avoid leaking unbounded content into the query.
+      argParts.push(k);
+    }
+  }
+  const raw = [toolName, ...argParts].join(" ").trim();
+  if (raw.length <= MAX_QUERY_LENGTH) return raw;
+  return `${raw.slice(0, MAX_QUERY_LENGTH - 1)}…`;
 }
 
 /**
@@ -144,8 +173,8 @@ function buildBlock(
  *
  * Returns an additional content block to append to the tool response, or
  * null when:
+ * - The env-var opt-in is not set (default state — spike does not activate)
  * - The tool is not allowlisted
- * - The env-var kill switch is set
  * - The memory service is unavailable
  * - The search fails or returns degraded results
  * - The result set is empty after token-budget filtering
@@ -159,7 +188,7 @@ export async function enrichToolResponse(
   memoryService: MemoryServiceSurface | undefined,
   options: EnrichmentOptions = {}
 ): Promise<EnrichmentBlock | null> {
-  if (isEnrichmentDisabled()) return null;
+  if (!isEnrichmentEnabled()) return null;
   if (!shouldEnrich(toolName)) return null;
   if (!memoryService) return null;
 
