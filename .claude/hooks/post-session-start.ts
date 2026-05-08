@@ -2,7 +2,7 @@
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 import { openSync, writeSync, closeSync, writeFileSync } from "fs";
-import { safeTruncate } from "../../src/utils/safe-truncate.ts";
+import { safeTruncate } from "../../src/utils/safe-truncate";
 
 const COLORS: [number, number, number][] = [
   [86, 182, 194], // teal

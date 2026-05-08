@@ -10,7 +10,7 @@
  * Pure function — no side effects, no I/O. All tests can run synchronously.
  */
 
-import { safeTruncate } from "../../../src/utils/safe-truncate.ts";
+import { safeTruncate } from "../../../src/utils/safe-truncate";
 
 /**
  * A single prior review posted by the bot reviewer on this PR.
@@ -380,7 +380,9 @@ function renderSummary(entries: PriorReviewEntry[]): string {
       : "";
   const budget = MAX_SUMMARY_CHARS - header.length - omitNote.length - 20; // 20 char margin
   const truncatedBlock =
-    singleBlock.length > budget ? `${singleBlock.slice(0, budget)}\n…(truncated)` : singleBlock;
+    singleBlock.length > budget
+      ? `${safeTruncate(singleBlock, budget, "head")}\n…(truncated)`
+      : singleBlock;
 
   return `${header}${omitNote}${truncatedBlock}`;
 }
