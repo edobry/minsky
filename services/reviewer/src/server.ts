@@ -13,6 +13,7 @@ import { loadConfig } from "./config";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
+import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
 
@@ -370,6 +371,14 @@ if (import.meta.main) {
   // SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
   startSweeper(config, loadSweeperConfig());
+
+  // Start the PR-watch scheduler (mt#1618).
+  // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
+  // that registered PR watches fire automatically without manual operator action.
+  // Configurable via PR_WATCH_ENABLED, PR_WATCH_POLL_INTERVAL_MS.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
+  // Opt-in: disabled by default; set PR_WATCH_ENABLED=true to activate.
+  startPrWatchScheduler(config, loadPrWatchSchedulerConfig());
 
   if (config.provider === "anthropic") {
     console.warn(
