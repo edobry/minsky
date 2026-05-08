@@ -303,11 +303,21 @@ async function startHttpServer(
     }
   });
 
-  // Set up MCP endpoint (auth-gated when enabled)
+  // Set up MCP endpoint (auth-gated when EITHER static-bearer OR OAuth is configured).
+  //
+  // Gating logic: enforce auth when `auth.enabled` (static bearer configured) OR
+  // `oauthProvider` (OAuth provider wired) is present. If NEITHER is configured,
+  // the endpoint is open — same as before this PR; the WARN log on startup
+  // surfaces this state.
+  //
+  // Auth precedence within the gate: static-bearer match short-circuits (preserves
+  // the local Claude Code daemon path); else fall through to OAuth validation when
+  // oauthProvider is available.
   app.all(options.endpoint, async (req, res) => {
-    if (auth.enabled) {
+    const authRequired = auth.enabled || !!oauthProvider;
+    if (authRequired) {
       const header = req.header("authorization") ?? req.header("Authorization");
-      const staticOk = checkBearerAuth(header, auth.token);
+      const staticOk = auth.enabled && checkBearerAuth(header, auth.token);
 
       if (staticOk) {
         // Static-bearer path: existing agentId logic (Layer 1 / Layer 2 from _meta).
@@ -325,6 +335,14 @@ async function startHttpServer(
 
         // Compose the endpoint URL for RFC 8707 audience binding.
         // The audience in the token must match the resource URL the token was issued for.
+        //
+        // Strict equality is intentional per Minsky's hosted MCP convention:
+        // `/.well-known/oauth-protected-resource` advertises the resource as the
+        // FULL endpoint URL (`${issuer}/mcp`), not just the origin. Tokens MUST be
+        // issued with `resource=${issuer}/mcp` (RFC 8707) and matched here against
+        // the same path-inclusive value. If a future operational mode needs
+        // origin-only matching, that's a config flag — not a relaxation of the
+        // default check.
         const baseUrl = composeRequestBaseUrl(req);
         const endpointUrl = `${baseUrl}${normalizeEndpointPath(options.endpoint)}`;
 

@@ -971,9 +971,14 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
     const endpointUrl = opts.endpointUrl ?? "http://127.0.0.1:0/mcp";
 
     expressApp.all("/mcp", async (req, res) => {
-      if (staticToken) {
+      // Mirror production gating logic: enforce auth when EITHER static-bearer OR
+      // OAuth provider is configured (mt#1666 fix for the auto-reviewer-bot
+      // BLOCKING #1 — previously this gated only on staticToken, leaving /mcp
+      // unauthenticated in OAuth-only deployments).
+      const authRequired = !!staticToken || !!oauthProvider;
+      if (authRequired) {
         const header = req.header("authorization") ?? req.header("Authorization");
-        const staticOk = chkAuth(header, staticToken);
+        const staticOk = !!staticToken && chkAuth(header, staticToken);
 
         if (staticOk) {
           // Pass through
@@ -1186,6 +1191,59 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
           "Content-Type": APPLICATION_JSON,
           Authorization: "Basic dXNlcjpwYXNz",
         },
+        body: JSON.stringify({}),
+      });
+      expect(response.status).toBe(401);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("unauthorized");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  // mt#1666 R1 BLOCKING #1 regression coverage: OAuth-only mode (no static token).
+  // Pre-fix, the auth middleware gated entirely on `auth.enabled` (static-bearer
+  // configured), leaving /mcp unauthenticated when ONLY OAuth was configured.
+  // This test enforces that OAuth tokens are honored at the gate even when no
+  // static token is set, AND that missing/invalid bearers return 401.
+  const PORT_MCP_OAUTH_ONLY_VALID = 41036;
+  const PORT_MCP_OAUTH_ONLY_MISSING = 41037;
+
+  test("OAuth-only mode (no staticToken): valid OAuth token authenticates and injects agentId", async () => {
+    const sub = "oauth-only-user";
+    const endpointUrl = `http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_VALID}/mcp`;
+    const provider = buildMockProvider({
+      valid: true,
+      principal: { sub, clientId: "c", agentId: `oauth:claude-ai:user-${sub}` },
+      scopes: ["mcp"],
+      audience: endpointUrl,
+    });
+    const app = await buildMcpAuthApp({ provider, endpointUrl }); // NB: no staticToken
+    const server = app.listen(PORT_MCP_OAUTH_ONLY_VALID);
+    try {
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_VALID}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": APPLICATION_JSON, Authorization: "Bearer oauth-jwt-token" },
+        body: JSON.stringify({ method: "tools/list" }),
+      });
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.ok).toBe(true);
+      expect(body.agentId).toBe(`oauth:claude-ai:user-${sub}`);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("OAuth-only mode (no staticToken): missing bearer header returns 401 (NOT pass-through)", async () => {
+    const provider = buildMockProvider({ valid: false, reason: "not_found" });
+    const app = await buildMcpAuthApp({ provider }); // NB: no staticToken
+    const server = app.listen(PORT_MCP_OAUTH_ONLY_MISSING);
+    try {
+      // No Authorization header at all — must be rejected, NOT passed through.
+      const response = await fetch(`http://127.0.0.1:${PORT_MCP_OAUTH_ONLY_MISSING}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": APPLICATION_JSON },
         body: JSON.stringify({}),
       });
       expect(response.status).toBe(401);
