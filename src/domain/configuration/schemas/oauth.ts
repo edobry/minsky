@@ -28,7 +28,7 @@ export type OAuthProvider = z.infer<typeof oauthProviderSchema>;
  * `"in-process"`, issuer is derived from the incoming request host).
  */
 export const oauthConfigSchema = z
-  .object({
+  .strictObject({
     /**
      * Which OAuth identity provider to use.
      * Default: `"in-process"` — runs OAuth flows in-process using `oidc-provider`.
