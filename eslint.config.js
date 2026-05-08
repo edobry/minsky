@@ -25,6 +25,7 @@ import noDomainSingleton from "./eslint-rules/no-domain-singleton.js";
 import requireInjectable from "./eslint-rules/require-injectable.js";
 import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
 import noUnsafeStringTruncation from "./eslint-rules/no-unsafe-string-truncation.js";
+import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
 
 export default [
   js.configs.recommended,
@@ -130,6 +131,7 @@ export default [
           "require-injectable": requireInjectable,
           "no-skipped-tests": noSkippedTests,
           "no-unsafe-string-truncation": noUnsafeStringTruncation,
+          "no-escape-deploy-context": noEscapeDeployContext,
         },
       },
     },
@@ -244,6 +246,27 @@ export default [
         "warn",
         {
           allowlist: [], // Per-instance allowlists use eslint-disable-next-line comments
+        },
+      ],
+
+      // Flags relative imports that escape a separately-deployed package's directory
+      // (e.g., `services/reviewer/src/foo.ts` importing `../../../src/utils/x`). Such
+      // imports resolve in the monorepo but crash the deployed container whose Docker
+      // build context excludes the parent tree. Originating incident: mt#1679.
+      //
+      // `excludeGlobs` exempts files inside a package root that are NOT runtime-deployed:
+      // - `services/*/railway.config.ts`: deploy-config files consumed by scripts/railway/apply.ts
+      //   from the host (see services/{reviewer,minsky-mcp}/Dockerfile — neither is COPYed
+      //   into the image).
+      // - Reviewer scripts/migrations live alongside src/ but are not packaged by the
+      //   reviewer Dockerfile either; smoke and ad-hoc helpers can use the canonical
+      //   monorepo paths without affecting the deployed runtime. (services/reviewer/Dockerfile
+      //   only COPYs src/ + migrations/ + tsconfig.json + package.json + bun.lock.)
+      "custom/no-escape-deploy-context": [
+        "error",
+        {
+          packageRoots: ["services/reviewer", "services/minsky-mcp"],
+          excludeGlobs: ["services/*/railway.config.ts"],
         },
       ],
 
