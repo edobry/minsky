@@ -51,7 +51,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,8 +95,13 @@ export const WATCH_ROOTS: ReadonlyArray<{ readonly dir: string; readonly suffix:
   { dir: ".minsky/rules", suffix: ".mdc" },
 ];
 
-/** Patterns to exclude from the watch — test files, build artifacts. */
-const SKIP_FILENAME_RE = /\.(test|spec)\.(ts|tsx|md)$/i;
+/**
+ * Patterns to exclude from the watch — test/spec files alongside any of the
+ * watched suffixes. The alternation must cover every suffix in WATCH_ROOTS,
+ * including `.mdc` for the rules directory; otherwise `*.spec.mdc` /
+ * `*.test.mdc` rule fixtures slip through and contribute false staleness.
+ */
+const SKIP_FILENAME_RE = /\.(test|spec)\.(ts|tsx|md|mdc)$/i;
 
 /**
  * Hard cap on the file count listed in the warning message. Anything beyond
@@ -104,8 +109,17 @@ const SKIP_FILENAME_RE = /\.(test|spec)\.(ts|tsx|md)$/i;
  */
 export const MAX_FILES_LISTED = 10;
 
-/** Recursion depth cap for the directory walk. Defends against symlink loops. */
-const MAX_WALK_DEPTH = 5;
+/**
+ * Recursion depth cap for the directory walk. Defends against symlink loops
+ * even though `entry.isSymbolicLink()` already filters them out — a defensive
+ * second line in case a future fs surface reports something unexpected.
+ *
+ * Current watched layouts bottom out at depth 2 (`.claude/skills/<name>/SKILL.md`),
+ * so 10 is well above the practical maximum. Bumping further is harmless; making
+ * it configurable was considered but rejected as over-engineering for a
+ * defensive guard rail. Add a regression test if a future layout pushes past 10.
+ */
+const MAX_WALK_DEPTH = 10;
 
 /** Debug log file path. */
 export const LOG_PATH = "/tmp/claude-skill-staleness-hook.log";
@@ -316,7 +330,7 @@ function isMtimeMap(value: unknown): value is MtimeMap {
  */
 export function writeBaseline(path: string, baseline: SessionBaseline, fs: FsDeps = REAL_FS): void {
   try {
-    fs.mkdirSync(join(path, ".."), { recursive: true });
+    fs.mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp.${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(baseline), "utf8");
     fs.renameSync(tmp, path);
@@ -378,6 +392,10 @@ export function detectStaleness(baseline: SessionBaseline, current: MtimeMap): S
 // Message construction
 // ---------------------------------------------------------------------------
 
+// Envelope tags. Mirrors the format used by `.claude/hooks/memory-search.ts`
+// for `additionalContext` injections — Claude Code surfaces text inside
+// `<system-reminder>...</system-reminder>` to the model on the next turn,
+// not to the user. See `memory-search.ts` `ENVELOPE_HEADER` for prior art.
 const ENVELOPE_HEADER = "<system-reminder>\n";
 const ENVELOPE_FOOTER = "\n</system-reminder>";
 

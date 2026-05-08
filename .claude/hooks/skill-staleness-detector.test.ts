@@ -201,6 +201,20 @@ describe("snapshotMtimes", () => {
     expect(Object.keys(result)).toEqual([".claude/agents/real.md"]);
   });
 
+  test("excludes .test.mdc and .spec.mdc rule fixtures", () => {
+    // Reviewer-bot mt#1622 R1 BLOCKING: rules dir uses `.mdc`, but the original
+    // skip regex only covered `.md`. Verify the alternation now drops `.mdc`
+    // test/spec files too.
+    const memFs = makeFs();
+    memFs.setDir(RULES_DIR_ABS, ["real.mdc", "fixtures.spec.mdc", "broken.test.mdc"]);
+    memFs.setFile(`${RULES_DIR_ABS}/real.mdc`, 100);
+    memFs.setFile(`${RULES_DIR_ABS}/fixtures.spec.mdc`, 200);
+    memFs.setFile(`${RULES_DIR_ABS}/broken.test.mdc`, 300);
+
+    const result = snapshotMtimes(PROJECT_DIR, memFs);
+    expect(Object.keys(result)).toEqual([".minsky/rules/real.mdc"]);
+  });
+
   test("returns empty when watch roots don't exist", () => {
     const memFs = makeFs();
     expect(snapshotMtimes("/empty/repo", memFs)).toEqual({});
@@ -269,6 +283,29 @@ describe("baseline persistence", () => {
     writeBaseline("/state/sess.json", baseline, memFs);
     const recovered = readBaseline("/state/sess.json", memFs);
     expect(recovered).toEqual(baseline);
+  });
+
+  test("writeBaseline creates the parent directory via dirname (not join '..')", () => {
+    // Reviewer-bot mt#1622 R1 BLOCKING: original used `join(path, "..")` which
+    // produces `<path>/..` rather than the actual parent. POSIX resolves the
+    // `..` segment so smoke passed, but the path is technically wrong and
+    // breaks on stricter fs surfaces. Verify mkdir is called with the actual
+    // parent directory string.
+    const mkdirCalls: string[] = [];
+    const memFs = makeFs();
+    const spyingFs: FsDeps = {
+      ...memFs,
+      mkdirSync: (p, options) => {
+        mkdirCalls.push(p);
+        memFs.mkdirSync(p, options);
+      },
+    };
+    const baseline: SessionBaseline = { baseline: { "a.md": 100 }, lastReported: {} };
+    writeBaseline("/home/u/.claude/skill-staleness/repo/sess-1.json", baseline, spyingFs);
+
+    expect(mkdirCalls).toContain("/home/u/.claude/skill-staleness/repo");
+    // And specifically NOT the broken `<path>/..` form
+    expect(mkdirCalls.find((p) => p.endsWith("/.."))).toBeUndefined();
   });
 
   test("readBaseline tolerates missing lastReported (older file format)", () => {
