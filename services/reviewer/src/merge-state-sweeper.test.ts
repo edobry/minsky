@@ -68,14 +68,20 @@ beforeEach(() => {
   originalFetch = globalThis.fetch;
   fetchHandler = null;
 
-  // Install fake fetch
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  // Install fake fetch — cast to typeof globalThis.fetch to satisfy Bun's
+  // fetch type (which has methods like `preconnect` we don't model in the wrapper).
+  globalThis.fetch = (async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as { url: string }).url;
     if (fetchHandler) {
       return fetchHandler(url, init ?? {});
     }
     throw new Error(`fetch called but no handler installed: ${url}`);
-  };
+  }) as typeof globalThis.fetch;
 
   // Isolate console to prevent sweeper's internal console calls from
   // contaminating concurrent test files' console spies.
@@ -186,7 +192,7 @@ describe("runMergeStateSweep — open PRs not synced", () => {
 
       if (toolName === "session.list") return sessionListResponse(sessions);
       if (toolName === "session.pr.get") {
-        const sessionId = args["session"] as string;
+        const sessionId = args["sessionId"] as string;
         if (sessionId === "s1") {
           return prGetResponse({ state: "open", merged: false });
         }
@@ -227,7 +233,7 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         });
       }
       if (toolName === "session.apply_post_merge_state_sync") {
-        const sessionId = args["session"] as string;
+        const sessionId = args["sessionId"] as string;
         syncCalledFor.push(sessionId);
         return applySyncResponse(sessionId);
       }
@@ -266,8 +272,8 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         });
       }
       if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push(args["session"] as string);
-        return applySyncResponse(args["session"] as string);
+        syncCalledFor.push(args["sessionId"] as string);
+        return applySyncResponse(args["sessionId"] as string);
       }
       throw new Error(`Unexpected tool call: ${toolName}`);
     };
@@ -332,7 +338,7 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
 
       if (toolName === "session.list") return sessionListResponse(sessions);
       if (toolName === "session.pr.get") {
-        const sessionId = args["session"] as string;
+        const sessionId = args["sessionId"] as string;
         // sa and sc are merged; sb is still open
         if (sessionId === "sa" || sessionId === "sc") {
           return prGetResponse({ state: "closed", merged: true, mergedAt: "2026-05-06T10:00:00Z" });
@@ -340,8 +346,8 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
         return prGetResponse({ state: "open", merged: false });
       }
       if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push(args["session"] as string);
-        return applySyncResponse(args["session"] as string);
+        syncCalledFor.push(args["sessionId"] as string);
+        return applySyncResponse(args["sessionId"] as string);
       }
       throw new Error(`Unexpected tool call: ${toolName}`);
     };
@@ -394,7 +400,7 @@ describe("runMergeStateSweep — error handling", () => {
 
       if (toolName === "session.list") return sessionListResponse(sessions);
       if (toolName === "session.pr.get") {
-        const sessionId = args["session"] as string;
+        const sessionId = args["sessionId"] as string;
         if (sessionId === "se1") {
           // se1's pr.get fails
           return jsonResponse({}, 500);
@@ -403,8 +409,8 @@ describe("runMergeStateSweep — error handling", () => {
         return prGetResponse({ state: "closed", merged: true, mergedAt: "2026-05-06T10:00:00Z" });
       }
       if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push(args["session"] as string);
-        return applySyncResponse(args["session"] as string);
+        syncCalledFor.push(args["sessionId"] as string);
+        return applySyncResponse(args["sessionId"] as string);
       }
       throw new Error(`Unexpected: ${toolName}`);
     };

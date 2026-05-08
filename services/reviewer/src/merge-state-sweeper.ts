@@ -318,8 +318,10 @@ export async function runMergeStateSweep(
 
         try {
           // Step 2a: Fetch current PR state from GitHub via session.pr.get.
+          // The MCP command reads `params.sessionId` (not `params.session`).
+          // PR #1010 R2 fix.
           const prGetText = await callMcpTool(mcpUrl, mcpToken, "session.pr.get", {
-            session: sessionId,
+            sessionId,
           });
 
           if (!prGetText) {
@@ -362,14 +364,15 @@ export async function runMergeStateSweep(
             })
           );
 
-          // Call the apply_post_merge_state_sync MCP tool.
+          // Call the apply_post_merge_state_sync MCP tool. The command reads
+          // `params.sessionId` (not `params.session`). PR #1010 R2 fix.
           // TOCTOU accept: idempotent — calling twice produces the same final state.
           const syncText = await callMcpTool(
             mcpUrl,
             mcpToken,
             "session.apply_post_merge_state_sync",
             {
-              session: sessionId,
+              sessionId,
               mergeSha: pr.mergeSha,
               mergedAt: pr.mergedAt,
               trigger: "sweeper",

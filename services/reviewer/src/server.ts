@@ -52,10 +52,16 @@ interface PullRequestClosedPayload {
   repository: { owner: { login: string }; name: string };
 }
 
-/** Type guard: payload is a closed+merged PR event. */
-function isMergedClosedPayload(
-  payload: unknown
-): payload is PullRequestClosedPayload & { pull_request: { merged: true } } {
+/**
+ * Type guard: payload is a closed+merged PR event.
+ *
+ * Narrowing target is just `PullRequestClosedPayload` (without an extra
+ * `pull_request: { merged: true }` literal-narrowing intersection) because
+ * intersecting our local subset shape with the @octokit-provided event type
+ * caused TypeScript to collapse the result to `never` under the stricter
+ * services/reviewer tsconfig (PR #1010 R3).
+ */
+function isMergedClosedPayload(payload: unknown): payload is PullRequestClosedPayload {
   if (typeof payload !== "object" || payload === null) return false;
   const p = payload as Record<string, unknown>;
   if (p["action"] !== "closed") return false;
@@ -365,9 +371,11 @@ export function createApp(
       return;
     }
 
-    // Call apply_post_merge_state_sync.
+    // Call apply_post_merge_state_sync. The MCP command reads `params.sessionId`
+    // (not `params.session`) — passing the wrong key throws ResourceNotFoundError
+    // at runtime. PR #1010 R2 fix.
     const syncArgs: Record<string, unknown> = {
-      session: sessionId,
+      sessionId,
       trigger: "webhook",
     };
     if (mergeSha) syncArgs["mergeSha"] = mergeSha;

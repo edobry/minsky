@@ -127,8 +127,15 @@ beforeEach(() => {
   mcpHandler = null;
 
   // Wrap fetch: MCP calls go to the handler; all others go to the real fetch.
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+  // Cast assigns to typeof globalThis.fetch to satisfy Bun's fetch type
+  // (which has methods like `preconnect` we don't need to model in the wrapper).
+  globalThis.fetch = (async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+    const url =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.href
+          : (input as { url: string }).url;
 
     if (url.startsWith(MCP_URL)) {
       // Intercept MCP call
@@ -154,8 +161,8 @@ beforeEach(() => {
     }
 
     // Pass-through: real fetch for webhook delivery to local server
-    return originalFetch(input, init);
-  };
+    return originalFetch(input as Parameters<typeof globalThis.fetch>[0], init);
+  }) as typeof globalThis.fetch;
 });
 
 afterEach(() => {
@@ -281,12 +288,15 @@ describe("pull_request.closed webhook — merged=true, task/mt-N branch", () => 
       expect(sessionGetCalls.length).toBeGreaterThan(0);
       expect(sessionGetCalls[0]?.args["task"]).toBe("mt#1614");
 
-      // Verify apply_post_merge_state_sync was called with session + trigger=webhook
+      // Verify apply_post_merge_state_sync was called with sessionId + trigger=webhook.
+      // PR #1010 R2: previously this test asserted `["session"]` which baked in the
+      // bug — the MCP command reads `params.sessionId` and was throwing at runtime.
       expect(syncCalled.length).toBeGreaterThan(0);
       const syncArgs = syncCalled[0];
       expect(syncArgs).toBeDefined();
       if (!syncArgs) return;
-      expect(syncArgs["session"]).toBe(SESSION_ID);
+      expect(syncArgs["sessionId"]).toBe(SESSION_ID);
+      expect(syncArgs["session"]).toBeUndefined();
       expect(syncArgs["trigger"]).toBe("webhook");
       expect(syncArgs["mergeSha"]).toBe(MERGE_SHA);
       expect(syncArgs["mergedAt"]).toBe(MERGED_AT);
