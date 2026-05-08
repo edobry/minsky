@@ -17,6 +17,10 @@
   ],
   "module": "src/cli.ts",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
     "start": "bun run src/cli.ts",
     "lint": "eslint .",
