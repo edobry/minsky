@@ -36,5 +36,31 @@ export default defineRailwayConfig({
     MINSKY_PERSISTENCE_POSTGRES_URL: secret("MINSKY_PERSISTENCE_POSTGRES_URL"),
     NODE_ENV: "production",
     OPENAI_API_KEY: secret("OPENAI_API_KEY"),
+
+    // -------------------------------------------------------------------
+    // OAUTH ENV VARS (mt#1634, shipped May 2026)
+    //
+    // The InProcessOAuthProvider (mt#1663) reads two optional config keys:
+    //   - oauth.issuer (string URL, optional)
+    //   - oauth.signingKey (string, optional — env-var ref or inline JWK)
+    //
+    // Both are intentionally NOT set on this service in v1:
+    //
+    // 1. `MINSKY_OAUTH_ISSUER` — when absent, InProcessOAuthProvider derives
+    //    the issuer from the incoming request's Host/X-Forwarded-Host headers.
+    //    This works correctly behind Railway's TLS terminator (`trust proxy 1`
+    //    is set in start-command.ts:284). Setting it explicitly is only needed
+    //    if the service ever runs behind multiple hostnames.
+    //
+    // 2. `MINSKY_OAUTH_SIGNING_KEY` — when absent, InProcessOAuthProvider
+    //    generates an ephemeral RSA-2048 keypair at first startup and logs a
+    //    WARN. The tradeoff: tokens issued by the prior process are invalid
+    //    after Railway redeploys (every push to main triggers a redeploy).
+    //    For v1 (claude.ai web wiring acceptance), this is acceptable — users
+    //    re-authorize on token-invalidation. For production hardening,
+    //    generate a JWK once (`openssl rand -hex 32` for HMAC, or use
+    //    `jose` to generate an RSA JWK) and set this var. Tracking task
+    //    for the production-posture migration: see mt#1683 sibling work.
+    // -------------------------------------------------------------------
   },
 });
