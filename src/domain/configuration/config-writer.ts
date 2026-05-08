@@ -11,7 +11,7 @@ import {
   getUserConfigDir as defaultGetUserConfigDir,
   userConfigFiles as defaultUserConfigFiles,
 } from "./sources/user";
-import { ConfigSchema } from "./config-schemas";
+import { configurationSchema } from "./schemas";
 import { log } from "../../utils/logger";
 import type { FsLike } from "../interfaces/fs-like";
 import { createRealFs } from "../interfaces/real-fs";
@@ -125,7 +125,7 @@ export class ConfigWriter {
 
       // Validate configuration if requested
       if (this.options.validate) {
-        const validationResult = ConfigSchema.safeParse(currentConfig);
+        const validationResult = configurationSchema.safeParse(currentConfig);
         if (!validationResult.success) {
           // Restore from backup if validation fails
           if (backupPath) {
@@ -209,7 +209,7 @@ export class ConfigWriter {
 
       // Validate configuration if requested
       if (this.options.validate) {
-        const validationResult = ConfigSchema.safeParse(currentConfig);
+        const validationResult = configurationSchema.safeParse(currentConfig);
         if (!validationResult.success) {
           // Restore from backup if validation fails
           if (backupPath) {

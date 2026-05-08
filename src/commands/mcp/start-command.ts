@@ -10,7 +10,6 @@ import { getErrorMessage } from "../../errors/index";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
-
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerRepoTools } from "../../adapters/mcp/repo";
@@ -31,11 +30,27 @@ import { registerMemoryTools } from "../../adapters/mcp/memory";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
+import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
+import type { AppContainerInterface } from "../../composition/types";
+import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
 const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
+
+/**
+ * Vector dimension for the memory embeddings store.
+ *
+ * **TODO (mt#1631):** This dimension is hard-coded across three independent
+ * MemoryService construction sites — `resolveMemoryService` (pre-existing),
+ * `buildMemoryServiceForSpike` (this file), and `scripts/import-claude-code-memory.ts`.
+ * Centralize via an embedding-service-derived dimension getter or a single
+ * shared constant when those three sites are unified (PR #974 R2 BLOCKING).
+ * Today's value (1536) matches `text-embedding-3-small`/`text-embedding-ada-002`,
+ * which is what Minsky configures by default.
+ */
+const MEMORY_EMBEDDING_DIMENSION = 1536;
 
 /**
  * Check a bearer-token authorization header against the expected token.
@@ -51,6 +66,30 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
   const presented = match?.[1]?.trim();
   return !!presented && presented === expectedToken;
 }
+
+/**
+ * OAuth Discovery JSON body returned by the stub `.well-known` endpoints
+ * (mt#1635). MCP clients probe these paths; returning parseable JSON instead
+ * of Express's HTML 404 lets them fall through cleanly to the static-bearer
+ * authentication path. Exported for unit testing. Frozen at module-load to
+ * protect against accidental mutation by importers.
+ */
+export const OAUTH_DISCOVERY_NOT_SUPPORTED_BODY = Object.freeze({
+  error: "not_supported",
+  error_description:
+    "this server does not implement OAuth; use static bearer token via Authorization header",
+} as const);
+
+/**
+ * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
+ * (mt#1635). Exported for unit testing. Frozen at module-load to protect
+ * against accidental mutation by importers.
+ */
+export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = Object.freeze({
+  error: "registration_not_supported",
+  error_description:
+    "Dynamic Client Registration is not implemented; this server uses static bearer token authentication",
+} as const);
 
 /**
  * Register all MCP tool adapters on the given command mapper.
@@ -225,6 +264,36 @@ async function startHttpServer(
     });
   });
 
+  // OAuth discovery + Dynamic Client Registration stubs (mt#1635).
+  //
+  // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
+  // determine whether the server supports OAuth. When the endpoints return
+  // Express's default HTML 404, the SDK fails to parse the body as JSON and
+  // surfaces a misleading "auth failed" status, even though the static
+  // `Authorization: Bearer` header path is working fine.
+  //
+  // These stubs return parseable JSON error responses so probing SDKs can
+  // gracefully fall through to the static-token path. They explicitly do
+  // NOT implement OAuth — full OAuth (DCR + PKCE + token issuance) is the
+  // mt#1634 umbrella's scope.
+  //
+  // Public-access posture (intentional): these endpoints sit outside the
+  // bearer-auth check, parallel to /health. The probe must succeed before
+  // the SDK has any auth credentials to send, otherwise the fall-through
+  // never fires. The bodies leak no internal state — they advertise the
+  // (deliberate) absence of OAuth and point at the bearer path.
+  app.get("/.well-known/oauth-authorization-server", (_req, res) => {
+    res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
+  });
+
+  app.get("/.well-known/oauth-protected-resource", (_req, res) => {
+    res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
+  });
+
+  app.post("/register", (_req, res) => {
+    res.status(400).json(OAUTH_REGISTER_NOT_SUPPORTED_BODY);
+  });
+
   // Start the HTTP server
   const httpPort = parseInt(options.port, 10);
   app.listen(httpPort, options.host, () => {
@@ -240,6 +309,63 @@ async function startHttpServer(
 
   // Initialize the MCP server (without connecting transport since HTTP is on-demand)
   await server.start();
+}
+
+/**
+ * Construct a MemoryService for the mt#1588 spike enrichment middleware.
+ *
+ * Spike-scope inline duplication of `resolveMemoryService`'s real-path branch
+ * in `src/adapters/shared/commands/memory/index.ts`. If this spike graduates,
+ * extract the shared construction logic into a `src/domain/memory/build.ts`
+ * helper and have both call sites consume it.
+ *
+ * Returns null on any construction failure — the middleware degrades to a
+ * no-op (the dispatcher behaves identically to pre-mt#1588).
+ *
+ * @see mt#1588 — this spike
+ */
+async function buildMemoryServiceForSpike(
+  container: AppContainerInterface
+): Promise<MemoryServiceSurface | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const { createEmbeddingServiceFromConfig } = await import(
+      "../../domain/ai/embedding-service-factory"
+    );
+    const embeddingService = await createEmbeddingServiceFromConfig();
+
+    const { createVectorStorageForDomain } = await import(
+      "../../domain/storage/vector/vector-storage-factory"
+    );
+    const vectorStorage = await createVectorStorageForDomain(
+      "memory",
+      MEMORY_EMBEDDING_DIMENSION,
+      persistence
+    );
+
+    const { MemoryService } = await import("../../domain/memory");
+    type MemoryServiceDb = import("../../domain/memory/memory-service").MemoryServiceDb;
+    return new MemoryService({
+      db: connection as MemoryServiceDb,
+      vectorStorage,
+      embeddingService,
+    });
+  } catch (err) {
+    log.debug("[mt#1588] buildMemoryServiceForSpike threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
 }
 
 /**
@@ -338,6 +464,34 @@ export function createStartCommand(
         // (must happen after registerAllTools which triggers container.initialize())
         if (container) {
           server.setContainer(container);
+        }
+
+        // mt#1588 spike: construct a MemoryService and wire it into the server
+        // for the enrichment middleware. Gated behind the
+        // MINSKY_MCP_MEMORY_ENRICHMENT opt-in env var (default OFF) per PR #974
+        // R1 BLOCKING — the spike's "iterate, do not graduate" decision means
+        // the wiring must not activate in production unless explicitly opted
+        // in. Construction failure leaves the middleware as a no-op.
+        //
+        // Note (PR #974 R2 NON-BLOCKING): opt-in is read at startup-only here
+        // for the wiring decision. `enrichToolResponse` ALSO checks the env
+        // var on every call, so toggling MINSKY_MCP_MEMORY_ENRICHMENT to "0"
+        // at runtime takes effect immediately (the middleware short-circuits)
+        // even though the MemoryService stays wired. Setting the var from
+        // unset → "1" at runtime requires a restart for wiring to take effect.
+        if (container && isEnrichmentEnabled()) {
+          buildMemoryServiceForSpike(container)
+            .then((memoryService) => {
+              if (memoryService) {
+                server.setMemoryService(memoryService);
+                log.debug("[mt#1588] Memory enrichment middleware wired (opt-in)");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1588] Memory enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
         }
 
         // Register knowledge MCP resources on the server

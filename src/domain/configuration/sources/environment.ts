@@ -56,20 +56,17 @@ export const environmentMappings = {
   MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
   MINSKY_PERSISTENCE_POSTGRES_URL: "persistence.postgres.connectionString",
 
-  // SessionDB configuration (legacy — kept for back-compat, deprecated)
-  // These populate the legacy `sessiondb.*` key; `getEffectivePersistenceConfig`
-  // reads both shapes. New deployments should use `MINSKY_PERSISTENCE_*` above.
-  MINSKY_SESSIONDB_BACKEND: "sessiondb.backend",
-  MINSKY_SESSIONDB_SQLITE_PATH: "sessiondb.sqlite.path",
-  MINSKY_SESSIONDB_POSTGRES_URL: "sessiondb.postgres.connectionString",
-  MINSKY_SESSIONDB_BASE_DIR: "sessiondb.baseDir",
-
   // Persistence configuration (modern key). MINSKY_POSTGRES_URL is the canonical
   // escape hatch documented in persistence-config.ts and surfaced in factory /
   // validation error messages; it requires an explicit mapping because the
   // auto-conversion fallback would route it to "postgres.url" instead of
   // "persistence.postgres.connectionString".
   MINSKY_POSTGRES_URL: "persistence.postgres.connectionString",
+
+  // Supabase Management API credentials (developer-local; consumed by
+  // `just supabase-usage`). Distinct from the Postgres connection string,
+  // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
+  MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
 
   // Logger configuration
   MINSKY_LOG_MODE: "logger.mode",
@@ -82,6 +79,34 @@ export const environmentMappings = {
   LOG_FILE: "logger.logFile",
   MINSKY_LOG_FILE: "logger.logFile",
 } as const;
+
+/**
+ * Hook-only environment variables (mt#1644).
+ *
+ * These vars are read by `.claude/hooks/*.ts` subprocesses (external
+ * consumers — the hook tree lives outside this package's import graph) but
+ * have NO config-schema home. They are deliberately NOT in
+ * `environmentMappings`.
+ *
+ * Without this skip-list, the auto-mapping fallback in
+ * `loadEnvironmentConfiguration` would route them to camelCase config paths
+ * (e.g. `MINSKY_FORCE_PARALLEL` -> `force.parallel`), which mt#1612's
+ * strict-mode top-level validation rejects, crashing the CLI at startup.
+ *
+ * Both `loadEnvironmentConfiguration` and `getEnvironmentConfiguration`
+ * honor this set so the loaded-config and metadata-reporting paths stay
+ * consistent — diagnostics that consume `metadata.loadedVariables` see the
+ * same view of "what env vars affected configuration" that the loader used.
+ *
+ * Keep in sync with `.claude/hooks/*.ts` as new hook-only `MINSKY_*` env
+ * vars are introduced.
+ */
+const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+  "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
+  "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
+  "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
+  "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
+]);
 
 /**
  * Type conversion functions for environment variables
@@ -166,6 +191,9 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
       // Skip if already handled by explicit mapping
       if (envVar in environmentMappings) continue;
 
+      // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+
       // Convert MINSKY_PREFIX to config path
       const configPath = envVarToConfigPath(envVar);
       if (configPath) {
@@ -193,16 +221,6 @@ function envVarToConfigPath(envVar: string): string | null {
     const provider = elementAt(parts, 2, "env var AI provider part");
     const field = parts.slice(3).join("_");
     return `ai.providers.${provider}.${camelCase(field)}`;
-  }
-
-  if (parts[0] === "sessiondb") {
-    // SESSIONDB_BACKEND -> sessiondb.backend
-    // SESSIONDB_SQLITE_PATH -> sessiondb.sqlite.path
-    if (parts.length === 2) {
-      return `sessiondb.${camelCase(elementAt(parts, 1, "sessiondb field"))}`;
-    } else if (parts.length === 3) {
-      return `sessiondb.${parts[1]}.${camelCase(elementAt(parts, 2, "sessiondb subfield"))}`;
-    }
   }
 
   if (parts[0] === "persistence") {
@@ -290,6 +308,11 @@ export function getEnvironmentConfiguration(): {
   // Track MINSKY_ prefixed variables
   for (const envVar of Object.keys(process.env)) {
     if (envVar.startsWith("MINSKY_") && !(envVar in environmentMappings)) {
+      // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
+      // Stays in sync with loadEnvironmentConfiguration so metadata reporting
+      // does not diverge from actual load behavior.
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+
       const configPath = envVarToConfigPath(envVar);
       if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {
         loadedVariables.push(envVar);

@@ -13,7 +13,6 @@ export const commandCategorySchema = z.enum([
   "REPO",
   "TASKS",
   "SESSION",
-  "SESSIONDB",
   "PERSISTENCE",
   "RULES",
   "INIT",
@@ -29,6 +28,7 @@ export const commandCategorySchema = z.enum([
   "COMPILE",
   "WORKSPACE",
   "TRANSCRIPTS",
+  "DETECTORS",
 ]);
 
 /**

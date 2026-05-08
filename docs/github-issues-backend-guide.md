@@ -86,11 +86,11 @@ version: 1
 # Task Backend Configuration
 backend: "github-issues"
 
-# SessionDB Configuration
-sessiondb:
+# Persistence Configuration
+persistence:
   backend: "sqlite"
   sqlite:
-    path: "~/.local/state/minsky/sessions.db"
+    dbPath: "~/.local/state/minsky/sessions.db"
 ```
 
 ### Step 4: Verify Setup
@@ -160,10 +160,10 @@ backendConfig:
       BLOCKED: "minsky:blocked"
       CLOSED: "minsky:closed"
 
-sessiondb:
+persistence:
   backend: "sqlite"
   sqlite:
-    path: "~/.local/state/minsky/sessions.db"
+    dbPath: "~/.local/state/minsky/sessions.db"
 ```
 
 ## Troubleshooting

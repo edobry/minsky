@@ -113,9 +113,7 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
     if (!connectionString) {
       issues.push("No PostgreSQL connection string configured");
       suggestions.push(
-        "Set persistence.postgres.connectionString " +
-          "(or sessiondb.postgres.connectionString) in config " +
-          "or MINSKY_POSTGRES_URL env var"
+        "Set persistence.postgres.connectionString in config or MINSKY_POSTGRES_URL env var"
       );
       return {
         success: false,
@@ -174,7 +172,7 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
         // Test vector storage if supported
         if (provider.getCapabilities().vectorStorage) {
           try {
-            const vectorStorage = await provider.getVectorStorage?.(1536); // OpenAI embedding dimension
+            const vectorStorage = await provider.getVectorStorageForDomain?.("tasks", 1536); // OpenAI embedding dimension
             if (vectorStorage) {
               // Try a simple vector operation with a dummy vector (all zeros)
               const dummyVector = new Array(1536).fill(0);

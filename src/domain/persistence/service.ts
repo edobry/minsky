@@ -24,14 +24,18 @@ import type { VectorStorage } from "../storage/vector/types";
 import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory";
 
 /**
- * Build a PersistenceConfig from a Configuration via the documented fallback
- * chain (`persistence.*` → `sessiondb.*` → MINSKY_POSTGRES_URL → defaults).
+ * Build a PersistenceConfig from a Configuration.
  *
- * Exported for test coverage of the legacy fallback path. Production code
- * goes through `PersistenceService.loadConfiguration` which calls this with
- * `getConfiguration()`. Lifting it to a pure function makes the env-var-only
- * hosted-deploy path (mt#1271) directly unit-testable without mocking the
- * global configuration provider.
+ * Resolution priority (see getEffectivePersistenceConfig):
+ *   1. config.persistence.*
+ *   2. MINSKY_POSTGRES_URL env var (connection string only)
+ *   3. Hard-coded defaults (backend = sqlite, default sqlite path)
+ *
+ * Throws LegacySessiondbConfigError if the merged config still contains a
+ * sessiondb: block (see mt#1610).
+ *
+ * Exported as a pure function so the env-var-only resolution path is unit-
+ * testable without mocking the global configuration provider.
  */
 export function buildPersistenceConfigFrom(runtimeConfig: Configuration): PersistenceConfig {
   const effective = getEffectivePersistenceConfig(runtimeConfig);
@@ -125,17 +129,6 @@ export class PersistenceService {
     }
 
     return provider.getVectorStorageForDomain(domain, dimension);
-  }
-
-  /**
-   * Get vector storage — type-safe approach using interface checking.
-   *
-   * @deprecated Use getVectorStorageForDomain(domain, dimension) to specify the
-   * correct domain. This method defaults to the "tasks" domain, which is WRONG
-   * for memory, rules, tools, and knowledge embeddings.
-   */
-  getVectorStorage(dimension: number): VectorStorage {
-    return this.getVectorStorageForDomain("tasks", dimension);
   }
 
   private isVectorCapable(

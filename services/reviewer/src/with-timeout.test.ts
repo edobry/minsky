@@ -82,7 +82,9 @@ describe("withTimeout", () => {
     }
 
     expect(captured.length).toBe(1);
-    const parsed = JSON.parse(captured[0]) as Record<string, unknown>;
+    const [firstLog] = captured;
+    if (firstLog === undefined) throw new Error("expected captured to have length 1");
+    const parsed = JSON.parse(firstLog) as Record<string, unknown>;
     expect(parsed.event).toBe("timeout");
     expect(parsed.op).toBe("test.log");
     expect(parsed.timeoutMs).toBe(15);

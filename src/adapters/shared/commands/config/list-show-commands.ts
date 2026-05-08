@@ -73,11 +73,8 @@ export const configListRegistration = defineCommand({
       const metadata = provider.getMetadata();
       const effectiveValues = provider.getEffectiveValues();
 
-      // Show ALL configuration properties except deprecated ones
-      const { backend: _deprecatedBackend, ...resolved } = config;
-
       // Apply credential masking unless explicitly requested to show secrets
-      const maskedConfig = maskCredentials(resolved, params.showSecrets || false);
+      const maskedConfig = maskCredentials(config, params.showSecrets || false);
 
       return {
         success: true,

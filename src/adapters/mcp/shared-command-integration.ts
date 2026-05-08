@@ -550,17 +550,6 @@ export function registerPersistenceCommandsWithMcp(
 }
 
 /**
- * Register sessiondb commands with MCP (legacy compatibility)
- */
-export function registerSessiondbCommandsWithMcp(
-  commandMapper: CommandMapper,
-  config: Omit<McpSharedCommandConfig, "categories"> = {}
-): void {
-  // Forward to persistence commands for backward compatibility
-  registerPersistenceCommandsWithMcp(commandMapper, config);
-}
-
-/**
  * Register changeset commands with MCP (repository changesets and session aliases)
  */
 export function registerChangesetCommandsWithMcp(

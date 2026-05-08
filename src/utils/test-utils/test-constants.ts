@@ -200,7 +200,7 @@ export const TEST_DATA_PATTERNS = {
 
 // Configuration patterns
 export const CONFIG_TEST_PATTERNS = {
-  SESSIONDB_BACKEND: "sessiondb.backend",
+  PERSISTENCE_BACKEND: "persistence.backend",
   OPENAI_MODEL_PATH: "ai.providers.openai.model",
 } as const;
 

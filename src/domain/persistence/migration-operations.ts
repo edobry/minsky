@@ -160,8 +160,7 @@ export async function runSchemaMigrationsForConfiguredBackend(
     if (!connectionString) {
       throw new Error(
         "PostgreSQL connection string not found. Configure " +
-          "persistence.postgres.connectionString, " +
-          "sessiondb.postgres.connectionString, or set MINSKY_POSTGRES_URL."
+          "persistence.postgres.connectionString or set MINSKY_POSTGRES_URL."
       );
     }
 

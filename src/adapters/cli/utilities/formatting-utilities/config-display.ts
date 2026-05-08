@@ -34,7 +34,7 @@ export function formatResolvedConfigurationWithSources(
 
   // Task Storage
   const taskBackend = r.tasks?.backend || r.backend;
-  const persistenceConfig = r.persistence || r.sessiondb;
+  const persistenceConfig = r.persistence;
   const persistenceBackend = persistenceConfig?.backend || "sqlite";
 
   // Don't show separate task storage if it's using the same database as persistence
@@ -97,8 +97,7 @@ export function formatResolvedConfigurationWithSources(
 
   // Storage Layer
   if (persistenceConfig) {
-    const persistenceSource =
-      getSourceAnnotation("persistence.backend") || getSourceAnnotation("sessiondb.backend");
+    const persistenceSource = getSourceAnnotation("persistence.backend");
 
     if (taskBackend === "minsky" && persistenceBackend === "postgres") {
       output += `💾 Persistence:\n   • All data stored in PostgreSQL database${persistenceSource}\n`;
@@ -108,9 +107,7 @@ export function formatResolvedConfigurationWithSources(
     }
 
     if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
-      const connSource =
-        getSourceAnnotation("persistence.postgres.connectionString") ||
-        getSourceAnnotation("sessiondb.connectionString");
+      const connSource = getSourceAnnotation("persistence.postgres.connectionString");
       output += `   • Connection: configured${connSource}\n`;
     }
   }
@@ -184,7 +181,7 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   // Task Storage
   // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
   const taskBackend = r.tasks?.backend || r.backend;
-  const persistenceConfig = r.persistence || r.sessiondb;
+  const persistenceConfig = r.persistence;
   const persistenceBackend = persistenceConfig?.backend || "sqlite";
 
   // Don't show separate task storage if it's using the same database as persistence
@@ -236,13 +233,6 @@ export function formatResolvedConfiguration(resolved: Record<string, unknown>): 
   // Storage Layer (unified for sessions, embeddings, and optionally tasks)
   // persistenceConfig already defined above
   if (persistenceConfig) {
-    // Warn about legacy sessiondb usage
-    if (!r.persistence && r.sessiondb) {
-      output +=
-        "⚠️  DEPRECATION: sessiondb configuration detected. Please migrate to persistence: configuration.\n";
-      output += "   Run 'minsky config migrate' to automatically convert your configuration.\n\n";
-    }
-
     // Only show separate persistence if tasks aren't using the same backend
     const innerTaskBackend = r.tasks?.backend || r.backend;
     const innerPersistenceBackend = persistenceConfig.backend || "sqlite";
