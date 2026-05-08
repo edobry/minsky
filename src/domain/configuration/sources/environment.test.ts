@@ -97,3 +97,29 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
     expect(config.postgres).toBeUndefined();
   });
 });
+
+describe("environment configuration source — supabase mapping (mt#1633)", () => {
+  let original: string | undefined;
+
+  beforeEach(() => {
+    original = process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+    delete process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+  });
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+    } else {
+      process.env.MINSKY_SUPABASE_ACCESS_TOKEN = original;
+    }
+  });
+
+  test("MINSKY_SUPABASE_ACCESS_TOKEN maps to supabase.accessToken", () => {
+    const TEST_PAT = "sbp_test_routing_check";
+    process.env.MINSKY_SUPABASE_ACCESS_TOKEN = TEST_PAT;
+    const config = loadEnvironmentConfiguration() as {
+      supabase?: { accessToken?: string };
+    };
+    expect(config.supabase?.accessToken).toBe(TEST_PAT);
+  });
+});
