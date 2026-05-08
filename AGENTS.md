@@ -961,6 +961,64 @@ implementer subagent invoked `gh api PUT /merge` at R0 (zero reviewer-bot review
 on the same endpoint (mt#1228). Both hooks run on every `Bash`/`session_exec` call;
 the subagent context denial (this hook) fires first in the matcher order.
 
+## Skill/Agent/Rule Staleness Detector
+
+A `UserPromptSubmit` hook that, on each agent turn, compares mtimes of files under
+`.claude/skills/**`, `.claude/agents/**`, and `.minsky/rules/**` against a session-start
+baseline, and injects an `additionalContext` warning when files have changed since the
+session started. This is the structural fix (mt#1622) for the skill-copy-staleness pattern
+recorded in `feedback_skill_copy_staleness_in_running_sessions`: skill bodies load into
+session context on first invocation and stay cached for the rest of the session, so
+structural fixes that update a skill on main don't propagate to running sessions.
+
+**Hook file:** `.claude/hooks/skill-staleness-detector.ts`
+
+**Why `UserPromptSubmit`, not `FileChanged`.** Claude Code's `FileChanged` event is in
+the "no decision control" event class — it fires on file changes but cannot emit
+`additionalContext` into the next agent turn. `UserPromptSubmit` IS a context-injecting
+event (used by `memory-search.ts`), so the hook performs its own per-turn mtime check.
+Trade-off: detection is per-turn rather than instantaneous; in practice equivalent since
+the agent only acts on context between turns.
+
+**How it works:**
+1. On first invocation for a given `session_id`, snapshots mtimes of every watched file
+   and writes them to `~/.claude/skill-staleness/<encoded-cwd>/<session_id>.json` (one
+   file per session sidesteps the read-modify-write race a shared file would have).
+2. On subsequent invocations, reads the baseline and compares against the current
+   snapshot. Files whose mtime differs from baseline AND from the most-recently-reported
+   mtime are flagged.
+3. Builds a single consolidated `additionalContext` message naming the changed files
+   (capped at 10 with "+ N more"), updates the per-file `lastReported` map, and exits.
+
+**Re-warning suppression.** After warning about file X with mtime M, the hook records
+`lastReported[X] = M`. Subsequent turns only re-warn if X's mtime advances again past M.
+This avoids nag-on-every-turn after a single change.
+
+**Override mechanism:** Set `MINSKY_SKIP_SKILL_STALENESS=1` (or `true` / `yes`) in the
+environment to disable the hook entirely:
+
+```bash
+MINSKY_SKIP_SKILL_STALENESS=1 claude
+```
+
+The hook short-circuits before any filesystem work when opted out.
+
+**Behavioral contract:**
+- **First invocation per session** writes a baseline and emits NO warning.
+- **No-change turns** emit NO warning (silent allow path).
+- **Modified-since-baseline turns** emit a single consolidated warning naming the files,
+  with `(modified)` or `(deleted)` annotations.
+- **Already-reported files** (mtime equals `lastReported`) are SKIPPED — no re-warn.
+- **Newly-added files** (not in baseline) are NOT warned about — they're additive
+  context, not staleness of a skill the agent has already loaded.
+- **Errors** at any stage (read, write, parse) result in silent skip — the hook is
+  informational only and never blocks the user prompt.
+
+**Originating incident.** mt#1546 (2026-05-06): mt#1551 shipped on 2026-05-05 retiring
+the auditor dispatch from `/verify-task`; the next day mt#1546 hit `/verify-task` in a
+running session and got the OLD protocol because the SKILL.md text was loaded at session
+start, before the mt#1551 fix landed. This hook closes that gap for future cases.
+
 ## Branch Freshness Guard
 
 A PreToolUse hook on `mcp__minsky__session_commit`, `mcp__minsky__session_pr_create`, and
@@ -1237,7 +1295,7 @@ mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
 
 Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
 
-**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts, and the three explicit carve-outs: `git status`, `git stash`, `git reset`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
+**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts). For main-workspace `git status`/`git stash`/`git reset`/`git restore`/`git pull`, prefer the dedicated MCP tools (`git_status`, `git_stash`, `git_reset`, `git_restore`, `git_pull`) shipped by mt#1549 — `session_exec` carve-outs for these still apply only when running them inside a SESSION workspace (e.g., `session_exec(task, 'git stash')`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
 
 # Decision Defaults
 
@@ -1396,4 +1454,4 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - ES5 trailing commas, LF line endings
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
-- 10 custom ESLint rules enforce architectural patterns
+- Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety

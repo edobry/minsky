@@ -1,12 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
-import {
-  checkBearerAuth,
-  composeRequestBaseUrl,
-  normalizeEndpointPath,
-  OAUTH_FLOW_NOT_SUPPORTED_BODY,
-} from "./start-command";
+import { checkBearerAuth, composeRequestBaseUrl, normalizeEndpointPath } from "./start-command";
 import type { OAuthIdentityProvider } from "../../domain/oauth/types";
 
 // ---------------------------------------------------------------------------
@@ -278,15 +273,6 @@ describe("checkBearerAuth", () => {
 
   test("trims trailing whitespace on the token", () => {
     expect(checkBearerAuth(`Bearer ${TOKEN}   `, TOKEN)).toBe(true);
-  });
-});
-
-describe("OAuth constants (mt#1664)", () => {
-  test("OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657) is a frozen error body for /oauth/* stubs", () => {
-    expect(OAUTH_FLOW_NOT_SUPPORTED_BODY.error).toBe("oauth_not_supported");
-    expect(typeof OAUTH_FLOW_NOT_SUPPORTED_BODY.error_description).toBe("string");
-    expect(OAUTH_FLOW_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
-    expect(Object.isFrozen(OAUTH_FLOW_NOT_SUPPORTED_BODY)).toBe(true);
   });
 });
 
@@ -735,20 +721,28 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     }
   }, 30000);
 
-  // /oauth/authorize and /oauth/token remain stubs (mt#1665 will replace them)
+  // /oauth/authorize and /oauth/token now delegate to OAuthIdentityProvider (mt#1665).
+  // Without a DATABASE_URL the provider is not wired, so the endpoints return
+  // 503 service_unavailable (no-provider path). The assertions are tolerant of
+  // both 503 (no provider) and 500 (provider wired but errored) — same pattern
+  // as the discovery endpoint tests above.
 
   const PORT_OAUTH_AUTHORIZE = 41005;
   const PORT_OAUTH_TOKEN = 41006;
 
-  test("GET /oauth/authorize returns 400 + OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657)", async () => {
-    const { child, ready } = spawnHttpMcp(PORT_OAUTH_AUTHORIZE);
+  test("GET /oauth/authorize returns parseable error when DB unavailable (mt#1665)", async () => {
+    // Without a working OAuthProvider the route returns:
+    //   - 503 service_unavailable (provider not constructed; clean no-DB path)
+    //   - 500 server_error (provider constructed but authorize() threw before headers sent)
+    // Both are valid; test asserts route exists, handler ran, and emits parseable JSON.
+    const { child, ready } = spawnHttpMcp(PORT_OAUTH_AUTHORIZE, { DATABASE_URL: "" });
     try {
       await ready;
       const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_AUTHORIZE}/oauth/authorize`);
-      expect(response.status).toBe(400);
+      expect([500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.error).toBe(OAUTH_FLOW_NOT_SUPPORTED_BODY.error);
+      expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
       expect(typeof body.error_description).toBe("string");
     } finally {
       child.kill("SIGTERM");
@@ -758,8 +752,9 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
     }
   }, 30000);
 
-  test("POST /oauth/token returns 400 + OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657)", async () => {
-    const { child, ready } = spawnHttpMcp(PORT_OAUTH_TOKEN);
+  test("POST /oauth/token returns parseable error when DB unavailable (mt#1665)", async () => {
+    // Same tolerance pattern as /oauth/authorize above.
+    const { child, ready } = spawnHttpMcp(PORT_OAUTH_TOKEN, { DATABASE_URL: "" });
     try {
       await ready;
       const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_TOKEN}/oauth/token`, {
@@ -767,10 +762,10 @@ describe("OAuth Discovery HTTP routes (mt#1655 / mt#1664 integration)", () => {
         headers: { "Content-Type": APPLICATION_JSON },
         body: "{}",
       });
-      expect(response.status).toBe(400);
+      expect([500, 503]).toContain(response.status);
       expect(response.headers.get("content-type")).toMatch(/application\/json/);
       const body = (await response.json()) as Record<string, unknown>;
-      expect(body.error).toBe(OAUTH_FLOW_NOT_SUPPORTED_BODY.error);
+      expect([ERR_SERVICE_UNAVAILABLE, ERR_SERVER_ERROR]).toContain(body.error);
       expect(typeof body.error_description).toBe("string");
     } finally {
       child.kill("SIGTERM");
