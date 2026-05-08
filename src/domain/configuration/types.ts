@@ -170,7 +170,7 @@ export interface ValidationWarning {
 export type CredentialSource = "env" | "file" | "keychain" | "manual";
 
 // ConfigurationService interface removed - use direct config.get() instead
-// For validation, use the functions from config-schemas.ts
+// For validation, use configurationSchema from ./schemas
 
 export interface CredentialManager {
   getCredential(_service: "github"): Promise<string | undefined>;

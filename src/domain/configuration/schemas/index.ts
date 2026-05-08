@@ -25,7 +25,6 @@ import { aiConfigSchema, type AIConfig } from "./ai";
 
 import { loggerConfigSchema, type LoggerConfig } from "./logger";
 
-import { validationConfigSchema } from "./validation";
 import { tasksConfigSchema, type TasksConfig } from "./tasks";
 import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
 import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
@@ -47,8 +46,20 @@ import {
  *
  * This is the root schema that defines the entire configuration structure
  * for the Minsky application, combining all domain-specific configurations.
+ *
+ * Strictness policy (mt#1612): the top-level shape is `strictObject` so
+ * unknown top-level keys (typos, vestige fields) are rejected at load time.
+ * Nested schemas inherit whatever strictness their domain file declares —
+ * we deliberately do NOT auto-strict every nested object, because some
+ * nested shapes (provider config blocks, backendConfig records) intentionally
+ * accept open-ended keys. Audit and tighten on a case-by-case basis when
+ * nested unknown-key drift becomes a known footgun.
  */
-export const configurationSchema = z.looseObject({
+export const configurationSchema = z.strictObject({
+  // Schema version marker for the config-file format. Optional;
+  // present in user/repo YAML files written before this field was tracked.
+  version: z.number().optional(),
+
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: backendConfigSchema,
 
@@ -66,9 +77,6 @@ export const configurationSchema = z.looseObject({
 
   // Logging configuration
   logger: loggerConfigSchema,
-
-  // Validation configuration
-  validation: validationConfigSchema,
 
   // Tasks configuration
   tasks: tasksConfigSchema,
@@ -93,7 +101,10 @@ export const configurationSchema = z.looseObject({
 
   // Knowledge reconciliation configuration (freshness + authority ranking)
   knowledgeReconciliation: knowledgeReconciliationSchema.optional(),
-}); // looseObject allows extra properties (equivalent to passthrough)
+});
+// strictObject: unknown top-level keys are rejected with an `unrecognized_keys`
+// ZodError. Catches typos (e.g. `persistance:` for `persistence:`) and stale
+// vestigial keys at load time instead of silently stripping them.
 
 /**
  * Configuration type inferred from the schema
@@ -114,144 +125,6 @@ export interface ConfigurationValidationResult {
   error?: z.ZodError;
   issues?: z.ZodIssue[];
 }
-
-/**
- * Configuration validation functions
- */
-export const configurationValidation = {
-  /**
-   * Validate a complete configuration object
-   */
-  validate: (config: unknown): ConfigurationValidationResult => {
-    const result = configurationSchema.safeParse(config);
-
-    if (result.success) {
-      return {
-        success: true,
-        data: result.data,
-      };
-    } else {
-      return {
-        success: false,
-        error: result.error,
-        issues: result.error.issues,
-      };
-    }
-  },
-
-  /**
-   * Validate a partial configuration (for overrides)
-   */
-  validatePartial: (config: unknown): { success: boolean; error?: z.ZodError } => {
-    const partialSchema = configurationSchema.partial();
-    const result = partialSchema.safeParse(config);
-
-    return {
-      success: result.success,
-      error: result.success ? undefined : result.error,
-    };
-  },
-
-  /**
-   * Parse configuration with detailed error reporting
-   */
-  parse: (config: unknown): Configuration => {
-    try {
-      return configurationSchema.parse(config);
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        const errorMessages = error.issues
-          .map((issue) => `${issue.path.join(".")}: ${issue.message}`)
-          .join("\n");
-
-        throw new Error(`Configuration validation failed:\n${errorMessages}`);
-      }
-      throw error;
-    }
-  },
-
-  /**
-   * Get human-readable error messages from validation issues
-   */
-  formatErrors: (issues: z.ZodIssue[]): string[] => {
-    return issues.map((issue) => {
-      const path = issue.path.length > 0 ? issue.path.join(".") : "root";
-      return `${path}: ${issue.message}`;
-    });
-  },
-
-  /**
-   * Check if configuration has all required fields for a specific domain
-   */
-  hasRequiredFields: {
-    backend: (config: Configuration): boolean => {
-      return !!config.backend;
-    },
-
-    github: (config: Configuration): boolean => {
-      // GitHub is optional, but if configured, should have token
-      return !config.github || !!(config.github.token || config.github.tokenFile);
-    },
-
-    ai: (config: Configuration): boolean => {
-      // AI is optional, return true if no providers configured
-      if (!config.ai?.providers) return true;
-
-      // Check if at least one provider has an API key
-      const providers = config.ai.providers;
-      return !!(
-        providers.openai?.apiKey ||
-        providers.openai?.apiKeyFile ||
-        providers.anthropic?.apiKey ||
-        providers.anthropic?.apiKeyFile ||
-        providers.google?.apiKey ||
-        providers.google?.apiKeyFile ||
-        providers.cohere?.apiKey ||
-        providers.cohere?.apiKeyFile ||
-        providers.mistral?.apiKey ||
-        providers.mistral?.apiKeyFile
-      );
-    },
-
-    logger: (config: Configuration): boolean => {
-      return !!config.logger?.mode && !!config.logger?.level;
-    },
-  },
-
-  /**
-   * Validate cross-domain configuration consistency
-   */
-  validateConsistency: (config: Configuration): { valid: boolean; errors: string[] } => {
-    const errors: string[] = [];
-
-    // Check GitHub Issues backend has GitHub configuration
-    if (config.tasks?.backend === "github-issues") {
-      if (
-        !config.backendConfig["github-issues"]?.owner ||
-        !config.backendConfig["github-issues"]?.repo
-      ) {
-        errors.push("GitHub Issues backend requires owner and repo in backendConfig");
-      }
-
-      if (!config.github?.token && !config.github?.tokenFile) {
-        errors.push("GitHub Issues backend requires GitHub token configuration");
-      }
-    }
-
-    // Check AI default provider is enabled
-    if (config.ai?.defaultProvider) {
-      const providerConfig = config.ai.providers?.[config.ai.defaultProvider];
-      if (!providerConfig?.enabled) {
-        errors.push(`Default AI provider '${config.ai.defaultProvider}' is not enabled`);
-      }
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-    };
-  },
-} as const;
 
 // Re-export all types for convenience
 export type {
