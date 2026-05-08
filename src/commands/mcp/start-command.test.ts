@@ -297,4 +297,12 @@ describe("OAuth Discovery stub bodies (mt#1635)", () => {
       OAUTH_REGISTER_NOT_SUPPORTED_BODY as unknown as Record<string, string>
     );
   });
+
+  test("both bodies are frozen at runtime to prevent accidental mutation", () => {
+    // R1 reviewer non-blocking nit: the bodies are exported constants used
+    // across handlers; freezing protects against an importer mutating them
+    // and altering the response shape mid-process.
+    expect(Object.isFrozen(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY)).toBe(true);
+    expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
+  });
 });

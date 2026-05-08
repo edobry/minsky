@@ -9,7 +9,7 @@ import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
-import { exit } from "process";
+import { exit } from "../../utils/process";
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerRepoTools } from "../../adapters/mcp/repo";
@@ -71,23 +71,25 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
  * OAuth Discovery JSON body returned by the stub `.well-known` endpoints
  * (mt#1635). MCP clients probe these paths; returning parseable JSON instead
  * of Express's HTML 404 lets them fall through cleanly to the static-bearer
- * authentication path. Exported for unit testing.
+ * authentication path. Exported for unit testing. Frozen at module-load to
+ * protect against accidental mutation by importers.
  */
-export const OAUTH_DISCOVERY_NOT_SUPPORTED_BODY = {
+export const OAUTH_DISCOVERY_NOT_SUPPORTED_BODY = Object.freeze({
   error: "not_supported",
   error_description:
     "this server does not implement OAuth; use static bearer token via Authorization header",
-} as const;
+} as const);
 
 /**
  * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
- * (mt#1635). Exported for unit testing.
+ * (mt#1635). Exported for unit testing. Frozen at module-load to protect
+ * against accidental mutation by importers.
  */
-export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = {
+export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = Object.freeze({
   error: "registration_not_supported",
   error_description:
     "Dynamic Client Registration is not implemented; this server uses static bearer token authentication",
-} as const;
+} as const);
 
 /**
  * Register all MCP tool adapters on the given command mapper.
@@ -274,6 +276,12 @@ async function startHttpServer(
   // gracefully fall through to the static-token path. They explicitly do
   // NOT implement OAuth — full OAuth (DCR + PKCE + token issuance) is the
   // mt#1634 umbrella's scope.
+  //
+  // Public-access posture (intentional): these endpoints sit outside the
+  // bearer-auth check, parallel to /health. The probe must succeed before
+  // the SDK has any auth credentials to send, otherwise the fall-through
+  // never fires. The bodies leak no internal state — they advertise the
+  // (deliberate) absence of OAuth and point at the bearer path.
   app.get("/.well-known/oauth-authorization-server", (_req, res) => {
     res.status(404).json(OAUTH_DISCOVERY_NOT_SUPPORTED_BODY);
   });
