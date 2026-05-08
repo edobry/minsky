@@ -40,7 +40,7 @@ import {
   type DowngradeAuditEntry,
   type FlatPriorFinding,
 } from "./severity-recovery";
-import { safeTruncate } from "../../../src/utils/safe-truncate";
+import { safeTruncate } from "./utils/safe-truncate";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
