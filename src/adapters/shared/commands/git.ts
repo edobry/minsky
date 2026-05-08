@@ -501,7 +501,7 @@ const resetCommandParams = composeParams(
       required: false,
     },
     confirmHard: {
-      schema: z.boolean(),
+      schema: z.literal(true).optional(),
       description:
         "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
       required: false,

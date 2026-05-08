@@ -103,7 +103,7 @@ describe("stashPopImpl", () => {
     const { deps } = makeDeps([[RX_STASH_POP, new GitExecError("stash pop conflict")]]);
     const result = await stashPopImpl({ repoPath: WORKDIR }, deps);
     expect(result.popped).toBe(false);
-    expect(result.conflicts.length).toBeGreaterThan(0);
+    expect(result.conflicts).toEqual(["src/foo.ts"]);
   });
 
   test("pops specific stash ref when provided", async () => {

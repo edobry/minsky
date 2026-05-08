@@ -122,7 +122,17 @@ export async function stashPopImpl(
       const conflictLines = `${stderr}\n${stdout}`
         .split("\n")
         .filter((l) => l.includes("CONFLICT"))
-        .map((l) => l.replace(/^CONFLICT \([^)]+\): /, "").trim());
+        // git stash pop emits lines like:
+        //   "CONFLICT (content): Merge conflict in src/foo.ts"
+        // Strip both the "CONFLICT (kind): " prefix AND the "Merge conflict in "
+        // marker so the returned array contains bare paths matching the documented
+        // contract (StashPopResult.conflicts is "conflict paths").
+        .map((l) =>
+          l
+            .replace(/^CONFLICT \([^)]+\): /, "")
+            .replace(/^Merge conflict in /, "")
+            .trim()
+        );
       return { workdir, popped: false, conflicts: conflictLines };
     }
 
