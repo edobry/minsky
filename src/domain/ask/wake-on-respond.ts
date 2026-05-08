@@ -14,6 +14,7 @@
  */
 
 import { log } from "../../utils/logger";
+import type { WakePendingRepository } from "./wake-pending-repository";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -127,6 +128,104 @@ export class LoggingWakeSignalSink implements WakeSignalSink {
       ...signal,
     };
     this.logger.cli(`${WAKE_LOG_TAG} ${JSON.stringify(payload)}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Persistent sink (mt#1661 v0): writes wake events to wake_pending table
+// ---------------------------------------------------------------------------
+
+/** Tag prefix when a persistent-sink write fails. */
+const WAKE_PERSIST_FAILED_LOG_TAG = "ask.wake.persist.failed";
+
+/**
+ * `WakeSignalSink` that persists wake events to the `wake_pending` table for
+ * later drain by the in-conversation pull-on-tool-call middleware
+ * (`enrichWakeResponse`). Producer half of the mt#1519 §5 short-term bridge.
+ *
+ * Failure mode: a write failure is logged at the `ask.wake.persist.failed` tag
+ * and re-thrown so the reconciler's existing try/catch wrapper can decide
+ * whether to abort the surrounding `respond()` operation. This sink is not
+ * silent: persistence-side outages should be visible.
+ *
+ * v0 scope: keys on `parentSessionId` only. Cross-session / agent-handoff
+ * delivery requires the InterfaceBinding model (mt#1506); v0 covers only the
+ * unambiguous case.
+ */
+export class PersistentWakeSignalSink implements WakeSignalSink {
+  constructor(private readonly repo: WakePendingRepository) {}
+
+  async emit(signal: WakeSignalPayload): Promise<void> {
+    try {
+      await this.repo.insert(signal);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.cli(
+        `${WAKE_PERSIST_FAILED_LOG_TAG} ${JSON.stringify({
+          event: WAKE_PERSIST_FAILED_LOG_TAG,
+          askId: signal.askId,
+          parentSessionId: signal.parentSessionId,
+          error: errMsg,
+        })}`
+      );
+      throw err;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Composite sink (mt#1661 v0): fan out emit() to N underlying sinks
+// ---------------------------------------------------------------------------
+
+/** Tag prefix when a composite child sink fails. */
+const WAKE_COMPOSITE_CHILD_FAILED_LOG_TAG = "ask.wake.composite.child.failed";
+
+/**
+ * `WakeSignalSink` that fans out `emit()` to N underlying sinks. Used at
+ * composition root to register `LoggingWakeSignalSink` + `PersistentWakeSignalSink`
+ * (and any future sinks) so they fire in parallel on every wake.
+ *
+ * Failure isolation: one child sink failing does not prevent the others from
+ * firing. Each child's error is logged at `ask.wake.composite.child.failed` and
+ * collected. If ALL children failed, a single aggregated error is rethrown so
+ * the reconciler's try/catch can act on it. If at least one child succeeded,
+ * the composite returns normally — the wake reached at least one transport.
+ *
+ * Per mt#1481's contract, child sinks may throw and the reconciler is expected
+ * to wrap dispatch in a try/catch. The composite preserves that contract while
+ * adding partial-failure tolerance.
+ */
+export class CompositeWakeSignalSink implements WakeSignalSink {
+  constructor(private readonly sinks: ReadonlyArray<WakeSignalSink>) {}
+
+  async emit(signal: WakeSignalPayload): Promise<void> {
+    if (this.sinks.length === 0) return;
+    const errors: Array<{ index: number; error: Error }> = [];
+    for (const [i, sink] of this.sinks.entries()) {
+      try {
+        await sink.emit(signal);
+      } catch (err: unknown) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        errors.push({ index: i, error });
+        log.cli(
+          `${WAKE_COMPOSITE_CHILD_FAILED_LOG_TAG} ${JSON.stringify({
+            event: WAKE_COMPOSITE_CHILD_FAILED_LOG_TAG,
+            sinkIndex: i,
+            askId: signal.askId,
+            error: error.message,
+          })}`
+        );
+      }
+    }
+    // All children failed — surface to caller so reconciler can decide.
+    if (errors.length === this.sinks.length) {
+      const summary = errors
+        .map(({ index, error }) => `sink[${index}]: ${error.message}`)
+        .join("; ");
+      throw new Error(
+        `CompositeWakeSignalSink: all ${this.sinks.length} sinks failed — ${summary}`
+      );
+    }
   }
 }
 
