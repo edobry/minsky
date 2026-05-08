@@ -103,14 +103,17 @@ After checking all spec criteria, ALWAYS run these baseline checks regardless of
 3. **Lint**: `bun run lint` — report new errors (pre-existing errors in unrelated files are noted but not blocking)
 4. **State-coupled production probe (aka live probe) (mt#1606).** Run at least one command that exercises the changed code path. For success criteria of the form "feature X works," "feature X returns Y," "feature X is callable," or "feature X is registered," the probe MUST be **state-coupled**: it asserts execution evidence through the production wiring, not just non-error invocation.
 
+   **Glossary**: "state-coupled production probe" is the canonical term; "live probe" is an alias. **Production wiring means the real code path and infrastructure configuration**, NOT the production environment per se. Probes default to staging or a dedicated test tenant; production-environment targets require explicit user authorization. The reviewer surface in `.claude/agents/reviewer.md` uses the same canonical term and outcome vocabulary — see "Outcome mapping" below.
+
    **Probe safety preamble (mandatory)** — state-coupled probes write to or query real systems. Apply ALL of the following safeguards before running:
 
-   1. **Target preference**: staging or a dedicated test tenant when available; production only with explicit user authorization naming the prod target.
-   2. **Unique probe markers**: every entity created carries an identifiable prefix (e.g., `_probe_${uuid}_`) so leakage is greppable and cleanable.
-   3. **Cleanup is part of the probe**: DELETE inserted rows / unindex inserted documents / terminate spawned processes BEFORE recording PASS.
-   4. **Read-only where possible**: schema migrations and registration probes verify via `information_schema` / `pg_indexes` / tool-registry queries; they do NOT mutate.
-   5. **Avoid side-effecting MCP tools**: prefer `*_get`, `*_list`, `*_search`. Never call tools that send notifications, emails, or webhooks during a probe.
-   6. **Transaction wrap when feasible**: persistence probes run in a transaction with ROLLBACK; assertion happens against in-transaction state, no commit means no production effect.
+   1. **Target preference**: staging or a dedicated test tenant when available; production only with explicit user authorization naming the prod target. Record the exact target in the audit output.
+   2. **Unique probe markers**: every entity created carries an identifiable prefix (e.g., `_probe_<uuid>_`) — generate the uuid at probe time, never paste the literal string `<uuid>`. Record the actual marker used in the audit output as `probeMarker: <value>`.
+   3. **Cleanup is part of the probe**: DELETE inserted rows / unindex inserted documents / terminate spawned processes BEFORE recording PASS. A probe that doesn't clean up pollutes production state.
+   4. **Idempotency + retry safety**: design probes so repeated execution with the same marker does NOT produce additional side effects. For cross-system flows that span non-transactional surfaces, use compensating cleanup keyed by the unique marker.
+   5. **Read-only where possible**: schema migrations and registration probes verify via `information_schema` / `pg_indexes` / tool-registry queries; they do NOT mutate.
+   6. **Avoid side-effecting MCP tools**: prefer `*_get`, `*_list`, `*_search`, `*_status`. Never call tools that send notifications, emails, or webhooks during a probe. (Operational follow-up: tool-manifest `sideEffect: true` flag + explicit safelist would make this enforceable in code.)
+   7. **Transaction wrap when feasible**: persistence probes run in a transaction with ROLLBACK; assertion happens against in-transaction state, no commit means no production effect.
 
    Per-category probe forms (each obeys the safety preamble above):
 
@@ -118,9 +121,15 @@ After checking all spec criteria, ALWAYS run these baseline checks regardless of
    - **Search / embedding**: insert-then-search round-trip with marker prefix; unindex + DELETE after assertion.
    - **MCP tool surface**: prefer read-only tools; assert response shape matches the spec.
    - **Cross-process / cross-harness**: spawn ephemeral process, assert state propagates, terminate the process.
-   - **Schema migration (READ-ONLY)**: confirm declared table/column exists via `SELECT FROM information_schema.tables` or `pg_indexes` — do NOT run the migration's CREATE statements or INSERT test rows. Read-only inspection is sufficient. Catches mt#1611's shadow-failure pattern where the migration was tracked-applied but the table did not exist.
+   - **Schema migration (READ-ONLY)**: confirm declared schema against the live DB via read-only queries. Verify ALL of: table exists (`information_schema.tables`), expected columns with correct types/nullability/defaults (`information_schema.columns`), expected indexes (`pg_indexes`), expected constraints (`information_schema.table_constraints`), and required Postgres extensions (`pg_extension`, e.g., `vector`/`pg_trgm`). Do NOT run the migration's CREATE statements or INSERT test rows. Catches mt#1611's shadow-failure (table missing despite migration tracked-applied) AND adjacent failures (table exists but column missing/wrong type, extension not loaded).
 
-   If the live probe cannot be run (missing env var, target not deployed, rate-limit, production-credential carve-out, no safe target available), record the affected SC's verdict as **AMBIGUOUS** rather than PASS — code-shape verification is insufficient evidence for feature-shipped SCs. For audits where a feature-shipped SC's probe cannot be run AT ALL, AMBIGUOUS becomes the recommendation gate: the audit's overall recommendation is "needs live verification before sign-off," not PASS. Originating incidents: mt#1008, mt#1611.
+   **Outcome mapping (cross-references reviewer.md).** When the live probe cannot be run (missing env var, target not deployed, rate-limit, production-credential carve-out, no safe target available):
+
+   - Auditor surface (this file): record the affected SC's verdict as **AMBIGUOUS** rather than PASS. For feature-shipped SCs, AMBIGUOUS becomes the recommendation gate — the audit's overall recommendation is "needs live verification before sign-off," not PASS.
+   - Reviewer surface (`.claude/agents/reviewer.md`): records the same AMBIGUOUS verdict in the spec-verification table, AND additionally emits a NON-BLOCKING `[live-probe-deferred]` finding (pre-merge hook hint).
+   - Both surfaces feed the same downstream "needs live verification" gate. Dashboards aggregating either surface should treat AMBIGUOUS + `[live-probe-deferred]` as the canonical "deferred" status.
+
+   Originating incidents: mt#1008, mt#1611.
 
 5. **Documentation staleness**: Check if `docs/architecture.md` has content related to the task's domain — if so, verify it's still accurate post-change
 
