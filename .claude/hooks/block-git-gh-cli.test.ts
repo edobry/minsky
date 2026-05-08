@@ -160,6 +160,11 @@ describe("checkDenial — session_exec context", () => {
     expect(deniedViaSessionExec("pull")).not.toBeNull();
   });
 
+  it("allows `git restore` via session_exec (self-referential carve-out)", () => {
+    expect(deniedViaSessionExec("restore")).toBeNull();
+    expect(deniedViaSessionExec("restore", ["--", "src/file.ts"])).toBeNull();
+  });
+
   it("allows `git show` via session_exec (not in denial table; real MCP gap)", () => {
     expect(deniedViaSessionExec("show")).toBeNull();
   });
@@ -422,10 +427,35 @@ describe("checkDenial — git", () => {
     expect(denied("reset", ["--hard", "HEAD"])).not.toBeNull();
   });
 
-  it("denial reason for git reset references session_exec and destructive warning", () => {
+  it("denial reason for git reset references git_reset MCP tool and session_exec", () => {
     const reason = denied("reset");
+    expect(reason).toContain("mcp__minsky__git_reset");
     expect(reason).toContain("mcp__minsky__session_exec");
     expect(reason).toContain("destructive");
+  });
+
+  it("denies git restore", () => {
+    expect(denied("restore")).not.toBeNull();
+  });
+
+  it("denial reason for git restore references git_restore MCP tool", () => {
+    const reason = denied("restore");
+    expect(reason).toContain("mcp__minsky__git_restore");
+  });
+
+  it("denial reason for git fetch references git_pull MCP tool for main-workspace", () => {
+    const reason = denied("fetch");
+    expect(reason).toContain("mcp__minsky__git_pull");
+  });
+
+  it("denial reason for git pull references git_pull MCP tool", () => {
+    const reason = denied("pull");
+    expect(reason).toContain("mcp__minsky__git_pull");
+  });
+
+  it("denial reason for git stash references git_stash MCP tool", () => {
+    const reason = denied("stash");
+    expect(reason).toContain("mcp__minsky__git_stash");
   });
 
   it("denies git -C <path> <anything>", () => {
@@ -624,6 +654,10 @@ describe("full command denial integration — session_exec context", () => {
 
   it("allows `git stash pop` via session_exec", () => {
     expect(firstSessionExecDenial("git stash pop")).toBeNull();
+  });
+
+  it("allows `git restore -- file.ts` via session_exec", () => {
+    expect(firstSessionExecDenial("git restore -- file.ts")).toBeNull();
   });
 
   it("allows `git show origin/main:path/to/file` via session_exec (real MCP gap)", () => {

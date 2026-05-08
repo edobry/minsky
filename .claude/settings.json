@@ -89,6 +89,17 @@
         ]
       },
       {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/loop-preflight-pr-merge-check.ts",
+            "timeout": 15,
+            "statusMessage": "Checking loop preflight (PR/task terminal state)..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__tasks_status_set",
         "hooks": [
           {
