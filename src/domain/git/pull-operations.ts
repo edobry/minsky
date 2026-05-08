@@ -1,4 +1,3 @@
-import { validateGitError } from "../../schemas/error";
 import { validateProcess } from "../../schemas/runtime";
 
 /**
@@ -95,8 +94,13 @@ export async function pullImpl(
       stdout.includes("Already up to date") || stdout.includes("Already up-to-date");
     return { workdir, alreadyUpToDate };
   } catch (err: unknown) {
-    const gitError = validateGitError(err);
-    const stderr = gitError.stderr ?? "";
+    // Extract stderr safely using direct property access rather than validateGitError,
+    // because the exec error's `signal: null` fails gitErrorSchema (z.string().optional()
+    // does not accept null), causing the schema fallback to strip stderr entirely.
+    const stderr =
+      err !== null && typeof err === "object" && "stderr" in err
+        ? String((err as { stderr: unknown }).stderr ?? "")
+        : "";
 
     // Conflict: local changes would be overwritten by merge
     if (stderr.includes("Your local changes to the following files would be overwritten")) {

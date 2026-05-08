@@ -1,4 +1,3 @@
-import { validateGitError } from "../../schemas/error";
 import { validateProcess } from "../../schemas/runtime";
 
 // POSIX shell single-quote escape
@@ -106,9 +105,17 @@ export async function stashPopImpl(
     await deps.execAsync(cmd);
     return { workdir, popped: true, conflicts: [] };
   } catch (err: unknown) {
-    const gitError = validateGitError(err);
-    const stderr = gitError.stderr ?? "";
-    const stdout = gitError.stdout ?? "";
+    // Extract stderr/stdout safely using direct property access rather than validateGitError,
+    // because the exec error's `signal: null` fails gitErrorSchema (z.string().optional()
+    // does not accept null), causing the schema fallback to strip these fields entirely.
+    const stderr =
+      err !== null && typeof err === "object" && "stderr" in err
+        ? String((err as { stderr: unknown }).stderr ?? "")
+        : "";
+    const stdout =
+      err !== null && typeof err === "object" && "stdout" in err
+        ? String((err as { stdout: unknown }).stdout ?? "")
+        : "";
 
     // Conflict during stash pop: git exits non-zero and prints CONFLICT lines
     if (stderr.includes("CONFLICT") || stdout.includes("CONFLICT")) {
