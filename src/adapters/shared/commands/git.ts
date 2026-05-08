@@ -363,6 +363,153 @@ const blameCommandParams = composeParams(
 ) satisfies CommandParameterMap;
 
 /**
+ * Parameters for the git pull command
+ */
+const pullCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    remote: {
+      schema: z.string(),
+      description: "Remote name (default: origin)",
+      required: false,
+      defaultValue: "origin",
+    },
+    branch: {
+      schema: z.string(),
+      description: "Branch to pull (default: main)",
+      required: false,
+      defaultValue: "main",
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git status command
+ */
+const statusCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {}
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash command
+ */
+const stashCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    message: {
+      schema: z.string(),
+      description: "Optional message for the stash entry",
+      required: false,
+    },
+    paths: {
+      schema: z.array(z.string().min(1)),
+      description: "Optional list of paths to stash selectively",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash_pop command
+ */
+const stashPopCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    ref: {
+      schema: z.string(),
+      description: "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent.",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash_list command
+ */
+const stashListCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {}
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git stash_drop command
+ */
+const stashDropCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    ref: {
+      schema: z.string().min(1),
+      description: "Stash ref to drop (required). E.g. stash@{0}.",
+      required: true,
+    },
+    confirmDrop: {
+      schema: z.literal(true),
+      description:
+        "Must be set to `true` to confirm this destructive operation. The stash entry cannot be recovered once dropped.",
+      required: true,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git restore command
+ */
+const restoreCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    paths: {
+      schema: z.array(z.string().min(1)).min(1),
+      description:
+        "Paths to restore (discard unstaged working-tree changes). At least one required.",
+      required: true,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
+ * Parameters for the git reset command
+ */
+const resetCommandParams = composeParams(
+  {
+    repo: CommonParameters.repo,
+  },
+  {
+    mode: {
+      schema: z.enum(["soft", "mixed", "hard"]),
+      description:
+        "Reset mode: soft (HEAD only), mixed (HEAD + index), hard (HEAD + index + working tree, DESTRUCTIVE).",
+      required: true,
+    },
+    target: {
+      schema: z.string(),
+      description: "Target ref to reset to (default: HEAD).",
+      required: false,
+    },
+    confirmHard: {
+      schema: z.boolean(),
+      description:
+        "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
+      required: false,
+    },
+  }
+) satisfies CommandParameterMap;
+
+/**
  * Helper to resolve session to repo path at the adapter boundary.
  * Uses the container's sessionProvider if available.
  */
@@ -839,6 +986,213 @@ export function registerGitCommands(container?: AppContainerInterface): void {
           error: error instanceof Error ? error.message : String(error),
         };
       }
+    },
+  });
+
+  // Register git pull command (--ff-only, conflict-aware)
+  sharedCommandRegistry.registerCommand({
+    id: "git.pull",
+    category: CommandCategory.GIT,
+    name: "pull",
+    description:
+      "Pull latest changes from remote using --ff-only. Returns structured error naming conflicting files when local changes block the merge.",
+    parameters: pullCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.pull command", { params });
+      const { pullFromParams } = await import("../../../domain/git");
+
+      const result = await pullFromParams({
+        repo: params.repo,
+        remote: params.remote,
+        branch: params.branch,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        alreadyUpToDate: result.alreadyUpToDate,
+      };
+    },
+  });
+
+  // Register git status command
+  sharedCommandRegistry.registerCommand({
+    id: "git.status",
+    category: CommandCategory.GIT,
+    name: "status",
+    description:
+      "Get structured working-tree status (branch, ahead/behind, staged/unstaged/untracked/conflicted files).",
+    parameters: statusCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.status command", { params });
+      const { statusFromParams } = await import("../../../domain/git");
+
+      const result = await statusFromParams({ repo: params.repo });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        branch: result.branch,
+        ahead: result.ahead,
+        behind: result.behind,
+        staged: result.staged,
+        unstaged: result.unstaged,
+        untracked: result.untracked,
+        conflicted: result.conflicted,
+      };
+    },
+  });
+
+  // Register git stash command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash",
+    category: CommandCategory.GIT,
+    name: "stash",
+    description: "Stash working-tree changes. Returns stashRef or null when nothing to stash.",
+    parameters: stashCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.stash command", { params });
+      const { stashFromParams } = await import("../../../domain/git");
+
+      const result = await stashFromParams({
+        repo: params.repo,
+        message: params.message,
+        paths: params.paths,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        stashRef: result.stashRef,
+        stashed: result.stashed,
+      };
+    },
+  });
+
+  // Register git stash_pop command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash_pop",
+    category: CommandCategory.GIT,
+    name: "stash_pop",
+    description: "Pop (apply + drop) a stash entry. Returns any conflict paths.",
+    parameters: stashPopCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.stash_pop command", { params });
+      const { stashPopFromParams } = await import("../../../domain/git");
+
+      const result = await stashPopFromParams({
+        repo: params.repo,
+        ref: params.ref,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        popped: result.popped,
+        conflicts: result.conflicts,
+      };
+    },
+  });
+
+  // Register git stash_list command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash_list",
+    category: CommandCategory.GIT,
+    name: "stash_list",
+    description:
+      "List all stash entries with structured metadata (ref, message, branch, timestamp).",
+    parameters: stashListCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.stash_list command", { params });
+      const { stashListFromParams } = await import("../../../domain/git");
+
+      const result = await stashListFromParams({ repo: params.repo });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        stashes: result.stashes,
+      };
+    },
+  });
+
+  // Register git stash_drop command
+  sharedCommandRegistry.registerCommand({
+    id: "git.stash_drop",
+    category: CommandCategory.GIT,
+    name: "stash_drop",
+    description:
+      "Drop a specific stash entry. Requires confirmDrop: true (irreversible destructive operation).",
+    parameters: stashDropCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.stash_drop command", { params });
+      const { stashDropFromParams } = await import("../../../domain/git");
+
+      const result = await stashDropFromParams({
+        repo: params.repo,
+        ref: params.ref,
+        confirmDrop: params.confirmDrop,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        dropped: result.dropped,
+      };
+    },
+  });
+
+  // Register git restore command
+  sharedCommandRegistry.registerCommand({
+    id: "git.restore",
+    category: CommandCategory.GIT,
+    name: "restore",
+    description:
+      "Discard unstaged working-tree changes for specific paths (git restore). Less destructive than reset --hard.",
+    parameters: restoreCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.restore command", { params });
+      const { restoreFromParams } = await import("../../../domain/git");
+
+      const result = await restoreFromParams({
+        repo: params.repo,
+        paths: params.paths,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        restored: result.restored,
+      };
+    },
+  });
+
+  // Register git reset command
+  sharedCommandRegistry.registerCommand({
+    id: "git.reset",
+    category: CommandCategory.GIT,
+    name: "reset",
+    description:
+      "Run git reset with explicit mode (soft/mixed/hard). mode=hard requires confirmHard: true.",
+    parameters: resetCommandParams,
+    execute: async (params, _context) => {
+      log.debug("Executing git.reset command", { params });
+      const { resetFromParams } = await import("../../../domain/git");
+
+      const result = await resetFromParams({
+        repo: params.repo,
+        mode: params.mode,
+        target: params.target,
+        confirmHard: params.confirmHard,
+      });
+
+      return {
+        success: true,
+        workdir: result.workdir,
+        reset: result.reset,
+        mode: result.mode,
+        target: result.target,
+      };
     },
   });
 }
