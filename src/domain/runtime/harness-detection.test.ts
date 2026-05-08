@@ -9,15 +9,20 @@ import {
   detectInstalledClients,
 } from "./harness-detection";
 
-describe("detectAgentHarness", () => {
-  const envVars = [
-    "CLAUDE_CODE",
-    "CLAUDE_PROJECT_DIR",
-    "CURSOR_SESSION_ID",
-    "CURSOR_TRACE_ID",
-    "VSCODE_PID",
-  ];
+const CLAUDE_AND_CURSOR_ENV_VARS = [
+  "CLAUDECODE",
+  "CLAUDE_CODE",
+  "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_SESSION_ID",
+  "CLAUDE_CODE_SUBAGENT_MODEL",
+  "CLAUDE_CODE_EXECPATH",
+  "CLAUDE_PROJECT_DIR",
+  "CURSOR_SESSION_ID",
+  "CURSOR_TRACE_ID",
+  "VSCODE_PID",
+];
 
+function withCleanEnv(envVars: string[]) {
   let savedEnv: Record<string, string | undefined>;
 
   beforeEach(() => {
@@ -37,14 +42,44 @@ describe("detectAgentHarness", () => {
       }
     }
   });
+}
 
-  test("returns 'claude-code' when CLAUDE_CODE is set", () => {
-    process.env.CLAUDE_CODE = "1";
+describe("detectAgentHarness", () => {
+  withCleanEnv(CLAUDE_AND_CURSOR_ENV_VARS);
+
+  // CLAUDECODE=1 (no underscore) is the canonical Claude Code 2.1.x env var.
+  test("returns 'claude-code' when CLAUDECODE is set", () => {
+    process.env.CLAUDECODE = "1";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when CLAUDE_CODE_ENTRYPOINT is set", () => {
+    process.env.CLAUDE_CODE_ENTRYPOINT = "cli";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when CLAUDE_CODE_SESSION_ID is set", () => {
+    process.env.CLAUDE_CODE_SESSION_ID = "abc-123";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when CLAUDE_CODE_SUBAGENT_MODEL is set", () => {
+    process.env.CLAUDE_CODE_SUBAGENT_MODEL = "sonnet";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when CLAUDE_CODE_EXECPATH is set", () => {
+    process.env.CLAUDE_CODE_EXECPATH = "/Users/me/.local/share/claude/versions/2.1.136";
     expect(detectAgentHarness()).toBe("claude-code");
   });
 
   test("returns 'claude-code' when CLAUDE_PROJECT_DIR is set", () => {
     process.env.CLAUDE_PROJECT_DIR = "/some/project";
+    expect(detectAgentHarness()).toBe("claude-code");
+  });
+
+  test("returns 'claude-code' when legacy CLAUDE_CODE is set", () => {
+    process.env.CLAUDE_CODE = "1";
     expect(detectAgentHarness()).toBe("claude-code");
   });
 
@@ -64,35 +99,10 @@ describe("detectAgentHarness", () => {
 });
 
 describe("hasNativeSubagentSupport", () => {
-  const envVars = [
-    "CLAUDE_CODE",
-    "CLAUDE_PROJECT_DIR",
-    "CURSOR_SESSION_ID",
-    "CURSOR_TRACE_ID",
-    "VSCODE_PID",
-  ];
-  let savedEnv: Record<string, string | undefined>;
+  withCleanEnv(CLAUDE_AND_CURSOR_ENV_VARS);
 
-  beforeEach(() => {
-    savedEnv = {};
-    for (const v of envVars) {
-      savedEnv[v] = process.env[v];
-      delete process.env[v];
-    }
-  });
-
-  afterEach(() => {
-    for (const v of envVars) {
-      if (savedEnv[v] === undefined) {
-        delete process.env[v];
-      } else {
-        process.env[v] = savedEnv[v];
-      }
-    }
-  });
-
-  test("returns true when running in claude-code", () => {
-    process.env.CLAUDE_CODE = "1";
+  test("returns true when running in claude-code (CLAUDECODE)", () => {
+    process.env.CLAUDECODE = "1";
     expect(hasNativeSubagentSupport()).toBe(true);
   });
 
