@@ -203,6 +203,7 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               all: params.all as boolean | undefined,
               amend: params.amend as boolean | undefined,
               noStage: params.noStage as boolean | undefined,
+              noFiles: params.noFiles as boolean | undefined,
             },
             deps.sessionProvider,
             askRepository ?? undefined
