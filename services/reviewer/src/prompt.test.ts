@@ -151,6 +151,18 @@ describe("buildCriticConstitution — verification-mode preamble (mt#1656)", () 
     expect(prompt).toContain("it is what your role IS");
   });
 
+  test("verification preamble paragraph 3 opens with 'Your verification has structure' (intentional one-word swap)", () => {
+    // Paragraph 3 of the verification preamble opens "Your verification has
+    // structure" instead of the standard preamble's "Your adversariality has
+    // structure" — an intentional adjustment to fit the reframed role. The
+    // substantive constraint that follows (no-re-litigate / severity-
+    // monotonicity) is preserved verbatim. Locked here so the deviation is
+    // testable rather than implicit.
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    expect(prompt).toContain("Your verification has structure");
+    expect(prompt).not.toContain("Your adversariality has structure");
+  });
+
   test("priorReviewsPresent works across scope buckets and output-tools modes", () => {
     // The verification preamble swap is independent of scope and output-tools
     // mode. All four combinations must include the verification framing.
