@@ -10,7 +10,6 @@ import { getErrorMessage } from "../../errors/index";
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
-
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerRepoTools } from "../../adapters/mcp/repo";
@@ -31,11 +30,27 @@ import { registerMemoryTools } from "../../adapters/mcp/memory";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
+import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
+import type { AppContainerInterface } from "../../composition/types";
+import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
 const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
+
+/**
+ * Vector dimension for the memory embeddings store.
+ *
+ * **TODO (mt#1631):** This dimension is hard-coded across three independent
+ * MemoryService construction sites — `resolveMemoryService` (pre-existing),
+ * `buildMemoryServiceForSpike` (this file), and `scripts/import-claude-code-memory.ts`.
+ * Centralize via an embedding-service-derived dimension getter or a single
+ * shared constant when those three sites are unified (PR #974 R2 BLOCKING).
+ * Today's value (1536) matches `text-embedding-3-small`/`text-embedding-ada-002`,
+ * which is what Minsky configures by default.
+ */
+const MEMORY_EMBEDDING_DIMENSION = 1536;
 
 /**
  * Check a bearer-token authorization header against the expected token.
@@ -51,6 +66,89 @@ export function checkBearerAuth(header: string | undefined, expectedToken: strin
   const presented = match?.[1]?.trim();
   return !!presented && presented === expectedToken;
 }
+
+/**
+ * RFC 8414 (OAuth 2.0 Authorization Server Metadata) minimal-stub builder
+ * for the `/.well-known/oauth-authorization-server` discovery endpoint
+ * (mt#1635, refined mt#1655, extended mt#1657).
+ *
+ * Returns a metadata document that advertises the server as an OAuth
+ * authority but declares zero usable flows (`response_types_supported: []`).
+ * The `authorization_endpoint` and `token_endpoint` fields point at stub
+ * handlers (`/oauth/authorize`, `/oauth/token`) that return JSON 400 when
+ * actually called — required because Claude Code's MCP SDK validates
+ * these fields as required strings even when no flows are advertised
+ * (mt#1657 empirical finding post-mt#1655 deploy).
+ *
+ * Spec-conformant SDKs that honor `response_types_supported` will skip
+ * flow attempts; SDKs that don't (Claude Code's) will still validate the
+ * shape and fall through gracefully because the stub handlers return
+ * parseable error responses.
+ *
+ * mt#1634 (umbrella) replaces the stubs at the same paths with real
+ * flow logic. The metadata document and route paths are a strict-subset
+ * foundation, not throw-away work.
+ */
+export function buildAuthorizationServerMetadata(issuer: string): Readonly<{
+  issuer: string;
+  authorization_endpoint: string;
+  token_endpoint: string;
+  response_types_supported: readonly string[];
+}> {
+  return Object.freeze({
+    issuer,
+    authorization_endpoint: `${issuer}/oauth/authorize`,
+    token_endpoint: `${issuer}/oauth/token`,
+    response_types_supported: Object.freeze([] as readonly string[]),
+  });
+}
+
+/**
+ * RFC 9728 (OAuth 2.0 Protected Resource Metadata) minimal-stub builder
+ * for the `/.well-known/oauth-protected-resource` discovery endpoint
+ * (mt#1655). Advertises the protected resource URL but declares no
+ * `authorization_servers`, signaling "this resource exists but has no
+ * usable authorization-server flow yet." mt#1634 will fill in the
+ * `authorization_servers` array.
+ */
+export function buildProtectedResourceMetadata(resource: string): Readonly<{
+  resource: string;
+}> {
+  return Object.freeze({
+    resource,
+  });
+}
+
+/**
+ * Stub body returned by the `/oauth/authorize` and `/oauth/token` flow
+ * endpoints (mt#1657). DCR / authorization / token issuance are not
+ * implemented in the stub tier; full implementation is mt#1634's scope.
+ *
+ * The endpoints exist because Claude Code's MCP SDK validates the
+ * authorization-server metadata document for required string fields
+ * (`authorization_endpoint`, `token_endpoint`) — see
+ * `buildAuthorizationServerMetadata` docstring. If the SDK or any other
+ * client actually attempts the OAuth flow against these endpoints, they
+ * get this parseable error explaining the static-bearer path is the
+ * working alternative.
+ */
+export const OAUTH_FLOW_NOT_SUPPORTED_BODY = Object.freeze({
+  error: "oauth_not_supported",
+  error_description:
+    "OAuth flows are not implemented; this server uses static bearer token authentication via the Authorization header. The authorization_endpoint and token_endpoint advertised in /.well-known/oauth-authorization-server exist solely to satisfy SDK metadata validators.",
+} as const);
+
+/**
+ * Dynamic Client Registration (RFC 7591) stub body returned by `POST /register`
+ * (mt#1635). Exported for unit testing. Frozen at module-load to protect
+ * against accidental mutation by importers. mt#1634 will replace this with
+ * a real implementation.
+ */
+export const OAUTH_REGISTER_NOT_SUPPORTED_BODY = Object.freeze({
+  error: "registration_not_supported",
+  error_description:
+    "Dynamic Client Registration is not implemented; this server uses static bearer token authentication",
+} as const);
 
 /**
  * Register all MCP tool adapters on the given command mapper.
@@ -136,6 +234,34 @@ function resolveProjectContext(
 }
 
 /**
+ * Compose the externally-observed base URL of an incoming request, honoring
+ * Express's `trust proxy` config so the result reflects the public-facing
+ * URL (e.g. `https://minsky-mcp-production.up.railway.app`) rather than the
+ * internal listener (`http://0.0.0.0:8080`). Used for OAuth Discovery
+ * metadata's `issuer` and `resource` fields, which RFC 8414/9728 require to
+ * match the URL the client used to fetch the metadata.
+ *
+ * Falls back to "localhost" only if `req.hostname` is missing entirely
+ * (very rare; usually only in malformed requests). The metadata document is
+ * served best-effort in that case rather than 500'ing the probe.
+ */
+export function composeRequestBaseUrl(req: import("express").Request): string {
+  const host = req.hostname || "localhost";
+  return `${req.protocol}://${host}`;
+}
+
+/**
+ * Ensure a route path starts with a single leading slash. Used when the
+ * user-configurable `--endpoint` value is embedded into a public metadata
+ * URL: `--endpoint mcp` (no leading slash) would otherwise produce an
+ * invalid URL like `https://example.commcp`.
+ */
+export function normalizeEndpointPath(endpoint: string): string {
+  if (endpoint.startsWith("/")) return endpoint;
+  return `/${endpoint}`;
+}
+
+/**
  * Start the MCP server with HTTP transport.
  */
 async function startHttpServer(
@@ -149,6 +275,13 @@ async function startHttpServer(
   projectContext?: ReturnType<typeof createProjectContext>
 ): Promise<void> {
   const app = express();
+  // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
+  // to `1` rather than `true` limits the X-Forwarded-* trust to one upstream
+  // and avoids the unbounded-chain risk where a malicious client could spoof
+  // their `req.ip`/`req.protocol` by injecting forged X-Forwarded-* headers
+  // along multiple unverified hops. Required for the OAuth Discovery
+  // endpoints to advertise the correct public `https://` URL.
+  app.set("trust proxy", 1);
   app.use(express.json());
 
   // Auth: bearer-token check. Enabled when MINSKY_MCP_AUTH_TOKEN is set OR
@@ -225,7 +358,62 @@ async function startHttpServer(
     });
   });
 
+  // OAuth discovery + Dynamic Client Registration stubs (mt#1635, refined mt#1655, extended mt#1657).
+  //
+  // MCP clients (e.g., Claude Code's /mcp UI) probe these endpoints to
+  // determine whether the server supports OAuth. Evolution:
+  //
+  //   mt#1635: returned 404 + JSON not_supported body. Fixed JSON-parse
+  //            failure but SDK framed any non-2xx as `SDK auth failed`.
+  //   mt#1655: returned 200 with RFC 8414/9728 minimal metadata + empty
+  //            response_types_supported. Spec-conformant SDKs would fall
+  //            through; Claude Code's SDK validated the metadata against a
+  //            schema requiring authorization_endpoint/token_endpoint as
+  //            strings (regardless of response_types_supported).
+  //   mt#1657: also include authorization_endpoint / token_endpoint in
+  //            the metadata (pointing at stub handlers below) so the
+  //            SDK validation passes. response_types_supported stays
+  //            empty for spec-conformant SDKs that honor it.
+  //
+  // /register (mt#1635) and /oauth/{authorize,token} (mt#1657) all return
+  // 400 with parseable JSON. mt#1634 (umbrella) will switch them to real
+  // implementations.
+  //
+  // Public-access posture (intentional): all of these endpoints sit
+  // outside the bearer-auth check, parallel to /health. The probe must
+  // succeed before the SDK has any auth credentials to send, otherwise
+  // the fall-through never fires. The bodies leak no internal state.
+  const normalizedEndpoint = normalizeEndpointPath(options.endpoint);
+  app.get("/.well-known/oauth-authorization-server", (req, res) => {
+    const issuer = composeRequestBaseUrl(req);
+    res.json(buildAuthorizationServerMetadata(issuer));
+  });
+
+  app.get("/.well-known/oauth-protected-resource", (req, res) => {
+    const resource = `${composeRequestBaseUrl(req)}${normalizedEndpoint}`;
+    res.json(buildProtectedResourceMetadata(resource));
+  });
+
+  app.post("/register", (_req, res) => {
+    res.status(400).json(OAUTH_REGISTER_NOT_SUPPORTED_BODY);
+  });
+
+  app.get("/oauth/authorize", (_req, res) => {
+    res.status(400).json(OAUTH_FLOW_NOT_SUPPORTED_BODY);
+  });
+
+  app.post("/oauth/token", (_req, res) => {
+    res.status(400).json(OAUTH_FLOW_NOT_SUPPORTED_BODY);
+  });
+
   // Start the HTTP server
+  // NOTE: the `http://...` URLs printed below are the INTERNAL listener
+  // (i.e., what Express binds to inside the container). In TLS-fronted
+  // deployments (e.g., Railway), the externally-observed URL is `https://`
+  // and may use a different host. The OAuth Discovery handlers above
+  // derive the public URL from request headers via `composeRequestBaseUrl`
+  // / `trust proxy`, so the metadata they emit reflects the externally-
+  // observed URL even though these log lines do not.
   const httpPort = parseInt(options.port, 10);
   app.listen(httpPort, options.host, () => {
     log.cli("Minsky MCP Server started with HTTP transport");
@@ -240,6 +428,63 @@ async function startHttpServer(
 
   // Initialize the MCP server (without connecting transport since HTTP is on-demand)
   await server.start();
+}
+
+/**
+ * Construct a MemoryService for the mt#1588 spike enrichment middleware.
+ *
+ * Spike-scope inline duplication of `resolveMemoryService`'s real-path branch
+ * in `src/adapters/shared/commands/memory/index.ts`. If this spike graduates,
+ * extract the shared construction logic into a `src/domain/memory/build.ts`
+ * helper and have both call sites consume it.
+ *
+ * Returns null on any construction failure — the middleware degrades to a
+ * no-op (the dispatcher behaves identically to pre-mt#1588).
+ *
+ * @see mt#1588 — this spike
+ */
+async function buildMemoryServiceForSpike(
+  container: AppContainerInterface
+): Promise<MemoryServiceSurface | null> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return null;
+
+    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return null;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return null;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return null;
+
+    const { createEmbeddingServiceFromConfig } = await import(
+      "../../domain/ai/embedding-service-factory"
+    );
+    const embeddingService = await createEmbeddingServiceFromConfig();
+
+    const { createVectorStorageForDomain } = await import(
+      "../../domain/storage/vector/vector-storage-factory"
+    );
+    const vectorStorage = await createVectorStorageForDomain(
+      "memory",
+      MEMORY_EMBEDDING_DIMENSION,
+      persistence
+    );
+
+    const { MemoryService } = await import("../../domain/memory");
+    type MemoryServiceDb = import("../../domain/memory/memory-service").MemoryServiceDb;
+    return new MemoryService({
+      db: connection as MemoryServiceDb,
+      vectorStorage,
+      embeddingService,
+    });
+  } catch (err) {
+    log.debug("[mt#1588] buildMemoryServiceForSpike threw", {
+      error: getErrorMessage(err),
+    });
+    return null;
+  }
 }
 
 /**
@@ -338,6 +583,34 @@ export function createStartCommand(
         // (must happen after registerAllTools which triggers container.initialize())
         if (container) {
           server.setContainer(container);
+        }
+
+        // mt#1588 spike: construct a MemoryService and wire it into the server
+        // for the enrichment middleware. Gated behind the
+        // MINSKY_MCP_MEMORY_ENRICHMENT opt-in env var (default OFF) per PR #974
+        // R1 BLOCKING — the spike's "iterate, do not graduate" decision means
+        // the wiring must not activate in production unless explicitly opted
+        // in. Construction failure leaves the middleware as a no-op.
+        //
+        // Note (PR #974 R2 NON-BLOCKING): opt-in is read at startup-only here
+        // for the wiring decision. `enrichToolResponse` ALSO checks the env
+        // var on every call, so toggling MINSKY_MCP_MEMORY_ENRICHMENT to "0"
+        // at runtime takes effect immediately (the middleware short-circuits)
+        // even though the MemoryService stays wired. Setting the var from
+        // unset → "1" at runtime requires a restart for wiring to take effect.
+        if (container && isEnrichmentEnabled()) {
+          buildMemoryServiceForSpike(container)
+            .then((memoryService) => {
+              if (memoryService) {
+                server.setMemoryService(memoryService);
+                log.debug("[mt#1588] Memory enrichment middleware wired (opt-in)");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1588] Memory enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
         }
 
         // Register knowledge MCP resources on the server

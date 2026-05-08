@@ -5,6 +5,7 @@
  */
 
 import { log } from "../../utils/logger";
+import { safeTruncate } from "../../utils/safe-truncate.ts";
 import type {
   GenerateOptions,
   AnalysisResult,
@@ -241,7 +242,7 @@ function parseComponentContent(
           if (key && value) {
             subComponents.push({
               name: key.trim(),
-              description: value.trim().substring(0, 30),
+              description: safeTruncate(value.trim(), 30, "head"),
             });
           }
         });
@@ -256,7 +257,7 @@ function parseComponentContent(
             // Limit to 5
             const title = header.replace(/^#+\s*/, "").trim();
             subComponents.push({
-              name: title.substring(0, 40) + (title.length > 40 ? "..." : ""),
+              name: title.length > 40 ? `${safeTruncate(title, 40, "head")}...` : title,
               description: "Section",
             });
           });

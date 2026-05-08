@@ -16,6 +16,17 @@ import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
+import { withTimeout } from "./with-timeout";
+
+/**
+ * Default model timeout used when callOpenAIWithClient is called without an
+ * explicit value. Matches the production default in `config.ts`
+ * (`REVIEWER_MODEL_TIMEOUT_MS`); kept in sync manually because the test
+ * surface that calls callOpenAIWithClient directly doesn't load config.
+ *
+ * mt#1086.
+ */
+const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -274,7 +285,8 @@ async function forceConcludeReview(
   baseParams: ChatCreateBaseParams,
   messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
   exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
-  accumulatedToolCalls: ReviewToolCall[]
+  accumulatedToolCalls: ReviewToolCall[],
+  timeoutMs: number
 ): Promise<{
   promptTokens: number;
   completionTokens: number;
@@ -309,18 +321,26 @@ async function forceConcludeReview(
     { role: "user", content: CONCLUDE_REVIEW_REMINDER_USER_MSG },
   ];
 
-  const response = await client.chat.completions.create({
-    ...baseParams,
-    messages: forcedMessages,
-    tools: [CONCLUDE_REVIEW_TOOL_DEF],
-    // Reference the extracted tool def's name so the constraint stays in
-    // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
-    // renamed there, this call updates automatically.
-    tool_choice: {
-      type: "function",
-      function: { name: CONCLUDE_REVIEW_TOOL_DEF.function.name },
-    },
-  });
+  const response = await withTimeout(
+    "openai.chat.completions.create.forceConclude",
+    timeoutMs,
+    (signal) =>
+      client.chat.completions.create(
+        {
+          ...baseParams,
+          messages: forcedMessages,
+          tools: [CONCLUDE_REVIEW_TOOL_DEF],
+          // Reference the extracted tool def's name so the constraint stays in
+          // lockstep with OUTPUT_TOOL_DEFINITIONS — if conclude_review is ever
+          // renamed there, this call updates automatically.
+          tool_choice: {
+            type: "function",
+            function: { name: CONCLUDE_REVIEW_TOOL_DEF.function.name },
+          },
+        },
+        { signal }
+      )
+  );
 
   const usage = response.usage;
   const tokenUsage = {
@@ -386,7 +406,12 @@ export async function callOpenAIWithClient(
   systemPrompt: string,
   userPrompt: string,
   tools?: ReviewerToolContext,
-  options?: CallReviewerOptions
+  options?: CallReviewerOptions,
+  // mt#1086: per-SDK-call timeout. Optional + defaulted so the dozens of
+  // existing test sites and replay scripts that call this directly without
+  // loading config don't need to change. Production callers (`callOpenAI`
+  // below) pass `config.modelTimeoutMs`.
+  timeoutMs: number = DEFAULT_MODEL_TIMEOUT_MS
 ): Promise<ReviewOutput> {
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
@@ -425,7 +450,11 @@ export async function callOpenAIWithClient(
 
   // No tools provided — preserve original single-turn behavior.
   if (!tools) {
-    const response = await client.chat.completions.create({ ...baseParams, messages });
+    const response = await withTimeout(
+      "openai.chat.completions.create.notools",
+      timeoutMs,
+      (signal) => client.chat.completions.create({ ...baseParams, messages }, { signal })
+    );
     const text = response.choices[0]?.message?.content ?? "";
     const usage = response.usage;
     return {
@@ -487,12 +516,20 @@ export async function callOpenAIWithClient(
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
-    const response = await client.chat.completions.create({
-      ...baseParams,
-      messages,
-      // On the last round, force the model to respond with text only.
-      ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
-    });
+    const response = await withTimeout(
+      "openai.chat.completions.create.toolloop",
+      timeoutMs,
+      (signal) =>
+        client.chat.completions.create(
+          {
+            ...baseParams,
+            messages,
+            // On the last round, force the model to respond with text only.
+            ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
+          },
+          { signal }
+        )
+    );
 
     totalRoundsUsed = round + 1;
 
@@ -588,10 +625,21 @@ export async function callOpenAIWithClient(
           const path = typeof args.path === "string" ? args.path : "";
 
           if (fnName === "read_file") {
-            const content = await tools.readFile(path);
+            // mt#1086 PR #969 R1 BLOCKING #2 + R2 BLOCKING #2:
+            // Defense-in-depth wrap around the tool call AND propagate
+            // the AbortSignal into the inner function so abort actually
+            // cancels the underlying GitHub request (the R1 wrap by itself
+            // only short-circuited locally). The signal flows:
+            //   withTimeout → tools.readFile → readFileAtRef.callerSignal
+            //   → Octokit `request: { signal }`.
+            const content = await withTimeout("tools.read_file", timeoutMs, (signal) =>
+              tools.readFile(path, signal)
+            );
             resultContent = JSON.stringify(buildReadFileEnvelope(content));
           } else if (fnName === "list_directory") {
-            const entries = await tools.listDirectory(path);
+            const entries = await withTimeout("tools.list_directory", timeoutMs, (signal) =>
+              tools.listDirectory(path, signal)
+            );
             resultContent = JSON.stringify(buildListDirectoryEnvelope(entries));
           } else {
             resultContent = JSON.stringify({ ok: false, error: `unknown_tool: ${fnName}` });
@@ -632,7 +680,8 @@ export async function callOpenAIWithClient(
         baseParams,
         messages,
         exitMessage,
-        accumulatedToolCalls
+        accumulatedToolCalls,
+        timeoutMs
       );
       totalPromptTokens += forced.promptTokens;
       totalCompletionTokens += forced.completionTokens;
@@ -697,7 +746,8 @@ async function callOpenAI(
     systemPrompt,
     userPrompt,
     tools,
-    options
+    options,
+    config.modelTimeoutMs
   );
 }
 
@@ -719,7 +769,13 @@ async function callGoogle(
     systemInstruction: systemPrompt,
   });
 
-  const response = await model.generateContent(userPrompt);
+  // mt#1086: wrap in withTimeout. The Google SDK does not propagate
+  // AbortSignal to its underlying HTTPS request as of @google/generative-ai
+  // v0.21, so the abort is best-effort: the SDK call may continue running
+  // in the background after timeout, but the caller has moved on.
+  const response = await withTimeout("google.generateContent", config.modelTimeoutMs, () =>
+    model.generateContent(userPrompt)
+  );
   const text = response.response.text();
   const usage = response.response.usageMetadata;
   return {
@@ -749,12 +805,19 @@ async function callAnthropic(
   }
 
   const client = new Anthropic({ apiKey: config.providerApiKey });
-  const response = await client.messages.create({
-    model: config.providerModel,
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [{ role: "user", content: userPrompt }],
-  });
+  // mt#1086: wrap in withTimeout. Anthropic SDK accepts `signal` in the
+  // second arg (RequestOptions); it propagates to the underlying fetch.
+  const response = await withTimeout("anthropic.messages.create", config.modelTimeoutMs, (signal) =>
+    client.messages.create(
+      {
+        model: config.providerModel,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      },
+      { signal }
+    )
+  );
 
   const text = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")

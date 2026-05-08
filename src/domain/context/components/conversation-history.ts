@@ -1,5 +1,6 @@
 import { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import { log } from "../../../utils/logger";
+import { safeTruncate } from "../../../utils/safe-truncate";
 
 export interface ConversationHistoryInputs extends ComponentInputs {
   history: {
@@ -458,7 +459,7 @@ function truncateContent(content: string, maxLength: number): string {
     return content;
   }
 
-  return `${content.substring(0, maxLength - 3)}...`;
+  return `${safeTruncate(content, maxLength - 3, "head")}...`;
 }
 
 function generateContinuityInsights(

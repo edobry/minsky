@@ -8,7 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { loadEnvironmentConfiguration } from "./environment";
+import { loadEnvironmentConfiguration, getEnvironmentConfiguration } from "./environment";
 
 const TEST_POSTGRES_URL = "postgresql://user:pass@host:5432/db";
 
@@ -16,10 +16,6 @@ const PERSISTENCE_KEYS = [
   "MINSKY_PERSISTENCE_BACKEND",
   "MINSKY_PERSISTENCE_POSTGRES_URL",
   "MINSKY_POSTGRES_URL",
-  "MINSKY_SESSIONDB_BACKEND",
-  "MINSKY_SESSIONDB_POSTGRES_URL",
-  "MINSKY_SESSIONDB_SQLITE_PATH",
-  "MINSKY_SESSIONDB_BASE_DIR",
 ];
 
 /**
@@ -31,9 +27,6 @@ const PERSISTENCE_KEYS = [
 type ExpectedShape = {
   persistence?: {
     backend?: string;
-    postgres?: { connectionString?: string };
-  };
-  sessiondb?: {
     postgres?: { connectionString?: string };
   };
 };
@@ -73,18 +66,12 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
   test("MINSKY_PERSISTENCE_POSTGRES_URL maps to persistence.postgres.connectionString (mt#1267)", () => {
     // Locks in the explicit mapping for the modern var name. Without this
     // mapping the auto-conversion fallback would route it to
-    // `persistence.postgres.url` (note `_URL` → `.url`, not `.connectionString`),
+    // `persistence.postgres.url` (note `_URL` -> `.url`, not `.connectionString`),
     // a non-schema key that the persistence factory would silently ignore. This
     // is the var name `scripts/deploy-minsky-mcp.ts` ENV_SPEC uploads to Railway.
     process.env.MINSKY_PERSISTENCE_POSTGRES_URL = TEST_POSTGRES_URL;
     const config = loadAsExpected();
     expect(config.persistence?.postgres?.connectionString).toBe(TEST_POSTGRES_URL);
-  });
-
-  test("MINSKY_SESSIONDB_POSTGRES_URL still maps to sessiondb.postgres.connectionString", () => {
-    process.env.MINSKY_SESSIONDB_POSTGRES_URL = TEST_POSTGRES_URL;
-    const config = loadAsExpected();
-    expect(config.sessiondb?.postgres?.connectionString).toBe(TEST_POSTGRES_URL);
   });
 
   test("MINSKY_PERSISTENCE_BACKEND auto-maps to persistence.backend", () => {
@@ -108,5 +95,124 @@ describe("environment configuration source — persistence mappings (mt#1223)", 
     // a top-level `postgres` key from the auto-mapping fallback.
     const config = loadEnvironmentConfiguration() as Record<string, unknown>;
     expect(config.postgres).toBeUndefined();
+  });
+});
+
+describe("environment configuration source — supabase mapping (mt#1633)", () => {
+  let original: string | undefined;
+
+  beforeEach(() => {
+    original = process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+    delete process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+  });
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.MINSKY_SUPABASE_ACCESS_TOKEN;
+    } else {
+      process.env.MINSKY_SUPABASE_ACCESS_TOKEN = original;
+    }
+  });
+
+  test("MINSKY_SUPABASE_ACCESS_TOKEN maps to supabase.accessToken", () => {
+    const TEST_PAT = "sbp_test_routing_check";
+    process.env.MINSKY_SUPABASE_ACCESS_TOKEN = TEST_PAT;
+    const config = loadEnvironmentConfiguration() as {
+      supabase?: { accessToken?: string };
+    };
+    expect(config.supabase?.accessToken).toBe(TEST_PAT);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1644: hook-only MINSKY_* env vars must NOT be coerced into the config
+// object. Before this fix, `MINSKY_FORCE_PARALLEL=1 minsky session start ...`
+// crashed at config load with `root: Unrecognized key: "force"` because the
+// auto-mapping fallback routed it to a `force.parallel` path that mt#1612's
+// strict-mode validation rejected. Same failure shape applied to
+// MINSKY_SKIP_FRESHNESS, MINSKY_TWO_STRIKES_STATE_DIR, MINSKY_TWO_STRIKES_MODE.
+// ---------------------------------------------------------------------------
+
+describe("environment configuration source — hook-only env vars (mt#1644)", () => {
+  const HOOK_ONLY_KEYS = [
+    "MINSKY_FORCE_PARALLEL",
+    "MINSKY_SKIP_FRESHNESS",
+    "MINSKY_TWO_STRIKES_STATE_DIR",
+    "MINSKY_TWO_STRIKES_MODE",
+  ];
+
+  const TWO_STRIKES_PATH = "/tmp/minsky-two-strikes";
+
+  let originalValues: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    originalValues = {};
+    for (const key of HOOK_ONLY_KEYS) {
+      originalValues[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of HOOK_ONLY_KEYS) {
+      const value = originalValues[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  test("MINSKY_FORCE_PARALLEL=1 does NOT produce a `force` config key", () => {
+    process.env.MINSKY_FORCE_PARALLEL = "1";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.force).toBeUndefined();
+  });
+
+  test("MINSKY_SKIP_FRESHNESS=1 does NOT produce a `skip` config key", () => {
+    process.env.MINSKY_SKIP_FRESHNESS = "1";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.skip).toBeUndefined();
+  });
+
+  test("MINSKY_TWO_STRIKES_STATE_DIR does NOT produce a `two` config key", () => {
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = TWO_STRIKES_PATH;
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.two).toBeUndefined();
+  });
+
+  test("MINSKY_TWO_STRIKES_MODE=live does NOT produce a `two` config key", () => {
+    process.env.MINSKY_TWO_STRIKES_MODE = "live";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.two).toBeUndefined();
+  });
+
+  test("hook-only vars set together produce no top-level pollution", () => {
+    process.env.MINSKY_FORCE_PARALLEL = "1";
+    process.env.MINSKY_SKIP_FRESHNESS = "1";
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = TWO_STRIKES_PATH;
+    process.env.MINSKY_TWO_STRIKES_MODE = "live";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.force).toBeUndefined();
+    expect(config.skip).toBeUndefined();
+    expect(config.two).toBeUndefined();
+  });
+
+  test("getEnvironmentConfiguration() metadata also excludes hook-only env vars", () => {
+    // Reviewer-bot caught this gap (PR #983 R1): the loader was patched but
+    // getEnvironmentConfiguration's metadata-reporting loop was not, producing
+    // a divergence where diagnostics would still report MINSKY_FORCE_PARALLEL
+    // as "loaded" with mapping "force.parallel" even though the loader skipped
+    // it. Both paths must stay in sync.
+    process.env.MINSKY_FORCE_PARALLEL = "1";
+    process.env.MINSKY_SKIP_FRESHNESS = "1";
+    process.env.MINSKY_TWO_STRIKES_STATE_DIR = TWO_STRIKES_PATH;
+    process.env.MINSKY_TWO_STRIKES_MODE = "live";
+    const { metadata } = getEnvironmentConfiguration();
+    for (const key of HOOK_ONLY_KEYS) {
+      expect(metadata.loadedVariables).not.toContain(key);
+      expect(metadata.mappings[key]).toBeUndefined();
+    }
   });
 });

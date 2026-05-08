@@ -55,6 +55,7 @@ export function parseAgentId(input: string): ParsedAgentId | null {
   let parent: string | undefined;
 
   if (atIdx !== -1) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- known-ASCII: agent identity strings use only ASCII (colon-separated alphanumeric segments)
     core = input.slice(0, atIdx);
     const rawParent = input.slice(atIdx + 1);
     if (!rawParent) return null; // `@` with empty parent is malformed

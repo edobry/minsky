@@ -22,18 +22,10 @@ export const defaultConfiguration: PartialConfiguration = {
     "github-issues": undefined,
   },
 
-  // Modern persistence configuration is intentionally omitted from defaults.
-  //
-  // Reason: the `persistence` schema requires a `backend` value when the
-  // object is present. If we set a default `backend: "sqlite"` here, the
-  // legacy `sessiondb.backend` fallback in `getEffectivePersistenceConfig`
-  // never runs (the `??` chain falls through only on undefined). That
-  // silently broke hosted deploys configured via MINSKY_SESSIONDB_BACKEND
-  // env var, which is the contract the deploy runbook documents.
-  //
-  // The resolver provides both the final `?? "sqlite"` backend fallback and
-  // the SQLite dbPath fallback, so omitting the whole block here is safe and
-  // makes the legacy-fallback path actually reachable. See mt#1271.
+  // Persistence configuration is intentionally omitted from defaults.
+  // getEffectivePersistenceConfig provides the final backend fallback ("sqlite")
+  // and the default SQLite dbPath at read time, so omitting the block here is
+  // safe and keeps PartialConfiguration shapes unambiguous.
 
   // GitHub configuration (all optional)
   github: {

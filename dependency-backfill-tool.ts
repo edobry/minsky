@@ -286,9 +286,8 @@ class DependencyBackfillTool {
           );
 
         if (hasOnlyTaskRefs) {
-          cleanedContent =
-            cleanedContent.slice(0, match.index) +
-            cleanedContent.slice(match.index + match[0].length);
+          const before = cleanedContent.slice(0, match.index); // eslint-disable-line custom/no-unsafe-string-truncation -- structural split at regex match position (one-off backfill script; markdown content)
+          cleanedContent = before + cleanedContent.slice(match.index + match[0].length);
           console.log(`    🧹 Removed formal dependency section from ${taskId}`);
         }
       }

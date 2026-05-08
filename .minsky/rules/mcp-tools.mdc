@@ -24,6 +24,15 @@ GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because 
 
 Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
 
+## session_pr_review_submit identity routing (mt#1510)
+
+`session_pr_review_submit` accepts an optional `identity: "implementer" | "reviewer"` parameter that selects the GitHub App posting the review. Default mapping when `identity` is omitted:
+
+- `event: COMMENT` → `implementer` (`minsky-ai[bot]` App)
+- `event: APPROVE` or `event: REQUEST_CHANGES` → `reviewer` (`minsky-reviewer[bot]` App, when `github.reviewer.serviceAccount` is configured)
+
+APPROVE / REQUEST_CHANGES under the reviewer role require `github.reviewer.serviceAccount` to be present in config. When it is absent, the call throws a typed `MinskyError` naming the missing config key — the tool **never silently falls back to implementer** for those events, because that would re-introduce GitHub's self-approval block on bot-authored PRs. COMMENT events are not gated and use the implementer App regardless. Supersedes mt#1065's earlier event-type token workaround. Architectural narrative: Notion "Decision record: Phase 2 shipped" + memory `project_bot_identity.md` + ADR-006.
+
 ## session_update and session_pr_create can force-push the branch
 
 `mcp__minsky__session_update` (and `mcp__minsky__session_pr_create`, which calls it internally) merges main onto the **local** session HEAD and force-pushes. If the remote `task/<id>` branch has been advanced beyond the session's local HEAD by another agent, the merge commit's parent is the stale local — NOT the advanced remote — and the force-push silently orphans the remote commits. The tool returns `{success: true}` with no warning. mt#1304 tracks the tool-level fix; until that lands, the agent must guard.

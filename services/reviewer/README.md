@@ -83,6 +83,8 @@ Both tools use the `contents: read` permission the App already holds.
 
 **Behavioral contract:** The `buildCriticConstitution(toolsAvailable)` helper emits one of two system-prompt sections. When tools are available, the prompt instructs the model to call `read_file` / `list_directory` before making cross-file claims and to mark unverified claims `[NON-BLOCKING] NEEDS VERIFICATION`. When tools are NOT available (non-OpenAI provider or forked PR where the access probe failed), the prompt explicitly tells the model no tools are wired up and that all cross-file claims MUST be marked non-blocking with `NEEDS VERIFICATION` — never blocking.
 
+**Verification-mode preamble (mt#1656 / mt#1640 Fix 1):** `buildCriticConstitution` accepts a fourth parameter `priorReviewsPresent: boolean = false`. When the reviewer-worker detects that prior bot reviews already exist on this PR (R≥2 review), it passes `priorReviewsPresent=true`, which swaps the standard adversarial preamble for a verification-mode preamble. The verification preamble reframes the task from unbounded adversarial discovery to bounded verification of the prior round's fixes: new BLOCKING findings are legitimate only when (a) introduced by the fix commit itself, or (b) a critical correctness/security/data-loss issue R1 missed. Otherwise the event verdict defaults to APPROVE. The reframe targets the no-stopping-rule structural problem (mt#1640): the standard preamble's "find SOMETHING every round" framing is correct for R1 but produces bikeshedding at R8+ when the diff has shrunk and substantive issues are addressed. R1 reviews always use the standard preamble (the default is `false`). Empirical validation runs post-merge via the existing `replay-severity.ts` and `measure-calibration.ts` corpus-replay tooling against historical multi-round PRs (mt#1465, mt#1309).
+
 **Path normalization (`normalizeContentPath`):** User-supplied paths are normalized before calling the Contents API: `.`, `./`, `/`, and empty all map to `""` (repo root); leading `./` is stripped; leading slashes (e.g. `/src/foo.ts` → `src/foo.ts`) are stripped; trailing slashes are stripped. This absorbs common LLM path conventions that would otherwise produce spurious 404s.
 
 **Tool result envelope:** Every tool call returns a JSON envelope so the model can disambiguate success/failure and parse structured metadata:
@@ -98,3 +100,20 @@ The envelope structurally disambiguates "missing file" from "file whose content 
 ## Self-hosting
 
 The service is deliberately stateless. Any deployment target that supports Node.js webhooks works (Railway, Fly, Vercel Functions, Render). Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely.
+
+## Troubleshooting
+
+### Network-call timeouts (mt#1086)
+
+Outbound model and GitHub API calls are wrapped with `AbortController` timeouts. Without timeouts, a hung outbound call holds the worker open until the platform kills it (~30-60s on Railway, longer elsewhere); with them, you see the failure in service logs immediately and the sweeper (mt#1260) re-triggers the review on its next pass.
+
+**Defaults:**
+
+- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s is sized for `gpt-5` with `reasoning_effort=high` on a Tier-3 PR, which regularly takes 60-90s end-to-end. Lower it for faster fail-fast on stuck rounds; raise it if you regularly see legitimate completions exceeding 2 min.
+- `REVIEWER_GITHUB_TIMEOUT_MS=30000` — GitHub REST and GraphQL calls. 30s is generous; happy-path GitHub calls return in <5s. Lower it if you want to surface GitHub-side latency faster.
+
+**Validation:** both env vars must parse as positive integers. `0`, negative numbers, decimals, non-numeric strings, and whitespace-padded values are rejected at boot with a clear error pointing at the env var name. The reviewer will not start with malformed timeout config — by design, since silent NaN coercion would produce infinite waits, defeating the point.
+
+**Observing timeouts:** when a call exceeds its budget, a structured-shape JSON log is emitted to stderr with `event: "timeout"`, the operation name (e.g. `openai.chat.completions.create.toolloop`, `github.pulls.listFiles`), the configured `timeoutMs`, and elapsed `durationMs`. Then a typed `TimeoutError` propagates through `runReview`, gets caught by the detached-review handler in `server.ts`, and is logged as `review_error` with the timeout's operation name in `error`. The webhook returns 200 immediately on receipt regardless (ack-immediate per mt#1191); the sweeper (mt#1260) catches missed reviews on its next pass, so GitHub-level retry is not required here.
+
+**Tuning advice:** start with the defaults. If model timeouts fire on legitimate review activity, the right move is usually to lower `reasoning_effort` rather than to raise the timeout — a model that needs >2 min on a Tier-3 PR is usually exhausting reasoning budget without producing useful output. If GitHub timeouts fire, check that the reviewer App's installation token is current and that you aren't rate-limited.

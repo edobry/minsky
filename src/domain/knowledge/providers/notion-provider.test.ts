@@ -36,6 +36,7 @@ function makeChildPageBlock(id: string, title: string): Record<string, unknown> 
 
 function makeParagraphBlock(text: string): Record<string, unknown> {
   return {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- test fixture: building a block ID from known-ASCII test strings
     id: `para-${text.slice(0, 8)}`,
     type: "paragraph",
     paragraph: {

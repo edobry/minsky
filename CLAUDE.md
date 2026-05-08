@@ -315,6 +315,23 @@ A recovery layer is only as strong as the failure modes its spec enumerates. Imp
 - **Trigger keywords for the rule:** spec language like "missed", "silent", "drop", "fail", "lost", "stale", "expired", "unhealthy", "out-of-sync" — when paired with a recovery mechanism, the discipline applies.
 - This is the recovery-layer equivalent of `Temporary mechanism budget` above. Same family of pattern: a mechanism labeled as "the fix" without enumerating what it doesn't cover, so the gap stays invisible until it fires. Tracking task: mt#1567.
 
+## Invocation path required for event/poll mechanisms
+
+When a task spec introduces an **event-driven or polling mechanism** — webhook handler, scheduled job, cron, sweeper, watcher, poller, or any mechanism that fires automatically in response to external events or on a timer — the spec MUST name the **concrete invocation path**: what starts it, what calls it, and how it is wired into the running system.
+
+A mechanism with no invocation path is a stub. It may exist in the codebase, pass all its unit tests, and satisfy the letter of the spec — but it never fires. The absence of an invocation path is a silent failure mode indistinguishable from a working feature until the failure mode is observed in production.
+
+**Why:** mt#1618 — `pr_watch_run` was implemented (polling logic, DB state, GitHub API client) but the production `pr-watch.ts` adapter wired a `stubGithubPrClient` that returns null/[]/[] for every query instead of a real Octokit-backed client. Additionally, no scheduler called `pr_watch_run` periodically. The mechanism existed but never fired.
+
+**How to apply:**
+
+- When **authoring** a spec that introduces an event-driven or polling mechanism: include a `### Invocation path` subsection that names (a) what starts the mechanism (process, cron, scheduler, signal, webhook), (b) where the wiring lives in code, and (c) what config controls it.
+- When **implementing** such a mechanism: verify the production wiring by searching for production callsites — not just the handler itself. If the handler exists but no production path calls it, the implementation is incomplete.
+- When **reviewing** such a PR: grep for the mechanism's entry-point function and confirm at least one non-test, non-stub caller exists on the production path.
+- When **stub clients exist** in the codebase: grep for every callsite of the stub. A stub called from production code (not just test code) is a silent failure. Stubs must only appear in test seams.
+- **Trigger keywords for the rule:** spec language like "fires", "triggers", "polls", "watches", "scheduled", "periodic", "on event", "listener", "handler" — when paired with implementation work, the invocation-path check applies.
+- This is the invocation-path complement to `Recovery layer spec discipline` above: a mechanism that runs but covers the wrong failure modes is the recovery-layer problem; a mechanism that never runs is the invocation-path problem. Tracking task: mt#1618.
+
 # Compact Instructions
 
 When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
@@ -336,6 +353,15 @@ GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because 
 - `mcp__github__pull_request_review_write` → `mcp__minsky__session_pr_review_submit`
 
 Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
+
+## session_pr_review_submit identity routing (mt#1510)
+
+`session_pr_review_submit` accepts an optional `identity: "implementer" | "reviewer"` parameter that selects the GitHub App posting the review. Default mapping when `identity` is omitted:
+
+- `event: COMMENT` → `implementer` (`minsky-ai[bot]` App)
+- `event: APPROVE` or `event: REQUEST_CHANGES` → `reviewer` (`minsky-reviewer[bot]` App, when `github.reviewer.serviceAccount` is configured)
+
+APPROVE / REQUEST_CHANGES under the reviewer role require `github.reviewer.serviceAccount` to be present in config. When it is absent, the call throws a typed `MinskyError` naming the missing config key — the tool **never silently falls back to implementer** for those events, because that would re-introduce GitHub's self-approval block on bot-authored PRs. COMMENT events are not gated and use the implementer App regardless. Supersedes mt#1065's earlier event-type token workaround. Architectural narrative: Notion "Decision record: Phase 2 shipped" + memory `project_bot_identity.md` + ADR-006.
 
 ## session_update and session_pr_create can force-push the branch
 
@@ -456,6 +482,23 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
 - mt#1508 — the audit task that produced this corpus
 
+# Memory Usage
+
+Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/projects/<hash>/memory/`) has been removed per mt#1012 bridge-policy (b); the DB is the canonical store.
+
+**At conversation start.** For any non-trivial conversation, call `mcp__minsky__memory_search` with a query matching the user's intent before deciding what to do. That's how relevant prior context surfaces. Trivial turns (single-word affirmatives, status checks) don't need it.
+
+**On durable findings.** Call `mcp__minsky__memory_create` when you learn something durable that's not derivable from code, git history, specs, or rules. Do **NOT** write to filesystem memory files — the canonical store is the DB. If you observe code paths still writing to `~/.claude/projects/.../memory/`, file separate bug tasks; the directive above is unambiguous post-deletion.
+
+**On divergence.** If you encounter old file-based memory artifacts (e.g., in stale checkouts, cached harness state, or third-party tooling), the DB wins. Do not re-save them as files.
+
+## Bridge mechanism (Claude Code only)
+
+`.claude/hooks/memory-search.ts` is a `UserPromptSubmit` hook that auto-injects top-K `mcp__minsky__memory_search` results for non-trivial prompts (length ≥ 20 chars, not a single-word affirmative). It restores preamble-parity for Claude Code only and is explicitly **temporary**: other harnesses don't have it, so the memory system isn't yet fully harness-agnostic at the read layer.
+
+- **Tracking task (retirement):** mt#1588 — MCP middleware enrichment on `CallToolRequestSchema`. When that ships, every MCP-capable agent gets memory enrichment for free, the harness-specific hook is deleted, and the mechanism is fully agnostic.
+- **Budget:** escalate if mt#1588 is still TODO 5 days after this rule lands in its final state, OR if the Claude Code hook fires 3+ times in 24h without the underlying user-quality issue being investigated. Per CLAUDE.md `§Temporary mechanism budget`.
+
 # Key Workflows (via skills)
 
 - **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
@@ -573,5 +616,3 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
 - 10 custom ESLint rules enforce architectural patterns
-
-Memory is stored in Minsky DB, not files. Use `memory_search` with a query matching the user's intent at the start of any non-trivial conversation. Use `memory_create` when you learn something durable and not derivable from code/git/specs/rules.

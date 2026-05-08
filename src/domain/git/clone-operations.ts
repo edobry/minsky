@@ -77,6 +77,7 @@ export async function cloneImpl(
     try {
       const { stdout, stderr: _stderr } = await deps.execAsync(cloneCmd);
       log.debug("git clone succeeded", {
+        // eslint-disable-next-line custom/no-unsafe-string-truncation -- known-ASCII: git stdout is plain ASCII for logging only
         stdout: stdout.trim().substring(0, 200),
       });
     } catch (cloneErr) {

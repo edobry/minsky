@@ -8,6 +8,7 @@ import { SimilaritySearchService } from "../similarity/similarity-search-service
 import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
 import { first } from "../../utils/array-safety";
+import { safeTruncate } from "../../utils/safe-truncate.ts";
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
@@ -235,7 +236,7 @@ export class TaskSimilarityService {
           // Heuristic: ~4 chars per token
           const maxChars = effective * 4;
           if (content.length > maxChars) {
-            content = content.slice(0, maxChars);
+            content = safeTruncate(content, maxChars, "head");
           }
         }
       } catch {

@@ -398,24 +398,10 @@ export const config = {
   },
 
   /**
-   * Get backend configuration
-   */
-  get backend() {
-    return getConfiguration().backend;
-  },
-
-  /**
    * Get backend-specific configuration
    */
   get backendConfig() {
     return getConfiguration().backendConfig;
-  },
-
-  /**
-   * Get session database configuration
-   */
-  get sessiondb() {
-    return getConfiguration().sessiondb;
   },
 
   /**

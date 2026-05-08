@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "child_process";
 import path from "path";
-import { checkBearerAuth } from "./start-command";
+import {
+  checkBearerAuth,
+  buildAuthorizationServerMetadata,
+  buildProtectedResourceMetadata,
+  composeRequestBaseUrl,
+  normalizeEndpointPath,
+  OAUTH_FLOW_NOT_SUPPORTED_BODY,
+  OAUTH_REGISTER_NOT_SUPPORTED_BODY,
+} from "./start-command";
 
 // ---------------------------------------------------------------------------
 // Helpers for integration tests
@@ -265,4 +273,270 @@ describe("checkBearerAuth", () => {
   test("trims trailing whitespace on the token", () => {
     expect(checkBearerAuth(`Bearer ${TOKEN}   `, TOKEN)).toBe(true);
   });
+});
+
+describe("OAuth Discovery pure-function builders (mt#1655)", () => {
+  // Pure-function shape pinning. The HTTP integration tests below cover the
+  // route behavior end-to-end; these unit tests cover the builder contract
+  // (frozen output, expected fields) without needing to spawn a server.
+
+  test("buildAuthorizationServerMetadata returns RFC 8414 minimal shape", () => {
+    const meta = buildAuthorizationServerMetadata("https://example.com");
+    expect(meta.issuer).toBe("https://example.com");
+    expect(meta.response_types_supported).toEqual([]);
+    // mt#1657: SDK validators require these as strings even with no flows.
+    expect(meta.authorization_endpoint).toBe("https://example.com/oauth/authorize");
+    expect(meta.token_endpoint).toBe("https://example.com/oauth/token");
+    expect(Object.isFrozen(meta)).toBe(true);
+  });
+
+  test("buildProtectedResourceMetadata returns RFC 9728 minimal shape", () => {
+    const meta = buildProtectedResourceMetadata("https://example.com/mcp");
+    expect(meta.resource).toBe("https://example.com/mcp");
+    expect(Object.isFrozen(meta)).toBe(true);
+  });
+
+  test("OAUTH_REGISTER_NOT_SUPPORTED_BODY uses RFC 7591 error-key conventions", () => {
+    expect(OAUTH_REGISTER_NOT_SUPPORTED_BODY.error).toBe("registration_not_supported");
+    expect(typeof OAUTH_REGISTER_NOT_SUPPORTED_BODY.error_description).toBe("string");
+    expect(Object.isFrozen(OAUTH_REGISTER_NOT_SUPPORTED_BODY)).toBe(true);
+  });
+
+  test("OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657) is a frozen error body for /oauth/* stubs", () => {
+    expect(OAUTH_FLOW_NOT_SUPPORTED_BODY.error).toBe("oauth_not_supported");
+    expect(typeof OAUTH_FLOW_NOT_SUPPORTED_BODY.error_description).toBe("string");
+    expect(OAUTH_FLOW_NOT_SUPPORTED_BODY.error_description.length).toBeGreaterThan(0);
+    expect(Object.isFrozen(OAUTH_FLOW_NOT_SUPPORTED_BODY)).toBe(true);
+  });
+});
+
+describe("OAuth Discovery URL composition (mt#1655)", () => {
+  describe("normalizeEndpointPath", () => {
+    test("preserves a leading slash unchanged", () => {
+      expect(normalizeEndpointPath("/mcp")).toBe("/mcp");
+      expect(normalizeEndpointPath("/")).toBe("/");
+      expect(normalizeEndpointPath("/api/v1/mcp")).toBe("/api/v1/mcp");
+    });
+
+    test("prepends a leading slash when missing — fixes mt#1655 R1 finding 3", () => {
+      // Without normalization, embedding `--endpoint mcp` (no slash) into
+      // `https://example.com${endpoint}` produces invalid `https://example.commcp`.
+      expect(normalizeEndpointPath("mcp")).toBe("/mcp");
+      expect(normalizeEndpointPath("api/v1/mcp")).toBe("/api/v1/mcp");
+    });
+  });
+
+  describe("composeRequestBaseUrl", () => {
+    test("composes from req.protocol + req.hostname", () => {
+      const req = { protocol: "https", hostname: "example.com" } as import("express").Request;
+      expect(composeRequestBaseUrl(req)).toBe("https://example.com");
+    });
+
+    test("falls back to localhost when hostname is missing or empty", () => {
+      const reqEmpty = { protocol: "http", hostname: "" } as import("express").Request;
+      expect(composeRequestBaseUrl(reqEmpty)).toBe("http://localhost");
+    });
+  });
+});
+
+describe("OAuth Discovery HTTP routes (mt#1655 integration)", () => {
+  // These tests spawn the server in --http mode on a random port, wait for
+  // the ready log, and fetch the .well-known endpoints. Pins the route
+  // behavior change (404 -> 200) and the per-request URL composition that
+  // R1 BLOCKING #1 flagged as untested.
+
+  const HTTP_READY_MARKER = "Ready to receive MCP requests via HTTP";
+
+  /**
+   * Spawn the MCP server in --http mode on `port`. Returns the child + a
+   * promise that resolves when the ready-log line is seen, or rejects on
+   * timeout. The child is the caller's responsibility to terminate.
+   */
+  function spawnHttpMcp(
+    port: number,
+    extraEnv?: Record<string, string>
+  ): { child: ReturnType<typeof spawn>; ready: Promise<void> } {
+    const child = spawn(
+      "bun",
+      [CLI_PATH, "mcp", "start", "--http", "--port", String(port), "--host", "127.0.0.1"],
+      {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: { ...process.env, ...extraEnv },
+      }
+    );
+
+    const ready = new Promise<void>((resolve, reject) => {
+      let buffered = "";
+      const append = (chunk: Buffer | string) => {
+        buffered += typeof chunk === "string" ? chunk : String(chunk);
+        if (buffered.includes(HTTP_READY_MARKER)) {
+          resolve();
+        }
+      };
+      const stdoutEmitter = child.stdout as unknown as {
+        on(event: "data", listener: (chunk: Buffer | string) => void): void;
+      } | null;
+      const stderrEmitter = child.stderr as unknown as {
+        on(event: "data", listener: (chunk: Buffer | string) => void): void;
+      } | null;
+      if (stdoutEmitter) stdoutEmitter.on("data", append);
+      if (stderrEmitter) stderrEmitter.on("data", append);
+      const timeoutId = setTimeout(() => {
+        reject(new Error(`HTTP server did not ready within timeout. Buffered: ${buffered}`));
+      }, 15000);
+      child.on("exit", () => clearTimeout(timeoutId));
+    });
+
+    return { child, ready };
+  }
+
+  // Fixed port per test in the 41000-41100 ephemeral range. Hardcoded
+  // (rather than Math.random()) so test isolation isn't reliant on chance,
+  // and so the project's `custom/no-real-fs-in-tests` lint rule doesn't
+  // false-positive on Math.random() usage in non-fs contexts.
+  const PORT_AUTH_SERVER = 41001;
+  const PORT_PROTECTED_RESOURCE = 41002;
+  const PORT_X_FORWARDED = 41003;
+  const PORT_REGISTER = 41004;
+
+  test("GET /.well-known/oauth-authorization-server returns 200 + RFC 8414 minimal metadata", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_AUTH_SERVER);
+    try {
+      await ready;
+      const response = await fetch(
+        `http://127.0.0.1:${PORT_AUTH_SERVER}/.well-known/oauth-authorization-server`
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.issuer).toBeTypeOf("string");
+      expect(body.response_types_supported).toEqual([]);
+      // mt#1657: these are now present (SDK schema requires them as strings).
+      expect(body.authorization_endpoint).toBeTypeOf("string");
+      expect((body.authorization_endpoint as string).endsWith("/oauth/authorize")).toBe(true);
+      expect(body.token_endpoint).toBeTypeOf("string");
+      expect((body.token_endpoint as string).endsWith("/oauth/token")).toBe(true);
+      // registration_endpoint stays absent — /register returns 400 directly.
+      expect(body.registration_endpoint).toBeUndefined();
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("GET /.well-known/oauth-protected-resource returns 200 + RFC 9728 minimal metadata", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_PROTECTED_RESOURCE);
+    try {
+      await ready;
+      const response = await fetch(
+        `http://127.0.0.1:${PORT_PROTECTED_RESOURCE}/.well-known/oauth-protected-resource`
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.resource).toBeTypeOf("string");
+      // The default endpoint is /mcp; resource should end with it.
+      expect(body.resource).toMatch(/\/mcp$/);
+      expect(body.authorization_servers).toBeUndefined();
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("X-Forwarded-Proto: https produces an https issuer (trust proxy 1 wired correctly)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_X_FORWARDED);
+    try {
+      await ready;
+      const response = await fetch(
+        `http://127.0.0.1:${PORT_X_FORWARDED}/.well-known/oauth-authorization-server`,
+        {
+          headers: {
+            "X-Forwarded-Proto": "https",
+            "X-Forwarded-Host": "minsky-mcp-production.up.railway.app",
+          },
+        }
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.issuer).toBe("https://minsky-mcp-production.up.railway.app");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("POST /register continues to return 400 (regression check)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_REGISTER);
+    try {
+      await ready;
+      const response = await fetch(`http://127.0.0.1:${PORT_REGISTER}/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe("registration_not_supported");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  // mt#1657: /oauth/authorize and /oauth/token stub handlers exist because
+  // Claude Code's MCP SDK validates the authorization-server metadata
+  // schema (requiring authorization_endpoint/token_endpoint as strings).
+  // The handlers return 400 if any client actually attempts the flow.
+
+  const PORT_OAUTH_AUTHORIZE = 41005;
+  const PORT_OAUTH_TOKEN = 41006;
+
+  test("GET /oauth/authorize returns 400 + OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_OAUTH_AUTHORIZE);
+    try {
+      await ready;
+      const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_AUTHORIZE}/oauth/authorize`);
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe(OAUTH_FLOW_NOT_SUPPORTED_BODY.error);
+      expect(typeof body.error_description).toBe("string");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
+
+  test("POST /oauth/token returns 400 + OAUTH_FLOW_NOT_SUPPORTED_BODY (mt#1657)", async () => {
+    const { child, ready } = spawnHttpMcp(PORT_OAUTH_TOKEN);
+    try {
+      await ready;
+      const response = await fetch(`http://127.0.0.1:${PORT_OAUTH_TOKEN}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).toMatch(/application\/json/);
+      const body = (await response.json()) as Record<string, unknown>;
+      expect(body.error).toBe(OAUTH_FLOW_NOT_SUPPORTED_BODY.error);
+      expect(typeof body.error_description).toBe("string");
+    } finally {
+      child.kill("SIGTERM");
+      await waitForExit(child, 10000).catch(() => {
+        /* best-effort cleanup */
+      });
+    }
+  }, 30000);
 });
