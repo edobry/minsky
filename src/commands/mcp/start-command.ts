@@ -41,6 +41,19 @@ const DEFAULT_HTTP_ENDPOINT = "/mcp";
 const INSPECTOR_PORT = 5173;
 
 /**
+ * Vector dimension for the memory embeddings store.
+ *
+ * **TODO (mt#1631):** This dimension is hard-coded across three independent
+ * MemoryService construction sites — `resolveMemoryService` (pre-existing),
+ * `buildMemoryServiceForSpike` (this file), and `scripts/import-claude-code-memory.ts`.
+ * Centralize via an embedding-service-derived dimension getter or a single
+ * shared constant when those three sites are unified (PR #974 R2 BLOCKING).
+ * Today's value (1536) matches `text-embedding-3-small`/`text-embedding-ada-002`,
+ * which is what Minsky configures by default.
+ */
+const MEMORY_EMBEDDING_DIMENSION = 1536;
+
+/**
  * Check a bearer-token authorization header against the expected token.
  *
  * Returns true only when the header is present in the form `Bearer <token>`
@@ -281,7 +294,11 @@ async function buildMemoryServiceForSpike(
     const { createVectorStorageForDomain } = await import(
       "../../domain/storage/vector/vector-storage-factory"
     );
-    const vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
+    const vectorStorage = await createVectorStorageForDomain(
+      "memory",
+      MEMORY_EMBEDDING_DIMENSION,
+      persistence
+    );
 
     const { MemoryService } = await import("../../domain/memory");
     type MemoryServiceDb = import("../../domain/memory/memory-service").MemoryServiceDb;
@@ -402,6 +419,13 @@ export function createStartCommand(
         // R1 BLOCKING — the spike's "iterate, do not graduate" decision means
         // the wiring must not activate in production unless explicitly opted
         // in. Construction failure leaves the middleware as a no-op.
+        //
+        // Note (PR #974 R2 NON-BLOCKING): opt-in is read at startup-only here
+        // for the wiring decision. `enrichToolResponse` ALSO checks the env
+        // var on every call, so toggling MINSKY_MCP_MEMORY_ENRICHMENT to "0"
+        // at runtime takes effect immediately (the middleware short-circuits)
+        // even though the MemoryService stays wired. Setting the var from
+        // unset → "1" at runtime requires a restart for wiring to take effect.
         if (container && isEnrichmentEnabled()) {
           buildMemoryServiceForSpike(container)
             .then((memoryService) => {

@@ -29,6 +29,14 @@ import { enrichToolResponse } from "../src/mcp/middleware/memory-enrichment";
 import type { MemoryServiceSurface } from "../src/domain/memory/memory-service";
 import "reflect-metadata";
 
+/**
+ * Vector dimension for the memory embeddings store. See the analogous comment
+ * + TODO in `src/commands/mcp/start-command.ts` (PR #974 R2 BLOCKING). Hoisted
+ * to a constant so the benchmark stays in sync with the spike wiring; both
+ * sites collapse to a single derived dimension once mt#1626 lands.
+ */
+const MEMORY_EMBEDDING_DIMENSION = 1536;
+
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
@@ -159,7 +167,11 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
   }
 
   const embeddingService = await createEmbeddingServiceFromConfig();
-  const vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
+  const vectorStorage = await createVectorStorageForDomain(
+    "memory",
+    MEMORY_EMBEDDING_DIMENSION,
+    persistence
+  );
 
   return new MemoryService({
     db: connection as MemoryServiceDb,

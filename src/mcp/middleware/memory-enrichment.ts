@@ -58,9 +58,20 @@ const PER_RESULT_CHAR_BUDGET = 500;
  */
 const MAX_QUERY_LENGTH = 500;
 
+/**
+ * Default timeout (ms) for the memory_search call inside enrichToolResponse.
+ * Configurable via `MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS`. Defensive default
+ * — sized to let a normal embedding-API + pgvector call complete while bounding
+ * the worst case so an accidentally-enabled middleware can't hang a tool call
+ * indefinitely (PR #974 R2 BLOCKING).
+ */
+const DEFAULT_TIMEOUT_MS = 5000;
+
 export interface EnrichmentOptions {
   k?: number;
   charBudget?: number;
+  /** Override the timeout for the memory_search call in milliseconds. */
+  timeoutMs?: number;
 }
 
 export interface EnrichmentBlock {
@@ -107,8 +118,13 @@ export function buildQuery(toolName: string, args: Record<string, unknown>): str
   const argParts: string[] = [];
   for (const [k, v] of Object.entries(args)) {
     if (v === undefined || v === null || v === "") continue;
-    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
-      argParts.push(String(v));
+    if (typeof v === "string") {
+      argParts.push(v);
+    } else if (typeof v === "number" || typeof v === "boolean") {
+      // Include key context for non-string scalars so retrieval has semantic
+      // grounding (PR #974 R2 NON-BLOCKING). String args still carry their
+      // own meaning so they're appended bare.
+      argParts.push(`${k}=${String(v)}`);
     } else {
       // Redact non-scalar values: include the key as a hint that it was set,
       // but drop the value to avoid leaking unbounded content into the query.
@@ -169,6 +185,18 @@ function buildBlock(
 }
 
 /**
+ * Read the timeout from env (positive integer ms) or fall back to the default.
+ * Exported so tests can exercise the parsing.
+ */
+export function readTimeoutMs(): number {
+  const raw = process.env.MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS;
+  if (!raw) return DEFAULT_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_TIMEOUT_MS;
+  return parsed;
+}
+
+/**
  * Run the memory enrichment middleware against a tool call.
  *
  * Returns an additional content block to append to the tool response, or
@@ -176,11 +204,11 @@ function buildBlock(
  * - The env-var opt-in is not set (default state — spike does not activate)
  * - The tool is not allowlisted
  * - The memory service is unavailable
- * - The search fails or returns degraded results
+ * - The search fails, returns degraded results, or exceeds the configured timeout
  * - The result set is empty after token-budget filtering
  *
- * Errors are logged at debug level and never propagated — enrichment failure
- * must NEVER break the underlying tool call.
+ * Errors and timeouts are logged at debug level and never propagated —
+ * enrichment failure must NEVER break the underlying tool call.
  */
 export async function enrichToolResponse(
   toolName: string,
@@ -194,19 +222,35 @@ export async function enrichToolResponse(
 
   const k = options.k ?? DEFAULT_K;
   const charBudget = options.charBudget ?? DEFAULT_CHAR_BUDGET;
+  const timeoutMs = options.timeoutMs ?? readTimeoutMs();
   const query = buildQuery(toolName, args);
   if (!query) return null;
 
   try {
-    const response = await memoryService.search(query, { limit: k });
-    if (response.degraded) {
-      log.debug("[memory-enrichment] search degraded; skipping", {
+    // Bound the search call so an accidentally-enabled middleware can't hang
+    // the dispatcher indefinitely. Timeout fires return null (silently
+    // dropped, like any other failure path).
+    const searchPromise = memoryService.search(query, { limit: k });
+    const timeoutSignal = Symbol("memory-enrichment-timeout");
+    const timeoutPromise = new Promise<typeof timeoutSignal>((resolve) => {
+      setTimeout(() => resolve(timeoutSignal), timeoutMs);
+    });
+    const raced = await Promise.race([searchPromise, timeoutPromise]);
+    if (raced === timeoutSignal) {
+      log.debug("[memory-enrichment] search timed out; skipping", {
         tool: toolName,
-        backend: response.backend,
+        timeoutMs,
       });
       return null;
     }
-    return buildBlock(toolName, response.results, charBudget);
+    if (raced.degraded) {
+      log.debug("[memory-enrichment] search degraded; skipping", {
+        tool: toolName,
+        backend: raced.backend,
+      });
+      return null;
+    }
+    return buildBlock(toolName, raced.results, charBudget);
   } catch (error) {
     log.debug("[memory-enrichment] search failed; skipping", {
       tool: toolName,

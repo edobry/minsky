@@ -182,6 +182,15 @@ describe("memory-enrichment / buildQuery", () => {
     expect(q).toBe("test.tool ids");
     expect(q).not.toContain("[");
   });
+  test("includes key context for non-string scalars (key=value form)", () => {
+    const q = buildQuery("test.tool", { retries: 3, verbose: true, ratio: 0.5 });
+    expect(q).toContain("retries=3");
+    expect(q).toContain("verbose=true");
+    expect(q).toContain("ratio=0.5");
+    // Strings still appended bare (their meaning is in the value itself).
+    const q2 = buildQuery("tasks.get", { taskId: "mt#1588" });
+    expect(q2).toBe(TEST_TASK_GET_QUERY);
+  });
   test("returns just the tool name for empty args", () => {
     expect(buildQuery("session.list", {})).toBe("session.list");
   });
@@ -396,5 +405,42 @@ describe("memory-enrichment / enrichToolResponse", () => {
     expect(capturedQuery).toBe("tasks.get mt#1588 filter");
     expect(capturedQuery).not.toContain("DONE");
     expect(capturedQuery).not.toContain("x".repeat(100));
+  });
+
+  test("returns null when search exceeds the configured timeout", async () => {
+    // Search that never resolves — relies on the timeout path to return null.
+    const service: MemoryServiceSurface = {
+      async search() {
+        return new Promise(() => {
+          /* never resolves */
+        });
+      },
+      async get() {
+        return null;
+      },
+      async list() {
+        return [];
+      },
+      async create() {
+        throw new Error("not implemented");
+      },
+      async update() {
+        return null;
+      },
+      async delete() {},
+      async similar() {
+        return [];
+      },
+      async supersede() {
+        throw new Error("not implemented");
+      },
+      async lineage() {
+        return { chain: [], truncated: false };
+      },
+    };
+    const result = await enrichToolResponse("tasks.get", { taskId: "mt#1588" }, service, {
+      timeoutMs: 50,
+    });
+    expect(result).toBeNull();
   });
 });
