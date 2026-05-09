@@ -30,6 +30,10 @@ export interface PullRequestGitHubInfo {
   reviewers?: string[]; // GitHub usernames
   labels?: string[]; // Label names
   milestone?: string; // Milestone title
+  // Persisted by applyPostMergeStateSync (mt#1614) so the merge commit SHA is
+  // available on the session record after the at-merge handler fires. Captured
+  // from `pull_request.merge_commit_sha` on `pull_request.closed` events.
+  mergeCommitSha?: string;
 }
 
 /**
