@@ -1,0 +1,48 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import { Command } from "commander";
+import { createCockpitServer } from "../../cockpit/server";
+
+const DEFAULT_PORT = 3737;
+
+// Resolve the SPA entrypoint relative to *this* compiled file's location.
+// Mirrors `WEB_DIST_DIR` resolution in `src/cockpit/server.ts` (uses
+// fileURLToPath rather than the brittle bun-specific `import.meta.dir`).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const COCKPIT_INDEX_HTML = path.join(__dirname, "..", "..", "cockpit", "web", "dist", "index.html");
+
+/**
+ * Create the cockpit "start" subcommand.
+ */
+export function createStartCommand(): Command {
+  const startCommand = new Command("start");
+  startCommand.description("Start the Cockpit dashboard server");
+  startCommand
+    .option(
+      "--port <port>",
+      `Port to listen on (default: ${DEFAULT_PORT})`,
+      DEFAULT_PORT.toString()
+    )
+    .action((options) => {
+      const port = parseInt(options.port, 10);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
+        process.exit(1);
+      }
+
+      // Check that the frontend bundle has been built
+      if (!fs.existsSync(COCKPIT_INDEX_HTML)) {
+        console.error("Cockpit bundle not built. Run `bun run cockpit:build` first.");
+        process.exit(1);
+      }
+
+      const app = createCockpitServer();
+
+      app.listen(port, () => {
+        console.log(`Cockpit running at http://localhost:${port}`);
+      });
+    });
+
+  return startCommand;
+}

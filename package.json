@@ -17,6 +17,10 @@
   ],
   "module": "src/cli.ts",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
     "start": "bun run src/cli.ts",
     "lint": "eslint .",
@@ -28,7 +32,7 @@
     "format": "prettier --write \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:all": "bun run format && bun run lint:fix",
-    "test": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain",
+    "test": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain ./packages/shared/src",
     "test:unit": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain",
     "test:integration": "RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "test:integration:docker": "RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1 bun test --preload ./tests/setup.ts --timeout=180000 tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts",
@@ -50,7 +54,8 @@
     "db:generate:pg": "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
     "db:generate:reviewer": "cd services/reviewer && bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
     "db:migrate": "bun src/cli.ts persistence migrate --dry-run",
-    "db:migrate:apply": "bun src/cli.ts persistence migrate --execute"
+    "db:migrate:apply": "bun src/cli.ts persistence migrate --execute",
+    "cockpit:build": "vite build"
   },
   "bin": {
     "minsky": "./src/cli.ts"
@@ -62,10 +67,14 @@
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.15.17",
+    "@types/react": "^18.3.22",
+    "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^8.34.1",
     "@typescript-eslint/parser": "^8.34.1",
-    "@typescript/native-preview": "^7.0.0-dev.20260419.1",
+    "@typescript/native-preview": "7.0.0-dev.20260419.1",
     "@valibot/to-json-schema": "^1.3.0",
+    "@vitejs/plugin-react": "^4.5.2",
+    "autoprefixer": "^10.4.21",
     "bun-types": "latest",
     "effect": "^3.16.12",
     "eslint": "^9.29.0",
@@ -76,15 +85,19 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.0.0",
     "minimatch": "^10.2.5",
+    "postcss": "^8.5.3",
     "prettier": "^3.5.3",
+    "tailwindcss": "^3.4.17",
+    "testcontainers": "^10.13.2",
     "ts-morph": "^26.0.0",
-    "testcontainers": "^10.13.2"
+    "vite": "^5.4.19"
   },
   "peerDependencies": {
-    "typescript": "^5.0.0"
+    "typescript": "5.8.3"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.2",
+    "@minsky/shared": "workspace:*",
     "@ai-sdk/google": "^1.0.2",
     "@ai-sdk/openai": "^1.0.2",
     "@clack/prompts": "^0.11.0",
@@ -96,9 +109,11 @@
     "@types/winston": "^2.4.4",
     "ai": "^4.1.5",
     "chalk": "^5.4.1",
+    "clsx": "^2.1.1",
     "commander": "^14.0.0",
     "drizzle-kit": "^0.31.2",
     "drizzle-orm": "^0.44.2",
+    "express": "^4.21.2",
     "fs-extra": "^11.3.0",
     "glob": "^11.0.3",
     "gpt-tokenizer": "^3.0.1",
@@ -106,7 +121,10 @@
     "logform": "^2.7.0",
     "oidc-provider": "^9.8.3",
     "postgres": "^3.4.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "reflect-metadata": "^0.2.2",
+    "tailwind-merge": "^2.6.0",
     "tiktoken": "^1.0.22",
     "tsyringe": "^4.10.0",
     "winston": "^3.17.0",

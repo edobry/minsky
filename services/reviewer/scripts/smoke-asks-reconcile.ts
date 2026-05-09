@@ -36,7 +36,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
-import { safeTruncate } from "../src/utils/safe-truncate";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Environment gate
