@@ -9,8 +9,8 @@
  * No shell code changes are needed.
  */
 import type { WidgetModule } from "./types";
-import { attentionStubWidget } from "./widgets/attention-stub.ts";
-import { basicHealthWidget } from "./widgets/basic-health.ts";
+import { attentionStubWidget } from "./widgets/attention-stub";
+import { basicHealthWidget } from "./widgets/basic-health";
 
 export type WidgetRegistry = Record<string, WidgetModule>;
 
