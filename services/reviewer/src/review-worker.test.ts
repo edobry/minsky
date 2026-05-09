@@ -758,7 +758,11 @@ describe("ReviewResult.scope type (mt#1188)", () => {
         tier: 3,
         scope,
       };
-      expect(result.scope).toBe(scope);
+      // Cast through unknown so toBe's argument inference doesn't strip the
+      // optional `undefined` from result.scope (varies across @types/bun
+      // versions resolved by the root workspace install vs. the service's
+      // own node_modules).
+      expect(result.scope as unknown).toBe(scope);
     }
   });
 
