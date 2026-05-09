@@ -114,10 +114,13 @@ function captureConsoleLogs(): { logs: string[]; restore: () => void } {
 
   // process.stdout.write can be called with (string | Buffer, ...) — we only
   // care about the string form that winston produces.
+  // Node's overloaded WriteStream.write signatures use `Error | undefined` for
+  // the callback err parameter. We must match that exactly (not `Error | null`)
+  // or TS rejects the assignment with TS2322 — see PR #1017 CI fix from mt#1255.
   process.stdout.write = (
     chunk: string | Uint8Array,
-    encodingOrCb?: BufferEncoding | ((err?: Error | null) => void),
-    cb?: (err?: Error | null) => void
+    encodingOrCb?: BufferEncoding | ((err?: Error) => void),
+    cb?: (err?: Error) => void
   ): boolean => {
     const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
     // Winston emits one JSON object per line followed by "\n".

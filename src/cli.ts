@@ -97,6 +97,10 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     const { createCompileCommand } = await import("./commands/compile/index");
     cli.addCommand(createCompileCommand());
   }
+  if (needsAll || requestedCommand === "cockpit") {
+    const { createCockpitCommand } = await import("./commands/cockpit/index");
+    cli.addCommand(createCockpitCommand(container));
+  }
 
   // Set error handler
   cli.configureOutput({
