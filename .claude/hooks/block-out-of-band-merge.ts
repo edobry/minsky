@@ -50,8 +50,28 @@
 // @see require-review-before-merge.ts — sibling hook on session_pr_merge (PR-context fetch pattern)
 // @see block-subagent-bypass-merge.ts — sibling hook on Bash gh-api PUT merge (command parsing pattern)
 
-import { readInput, writeOutput, execWithPath } from "./types";
+import { readInput, writeOutput, execWithPath, readHostCap, deriveBudgets } from "./types";
 import type { ToolHookInput } from "./types";
+
+// ---------------------------------------------------------------------------
+// Budget derivation (mt#1546 pattern)
+// ---------------------------------------------------------------------------
+//
+// Single gh call per hook invocation (PR body fetch). The session_pr_merge
+// path collapses the PR-number lookup and body fetch into one `gh pr list`
+// call (returns both fields). The bash bypass path extracts the PR number
+// from the URL and makes one `gh pr view` call. Either way: one gh call.
+//
+// Per-call budget = 70% of overall budget (60% of host cap) ≈ 6.3s on the
+// 15s host cap, well within typical gh API latency.
+
+const GH_CALL_BUDGET_RATIO = 0.7;
+
+function deriveGhTimeoutMs(): number {
+  const { hostCapSec } = readHostCap("block-out-of-band-merge.ts");
+  const { overallBudgetMs } = deriveBudgets(hostCapSec);
+  return Math.floor(overallBudgetMs * GH_CALL_BUDGET_RATIO);
+}
 
 // ---------------------------------------------------------------------------
 // Trigger phrases — case-insensitive, derived from mt#1681 PR #1013 body
@@ -65,14 +85,24 @@ import type { ToolHookInput } from "./types";
 // over speculative ones. Each phrase should describe a concrete coordination
 // shape, not a generic concern. Over-broad phrases produce false positives
 // that erode operator trust in the gate.
+// PR #1020 R1 BLOCKING #2: speculative phrases ("infra mutation",
+// "applied separately", "configure separately", "infra change required")
+// were dropped to reduce false-positive risk on benign PRs. Each remaining
+// phrase is either an exact substring of the mt#1681 PR body OR a
+// tightly-scoped Railway/GraphQL identifier with near-zero benign use:
+//
+//   - out-of-band, post-merge config, Railway config change: literal
+//     phrases observed in mt#1681 PR #1013 body
+//   - serviceInstanceUpdate: Railway GraphQL mutation name
+//   - rootDirectory, dockerfilePath: Railway service-config field names
+//
+// If a future incident introduces a new coupled-step shape, add the
+// concrete phrase observed in that PR's body — don't add speculative
+// generic terms.
 const TRIGGER_PHRASES: ReadonlyArray<string> = [
   "out-of-band",
   "post-merge config",
   "Railway config change",
-  "applied separately",
-  "configure separately",
-  "infra change required",
-  "infra mutation",
   "serviceInstanceUpdate",
   "rootDirectory",
   "dockerfilePath",
@@ -129,13 +159,40 @@ export function extractPrNumberFromGhApiCommand(command: string): number | null 
   return Number.isFinite(n) ? n : null;
 }
 
+// ---------------------------------------------------------------------------
+// PR fetch — combined and body-only forms
+// ---------------------------------------------------------------------------
+//
+// Two call shapes share a result type:
+//   - resolvePrFromTask: session_pr_merge path. Looks up PR by branch via
+//     `gh pr list --head task/<id> --json number,body`. Returns BOTH the
+//     PR number and body in one call.
+//   - fetchPrBody: bash bypass path. PR number already extracted from the
+//     `gh api PUT /pulls/N/merge` URL; only the body needs fetching via
+//     `gh pr view N --json body`.
+//
+// PR #1020 R1 BLOCKING #1: collapsing to a single gh call per hook
+// invocation eliminates the two-sequential-call timeout overrun risk.
+
+export interface PrFetchSuccess {
+  ok: true;
+  prNumber: number;
+  body: string;
+}
+export interface PrFetchFailure {
+  ok: false;
+  error: string;
+}
+export type PrFetchResult = PrFetchSuccess | PrFetchFailure;
+
 /**
- * Resolve a PR number from a session_pr_merge tool input. Uses the `task` field
- * to look up the PR via `gh pr list --head task/<id>`.
- *
- * Returns null if no task is provided or no matching PR exists.
+ * Single gh call that returns BOTH the PR number and body for a session
+ * branch. Used by the session_pr_merge code path. Returns null when no PR
+ * exists for the branch (legitimately — branch hasn't pushed yet, PR was
+ * already merged, etc.); returns a structured failure for transport
+ * errors.
  */
-export function resolvePrNumberFromTask(task: string): number | null {
+export function resolvePrFromTask(task: string, timeoutMs: number): PrFetchResult | null {
   if (!task) return null;
   const branch = `task/${task.replace("#", "-")}`;
   const result = execWithPath(
@@ -148,39 +205,44 @@ export function resolvePrNumberFromTask(task: string): number | null {
       "--head",
       branch,
       "--json",
-      "number",
+      "number,body",
       "--jq",
-      ".[0].number",
+      ".[0]",
     ],
-    { timeout: 10_000 }
+    { timeout: timeoutMs }
   );
-  if (result.exitCode !== 0) return null;
+  if (result.timedOut) {
+    return { ok: false, error: `gh pr list timed out: ${result.stderr || "(no stderr)"}` };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      error: `gh pr list exited ${result.exitCode}: ${result.stderr || "(no stderr)"}`,
+    };
+  }
   const trimmed = result.stdout.trim();
-  if (!trimmed) return null;
-  const n = parseInt(trimmed, 10);
-  return Number.isFinite(n) ? n : null;
+  if (!trimmed || trimmed === "null") return null; // No matching PR — not an error, not a hit
+  let parsed: { number?: unknown; body?: unknown };
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `failed to parse gh pr list response: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  if (typeof parsed.number !== "number" || typeof parsed.body !== "string") {
+    return { ok: false, error: "gh pr list response missing number or body field" };
+  }
+  return { ok: true, prNumber: parsed.number, body: parsed.body };
 }
-
-// ---------------------------------------------------------------------------
-// PR-body fetch
-// ---------------------------------------------------------------------------
-
-export interface PrBodyFetchSuccess {
-  ok: true;
-  body: string;
-}
-export interface PrBodyFetchFailure {
-  ok: false;
-  error: string;
-}
-export type PrBodyFetchResult = PrBodyFetchSuccess | PrBodyFetchFailure;
 
 /**
- * Fetch a PR's body via `gh pr view`. Returns the body text or a structured
- * failure (network/auth/parse error). Failures are NOT denials — see fail-open
- * posture in the file header.
+ * Fetch a PR's body by number via `gh pr view`. Used by the bash bypass code
+ * path where the PR number is already extracted from the `gh api PUT /merge`
+ * URL.
  */
-export function fetchPrBody(prNumber: number): PrBodyFetchResult {
+export function fetchPrBody(prNumber: number, timeoutMs: number): PrFetchResult {
   const result = execWithPath(
     [
       "gh",
@@ -194,7 +256,7 @@ export function fetchPrBody(prNumber: number): PrBodyFetchResult {
       "--jq",
       ".body",
     ],
-    { timeout: 10_000 }
+    { timeout: timeoutMs }
   );
   if (result.timedOut) {
     return { ok: false, error: `gh pr view timed out: ${result.stderr || "(no stderr)"}` };
@@ -206,7 +268,7 @@ export function fetchPrBody(prNumber: number): PrBodyFetchResult {
     };
   }
   // gh emits the raw body string; --jq .body returns it without JSON quoting
-  return { ok: true, body: result.stdout };
+  return { ok: true, prNumber, body: result.stdout };
 }
 
 // ---------------------------------------------------------------------------
@@ -264,42 +326,45 @@ export function buildDenialReason(prNumber: number | null, matches: PhraseMatch[
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   const toolName = input.tool_name;
+  const ghTimeoutMs = deriveGhTimeoutMs();
 
-  // Resolve the PR number from the tool invocation context
-  let prNumber: number | null = null;
+  // Single gh call per invocation (PR #1020 R1 BLOCKING #1 fix). The two
+  // tool surfaces fetch differently:
+  //   - session_pr_merge: combined `gh pr list --json number,body` — one call
+  //   - bash bypass: extract PR number from URL (no gh call) + `gh pr view` — one call
+  let fetchResult: PrFetchResult | null = null;
 
   if (toolName === "mcp__minsky__session_pr_merge") {
     const task = (input.tool_input.task as string | undefined) ?? "";
-    prNumber = resolvePrNumberFromTask(task);
+    fetchResult = resolvePrFromTask(task, ghTimeoutMs);
+    // null = no PR exists for branch (legitimate; allow silently)
+    if (fetchResult === null) process.exit(0);
   } else if (toolName === "Bash" || toolName === "mcp__minsky__session_exec") {
     const command = (input.tool_input.command as string | undefined) ?? "";
-    prNumber = extractPrNumberFromGhApiCommand(command);
+    const prNumber = extractPrNumberFromGhApiCommand(command);
     // If no PR-merge endpoint in the command, this isn't a merge — allow silently.
     if (prNumber === null) process.exit(0);
+    fetchResult = fetchPrBody(prNumber, ghTimeoutMs);
   } else {
     // Hook ran on an unrelated tool — allow.
     process.exit(0);
   }
 
-  // No PR number resolved (e.g., session_pr_merge with no task, or bypass with
-  // an env-var URL that masks the PR number). Allow silently — fail-open.
-  if (prNumber === null) process.exit(0);
-
-  // Fetch the PR body
-  const fetchResult = fetchPrBody(prNumber);
   if (!fetchResult.ok) {
-    // Fail-open: emit a warning to stdout so the operator sees that the gate
-    // could not run, then allow the merge.
-
+    // Fail-open: emit a warning to stderr (the conventional channel for
+    // operator warnings; matches check-branch-fresh.ts) so the operator sees
+    // that the gate could not run, then allow the merge.
     console.error(
-      `[block-out-of-band-merge] WARNING: could not fetch PR #${prNumber} body — gate ` +
-        `did not run. Reason: ${fetchResult.error}`
+      `[block-out-of-band-merge] WARNING: could not fetch PR body — gate did not run. ` +
+        `Reason: ${fetchResult.error}`
     );
     process.exit(0);
   }
 
+  const { prNumber, body } = fetchResult;
+
   // Scan for triggers
-  const matches = scanForTriggerPhrases(fetchResult.body);
+  const matches = scanForTriggerPhrases(body);
   if (matches.length === 0) {
     // No coupled-step language in PR body — allow.
     process.exit(0);

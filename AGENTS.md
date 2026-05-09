@@ -1082,9 +1082,11 @@ that class at the merge surface.
 1. Resolves the PR number — for `session_pr_merge`, via `gh pr list --head task/<id>`; for
    the `gh api PUT` bypass path, by extracting `<N>` from the URL pattern `/pulls/<N>/merge`.
 2. Fetches the PR body via `gh pr view <N> --json body`.
-3. Scans the body for trigger phrases (case-insensitive): `out-of-band`, `post-merge config`,
-   `Railway config change`, `applied separately`, `configure separately`, `infra change required`,
-   `infra mutation`, `serviceInstanceUpdate`, `rootDirectory`, `dockerfilePath`.
+3. Scans the body for trigger phrases (case-insensitive, 6 total — narrow set chosen
+   over speculative phrases per PR #1020 R1): `out-of-band`, `post-merge config`,
+   `Railway config change`, `serviceInstanceUpdate`, `rootDirectory`, `dockerfilePath`.
+   Each is either a literal substring of the mt#1681 PR body or a Railway/GraphQL
+   identifier with near-zero benign use.
 4. On match, blocks with a structured message naming each matched phrase, a short surrounding
    excerpt for context, and the override mechanism.
 
