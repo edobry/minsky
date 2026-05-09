@@ -15,12 +15,21 @@ Stateless Node service. Railway is the documented default because webhooks are f
 
 ## First deploy
 
+> **Important (post-mt#1681):** Railway commands must run from the **repo root**, not from `services/reviewer/`. The Dockerfile assumes repo-root build context (it COPYs both `packages/shared/` and `services/reviewer/`); running `railway init`/`railway up` from the subdirectory will set the wrong context and fail or build a broken image. After `railway init`, immediately set the service config so subsequent builds match the Dockerfile expectation — see "Configure for repo-root build context" below.
+
 From the repo root:
 
 ```bash
-cd services/reviewer
+cd /path/to/minsky        # repo root, NOT services/reviewer
 railway login
 railway init --name minsky-reviewer
+
+# Configure for repo-root build context BEFORE the first build
+railway status --json     # note the service-id from the output
+cat <<'EOF' | railway environment edit --json
+{"services":{"<service-id>":{"source":{"rootDirectory":""},"build":{"dockerfilePath":"services/reviewer/Dockerfile"}}}}
+EOF
+
 railway up --detach -m "Initial deploy"
 ```
 
@@ -162,7 +171,9 @@ One-time grant:
 >     serviceId: "<service-id>"
 >     environmentId: "<env-id>"
 >     input: { rootDirectory: "", dockerfilePath: "services/reviewer/Dockerfile" }
->   )
+>   ) {
+>     id
+>   }
 > }
 > ```
 
