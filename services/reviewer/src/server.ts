@@ -10,6 +10,7 @@
 import { Webhooks } from "@octokit/webhooks";
 import type { ReviewerConfig } from "./config";
 import { loadConfig } from "./config";
+import { log } from "./logger";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
@@ -244,39 +245,35 @@ export function createApp(
       db !== undefined ? { db } : undefined
     )
       .then((result) => {
-        console.log(
-          JSON.stringify({
-            event: "review_result",
-            delivery_id: deliveryId,
-            sha: headSha,
-            pr: prNumber,
-            owner,
-            repo,
-            status: result.status,
-            reason: result.reason,
-            tier: result.tier,
-            scope: result.scope,
-            reviewUrl: result.review?.htmlUrl,
-            provider: result.providerUsed,
-            model: result.providerModel,
-            usage: result.usage,
-            taskSpecFetch: result.taskSpecFetch,
-          })
-        );
+        log.info("review_result", {
+          event: "review_result",
+          delivery_id: deliveryId,
+          sha: headSha,
+          pr: prNumber,
+          owner,
+          repo,
+          status: result.status,
+          reason: result.reason,
+          tier: result.tier,
+          scope: result.scope,
+          reviewUrl: result.review?.htmlUrl,
+          provider: result.providerUsed,
+          model: result.providerModel,
+          usage: result.usage,
+          taskSpecFetch: result.taskSpecFetch,
+        });
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "review_error",
-            delivery_id: deliveryId,
-            sha: headSha,
-            pr: prNumber,
-            owner,
-            repo,
-            error: message,
-          })
-        );
+        log.error("review_error", {
+          event: "review_error",
+          delivery_id: deliveryId,
+          sha: headSha,
+          pr: prNumber,
+          owner,
+          repo,
+          error: message,
+        });
       })
       .finally(() => {
         inflight.delete(promise);
@@ -294,15 +291,13 @@ export function createApp(
     const repo = payload.repository.name;
 
     if (payload.pull_request.draft) {
-      console.log(
-        JSON.stringify({
-          event: "skip_draft",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          owner,
-          repo,
-        })
-      );
+      log.info("skip_draft", {
+        event: "skip_draft",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        owner,
+        repo,
+      });
       return;
     }
 
@@ -592,15 +587,13 @@ export function createApp(
         // Log webhook_received BEFORE the missing-headers check so that requests
         // with absent headers (signature_present: false) still produce a log line.
         // This is the primary diagnostic signal for bad-actor or misconfigured senders.
-        console.log(
-          JSON.stringify({
-            event: "webhook_received",
-            delivery_id: deliveryId,
-            github_event: eventName ?? null,
-            action,
-            signature_present: Boolean(signature),
-          })
-        );
+        log.info("webhook_received", {
+          event: "webhook_received",
+          delivery_id: deliveryId,
+          github_event: eventName ?? null,
+          action,
+          signature_present: Boolean(signature),
+        });
 
         if (!signature || !eventName) {
           return new Response("missing signature or event headers", { status: 400 });
@@ -623,16 +616,14 @@ export function createApp(
           // Handler errors no longer propagate here since reviews are detached.
           const message = error instanceof Error ? error.message : String(error);
           const isSignatureError = /signature/i.test(message);
-          console.error(
-            JSON.stringify({
-              event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
-              delivery_id: deliveryId,
-              deliveryId, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to delivery_id
-              github_event: eventName,
-              eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
-              error: message,
-            })
-          );
+          log.error(isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error", {
+            event: isSignatureError ? "webhook_signature_invalid" : "webhook_dispatch_error",
+            delivery_id: deliveryId,
+            deliveryId, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to delivery_id
+            github_event: eventName,
+            eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
+            error: message,
+          });
           return new Response(isSignatureError ? "invalid signature" : "internal error", {
             status: isSignatureError ? 401 : 500,
           });
@@ -652,12 +643,10 @@ export function createApp(
    * 4. Logs drain complete and sets exitCode = 0.
    */
   async function gracefulShutdown(): Promise<void> {
-    console.log(
-      JSON.stringify({
-        event: "shutdown_drain_start",
-        inflightCount: inflight.size,
-      })
-    );
+    log.info("shutdown_drain_start", {
+      event: "shutdown_drain_start",
+      inflightCount: inflight.size,
+    });
 
     server.stop(true);
 
@@ -665,11 +654,9 @@ export function createApp(
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, 25_000));
     await Promise.race([drain, timeout]);
 
-    console.log(
-      JSON.stringify({
-        event: "shutdown_drain_complete",
-      })
-    );
+    log.info("shutdown_drain_complete", {
+      event: "shutdown_drain_complete",
+    });
 
     process.exitCode = 0;
   }
@@ -694,52 +681,44 @@ if (import.meta.main) {
   try {
     db = getDb();
     await applyMigrations(db);
-    console.log(JSON.stringify({ event: "migrations_applied" }));
+    log.info("migrations_applied", { event: "migrations_applied" });
   } catch (err: unknown) {
-    console.error(
-      JSON.stringify({
-        event: "migration_error",
-        error: err instanceof Error ? err.message : String(err),
-      })
-    );
+    log.error("migration_error", {
+      event: "migration_error",
+      error: err instanceof Error ? err.message : String(err),
+    });
     process.exit(1);
   }
 
   const { server, gracefulShutdown } = createApp(config, runReview, db);
 
-  console.log(
-    JSON.stringify({
-      event: "server_started",
-      port: server.port,
-      provider: config.provider,
-      model: config.providerModel,
-      tier2Enabled: config.tier2Enabled,
-      specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
-    })
-  );
+  log.info("server_started", {
+    event: "server_started",
+    port: server.port,
+    provider: config.provider,
+    model: config.providerModel,
+    tier2Enabled: config.tier2Enabled,
+    specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
+  });
 
   // Register graceful shutdown handlers for SIGTERM and SIGINT.
   // On signal: stop accepting new connections, drain in-flight reviews (max 25s), then exit.
   process.on("SIGTERM", () => {
     gracefulShutdown().catch((err: unknown) => {
-      console.error(
-        JSON.stringify({
-          event: "shutdown_error",
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
+      log.error("shutdown_error", {
+        event: "shutdown_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
       process.exitCode = 1;
     });
   });
 
   process.on("SIGINT", () => {
     gracefulShutdown().catch((err: unknown) => {
-      console.error(
-        JSON.stringify({
-          event: "shutdown_error",
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
+      log.error("shutdown_error", {
+        event: "shutdown_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
       process.exitCode = 1;
     });
   });
@@ -778,12 +757,10 @@ if (import.meta.main) {
   startMergeStateSweeper(config, loadMergeStateSweeperConfig());
 
   if (config.provider === "anthropic") {
-    console.warn(
-      JSON.stringify({
-        event: "degraded_config_warning",
-        message:
-          "REVIEWER_PROVIDER=anthropic: implementer and reviewer likely share the Claude model family. Chinese wall captures context-isolation benefit only, not architectural diversity. Consider openai or google for full Sprint A coverage. See services/reviewer/README.md.",
-      })
-    );
+    log.warn("degraded_config_warning", {
+      event: "degraded_config_warning",
+      message:
+        "REVIEWER_PROVIDER=anthropic: implementer and reviewer likely share the Claude model family. Chinese wall captures context-isolation benefit only, not architectural diversity. Consider openai or google for full Sprint A coverage. See services/reviewer/README.md.",
+    });
   }
 }
