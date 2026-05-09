@@ -230,6 +230,13 @@ export function _resetDefaultLoggerForTests(): void {
  */
 export const log: ReviewerLogger = new Proxy({} as ReviewerLogger, {
   get(_target, prop) {
-    return (getDefaultLogger() as Record<string | symbol, unknown>)[prop as string | symbol];
+    // ReviewerLogger doesn't structurally overlap Record<string|symbol, unknown>
+    // for TS's narrowing, so we route through `unknown` to satisfy the cast.
+    // The double-cast is intentional for proxy passthrough; the linter's
+    // 'no-excessive-as-unknown' heuristic doesn't apply here.
+    // eslint-disable-next-line custom/no-excessive-as-unknown
+    return (getDefaultLogger() as unknown as Record<string | symbol, unknown>)[
+      prop as string | symbol
+    ];
   },
 });
