@@ -11,7 +11,6 @@
         "@dotenvx/dotenvx": "^1.45.2",
         "@hpcc-js/wasm": "^2.26.1",
         "@minsky/shared": "workspace:*",
-        "@minsky/shared": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@octokit/rest": "^22.0.0",
         "@types/logform": "^1.10.1",
