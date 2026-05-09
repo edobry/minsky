@@ -19,6 +19,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-execution-evidence-before-merge.ts",
             "timeout": 60,
             "statusMessage": "Checking for execution evidence on new test files..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for coupled out-of-band steps in PR body..."
           }
         ]
       },
@@ -47,6 +53,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-git-gh-cli.ts",
             "timeout": 5,
             "statusMessage": "Checking for git/gh CLI..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-out-of-band-merge.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for coupled out-of-band steps in PR body..."
           }
         ]
       },
