@@ -17,6 +17,10 @@
   ],
   "module": "src/cli.ts",
   "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
   "scripts": {
     "start": "bun run src/cli.ts",
     "lint": "eslint .",
@@ -28,7 +32,7 @@
     "format": "prettier --write \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:all": "bun run format && bun run lint:fix",
-    "test": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain",
+    "test": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain ./packages/shared/src",
     "test:unit": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain",
     "test:integration": "RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "test:integration:docker": "RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1 bun test --preload ./tests/setup.ts --timeout=180000 tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts",
@@ -85,6 +89,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.2",
+    "@minsky/shared": "workspace:*",
     "@ai-sdk/google": "^1.0.2",
     "@ai-sdk/openai": "^1.0.2",
     "@clack/prompts": "^0.11.0",

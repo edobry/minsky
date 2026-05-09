@@ -50,7 +50,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
-import { safeTruncate } from "./utils/safe-truncate";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
