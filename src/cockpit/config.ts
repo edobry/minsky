@@ -17,12 +17,34 @@ const DEFAULT_CONFIG: CockpitConfig = {
   ],
 };
 
+/**
+ * Validate that a parsed JSON value is a well-formed CockpitConfig.
+ * Returns true only if the value is an object with `widgets` as an array of
+ * `{ id: string; enabled: boolean }` entries.
+ */
+function isValidConfig(value: unknown): value is CockpitConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const widgets = (value as { widgets?: unknown }).widgets;
+  if (!Array.isArray(widgets)) return false;
+  return widgets.every(
+    (w): w is { id: string; enabled: boolean } =>
+      typeof w === "object" &&
+      w !== null &&
+      typeof (w as { id?: unknown }).id === "string" &&
+      typeof (w as { enabled?: unknown }).enabled === "boolean"
+  );
+}
+
 export function loadCockpitConfig(): CockpitConfig {
   const configPath = path.join(os.homedir(), ".config", "minsky", "cockpit.json");
   try {
     const raw = String(fs.readFileSync(configPath));
-    const parsed = JSON.parse(raw) as CockpitConfig;
-    return parsed;
+    const parsed: unknown = JSON.parse(raw);
+    if (isValidConfig(parsed)) {
+      return parsed;
+    }
+    // Malformed config — fall back to default rather than crash on startup.
+    return DEFAULT_CONFIG;
   } catch {
     return DEFAULT_CONFIG;
   }

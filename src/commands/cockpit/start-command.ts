@@ -1,9 +1,16 @@
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
 import { Command } from "commander";
 import { createCockpitServer } from "../../cockpit/server";
 
 const DEFAULT_PORT = 3737;
+
+// Resolve the SPA entrypoint relative to *this* compiled file's location.
+// Mirrors `WEB_DIST_DIR` resolution in `src/cockpit/server.ts` (uses
+// fileURLToPath rather than the brittle bun-specific `import.meta.dir`).
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const COCKPIT_INDEX_HTML = path.join(__dirname, "..", "..", "cockpit", "web", "dist", "index.html");
 
 /**
  * Create the cockpit "start" subcommand.
@@ -25,8 +32,7 @@ export function createStartCommand(): Command {
       }
 
       // Check that the frontend bundle has been built
-      const distIndexHtml = path.join(import.meta.dir, "../../cockpit/web/dist/index.html");
-      if (!fs.existsSync(distIndexHtml)) {
+      if (!fs.existsSync(COCKPIT_INDEX_HTML)) {
         console.error("Cockpit bundle not built. Run `bun run cockpit:build` first.");
         process.exit(1);
       }

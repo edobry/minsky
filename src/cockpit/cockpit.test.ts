@@ -63,13 +63,18 @@ describe("Cockpit server", () => {
     return s.url;
   }
 
-  // 1. Server boots; GET /api/health → 200 + {status:"ok"}
-  test("GET /api/health returns 200 and status ok", async () => {
+  // 1. Server boots; GET /api/health → 200 + {status, version, uptimeSec}
+  test("GET /api/health returns 200 and status ok with uptimeSec", async () => {
     const url = await server({ overrideConfig: DEFAULT_CONFIG });
     const res = await fetch(`${url}/api/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe("ok");
+    // Field is named `uptimeSec` (not `uptime`) so naming is consistent with
+    // the basic-health widget payload — see PR #1017 reviewer finding R1.
+    expect(typeof body.uptimeSec).toBe("number");
+    expect(typeof body.version).toBe("string");
+    expect(body.uptime).toBeUndefined();
   });
 
   // 2. GET /api/widgets → array containing both placeholder widgets
@@ -148,6 +153,24 @@ describe("Cockpit server", () => {
     const ids = body.map((w) => w.id);
     expect(ids).not.toContain("attention-stub");
     expect(ids).toContain("basic-health");
+  });
+
+  // 8. Malformed config (no widgets array) — server doesn't crash on
+  // /api/widgets and yields an empty list. This exercises the defensive
+  // path in `loadCockpitConfig` for the case where a user's existing
+  // ~/.config/minsky/cockpit.json is empty or malformed (PR #1017 R1).
+  test("Malformed overrideConfig does not crash; /api/widgets returns empty list", async () => {
+    const url = await server({
+      // Intentionally malformed — `widgets` is not an array of valid entries.
+      // The server's effective enabledWidgets must fall back to empty rather
+      // than crash on iteration.
+      overrideConfig: { widgets: [] },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBe(0);
   });
 
   // 7. overrideConfig + overrideRegistry adding third placeholder → 3 entries

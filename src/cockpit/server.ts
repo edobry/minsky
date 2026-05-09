@@ -78,7 +78,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch {
       // fallback: unknown
     }
-    res.json({ status: "ok", version, uptime: uptimeSec });
+    res.json({ status: "ok", version, uptimeSec });
   });
 
   /** GET /api/widgets */
