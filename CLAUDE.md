@@ -214,6 +214,53 @@ implementer subagent invoked `gh api PUT /merge` at R0 (zero reviewer-bot review
 on the same endpoint (mt#1228). Both hooks run on every `Bash`/`session_exec` call;
 the subagent context denial (this hook) fires first in the matcher order.
 
+## Out-of-Band Merge Guard
+
+A PreToolUse hook on `mcp__minsky__session_pr_merge` and on `Bash`/`session_exec` (when the
+command invokes `gh api PUT /pulls/N/merge`) blocks a merge when the PR body documents a
+coupled out-of-band coordination step. Mt#1681 / PR #1013 was merged with a documented
+"out-of-band" Railway service-config flip that was never executed; the codebase + Railway
+entered a half-shipped state where the next push would crash the build. This hook catches
+that class at the merge surface.
+
+**Hook file:** `.claude/hooks/block-out-of-band-merge.ts`
+
+**How it works:**
+1. Resolves the PR number — for `session_pr_merge`, via `gh pr list --head task/<id>`; for
+   the `gh api PUT` bypass path, by extracting `<N>` from the URL pattern `/pulls/<N>/merge`.
+2. Fetches the PR body via `gh pr view <N> --json body`.
+3. Scans the body for trigger phrases (case-insensitive): `out-of-band`, `post-merge config`,
+   `Railway config change`, `applied separately`, `configure separately`, `infra change required`,
+   `infra mutation`, `serviceInstanceUpdate`, `rootDirectory`, `dockerfilePath`.
+4. On match, blocks with a structured message naming each matched phrase, a short surrounding
+   excerpt for context, and the override mechanism.
+
+**On block:** the hook denies with this shape:
+> "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
+> pre-authorized) BEFORE merging. Matched trigger phrases: [list with excerpts]. If the
+> out-of-band step has been completed (or is intentionally deferred with acknowledgment),
+> set `MINSKY_ACK_OOB_MERGE=1` in your environment and retry. The override is audit-logged."
+
+**Override mechanism:** Set `MINSKY_ACK_OOB_MERGE=1` in your environment before invoking
+the merge. The override emits an audit-log line to stdout naming the PR, matched phrases,
+and timestamp. Use only when the out-of-band step is genuinely complete (or intentionally
+deferred with operator acknowledgment).
+
+**Fail-open posture:** if `gh pr view` fails (network, auth, PR not found), the hook emits
+a warning to stderr and ALLOWS the merge. This matches `check-branch-fresh.ts` — the hook
+should never block a merge for reasons unrelated to its own concern.
+
+**Tracking task:** mt#1695. **Originating incident:** mt#1681 PR #1013 (2026-05-09) — Railway
+`rootDirectory` + `dockerfilePath` flip was documented as "out-of-band, post-merge" in the PR
+body but never executed; the auto-mode classifier denied the GraphQL mutation post-merge,
+leaving the deploy in a half-shipped state.
+
+**Relationship to mt#1626 (`/plan-task` gate criterion (h)):** mt#1626 is the planning-time
+complement — it catches contract-propagation gaps at task-planning time. This hook is the
+merge-time complement; both fire independently. mt#1626's gate has a coverage hole when a
+task doesn't go through `/plan-task` (mt#1681 was planned via main agent and bypassed it).
+This hook catches the class at the actual decision point regardless of the planning path.
+
 ## Skill/Agent/Rule Staleness Detector
 
 A `UserPromptSubmit` hook that, on each agent turn, compares mtimes of files under
