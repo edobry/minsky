@@ -96,11 +96,38 @@ curl https://<railway-domain>/health
 
 ## Production deploy (auto-deploy from main)
 
-> **Disclaimer:** behaviors documented below were observed during the 2026-04-22 deploy on Railway CLI 4.40.2. The CLI and GraphQL API surface can change between versions, and Railway does not publish a formal schema guarantee. Verify against `railway --version` and Railway's current docs before relying on specifics — especially CLI subcommand/flag names and mutation input fields.
+> **Disclaimer:** behaviors documented below were observed during the 2026-04-22 initial deploy and the 2026-05-09 mt#1681 build-context flip on Railway CLI 4.40.2. The CLI and GraphQL API surface can change between versions, and Railway does not publish a formal schema guarantee. Verify against `railway --version` and Railway's current docs before relying on specifics — especially CLI subcommand/flag names and mutation input fields.
 
-Steady state: pushes to `main` that land in the watched branch cause Railway to start a build. Whether a rebuild actually runs for a given push (path-filtered vs branch-wide) depends on Railway's internal change-detection logic for the deployment trigger, which is not publicly specified. Plan for the conservative case — rebuilds may fire on any main push, not only those touching `services/reviewer/`.
+### Build-context shape (post-mt#1681)
 
-This is configured as a Railway **deployment trigger** (GraphQL type `DeploymentTrigger`) linking the service to `edobry/minsky` branch `main`. The service-level `source.rootDirectory` tells Railway where in the repo to run the build from.
+The reviewer service's Dockerfile assumes the **repo root** as its build context, not `services/reviewer/`. This changed on 2026-05-09 (mt#1681) when `safeTruncate` was promoted from a vendored copy in `services/reviewer/src/utils/` to a workspace package at `packages/shared/`. The Dockerfile now needs to COPY both `packages/shared/` and `services/reviewer/` into the image, which only works with the repo root as the build context.
+
+Current Railway service config:
+
+| Field                  | Value                           | Notes                                                                     |
+| ---------------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| `source.rootDirectory` | `""` (empty string = repo root) | Was `services/reviewer` before mt#1681                                    |
+| `dockerfilePath`       | `services/reviewer/Dockerfile`  | Set explicitly — RAILPACK auto-detect can't find it without rootDirectory |
+| `builder`              | `RAILPACK`                      | Unchanged                                                                 |
+
+Current Dockerfile (`services/reviewer/Dockerfile`) layer order:
+
+1. `COPY package.json bun.lock ./` (repo-root manifest + lockfile)
+2. `COPY packages/shared/package.json ./packages/shared/package.json`
+3. `COPY services/reviewer/package.json ./services/reviewer/package.json`
+4. `RUN bun install --frozen-lockfile --production --ignore-scripts`
+5. `COPY packages/shared/{src,tsconfig.json}`
+6. `COPY services/reviewer/{src,migrations,tsconfig.json}`
+7. `CMD ["bun", "run", "services/reviewer/src/server.ts"]`
+
+Key flags:
+
+- `--ignore-scripts` skips the root `prepare: husky` hook. Husky is a dev-only git-hooks helper not installed under `--production`; without `--ignore-scripts` the install fails with `husky: command not found`.
+- Manifest-first layer order keeps the install layer cacheable across source-only changes.
+
+Steady state: pushes to `main` that land in the watched branch cause Railway to start a build. Whether a rebuild actually runs for a given push (path-filtered vs branch-wide) depends on Railway's internal change-detection logic for the deployment trigger, which is not publicly specified. Plan for the conservative case — rebuilds may fire on any main push, not only those touching `services/reviewer/` or `packages/shared/`.
+
+This is configured as a Railway **deployment trigger** (GraphQL type `DeploymentTrigger`) linking the service to `edobry/minsky` branch `main`. The service-level `source.rootDirectory` tells Railway where in the repo to run the build from; combined with `dockerfilePath` it locates the Dockerfile.
 
 ### Prerequisite: grant Railway access to the repo
 
@@ -115,17 +142,29 @@ One-time grant:
 
 ### Configure the deployment trigger
 
-> **Critical ordering gotcha** — set `source.rootDirectory` on the service config via a JSON config merge BEFORE running the `deploymentTriggerCreate` mutation. Creating the trigger fires an immediate build against whatever `rootDirectory` is currently on the service; missing config → build runs from the repo root → wrong image gets deployed → service crashes. This cost ~20 minutes of reviewer-service downtime on 2026-04-22 when the ordering was reversed.
+> **Critical ordering gotcha** — set `source.rootDirectory` AND `dockerfilePath` on the service config via a JSON config merge BEFORE running the `deploymentTriggerCreate` mutation. Creating the trigger fires an immediate build against whatever config is currently on the service; missing config → build fails or deploys the wrong image → service crashes. This cost ~20 minutes of reviewer-service downtime on 2026-04-22 when the ordering was reversed.
 >
-> Apply the rootDirectory merge first (note: this is a shallow document merge, not an RFC 6902 JSON Patch):
+> Apply the config merge first (note: this is a shallow document merge, not an RFC 6902 JSON Patch). The current shape (post-mt#1681) uses repo-root build context with an explicit Dockerfile path:
 >
 > ```bash
 > cat <<'EOF' | railway environment edit --json
-> {"services":{"<service-id>":{"source":{"rootDirectory":"services/reviewer","repo":"edobry/minsky","branch":"main"}}}}
+> {"services":{"<service-id>":{"source":{"rootDirectory":"","repo":"edobry/minsky","branch":"main"},"build":{"dockerfilePath":"services/reviewer/Dockerfile"}}}}
 > EOF
 > ```
 >
 > Verify it persisted with `railway environment config --json` before proceeding. The CLI's dot-path `--service-config source.rootDirectory ...` form was observed to silently no-op for this field on CLI 4.40.2; the JSON-merge form worked. If that silent no-op is reproducible on your install, consider filing upstream against Railway.
+>
+> Equivalent direct GraphQL form (used in mt#1681 to flip the existing service):
+>
+> ```graphql
+> mutation {
+>   serviceInstanceUpdate(
+>     serviceId: "<service-id>"
+>     environmentId: "<env-id>"
+>     input: { rootDirectory: "", dockerfilePath: "services/reviewer/Dockerfile" }
+>   )
+> }
+> ```
 
 > **Note:** the project/environment/service UUIDs below are for the live `edobry` Railway deployment. Replace them with your own from `railway status --json` for any other deployment.
 
@@ -167,7 +206,7 @@ The Railway CLI does not expose a first-class `trigger create` command at 4.40.x
 
 1. GitHub sends a webhook to Railway when `main` moves.
 2. Railway decides whether to run a build. Observed behavior on 2026-04-22: the service rebuilt even on main commits that didn't touch `services/reviewer/`, suggesting the deployment trigger is branch-wide rather than path-filtered. **Plan for this — do not assume path-filtered rebuilds.** If you need strict path filtering, configure `build.watchPatterns` separately on the service.
-3. When Railway does build, it uses the Dockerfile at `services/reviewer/Dockerfile` (resolved from the `rootDirectory` in the service's `source` config) and deploys the new image to `production`.
+3. When Railway does build, it uses the Dockerfile at `services/reviewer/Dockerfile` (resolved from the explicit `dockerfilePath` in the service's `build` config; `rootDirectory: ""` means the build context is the repo root) and deploys the new image to `production`.
 
 Railway's _Deployments_ tab in the web UI and the `railway logs` CLI show each auto-triggered build. The build metadata includes `RAILWAY_GIT_COMMIT_SHA` so you can correlate back to the merge commit.
 
