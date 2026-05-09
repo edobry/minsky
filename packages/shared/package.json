@@ -1,0 +1,11 @@
+{
+  "name": "@minsky/shared",
+  "version": "0.1.0",
+  "description": "Shared utilities used across Minsky packages and separately-deployed services.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./safe-truncate": "./src/safe-truncate.ts"
+  }
+}

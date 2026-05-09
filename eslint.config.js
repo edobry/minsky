@@ -42,6 +42,7 @@ export default [
       "node_modules/**",
       "build/**",
       "dist/**",
+      "**/dist/**",
       "vendor/**",
       "*.min.js",
       "*.bundle.js",

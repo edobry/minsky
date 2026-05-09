@@ -28,7 +28,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 *.tsbuildinfo
 
 # Policy-coverage detector calibration telemetry (mt#1541) — local runtime data.
-.minsky/policy-coverage-calibration.jsonl
+# Match at root and inside any package/service workspace.
+**/.minsky/policy-coverage-calibration.jsonl
 
 # IntelliJ based IDEs
 .idea

@@ -227,6 +227,14 @@ export class MinskyMCPServer {
   private exit = (code: number) => process.exit(code);
 
   /**
+   * Whether SIGTERM/SIGINT/SIGHUP listeners have been installed in this
+   * process. Static because the underlying process is a singleton — multiple
+   * MinskyMCPServer instances per process should not double-register
+   * listeners. mt#1682.
+   */
+  private static signalHandlersInstalled = false;
+
+  /**
    * Create a new MinskyMCPServer
    * @param options Configuration options for the server
    */
@@ -274,6 +282,16 @@ export class MinskyMCPServer {
     // MCP server name as configured (e.g. "Minsky MCP Server", "minsky",
     // "minsky-hosted"). Normalised to the short form for readability in logs.
     this.disconnectTracker = DisconnectTracker.getInstance(this.options.name);
+    // mt#1682: process_start lifecycle marker. Recorded in the constructor
+    // before any tool can be invoked so log readers can count actual server
+    // processes (including those that lived <1s and never recorded a
+    // disconnect) and correlate disconnects back to their source process.
+    this.disconnectTracker.recordProcessStart();
+    // mt#1682: install signal handlers that record cause before the natural
+    // process exit. Without these, signal-driven shutdowns surface as
+    // generic `stdin_close` (because the SDK's onclose fires during stdio
+    // teardown), conflating signal kills with harness-initiated closures.
+    this.installSignalHandlers();
 
     // mt#953 — agent identity research diagnostic capture (env-gated)
     this.diag = createDiagnosticCapture();
@@ -1035,7 +1053,84 @@ export class MinskyMCPServer {
         });
       });
 
+    // mt#1682: tag the upcoming exit as `staleness_exit` BEFORE process.exit
+    // fires. Without this, the SDK's onclose handler (chained via
+    // wireDisconnectHooks) records `stdin_close` during stdio teardown,
+    // conflating the by-design staleness exit with harness-initiated
+    // closures. Append-only persistence (mt#1682) guarantees the event hits
+    // disk before the 200ms timeout completes.
+    this.disconnectTracker.recordDisconnect("staleness_exit", staleMessage || undefined);
+
     setTimeout(() => this.exit(0), 200);
+  }
+
+  /**
+   * Install SIGTERM / SIGINT / SIGHUP listeners that record a cause-tagged
+   * disconnect event before the process exits. Without these, signal-driven
+   * shutdowns surface as generic `stdin_close` (because the SDK's onclose
+   * fires during stdio teardown) — losing the distinction between by-design
+   * shutdowns and harness-initiated closures.
+   *
+   * The handler is a no-op if a previous MinskyMCPServer instance in the same
+   * process already installed listeners. Multiple servers per process is
+   * unusual but possible (tests); the singleton DisconnectTracker means the
+   * recorded events are still correctly attributed.
+   *
+   * The handler explicitly does NOT call process.exit. After recording the
+   * cause, control returns to Node's default signal handling (or any
+   * additional listeners installed by other parts of the application), which
+   * is what eventually terminates the process. This avoids interfering with
+   * graceful-shutdown paths that other code may have wired up.
+   *
+   * @see mt#1682 — cause classification
+   */
+  private installSignalHandlers(): void {
+    if (MinskyMCPServer.signalHandlersInstalled) return;
+    MinskyMCPServer.signalHandlersInstalled = true;
+
+    // The project's narrowed `process` type omits EventEmitter methods.
+    // Cast to a Node-shaped surface for the signal-handling APIs we need —
+    // intentional escape from the narrow type to access on/removeListener/kill.
+    type ProcSignal = "SIGTERM" | "SIGINT" | "SIGHUP";
+    // eslint-disable-next-line custom/no-excessive-as-unknown
+    const proc = process as unknown as {
+      pid: number;
+      on(event: ProcSignal, listener: () => void): void;
+      removeListener(event: ProcSignal, listener: () => void): void;
+      kill(pid: number, signal: ProcSignal): void;
+    };
+
+    const tracker = this.disconnectTracker;
+    const listeners: Record<ProcSignal, () => void> = {
+      SIGTERM: () => handle("SIGTERM"),
+      SIGINT: () => handle("SIGINT"),
+      SIGHUP: () => handle("SIGHUP"),
+    };
+    const handle = (signal: ProcSignal) => {
+      const cause: import("./disconnect-tracker").McpDisconnectCause =
+        signal === "SIGTERM"
+          ? "signal_sigterm"
+          : signal === "SIGINT"
+            ? "signal_sigint"
+            : "signal_sighup";
+      try {
+        tracker.recordDisconnect(cause);
+      } catch (err) {
+        log.debug("signal handler: recordDisconnect failed (non-blocking)", {
+          error: getErrorMessage(err),
+        });
+      }
+      // Re-emit the signal with our handler removed so default behavior
+      // (typically termination) takes over. Without this, the process would
+      // hang because Node's default handler only runs when no listener is
+      // attached.
+      proc.removeListener(signal, listeners[signal]);
+      proc.kill(proc.pid, signal);
+    };
+
+    proc.on("SIGTERM", listeners.SIGTERM);
+    proc.on("SIGINT", listeners.SIGINT);
+    proc.on("SIGHUP", listeners.SIGHUP);
   }
 
   /**
@@ -1055,6 +1150,11 @@ export class MinskyMCPServer {
     const prevOnclose = server.onclose;
     server.onclose = () => {
       prevOnclose?.();
+      // mt#1682: if a server-initiated disconnect (staleness_exit, signal_*,
+      // server_close) was already recorded by triggerStaleSignal /
+      // installSignalHandlers / explicit close, suppress the duplicate
+      // `stdin_close` event that the SDK fires during stdio teardown.
+      if (this.disconnectTracker.isCleanShutdownInitiated()) return;
       this.disconnectTracker.recordDisconnect(defaultCause);
     };
 

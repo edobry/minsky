@@ -31,6 +31,7 @@
 
 import type { ReviewerConfig } from "./config";
 import { callAuthorshipGet } from "./mcp-client";
+import { log } from "./logger";
 
 export type AuthorshipTier = 1 | 2 | 3 | null;
 
@@ -82,13 +83,13 @@ export async function lookupTierFromMCP(
     }
 
     // Unknown numeric tier — treat as "no tier" and fall through.
-    console.warn(
+    log.warn(
       `[tier-routing] authorship record for PR ${prNumber} has unexpected tier=${raw}; skipping MCP result`
     );
     return undefined;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[tier-routing] MCP lookup failed for PR ${prNumber}: ${msg}`);
+    log.error(`[tier-routing] MCP lookup failed for PR ${prNumber}: ${msg}`);
     return undefined;
   }
 }

@@ -82,6 +82,14 @@ export interface OAuthProviderDeps {
    * If absent, the registry falls back to `PlaceholderOAuthProvider`.
    */
   db?: PostgresJsDatabase;
+  /**
+   * MCP endpoint path (the path component of the protected resource URL).
+   * Threaded into the provider so that protected-resource metadata advertises
+   * the actual configured endpoint instead of a hardcoded `/mcp`. Must match
+   * the `--endpoint` flag passed to the MCP server's HTTP transport.
+   * Defaults to `/mcp` when unset.
+   */
+  endpointPath?: string;
 }
 
 /**
@@ -117,10 +125,14 @@ export function resolveOAuthProvider(
           db: PostgresJsDatabase;
           issuer?: string;
           signingKey?: string;
+          endpointPath?: string;
         }) => OAuthIdentityProvider)({
           db: deps.db,
           issuer: config?.issuer,
           signingKey: config?.signingKey,
+          // mt#1667 R3 fix: thread endpointPath through so the protected-resource
+          // metadata advertises the configured endpoint, not a hardcoded `/mcp`.
+          endpointPath: deps.endpointPath,
         });
       }
       // No db provided — fall through to placeholder (test/stub context)

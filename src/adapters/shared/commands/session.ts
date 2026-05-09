@@ -45,6 +45,7 @@ import { createSessionRepairCommand } from "./session/repair-command";
 import { createSessionEditFileCommand } from "./session/file-commands";
 import { createSessionGeneratePromptCommand } from "./session/prompt-command";
 import { registerSessionChangesetCommands } from "./session/changeset-aliases";
+import { createApplyPostMergeStateSyncCommand } from "./session/apply-post-merge-state-sync-command";
 import { sharedCommandRegistry, type CommandDefinition } from "../command-registry";
 
 /**
@@ -113,6 +114,9 @@ export async function registerSessionCommands(
     createSessionConflictsCommand(getDeps),
     createSessionRepairCommand(getDeps),
     createSessionGeneratePromptCommand(getDeps),
+
+    // At-merge state sync (webhook + sweeper + repair-pass entry point)
+    createApplyPostMergeStateSyncCommand(getDeps),
 
     // File
     createSessionEditFileCommand(getDeps),
