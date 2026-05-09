@@ -149,6 +149,14 @@ export interface InProcessOAuthProviderConfig {
    * - absent -> ephemeral key generated (WARN logged)
    */
   signingKey?: string;
+  /**
+   * MCP endpoint path (the path component of the protected resource URL).
+   * Used by `protectedResourceMetadata()` to advertise the resource and by
+   * the audience-binding check in start-command.ts to enforce equality.
+   * Defaults to `/mcp` when unset. Must match the `--endpoint` flag passed
+   * to the MCP server's HTTP transport.
+   */
+  endpointPath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -299,12 +307,22 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
     // canonical issuer string set at construction time.
     const providerIssuer = provider.issuer as string;
 
+    // mt#1667 R3 fix: advertise the URLs that Express actually mounts, not
+    // oidc-provider's library defaults (`/auth`, `/token`, `/reg`, `/jwks`).
+    // The Express routes are wired in `src/commands/mcp/start-command.ts`:
+    //   /oauth/authorize  (mt#1665)
+    //   /oauth/token      (mt#1665)
+    //   /register         (mt#1664)
+    // claude.ai web follows RFC 8414 discovery to the advertised URLs, so
+    // these strings MUST match the mounted handlers or the OAuth flow breaks
+    // with 404s. JWKS is intentionally omitted from advertising — the in-
+    // process provider's keys are private to this server and we don't expose
+    // a JWKS endpoint; clients consume access tokens as opaque bearers.
     return {
       issuer: providerIssuer,
-      authorization_endpoint: `${providerIssuer}/auth`,
-      token_endpoint: `${providerIssuer}/token`,
-      jwks_uri: `${providerIssuer}/jwks`,
-      registration_endpoint: `${providerIssuer}/reg`,
+      authorization_endpoint: `${providerIssuer}/oauth/authorize`,
+      token_endpoint: `${providerIssuer}/oauth/token`,
+      registration_endpoint: `${providerIssuer}/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
       token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
@@ -315,9 +333,16 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
 
   async protectedResourceMetadata(req: Request): Promise<OAuthProtectedResourceMetadata> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
+    // mt#1667 R3 fix: parameterize resource path. The middleware in
+    // start-command.ts enforces audience equality against
+    // `composeRequestBaseUrl(req) + normalizeEndpointPath(options.endpoint)`.
+    // If an operator runs with a non-default --endpoint, hardcoding `/mcp`
+    // here would break the OAuth flow. The provider config now carries the
+    // configured endpoint path (defaulting to `/mcp` when not supplied).
+    const endpointPath = this.config.endpointPath ?? "/mcp";
 
     return {
-      resource: `${issuer}/mcp`,
+      resource: `${issuer}${endpointPath}`,
       authorization_servers: [issuer],
       scopes_supported: ["mcp"],
       bearer_methods_supported: ["header"],

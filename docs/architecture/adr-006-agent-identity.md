@@ -123,7 +123,11 @@ Hostnames hashed by default (SHA-256, first 16 hex chars). Opt-out via configura
 
 ### Verification
 
-None today. Threat model: single-user Minsky, trust anchored at the user's machine. The format is designed so that when multi-user deployment becomes a real need, a Layer 0 verification (JWT-signed `clientAuth` as SEP-1289 proposes, or OAuth 2.1 Bearer as the MCP Authorization draft mandates) slots in above Layer 3 without changing the `agentId` format itself. The authenticated principal lives at the auth layer; agentIds continue to do intra-principal correlation.
+**Layer 0 (transport-auth) shipped via mt#1634 (May 2026)** for the hosted Minsky MCP HTTP transport. The deployed implementation is OAuth 2.1 Bearer per the MCP Authorization draft: `oidc-provider`-backed authorization-server endpoints (`/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`, `/register`, `/oauth/authorize`, `/oauth/token`) plus a token-validation middleware on `/mcp` that validates issued bearer tokens against the persisted token store and enforces RFC 8707 audience binding. Successfully-validated tokens map to the principal class `oauth:claude-ai:user-<sub>@conv-<convId>` (the `@conv-<convId>` segment is omitted in v1; claude.ai-side conversation propagation is not yet wired). The principal is injected into the MCP request context so downstream consumers (mesh, audit, knowledge) see it as agentId.
+
+The local stdio transport for Claude Code remains untouched — it doesn't go through the OAuth gate and continues to rely on Layers 1–3. Layer 0 specifically targets the hosted multi-user case (claude.ai web wiring) where the per-user identity is the load-bearing question and trust cannot be anchored at the caller's machine.
+
+The format is designed so each layer slots in independently. The authenticated principal at Layer 0 lives in the auth layer; agentIds continue to do intra-principal correlation per the original three-layer scheme.
 
 ### Non-MCP callers
 
@@ -155,7 +159,7 @@ GitHub Copilot's coding agent, Linear's agent, and any future GitHub-App-based a
 
 ## Alternatives considered
 
-**Transport auth (OAuth 2.1 / SEP-1289 / MCP Authorization draft).** Heavy for local single-user tooling. Identifies the application, not the conversation. MCP Authorization is drafting; SEP-1289 is dormant. Rejected as premature but accommodated as a future Layer 0.
+**Transport auth (OAuth 2.1 / SEP-1289 / MCP Authorization draft).** Heavy for local single-user tooling. Identifies the application, not the conversation. MCP Authorization is drafting; SEP-1289 is dormant. Initially deferred (April 2026); shipped via mt#1634 (May 2026) for the hosted Minsky MCP HTTP transport. claude.ai web's MCP integration drove the re-open — claude.ai requires the OAuth flow as a precondition for adding remote MCP servers, and the hosted Minsky MCP needs per-user identity that the static-bearer-token path cannot provide. The local stdio transport remains on the static-bearer path; Layer 0 is HTTP-transport-specific.
 
 **Decentralized identity (DIDs + Verifiable Credentials).** No production deployments; infrastructure (ledger, issuers, wallets) disproportionate to the coordination problem we have today. Rejected; remains a long-term target if the ecosystem moves.
 
@@ -174,7 +178,7 @@ Tracked in mt#1078 (Layer 1 + Layer 2 readers, format parser, MCP server integra
 - Phase 1 (mt#1078) — Layer 1 (ascribed) and Layer 2 (declared `_meta` reader). `agentId` resolver, kind normalization table, hash construction, `_meta["io.minsky/agent_id"]` convention documented for callers.
 - Phase 2 — Layer 3 Claude Code PreToolUse hook (separate follow-up task once hook-compilation approach is settled).
 - Phase 3 (gated on upstream) — switch Layer 3 to read `agent_context` when/if [anthropics/claude-code#32514](https://github.com/anthropics/claude-code/issues/32514) lands.
-- Phase 4 (gated on deployment pressure) — Layer 0 JWT verification for multi-user scenarios.
+- Phase 4 (mt#1634 — shipped May 2026) — Layer 0 OAuth 2.1 Bearer verification for the hosted Minsky MCP HTTP transport. `OAuthIdentityProvider` capability-based abstraction (mt#1662) backed by `InProcessOAuthProvider` (mt#1663, wraps `oidc-provider` + Postgres adapter), with discovery + DCR endpoints (mt#1664), PKCE + RFC 8707 authorize/token flow (mt#1665), and `/mcp` token-validation middleware + agentId propagation (mt#1666). Coexists with the existing static-bearer-token path for local stdio.
 - Phase 5 (gated on per-harness readiness) — equivalent Layer 3 hooks for Codex, Cursor, Windsurf, Zed as their hook APIs mature.
 
 Each phase is separately shippable; earlier phases produce value without waiting for later ones.
