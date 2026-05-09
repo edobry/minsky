@@ -414,10 +414,13 @@ ladder. Each valve below has a tracking memory:
   When the bypass IS warranted (after R≥1 substantive fixes have landed AND
   no valid review can be obtained), the form is:
   `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`
-  with an audit-trail commit message. After bypass-merge, run
-  `/verify-task mt#X` — that path requires the closeout skill since
-  `session_pr_merge` did not fire. See `feedback_bot_pr_convergence_via_bypass`
-  for the broader framing.
+  with an audit-trail commit message. **After bypass-merge, state auto-syncs
+  automatically** via the `pull_request.closed && merged=true` webhook handler
+  (mt#1614): task DONE, session MERGED, workspace cleanup, and PR record
+  update all fire within ≤5 min (webhook primary, sweeper backstop at 10 min).
+  The agent does NOT need to run `/verify-task` after bypass-merge —
+  `/verify-task` is now the fallback only when both the webhook and sweeper
+  miss. See `feedback_bot_pr_convergence_via_bypass` for the broader framing.
 
 - **Round-N self-reversal** of a prior accepted fix → bikeshedding;
   iteration has converged. Bypass with audit note explaining the chosen side.
@@ -454,8 +457,11 @@ a posted review with spec-verification section), and produces a clean audit
 trail. The bypass exists for the structural-block cases above, not as the
 default.
 
-**Do NOT** stop the session before convergence is reached. Do NOT pre-emptively
-call `/verify-task` — it only fires on the bypass-merge fallback path.
+**Do NOT** stop the session before convergence is reached. Do NOT call
+`/verify-task` after bypass-merge — since mt#1614, the at-merge handler
+auto-syncs state (task DONE, session MERGED, workspace cleanup) on any merge
+path within ≤5 min. `/verify-task` is now only the manual fallback for when
+both the webhook and sweeper miss, not a normal post-merge step.
 
 ## Constraints
 
