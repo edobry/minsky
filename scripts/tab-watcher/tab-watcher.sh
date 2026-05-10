@@ -80,7 +80,7 @@ build_snapshot() {
 
   if [ -n "$pids_csv" ]; then
     # One multi-PID lsof call gets cwd + txt for every candidate.
-    lsof_out=$(lsof -nP -p "$pids_csv" -a -d cwd,txt -Ffpn 2>/dev/null || true)
+    lsof_out=$(/usr/sbin/lsof -nP -p "$pids_csv" -a -d cwd,txt -Ffpn 2>/dev/null || true)
     # One multi-PID ps call gets argv + tty + started for every candidate.
     ps_out=$(ps -o pid=,tty=,lstart=,command= -p "${pids_list% }" 2>/dev/null || true)
   else
@@ -90,7 +90,7 @@ build_snapshot() {
 
   TS="$timestamp" ITERM="$iterm_dump" LSOF="$lsof_out" PS="$ps_out" \
   PIDS_LIST="$pids_list" CLAUDE_BIN_PATTERN="$CLAUDE_BIN_PATTERN" HOME_DIR="$HOME" \
-  python3 <<'PY'
+  /usr/bin/python3 <<'PY'
 import json, os, re, time
 from datetime import datetime
 from pathlib import Path
