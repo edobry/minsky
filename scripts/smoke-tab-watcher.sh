@@ -4,12 +4,16 @@
 # snapshot is produced. Exits 0 on success, non-zero on failure.
 set -euo pipefail
 
-if ! command -v lsof >/dev/null 2>&1; then
-  echo "SKIP: lsof not available"
+# Watcher invokes /usr/sbin/lsof and /usr/bin/python3 explicitly (so the
+# launchd-spawned process gets stable paths regardless of user PATH). The
+# smoke precheck must match — checking $PATH would mask runtime failures
+# on hosts where those binaries live elsewhere.
+if [ ! -x /usr/sbin/lsof ]; then
+  echo "SKIP: /usr/sbin/lsof not available"
   exit 0
 fi
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "SKIP: python3 not available"
+if [ ! -x /usr/bin/python3 ]; then
+  echo "SKIP: /usr/bin/python3 not available"
   exit 0
 fi
 
