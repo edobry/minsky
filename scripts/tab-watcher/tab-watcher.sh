@@ -82,7 +82,9 @@ build_snapshot() {
     # One multi-PID lsof call gets cwd + txt for every candidate.
     lsof_out=$(/usr/sbin/lsof -nP -p "$pids_csv" -a -d cwd,txt -Ffpn 2>/dev/null || true)
     # One multi-PID ps call gets argv + tty + started for every candidate.
-    ps_out=$(ps -o pid=,tty=,lstart=,command= -p "${pids_list% }" 2>/dev/null || true)
+    # macOS ps accepts both space- and comma-separated PIDs; using the comma
+    # form here mirrors lsof above and matches the BSD ps(1) documented form.
+    ps_out=$(ps -o pid=,tty=,lstart=,command= -p "$pids_csv" 2>/dev/null || true)
   else
     lsof_out=""
     ps_out=""
@@ -131,9 +133,12 @@ for line in os.environ["LSOF"].splitlines():
     elif tag == "n" and cur_pid is not None:
         if cur_fd == "cwd" and not lsof_info[cur_pid]["cwd"]:
             lsof_info[cur_pid]["cwd"] = val
-        elif cur_fd == "txt" and not lsof_info[cur_pid]["is_cli"]:
-            if claude_bin_pat.search(val):
-                lsof_info[cur_pid]["is_cli"] = True
+        # Match the binary path regardless of cur_fd value. We already filtered
+        # via `-d cwd,txt`, so any path that matches the versioned-binary
+        # pattern is the executable for this PID — robust against lsof
+        # versions that emit numeric FDs instead of the literal "txt" string.
+        if not lsof_info[cur_pid]["is_cli"] and claude_bin_pat.search(val):
+            lsof_info[cur_pid]["is_cli"] = True
 
 # Parse ps output. Format: "pid tty lstart command...". lstart is 5
 # whitespace-separated tokens ("Sun May 10 19:30:00 2026"); everything
@@ -209,9 +214,26 @@ main() {
   hist="$STATE_DIR/snapshot-$(date -u +"%Y%m%dT%H%M%SZ").json"
   cp "$SNAPSHOT" "$hist"
 
-  ls -1t "$STATE_DIR"/snapshot-*.json 2>/dev/null \
+  prune_history
+}
+
+# Prune historical snapshots beyond HISTORY_KEEP. Uses a shell glob into an
+# array rather than a pipeline so a zero-match case can't trip `set -o
+# pipefail`; ordering is by mtime via `stat -f`.
+prune_history() {
+  local files=("$STATE_DIR"/snapshot-*.json)
+  # If the glob didn't match anything, bash leaves the literal pattern as the
+  # single array element — detect and skip.
+  if [ "${#files[@]}" -le "$HISTORY_KEEP" ] || [ ! -e "${files[0]}" ]; then
+    return 0
+  fi
+  # Sort by mtime desc, keep newest $HISTORY_KEEP, remove the rest.
+  while IFS= read -r f; do
+    rm -f -- "$f"
+  done < <(stat -f '%m %N' "${files[@]}" 2>/dev/null \
+    | sort -rn \
     | tail -n +$((HISTORY_KEEP + 1)) \
-    | xargs -I {} rm -f {} 2>/dev/null || true
+    | awk '{ $1=""; sub(/^ /, ""); print }')
 }
 
 main

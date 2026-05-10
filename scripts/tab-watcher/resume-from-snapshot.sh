@@ -89,5 +89,18 @@ for row in "${ROWS[@]}"; do
   shell_cmd="cd $cwd_q && claude --resume $sid_q"
   shell_cmd_q=$(applescript_quote "$shell_cmd")
 
-  /usr/bin/osascript -e "tell application \"iTerm\" to (create window with default profile command $shell_cmd_q)" >/dev/null
+  # Open as a TAB in the current iTerm window (per spec). If no window exists
+  # yet, create one for the first session and continue with tabs after.
+  /usr/bin/osascript >/dev/null <<AS
+tell application "iTerm"
+  activate
+  if (count of windows) is 0 then
+    create window with default profile command $shell_cmd_q
+  else
+    tell current window
+      create tab with default profile command $shell_cmd_q
+    end tell
+  end if
+end tell
+AS
 done
