@@ -37,7 +37,7 @@ fi
 
 # Stale-snapshot warning: a >5 min old snapshot means the daemon wasn't
 # running close to crash time, so the inventory may be incomplete.
-age_sec=$(python3 - "$SNAPSHOT" <<'PY' 2>/dev/null || echo 0
+age_sec=$(/usr/bin/python3 - "$SNAPSHOT" <<'PY' 2>/dev/null || echo 0
 import json, sys, time
 from datetime import datetime
 ts = json.load(open(sys.argv[1])).get("timestamp", "")
@@ -53,7 +53,7 @@ if [ "$age_sec" -gt 300 ]; then
 fi
 
 # Project sessions to TSV: session_id\tcwd\tjsonl. Empty fields are dropped.
-mapfile -t ROWS < <(python3 - "$SNAPSHOT" <<'PY'
+mapfile -t ROWS < <(/usr/bin/python3 - "$SNAPSHOT" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1]))
 for s in d.get("sessions", []):
