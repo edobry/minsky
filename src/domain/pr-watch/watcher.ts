@@ -19,6 +19,7 @@ import { log } from "../../utils/logger";
 import type { PrWatchRepository } from "./repository";
 import type { PrWatch } from "./types";
 import type { OperatorNotify } from "../notify/operator-notify";
+import type { WakeSignalSink } from "../ask/wake-on-respond";
 
 // ---------------------------------------------------------------------------
 // GithubPrClient — narrow interface used by this reconciler
@@ -110,19 +111,27 @@ export interface WatcherResult {
  * 1. List all active PrWatches via `prWatchRepository.listActive()`.
  * 2. For each watch, delegate to the event-specific handler.
  * 3. On match: fire `operatorNotify.bell()` + `.notify(...)`, then either
- *    `delete()` (one-shot) or `markTriggered()` (keep).
+ *    `delete()` (one-shot) or `markTriggered()` (keep). Also emits a wake
+ *    signal via `wakeSink` when the watch has a `parentSessionId` so the
+ *    registering agent receives the firing in its conversation context.
  * 4. Collect outcomes; wrap each watch in try/catch so one failure doesn't
  *    abort the rest.
  *
  * @param prWatchRepository  PrWatch persistence interface.
  * @param githubClient       GitHub data fetching interface.
  * @param operatorNotify     Operator notification delivery.
+ * @param wakeSink           Optional WakeSignalSink for agent-context delivery
+ *                           (mt#1725). When provided and the watch has a
+ *                           `parentSessionId`, emits a `"pr.watch"` wake so
+ *                           `enrichWakeResponse` can deliver it to the
+ *                           registering agent on its next allowlisted MCP call.
  * @returns                  Aggregate watcher result.
  */
 export async function runWatcher(
   prWatchRepository: PrWatchRepository,
   githubClient: GithubPrClient,
-  operatorNotify: OperatorNotify
+  operatorNotify: OperatorNotify,
+  wakeSink?: WakeSignalSink
 ): Promise<WatcherResult> {
   const watches = await prWatchRepository.listActive();
   log.debug("pr-watch: inspecting watches", { count: watches.length });
@@ -131,7 +140,13 @@ export async function runWatcher(
 
   for (const watch of watches) {
     try {
-      const outcome = await processWatch(watch, prWatchRepository, githubClient, operatorNotify);
+      const outcome = await processWatch(
+        watch,
+        prWatchRepository,
+        githubClient,
+        operatorNotify,
+        wakeSink
+      );
       outcomes.push(outcome);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -166,7 +181,8 @@ async function processWatch(
   watch: PrWatch,
   prWatchRepository: PrWatchRepository,
   githubClient: GithubPrClient,
-  operatorNotify: OperatorNotify
+  operatorNotify: OperatorNotify,
+  wakeSink?: WakeSignalSink
 ): Promise<PrWatchOutcome> {
   const { prOwner, prRepo, prNumber } = watch;
 
@@ -261,6 +277,46 @@ async function processWatch(
       watchId: watch.id,
       error: errMsg,
     });
+  }
+
+  // Wake-signal delivery (mt#1725): when a parentSessionId is recorded on the
+  // watch and a WakeSignalSink is wired, emit a "pr.watch" wake so the
+  // registering agent receives the firing via enrichWakeResponse on its next
+  // allowlisted MCP tool call. Failure is logged but NEVER rolls back state.
+  if (wakeSink && watch.parentSessionId) {
+    try {
+      await wakeSink.emit({
+        kind: "pr.watch",
+        askId: watch.id,
+        parentSessionId: watch.parentSessionId,
+        reviewBody: notifyBody,
+        reviewState: watch.event,
+        reviewAuthor: watch.watcherId,
+        prNumber: watch.prNumber,
+      });
+      log.debug("pr-watch: wake signal emitted", {
+        watchId: watch.id,
+        parentSessionId: watch.parentSessionId,
+      });
+    } catch (wakeErr: unknown) {
+      const errMsg = wakeErr instanceof Error ? wakeErr.message : String(wakeErr);
+      log.warn("pr-watch: wake signal emission failed (state already mutated)", {
+        watchId: watch.id,
+        parentSessionId: watch.parentSessionId,
+        error: errMsg,
+      });
+    }
+  } else if (wakeSink && !watch.parentSessionId) {
+    // No parentSessionId — this watch was registered without a session context
+    // (legacy row or context-less registration). Telemetered here; the delivery
+    // surface uses the same tag so operators can grep across both paths.
+    log.cli(
+      `pr_watch.no_session_id ${JSON.stringify({
+        event: "pr_watch.no_session_id",
+        watchId: watch.id,
+        reason: "parentSessionId absent on fired watch",
+      })}`
+    );
   }
 
   return { kind: "fired", watchId: watch.id, notified };

@@ -76,6 +76,19 @@ export const prWatchesTable = pgTable(
     /** Operator identity in `{kind}:{scope}:{id}` format. */
     watcherId: text("watcher_id").notNull(),
 
+    /**
+     * Minsky session UUID of the agent that registered this watch.
+     *
+     * Captured at `pr_watch_create` time from the MCP call context. When non-null,
+     * the watcher routes the wake signal to this session via `PersistentWakeSignalSink`
+     * so the registering agent learns of the firing via `enrichWakeResponse`.
+     *
+     * Null for legacy rows (registered before mt#1725) and for calls that could not
+     * resolve a session from context — these are skipped at delivery time and
+     * telemetered as `wake.enrichment.no_session_id`.
+     */
+    parentSessionId: text("parent_session_id"),
+
     // -------------------------------------------------------------------------
     // Cursor / state
     // -------------------------------------------------------------------------
@@ -118,6 +131,9 @@ export const prWatchesTable = pgTable(
 
     // Index for querying watches by trigger time (e.g., sweeper cleanup)
     byTriggeredAt: index("idx_pr_watches_triggered_at").on(table.triggeredAt),
+
+    // Index for routing wake signals to the registering agent's session (mt#1725)
+    byParentSession: index("idx_pr_watches_parent_session").on(table.parentSessionId),
 
     // Enum guard: reject unknown event values at DB level
     eventCheck: check("chk_pr_watches_event", eventCheckSql),
