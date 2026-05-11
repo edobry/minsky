@@ -388,6 +388,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -442,6 +443,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -491,6 +493,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -539,6 +542,7 @@ describe("OAuth route handlers — with provider (mt#1664 unit)", () => {
       },
       async authorize(_req, _res) {},
       async token(_req, _res) {},
+      async forwardInteraction(_req, _res) {},
       async validateToken(_bearer) {
         return { valid: false, reason: "not_found" as const };
       },
@@ -855,6 +859,7 @@ function buildMockProvider(validateResult: OAuthValidationResult): OAuthIdentity
     },
     async authorize(_req, _res) {},
     async token(_req, _res) {},
+    async forwardInteraction(_req, _res) {},
     async validateToken(_bearer) {
       return validateResult;
     },

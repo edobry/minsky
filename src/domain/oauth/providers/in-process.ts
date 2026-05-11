@@ -425,13 +425,37 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
     // Forward to the oidc-provider Koa app via the Node.js http callback.
     // The Provider extends Koa, which exposes a callback() method returning a
     // standard Node.js (req, res) => void handler compatible with Express.
-    await forwardToKoaProvider(provider, req, res);
+    // Internal path "/auth" is the oidc-provider default for the authorization endpoint
+    // (see node_modules/oidc-provider/lib/helpers/defaults.js routes.authorization).
+    await forwardToKoaProvider(provider, req, res, "/auth");
   }
 
   async token(req: Request, res: Response): Promise<void> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
     const provider = this.getProvider(issuer);
-    await forwardToKoaProvider(provider, req, res);
+    // Internal path "/token" is the oidc-provider default for the token endpoint
+    // (see node_modules/oidc-provider/lib/helpers/defaults.js routes.token).
+    await forwardToKoaProvider(provider, req, res, "/token");
+  }
+
+  /**
+   * Forwards interaction-UI requests to the oidc-provider Koa app.
+   * Used by `app.all(/^\/interaction\//, ...)` in start-command.ts.
+   *
+   * When devInteractions is enabled (the default), oidc-provider registers
+   * GET /interaction/:uid, POST /interaction/:uid, and GET /interaction/:uid/abort
+   * internally. Express has no matching routes, so those redirects 404 without
+   * this forwarding method.
+   *
+   * The Express path already matches oidc-provider's internal path exactly
+   * (both use /interaction/:uid), so we pass req.path directly as internalPath.
+   */
+  async forwardInteraction(req: Request, res: Response): Promise<void> {
+    const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
+    const provider = this.getProvider(issuer);
+    // req.path is the path without query string, e.g. "/interaction/abc123"
+    // oidc-provider's internal router knows "/interaction/:uid" natively.
+    await forwardToKoaProvider(provider, req, res, req.path);
   }
 
   async validateToken(bearer: string): Promise<OAuthValidationResult> {
@@ -512,20 +536,75 @@ function generateRandomSecret(): string {
 }
 
 /**
- * Forwards an Express req/res pair to a Koa-based oidc-provider instance.
- * The Provider class extends Koa, which exposes `callback()` returning a
- * standard Node.js `(req, res) => void` handler compatible with Express.
+ * Forwards an Express req/res pair to a Koa-based oidc-provider instance,
+ * rewriting `req.url` to oidc-provider's internal path before delegation.
+ *
+ * oidc-provider's Koa router uses its own internal paths (e.g. `/auth`, `/token`,
+ * `/interaction/:uid`) regardless of how Express mounted the endpoint. Express
+ * routes are at `/oauth/authorize` and `/oauth/token`, but the Koa router only
+ * knows `/auth` and `/token`. Without the rewrite, Koa returns 404 for every
+ * Express-originated request.
+ *
+ * The query string is preserved; only the path component is replaced.
+ *
+ * @param provider      - The oidc-provider Provider instance (extends Koa).
+ * @param req           - Express request.
+ * @param res           - Express response.
+ * @param internalPath  - The oidc-provider-internal path, e.g. "/auth" or "/token".
  */
-function forwardToKoaProvider(provider: OidcProvider, req: Request, res: Response): Promise<void> {
+function forwardToKoaProvider(
+  provider: OidcProvider,
+  req: Request,
+  res: Response,
+  internalPath: string
+): Promise<void> {
+  // Rewrite req.url so Koa's internal router matches the right route.
+  // Express path: /oauth/authorize?... → Koa path: /auth?...
+  const original = req.url;
+  const queryIdx = original.indexOf("?");
+  req.url = queryIdx >= 0 ? internalPath + original.slice(queryIdx) : internalPath;
+
+  // PR #1042 R1 BLOCKING: Koa's `app.callback()` returns a Node-style
+  // `(req, res) => void` handler — there is NO `next` parameter. The earlier
+  // implementation awaited a Promise resolved via that nonexistent `next`,
+  // which Koa never calls, producing a silent deadlock in the Express handler.
+  // Resolve on the response's `finish`/`close` events instead, and reject on
+  // `error`. Also restore `req.url` in finally so downstream middleware /
+  // logging observes the original public URL, not the rewritten internal path.
   const handler = (
     provider as {
-      callback: () => (req: unknown, res: unknown, next: (err?: unknown) => void) => void;
+      callback: () => (req: unknown, res: unknown) => void;
     }
   ).callback();
+
   return new Promise<void>((resolve, reject) => {
-    handler(req, res, (err?: unknown) => {
-      if (err) reject(err instanceof Error ? err : new Error(String(err)));
-      else resolve();
-    });
+    const cleanup = () => {
+      res.removeListener("finish", onFinish);
+      res.removeListener("close", onClose);
+      res.removeListener("error", onError);
+      req.url = original;
+    };
+    const onFinish = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (err: unknown) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    res.once("finish", onFinish);
+    res.once("close", onClose);
+    res.once("error", onError);
+
+    try {
+      handler(req, res);
+    } catch (err) {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
