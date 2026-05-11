@@ -14,6 +14,11 @@
 //   - Allows silently (no stdout, no additionalContext): branch even with main,
 //     fresh branch (no upstream), detached HEAD, undetectable default branch.
 //     These are the four "nothing to report" paths in the Behavioral Contract.
+//   - Allows with audit-line on stdout: merge / rebase / cherry-pick in
+//     progress (mt#1739). The operator is finalising a commit that resolves
+//     staleness, so blocking would create a chicken-and-egg deadlock. Emits a
+//     stdout audit line (`merge-in-progress (.git/<MARKER>) ...`) so operators
+//     see that the hook recognised the merge state.
 //   - Warnings always surface even on silent paths: when the pre-check git fetch
 //     failed (network down, auth issue, etc.), the resulting "comparison may be
 //     against STALE refs" warning IS emitted regardless of silent. The carve-out
@@ -26,6 +31,8 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -181,6 +188,53 @@ export function getCurrentBudgets() {
  */
 function budgetAllows(start: number, callBudgetMs: number): boolean {
   return Date.now() - start + callBudgetMs <= OVERALL_BUDGET_MS;
+}
+
+/**
+ * Detect whether a merge, rebase, or cherry-pick is currently in progress
+ * in the given working directory. Returns the name of the detected git-state
+ * file/dir when one is present, or null when none are.
+ *
+ * The four state markers checked are the well-known git transient-operation
+ * files:
+ *
+ *   - `MERGE_HEAD`         — `git merge` in progress, awaiting commit
+ *   - `REBASE_HEAD`        — non-interactive rebase in progress
+ *   - `rebase-merge/`      — interactive rebase (`git rebase -i`) in progress
+ *   - `CHERRY_PICK_HEAD`   — `git cherry-pick` in progress, awaiting commit
+ *
+ * Detection is a single synchronous `fs.existsSync` per marker — no
+ * subprocess, no network. Safe to call ahead of the wall-clock budget guard.
+ *
+ * Why this exists (mt#1739): without this detection, the freshness guard
+ * blocks `session_commit` even when the commit being prepared is the merge
+ * commit that resolves the staleness it's flagging. The freshness predicate
+ * (`origin/<branch>..origin/main`) only updates after the merge commit is
+ * pushed, creating a chicken-and-egg deadlock. Recognizing mid-merge state
+ * means the operator is *resolving* staleness, not introducing it — silent
+ * allow is the correct response.
+ *
+ * @see mt#1739 — originating task
+ * @see feedback_freshness_guard_mid_merge_paradox — bridge memory
+ */
+export const MERGE_IN_PROGRESS_MARKERS = [
+  "MERGE_HEAD",
+  "REBASE_HEAD",
+  "rebase-merge",
+  "CHERRY_PICK_HEAD",
+] as const;
+
+export function detectMergeInProgress(
+  repoDir: string,
+  existsSyncImpl: (p: string) => boolean = existsSync
+): string | null {
+  const gitDir = join(repoDir, ".git");
+  for (const marker of MERGE_IN_PROGRESS_MARKERS) {
+    if (existsSyncImpl(join(gitDir, marker))) {
+      return marker;
+    }
+  }
+  return null;
 }
 
 /**
@@ -344,6 +398,31 @@ export function checkBranchFreshness(
   const startMs = typeof hookStart === "number" ? hookStart : null;
   const overBudget = (callBudgetMs: number): boolean =>
     startMs !== null && !budgetAllows(startMs, callBudgetMs);
+
+  // mt#1739: mid-merge / mid-rebase / mid-cherry-pick is an allow path. The
+  // operator is finalising a commit that *resolves* main-ahead-of-branch
+  // staleness, not introducing fresh work on a stale branch. Skipping the
+  // remote-ref comparison closes the chicken-and-egg deadlock described in
+  // feedback_freshness_guard_mid_merge_paradox.
+  //
+  // Detection is `fs.existsSync`-only — cheaper than any subprocess in this
+  // hook, so we run it before the budget guard (no risk of exhausting it).
+  //
+  // Returned WITHOUT silent: true because this is an operator-driven action
+  // (not one of the four "nothing to report" routine cases — even-with-main,
+  // fresh branch, detached HEAD, undetectable default). The entrypoint emits
+  // `result.reason` to stdout as an audit line so operators see that the
+  // hook recognised the merge state, mirroring the MINSKY_SKIP_FRESHNESS=1
+  // override-audit convention.
+  const midMergeMarker = detectMergeInProgress(repoDir);
+  if (midMergeMarker) {
+    return {
+      blocked: false,
+      aheadCount: 0,
+      aheadSubjects: [],
+      reason: `merge-in-progress (.git/${midMergeMarker}) — freshness check skipped`,
+    };
+  }
 
   // Budget-guard the branch detection itself (round-5 BLOCKING fix —
   // previously this ran in the entrypoint outside any guard).
