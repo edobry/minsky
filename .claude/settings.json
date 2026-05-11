@@ -133,6 +133,17 @@
             "statusMessage": "Checking branch freshness..."
           }
         ]
+      },
+      {
+        "matcher": "mcp__minsky__session_search_replace|mcp__minsky__session_edit_file|mcp__minsky__session_write_file|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-generated-file-edit.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for generated file edit..."
+          }
+        ]
       }
     ],
     "SessionStart": [
