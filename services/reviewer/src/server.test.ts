@@ -263,6 +263,72 @@ describe("webhook handler", () => {
     }
   });
 
+  test("missing x-github-delivery synthesizes a unique synthetic-<uuid> per request (R2 BLOCKING regression)", async () => {
+    // R2 BLOCKING fix: when x-github-delivery is absent, the server previously
+    // fell back to the literal "unknown". Combined with the DO NOTHING upsert
+    // semantics from R1 BLOCKING #1, that collapsed every missing-header POST
+    // into a single row — defeating the "persist every webhook" goal.
+    // The fix synthesizes "synthetic-${crypto.randomUUID()}" per request.
+    const { logs, restore } = captureConsoleLogs();
+
+    try {
+      const body = buildPRPayload();
+
+      // Two POSTs without x-github-delivery; signature and event present so
+      // the handler reaches the persistence path before any 400.
+      const signature = await signPayload(body);
+      await Promise.all([
+        fetch(`${baseUrl}/webhook`, {
+          method: "POST",
+          headers: {
+            "content-type": CONTENT_TYPE_JSON,
+            [HEADER_SIGNATURE]: signature,
+            [HEADER_EVENT]: "pull_request",
+            // x-github-delivery deliberately omitted
+          },
+          body,
+        }),
+        fetch(`${baseUrl}/webhook`, {
+          method: "POST",
+          headers: {
+            "content-type": CONTENT_TYPE_JSON,
+            [HEADER_SIGNATURE]: signature,
+            [HEADER_EVENT]: "pull_request",
+            // x-github-delivery deliberately omitted
+          },
+          body,
+        }),
+      ]);
+
+      // Tick to let both webhook_received log lines flush.
+      await new Promise<void>((r) => setTimeout(r, 50));
+
+      // Collect every webhook_received log entry and inspect their delivery_id.
+      const webhookReceivedEntries: string[] = [];
+      for (const line of logs) {
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          if (parsed["event"] === "webhook_received") {
+            const id = parsed["delivery_id"];
+            if (typeof id === "string") webhookReceivedEntries.push(id);
+          }
+        } catch {
+          // not JSON — skip
+        }
+      }
+
+      expect(webhookReceivedEntries.length).toBe(2);
+      // Both delivery_ids must be synthetic (i.e., not "unknown" and not absent).
+      expect(webhookReceivedEntries[0]).toMatch(/^synthetic-/);
+      expect(webhookReceivedEntries[1]).toMatch(/^synthetic-/);
+      // The two synthesized IDs must be distinct — uniqueness via crypto.randomUUID().
+      // If they collide, the DO NOTHING upsert silently drops one row.
+      expect(webhookReceivedEntries[0]).not.toBe(webhookReceivedEntries[1]);
+    } finally {
+      restore();
+    }
+  });
+
   test("/health returns inflightCount", async () => {
     const body = buildPRPayload();
     // Kick off a slow review so inflight > 0.

@@ -623,7 +623,14 @@ export function createApp(
 
       if (request.method === "POST" && url.pathname === "/webhook") {
         const signature = request.headers.get("x-hub-signature-256");
-        const deliveryId = request.headers.get("x-github-delivery") ?? "unknown";
+        // R2 BLOCKING fix: previously fell back to the literal "unknown".
+        // Combined with DO NOTHING upsert semantics, that collapsed every
+        // missing-header POST into a single row — silently dropping events
+        // after the first. Synthesize a UUID per request instead. The
+        // "synthetic-" prefix is queryable so operators can distinguish
+        // GitHub-supplied IDs from server-synthesized ones.
+        const deliveryId =
+          request.headers.get("x-github-delivery") ?? `synthetic-${crypto.randomUUID()}`;
         const eventName = request.headers.get("x-github-event");
 
         // Read body BEFORE the missing-headers check so we can include `action`
