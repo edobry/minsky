@@ -40,11 +40,36 @@ export interface WorkspaceClassification {
   handoffWritten: boolean;
 }
 
+/** Result type for sub-process runners (subset of Bun.spawnSync result). */
+export interface SubprocessResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Dependency-injection options for testing. Tests can override the git/gh
+ * runners to avoid needing real binaries or live GitHub auth.
+ *
+ * `Bun.spawnSync` cannot be mocked at the global level — its property
+ * descriptor is non-writable, so `Bun.spawnSync = fn` is a silent no-op
+ * in tests. DI is the correct seam.
+ */
+export interface ClassifierOptions {
+  /** Override the `gh` command runner (for tests). */
+  ghRunner?: (args: string[]) => SubprocessResult;
+  /** Override the `git` command runner (for tests). */
+  gitRunner?: (args: string[], cwd: string) => SubprocessResult;
+}
+
 // ---------------------------------------------------------------------------
 // Sync exec helper (mirrors types.ts pattern)
 // ---------------------------------------------------------------------------
 
-function runGit(args: string[], cwd: string): { exitCode: number; stdout: string; stderr: string } {
+function defaultRunGit(
+  args: string[],
+  cwd: string
+): { exitCode: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync(["git", ...args], {
     cwd,
     stdout: "pipe",
@@ -58,7 +83,7 @@ function runGit(args: string[], cwd: string): { exitCode: number; stdout: string
   };
 }
 
-function runGh(args: string[]): { exitCode: number; stdout: string; stderr: string } {
+function defaultRunGh(args: string[]): { exitCode: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync(["gh", ...args], {
     stdout: "pipe",
     stderr: "pipe",
@@ -93,8 +118,12 @@ function runGh(args: string[]): { exitCode: number; stdout: string; stderr: stri
  */
 export async function classifyWorkspaceOutcome(
   workspace: string,
-  taskId: string
+  taskId: string,
+  options: ClassifierOptions = {}
 ): Promise<WorkspaceClassification> {
+  const runGit = options.gitRunner ?? defaultRunGit;
+  const runGh = options.ghRunner ?? defaultRunGh;
+
   // 1. Workspace exists?
   if (!existsSync(workspace)) {
     return { outcome: "crashed-no-output", handoffWritten: false };
@@ -126,7 +155,7 @@ export async function classifyWorkspaceOutcome(
   const hasUncommittedChanges = gitStatusResult.stdout.trim().length > 0;
 
   // 6. Query GitHub for an open or recently merged PR on the task branch
-  const { prUrl } = await queryGitHubPr(taskId);
+  const { prUrl } = await queryGitHubPr(taskId, runGh);
 
   // 7. Classify
   if (prUrl) {
@@ -163,12 +192,15 @@ export async function classifyWorkspaceOutcome(
  * Branch naming convention: `task/mt-<digits>` (matching how Minsky creates
  * session branches) is checked first; plain `task/<taskId>` is the fallback.
  */
-async function queryGitHubPr(taskId: string): Promise<{ prUrl?: string }> {
+async function queryGitHubPr(
+  taskId: string,
+  runGhFn: (args: string[]) => SubprocessResult
+): Promise<{ prUrl?: string }> {
   // Normalise task ID to the branch convention (mt#1735 → task/mt-1735)
   const branchName = taskId.replace(/^mt#/, "task/mt-").replace(/^#/, "task/mt-");
 
   try {
-    const result = runGh([
+    const result = runGhFn([
       "pr",
       "list",
       "--head",
