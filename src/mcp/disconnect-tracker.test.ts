@@ -289,11 +289,16 @@ describe("DisconnectTracker", () => {
 
     test("escalation is 'daily' at 4 eligible disconnects in 24h", () => {
       tracker.setProcessStartTimeForTest(Date.now() - 60_000);
-      // Simulate a main session (1+ tool calls) so all four disconnects are eligible
+      // Simulate four main sessions (each with 1+ tool calls). Per the per-
+      // session counter introduced in mt#1705 R1, the counter is evicted after
+      // each recordDisconnect — so each "session" needs its own increment.
       tracker.incrementToolCallCount();
       tracker.recordDisconnect("stdin_close");
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("unknown");
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("stdin_close");
+      tracker.incrementToolCallCount();
       tracker.recordDisconnect("unknown");
       // Reset session count so we isolate the daily branch
       tracker.setSessionDisconnectCountForTest(1, 1);
@@ -304,13 +309,15 @@ describe("DisconnectTracker", () => {
 
     test("uptime filtering: only disconnects with uptime >= 5s count toward escalation", () => {
       // Record 5 disconnects at increasing uptimes by manipulating processStartTime.
-      // Call incrementToolCallCount() once to make all disconnects "main_session",
-      // so only the uptime filter discriminates.
-      tracker.incrementToolCallCount();
+      // Per the per-session counter (mt#1705 R1), each disconnect evicts its
+      // sessionKey entry — so increment before EACH recordDisconnect to make
+      // all five disconnects classify as "main_session". Only the uptime filter
+      // then discriminates.
       const now = Date.now();
       const uptimes = [100, 200, 300, 6_000, 7_000];
       for (const u of uptimes) {
         tracker.setProcessStartTimeForTest(now - u);
+        tracker.incrementToolCallCount();
         tracker.recordDisconnect("stdin_close");
       }
       // count24h is total — all 5
@@ -324,9 +331,11 @@ describe("DisconnectTracker", () => {
 
     test("'daily' takes precedence over 'session' when both thresholds exceeded", () => {
       tracker.setProcessStartTimeForTest(Date.now() - 60_000);
-      // Simulate a main session so all four disconnects are eligible
-      tracker.incrementToolCallCount();
-      for (let i = 0; i < 4; i++) tracker.recordDisconnect("stdin_close");
+      // Simulate four main sessions (per-session counter evicted on each disconnect)
+      for (let i = 0; i < 4; i++) {
+        tracker.incrementToolCallCount();
+        tracker.recordDisconnect("stdin_close");
+      }
       const summary = tracker.getSummary();
       expect(summary.escalation).toBe("daily");
     });
@@ -380,8 +389,13 @@ describe("DisconnectTracker", () => {
       expect(summary.escalation).toBe("none");
     });
 
-    test("legacy events without processRole are treated as 'main_session' in byRole", () => {
-      // Inject a legacy event (no processRole) with long uptime and eligible cause
+    test("legacy events without processRole are counted in byRole.legacy bucket", () => {
+      // Inject a legacy event (no processRole) with long uptime and eligible cause.
+      // mt#1705 R1: legacy events get an explicit `legacy` bucket in byRole (not
+      // folded into main_session) so operators can see migration progress —
+      // the legacy count should shrink toward 0 as new-format events saturate.
+      // The escalation predicate still treats legacy events as eligible
+      // (conservative); only the aggregate breakdown changes.
       const legacyEvent: McpDisconnectEvent = {
         timestamp: new Date().toISOString(),
         serverName: "test-server",
@@ -393,8 +407,8 @@ describe("DisconnectTracker", () => {
       (tracker as unknown as { events: McpDisconnectEvent[] }).events.push(legacyEvent);
 
       const summary = tracker.getSummary();
-      // Legacy event counted under "main_session" in byRole
-      expect(summary.byRole["main_session"]).toBeGreaterThanOrEqual(1);
+      expect(summary.byRole["legacy"]).toBeGreaterThanOrEqual(1);
+      expect(summary.byRole["main_session"]).toBe(0);
       expect(summary.byRole["helper"]).toBe(0);
     });
   });
@@ -404,9 +418,9 @@ describe("DisconnectTracker", () => {
   // -------------------------------------------------------------------------
 
   describe("getSummary byRole", () => {
-    test("byRole starts at zero for both roles", () => {
+    test("byRole starts at zero for all roles", () => {
       const summary = tracker.getSummary();
-      expect(summary.byRole).toEqual({ helper: 0, main_session: 0 });
+      expect(summary.byRole).toEqual({ helper: 0, main_session: 0, legacy: 0 });
     });
 
     test("byRole counts helpers and main_sessions separately", () => {
@@ -710,17 +724,23 @@ describe("DisconnectTracker empirical replay (mt#1705)", () => {
     }
   });
 
-  test("legacy events without processRole are counted as 'main_session' in byRole (conservative)", () => {
+  test("legacy events from fixture are counted in the byRole.legacy bucket", () => {
     // Fixture events were written without processRole (pre-mt#1705 format).
-    // They should appear as "main_session" in byRole (conservative default).
-    // This is correct: we can't know whether they were helpers or not.
+    // mt#1705 R1: they go to an explicit `legacy` bucket so operators can
+    // see the migration progress (legacy count shrinks as new-format events
+    // saturate). isEscalationEligible still treats them conservatively as
+    // eligible — only the aggregate breakdown changes.
+    //
+    // Fixture timestamp note (mt#1705 R1 Finding 2): the timestamps in the
+    // fixture file are relative-style — we shift them into the recent past
+    // when loading by rewriting the file in a temp location, OR we tolerate
+    // events possibly falling outside the 24h window. Here we keep the
+    // assertion shape minimal (non-negative) so the test is clock-independent.
     const t = DisconnectTracker.resetForTest("srv", fixturePath);
     const summary = t.getSummary();
-    // But the timestamps in the fixture are old (2026-05-10T20:xx) so they
-    // may or may not fall within the 24h window depending on when the test
-    // runs. Just verify the byRole keys are present with non-negative values.
     expect(summary.byRole["helper"]).toBeGreaterThanOrEqual(0);
     expect(summary.byRole["main_session"]).toBeGreaterThanOrEqual(0);
+    expect(summary.byRole["legacy"]).toBeGreaterThanOrEqual(0);
   });
 
   test("in-process helper session burst does not trigger escalation", () => {
@@ -747,13 +767,17 @@ describe("DisconnectTracker empirical replay (mt#1705)", () => {
 
   test("processRole is correctly set on each disconnect event in-process", () => {
     const t = DisconnectTracker.resetForTest("srv", "");
-    // 3 helper disconnects, then 1 tool call, then 2 main_session disconnects
+    // 2 helper disconnects (no tool calls), then 2 main_session disconnects.
+    // mt#1705 R1: with per-session counter + eviction-on-disconnect, simulating
+    // a "main session" requires incrementing before each recordDisconnect — each
+    // recordDisconnect models a distinct session that has finished its work.
     t.setProcessStartTimeForTest(Date.now() - 60_000);
     const helper1 = t.recordDisconnect("stdin_close");
     const helper2 = t.recordDisconnect("stdin_close");
 
     t.incrementToolCallCount();
     const main1 = t.recordDisconnect("stdin_close");
+    t.incrementToolCallCount();
     const main2 = t.recordDisconnect("stdin_close");
 
     expect(helper1.processRole).toBe("helper");

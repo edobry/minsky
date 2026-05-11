@@ -129,7 +129,7 @@ export type McpDisconnectCause =
  * in ~/.local/state/minsky/mcp-disconnect-log.json), which overlaps with
  * short working sessions. Tool-call count has no such overlap.
  */
-export type McpProcessRole = "helper" | "main_session";
+export type McpProcessRole = "helper" | "main_session" | "legacy";
 
 /**
  * A single recorded event. Used for `disconnect`, `reconnect`,
@@ -191,8 +191,13 @@ export interface McpDisconnectSummary {
   byCause: Record<string, number>;
   /**
    * Breakdown by process role (disconnect events only, last 24h). Populated from
-   * `McpDisconnectEvent.processRole` (mt#1705). Events without `processRole`
-   * (legacy) are counted under `"main_session"` (conservative default).
+   * `McpDisconnectEvent.processRole` (mt#1705).
+   * - `"helper"`: harness helper sessions (0 tool calls) — excluded from escalation.
+   * - `"main_session"`: substantive working sessions (1+ tool calls) — escalation-eligible.
+   * - `"legacy"`: events from pre-mt#1705 logs without a `processRole` field. Treated
+   *   conservatively as escalation-eligible (same as `main_session`) but counted
+   *   separately so operators can see the fraction of the log still in the old format.
+   *   The `legacy` count should shrink toward 0 as new-format events saturate the log.
    */
   byRole: Record<McpProcessRole, number>;
   /** The most recent event, or null if no events recorded. */
@@ -232,6 +237,20 @@ const ESCALATION_THRESHOLD_24H = 3;
  * the 1.8–2.1s typical handshake time observed in Claude Code's MCP logs.
  */
 const SHORT_LIVED_THRESHOLD_MS = 5000;
+
+/**
+ * Fixed `sessionKey` used in stdio mode. A stdio MCP server process has
+ * exactly one Server instance for its lifetime, so a constant key is correct.
+ * mt#1705.
+ */
+export const STDIO_SESSION_KEY = "stdio";
+
+/**
+ * Fallback `sessionKey` used when an explicit key is not provided. Preserves
+ * back-compat for `incrementToolCallCount()` / `recordDisconnect()` callers
+ * that pre-date the per-session API. mt#1705.
+ */
+export const DEFAULT_SESSION_KEY = "_default";
 
 /**
  * Causes whose disconnect events are server-initiated by design and excluded
@@ -301,13 +320,20 @@ export class DisconnectTracker {
   private processStartTime: number;
   private processPid: number;
   /**
-   * Number of tool calls made in this process lifetime (mt#1705).
-   * Incremented by `incrementToolCallCount()`, which is called from the
-   * `CallToolRequestSchema` handler in `server.ts` before each tool dispatch.
-   * Used at disconnect time to classify process role: 0 calls → "helper",
-   * 1+ calls → "main_session".
+   * Per-session tool-call counts (mt#1705). Keyed by `sessionKey`:
+   *
+   * - Stdio mode: a single fixed key (`STDIO_SESSION_KEY`) is used because
+   *   one stdio process binds 1:1 with one Server instance for its lifetime.
+   * - HTTP mode: each per-session Server generates a unique `sessionKey` at
+   *   `createConfiguredServer()` time. Multiple HTTP sessions coexist in one
+   *   process, so a process-wide counter would misclassify other sessions'
+   *   disconnects (caught by minsky-reviewer[bot] R1 on PR #1027). Per-session
+   *   counts are the only correct shape.
+   *
+   * Entries are evicted in `recordDisconnect()` after the role is computed,
+   * bounding map size to live sessions.
    */
-  private toolCallCount = 0;
+  private toolCallCounts: Map<string, number> = new Map();
   /**
    * Set to true when a server-initiated disconnect cause has been recorded
    * (staleness_exit, signal_*, server_close). The SDK's `Server.onclose`
@@ -369,22 +395,35 @@ export class DisconnectTracker {
   }
 
   /**
-   * Increment the tool-call counter for this process (mt#1705).
+   * Increment the tool-call counter for the given session (mt#1705).
    * Called from the `CallToolRequestSchema` handler in `server.ts` on each
    * tool invocation (before the handler runs, so the count is accurate even
-   * if the tool throws). The count is read at `recordDisconnect` time to
-   * classify this process as `"helper"` (0 calls) or `"main_session"` (1+ calls).
+   * if the tool throws). The count is read at `recordDisconnect(cause, { sessionKey })`
+   * time to classify the session as `"helper"` (0 calls) or `"main_session"`
+   * (1+ calls).
+   *
+   * `sessionKey` is `STDIO_SESSION_KEY` for stdio mode (one server per process)
+   * or a per-session UUID for HTTP mode (multiple per-session Servers in one
+   * process). Defaults to `DEFAULT_SESSION_KEY` for back-compat with callers
+   * that don't yet pass a key (legacy tests, ad-hoc callers).
    */
-  incrementToolCallCount(): void {
-    this.toolCallCount++;
+  incrementToolCallCount(sessionKey: string = DEFAULT_SESSION_KEY): void {
+    this.toolCallCounts.set(sessionKey, (this.toolCallCounts.get(sessionKey) ?? 0) + 1);
   }
 
   /**
-   * Return the current tool-call count for this process. For use by tests
-   * and diagnostics.
+   * Return the current tool-call count for a session. For use by tests and
+   * diagnostics. If `sessionKey` is omitted, returns the sum across all
+   * tracked sessions (useful for "did this process see any work at all"
+   * diagnostics).
    */
-  getToolCallCount(): number {
-    return this.toolCallCount;
+  getToolCallCount(sessionKey?: string): number {
+    if (sessionKey !== undefined) {
+      return this.toolCallCounts.get(sessionKey) ?? 0;
+    }
+    let total = 0;
+    for (const n of this.toolCallCounts.values()) total += n;
+    return total;
   }
 
   /**
@@ -417,17 +456,48 @@ export class DisconnectTracker {
    * appends to disk before returning.
    *
    * Process role classification (mt#1705): at disconnect time, the tool-call
-   * count is read from `this.toolCallCount` (incremented by
-   * `incrementToolCallCount()` on each tool invocation). 0 calls → "helper",
-   * 1+ calls → "main_session". Helper sessions are excluded from escalation
-   * eligibility regardless of uptime.
+   * count is read from `this.toolCallCounts.get(sessionKey)` (incremented by
+   * `incrementToolCallCount(sessionKey)` on each tool invocation in that
+   * session). 0 calls → "helper", 1+ calls → "main_session". Helper sessions
+   * are excluded from escalation eligibility regardless of uptime.
+   *
+   * The map entry for `sessionKey` is evicted after the role is computed,
+   * keeping `toolCallCounts` bounded to live sessions only.
+   *
+   * Backward-compat: callers may pass `errorMessage` as the second positional
+   * argument (legacy two-arg form) or the new `{ sessionKey?, errorMessage? }`
+   * options object. The legacy form falls back to `DEFAULT_SESSION_KEY`,
+   * matching the pre-mt#1705-per-session-counter behavior.
    */
-  recordDisconnect(cause: McpDisconnectCause, errorMessage?: string): McpDisconnectEvent {
+  recordDisconnect(
+    cause: McpDisconnectCause,
+    errorMessageOrOptions?: string | { sessionKey?: string; errorMessage?: string }
+  ): McpDisconnectEvent {
+    // Normalize the two call shapes.
+    let sessionKey: string;
+    let errorMessage: string | undefined;
+    if (typeof errorMessageOrOptions === "string") {
+      sessionKey = DEFAULT_SESSION_KEY;
+      errorMessage = errorMessageOrOptions;
+    } else if (errorMessageOrOptions) {
+      sessionKey = errorMessageOrOptions.sessionKey ?? DEFAULT_SESSION_KEY;
+      errorMessage = errorMessageOrOptions.errorMessage;
+    } else {
+      sessionKey = DEFAULT_SESSION_KEY;
+      errorMessage = undefined;
+    }
+
     const uptimeMs = Date.now() - this.processStartTime;
-    // mt#1705: classify process role from tool-call count at disconnect time.
+    // mt#1705: classify process role from PER-SESSION tool-call count at
+    // disconnect time. Reading the process-wide counter (the original mt#1705
+    // approach) misclassified HTTP per-session disconnects when any session
+    // in the process had made a tool call — see R1 review on PR #1027.
     // 0 calls → "helper" (harness helper: hook spawner, probe, pre-flight check).
     // 1+ calls → "main_session" (substantive working session).
-    const processRole: McpProcessRole = this.toolCallCount === 0 ? "helper" : "main_session";
+    const sessionToolCalls = this.toolCallCounts.get(sessionKey) ?? 0;
+    const processRole: McpProcessRole = sessionToolCalls === 0 ? "helper" : "main_session";
+    // Evict the entry — the session is closing and we've captured what we need.
+    this.toolCallCounts.delete(sessionKey);
     const event: McpDisconnectEvent = {
       timestamp: new Date().toISOString(),
       serverName: this.serverName,
@@ -543,6 +613,7 @@ export class DisconnectTracker {
     const byRole: Record<McpProcessRole, number> = {
       helper: 0,
       main_session: 0,
+      legacy: 0,
     };
 
     for (const e of recent) {
@@ -550,10 +621,15 @@ export class DisconnectTracker {
       byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
       byCause[e.cause] = (byCause[e.cause] ?? 0) + 1;
       // byRole only counts disconnect events; role classification is only
-      // meaningful at disconnect time. Legacy events without processRole are
-      // counted as "main_session" (conservative default — mt#1705).
+      // meaningful at disconnect time. Events without processRole come from
+      // pre-mt#1705 logs and are counted in the explicit "legacy" bucket so
+      // operators can see the fraction of the log still in the old format
+      // (it should shrink toward 0 as new-format events saturate the log).
+      // Note: `isEscalationEligible` still treats legacy/undefined events as
+      // eligible (conservative) — only the aggregate breakdown shows them
+      // separately.
       if (e.kind === "disconnect") {
-        const role = e.processRole ?? "main_session";
+        const role = e.processRole ?? "legacy";
         byRole[role] = (byRole[role] ?? 0) + 1;
       }
     }

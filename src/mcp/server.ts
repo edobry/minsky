@@ -30,7 +30,7 @@ import {
   type SessionResolver as WakeSessionResolver,
   type WakeServiceSurface,
 } from "./middleware/wake-enrichment";
-import { DisconnectTracker } from "./disconnect-tracker";
+import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 
 /**
  * Transport type for MCP server
@@ -300,7 +300,11 @@ export class MinskyMCPServer {
     // Create the primary server instance. For stdio, this is THE server. For
     // HTTP, each session creates an additional one via createConfiguredServer();
     // this instance is never connected to a transport in HTTP mode.
-    this.server = this.createConfiguredServer();
+    // mt#1705: stdio uses the fixed STDIO_SESSION_KEY. The HTTP-primary instance
+    // here also uses STDIO_SESSION_KEY because it is never connected when
+    // transportType === "http" (the connected Server instances are created in
+    // handleHttpRequest with their own UUIDs).
+    this.server = this.createConfiguredServer(STDIO_SESSION_KEY);
 
     // Create transport based on configuration
     if (this.options.transportType === "stdio") {
@@ -361,8 +365,15 @@ export class MinskyMCPServer {
    * created in the constructor. Tools/resources/prompts are owned by
    * MinskyMCPServer and shared across all Server instances via closures in the
    * registered handlers.
+   *
+   * mt#1705: each Server is paired with a `sessionKey` for per-session
+   * tool-call tracking. Stdio passes `STDIO_SESSION_KEY` (a fixed constant);
+   * HTTP generates a unique UUID for each per-session Server. The key is
+   * captured in the CallTool handler closure (so each session's tool calls
+   * increment its own counter) and the wireDisconnectHooks chain (so each
+   * session's disconnect reads its own counter).
    */
-  private createConfiguredServer(): Server {
+  private createConfiguredServer(sessionKey: string): Server {
     const server = new Server(
       {
         name: this.options.name,
@@ -388,7 +399,7 @@ export class MinskyMCPServer {
     // initialize. HTTP onclose / idle reaper / close() handle unregistration.
     this.clientCapabilityRegistry?.registerServer(server);
 
-    this.setupRequestHandlers(server);
+    this.setupRequestHandlers(server, sessionKey);
     return server;
   }
 
@@ -519,7 +530,14 @@ export class MinskyMCPServer {
       // New session: each HTTP session gets its own Server instance because
       // the SDK's Server binds 1:1 with a Transport. A singleton Server across
       // sessions rejects every connect() past the first.
-      const server = this.createConfiguredServer();
+      // mt#1705: generate a per-session key for tool-call tracking BEFORE the
+      // Server is constructed. The CallTool handler closure captures it so
+      // each session's tool calls increment its own counter; wireDisconnectHooks
+      // captures it so each session's disconnect reads its own counter. Using
+      // a process-wide counter (the original mt#1705 approach) would misclassify
+      // disconnects from other sessions once any session made a tool call.
+      const sessionKey = randomUUID();
+      const server = this.createConfiguredServer(sessionKey);
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
       });
@@ -532,7 +550,9 @@ export class MinskyMCPServer {
       // HTTP sessions use "unknown" as the default cause — the transport close
       // event does not distinguish client-initiated vs. server-initiated closes
       // at the protocol level.
-      this.wireDisconnectHooks(server, "unknown");
+      // mt#1705: pass the per-session sessionKey so the disconnect reads the
+      // correct per-session tool-call count.
+      this.wireDisconnectHooks(server, "unknown", sessionKey);
       this.disconnectTracker.recordReconnect();
       const entry: {
         server: Server;
@@ -689,7 +709,15 @@ export class MinskyMCPServer {
    * Server instance. Called once per Server — once from the constructor for
    * stdio, and once per HTTP session via createConfiguredServer.
    */
-  private setupRequestHandlers(server: Server): void {
+  /**
+   * Register all request handlers on a Server instance.
+   *
+   * mt#1705: `sessionKey` is captured in the CallTool handler closure so each
+   * session's tool calls increment that session's counter (not a process-wide
+   * one). Stdio passes `STDIO_SESSION_KEY`; HTTP passes a per-session UUID
+   * generated in `handleHttpRequest`.
+   */
+  private setupRequestHandlers(server: Server, sessionKey: string): void {
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
@@ -711,9 +739,12 @@ export class MinskyMCPServer {
 
       // mt#1705: count tool calls for process-role classification at disconnect
       // time. Incremented before the tool runs so the count is accurate even if
-      // the handler throws. This is the discriminating signal: 0 calls → "helper"
-      // (harness helper / hook spawner / probe), 1+ calls → "main_session".
-      this.disconnectTracker.incrementToolCallCount();
+      // the handler throws. Per-session counter (keyed by `sessionKey` captured
+      // in this handler's closure) — so HTTP sessions classify independently
+      // and one session's tool call doesn't inflate another's count. This is
+      // the discriminating signal: 0 calls → "helper" (harness helper / hook
+      // spawner / probe), 1+ calls → "main_session".
+      this.disconnectTracker.incrementToolCallCount(sessionKey);
 
       const trackingId = this.nextRequestId++;
       this.inFlightRequests.set(trackingId, Date.now());
@@ -1148,10 +1179,16 @@ export class MinskyMCPServer {
    * @param defaultCause  Cause to record when `onclose` fires without an
    *                 accompanying transport error (e.g. `"stdin_close"` for
    *                 stdio, `"unknown"` for HTTP sessions).
+   * @param sessionKey  Per-session key for tool-call-count tracking (mt#1705).
+   *                 Passed through to `recordDisconnect` so the disconnect
+   *                 reads THIS session's tool-call count, not the process-wide
+   *                 one. Stdio uses `STDIO_SESSION_KEY`; HTTP uses a per-
+   *                 session UUID generated in `createConfiguredServer`.
    */
   private wireDisconnectHooks(
     server: Server,
-    defaultCause: import("./disconnect-tracker").McpDisconnectCause
+    defaultCause: import("./disconnect-tracker").McpDisconnectCause,
+    sessionKey: string
   ): void {
     const prevOnclose = server.onclose;
     server.onclose = () => {
@@ -1161,7 +1198,7 @@ export class MinskyMCPServer {
       // installSignalHandlers / explicit close, suppress the duplicate
       // `stdin_close` event that the SDK fires during stdio teardown.
       if (this.disconnectTracker.isCleanShutdownInitiated()) return;
-      this.disconnectTracker.recordDisconnect(defaultCause);
+      this.disconnectTracker.recordDisconnect(defaultCause, { sessionKey });
     };
 
     const prevOnerror = server.onerror;
@@ -1215,7 +1252,9 @@ export class MinskyMCPServer {
         // mt#1645: wire disconnect/reconnect hooks on the SDK Server after connect().
         // onclose fires when the stdio pipe closes (client-side disconnect or process exit).
         // onerror fires on transport-level errors (I/O errors on stdin/stdout).
-        this.wireDisconnectHooks(this.server, "stdin_close");
+        // mt#1705: stdio mode is one-server-per-process, so a fixed sessionKey
+        // is correct here.
+        this.wireDisconnectHooks(this.server, "stdin_close", STDIO_SESSION_KEY);
         // Record the reconnect event (this process starting = a reconnect from the client's POV)
         this.disconnectTracker.recordReconnect();
         log.cli("Minsky MCP Server started with stdio transport");
