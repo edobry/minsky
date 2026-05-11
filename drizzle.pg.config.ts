@@ -56,6 +56,7 @@ export default {
     "./src/domain/storage/schemas/minsky-session-links-schema.ts",
     "./src/domain/storage/schemas/ask-schema.ts",
     "./src/domain/storage/schemas/pr-watch-schema.ts",
+    "./src/domain/storage/schemas/subagent-invocations-schema.ts",
   ],
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",
