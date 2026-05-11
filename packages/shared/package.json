@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./safe-truncate": "./src/safe-truncate.ts",
-    "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts"
+    "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts",
+    "./deployment-config": "./src/deployment/config.ts"
   }
 }

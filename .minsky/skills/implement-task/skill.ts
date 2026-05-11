@@ -228,6 +228,27 @@ Suggest to the user:
 
 **Do NOT** auto-run \`/verify-task\`, do NOT attempt to merge. Verification and merge are owned by the \`/verify-task\` skill and the review process.
 
+### 10. Post-merge deploy verification (when the task touches a deployed service)
+
+When the merged PR changes code that runs in a deployed service (anything under \`services/<svc>/\` that has a \`deploy.config.ts\`, or any source that the deploy image bundles via the project Dockerfile), do NOT stop at merge. The merge triggers an auto-deploy on Railway (or whatever platform the service declares); that deploy can fail in ways no pre-merge check catches — Dockerfile breakage, missing env var, schema migration error, container crash on start. Verify the post-merge deploy succeeded before reporting the task done.
+
+**Primary mechanism: \`mcp__minsky__deployment_wait_for_latest\`.** Block-and-return on the latest deployment for the configured service. Returns the terminal \`DeploymentRecord\` (SUCCESS / FAILED / CANCELLED / CRASHED). Platform-neutral; the tool routes to the platform declared in \`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter). See \`docs/deployment-platforms.md\` for the abstraction.
+
+**Follow-ups for inspection (not for waiting):**
+
+- \`mcp__minsky__deployment_status(service?)\` — snapshot of the latest deployment without blocking.
+- \`mcp__minsky__deployment_logs(deploymentId, type?, lines?, service?)\` — fetch build or runtime logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725).
+
+**Anti-patterns to avoid:**
+
+- Polling the application's HTTP endpoint in a Bash loop.
+- \`ScheduleWakeup\` with a guessed interval.
+- Shelling out to \`railway logs --build\` from Bash — use the MCP tool.
+
+**When the deploy fails:** call \`deployment_logs(deploymentId, type: "build")\` on the failed deployment ID, inspect the failure, and either fix-forward in a new PR or surface to the user with the logs attached.
+
+This step does NOT change the task's DONE status — that's still owned by the at-merge handler. Post-merge deploy verification is a quality gate on the deploy itself, not the task lifecycle.
+
 ## Constraints
 
 These constraints apply throughout implementation:
