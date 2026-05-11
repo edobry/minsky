@@ -64,7 +64,13 @@ export const PROXY_RESTART_TOOL_ENTRY: McpTool = {
  * A `tools/list` response:
  *   - Has `result` (not `error`).
  *   - The result has a `tools` array.
- *   - The result does NOT already contain `__proxy_restart_server` (idempotent).
+ *
+ * NOTE: This predicate does NOT check for an existing `__proxy_restart_server`
+ * entry. That check has been moved into `augmentToolsListResponse` so that
+ * collision detection (and the associated stderr warning) is reachable when the
+ * inner server exposes the same tool name. Previously the early-return here made
+ * the collision warning in `augmentToolsListResponse` dead code (BLOCKING 3,
+ * PR #1039 R1).
  */
 function isToolsListResponse(
   msg: JsonRpcMessage
@@ -72,21 +78,24 @@ function isToolsListResponse(
   if (!msg.result || msg.error) return false;
   const result = msg.result as Record<string, unknown>;
   if (!Array.isArray(result["tools"])) return false;
-  // Already augmented (shouldn't happen, but be idempotent).
-  const tools = result["tools"] as McpTool[];
-  if (tools.some((t) => t.name === PROXY_RESTART_TOOL_NAME)) return false;
   return true;
 }
 
 /**
  * Augment a `tools/list` response with the `__proxy_restart_server` tool.
  *
- * Returns the same object (mutated) if the message is a tools/list response,
- * or the original unmodified object if not (reference equality check enables
- * fast-path in the proxy transform).
+ * Returns the original object unchanged when:
+ *   - The message is not a `tools/list` response (not a result, or no `tools` array).
+ *   - The tools list already contains `__proxy_restart_server` — either because
+ *     this function has already run on this message (idempotent fast-path), or
+ *     because the inner server itself exposes a tool with that name. In the latter
+ *     case a warning is written to stderr to alert the operator of the collision
+ *     (the inner server's version takes precedence; the proxy does not append a
+ *     duplicate). Reference-equality of the return value is used by the proxy
+ *     transform as a fast-path to skip JSON.stringify.
  *
- * Also emits a one-time warning if the inner server happens to already expose
- * a tool with the same name — this indicates a namespace collision.
+ * Returns a new object (spread) when the tool was not already present and was
+ * successfully appended.
  */
 export function augmentToolsListResponse(msg: JsonRpcMessage): JsonRpcMessage {
   if (!isToolsListResponse(msg)) return msg;
@@ -94,14 +103,32 @@ export function augmentToolsListResponse(msg: JsonRpcMessage): JsonRpcMessage {
   const result = msg.result as ToolsListResult;
   const tools = result.tools;
 
-  // Collision check: warn if inner server happens to expose same name.
-  const collision = tools.find((t) => t.name === PROXY_RESTART_TOOL_NAME);
-  if (collision) {
-    // Log via stderr to avoid polluting stdout.
-    process.stderr.write(
-      `[proxy] WARNING: inner server exposes a tool named "${PROXY_RESTART_TOOL_NAME}" ` +
-        "which collides with the proxy-injected tool. The inner server's version will be shadowed.\n"
-    );
+  // Idempotency + collision check: if __proxy_restart_server is already in the
+  // list, do NOT append again. Two sub-cases:
+  //
+  //   a) Already-augmented message: this function ran on a prior pass. Silent
+  //      no-op — return the same reference so the proxy transform fast-paths.
+  //   b) Collision: the inner server exposes a tool with the same name. Emit a
+  //      warning to stderr so the operator is informed. The inner server's
+  //      version is preserved; we do not append a duplicate.
+  //
+  // Prior to this fix (BLOCKING 3, PR #1039 R1), the collision check lived in
+  // isToolsListResponse() as an early-return false, making this block
+  // unreachable when the inner server had a colliding tool. The warning was
+  // present in the source but could never fire.
+  const existingEntry = tools.find((t) => t.name === PROXY_RESTART_TOOL_NAME);
+  if (existingEntry) {
+    // Determine which sub-case we are in: if the entry matches our canonical
+    // descriptor it is the already-augmented case; otherwise it is a collision.
+    if (existingEntry !== PROXY_RESTART_TOOL_ENTRY) {
+      // Collision: inner server exposes a tool with the same name.
+      // Log via stderr to avoid polluting the MCP stdio stdout channel.
+      process.stderr.write(
+        `[proxy] WARNING: inner server exposes a tool named "${PROXY_RESTART_TOOL_NAME}" ` +
+          "which collides with the proxy-injected tool. The inner server's version will be preserved; " +
+          "the proxy-injected version is suppressed.\n"
+      );
+    }
     return msg;
   }
 

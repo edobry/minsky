@@ -3,12 +3,13 @@
  *
  * Tests cover:
  *   - augmentToolsListResponse: appends tool, is idempotent, ignores non-matching messages
+ *   - augmentToolsListResponse: collision detection — inner server exposes same name
  *   - isProxyRestartRequest: matches the correct tool-call pattern
  *   - makeToolCallResponse: returns well-formed JSON-RPC response
  *   - PROXY_RESTART_TOOL_ENTRY: schema contract
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   PROXY_RESTART_TOOL_NAME,
   PROXY_RESTART_TOOL_ENTRY,
@@ -95,19 +96,9 @@ describe("augmentToolsListResponse", () => {
     expect(result).toBe(notificationMsg);
   });
 
-  it("does NOT append twice if __proxy_restart_server is already in the list (idempotent)", () => {
-    // When the tools list already contains __proxy_restart_server, the function
-    // returns the original message reference unchanged (isToolsListResponse returns
-    // false early, before the collision guard code is reached).
-    const msgWithTool = makeToolsListResponse([{ name: PROXY_RESTART_TOOL_NAME }]);
-    const result = augmentToolsListResponse(msgWithTool);
-    // Returns original reference unchanged.
-    expect(result).toBe(msgWithTool);
-    // The tools array is not modified.
-    const tools = (result.result as { tools: Array<{ name: string }> }).tools;
-    const restartCount = tools.filter((t) => t.name === PROXY_RESTART_TOOL_NAME).length;
-    expect(restartCount).toBe(1);
-  });
+  // ---------------------------------------------------------------------------
+  // Idempotency: already-augmented messages
+  // ---------------------------------------------------------------------------
 
   it("does not append a second copy if called twice on the already-augmented output", () => {
     const msg = makeToolsListResponse([{ name: "alpha" }]);
@@ -118,6 +109,87 @@ describe("augmentToolsListResponse", () => {
     const tools = (twice.result as { tools: Array<{ name: string }> }).tools;
     const restartCount = tools.filter((t) => t.name === PROXY_RESTART_TOOL_NAME).length;
     expect(restartCount).toBe(1);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Collision detection: inner server already exposes __proxy_restart_server
+  // (BLOCKING 3, PR #1039 R1)
+  // ---------------------------------------------------------------------------
+
+  describe("collision handling", () => {
+    // Capture stderr output during collision tests.
+    let stderrOutput: string;
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+
+    beforeEach(() => {
+      stderrOutput = "";
+      // Patch process.stderr.write to capture output.
+      process.stderr.write = (chunk: unknown, ..._args: unknown[]): boolean => {
+        stderrOutput += String(chunk);
+        return true;
+      };
+    });
+
+    afterEach(() => {
+      // Restore original stderr.
+      process.stderr.write = originalStderrWrite;
+    });
+
+    it("returns the original message unchanged when inner server exposes __proxy_restart_server", () => {
+      // Inner server's own version of the tool — a different object than PROXY_RESTART_TOOL_ENTRY.
+      const innerServerTool = {
+        name: PROXY_RESTART_TOOL_NAME,
+        description: "inner server's own version",
+      };
+      const msg = makeToolsListResponse([{ name: "normalTool" }, innerServerTool]);
+      const result = augmentToolsListResponse(msg);
+
+      // Must return the SAME reference — not augmented.
+      expect(result).toBe(msg);
+    });
+
+    it("does NOT append a duplicate __proxy_restart_server on collision", () => {
+      const innerServerTool = {
+        name: PROXY_RESTART_TOOL_NAME,
+        description: "inner server's own version",
+      };
+      const msg = makeToolsListResponse([innerServerTool]);
+      augmentToolsListResponse(msg);
+
+      const tools = (msg.result as { tools: Array<{ name: string }> }).tools;
+      const restartCount = tools.filter((t) => t.name === PROXY_RESTART_TOOL_NAME).length;
+      expect(restartCount).toBe(1);
+    });
+
+    it("writes a warning to stderr when collision is detected", () => {
+      // The inner server exposes a different object with the same name — collision.
+      const innerServerTool = {
+        name: PROXY_RESTART_TOOL_NAME,
+        description: "inner server's own version — not the proxy entry",
+      };
+      const msg = makeToolsListResponse([innerServerTool]);
+      augmentToolsListResponse(msg);
+
+      // A warning must have been written to stderr naming the tool and describing the collision.
+      expect(stderrOutput).toContain(PROXY_RESTART_TOOL_NAME);
+      // The warning message uses "collides" — accept either "collide" or "collision".
+      expect(stderrOutput.toLowerCase()).toMatch(/collis|collid/);
+    });
+
+    it("does NOT write a stderr warning for the idempotent already-augmented case", () => {
+      // First call: augments the message — adds PROXY_RESTART_TOOL_ENTRY (the same object).
+      const msg = makeToolsListResponse([{ name: "foo" }]);
+      const augmented = augmentToolsListResponse(msg);
+
+      // Reset stderr capture before the second call.
+      stderrOutput = "";
+
+      // Second call: the tool is already present (same object as PROXY_RESTART_TOOL_ENTRY).
+      augmentToolsListResponse(augmented);
+
+      // No warning should be emitted — this is the idempotent case, not a collision.
+      expect(stderrOutput).toBe("");
+    });
   });
 });
 
