@@ -1,3 +1,6 @@
+// tsyringe (transitively imported via schema chain → configuration/backend-detection)
+// requires reflect-metadata to be loaded at the drizzle-kit subprocess entry point.
+import "reflect-metadata";
 import type { Config } from "drizzle-kit";
 import { execSync } from "child_process";
 
