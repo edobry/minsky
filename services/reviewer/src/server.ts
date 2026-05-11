@@ -21,6 +21,7 @@ import {
 } from "./asks-reconcile-scheduler";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-state-sweeper";
+import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
 import {
@@ -864,6 +865,17 @@ if (import.meta.main) {
   // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
   // Opt-in: disabled by default; set MERGE_STATE_SWEEPER_ENABLED=true to activate.
   startMergeStateSweeper(config, loadMergeStateSweeperConfig());
+
+  // Start the adoption sweeper (mt#1630).
+  // Post-merge adoption verification: picks up recently-DONE tasks, extracts
+  // adoption signals from specs, greps production callsites, and files
+  // mt#X-adoption follow-up tasks for gaps.
+  // Configurable via ADOPTION_SWEEPER_ENABLED, ADOPTION_SWEEPER_INTERVAL_MS,
+  // ADOPTION_SWEEPER_LOOKBACK_DAYS.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
+  // DEFAULT DISABLED until mt#1711 (env-var wiring) ships.
+  // Set ADOPTION_SWEEPER_ENABLED=true to activate.
+  startAdoptionSweeper(config, loadAdoptionSweeperConfig());
 
   // Start the webhook-event retention pruner (mt#1372).
   // Deletes reviewer_webhook_events rows older than MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS

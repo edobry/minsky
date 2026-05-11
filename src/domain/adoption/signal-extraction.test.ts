@@ -6,8 +6,11 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { extractAdoptionSignals, buildGrepPattern } from "./signal-extraction";
-import type { AdoptionSignal } from "./signal-extraction";
+import {
+  extractAdoptionSignals,
+  buildGrepPattern,
+} from "@minsky/shared/adoption/signal-extraction";
+import type { AdoptionSignal } from "@minsky/shared/adoption/signal-extraction";
 
 // ---------------------------------------------------------------------------
 // Constants (avoids magic-string-duplication lint warnings)
