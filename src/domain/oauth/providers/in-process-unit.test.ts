@@ -3,16 +3,27 @@
  *
  * These tests run in default CI (no RUN_INTEGRATION_TESTS gate, no DB required).
  *
- * The critical regression: oidc-provider 9.8.3 validates CIBA TTL on Provider
- * construction, even when CIBA is unused. Without an explicit `ciba: { enabled: false }`
- * in the features block, every call to getProvider() throws:
+ * The critical regression: oidc-provider 9.8.3's `checkTTL()` (see
+ * `node_modules/oidc-provider/lib/helpers/configuration.js:390`) validates
+ * function-valued TTL entries with the V8-specific string comparison:
+ *   `value.constructor.toString() === 'function Function() { [native code] }'`
+ *
+ * Under Bun, `Function.prototype.toString()` returns
+ *   `'function Function() {\n    [native code]\n}'`
+ * (with newlines), so EVERY default-function TTL entry fails this check.
+ *
+ * The user-supplied `ttl` config merges with oidc-provider's defaults — any
+ * entry left as a default function value will throw on Provider construction.
+ * `BackchannelAuthenticationRequest` is the first failing entry alphabetically,
+ * which is why the production error message names it specifically. The fix is
+ * to override every remaining default function-valued TTL entry with an
+ * explicit positive integer.
+ *
+ * Without the fix, every call to `getProvider()` throws at construction:
  *   "ttl.BackchannelAuthenticationRequest must be a positive integer or a
  *    regular function returning one"
- *
- * That error causes the discovery endpoint, authorize endpoint, and token
- * endpoint to all return 500. This test suite asserts the construction path
- * succeeds, and would fail with the BackchannelAuthenticationRequest error
- * if the ciba: { enabled: false } fix were reverted.
+ * causing the discovery endpoint, authorize endpoint, and token endpoint to
+ * all return 500. This test suite asserts the construction path succeeds.
  */
 
 import { describe, test, expect } from "bun:test";
@@ -21,8 +32,9 @@ import { InProcessOAuthProvider } from "./in-process";
 
 // ---------------------------------------------------------------------------
 // Minimal stub DB — satisfies the PostgresJsDatabase type at the boundaries
-// that matter for Provider construction. The CIBA TTL validation fires during
-// Provider construction before any adapter call, so the DB is never invoked.
+// that matter for Provider construction. The TTL validation (checkTTL) fires
+// during Provider construction before any adapter call, so the DB is never
+// invoked.
 // ---------------------------------------------------------------------------
 
 function makeStubDb(): PostgresJsDatabase {
@@ -73,7 +85,7 @@ describe("InProcessOAuthProvider — Provider construction regression (mt#1703)"
       thrownError = err;
     }
 
-    // If CIBA TTL fix is absent, thrownError.message contains "BackchannelAuthenticationRequest"
+    // If the TTL-override fix is reverted, thrownError.message contains "BackchannelAuthenticationRequest"
     expect(thrownError).toBeNull();
   });
 
