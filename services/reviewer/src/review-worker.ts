@@ -3,6 +3,41 @@
  *
  * Called by the webhook handler when a relevant PR event fires. Produces one
  * review per invocation. Stateless beyond the config injected at boot.
+ *
+ * **Chinese-wall isolation boundary (per mt#1073 design constraints 2 + 3,
+ * shipped via mt#1083, audit-traceability per mt#1511).** This worker is the
+ * entry point of the deployed reviewer surface and is structurally isolated
+ * from any implementer session by three mechanisms:
+ *
+ * 1. **Separate process** (operational guarantee — see Railway service
+ *    config and `services/reviewer/src/config.ts` for the env-var contract).
+ *    The worker runs inside the Railway-deployed `minsky-reviewer-webhook`
+ *    service — a different process on a different host than any implementer
+ *    Claude Code session. No shared filesystem, no shared memory, no
+ *    inherited environment. (Verifiable in-repo via the env-var schema and
+ *    ADR-006; not enforceable from this source file alone.)
+ * 2. **Separate identity** (in-repo enforced). Submissions post under
+ *    `minsky-reviewer[bot]` — a different GitHub App than `minsky-ai[bot]`
+ *    (the implementer App). The App-identity split is enforced by
+ *    `getAppIdentity` (`github-client.ts`) and rotates Octokit tokens per
+ *    installation — see ADR-006. App IDs are config-driven; the canonical
+ *    declarations live in the Railway service config (informational; see
+ *    ADR-006).
+ * 3. **Diff + spec + read-only access only** (in-repo enforced). Inputs
+ *    to the model call (assembled below by `fetchPullRequestContext` +
+ *    `resolveTaskSpec` + `buildReviewPrompt`) are exactly: the PR diff,
+ *    the task spec, the Critic Constitution, and prior reviews. The model
+ *    has read-only file access via the curated `tools.ts` allowlist
+ *    (`readFile` + `listDirectory` only — no write surfaces). No
+ *    implementer session transcript, chat history, or intermediate
+ *    artifacts reach this entry point.
+ *
+ * The cousin surface — the local `.claude/agents/reviewer.md` subagent
+ * dispatched in-conversation — enforces the same constraints via Claude
+ * Code's Agent-tool fresh-system-prompt semantics and its own curated
+ * `tools:` frontmatter. See that file's "Isolation boundary enforcement"
+ * block for the local-surface analog, including the policy-level (not yet
+ * structural) constraint on `Bash` use.
  */
 
 import type { ReviewerConfig } from "./config";
