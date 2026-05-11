@@ -74,10 +74,10 @@ export interface WakeEnrichmentBlock {
  */
 const WAKE_ENRICHMENT_ALLOWLIST = new Set<string>([
   "tasks.get",
-  "pr_watch_list",
-  "tasks_status_get",
-  "session_pr_get",
-  "session_pr_list",
+  "pr.watch.list",
+  "tasks.status.get",
+  "session.pr.get",
+  "session.pr.list",
 ]);
 
 /** Total character budget for the wake-enrichment block (envelope + payload). */

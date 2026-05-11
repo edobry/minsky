@@ -293,7 +293,7 @@ describe("pr_watch wake-integration", () => {
     expect(rowB?.drainedAt).toBeNull();
   });
 
-  test("pr_watch_list tool in allowlist triggers enrichWakeResponse delivery", async () => {
+  test("pr.watch.list tool in allowlist triggers enrichWakeResponse delivery", async () => {
     const prWatchRepo = new FakePrWatchRepository();
     const wakePendingRepo = new FakeWakePendingRepository();
     const parentSessionId = "session-list-tool";
@@ -321,16 +321,16 @@ describe("pr_watch wake-integration", () => {
     ]);
     await runWatcher(prWatchRepo, mergedClient, silentNotify, wakeSink);
 
-    // pr_watch_list is in the allowlist — should deliver the wake block
+    // pr.watch.list is in the allowlist — should deliver the wake block
     const block = await enrichWakeResponse(
-      "pr_watch_list",
+      "pr.watch.list",
       { session: parentSessionId },
       wakePendingRepo,
       passthroughResolver
     );
 
     expect(block).not.toBeNull();
-    expect(block?.text).toContain(`<wake-events tool="pr_watch_list"`);
+    expect(block?.text).toContain(`<wake-events tool="pr.watch.list"`);
     expect(block?.text).toContain('"kind":"pr.watch"');
     expect(block?.text).toContain('"reviewState":"merged"');
   });

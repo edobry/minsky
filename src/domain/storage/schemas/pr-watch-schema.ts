@@ -132,8 +132,12 @@ export const prWatchesTable = pgTable(
     // Index for querying watches by trigger time (e.g., sweeper cleanup)
     byTriggeredAt: index("idx_pr_watches_triggered_at").on(table.triggeredAt),
 
-    // Index for routing wake signals to the registering agent's session (mt#1725)
-    byParentSession: index("idx_pr_watches_parent_session").on(table.parentSessionId),
+    // Index for routing wake signals to the registering agent's session (mt#1725).
+    // Partial index — only non-null parentSessionId rows are indexed (matches
+    // migration 0034's `WHERE parent_session_id IS NOT NULL` clause).
+    byParentSession: index("idx_pr_watches_parent_session")
+      .on(table.parentSessionId)
+      .where(sql`${table.parentSessionId} IS NOT NULL`),
 
     // Enum guard: reject unknown event values at DB level
     eventCheck: check("chk_pr_watches_event", eventCheckSql),
