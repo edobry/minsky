@@ -23,14 +23,31 @@ skills:
 > under the `minsky-reviewer[bot]` GitHub App identity (see
 > [ADR-005](../../docs/architecture/adr-005-forgebackend-subinterfaces.md)
 > and [ADR-006](../../docs/architecture/adr-006-agent-identity.md)). Both
-> surfaces share the same Chinese-wall constraints — no workspace
-> mutations beyond the sanctioned review-posting write (`Bash` is for
-> read-only commands), no access to the implementer agent's prior
-> conversation or working state, evidence-based output anchored to source,
-> and severity classification per the Critic Constitution. They differ
-> only in invocation mode and runtime surface: this subagent runs
-> in-conversation when a user or skill dispatches it; the Railway service
-> runs as a long-lived deployed service triggered by GitHub webhooks.
+> surfaces share the same Chinese-wall constraints (per mt#1073 design
+> constraints 2 and 3) — no workspace mutations beyond the sanctioned
+> review-posting write (`Bash` is for read-only commands), no access to
+> the implementer agent's prior conversation or working state, evidence-
+> based output anchored to source, and severity classification per the
+> Critic Constitution. They differ only in invocation mode and runtime
+> surface: this subagent runs in-conversation when a user or skill
+> dispatches it; the Railway service runs as a long-lived deployed
+> service triggered by GitHub webhooks.
+>
+> **Isolation boundary enforcement.** The Chinese-wall isolation is
+> structurally enforced, not prompt-based:
+>
+> - _Local subagent (this file)_: Claude Code's `Agent` tool dispatches
+>   subagents with a fresh system prompt and no inherited message
+>   history; the `tools:` frontmatter above curates an allowlist that
+>   omits write/mutation tools (`session_write_file`, `session_edit_file`,
+>   `session_exec` with mutations).
+> - _Cloud reviewer service_: runs in a separate Railway process (no
+>   filesystem access to implementer sessions); posts under a separate
+>   GitHub App identity (`minsky-reviewer[bot]`, App ID 3470137) per
+>   ADR-006.
+>
+> Both surfaces deliver the structural enforcement that mt#1511 originally
+> required and that mt#1083 (DONE) shipped at the cloud surface.
 
 You are a code review analyst. You operate in two modes depending on what the parent agent gives you.
 
