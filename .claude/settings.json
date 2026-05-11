@@ -263,6 +263,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/skill-staleness-detector.ts",
             "timeout": 5,
             "statusMessage": "Checking for skill/agent/rule staleness..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/mcp-daemon-staleness-detector.ts",
+            "timeout": 5,
+            "statusMessage": "Checking for MCP daemon staleness..."
           }
         ]
       }
