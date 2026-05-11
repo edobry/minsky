@@ -4,6 +4,7 @@ import { createToolsCommand } from "./tools-command";
 import { createCallCommand } from "./call-command";
 import { createInspectCommand } from "./inspect-command";
 import { createRegisterCommand } from "./register-command";
+import { createProxyCommand } from "../../mcp/stdio-proxy/cli";
 import type { AppContainerInterface } from "../../composition/types";
 
 /**
@@ -20,6 +21,8 @@ export function createMCPCommand(container?: AppContainerInterface): Command {
   mcpCommand.addCommand(createCallCommand());
   mcpCommand.addCommand(createInspectCommand());
   mcpCommand.addCommand(createRegisterCommand());
+  // stdio respawn proxy — transparent supervisor for staleness-exit absorption (mt#1714)
+  mcpCommand.addCommand(createProxyCommand());
 
   return mcpCommand;
 }
