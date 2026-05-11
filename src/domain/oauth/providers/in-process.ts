@@ -200,6 +200,16 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
 
     if (this.provider) return this.provider;
 
+    // PR #1055 R1: surface the v1 security posture explicitly. devInteractions
+    // is enabled (mt#1665 placeholder) and the consent step is therefore
+    // unauthenticated UI theatre — the user's input is discarded by findAccount,
+    // which hardcodes sub="operator". This means tokens always represent the
+    // single operator principal, but the public OAuth flow is reachable to
+    // anyone. mt#1683 replaces devInteractions with token-gated consent.
+    log.warn(
+      "[InProcessOAuthProvider] OAuth v1 security posture: devInteractions UI is unauthenticated; all issued tokens use sub=operator. See mt#1683 for the token-gated consent UI that supersedes this placeholder."
+    );
+
     const adapterFactory = createAdapterFactory(this.config.db);
     const issuer = this.resolvedIssuer;
     const privateJwk = this.keyPair.privateJwk;
@@ -300,6 +310,32 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
         keys: ["ephemeral-cookie-secret"],
       },
 
+      // mt#1754: minimal findAccount for single-tenant Minsky v1.
+      // SECURITY: returns a FIXED operator identity regardless of what input
+      // the user typed in devInteractions. The username field in the dev UI is
+      // theatre — entered text is discarded. The sub claim is always "operator",
+      // which means any token issued by this server represents the same single
+      // operator principal. This is the correct posture for single-tenant Minsky
+      // MCP, where there is no user-account model.
+      //
+      // Why not echo the devInteractions input (PR #1055 R1 BLOCKING): with DCR
+      // enabled and devInteractions enabled, ANY reachable client could
+      // self-assert an arbitrary `sub` by typing it in the login form, and that
+      // value would propagate into `agentId` and authorization decisions. The
+      // hardcode neutralizes that surface — there is exactly one identity that
+      // can be issued.
+      //
+      // mt#1683 will replace devInteractions with token-gated consent UI
+      // (operator presents MINSKY_MCP_AUTH_TOKEN), at which point this
+      // placeholder either disappears or stays as the same fixed identity but
+      // the consent step actually authenticates the operator.
+      findAccount: async (_ctx: unknown, _id: string) => ({
+        accountId: "operator",
+        async claims() {
+          return { sub: "operator" };
+        },
+      }),
+
       // For Bun/non-standard runtime compatibility
       httpOptions: () => ({ timeout: 30000 }),
     }) as OidcProvider;
@@ -337,7 +373,12 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       registration_endpoint: `${providerIssuer}/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
-      token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
+      // v1 supports public PKCE clients only (token_endpoint_auth_method=none).
+      // client_secret_basic and client_secret_post are not supported because
+      // ClientAdapter.find() does not return the raw client_secret (only stores
+      // a hash), so oidc-provider would reject those clients at authorize time
+      // with invalid_client_metadata. See mt#1746.
+      token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["openid", "mcp", "offline_access"],
       code_challenge_methods_supported: ["S256"],
     };
@@ -369,10 +410,25 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       throw new Error("redirect_uris is required for client registration");
     }
 
+    // v1 supports public PKCE clients only (token_endpoint_auth_method=none).
+    // Reject non-none auth methods per RFC 7591: client_secret_basic and
+    // client_secret_post cannot be supported because ClientAdapter.find() stores
+    // only a bcrypt hash of the secret — not the raw secret — so oidc-provider's
+    // authorize handler would reject those clients with invalid_client_metadata.
+    // PKCE (S256) is enforced via pkce.required: () => true. See mt#1746.
+    const authMethod = body.token_endpoint_auth_method ?? "none";
+    if (authMethod !== "none") {
+      throw new Error(
+        `Only token_endpoint_auth_method='none' (public PKCE clients) is supported; ` +
+          `received '${authMethod}'. Re-register with token_endpoint_auth_method='none'.`
+      );
+    }
+
     const clientId = generateRandomId();
-    const clientSecret = generateRandomSecret();
+    // Public clients (none auth method) do NOT get a client_secret.
+    // The adapter's upsert conditionally stores a hash only when client_secret is present
+    // (see in-process-postgres-adapter.ts line ~166).
     const grantTypes = body.grant_types ?? ["authorization_code", "refresh_token"];
-    const authMethod = body.token_endpoint_auth_method ?? "client_secret_basic";
 
     // Persist via the adapter (DCR registration stores in oauth_clients)
     const adapterFactory = createAdapterFactory(this.config.db);
@@ -381,7 +437,9 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       clientId,
       {
         client_id: clientId,
-        client_secret: clientSecret,
+        // Intentionally omit client_secret for public PKCE clients (authMethod=none).
+        // The adapter stores a hash only when client_secret is present; omitting it
+        // here means no secret is stored and oidc-provider can load the client cleanly.
         redirect_uris: body.redirect_uris,
         grant_types: grantTypes,
         token_endpoint_auth_method: authMethod,
@@ -391,9 +449,10 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       Number.MAX_SAFE_INTEGER
     );
 
+    // Public clients: do NOT include client_secret in the response.
+    // RFC 7591 §3.2.1 allows omitting client_secret when the client is public.
     return {
       client_id: clientId,
-      client_secret: clientSecret,
       client_name: body.client_name,
       redirect_uris: body.redirect_uris,
       grant_types: grantTypes,
@@ -422,16 +481,86 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       return;
     }
 
+    // mt#1746 R2: legacy-client runtime guard. Pre-mt#1746 clients in the DB
+    // may have token_endpoint_auth_method set to client_secret_basic/post.
+    // ClientAdapter.find() does not return the raw secret (only stores a hash),
+    // so oidc-provider would reject those clients at authorize with an opaque
+    // "invalid_client_metadata: client_secret is mandatory property" error.
+    // Catch them here with an actionable "re-register" message.
+    if (query.client_id) {
+      const legacyCheck = await this.checkLegacyClient(query.client_id);
+      if (legacyCheck.isLegacy) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description:
+            `This client was registered with token_endpoint_auth_method='${legacyCheck.authMethod}', ` +
+            `which is no longer supported. Remove and re-add the MCP integration to re-register ` +
+            `as a public PKCE client (token_endpoint_auth_method='none').`,
+        });
+        return;
+      }
+    }
+
     // Forward to the oidc-provider Koa app via the Node.js http callback.
     // The Provider extends Koa, which exposes a callback() method returning a
     // standard Node.js (req, res) => void handler compatible with Express.
-    await forwardToKoaProvider(provider, req, res);
+    // Internal path "/auth" is the oidc-provider default for the authorization endpoint
+    // (see node_modules/oidc-provider/lib/helpers/defaults.js routes.authorization).
+    await forwardToKoaProvider(provider, req, res, "/auth");
   }
 
   async token(req: Request, res: Response): Promise<void> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
     const provider = this.getProvider(issuer);
-    await forwardToKoaProvider(provider, req, res);
+
+    // mt#1746 R2: legacy-client runtime guard (parallel to authorize). Catches
+    // the case where a cached auth code is exchanged against a legacy client.
+    // The client_id may be in form body (client_secret_post-style) or basic auth header.
+    // For "none" clients, RFC 7591 requires client_id in form body.
+    const body = req.body as Record<string, string> | undefined;
+    const clientId = body?.client_id;
+    if (clientId) {
+      const legacyCheck = await this.checkLegacyClient(clientId);
+      if (legacyCheck.isLegacy) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description:
+            `This client was registered with token_endpoint_auth_method='${legacyCheck.authMethod}', ` +
+            `which is no longer supported. Remove and re-add the MCP integration to re-register ` +
+            `as a public PKCE client (token_endpoint_auth_method='none').`,
+        });
+        return;
+      }
+    }
+
+    // Internal path "/token" is the oidc-provider default for the token endpoint
+    // (see node_modules/oidc-provider/lib/helpers/defaults.js routes.token).
+    await forwardToKoaProvider(provider, req, res, "/token");
+  }
+
+  /**
+   * Forwards requests to the oidc-provider Koa app at oidc-provider's internal
+   * path (no URL rewrite). Used by routes where the Express path and
+   * oidc-provider's internal path already match exactly — passes req.path
+   * through unchanged.
+   *
+   * Wired Express callers:
+   * - `app.all(/^\/interaction\/[^/]+/, ...)` — devInteractions consent UI
+   *   (mt#1731). `/interaction/:uid` and subroutes.
+   * - `app.all(/^\/auth\/[^/]+/, ...)` — post-interaction authorization
+   *   continuation (mt#1753). `/auth/:uid` issues the auth code after consent.
+   *
+   * Despite the method name (retained for backward-compat), the contract is
+   * "forward any oidc-provider internal path that doesn't need URL rewrite."
+   * For paths that DO need rewrite (`/oauth/authorize` → `/auth`, etc.), use
+   * `authorize()` and `token()` instead.
+   */
+  async forwardInteraction(req: Request, res: Response): Promise<void> {
+    const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
+    const provider = this.getProvider(issuer);
+    // req.path is the path without query string, e.g. "/interaction/abc123" or
+    // "/auth/abc123". oidc-provider's internal router knows both natively.
+    await forwardToKoaProvider(provider, req, res, req.path);
   }
 
   async validateToken(bearer: string): Promise<OAuthValidationResult> {
@@ -480,6 +609,33 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       audience: row.audience ?? null,
     };
   }
+
+  /**
+   * Look up a client by id and check whether it was registered with a non-"none"
+   * token_endpoint_auth_method. Returns `{ isLegacy: true, authMethod }` for
+   * pre-mt#1746 clients that should be rejected with a re-register message.
+   * Returns `{ isLegacy: false }` for current-shape clients OR for missing
+   * clients (let oidc-provider produce the standard "invalid_client" response).
+   */
+  private async checkLegacyClient(
+    clientId: string
+  ): Promise<{ isLegacy: true; authMethod: string } | { isLegacy: false }> {
+    try {
+      const adapterFactory = createAdapterFactory(this.config.db);
+      const clientAdapter = new adapterFactory("Client");
+      const client = await clientAdapter.find(clientId);
+      if (!client) return { isLegacy: false };
+      const authMethod = (client as { token_endpoint_auth_method?: string })
+        .token_endpoint_auth_method;
+      if (authMethod && authMethod !== "none") {
+        return { isLegacy: true, authMethod };
+      }
+      return { isLegacy: false };
+    } catch {
+      // DB lookup failed: don't block — let oidc-provider produce its own error.
+      return { isLegacy: false };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -504,28 +660,76 @@ function generateRandomId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Generates a URL-safe random client secret (32 bytes = 64 hex chars). */
-function generateRandomSecret(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 /**
- * Forwards an Express req/res pair to a Koa-based oidc-provider instance.
- * The Provider class extends Koa, which exposes `callback()` returning a
- * standard Node.js `(req, res) => void` handler compatible with Express.
+ * Forwards an Express req/res pair to a Koa-based oidc-provider instance,
+ * rewriting `req.url` to oidc-provider's internal path before delegation.
+ *
+ * oidc-provider's Koa router uses its own internal paths (e.g. `/auth`, `/token`,
+ * `/interaction/:uid`) regardless of how Express mounted the endpoint. Express
+ * routes are at `/oauth/authorize` and `/oauth/token`, but the Koa router only
+ * knows `/auth` and `/token`. Without the rewrite, Koa returns 404 for every
+ * Express-originated request.
+ *
+ * The query string is preserved; only the path component is replaced.
+ *
+ * @param provider      - The oidc-provider Provider instance (extends Koa).
+ * @param req           - Express request.
+ * @param res           - Express response.
+ * @param internalPath  - The oidc-provider-internal path, e.g. "/auth" or "/token".
  */
-function forwardToKoaProvider(provider: OidcProvider, req: Request, res: Response): Promise<void> {
+function forwardToKoaProvider(
+  provider: OidcProvider,
+  req: Request,
+  res: Response,
+  internalPath: string
+): Promise<void> {
+  // Rewrite req.url so Koa's internal router matches the right route.
+  // Express path: /oauth/authorize?... → Koa path: /auth?...
+  const original = req.url;
+  const queryIdx = original.indexOf("?");
+  req.url = queryIdx >= 0 ? internalPath + original.slice(queryIdx) : internalPath;
+
+  // PR #1042 R1 BLOCKING: Koa's `app.callback()` returns a Node-style
+  // `(req, res) => void` handler — there is NO `next` parameter. The earlier
+  // implementation awaited a Promise resolved via that nonexistent `next`,
+  // which Koa never calls, producing a silent deadlock in the Express handler.
+  // Resolve on the response's `finish`/`close` events instead, and reject on
+  // `error`. Also restore `req.url` in finally so downstream middleware /
+  // logging observes the original public URL, not the rewritten internal path.
   const handler = (
     provider as {
-      callback: () => (req: unknown, res: unknown, next: (err?: unknown) => void) => void;
+      callback: () => (req: unknown, res: unknown) => void;
     }
   ).callback();
+
   return new Promise<void>((resolve, reject) => {
-    handler(req, res, (err?: unknown) => {
-      if (err) reject(err instanceof Error ? err : new Error(String(err)));
-      else resolve();
-    });
+    const cleanup = () => {
+      res.removeListener("finish", onFinish);
+      res.removeListener("close", onClose);
+      res.removeListener("error", onError);
+      req.url = original;
+    };
+    const onFinish = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (err: unknown) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    res.once("finish", onFinish);
+    res.once("close", onClose);
+    res.once("error", onError);
+
+    try {
+      handler(req, res);
+    } catch (err) {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }

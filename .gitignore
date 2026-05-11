@@ -3,7 +3,9 @@ node_modules
 
 # output
 out
-dist
+dist/
+# mt#1740: measurement output from scripts/measure-cold-start.ts (per-run results, not committed)
+scripts/cold-start-results.json
 *.tgz
 
 # code coverage

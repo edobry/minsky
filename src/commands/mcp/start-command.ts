@@ -37,6 +37,7 @@ import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import { resolveOAuthProvider } from "../../domain/oauth/registry";
 import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
 import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
+import { profileCheckpoint } from "../../utils/cold-start-profile";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -145,6 +146,7 @@ async function registerAllTools(
   // must happen here — making it impossible to register tools without persistence.
   if (container && !container.has("persistence")) {
     await container.initialize();
+    profileCheckpoint("container_initialized_inline");
     log.debug("Container initialized for MCP server");
   }
 
@@ -559,6 +561,61 @@ async function startHttpServer(
     }
   });
 
+  // mt#1731 Bug-B fix: forward /interaction/:uid requests to the oidc-provider
+  // PR #1042 R1: anchor the regex so it matches /interaction/<uid>(/anything)? but
+  // NOT bare /interaction/ — oidc-provider's interaction routes always have at
+  // least one path segment after /interaction/ (e.g. /interaction/:uid, /interaction/:uid/abort).
+  app.all(/^\/interaction\/[^/]+/, async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.forwardInteraction(req, res);
+    } catch (err) {
+      log.error("OAuth interaction error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Interaction endpoint error",
+        });
+      }
+    }
+  });
+
+  // mt#1753: forward /auth/<uid> requests to oidc-provider. After devInteractions
+  // consent is submitted, oidc-provider 302-redirects to /auth/<uid> (its internal
+  // authorization-continuation endpoint) to issue the auth code and redirect back
+  // to the client's redirect_uri. Express has no match for this path unless we
+  // explicitly mount it. Mirrors the /interaction/<uid> handler exactly — same
+  // forwardInteraction() method because /auth/<uid> is already oidc-provider's
+  // internal path (no URL rewrite needed). The regex anchors after /auth/ to
+  // require a uid segment, so the bare /oauth/authorize → /auth (rewritten) path
+  // from mt#1731 is unaffected.
+  app.all(/^\/auth\/[^/]+/, async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.forwardInteraction(req, res);
+    } catch (err) {
+      log.error("OAuth /auth/<uid> error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Authorization-continuation endpoint error",
+        });
+      }
+    }
+  });
+
   // Start the HTTP server
   // NOTE: the `http://...` URLs printed below are the INTERNAL listener
   // (i.e., what Express binds to inside the container). In TLS-fronted
@@ -745,6 +802,11 @@ export function createStartCommand(
     )
     .action(async (options) => {
       try {
+        // mt#1745: cold-start profiling. `profileCheckpoint` is shared with
+        // `src/cli.ts` so all checkpoint `t=` values are relative to the
+        // SAME baseline (set at cli.ts module load).
+        profileCheckpoint("action_entry");
+
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
@@ -799,10 +861,13 @@ export function createStartCommand(
 
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
+        profileCheckpoint("server_constructed");
 
         // Register tools via adapter-based approach (initializes container if needed)
         const commandMapper = new CommandMapper(server, server.getProjectContext());
+        profileCheckpoint("mapper_constructed");
         await registerAllTools(commandMapper, container);
+        profileCheckpoint("tools_registered");
 
         // Wire the container into the server so agentId can be written to session records
         // (must happen after registerAllTools which triggers container.initialize())
@@ -862,6 +927,7 @@ export function createStartCommand(
 
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
+        profileCheckpoint("knowledge_resources_registered");
 
         // Resolve the OAuth identity provider for HTTP-mode DCR + discovery endpoints.
         // Requires a SQL-capable persistence provider (Postgres). Falls back to
@@ -961,6 +1027,7 @@ export function createStartCommand(
           // Stdio transport
           if (!options.withInspector) {
             await server.start();
+            profileCheckpoint("server_started");
             if (projectContext) {
               log.cli(`Repository path: ${projectContext.repositoryPath}`);
             }

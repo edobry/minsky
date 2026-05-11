@@ -62,6 +62,10 @@ class PlaceholderOAuthProvider implements OAuthIdentityProvider {
     return this.notImplemented("token");
   }
 
+  async forwardInteraction(): Promise<never> {
+    return this.notImplemented("forwardInteraction");
+  }
+
   async validateToken(): Promise<never> {
     return this.notImplemented("validateToken");
   }
