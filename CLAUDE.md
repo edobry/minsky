@@ -57,9 +57,13 @@ before each tool dispatch). Helper processes characteristically connect without
 invoking tools; this is the only reliable signal that doesn't overlap with
 short working sessions.
 
-**Legacy events** without `processRole` (from pre-mt#1705 logs) are treated
-conservatively as `"main_session"` for escalation eligibility — we have no
-tool-call count to discriminate them.
+**Legacy events** without `processRole` (from pre-mt#1705 logs) are surfaced
+in their own `byRole.legacy` aggregate bucket so operators can see migration
+progress (the legacy count shrinks toward 0 as new-format events saturate the
+log). For escalation eligibility, legacy events are treated conservatively as
+escalation-eligible — same as `"main_session"` — because we have no tool-call
+count to discriminate them. The aggregate split is informational; only the
+predicate's conservative treatment matters for the escalation signal.
 
 ## Recurrence-threshold escalation
 
@@ -78,7 +82,8 @@ The tracker emits `escalation: "none" | "session" | "daily"` in the
   uptime are counted conservatively)
 - `processRole !== "helper"` (mt#1705 — helper sessions never escalate;
   legacy events without `processRole` are counted conservatively as
-  `"main_session"`)
+  escalation-eligible and are surfaced in `byRole.legacy` separately from
+  `byRole.main_session`)
 
 When `escalation` is non-`none`, file or update the structural-fix follow-up
 task. The threshold is calibrated against the empirically observed cadence
