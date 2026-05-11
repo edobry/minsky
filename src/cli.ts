@@ -1,12 +1,19 @@
 #!/usr/bin/env bun
 import "reflect-metadata";
 
+// mt#1745: cold-start profiling. Loaded FIRST so the module-level timer
+// baseline is set as early as possible — every other checkpoint's `t=` is
+// relative to this point. No-op when MINSKY_MCP_PROFILE=1 is unset.
+import { profileCheckpoint } from "./utils/cold-start-profile";
+profileCheckpoint("cli_top");
+
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it
 import { setupConfiguration } from "./config-setup";
 
 // Wait for configuration to be initialized before proceeding with other imports
 await setupConfiguration();
+profileCheckpoint("config_setup_complete");
 
 import { Command } from "commander";
 import { log } from "./utils/logger";
@@ -14,6 +21,7 @@ import { exit } from "./utils/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "./schemas/error";
 import type { AppContainerInterface } from "./composition/types";
+profileCheckpoint("cli_imports_complete");
 
 /**
  * Root CLI command
@@ -45,17 +53,23 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // the DB connection (~1s) past Commander parsing.
   cli.hook("preAction", async () => {
     if (!container.has("persistence")) {
+      profileCheckpoint("preaction_before_container_init");
       await container.initialize();
+      profileCheckpoint("preaction_after_container_init");
       log.debug("Container initialized (lazy, on first command)");
     }
   });
 
   // Register shared commands (session, tasks, git, rules, config, etc.)
+  profileCheckpoint("before_shared_commands_load");
   const { registerAllSharedCommands } = await import("./adapters/shared/commands/index");
+  profileCheckpoint("shared_commands_module_loaded");
   await registerAllSharedCommands(container);
+  profileCheckpoint("shared_commands_registered");
 
   // Register all commands via CLI command factory (which applies customizations)
   cliFactory.registerAllCommands(cli);
+  profileCheckpoint("cli_factory_registered");
 
   // Non-shared commands (context, mcp, github, lint, init, setup) pull in expensive
   // dependencies (~700ms total: AI tokenizer, MCP SDK, etc.). Only load when actually
@@ -70,8 +84,11 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     requestedCommand === "-V";
 
   if (needsAll || requestedCommand === "mcp") {
+    profileCheckpoint("before_mcp_command_load");
     const { createMCPCommand } = await import("./commands/mcp/index");
+    profileCheckpoint("mcp_command_module_loaded");
     cli.addCommand(await createMCPCommand(container));
+    profileCheckpoint("mcp_command_added");
   }
   if (needsAll || requestedCommand === "github") {
     const { createGitHubCommand } = await import("./commands/github/index");

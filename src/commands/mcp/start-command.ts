@@ -37,6 +37,7 @@ import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import { resolveOAuthProvider } from "../../domain/oauth/registry";
 import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
 import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
+import { profileCheckpoint } from "../../utils/cold-start-profile";
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -145,6 +146,7 @@ async function registerAllTools(
   // must happen here — making it impossible to register tools without persistence.
   if (container && !container.has("persistence")) {
     await container.initialize();
+    profileCheckpoint("container_initialized_inline");
     log.debug("Container initialized for MCP server");
   }
 
@@ -770,6 +772,11 @@ export function createStartCommand(
     )
     .action(async (options) => {
       try {
+        // mt#1745: cold-start profiling. `profileCheckpoint` is shared with
+        // `src/cli.ts` so all checkpoint `t=` values are relative to the
+        // SAME baseline (set at cli.ts module load).
+        profileCheckpoint("action_entry");
+
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
@@ -824,10 +831,13 @@ export function createStartCommand(
 
         // Create server with the specified transport
         const server = new MinskyMCPServer(serverConfig);
+        profileCheckpoint("server_constructed");
 
         // Register tools via adapter-based approach (initializes container if needed)
         const commandMapper = new CommandMapper(server, server.getProjectContext());
+        profileCheckpoint("mapper_constructed");
         await registerAllTools(commandMapper, container);
+        profileCheckpoint("tools_registered");
 
         // Wire the container into the server so agentId can be written to session records
         // (must happen after registerAllTools which triggers container.initialize())
@@ -887,6 +897,7 @@ export function createStartCommand(
 
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
+        profileCheckpoint("knowledge_resources_registered");
 
         // Resolve the OAuth identity provider for HTTP-mode DCR + discovery endpoints.
         // Requires a SQL-capable persistence provider (Postgres). Falls back to
@@ -986,6 +997,7 @@ export function createStartCommand(
           // Stdio transport
           if (!options.withInspector) {
             await server.start();
+            profileCheckpoint("server_started");
             if (projectContext) {
               log.cli(`Repository path: ${projectContext.repositoryPath}`);
             }
