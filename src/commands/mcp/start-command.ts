@@ -27,6 +27,7 @@ import { registerValidateTools } from "../../adapters/mcp/validate";
 import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
 import { registerMemoryTools } from "../../adapters/mcp/memory";
+import { registerDetectorsTools } from "../../adapters/mcp/detectors";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
@@ -181,6 +182,7 @@ async function registerAllTools(
   registerValidateTools(commandMapper, container);
   registerMcpManagementTools(commandMapper, container);
   registerMemoryTools(commandMapper, container);
+  registerDetectorsTools(commandMapper, container);
 }
 
 /**

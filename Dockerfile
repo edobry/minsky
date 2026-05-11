@@ -12,6 +12,11 @@ WORKDIR /app
 
 # Dependency layer — cached unless package.json/bun.lock changes.
 COPY package.json bun.lock ./
+
+# Workspace package manifests (mt#1681 / mt#1722): bun install needs these
+# to resolve `@minsky/shared@workspace:packages/shared` from the lockfile.
+COPY packages/shared/package.json ./packages/shared/package.json
+
 RUN bun install --frozen-lockfile
 
 # Source layer.

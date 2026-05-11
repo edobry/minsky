@@ -382,6 +382,32 @@ describe("MCP shared-command bridge", () => {
     expect(captured.handler).toBeUndefined();
   });
 
+  test("registerAllMainCommandsWithMcp does NOT include DETECTORS (mt#1721 regression guard)", async () => {
+    // PR #1037 (mt#1721): DETECTORS commands are registered solely via the
+    // per-category adapter `registerDetectorsTools` invoked from
+    // start-command.ts, matching the MEMORY single-path model. Including
+    // them in the all-in-one helper would create the same silent-overwrite
+    // hazard via MinskyMCPServer.addTool()'s Map semantics. This test locks
+    // the DETECTORS exclusion until mt#1521's structural source-of-truth
+    // refactor lands.
+    const id = "detectors.__mcp_bridge_exclusion_test__";
+
+    registerTestCommand({
+      id,
+      name: id,
+      category: CommandCategory.DETECTORS,
+      description: "DETECTORS exclusion regression test",
+      requiresSetup: false,
+      parameters: {},
+      execute: async () => ({ success: true }),
+    });
+
+    const { mapper, captured } = makeMockMapper(id);
+    registerAllMainCommandsWithMcp(mapper as never);
+
+    expect(captured.handler).toBeUndefined();
+  });
+
   test("does not throw when a TASKS command has a non-Zod plain-object schema", () => {
     // Regression guard for the CI-only failure where schema.optional() threw
     // "TypeError: schema.optional is not a function" because a command was
