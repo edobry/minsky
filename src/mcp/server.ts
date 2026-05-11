@@ -709,6 +709,12 @@ export class MinskyMCPServer {
         throw new Error("Server is shutting down");
       }
 
+      // mt#1705: count tool calls for process-role classification at disconnect
+      // time. Incremented before the tool runs so the count is accurate even if
+      // the handler throws. This is the discriminating signal: 0 calls → "helper"
+      // (harness helper / hook spawner / probe), 1+ calls → "main_session".
+      this.disconnectTracker.incrementToolCallCount();
+
       const trackingId = this.nextRequestId++;
       this.inFlightRequests.set(trackingId, Date.now());
 

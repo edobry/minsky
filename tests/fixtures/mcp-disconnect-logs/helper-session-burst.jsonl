@@ -1,0 +1,10 @@
+{"timestamp":"2026-05-10T20:00:00.000Z","serverName":"Minsky MCP Server","kind":"process_start","cause":"process_start","pid":10001}
+{"timestamp":"2026-05-10T20:00:33.000Z","serverName":"Minsky MCP Server","kind":"disconnect","cause":"stdin_close","uptimeMs":33000}
+{"timestamp":"2026-05-10T20:01:00.000Z","serverName":"Minsky MCP Server","kind":"process_start","cause":"process_start","pid":10002}
+{"timestamp":"2026-05-10T20:02:54.000Z","serverName":"Minsky MCP Server","kind":"disconnect","cause":"stdin_close","uptimeMs":114000}
+{"timestamp":"2026-05-10T20:03:00.000Z","serverName":"Minsky MCP Server","kind":"process_start","cause":"process_start","pid":10003}
+{"timestamp":"2026-05-10T20:05:17.000Z","serverName":"Minsky MCP Server","kind":"disconnect","cause":"stdin_close","uptimeMs":137000}
+{"timestamp":"2026-05-10T20:06:00.000Z","serverName":"Minsky MCP Server","kind":"process_start","cause":"process_start","pid":10004}
+{"timestamp":"2026-05-10T20:09:21.000Z","serverName":"Minsky MCP Server","kind":"disconnect","cause":"stdin_close","uptimeMs":201000}
+{"timestamp":"2026-05-10T20:10:00.000Z","serverName":"Minsky MCP Server","kind":"process_start","cause":"process_start","pid":10005}
+{"timestamp":"2026-05-10T20:13:17.000Z","serverName":"Minsky MCP Server","kind":"disconnect","cause":"stdin_close","uptimeMs":197000}
