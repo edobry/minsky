@@ -245,8 +245,17 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
           });
         }
 
-        // Sort workstreams by activeChildCount descending (most active first)
-        workstreams.sort((a, b) => b.activeChildCount - a.activeChildCount);
+        // Sort workstreams by activeChildCount descending (most active first),
+        // with parentId ascending as a deterministic tie-breaker. PR #1032 R1
+        // reviewer finding: without the secondary sort, two workstreams with
+        // the same active count would render in nondeterministic order across
+        // polling refreshes.
+        workstreams.sort((a, b) => {
+          if (b.activeChildCount !== a.activeChildCount) {
+            return b.activeChildCount - a.activeChildCount;
+          }
+          return a.parentId.localeCompare(b.parentId);
+        });
 
         const payload: WorkstreamsPayload = { workstreams };
         return { state: "ok", payload };

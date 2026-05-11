@@ -707,7 +707,13 @@ describe("Cockpit server", () => {
     parentRels: Array<{ fromTaskId: string; toTaskId: string }>
   ): WorkstreamsDeps {
     const mockTaskService = {
-      listTasks: async () =>
+      // Accept the production `options` parameter even though the v0 fixture
+      // does not filter. PR #1032 R1 reviewer finding: a mock that drops the
+      // `options` arg silently masks regressions if the widget ever starts
+      // passing meaningful filter options. Marking it `_options` documents
+      // the deliberate v0 no-op and keeps the signature in sync with
+      // TaskServiceInterface.listTasks.
+      listTasks: async (_options?: unknown) =>
         tasks.map((t) => ({
           id: t.id,
           title: t.title,
