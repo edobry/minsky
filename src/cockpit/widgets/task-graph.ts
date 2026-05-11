@@ -43,13 +43,18 @@ export interface GraphNode {
     | "PLANNING";
 }
 
-/** A directed dependency edge */
+/**
+ * A directed "depends" edge from `source` (the dependent) to `target` (the
+ * dependency). Mirrors `TaskGraphService` semantics: a `depends` relationship
+ * has `fromTaskId` (the task that has a dependency, i.e. dependent) →
+ * `toTaskId` (the task that is depended on, i.e. dependency).
+ */
 export interface GraphEdge {
-  /** Unique edge identifier */
+  /** Unique edge identifier (format: `${relationshipType}:${source}->${target}`) */
   id: string;
-  /** Upstream task ID (the dependency) */
+  /** Dependent task ID — the task that has this dependency */
   source: string;
-  /** Downstream task ID (the dependent) */
+  /** Dependency task ID — the task that is depended on */
   target: string;
 }
 
