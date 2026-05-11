@@ -12,6 +12,7 @@ import type { CockpitConfig } from "./types";
 
 const DEFAULT_CONFIG: CockpitConfig = {
   widgets: [
+    { id: "agents", enabled: true },
     { id: "attention-stub", enabled: true },
     { id: "basic-health", enabled: true },
   ],

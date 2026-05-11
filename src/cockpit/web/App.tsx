@@ -3,10 +3,12 @@ import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/Card";
 import { fetchWidgets, fetchWidgetData, type WidgetMeta, type WidgetData } from "./lib/widget-client";
+import { Agents } from "./widgets/Agents";
 import { AttentionStub } from "./widgets/AttentionStub";
 import { BasicHealth } from "./widgets/BasicHealth";
 
 const WIDGET_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
+  agents: Agents,
   "attention-stub": AttentionStub,
   "basic-health": BasicHealth,
 };

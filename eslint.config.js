@@ -318,6 +318,8 @@ export default [
             "**/src/adapters/cli/**/*.ts",
             // Git subcommand composition roots
             "**/subcommands/*.ts",
+            // Cockpit widget composition roots (wire DI providers for the cockpit server)
+            "**/src/cockpit/widgets/agents.ts",
             // Scripts and one-off tools (composition roots by nature)
             "**/scripts/*.ts",
             "**/debug-*.ts",
