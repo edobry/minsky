@@ -19,12 +19,13 @@ WORKDIR /app
 # Dependency layer — cached unless package.json/bun.lock changes.
 COPY package.json bun.lock ./
 
-# Workspace package manifests. The root declares
+# Workspace package manifests (mt#1681 / mt#1722 / mt#1727). The root declares
 # `workspaces: ["packages/*", "services/*"]`, and bun's `--frozen-lockfile`
 # install rejects any divergence between the workspace topology in the build
-# context and the committed lockfile. Every workspace member's package.json
-# must be present here even when its source tree isn't pulled into this
-# image (see selective COPY below for what actually ships).
+# context and the committed lockfile. packages/shared is a direct dep of
+# root; services/reviewer is NOT used by minsky-mcp at runtime but its
+# manifest must be present so bun's workspace install computes the same
+# tree as the lockfile. See selective COPY below for what actually ships.
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY services/reviewer/package.json ./services/reviewer/package.json
 
