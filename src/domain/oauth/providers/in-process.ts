@@ -445,6 +445,26 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       return;
     }
 
+    // mt#1746 R2: legacy-client runtime guard. Pre-mt#1746 clients in the DB
+    // may have token_endpoint_auth_method set to client_secret_basic/post.
+    // ClientAdapter.find() does not return the raw secret (only stores a hash),
+    // so oidc-provider would reject those clients at authorize with an opaque
+    // "invalid_client_metadata: client_secret is mandatory property" error.
+    // Catch them here with an actionable "re-register" message.
+    if (query.client_id) {
+      const legacyCheck = await this.checkLegacyClient(query.client_id);
+      if (legacyCheck.isLegacy) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description:
+            `This client was registered with token_endpoint_auth_method='${legacyCheck.authMethod}', ` +
+            `which is no longer supported. Remove and re-add the MCP integration to re-register ` +
+            `as a public PKCE client (token_endpoint_auth_method='none').`,
+        });
+        return;
+      }
+    }
+
     // Forward to the oidc-provider Koa app via the Node.js http callback.
     // The Provider extends Koa, which exposes a callback() method returning a
     // standard Node.js (req, res) => void handler compatible with Express.
@@ -456,6 +476,27 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
   async token(req: Request, res: Response): Promise<void> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
     const provider = this.getProvider(issuer);
+
+    // mt#1746 R2: legacy-client runtime guard (parallel to authorize). Catches
+    // the case where a cached auth code is exchanged against a legacy client.
+    // The client_id may be in form body (client_secret_post-style) or basic auth header.
+    // For "none" clients, RFC 7591 requires client_id in form body.
+    const body = req.body as Record<string, string> | undefined;
+    const clientId = body?.client_id;
+    if (clientId) {
+      const legacyCheck = await this.checkLegacyClient(clientId);
+      if (legacyCheck.isLegacy) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description:
+            `This client was registered with token_endpoint_auth_method='${legacyCheck.authMethod}', ` +
+            `which is no longer supported. Remove and re-add the MCP integration to re-register ` +
+            `as a public PKCE client (token_endpoint_auth_method='none').`,
+        });
+        return;
+      }
+    }
+
     // Internal path "/token" is the oidc-provider default for the token endpoint
     // (see node_modules/oidc-provider/lib/helpers/defaults.js routes.token).
     await forwardToKoaProvider(provider, req, res, "/token");
@@ -526,6 +567,33 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       scopes,
       audience: row.audience ?? null,
     };
+  }
+
+  /**
+   * Look up a client by id and check whether it was registered with a non-"none"
+   * token_endpoint_auth_method. Returns `{ isLegacy: true, authMethod }` for
+   * pre-mt#1746 clients that should be rejected with a re-register message.
+   * Returns `{ isLegacy: false }` for current-shape clients OR for missing
+   * clients (let oidc-provider produce the standard "invalid_client" response).
+   */
+  private async checkLegacyClient(
+    clientId: string
+  ): Promise<{ isLegacy: true; authMethod: string } | { isLegacy: false }> {
+    try {
+      const adapterFactory = createAdapterFactory(this.config.db);
+      const clientAdapter = new adapterFactory("Client");
+      const client = await clientAdapter.find(clientId);
+      if (!client) return { isLegacy: false };
+      const authMethod = (client as { token_endpoint_auth_method?: string })
+        .token_endpoint_auth_method;
+      if (authMethod && authMethod !== "none") {
+        return { isLegacy: true, authMethod };
+      }
+      return { isLegacy: false };
+    } catch {
+      // DB lookup failed: don't block — let oidc-provider produce its own error.
+      return { isLegacy: false };
+    }
   }
 }
 
