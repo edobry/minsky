@@ -24,7 +24,7 @@ export function createStartCommand(): Command {
       `Port to listen on (default: ${DEFAULT_PORT})`,
       DEFAULT_PORT.toString()
     )
-    .action((options) => {
+    .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
@@ -41,7 +41,13 @@ export function createStartCommand(): Command {
 
       app.listen(port, () => {
         console.log(`Cockpit running at http://localhost:${port}`);
+        console.log("Press Ctrl+C to stop");
       });
+
+      // Keep the action handler awaiting indefinitely so the top-level CLI
+      // doesn't fall through to its `exit(0)` after parseAsync resolves.
+      // Mirrors `src/commands/mcp/start-command.ts:1101`.
+      await new Promise<never>(() => {});
     });
 
   return startCommand;
