@@ -18,6 +18,8 @@ import type { AdoptionSignal } from "@minsky/shared/adoption/signal-extraction";
 
 const EVENT_PR_CLOSED = "pull_request.closed";
 const EVENT_PR_OPENED = "pull_request.opened";
+// Shared constants for lifecycleState tests (avoids magic-string-duplication warnings).
+const STATE_TASK_STATUS_IN_PROGRESS = "TaskStatus" + ".IN_PROGRESS";
 
 // ---------------------------------------------------------------------------
 // Helper
@@ -265,29 +267,49 @@ describe("extractAdoptionSignals — commandId", () => {
 // ---------------------------------------------------------------------------
 
 describe("extractAdoptionSignals — lifecycleState", () => {
-  it("extracts STATUS.DONE", () => {
+  // PR #1034 R2 BLOCKING fix: signal name is now the FULL qualified reference
+  // (e.g. "STATUS.DONE"), not just the bare state token. This prevents a grep
+  // for ".DONE" from matching unrelated enums.
+
+  it("extracts STATUS.DONE as the qualified name", () => {
     const spec = `status === STATUS.DONE`;
     const signals = extractAdoptionSignals(spec);
     const states = signalsOfKind(signals, "lifecycleState");
     expect(states).toHaveLength(1);
-    const sig = findSignal(signals, "lifecycleState", "DONE");
-    expect(sig.name).toBe("DONE");
+    const sig = findSignal(signals, "lifecycleState", "STATUS.DONE");
+    expect(sig.name).toBe("STATUS.DONE");
   });
 
-  it("extracts TaskStatus.IN_PROGRESS", () => {
+  it("extracts TaskStatus.IN_PROGRESS as the qualified name", () => {
     const spec = `task.status = TaskStatus.IN_PROGRESS`;
     const states = signalsOfKind(extractAdoptionSignals(spec), "lifecycleState");
     expect(states).toHaveLength(1);
-    const sig = findSignal(extractAdoptionSignals(spec), "lifecycleState", "IN_PROGRESS");
-    expect(sig.name).toBe("IN_PROGRESS");
+    const sig = findSignal(
+      extractAdoptionSignals(spec),
+      "lifecycleState",
+      STATE_TASK_STATUS_IN_PROGRESS
+    );
+    expect(sig.name).toBe(STATE_TASK_STATUS_IN_PROGRESS);
   });
 
-  it("extracts SessionStatus.MERGED", () => {
+  it("extracts SessionStatus.MERGED as the qualified name", () => {
     const spec = `session.status === SessionStatus.MERGED`;
     const states = signalsOfKind(extractAdoptionSignals(spec), "lifecycleState");
     expect(states).toHaveLength(1);
-    const sig = findSignal(extractAdoptionSignals(spec), "lifecycleState", "MERGED");
-    expect(sig.name).toBe("MERGED");
+    const sig = findSignal(extractAdoptionSignals(spec), "lifecycleState", "SessionStatus.MERGED");
+    expect(sig.name).toBe("SessionStatus.MERGED");
+  });
+
+  it("treats STATUS.DONE and TaskStatus.DONE as distinct signals (different qualifiers)", () => {
+    // PR #1034 R2: bare ".DONE" would conflate these; qualified names keep them distinct.
+    const spec = ["if (status === STATUS.DONE) return;", "task.status = TaskStatus.DONE;"].join(
+      "\n"
+    );
+    const states = signalsOfKind(extractAdoptionSignals(spec), "lifecycleState");
+    expect(states).toHaveLength(2);
+    const names = states.map((s) => s.name);
+    expect(names).toContain("STATUS.DONE");
+    expect(names).toContain("TaskStatus.DONE");
   });
 
   it("extracts multiple lifecycle states from different lines", () => {
@@ -297,14 +319,15 @@ describe("extractAdoptionSignals — lifecycleState", () => {
     const states = signalsOfKind(extractAdoptionSignals(spec), "lifecycleState");
     expect(states).toHaveLength(2);
     const names = states.map((s) => s.name);
-    expect(names).toContain("DONE");
-    expect(names).toContain("IN_REVIEW");
+    expect(names).toContain("STATUS.DONE");
+    expect(names).toContain("STATUS.IN_REVIEW");
   });
 
   it("deduplicates the same lifecycle state appearing multiple times", () => {
     const spec = "STATUS.DONE\nSTATUS.DONE\nSTATUS.DONE";
     const states = signalsOfKind(extractAdoptionSignals(spec), "lifecycleState");
     expect(states).toHaveLength(1);
+    expect(states[0]?.name).toBe("STATUS.DONE");
   });
 });
 
@@ -337,7 +360,7 @@ describe("extractAdoptionSignals — mixed spec", () => {
     expect(signalsOfKind(signals, "mcpTool").map((s) => s.name)).toContain(
       "session.apply_post_merge_state_sync"
     );
-    expect(signalsOfKind(signals, "lifecycleState").map((s) => s.name)).toContain("DONE");
+    expect(signalsOfKind(signals, "lifecycleState").map((s) => s.name)).toContain("STATUS.DONE");
     expect(signalsOfKind(signals, "class").map((s) => s.name)).toContain("AdoptionSweeper");
   });
 });
@@ -392,8 +415,22 @@ describe("buildGrepPattern", () => {
     expect(buildGrepPattern(signal)).toBe('"session.start"');
   });
 
-  it("returns .STATE_NAME for lifecycleState signals", () => {
-    const signal: AdoptionSignal = { kind: "lifecycleState", name: "DONE", sourceLine: 1 };
-    expect(buildGrepPattern(signal)).toBe(".DONE");
+  it("returns the qualified token for lifecycleState signals (PR #1034 R2 BLOCKING fix)", () => {
+    // Previously returned ".DONE" which matched any `.DONE` reference anywhere.
+    // Now returns the qualified form so the grep doesn't conflate with
+    // unrelated enums.
+    const sigStatus: AdoptionSignal = {
+      kind: "lifecycleState",
+      name: "STATUS.DONE",
+      sourceLine: 1,
+    };
+    expect(buildGrepPattern(sigStatus)).toBe("STATUS.DONE");
+
+    const sigTask: AdoptionSignal = {
+      kind: "lifecycleState",
+      name: STATE_TASK_STATUS_IN_PROGRESS,
+      sourceLine: 1,
+    };
+    expect(buildGrepPattern(sigTask)).toBe(STATE_TASK_STATUS_IN_PROGRESS);
   });
 });

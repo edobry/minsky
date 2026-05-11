@@ -84,8 +84,10 @@ const SIGNAL_PATTERNS: Array<[AdoptionSignalKind, RegExp, number]> = [
   // commandId: "session.list" (explicit commandId key)
   ["commandId", /\bcommandId\s*:\s*["']([^"']+)["']/, 1],
   // STATUS.DONE / TaskStatus.IN_PROGRESS / SessionStatus.MERGED etc.
-  // Captures the full qualified reference (e.g. "STATUS.DONE", "TaskStatus.IN_REVIEW")
-  ["lifecycleState", /\b(?:STATUS|TaskStatus|SessionStatus|Status)\.([A-Z_][A-Z0-9_]*)/, 1],
+  // PR #1034 R2 BLOCKING fix: capture group 1 now wraps the FULL qualified
+  // reference (e.g. "STATUS.DONE", "TaskStatus.IN_REVIEW") so the grep pattern
+  // doesn't degrade to a bare ".DONE" that matches unrelated enums.
+  ["lifecycleState", /\b((?:STATUS|TaskStatus|SessionStatus|Status)\.[A-Z_][A-Z0-9_]*)/, 1],
 ];
 
 // ---------------------------------------------------------------------------
@@ -158,7 +160,9 @@ export function buildGrepPattern(signal: AdoptionSignal): string {
       // id: "session.list" or "session.list" in a registration table
       return `"${signal.name}"`;
     case "lifecycleState":
-      // STATUS.DONE or TaskStatus.DONE
-      return `.${signal.name}`;
+      // The qualified form (e.g. "STATUS.DONE", "TaskStatus.IN_PROGRESS") is
+      // now stored in signal.name directly (PR #1034 R2 BLOCKING fix). Search
+      // for the exact qualified token rather than a leading-dot wildcard.
+      return signal.name;
   }
 }

@@ -210,7 +210,16 @@ async function testGithubReachable(): Promise<{ pass: boolean; detail: string }>
 // Test 2: MCP tool registration — required tools exist
 // ---------------------------------------------------------------------------
 
-const REQUIRED_TOOLS = ["tasks_search", "tasks_spec_get", "tasks_create", "repo_search"];
+// PR #1034 R2 NB: tasks_list added (the sweeper uses it as the primary
+// DONE-task query with a `since` filter; previously the sweeper used tasks_search
+// without recency).
+const REQUIRED_TOOLS = [
+  "tasks_list",
+  "tasks_search",
+  "tasks_spec_get",
+  "tasks_create",
+  "repo_search",
+];
 
 async function testMcpToolsRegistered(): Promise<{ pass: boolean; detail: string }> {
   const toolNames = await listMcpTools();
