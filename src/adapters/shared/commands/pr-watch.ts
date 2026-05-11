@@ -22,6 +22,13 @@ import type { PrWatch, PrWatchEvent } from "../../../domain/pr-watch/types";
 import { runWatcher, type WatcherResult } from "../../../domain/pr-watch/watcher";
 import { makeProductionGithubPrClient } from "../../../domain/pr-watch/github-client";
 import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
+import {
+  CompositeWakeSignalSink,
+  LoggingWakeSignalSink,
+  PersistentWakeSignalSink,
+  type WakeSignalSink,
+} from "../../../domain/ask/wake-on-respond";
+import { DrizzleWakePendingRepository } from "../../../domain/ask/wake-pending-repository";
 import type { AppContainerInterface } from "../../../composition/types";
 import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
 
@@ -91,6 +98,68 @@ async function buildTokenProviderFromConfig(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// Session extraction from MCP call context
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a Minsky session UUID from the MCP tool call parameters.
+ *
+ * Pattern established by `memory-enrichment.ts` and the wake-enrichment
+ * middleware: callers may pass the session as `session`, `sessionId`, `task`,
+ * or `taskId`. For `pr_watch_create`, the relevant field is `session` or
+ * `sessionId` — the registering agent's own conversation context.
+ *
+ * Returns the first non-empty string found, or `undefined` when no resolvable
+ * session arg is present. When `undefined`, the watch is stored with null
+ * `parentSessionId` and telemetered as `pr_watch.no_session_id`.
+ */
+function extractSessionId(params: Record<string, unknown>): string | undefined {
+  for (const key of ["session", "sessionId"]) {
+    const value = params[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Composite WakeSignalSink factory
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a `CompositeWakeSignalSink` for `pr_watch_run` that fans out wake
+ * events to the logging sink + the persistent sink (when persistence is
+ * available). Mirrors the pattern from `asks.ts:buildCompositeWakeSink`.
+ *
+ * When the persistence provider is unavailable, falls back to logging-only
+ * so the watcher keeps working.
+ */
+async function buildCompositeWakeSink(
+  container: AppContainerInterface | undefined
+): Promise<WakeSignalSink> {
+  const sinks: WakeSignalSink[] = [new LoggingWakeSignalSink()];
+
+  if (container?.has("persistence")) {
+    try {
+      const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+      if (persistenceProvider.getDatabaseConnection) {
+        const db = await persistenceProvider.getDatabaseConnection();
+        if (db) {
+          sinks.push(new PersistentWakeSignalSink(new DrizzleWakePendingRepository(db)));
+        }
+      }
+    } catch (err: unknown) {
+      log.warn("pr.watch.run: could not initialize PersistentWakeSignalSink", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  return new CompositeWakeSignalSink(sinks);
+}
+
+// ---------------------------------------------------------------------------
 // pr.watch.create
 // ---------------------------------------------------------------------------
 
@@ -130,6 +199,18 @@ const prWatchCreateParams = {
       "Watcher identity in {kind}:{scope}:{id} format. Defaults to operator:local:default",
     required: false,
     defaultValue: "operator:local:default",
+  },
+  session: {
+    schema: z.string().optional(),
+    description:
+      "Minsky session UUID of the registering agent. When provided, the wake signal is routed " +
+      "to this session via enrichWakeResponse on the next allowlisted MCP tool call (mt#1725).",
+    required: false,
+  },
+  sessionId: {
+    schema: z.string().optional(),
+    description: "Alias for session. The first non-empty value of session/sessionId is used.",
+    required: false,
   },
 };
 
@@ -187,6 +268,20 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
           );
         }
 
+        // Extract the registering agent's session UUID from the MCP call params.
+        // This is used for wake-signal routing: when the watch fires, the wake
+        // signal is delivered to this session via enrichWakeResponse (mt#1725).
+        const parentSessionId = extractSessionId(params as Record<string, unknown>);
+        if (!parentSessionId) {
+          log.cli(
+            `pr_watch.no_session_id ${JSON.stringify({
+              event: "pr_watch.no_session_id",
+              reason: "no session or sessionId in params at registration time",
+              pr: `${params.owner as string}/${params.repo as string}#${params.number as number}`,
+            })}`
+          );
+        }
+
         const input: CreatePrWatchInput = {
           prOwner: params.owner as string,
           prRepo: params.repo as string,
@@ -194,6 +289,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
           event: (params.event as PrWatchEvent | undefined) ?? "merged",
           keep: (params.keep as boolean | undefined) ?? false,
           watcherId: (params.watcherId as string | undefined) ?? "operator:local:default",
+          parentSessionId,
         };
 
         const watch = await prWatchRepository.create(input);
@@ -202,6 +298,7 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
           pr: `${watch.prOwner}/${watch.prRepo}#${watch.prNumber}`,
           event: watch.event,
           keep: watch.keep,
+          parentSessionId: watch.parentSessionId ?? "(none)",
         });
         return watch;
       },
@@ -283,7 +380,12 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         const { tokenProvider } = await buildTokenProviderFromConfig();
         const githubClient = makeProductionGithubPrClient(tokenProvider);
         const operatorNotify = new SystemOperatorNotify();
-        return runWatcher(prWatchRepository, githubClient, operatorNotify);
+        // mt#1725: compose LoggingWakeSignalSink + PersistentWakeSignalSink so
+        // fired watches route wake signals to the registering agent's session.
+        // The persistent sink writes to wake_pending; enrichWakeResponse drains
+        // it on the agent's next allowlisted tool call (pull-on-tool-call delivery).
+        const wakeSink = await buildCompositeWakeSink(container);
+        return runWatcher(prWatchRepository, githubClient, operatorNotify, wakeSink);
       },
     })
   );
