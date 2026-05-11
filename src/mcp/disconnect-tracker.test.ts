@@ -7,7 +7,9 @@
  * - Escalation filter excludes server-initiated causes, short-lived probes, and helper sessions
  * - Process-role classification: 0 tool calls → "helper", 1+ calls → "main_session"
  * - Helper sessions are excluded from escalation regardless of uptime (mt#1705)
- * - Legacy events without processRole are treated as "main_session" (conservative default)
+ * - Legacy events without processRole are counted in the explicit "legacy"
+ *   bucket of byRole; the escalation predicate still treats them as eligible
+ *   (conservative). mt#1705 R1: this surfaces migration progress to operators.
  * - Append-only JSONL persistence — events durably hit disk before return
  * - Format migration — legacy single-array JSON is loadable
  * - Process-lifecycle markers (process_start) are recorded with PID
@@ -709,9 +711,45 @@ describe("DisconnectTracker empirical replay (mt#1705)", () => {
     "../../tests/fixtures/mcp-disconnect-logs/helper-session-burst.jsonl"
   );
 
+  /**
+   * Rewrite the on-disk fixture's hardcoded calendar timestamps into ones
+   * relative to `Date.now()` so the events fall inside the tracker's 24h
+   * window regardless of when the test runs. mt#1705 R1 Finding 2.
+   *
+   * Strategy: preserve the fixture's internal RELATIVE timing (events span
+   * ~13 minutes from earliest to latest) but anchor the latest event to
+   * "1 minute ago." Writes to a temp file and returns its path. The original
+   * fixture is left untouched so it remains a stable record of the empirical
+   * observation.
+   */
+  function rebaseFixtureTimestamps(): string {
+    const raw = fs.readFileSync(fixturePath, "utf-8") as string;
+    const lines = raw.split("\n").filter((l) => l.trim() !== "");
+    const events = lines.map((l) => JSON.parse(l) as { timestamp: string; [k: string]: unknown });
+    // Find the latest timestamp in the fixture; anchor it to "1 minute ago".
+    let latestMs = -Infinity;
+    for (const e of events) {
+      const t = new Date(e.timestamp).getTime();
+      if (t > latestMs) latestMs = t;
+    }
+    const anchorTargetMs = Date.now() - 60_000;
+    const shiftMs = anchorTargetMs - latestMs;
+    const rebased = events.map((e) => ({
+      ...e,
+      timestamp: new Date(new Date(e.timestamp).getTime() + shiftMs).toISOString(),
+    }));
+    const tmpPath = path.join(
+      os.tmpdir(),
+      `mcp-disconnect-fixture-${process.pid}-${Date.now()}.jsonl`
+    );
+    fs.writeFileSync(tmpPath, `${rebased.map((e) => JSON.stringify(e)).join("\n")}\n`, "utf-8");
+    return tmpPath;
+  }
+
   test("fixture file exists and is loadable", () => {
     expect(fs.existsSync(fixturePath)).toBe(true);
-    const t = DisconnectTracker.resetForTest("srv", fixturePath);
+    const rebased = rebaseFixtureTimestamps();
+    const t = DisconnectTracker.resetForTest("srv", rebased);
     const events = t.getEvents();
     // 10 lines: 5 process_start + 5 disconnect
     expect(events.length).toBe(10);
@@ -726,21 +764,21 @@ describe("DisconnectTracker empirical replay (mt#1705)", () => {
 
   test("legacy events from fixture are counted in the byRole.legacy bucket", () => {
     // Fixture events were written without processRole (pre-mt#1705 format).
-    // mt#1705 R1: they go to an explicit `legacy` bucket so operators can
-    // see the migration progress (legacy count shrinks as new-format events
-    // saturate). isEscalationEligible still treats them conservatively as
-    // eligible — only the aggregate breakdown changes.
+    // mt#1705 R1 Finding 3: they go to an explicit `legacy` bucket so operators
+    // can see the migration progress (legacy count shrinks as new-format
+    // events saturate). isEscalationEligible still treats them conservatively
+    // as eligible — only the aggregate breakdown changes.
     //
-    // Fixture timestamp note (mt#1705 R1 Finding 2): the timestamps in the
-    // fixture file are relative-style — we shift them into the recent past
-    // when loading by rewriting the file in a temp location, OR we tolerate
-    // events possibly falling outside the 24h window. Here we keep the
-    // assertion shape minimal (non-negative) so the test is clock-independent.
-    const t = DisconnectTracker.resetForTest("srv", fixturePath);
+    // mt#1705 R1 Finding 2: rebase fixture timestamps into the 24h window so
+    // the byRole aggregate (24h-windowed) sees the events deterministically
+    // regardless of when the test runs.
+    const rebased = rebaseFixtureTimestamps();
+    const t = DisconnectTracker.resetForTest("srv", rebased);
     const summary = t.getSummary();
-    expect(summary.byRole["helper"]).toBeGreaterThanOrEqual(0);
-    expect(summary.byRole["main_session"]).toBeGreaterThanOrEqual(0);
-    expect(summary.byRole["legacy"]).toBeGreaterThanOrEqual(0);
+    // 5 disconnects in the fixture, all with no processRole → legacy bucket.
+    expect(summary.byRole["legacy"]).toBe(5);
+    expect(summary.byRole["main_session"]).toBe(0);
+    expect(summary.byRole["helper"]).toBe(0);
   });
 
   test("in-process helper session burst does not trigger escalation", () => {
@@ -784,5 +822,77 @@ describe("DisconnectTracker empirical replay (mt#1705)", () => {
     expect(helper2.processRole).toBe("helper");
     expect(main1.processRole).toBe("main_session");
     expect(main2.processRole).toBe("main_session");
+  });
+
+  // -------------------------------------------------------------------------
+  // HTTP per-session classification (mt#1705 R1 Finding 1)
+  // -------------------------------------------------------------------------
+
+  test("two concurrent HTTP sessions classify independently by sessionKey", () => {
+    // Models HTTP mode where two per-session Servers coexist. Session A makes
+    // tool calls; session B does not. Both disconnect. Per-session counters
+    // mean A classifies as main_session and B classifies as helper — they do
+    // NOT cross-contaminate. This is the bug the R1 review caught: with a
+    // process-wide counter, A's tool calls would make B's disconnect classify
+    // as main_session, inflating escalation eligibility via HTTP.
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+
+    const sessionA = "http-session-aaaaaaaa";
+    const sessionB = "http-session-bbbbbbbb";
+
+    // Session A makes tool calls
+    t.incrementToolCallCount(sessionA);
+    t.incrementToolCallCount(sessionA);
+    t.incrementToolCallCount(sessionA);
+    expect(t.getToolCallCount(sessionA)).toBe(3);
+
+    // Session B makes no tool calls — never increments
+    expect(t.getToolCallCount(sessionB)).toBe(0);
+
+    // Both disconnect, in opposite order to ensure ordering is not load-bearing
+    const eventB = t.recordDisconnect("unknown", { sessionKey: sessionB });
+    const eventA = t.recordDisconnect("unknown", { sessionKey: sessionA });
+
+    expect(eventA.processRole).toBe("main_session");
+    expect(eventB.processRole).toBe("helper");
+
+    // Eviction: both sessionKeys removed from the map after recordDisconnect.
+    expect(t.getToolCallCount(sessionA)).toBe(0);
+    expect(t.getToolCallCount(sessionB)).toBe(0);
+  });
+
+  test("session disconnect does not affect another concurrent session's count", () => {
+    // Reinforces the per-session-isolation property: disconnecting session A
+    // (and thereby evicting A's counter) must not reset session B's counter.
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+
+    const sessionA = "http-session-aaaaaaaa";
+    const sessionB = "http-session-bbbbbbbb";
+
+    t.incrementToolCallCount(sessionA);
+    t.incrementToolCallCount(sessionB);
+    t.incrementToolCallCount(sessionB);
+
+    // A disconnects first — its entry is evicted, but B's count is preserved.
+    t.recordDisconnect("unknown", { sessionKey: sessionA });
+    expect(t.getToolCallCount(sessionA)).toBe(0);
+    expect(t.getToolCallCount(sessionB)).toBe(2);
+
+    // B disconnects later, still classified as main_session.
+    const eventB = t.recordDisconnect("unknown", { sessionKey: sessionB });
+    expect(eventB.processRole).toBe("main_session");
+  });
+
+  test("legacy two-arg recordDisconnect form (cause, errorMessage) still works", () => {
+    // Back-compat: callers that pass errorMessage as the second positional
+    // argument should still work. The legacy form maps to DEFAULT_SESSION_KEY.
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(); // defaults to DEFAULT_SESSION_KEY
+    const event = t.recordDisconnect("transport_error", "EPIPE");
+    expect(event.processRole).toBe("main_session");
+    expect(event.error).toBe("EPIPE");
   });
 });
