@@ -35,6 +35,7 @@ import { registerTranscriptCommands } from "./transcripts";
 import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
+import { registerEpicDecompositionCommands } from "./epic-decomposition";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -130,6 +131,10 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register unasked-direction commands (Surface 4 weekly review — mt#1543)
   registerUnaskedDirectionCommands();
 
+  // Register epic-decomposition audit command (Shape C of attention-allocation
+  // noticer family — mt#1710)
+  registerEpicDecompositionCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -165,4 +170,5 @@ export {
   registerAttentionCommands,
   registerWindowCommands,
   registerUnaskedDirectionCommands,
+  registerEpicDecompositionCommands,
 };
