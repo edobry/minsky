@@ -342,6 +342,33 @@ describe("computeBundleDecision / bundle missing fallback", () => {
     expect(result.bundlePresent).toBe(false);
   });
 
+  test("R1 fix: stamp matches HEAD but bundle is missing → treat as stale, trigger rebuild", () => {
+    // The bug this guards against: dist/.build-stamp could match HEAD but
+    // dist/minsky.js itself could have been deleted (dist/ cleaned, or stamp
+    // resurrected from elsewhere). Without this guard, the bin entry would
+    // silently fall back to source forever until HEAD next advances.
+    const fs = makeFsDeps({
+      sourceExists: true,
+      bundleExists: false,
+      stampContent: CURRENT_HEAD, // matches HEAD → would NOT trigger rebuild on stamp alone
+    });
+    const exec = makeExecDeps({ gitHead: CURRENT_HEAD, bunBuildExitCode: 0 });
+    const stderr = makeStderrDeps();
+
+    const result = computeBundleDecision(
+      PACKAGE_ROOT,
+      BUNDLE_PATH,
+      STAMP_PATH,
+      SOURCE_PATH,
+      fs,
+      exec,
+      stderr
+    );
+
+    expect(result.rebuildAttempted).toBe(true);
+    expect(result.rebuildSucceeded).toBe(true);
+  });
+
   test("source install with no src present (hypothetical) → no rebuild attempted", () => {
     // This tests the published-install path: no src, only bundle present
     const fs = makeFsDeps({

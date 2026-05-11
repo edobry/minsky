@@ -119,6 +119,13 @@ export function computeBundleDecision(
       }
     }
 
+    // R1 fix: also treat as stale if the bundle file itself is missing.
+    // Without this, a deleted bundle whose stamp file still matches HEAD would
+    // cause permanent source-fallback until HEAD changes (silent perf regression).
+    if (!stale && !fs.existsSync(bundlePath)) {
+      stale = true;
+    }
+
     if (stale) {
       rebuildAttempted = true;
       const exitCode = exec.bunBuild({ cwd: packageRoot, bundlePath, sourcePath });
