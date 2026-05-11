@@ -15,7 +15,7 @@
     "git",
     "cli"
   ],
-  "module": "src/cli.ts",
+  "module": "dist/minsky.js",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -23,6 +23,8 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
+    "build": "bun build --target=bun --outfile=dist/minsky.js src/cli.ts",
+    "prepublishOnly": "bun run build",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
@@ -32,13 +34,13 @@
     "format": "prettier --write \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:all": "bun run format && bun run lint:fix",
-    "test": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain ./packages/shared/src",
-    "test:unit": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain",
+    "test": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain ./tests/scripts ./packages/shared/src",
+    "test:unit": "bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain ./tests/scripts",
     "test:integration": "RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "test:integration:docker": "RUN_INTEGRATION_TESTS=1 RUN_TESTCONTAINER_TESTS=1 bun test --preload ./tests/setup.ts --timeout=180000 tests/integration/postgres-pool-saturation.testcontainer.integration.test.ts",
     "test:all": "bun test --preload ./tests/setup.ts --timeout=30000",
-    "test:watch": "bun test --preload ./tests/setup.ts --watch ./src ./tests/adapters ./tests/domain --timeout=15000",
-    "test:coverage": "bun test --preload ./tests/setup.ts --coverage ./src ./tests/adapters ./tests/domain --timeout=15000",
+    "test:watch": "bun test --preload ./tests/setup.ts --watch ./src ./tests/adapters ./tests/domain ./tests/scripts --timeout=15000",
+    "test:coverage": "bun test --preload ./tests/setup.ts --coverage ./src ./tests/adapters ./tests/domain ./tests/scripts --timeout=15000",
     "test:quality": "bun tests/utils/test-quality-cli.ts report",
     "test:flaky": "bun tests/utils/test-quality-cli.ts flaky",
     "test:slow": "bun tests/utils/test-quality-cli.ts slow",
@@ -58,8 +60,15 @@
     "cockpit:build": "vite build"
   },
   "bin": {
-    "minsky": "./src/cli.ts"
+    "minsky": "./scripts/cli-entry.ts"
   },
+  "files": [
+    "dist/",
+    "scripts/cli-entry.ts",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "devDependencies": {
     "@eslint/js": "9.29.0",
     "@modelcontextprotocol/inspector": "^0.16.2",

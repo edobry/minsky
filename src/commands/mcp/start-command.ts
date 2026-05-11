@@ -559,6 +559,31 @@ async function startHttpServer(
     }
   });
 
+  // mt#1731 Bug-B fix: forward /interaction/:uid requests to the oidc-provider
+  // PR #1042 R1: anchor the regex so it matches /interaction/<uid>(/anything)? but
+  // NOT bare /interaction/ — oidc-provider's interaction routes always have at
+  // least one path segment after /interaction/ (e.g. /interaction/:uid, /interaction/:uid/abort).
+  app.all(/^\/interaction\/[^/]+/, async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.forwardInteraction(req, res);
+    } catch (err) {
+      log.error("OAuth interaction error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Interaction endpoint error",
+        });
+      }
+    }
+  });
+
   // Start the HTTP server
   // NOTE: the `http://...` URLs printed below are the INTERNAL listener
   // (i.e., what Express binds to inside the container). In TLS-fronted
