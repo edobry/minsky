@@ -12,6 +12,30 @@ import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
 import { log } from "../../utils/logger";
 
 /**
+ * Convenience helper for hooks and scripts that need a one-shot DB connection.
+ *
+ * Creates, initializes, and returns the configured PersistenceProvider without
+ * requiring a full DI container setup. Used by `.claude/hooks/` files that need
+ * DB access (e.g., to record subagent invocations) but run outside the MCP server
+ * process.
+ *
+ * The caller is responsible for calling `provider.close()` when done.
+ *
+ * Returns `null` on any initialization error — callers should treat null as
+ * "DB unavailable" and proceed without recording.
+ */
+export async function resolvePersistenceProvider(): Promise<PersistenceProvider | null> {
+  try {
+    const { PersistenceService } = await import("./service");
+    const service = new PersistenceService();
+    await service.initialize();
+    return service.getProvider();
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Factory for creating persistence providers
  */
 export class PersistenceProviderFactory {
