@@ -261,6 +261,13 @@ export class MinskyStdioProxy {
    * Inspects each line for `tools/call __proxy_restart_server`.
    * Matching lines are intercepted and handled locally.
    * All other lines are forwarded verbatim.
+   *
+   * Framing contract: MCP's stdio transport uses newline-delimited JSON-RPC
+   * (one JSON object per line, separated by `\n`). Some environments emit
+   * `\r\n` line endings (Windows hosts, certain shell wrappers). We normalize
+   * by stripping a trailing `\r` from each line after the `\n` split so that
+   * `JSON.parse` succeeds regardless of the upstream line-ending style.
+   * Per-frame size protection is out of scope for this transform.
    */
   private createInboundTransform(): Transform {
     const proxy = this;
@@ -275,7 +282,9 @@ export class MinskyStdioProxy {
       // Keep the last (possibly incomplete) segment in the buffer.
       inBuffer = lines.pop() ?? "";
 
-      for (const line of lines) {
+      for (const rawLine of lines) {
+        // Strip trailing \r to handle \r\n line endings (NON-BLOCKING 2, PR #1039 R1).
+        const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
         if (!line.trim()) {
           // Pass empty lines through (JSON-RPC framing whitespace).
           t.push(`${line}\n`);
@@ -312,6 +321,10 @@ export class MinskyStdioProxy {
    * Inspects each line for `tools/list` responses.
    * Augments matching responses with `__proxy_restart_server`.
    * All other lines are forwarded verbatim.
+   *
+   * Framing contract: same `\r\n` normalization as the inbound transform —
+   * strip trailing `\r` after splitting on `\n` so JSON.parse succeeds
+   * regardless of the inner server's line-ending style.
    */
   private createOutboundTransform(): Transform {
     let outBuffer = "";
@@ -324,7 +337,9 @@ export class MinskyStdioProxy {
       const lines = outBuffer.split("\n");
       outBuffer = lines.pop() ?? "";
 
-      for (const line of lines) {
+      for (const rawLine of lines) {
+        // Strip trailing \r to handle \r\n line endings (NON-BLOCKING 2, PR #1039 R1).
+        const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
         if (!line.trim()) {
           t.push(`${line}\n`);
           continue;
