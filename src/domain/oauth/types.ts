@@ -190,6 +190,20 @@ export interface OAuthIdentityProvider {
   token(req: Request, res: Response): Promise<void>;
 
   /**
+   * Forwards interaction-UI requests to the oidc-provider Koa app.
+   * Used by `app.all(/^\/interaction\//, ...)` in start-command.ts.
+   *
+   * When `devInteractions: { enabled: true }` is configured (the default),
+   * oidc-provider registers GET/POST /interaction/:uid internally for its
+   * built-in consent UI. Express has no matching routes without this method,
+   * so authorize redirects to /interaction/:uid would 404.
+   *
+   * @param req - Express request (path must start with /interaction/).
+   * @param res - Express response.
+   */
+  forwardInteraction(req: Request, res: Response): Promise<void>;
+
+  /**
    * Validates a Bearer token extracted from an Authorization header.
    * Called by the `/mcp` validation middleware.
    *
