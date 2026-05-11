@@ -14,6 +14,8 @@ import { createCockpitServer } from "./server";
 import type { WidgetModule, WidgetData, WidgetContext } from "./types";
 import { createAgentsWidget } from "./widgets/agents";
 import type { AgentRow } from "./widgets/agents";
+import { createTaskGraphWidget } from "./widgets/task-graph";
+import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
 import type { SessionProviderInterface, SessionRecord } from "../domain/session/types";
 import { SessionStatus } from "../domain/session/types";
 
@@ -481,5 +483,160 @@ describe("Cockpit server", () => {
     expect(body.state).toBe("degraded");
     expect(body.reason).toMatch(/session_list error/i);
     expect(body.reason).toMatch(/DB connection failed/i);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Task graph widget tests (mt#1146)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a minimal mock TaskGraphDeps for testing.
+   * Accepts fixture tasks and relationships.
+   */
+  function makeMockTaskGraphDeps(
+    tasks: Array<{ id: string; title: string; status: string }>,
+    relationships: Array<{ fromTaskId: string; toTaskId: string }>
+  ): TaskGraphDeps {
+    const mockTaskService = {
+      listTasks: async () =>
+        tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          // minimal Task shape — other fields unused by the widget
+          specPath: "",
+          description: "",
+        })),
+      getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
+      getTaskStatus: async () => undefined,
+      setTaskStatus: async () => {},
+      createTaskFromTitleAndSpec: async () => {
+        throw new Error("not implemented");
+      },
+      deleteTask: async () => false,
+      getTasks: async () => [],
+      getTaskSpecContent: async () => {
+        throw new Error("not implemented");
+      },
+      getWorkspacePath: () => "/mock",
+    };
+
+    const mockTaskGraphService = {
+      getAllRelationships: async (_type?: string) =>
+        relationships.map((r) => ({
+          fromTaskId: r.fromTaskId,
+          toTaskId: r.toTaskId,
+          type: "depends" as const,
+        })),
+      // stub other methods to satisfy interface
+      addDependency: async () => ({ created: false }),
+      removeDependency: async () => ({ removed: false }),
+      listDependencies: async () => [],
+      listDependents: async () => [],
+      addParent: async () => ({ created: false }),
+      removeParent: async () => ({ removed: false }),
+      reparent: async () => ({ taskId: "", previousParent: null, newParent: null }),
+      getParent: async () => null,
+      listChildren: async () => [],
+      getAncestors: async () => [],
+      getTransitiveDependencies: async () => new Set<string>(),
+      getRelationshipsForTasks: async () => [],
+    };
+
+    return {
+      taskService: mockTaskService as unknown as TaskGraphDeps["taskService"],
+      taskGraphService: mockTaskGraphService as unknown as TaskGraphDeps["taskGraphService"],
+    };
+  }
+
+  // Fixture: 3 tasks, 2 dependency edges
+  const FIXTURE_TASKS = [
+    { id: "mt#1", title: "Root Task", status: "DONE" },
+    { id: "mt#2", title: "Middle Task", status: "IN-PROGRESS" },
+    { id: "mt#3", title: "Leaf Task", status: "TODO" },
+  ];
+  const FIXTURE_EDGES = [
+    { fromTaskId: "mt#2", toTaskId: "mt#1" }, // mt#2 depends on mt#1
+    { fromTaskId: "mt#3", toTaskId: "mt#2" }, // mt#3 depends on mt#2
+  ];
+
+  // 10a. task-graph widget present in /api/widgets when enabled
+  test("task-graph widget present in /api/widgets when enabled", async () => {
+    const widget = createTaskGraphWidget(async () =>
+      makeMockTaskGraphDeps(FIXTURE_TASKS, FIXTURE_EDGES)
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "task-graph", enabled: true }],
+      },
+      overrideRegistry: { "task-graph": widget },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    const ids = body.map((w) => w.id);
+    expect(ids).toContain("task-graph");
+  });
+
+  // 10b. /api/widget/task-graph/data returns {state:"ok", payload:{nodes,edges}} shape
+  test("/api/widget/task-graph/data returns ok with nodes and edges", async () => {
+    const widget = createTaskGraphWidget(async () =>
+      makeMockTaskGraphDeps(FIXTURE_TASKS, FIXTURE_EDGES)
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "task-graph", enabled: true }],
+      },
+      overrideRegistry: { "task-graph": widget },
+    });
+    const res = await fetch(`${url}/api/widget/task-graph/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { nodes: GraphNode[]; edges: GraphEdge[] };
+    };
+    expect(body.state).toBe("ok");
+
+    // Nodes: 3 tasks in the fixture
+    expect(Array.isArray(body.payload.nodes)).toBe(true);
+    expect(body.payload.nodes.length).toBe(3);
+
+    const nodeIds = body.payload.nodes.map((n) => n.id);
+    expect(nodeIds).toContain("mt#1");
+    expect(nodeIds).toContain("mt#2");
+    expect(nodeIds).toContain("mt#3");
+
+    // Status is propagated correctly
+    const rootNode = body.payload.nodes.find((n) => n.id === "mt#1");
+    expect(rootNode?.status).toBe("DONE");
+    const leafNode = body.payload.nodes.find((n) => n.id === "mt#3");
+    expect(leafNode?.status).toBe("TODO");
+
+    // Edges: 2 dependency edges
+    expect(Array.isArray(body.payload.edges)).toBe(true);
+    expect(body.payload.edges.length).toBe(2);
+
+    const edgeSources = body.payload.edges.map((e) => e.source);
+    expect(edgeSources).toContain("mt#2");
+    expect(edgeSources).toContain("mt#3");
+  });
+
+  // 10c. task-graph widget returns degraded when the underlying provider throws
+  test("task-graph widget returns degraded when dep provider throws", async () => {
+    const widget = createTaskGraphWidget(async () => {
+      throw new Error("task DB unavailable");
+    });
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "task-graph", enabled: true }],
+      },
+      overrideRegistry: { "task-graph": widget },
+    });
+    const res = await fetch(`${url}/api/widget/task-graph/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; reason: string };
+    expect(body.state).toBe("degraded");
+    expect(body.reason).toMatch(/task_graph error/i);
+    expect(body.reason).toMatch(/task DB unavailable/i);
   });
 });

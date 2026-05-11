@@ -19,6 +19,11 @@ const DEFAULT_CONFIG: CockpitConfig = {
     { id: "agents", enabled: false },
     { id: "attention-stub", enabled: true },
     { id: "basic-health", enabled: true },
+    // task-graph (mt#1146) is a real-data widget reading from the task DB.
+    // Defaulting to `enabled: false` lets users opt in explicitly so the
+    // cockpit's first-run behavior stays bound to placeholder widgets.
+    // Same pattern as the agents widget (PR #1030 R1).
+    { id: "task-graph", enabled: false },
   ],
 };
 
