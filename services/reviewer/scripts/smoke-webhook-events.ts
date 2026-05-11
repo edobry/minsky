@@ -29,13 +29,17 @@
  * Per §7a: this script is the verification artifact for the structural change
  * (new persistence backend path). The main agent runs it post-PR with env
  * vars present.
+ *
+ * R1 BLOCKING #2 fix: this script uses raw SQL via postgres-js tagged
+ * template literals. It does NOT import the Drizzle schema from the src/
+ * tree because the deployed reviewer service only ships compiled JS in
+ * /app/dist (or wherever the Docker image places it) — src/ may not be
+ * present at runtime. The raw SQL query is self-contained and verifies the
+ * actual table shape end-to-end.
  */
 
 import { sign } from "@octokit/webhooks-methods";
 import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
-import { webhookEventsTable } from "../src/db/schemas/webhook-events-schema";
 
 // ---------------------------------------------------------------------------
 // Environment resolution
@@ -64,6 +68,26 @@ if (!POSTGRES_URL) {
 // The skip() calls above guarantee these are non-null at this point.
 const webhookSecret: string = WEBHOOK_SECRET ?? "";
 const postgresUrl: string = POSTGRES_URL ?? "";
+
+// ---------------------------------------------------------------------------
+// Row shape (raw SQL — not coupled to Drizzle schema in src/)
+// ---------------------------------------------------------------------------
+
+/**
+ * Subset of the reviewer_webhook_events row shape this script asserts on.
+ * Defined inline rather than imported from src/ so this script can be run
+ * against a deployed reviewer service where src/ isn't shipped.
+ */
+interface WebhookEventRow {
+  id: number;
+  delivery_id: string;
+  event_type: string;
+  outcome: string;
+  headers: Record<string, unknown>;
+  body: Record<string, unknown>;
+  received_at: Date;
+  processed_at: Date | null;
+}
 
 // ---------------------------------------------------------------------------
 // Synthesize and send a webhook
@@ -114,7 +138,7 @@ if (httpStatus !== 200) {
 }
 
 // ---------------------------------------------------------------------------
-// Query the DB for the persisted row
+// Query the DB for the persisted row (raw SQL — no Drizzle schema import)
 // ---------------------------------------------------------------------------
 
 // Brief wait for the async persistence to flush. The server writes
@@ -122,14 +146,17 @@ if (httpStatus !== 200) {
 await new Promise<void>((resolve) => setTimeout(resolve, 500));
 
 const sql = postgres(postgresUrl);
-const db = drizzle(sql, { schema: { webhookEventsTable } });
 
-let rows: (typeof webhookEventsTable.$inferSelect)[];
+let rows: WebhookEventRow[];
 try {
-  rows = await db
-    .select()
-    .from(webhookEventsTable)
-    .where(eq(webhookEventsTable.deliveryId, DELIVERY_ID));
+  // Raw SQL — script is decoupled from Drizzle schema in src/.
+  // Column names match the table layout in migrations/pg/0001_webhook_events.sql.
+  // postgres-js's sql<T>`` generic types the result as T[].
+  rows = await sql<WebhookEventRow[]>`
+    SELECT id, delivery_id, event_type, outcome, headers, body, received_at, processed_at
+    FROM reviewer_webhook_events
+    WHERE delivery_id = ${DELIVERY_ID}
+  `;
 } catch (err: unknown) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`FAIL: DB query failed: ${message}`);
@@ -159,12 +186,12 @@ console.log(
   JSON.stringify(
     {
       id: row.id,
-      deliveryId: row.deliveryId,
-      eventType: row.eventType,
+      delivery_id: row.delivery_id,
+      event_type: row.event_type,
       outcome: row.outcome,
-      receivedAt: row.receivedAt,
-      processedAt: row.processedAt,
-      headersKeys: Object.keys(row.headers as Record<string, unknown>),
+      received_at: row.received_at,
+      processed_at: row.processed_at,
+      headersKeys: Object.keys(row.headers),
     },
     null,
     2
@@ -174,11 +201,11 @@ console.log(
 // Assertions
 const failures: string[] = [];
 
-if (row.deliveryId !== DELIVERY_ID) {
-  failures.push(`deliveryId: expected ${DELIVERY_ID}, got ${row.deliveryId}`);
+if (row.delivery_id !== DELIVERY_ID) {
+  failures.push(`delivery_id: expected ${DELIVERY_ID}, got ${row.delivery_id}`);
 }
-if (row.eventType !== "pull_request") {
-  failures.push(`eventType: expected pull_request, got ${row.eventType}`);
+if (row.event_type !== "pull_request") {
+  failures.push(`event_type: expected pull_request, got ${row.event_type}`);
 }
 // Outcome will be "received" immediately after the insert, possibly "reviewer_called"
 // if the review dispatch already ran. Both are valid within a smoke run.
@@ -192,11 +219,11 @@ const VALID_OUTCOMES = new Set([
 if (!VALID_OUTCOMES.has(row.outcome)) {
   failures.push(`outcome: unexpected value ${row.outcome}`);
 }
-if (!row.receivedAt) {
-  failures.push("receivedAt: null/undefined (expected a timestamp)");
+if (!row.received_at) {
+  failures.push("received_at: null/undefined (expected a timestamp)");
 }
 
-const headers = row.headers as Record<string, unknown>;
+const headers = row.headers;
 if (!headers["x-github-delivery"]) {
   failures.push("headers missing x-github-delivery");
 }
@@ -208,7 +235,7 @@ if (!headers["x-hub-signature-256-prefix"]) {
 }
 
 // Body should contain action=opened
-const body = row.body as Record<string, unknown>;
+const body = row.body;
 if (body["action"] !== "opened") {
   failures.push(`body.action: expected opened, got ${String(body["action"])}`);
 }

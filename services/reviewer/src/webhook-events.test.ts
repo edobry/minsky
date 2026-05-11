@@ -61,7 +61,14 @@ function buildStubDb(opts: {
     const obj: Record<string, unknown> = {};
 
     // Chainable no-ops
-    for (const method of ["values", "onConflictDoUpdate", "set", "where", "returning"]) {
+    for (const method of [
+      "values",
+      "onConflictDoUpdate",
+      "onConflictDoNothing",
+      "set",
+      "where",
+      "returning",
+    ]) {
       obj[method] = (...args: unknown[]) => {
         calls.push({ method, args });
         return obj;
@@ -230,6 +237,49 @@ describe("recordWebhookReceipt", () => {
 
     const vals = findCallArgs(db._calls, "values");
     expect((vals["body"] as Record<string, unknown>)["raw"]).toBe("not-json");
+  });
+
+  test("uses ON CONFLICT DO NOTHING (R1 BLOCKING #1 regression — re-delivery must not overwrite terminal outcomes)", async () => {
+    const db = buildStubDb({ insertResolve: true });
+
+    await recordWebhookReceipt(
+      db as unknown as Parameters<typeof recordWebhookReceipt>[0],
+      "del-redelivery",
+      "pull_request",
+      {},
+      { action: "opened" }
+    );
+
+    // The R1 fix changed onConflictDoUpdate → onConflictDoNothing so that
+    // a re-delivery (same delivery_id) does NOT overwrite an existing row
+    // whose outcome has progressed to a terminal state (review_submitted,
+    // failed_at_*, skipped). The original UPSERT cleared processedAt and
+    // errorDetails on every re-delivery, corrupting forensic state.
+    const conflictCall = db._calls.find((c) => c.method === "onConflictDoNothing");
+    expect(conflictCall).toBeDefined();
+
+    // Belt-and-suspenders: ensure the obsolete onConflictDoUpdate is NOT used.
+    const oldConflictCall = db._calls.find((c) => c.method === "onConflictDoUpdate");
+    expect(oldConflictCall).toBeUndefined();
+  });
+
+  test("accepts 'unknown' sentinel eventType (R1 BLOCKING #3 regression — every POST is persisted)", async () => {
+    // server.ts passes "unknown" when x-github-event header is absent so that
+    // even malformed webhooks produce forensic rows. recordWebhookReceipt itself
+    // does not validate eventType — any string is accepted.
+    const db = buildStubDb({ insertResolve: true });
+
+    await recordWebhookReceipt(
+      db as unknown as Parameters<typeof recordWebhookReceipt>[0],
+      "del-no-event-header",
+      "unknown",
+      {},
+      { raw: "weird-payload" }
+    );
+
+    const vals = findCallArgs(db._calls, "values");
+    expect(vals["eventType"]).toBe("unknown");
+    expect(vals["outcome"]).toBe("received");
   });
 });
 

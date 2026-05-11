@@ -658,11 +658,17 @@ export function createApp(
 
         // Persist webhook receipt for forensic investigation (mt#1372).
         // Fire-and-forget: recordWebhookReceipt swallows errors internally.
-        if (db !== undefined && eventName) {
+        //
+        // R1 BLOCKING #3 fix: persist EVERY webhook the reviewer receives,
+        // not just those with x-github-event header. Webhooks with missing
+        // or malformed headers are exactly the cases most worth investigating
+        // (misconfigured senders, GitHub API changes, malicious probes).
+        // Use "unknown" sentinel when eventName is null.
+        if (db !== undefined) {
           void recordWebhookReceipt(
             db,
             deliveryId,
-            eventName,
+            eventName ?? "unknown",
             extractPersistedHeaders((name) => request.headers.get(name)),
             parsedBody ?? { raw: safeTruncate(body, 1000, "head") }
           );

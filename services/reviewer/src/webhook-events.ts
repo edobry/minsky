@@ -4,8 +4,12 @@
  * Three public operations:
  *
  *   recordWebhookReceipt(deliveryId, eventType, headers, body)
- *     — insert a new row when the webhook arrives. Uses UPSERT to handle
- *       GitHub re-deliveries (same delivery ID) idempotently.
+ *     — insert a new row when the webhook arrives. Uses ON CONFLICT DO NOTHING
+ *       on delivery_id; re-deliveries are no-ops, preserving the original row's
+ *       processing state (including terminal outcomes). GitHub re-delivers
+ *       when the original POST didn't get a 2xx — by then we already have
+ *       the row's content; refreshing it back to "received" would corrupt
+ *       forensic state for any delivery that progressed past the receipt stage.
  *
  *   updateOutcome(deliveryId, outcome, errorDetails?)
  *     — update the outcome column as the request progresses through the
@@ -27,9 +31,15 @@
  *     leave the row in the same state. Accept (idempotent).
  *   - Stale-read: not applicable — this module only writes, it never reads
  *     back to make decisions. Accept (N/A).
- *   - Re-delivery UPSERT: GitHub may re-deliver a webhook with the same
- *     delivery ID. The UPSERT on conflict(delivery_id) refreshes the row
- *     rather than inserting a duplicate — idempotent accept-rationale.
+ *   - Re-delivery DO NOTHING: GitHub may re-deliver a webhook with the same
+ *     delivery ID. The ON CONFLICT DO NOTHING on conflict(delivery_id) is a
+ *     no-op for the existing row — first-delivery wins. Accept-rationale:
+ *     re-delivery happens when GitHub didn't get a 2xx, but our async
+ *     persistence has already recorded the body/headers from the original
+ *     request; the body/headers are guaranteed identical on re-delivery
+ *     (same delivery_id is the same content); processed state (outcome,
+ *     processedAt, errorDetails) from the original is forensically valuable
+ *     and must NOT be overwritten. This was the bug the R1 review caught.
  *
  * OperatorNotify wiring:
  *   Non-2xx webhook responses and unhandled processing exceptions are
@@ -97,8 +107,8 @@ const TERMINAL_OUTCOMES = new Set<WebhookOutcome>([
 /**
  * Insert a new webhook-event row when the webhook arrives.
  *
- * Uses ON CONFLICT(delivery_id) DO UPDATE to handle GitHub re-deliveries
- * idempotently — a re-delivered webhook refreshes the row.
+ * Uses ON CONFLICT(delivery_id) DO NOTHING to handle GitHub re-deliveries
+ * idempotently — a re-delivered webhook is a no-op.
  *
  * @param db          Drizzle DB instance.
  * @param deliveryId  X-GitHub-Delivery header value (unique per delivery).
@@ -123,16 +133,8 @@ export async function recordWebhookReceipt(
         body: (body ?? {}) as Record<string, unknown>,
         outcome: "received",
       })
-      .onConflictDoUpdate({
+      .onConflictDoNothing({
         target: webhookEventsTable.deliveryId,
-        set: {
-          eventType,
-          headers: headers as Record<string, unknown>,
-          body: (body ?? {}) as Record<string, unknown>,
-          outcome: "received",
-          errorDetails: null,
-          processedAt: null,
-        },
       });
 
     log.debug("webhook_event_recorded", {
