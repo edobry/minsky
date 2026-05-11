@@ -9,6 +9,11 @@ import {
   type PhraseMatch,
 } from "./block-out-of-band-merge";
 
+// Trigger-phrase literals — kept as named constants so test assertions can
+// reference them without duplicating string literals across many cases (the
+// magic-string-duplication lint rule fires at 3+ literal occurrences).
+const PHRASE_SERVICE_INSTANCE_UPDATE = "serviceInstanceUpdate";
+
 // ---------------------------------------------------------------------------
 // scanForTriggerPhrases
 // ---------------------------------------------------------------------------
@@ -79,7 +84,7 @@ is still healthy. Then:
     expect(phrases.has("out-of-band")).toBe(true);
     expect(phrases.has("rootDirectory")).toBe(true);
     expect(phrases.has("dockerfilePath")).toBe(true);
-    expect(phrases.has("serviceInstanceUpdate")).toBe(true);
+    expect(phrases.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(true);
   });
 
   it("includes a short surrounding excerpt for each match", () => {
@@ -370,5 +375,86 @@ describe("elideMarkdownNonProse", () => {
     const body = "prose then `code-span` then more prose ending with a blockquote\n> note here.";
     const out = elideMarkdownNonProse(body);
     expect(out.length).toBe(body.length);
+  });
+});
+
+describe("elideMarkdownNonProse — CommonMark variants (PR #1028 R1)", () => {
+  it("elides inline code spans with multi-backtick delimiters (R1 BLOCKING #1)", () => {
+    // CommonMark: any matching N-backtick run delimits an inline code span.
+    const body = "This PR documents the ``rootDirectory`` field and adds examples.";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides inline code spans containing internal backticks", () => {
+    // Double-backtick span with a single backtick inside the content
+    const body = "Use ``rootDirectory`note`` as a reference.";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides indented fenced code blocks (R1 BLOCKING #2)", () => {
+    // CommonMark allows up to 3 spaces of indentation before the fence.
+    const body = "Smoke output:\n\n   ```bash\n$ grep 'rootDirectory' file\n   ```\n";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides tilde-fenced code blocks (R1 BLOCKING #2)", () => {
+    const body = "Output:\n\n~~~\nserviceInstanceUpdate is a Railway mutation.\n~~~\n";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides backtick fences with info strings and trailing whitespace", () => {
+    const body = "```typescript  \nconst x = 'dockerfilePath';\n```\n";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides fences with CRLF line endings", () => {
+    const body = "before\r\n```\r\nrootDirectory is documented here\r\n```\r\nafter\r\n";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides nested blockquotes (>>)", () => {
+    const body = "Reviewer said:\n\n>> serviceInstanceUpdate is the GraphQL name\n\nAck.";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides blockquotes with up to 3 leading spaces", () => {
+    const body = "Quote:\n\n   > rootDirectory is documented\n\nEnd.";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("elides blockquote lines with CRLF endings", () => {
+    const body = "intro\r\n> serviceInstanceUpdate is the name\r\noutro";
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("preserves length on all CommonMark variants (position invariant)", () => {
+    const bodies = [
+      "``foo``",
+      "   ```bash\nx\n   ```",
+      "~~~\nx\n~~~",
+      "```typescript  \nx\n```",
+      "before\r\n```\r\nx\r\n```\r\nafter",
+      ">> nested",
+      "   > indented",
+      "> crlf\r\nprose",
+    ];
+    for (const body of bodies) {
+      expect(elideMarkdownNonProse(body).length).toBe(body.length);
+    }
+  });
+
+  it("known limitation: lazy continuation lines are NOT elided (documented)", () => {
+    // CommonMark allows a blockquote paragraph to wrap onto subsequent lines
+    // without the `>` marker. Our regex-based pass elides only marked lines,
+    // so wrapped prose may remain scannable. The reviewer flagged this as
+    // NON-BLOCKING; documented here so a future false-positive can be
+    // diagnosed quickly. The first marked line is still elided.
+    const body = "> Perform serviceInstanceUpdate on Railway\nrootDirectory must be set too.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    // The marked-line phrase is elided
+    expect(phrases.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(false);
+    // The lazy-continuation line is NOT elided (known limitation)
+    expect(phrases.has("rootDirectory")).toBe(true);
   });
 });
