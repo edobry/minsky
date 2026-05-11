@@ -200,6 +200,16 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
 
     if (this.provider) return this.provider;
 
+    // PR #1055 R1: surface the v1 security posture explicitly. devInteractions
+    // is enabled (mt#1665 placeholder) and the consent step is therefore
+    // unauthenticated UI theatre — the user's input is discarded by findAccount,
+    // which hardcodes sub="operator". This means tokens always represent the
+    // single operator principal, but the public OAuth flow is reachable to
+    // anyone. mt#1683 replaces devInteractions with token-gated consent.
+    log.warn(
+      "[InProcessOAuthProvider] OAuth v1 security posture: devInteractions UI is unauthenticated; all issued tokens use sub=operator. See mt#1683 for the token-gated consent UI that supersedes this placeholder."
+    );
+
     const adapterFactory = createAdapterFactory(this.config.db);
     const issuer = this.resolvedIssuer;
     const privateJwk = this.keyPair.privateJwk;
@@ -300,18 +310,29 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
         keys: ["ephemeral-cookie-secret"],
       },
 
-      // mt#1754: minimal findAccount placeholder. oidc-provider's default
-      // findAccount returns null, which causes token issuance to fail with a
-      // generic server_error after consent submit. For single-tenant Minsky
-      // (no user-account model — see mt#1683), the accountId from
-      // devInteractions is just whatever username the user entered; we echo
-      // it back as the OIDC `sub` claim. mt#1683 will replace devInteractions
-      // entirely with token-gated consent, at which point this placeholder
-      // can be removed or refactored.
-      findAccount: async (_ctx: unknown, id: string) => ({
-        accountId: id,
+      // mt#1754: minimal findAccount for single-tenant Minsky v1.
+      // SECURITY: returns a FIXED operator identity regardless of what input
+      // the user typed in devInteractions. The username field in the dev UI is
+      // theatre — entered text is discarded. The sub claim is always "operator",
+      // which means any token issued by this server represents the same single
+      // operator principal. This is the correct posture for single-tenant Minsky
+      // MCP, where there is no user-account model.
+      //
+      // Why not echo the devInteractions input (PR #1055 R1 BLOCKING): with DCR
+      // enabled and devInteractions enabled, ANY reachable client could
+      // self-assert an arbitrary `sub` by typing it in the login form, and that
+      // value would propagate into `agentId` and authorization decisions. The
+      // hardcode neutralizes that surface — there is exactly one identity that
+      // can be issued.
+      //
+      // mt#1683 will replace devInteractions with token-gated consent UI
+      // (operator presents MINSKY_MCP_AUTH_TOKEN), at which point this
+      // placeholder either disappears or stays as the same fixed identity but
+      // the consent step actually authenticates the operator.
+      findAccount: async (_ctx: unknown, _id: string) => ({
+        accountId: "operator",
         async claims() {
-          return { sub: id };
+          return { sub: "operator" };
         },
       }),
 
