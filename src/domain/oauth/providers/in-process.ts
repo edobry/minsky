@@ -300,6 +300,21 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
         keys: ["ephemeral-cookie-secret"],
       },
 
+      // mt#1754: minimal findAccount placeholder. oidc-provider's default
+      // findAccount returns null, which causes token issuance to fail with a
+      // generic server_error after consent submit. For single-tenant Minsky
+      // (no user-account model — see mt#1683), the accountId from
+      // devInteractions is just whatever username the user entered; we echo
+      // it back as the OIDC `sub` claim. mt#1683 will replace devInteractions
+      // entirely with token-gated consent, at which point this placeholder
+      // can be removed or refactored.
+      findAccount: async (_ctx: unknown, id: string) => ({
+        accountId: id,
+        async claims() {
+          return { sub: id };
+        },
+      }),
+
       // For Bun/non-standard runtime compatibility
       httpOptions: () => ({ timeout: 30000 }),
     }) as OidcProvider;
