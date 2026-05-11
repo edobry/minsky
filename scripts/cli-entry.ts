@@ -39,65 +39,174 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
 
-// Resolve the real path of THIS script file, following symlinks (e.g. bun link).
-// fileURLToPath(import.meta.url) gives the path through the symlink; realpathSync
-// resolves it to the actual file location in the package root.
-const launcherPath = realpathSync(fileURLToPath(import.meta.url));
-const packageRoot = join(dirname(launcherPath), "..");
-const bundlePath = join(packageRoot, "dist", "minsky.js");
-const stampPath = join(packageRoot, "dist", ".build-stamp");
-const sourcePath = join(packageRoot, "src", "cli.ts");
+// ─── Dependency interfaces (for testability) ─────────────────────────────────
 
-// Source-vs-published detection: if src/cli.ts exists, we're in a source install.
-// Published installs (Profile D) only ship dist/ + scripts/cli-entry.ts per the
-// package.json "files" field — src/ is excluded from the npm publish artifact.
-const isSourceInstall = existsSync(sourcePath);
-
-if (isSourceInstall) {
-  // Read the current git HEAD. If git isn't available (shouldn't happen in a
-  // source install, but defensive), stale defaults to true → triggers a build.
-  const gitResult = spawnSync("git", ["rev-parse", "HEAD"], {
-    cwd: packageRoot,
-    encoding: "utf8",
-  });
-  const head = gitResult.stdout?.trim() ?? "";
-
-  let stale = true;
-  if (head) {
-    try {
-      stale = readFileSync(stampPath, "utf8").trim() !== head;
-    } catch {
-      // Stamp file missing → treat as stale (first run or dist/ cleaned).
-      stale = true;
-    }
-  }
-
-  if (stale) {
-    const buildResult = spawnSync(
-      "bun",
-      ["build", "--target=bun", `--outfile=${bundlePath}`, sourcePath],
-      { cwd: packageRoot, stdio: "inherit" }
-    );
-    if (buildResult.status === 0 && head) {
-      try {
-        writeFileSync(stampPath, head);
-      } catch {
-        // Stamp write failure is non-fatal: bundle still executes; next run
-        // re-checks freshness and rebuilds (idempotent, not a correctness issue).
-        process.stderr.write("[minsky] warning: could not write build stamp\n");
-      }
-    } else if (buildResult.status !== 0) {
-      process.stderr.write("[minsky] bundle build failed; falling back to source\n");
-    }
-  }
+/**
+ * Filesystem operations needed by the bin entry logic.
+ *
+ * `readFileSync` returns a string here (utf8 is the only encoding we use);
+ * dropping the encoding parameter sidesteps Bun's stricter overload typing
+ * for `fs.readFileSync` vs Node's. The production wrapper applies "utf8"
+ * internally.
+ */
+export interface FsDeps {
+  existsSync(path: string): boolean;
+  readFileSync(path: string): string;
+  writeFileSync(path: string, data: string): void;
+  realpathSync(path: string): string;
 }
 
-if (existsSync(bundlePath)) {
-  // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.
-  // Spawning a subprocess would double the Bun-startup cost and defeat the optimization.
-  await import(bundlePath);
-} else {
-  // Fallback: fresh clone with no bundle yet, or build failure.
-  // Works for Profile A (source install) only — Profile D has no src/cli.ts.
-  await import(sourcePath);
+/** Process-execution operations needed by the bin entry logic. */
+export interface ExecDeps {
+  /** Run `git rev-parse HEAD` in the given cwd. Returns stdout or "" on failure. */
+  gitRevParseHead(cwd: string): string;
+  /** Run `bun build --target=bun --outfile=<bundlePath> <sourcePath>` in cwd. Returns exit code. */
+  bunBuild(args: { cwd: string; bundlePath: string; sourcePath: string }): number;
+}
+
+/** stderr writer for warnings and errors. */
+export interface StderrDeps {
+  write(message: string): void;
+}
+
+// ─── Core decision logic (exported for testing) ───────────────────────────────
+
+export interface BundleDecision {
+  /** Whether this is a source install (src/cli.ts was found). */
+  isSourceInstall: boolean;
+  /** Whether the bundle is present and ready to execute. */
+  bundlePresent: boolean;
+  /** Whether a rebuild was attempted and whether it succeeded. */
+  rebuildAttempted: boolean;
+  rebuildSucceeded: boolean;
+}
+
+/**
+ * Computes the bundle state for the given package root.
+ * This is pure decision logic — it handles freshness detection and triggering
+ * the build, but leaves the actual import() to the caller.
+ *
+ * @param packageRoot - absolute path to the package root
+ * @param fs - filesystem dependency injection
+ * @param exec - execution dependency injection
+ * @param stderr - stderr writer dependency injection
+ */
+export function computeBundleDecision(
+  packageRoot: string,
+  bundlePath: string,
+  stampPath: string,
+  sourcePath: string,
+  fs: FsDeps,
+  exec: ExecDeps,
+  stderr: StderrDeps
+): BundleDecision {
+  const isSourceInstall = fs.existsSync(sourcePath);
+  let rebuildAttempted = false;
+  let rebuildSucceeded = false;
+
+  if (isSourceInstall) {
+    // Read the current git HEAD. If git isn't available (shouldn't happen in a
+    // source install, but defensive), stale defaults to true → triggers a build.
+    const head = exec.gitRevParseHead(packageRoot);
+
+    let stale = true;
+    if (head) {
+      try {
+        stale = fs.readFileSync(stampPath).trim() !== head;
+      } catch {
+        // Stamp file missing → treat as stale (first run or dist/ cleaned).
+        stale = true;
+      }
+    }
+
+    if (stale) {
+      rebuildAttempted = true;
+      const exitCode = exec.bunBuild({ cwd: packageRoot, bundlePath, sourcePath });
+      if (exitCode === 0 && head) {
+        try {
+          fs.writeFileSync(stampPath, head);
+          rebuildSucceeded = true;
+        } catch {
+          // Stamp write failure is non-fatal: bundle still executes; next run
+          // re-checks freshness and rebuilds (idempotent, not a correctness issue).
+          stderr.write("[minsky] warning: could not write build stamp\n");
+          rebuildSucceeded = true; // bundle itself was written successfully
+        }
+      } else if (exitCode !== 0) {
+        stderr.write("[minsky] bundle build failed; falling back to source\n");
+        rebuildSucceeded = false;
+      }
+    }
+  }
+
+  const bundlePresent = fs.existsSync(bundlePath);
+  return { isSourceInstall, bundlePresent, rebuildAttempted, rebuildSucceeded };
+}
+
+// ─── Production implementations ──────────────────────────────────────────────
+
+function makeProductionFsDeps(): FsDeps {
+  return {
+    existsSync,
+    readFileSync: (path: string): string => readFileSync(path, "utf8") as string,
+    writeFileSync: (path: string, data: string) => writeFileSync(path, data),
+    realpathSync,
+  };
+}
+
+function makeProductionExecDeps(): ExecDeps {
+  return {
+    gitRevParseHead(cwd: string): string {
+      const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" });
+      return result.stdout?.trim() ?? "";
+    },
+    bunBuild({ cwd, bundlePath, sourcePath }): number {
+      const result = spawnSync(
+        "bun",
+        ["build", "--target=bun", `--outfile=${bundlePath}`, sourcePath],
+        { cwd, stdio: "inherit" }
+      );
+      return result.status ?? 1;
+    },
+  };
+}
+
+// ─── Entry point ─────────────────────────────────────────────────────────────
+
+// Guard with `import.meta.main` so importing this module for tests does NOT
+// trigger the bundle/source exec. Without the guard, `import("../scripts/cli-entry")`
+// from a test would actually start the CLI.
+if (import.meta.main) {
+  // Resolve the real path of THIS script file, following symlinks (e.g. bun link).
+  // fileURLToPath(import.meta.url) gives the path through the symlink; realpathSync
+  // resolves it to the actual file location in the package root.
+  const launcherPath = realpathSync(fileURLToPath(import.meta.url));
+  const packageRoot = join(dirname(launcherPath), "..");
+  const bundlePath = join(packageRoot, "dist", "minsky.js");
+  const stampPath = join(packageRoot, "dist", ".build-stamp");
+  const sourcePath = join(packageRoot, "src", "cli.ts");
+
+  const stderrDeps: StderrDeps = {
+    write: (msg) => process.stderr.write(msg),
+  };
+
+  const decision = computeBundleDecision(
+    packageRoot,
+    bundlePath,
+    stampPath,
+    sourcePath,
+    makeProductionFsDeps(),
+    makeProductionExecDeps(),
+    stderrDeps
+  );
+
+  if (decision.bundlePresent) {
+    // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.
+    // Spawning a subprocess would double the Bun-startup cost and defeat the optimization.
+    await import(bundlePath);
+  } else {
+    // Fallback: fresh clone with no bundle yet, or build failure.
+    // Works for Profile A (source install) only — Profile D has no src/cli.ts.
+    await import(sourcePath);
+  }
 }
