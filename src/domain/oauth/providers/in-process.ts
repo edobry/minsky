@@ -383,8 +383,8 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
     const authMethod = body.token_endpoint_auth_method ?? "none";
     if (authMethod !== "none") {
       throw new Error(
-        `v1 only supports token_endpoint_auth_method='none' (public PKCE clients); ` +
-          `received '${authMethod}'. See docs/architecture/adr-006-agent-identity.md`
+        `Only token_endpoint_auth_method='none' (public PKCE clients) is supported; ` +
+          `received '${authMethod}'. Re-register with token_endpoint_auth_method='none'.`
       );
     }
 
