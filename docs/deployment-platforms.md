@@ -41,7 +41,7 @@ discriminator; the rest of the file is the platform-specific config.
 
 ```ts
 // services/minsky-mcp/deploy.config.ts
-import { defineDeployment } from "../../scripts/railway/lib";
+import { defineDeployment } from "@minsky/shared/deployment-config";
 
 export default defineDeployment({
   platform: "railway",
@@ -58,7 +58,7 @@ For Railway services that already declare these IDs in `railway.config.ts`
 to avoid duplication:
 
 ```ts
-import { defineDeployment } from "../../scripts/railway/lib";
+import { defineDeployment } from "@minsky/shared/deployment-config";
 import railwayConfig from "./railway.config";
 
 export default defineDeployment({
@@ -75,7 +75,7 @@ A hypothetical Vercel adapter would declare:
 
 ```ts
 // services/<svc>/deploy.config.ts
-import { defineDeployment } from "...";
+import { defineDeployment } from "@minsky/shared/deployment-config";
 
 export default defineDeployment({
   platform: "vercel",
@@ -237,10 +237,18 @@ platform — explicit declaration in `deploy.config.ts` is required.
 
 Three platform-neutral tools, registered via the shared command registry.
 
-### `deployment_wait_for_latest`
+**Naming convention.** Commands are registered with hierarchical dotted IDs
+(e.g., `deployment.wait-for-latest`); the MCP bridge converts dots to
+underscores on the wire (dashes are preserved). So the registry entry
+`deployment.wait-for-latest` is invoked by agents as
+`mcp__minsky__deployment_wait-for-latest`. This mirrors the existing pattern
+(`session.pr.wait-for-review` → `mcp__minsky__session_pr_wait-for-review`).
+The tool names below are the wire-form agents see.
+
+### `deployment_wait-for-latest`
 
 ```
-deployment_wait_for_latest(service?: string, timeoutSeconds?: number) -> DeploymentRecord
+deployment_wait-for-latest(service?: string, timeoutSeconds?: number) -> DeploymentRecord
 ```
 
 Blocks until the latest deployment for the (configured or specified) service

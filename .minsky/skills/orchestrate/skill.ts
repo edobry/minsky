@@ -184,7 +184,7 @@ to the appropriate phase skill.
 
 When an epic's subtasks land code that runs in a deployed service, the agent driving the epic should verify each merge's deploy succeeded — Railway redeploys are not "the build checks passed, we're done." A Dockerfile breakage, missing env var, or container-start crash shows up post-merge and won't be caught by pre-merge CI. Use the platform-neutral MCP tools that wrap the deployment platform (Railway is the v1 concrete adapter; v2 candidates: Vercel, Cloudflare Pages, Fly.io, etc.).
 
-After any subtask merge that touches deployed code, call \`mcp__minsky__deployment_wait_for_latest\` to block on the auto-deploy and surface the terminal status. On FAILED / CRASHED, call \`mcp__minsky__deployment_logs\` for the failed deployment ID and surface the build/runtime failure to the user. See \`docs/deployment-platforms.md\` for the abstraction and \`/implement-task\` step 10 for the single-task variant.
+After any subtask merge that touches deployed code, call \`mcp__minsky__deployment_wait-for-latest\` to block on the auto-deploy and surface the terminal status. On FAILED / CRASHED, call \`mcp__minsky__deployment_logs\` for the failed deployment ID and surface the build/runtime failure to the user. See \`docs/deployment-platforms.md\` for the abstraction and \`/implement-task\` step 10 for the single-task variant.
 
 ## Key constraints
 

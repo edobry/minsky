@@ -356,7 +356,7 @@ See mt#1129 for the scope boundary between this (transport + deploy + auth) and 
 
 ## Deployment-platform MCP tools
 
-Agents observe Railway deploys via the platform-neutral MCP tools `deployment_wait_for_latest`,
+Agents observe Railway deploys via the platform-neutral MCP tools `deployment_wait-for-latest`,
 `deployment_status`, and `deployment_logs`. These wrap the same Railway GraphQL primitives
 used by `scripts/railway/{status,logs}.ts` but expose them through the agent-facing surface.
 The platform-agnostic abstraction (adapter interface, registry, configuration shape) lives in

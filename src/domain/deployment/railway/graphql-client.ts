@@ -193,6 +193,40 @@ export async function fetchDeployments(
   return data.service.deployments.edges.map((e) => e.node);
 }
 
+interface DeploymentByIdResponse {
+  deployment: RailwayDeploymentNode | null;
+}
+
+const DEPLOYMENT_BY_ID_QUERY = `
+  query ($deploymentId: String!) {
+    deployment(id: $deploymentId) {
+      id
+      status
+      createdAt
+      staticUrl
+      meta
+    }
+  }
+`;
+
+/**
+ * Fetch a specific deployment by ID. Used to poll the targeted deployment
+ * during waitForLatestDeployment so we don't depend on it remaining in the
+ * recent-N service deployments window. Returns null when the deployment
+ * does not exist.
+ */
+export async function fetchDeploymentById(
+  deploymentId: string,
+  token: string
+): Promise<RailwayDeploymentNode | null> {
+  const data = await railwayGraphQL<DeploymentByIdResponse>(
+    DEPLOYMENT_BY_ID_QUERY,
+    { deploymentId },
+    token
+  );
+  return data.deployment;
+}
+
 // ---------------------------------------------------------------------------
 // Deployment logs
 // ---------------------------------------------------------------------------

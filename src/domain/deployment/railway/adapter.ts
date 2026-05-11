@@ -25,6 +25,7 @@ import {
 } from "../types";
 import {
   fetchBuildLogs,
+  fetchDeploymentById,
   fetchDeploymentLogs,
   fetchDeployments,
   type RailwayDeploymentNode,
@@ -132,12 +133,21 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
     while (Date.now() < deadline) {
       await sleep(pollIntervalSeconds * 1000);
 
-      const refreshed = await fetchDeployments(this.config.serviceId, 5, token);
-      const found = refreshed.find((d) => d.id === targetId);
+      // Fetch the targeted deployment by ID directly, so we don't depend on
+      // it remaining in the service's most-recent-N deployments window —
+      // high-frequency deploys would otherwise cause it to fall out of view
+      // while still in progress and trip a false-CANCELLED.
+      const found = await fetchDeploymentById(targetId, token);
       if (!found) {
-        // Disappeared from the recent-5 window — treat as cancelled/superseded.
-        lastRecord = { ...lastRecord, status: "CANCELLED" };
-        return lastRecord;
+        // Railway returned no record for this deployment ID. This is genuinely
+        // unusual (deletion / retention) — surface as a typed error rather
+        // than silently masking as CANCELLED. Caller can inspect lastRecord
+        // for the last known state.
+        throw new Error(
+          `Railway deployment ${targetId} disappeared during waitForLatestDeployment. ` +
+            `Last observed status: ${lastRecord.status}. The deployment may have been ` +
+            `deleted; check the Railway dashboard.`
+        );
       }
       lastRecord = toRecord(found);
       if (isTerminalStatus(lastRecord.status)) {

@@ -473,10 +473,10 @@ that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
 missing env var, schema migration error, container crash on start. Verify the
 post-merge deploy succeeded before reporting the task done.
 
-**Primary mechanism: `mcp__minsky__deployment_wait_for_latest`.**
+**Primary mechanism: `mcp__minsky__deployment_wait-for-latest`.**
 
 ```
-deployment_wait_for_latest(service?: string, timeoutSeconds?: number)
+deployment_wait-for-latest(service?: string, timeoutSeconds?: number)
 ```
 
 Block-and-return on the latest deployment for the configured service.

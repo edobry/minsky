@@ -286,7 +286,7 @@ that wrap the deployment platform (Railway is the v1 concrete adapter; v2 candid
 Cloudflare Pages, Fly.io, etc.).
 
 After any subtask merge that touches deployed code, call
-`mcp__minsky__deployment_wait_for_latest` to block on the auto-deploy and surface the
+`mcp__minsky__deployment_wait-for-latest` to block on the auto-deploy and surface the
 terminal status. On FAILED / CRASHED, call `mcp__minsky__deployment_logs` for the failed
 deployment ID and surface the build/runtime failure to the user. See
 `docs/deployment-platforms.md` for the abstraction and `/implement-task` step 10 for the

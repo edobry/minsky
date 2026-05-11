@@ -232,7 +232,7 @@ Suggest to the user:
 
 When the merged PR changes code that runs in a deployed service (anything under \`services/<svc>/\` that has a \`deploy.config.ts\`, or any source that the deploy image bundles via the project Dockerfile), do NOT stop at merge. The merge triggers an auto-deploy on Railway (or whatever platform the service declares); that deploy can fail in ways no pre-merge check catches — Dockerfile breakage, missing env var, schema migration error, container crash on start. Verify the post-merge deploy succeeded before reporting the task done.
 
-**Primary mechanism: \`mcp__minsky__deployment_wait_for_latest\`.** Block-and-return on the latest deployment for the configured service. Returns the terminal \`DeploymentRecord\` (SUCCESS / FAILED / CANCELLED / CRASHED). Platform-neutral; the tool routes to the platform declared in \`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter). See \`docs/deployment-platforms.md\` for the abstraction.
+**Primary mechanism: \`mcp__minsky__deployment_wait-for-latest\`.** Block-and-return on the latest deployment for the configured service. Returns the terminal \`DeploymentRecord\` (SUCCESS / FAILED / CANCELLED / CRASHED). Platform-neutral; the tool routes to the platform declared in \`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter). See \`docs/deployment-platforms.md\` for the abstraction.
 
 **Follow-ups for inspection (not for waiting):**
 
