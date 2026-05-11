@@ -44,8 +44,11 @@ const TERMINAL_STATUSES: Set<SessionStatus> = new Set([SessionStatus.MERGED, Ses
 function toAgentRow(record: SessionRecord): AgentRow {
   const liveness = deriveSessionLiveness(record);
 
-  const shortId = record.sessionId.slice(0, 8);
-  const title = record.sessionId.length > 8 ? `session ${shortId}` : record.sessionId;
+  // Title precedence: prefer the human-meaningful git branch when present,
+  // otherwise fall back to the full sessionId. A truncated 8-char prefix
+  // risks collisions and is misleading for a primary identifier (PR #1030 R1
+  // reviewer finding).
+  const title = record.branch ?? record.sessionId;
 
   const taskId = record.taskId ? `mt#${record.taskId}` : null;
 
@@ -123,6 +126,14 @@ export function createAgentsWidget(
 // Uses a lazily-initialised PersistenceService singleton so the cockpit
 // server can register this without a DI container.  The provider is
 // created once on first fetch(); subsequent calls reuse the cached instance.
+//
+// The `new PersistenceService() + .initialize() + .getProvider()` pattern
+// here mirrors the canonical persistence-bootstrap in
+// `src/composition/cli.ts:31-32` and `src/hooks/post-commit.ts:98-105`. The
+// cockpit is a standalone Express server with no tsyringe container, so
+// constructing a singleton inline is the established pattern, not a
+// deviation. Switching to a shared DI container is a separate concern
+// (cockpit/DI integration RFC).
 // ---------------------------------------------------------------------------
 
 let _cachedProvider: SessionProviderInterface | null = null;
@@ -135,7 +146,12 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
 
   const svc = new PersistenceService();
   await svc.initialize();
-  const provider = await createSessionProvider(undefined, svc.getProvider());
+  const provider = await createSessionProvider(undefined, {
+    persistenceService: {
+      isInitialized: () => true,
+      getProvider: () => svc.getProvider(),
+    },
+  });
   _cachedProvider = provider;
   return provider;
 }

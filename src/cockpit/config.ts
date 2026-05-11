@@ -10,9 +10,13 @@ import os from "os";
 import path from "path";
 import type { CockpitConfig } from "./types";
 
+// Agents (mt#1145) is the first real-data widget — it reads from the session
+// DB on every poll. Defaulting it to `enabled: false` lets users opt in
+// explicitly so the cockpit's first-run behavior stays bound to placeholder
+// widgets. Per PR #1030 R1 reviewer finding.
 const DEFAULT_CONFIG: CockpitConfig = {
   widgets: [
-    { id: "agents", enabled: true },
+    { id: "agents", enabled: false },
     { id: "attention-stub", enabled: true },
     { id: "basic-health", enabled: true },
   ],

@@ -287,6 +287,28 @@ describe("Cockpit server", () => {
     taskId: "999",
   };
 
+  /** Fixture: a CLOSED session (terminal — must be filtered). PR #1030 R1 added. */
+  const closedSession: SessionRecord = {
+    sessionId: "eeeeeeee-0000-0000-0000-000000000005",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: TWO_DAYS_AGO.toISOString(),
+    lastActivityAt: TWO_DAYS_AGO.toISOString(),
+    status: SessionStatus.CLOSED,
+    taskId: "888",
+  };
+
+  /** Fixture: a session that should appear with the branch as its title. */
+  const branchedSession: SessionRecord = {
+    sessionId: "ffffffff-0000-0000-0000-000000000006",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: NOW.toISOString(),
+    lastActivityAt: NOW.toISOString(),
+    status: SessionStatus.ACTIVE,
+    branch: "task/mt-1145",
+  };
+
   // 9a. Agents widget present in /api/widgets when enabled
   test("agents widget present in /api/widgets when enabled", async () => {
     const agentsWidget = createAgentsWidget(async () => makeMockProvider([]));
@@ -344,11 +366,13 @@ describe("Cockpit server", () => {
     expect(idle.prNumber).toBeNull();
   });
 
-  // 9c. Agents widget filters out MERGED sessions
-  test("agents widget filters out MERGED and stale sessions appropriately", async () => {
-    // staleSession is stale (>2h old) but included; mergedSession is MERGED so excluded
+  // 9c. Agents widget filters out terminal-status sessions (MERGED + CLOSED)
+  // and keeps stale-but-non-terminal sessions. The spec calls out both MERGED
+  // and CLOSED explicitly (PR #1030 R1 reviewer finding — original test
+  // covered only MERGED).
+  test("agents widget filters out MERGED + CLOSED, keeps stale non-terminal", async () => {
     const agentsWidget = createAgentsWidget(async () =>
-      makeMockProvider([healthySession, staleSession, mergedSession])
+      makeMockProvider([healthySession, staleSession, mergedSession, closedSession])
     );
     const url = await server({
       overrideConfig: {
@@ -365,11 +389,41 @@ describe("Cockpit server", () => {
     expect(body.state).toBe("ok");
 
     const sessionIds = body.payload.agents.map((a) => a.sessionId);
-    // MERGED session must be absent
+    // MERGED + CLOSED (terminal) must be absent
     expect(sessionIds).not.toContain(mergedSession.sessionId);
+    expect(sessionIds).not.toContain(closedSession.sessionId);
     // healthy and stale (non-terminal) must be present
     expect(sessionIds).toContain(healthySession.sessionId);
     expect(sessionIds).toContain(staleSession.sessionId);
+  });
+
+  // 9c'. Agents widget renders branch as title when available
+  // (PR #1030 R1 reviewer finding: 8-char sessionId prefix risks collision —
+  // resolved by preferring `record.branch ?? full sessionId`).
+  test("agents widget uses branch as title when present, full sessionId otherwise", async () => {
+    const agentsWidget = createAgentsWidget(async () =>
+      makeMockProvider([healthySession, branchedSession])
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { agents: AgentRow[] };
+    };
+    expect(body.state).toBe("ok");
+
+    const healthy = body.payload.agents.find((a) => a.sessionId === healthySession.sessionId);
+    const branched = body.payload.agents.find((a) => a.sessionId === branchedSession.sessionId);
+    // Branched session renders its branch as title (not an 8-char prefix)
+    expect(branched?.title).toBe("task/mt-1145");
+    // Healthy session has no branch → full sessionId is the title (no prefix-truncation)
+    expect(healthy?.title).toBe(healthySession.sessionId);
+    expect(healthy?.title).not.toMatch(/^session [a-f0-9]{8}$/);
   });
 
   // 9d. Agents widget returns degraded when provider throws
