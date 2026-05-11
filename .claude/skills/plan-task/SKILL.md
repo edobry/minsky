@@ -319,7 +319,23 @@ not satisfy this criterion — the claim must be grounded in an actual search, n
 
 1. Report the gate summary (all green).
 2. Call `mcp__minsky__tasks_status_set` to transition the task to **READY**.
-3. Report: "Task mt#X is now READY for implementation. Use `/implement-task mt#X` to begin."
+3. **Continue the lifecycle: invoke `/implement-task mt#X` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use `/implement-task` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory `feedback_auto_mode_chains_skills_at_affirmative_tokens`, id `4b83ff51-4bc2-49f5-84be-7e4eac073125`).
+
+   **Only halt before `/implement-task` if** one of these explicit halt conditions holds:
+
+   - The user said something during planning that explicitly defers implementation ("don't implement yet", "just plan it", "I'll handle the impl").
+   - The READY transition itself surfaced a new blocking signal (e.g., dependency status check failed mid-transition).
+   - The task is gated on an external decision the user owns (e.g., "spec needs your approval before impl"), explicitly stated in the spec.
+
+   **Do NOT halt for any of these reasons** (each was a confabulated halt rationale in the originating incident):
+
+   - "Planning is the skill's scope; implementation is a separate skill."
+   - "User might want to review the gate report before I proceed."
+   - "The next move is user-driven."
+
+   When a brief affirmative ("proceed", "continue", "go", "ok", "yes") arrives at any planning hand-off point, treat it as confirmation to walk the chain forward — NOT as acknowledgment to stop. The bridge memory `4b83ff51` covers this verbatim; this step encodes the same discipline structurally so the agent doesn't have to recall the memory at hand-off time.
+
+   **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /review-pr walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, review-pr SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
 
 **One or more gate criteria fail:**
 
