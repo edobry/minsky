@@ -255,12 +255,24 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       rotateRefreshToken: true,
 
       // Token TTLs
+      // NOTE: oidc-provider 9.8.3's checkTTL() validates function values with
+      // `value.constructor.toString() === 'function Function() { [native code] }'`.
+      // Under Bun, Function.prototype.toString() includes newlines, so the check
+      // fails for ALL default TTL function values. Every entry must be an explicit
+      // number to satisfy the validator when running under Bun.
       ttl: {
         AccessToken: 3600,
         AuthorizationCode: 300,
         RefreshToken: 86400 * 30, // 30 days
         Interaction: 3600,
         Session: 86400 * 14, // 14 days
+        // Sentinel values for unused features (CIBA, device flow, client credentials,
+        // grant, id-token) — never exercised but must be present to pass checkTTL().
+        BackchannelAuthenticationRequest: 600,
+        ClientCredentials: 3600,
+        DeviceCode: 600,
+        Grant: 86400 * 14,
+        IdToken: 3600,
       },
 
       // Scopes
