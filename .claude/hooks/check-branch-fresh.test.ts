@@ -3,11 +3,13 @@ import {
   formatBlockMessage,
   checkBranchFreshness,
   detectMergeInProgress,
+  resolveGitDir,
   MERGE_IN_PROGRESS_MARKERS,
   refreshRemoteRefs,
   applyHostCap,
   getCurrentBudgets,
   type BranchFreshnessResult,
+  type MergeDetectFs,
 } from "./check-branch-fresh";
 import {
   readHostCap,
@@ -415,70 +417,176 @@ describe("checkBranchFreshness (exported)", () => {
   // mt#1739 — mid-merge / mid-rebase / mid-cherry-pick silent-allow path
   // -------------------------------------------------------------------------
   //
-  // detectMergeInProgress is tested with an injected `existsSync` impl backed
-  // by an in-memory set (no real fs access — required by the project's
-  // no-real-fs-in-tests lint rule). The integration with checkBranchFreshness
-  // is verified via the existing detached-HEAD path: when no merge marker is
-  // injected the function must fall through to that path unchanged.
+  // detectMergeInProgress + resolveGitDir are tested with an injected
+  // `MergeDetectFs` backed by in-memory sets/maps (no real fs access —
+  // required by the project's no-real-fs-in-tests lint rule).
   //
-  // The merge-in-progress path inside checkBranchFreshness itself calls the
-  // real `detectMergeInProgress` against the test's repoDir. For test
-  // determinism we point repoDir at a path that genuinely has no `.git/*`
-  // markers (any nonexistent path works) so the production path returns null
-  // and the function falls through.
-
-  function makeFakeExistsSync(presentPaths: string[]): (p: string) => boolean {
-    const present = new Set(presentPaths);
-    return (p: string) => present.has(p);
-  }
+  // The integration with checkBranchFreshness is verified via the existing
+  // detached-HEAD path: with no real `.git/*` markers under the repoDir we
+  // pass, the production path returns null and the function falls through.
 
   const FAKE_REPO_DIR = "/mock/repo";
+  const FAKE_WORKTREE_REPO_DIR = "/mock/worktree-checkout";
+  const RESOLVED_WORKTREE_GITDIR = "/mock/main-repo/.git/worktrees/feature";
   const MID_MERGE_REASON_FRAGMENT = "merge-in-progress";
+  // Pin the exact audit-line shape so future wording drift surfaces in the
+  // test diff (PR #1054 R1 NON-BLOCKING #2 — operator-facing contract).
+  const EXACT_REASON_FOR_MERGE_HEAD =
+    "merge-in-progress (.git/MERGE_HEAD) — freshness check skipped";
+
+  function makeFakeFs(
+    opts: {
+      presentPaths?: string[];
+      directories?: string[];
+      files?: Record<string, string>;
+    } = {}
+  ): MergeDetectFs {
+    const present = new Set([
+      ...(opts.presentPaths ?? []),
+      ...(opts.directories ?? []),
+      ...Object.keys(opts.files ?? {}),
+    ]);
+    const directories = new Set(opts.directories ?? []);
+    const files = new Map<string, string>(Object.entries(opts.files ?? {}));
+    return {
+      existsSync: (p) => present.has(p),
+      statSync: (p) => ({
+        isDirectory: () => directories.has(p),
+        isFile: () => files.has(p),
+      }),
+      readFileSync: (p) => {
+        const content = files.get(p);
+        if (content === undefined) {
+          throw Object.assign(new Error(`ENOENT: no such file, open '${p}'`), {
+            code: "ENOENT",
+          });
+        }
+        return content;
+      },
+    };
+  }
+
+  describe("mt#1739 resolveGitDir (.git file indirection)", () => {
+    test("returns <repo>/.git when .git is a directory (typical clone)", () => {
+      const fs = makeFakeFs({ directories: [`${FAKE_REPO_DIR}/.git`] });
+      expect(resolveGitDir(FAKE_REPO_DIR, fs)).toBe(`${FAKE_REPO_DIR}/.git`);
+    });
+
+    test("parses `gitdir: <absolute-path>` and returns the absolute target", () => {
+      const fs = makeFakeFs({
+        files: {
+          [`${FAKE_WORKTREE_REPO_DIR}/.git`]: `gitdir: ${RESOLVED_WORKTREE_GITDIR}\n`,
+        },
+      });
+      expect(resolveGitDir(FAKE_WORKTREE_REPO_DIR, fs)).toBe(RESOLVED_WORKTREE_GITDIR);
+    });
+
+    test("parses `gitdir: <relative-path>` resolved against repoDir", () => {
+      const fs = makeFakeFs({
+        files: {
+          [`${FAKE_WORKTREE_REPO_DIR}/.git`]: "gitdir: ../main-repo/.git/worktrees/feature\n",
+        },
+      });
+      expect(resolveGitDir(FAKE_WORKTREE_REPO_DIR, fs)).toBe(
+        "/mock/main-repo/.git/worktrees/feature"
+      );
+    });
+
+    test("falls back to <repo>/.git when .git is missing", () => {
+      const fs = makeFakeFs({});
+      expect(resolveGitDir(FAKE_REPO_DIR, fs)).toBe(`${FAKE_REPO_DIR}/.git`);
+    });
+
+    test("falls back to <repo>/.git when .git file is unparseable (no gitdir line)", () => {
+      const fs = makeFakeFs({
+        files: { [`${FAKE_REPO_DIR}/.git`]: "junk content with no gitdir line\n" },
+      });
+      expect(resolveGitDir(FAKE_REPO_DIR, fs)).toBe(`${FAKE_REPO_DIR}/.git`);
+    });
+  });
 
   describe("mt#1739 detectMergeInProgress (injected fs)", () => {
-    test("returns 'MERGE_HEAD' when .git/MERGE_HEAD is present", () => {
-      const existsSyncFake = makeFakeExistsSync([`${FAKE_REPO_DIR}/.git/MERGE_HEAD`]);
-      expect(detectMergeInProgress(FAKE_REPO_DIR, existsSyncFake)).toBe("MERGE_HEAD");
+    test("returns 'MERGE_HEAD' when .git/MERGE_HEAD is present (direct .git dir)", () => {
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/MERGE_HEAD`],
+      });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe("MERGE_HEAD");
     });
 
     test("returns 'REBASE_HEAD' when .git/REBASE_HEAD is present", () => {
-      const existsSyncFake = makeFakeExistsSync([`${FAKE_REPO_DIR}/.git/REBASE_HEAD`]);
-      expect(detectMergeInProgress(FAKE_REPO_DIR, existsSyncFake)).toBe("REBASE_HEAD");
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/REBASE_HEAD`],
+      });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe("REBASE_HEAD");
     });
 
     test("returns 'rebase-merge' when .git/rebase-merge/ is present (interactive rebase)", () => {
-      const existsSyncFake = makeFakeExistsSync([`${FAKE_REPO_DIR}/.git/rebase-merge`]);
-      expect(detectMergeInProgress(FAKE_REPO_DIR, existsSyncFake)).toBe("rebase-merge");
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/rebase-merge`],
+      });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe("rebase-merge");
+    });
+
+    test("returns 'rebase-apply' when .git/rebase-apply/ is present (non-interactive / older git)", () => {
+      // PR #1054 R1 BLOCKING #2 — non-interactive rebases and older git
+      // versions use rebase-apply/ rather than rebase-merge/. Missing this
+      // marker would reintroduce the deadlock for those flows.
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/rebase-apply`],
+      });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe("rebase-apply");
     });
 
     test("returns 'CHERRY_PICK_HEAD' when .git/CHERRY_PICK_HEAD is present", () => {
-      const existsSyncFake = makeFakeExistsSync([`${FAKE_REPO_DIR}/.git/CHERRY_PICK_HEAD`]);
-      expect(detectMergeInProgress(FAKE_REPO_DIR, existsSyncFake)).toBe("CHERRY_PICK_HEAD");
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/CHERRY_PICK_HEAD`],
+      });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe("CHERRY_PICK_HEAD");
     });
 
     test("returns null when no markers are present", () => {
-      const existsSyncFake = makeFakeExistsSync([]);
-      expect(detectMergeInProgress(FAKE_REPO_DIR, existsSyncFake)).toBe(null);
+      const fs = makeFakeFs({ directories: [`${FAKE_REPO_DIR}/.git`] });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe(null);
+    });
+
+    test("resolves .git-file indirection and finds markers under the resolved gitdir (worktree layout)", () => {
+      // PR #1054 R1 BLOCKING #1 — worktree-based checkouts have .git as a
+      // file containing `gitdir: <path>`. Markers live under that resolved
+      // path. Without indirection support the helper returned null and the
+      // freshness guard kept blocking under worktrees.
+      const fs = makeFakeFs({
+        files: {
+          [`${FAKE_WORKTREE_REPO_DIR}/.git`]: `gitdir: ${RESOLVED_WORKTREE_GITDIR}\n`,
+        },
+        presentPaths: [`${RESOLVED_WORKTREE_GITDIR}/MERGE_HEAD`],
+      });
+      expect(detectMergeInProgress(FAKE_WORKTREE_REPO_DIR, fs)).toBe("MERGE_HEAD");
     });
 
     test("first-match wins when multiple markers are present (deterministic order)", () => {
-      // The marker list is iterated in MERGE_IN_PROGRESS_MARKERS order;
-      // MERGE_HEAD is first so concurrent presence of MERGE_HEAD and
-      // CHERRY_PICK_HEAD returns MERGE_HEAD.
-      const existsSyncFake = makeFakeExistsSync([
-        `${FAKE_REPO_DIR}/.git/MERGE_HEAD`,
-        `${FAKE_REPO_DIR}/.git/CHERRY_PICK_HEAD`,
-      ]);
-      expect(detectMergeInProgress(FAKE_REPO_DIR, existsSyncFake)).toBe("MERGE_HEAD");
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [
+          `${FAKE_REPO_DIR}/.git/MERGE_HEAD`,
+          `${FAKE_REPO_DIR}/.git/CHERRY_PICK_HEAD`,
+        ],
+      });
+      expect(detectMergeInProgress(FAKE_REPO_DIR, fs)).toBe("MERGE_HEAD");
     });
 
-    test("MERGE_IN_PROGRESS_MARKERS exports the four canonical state files", () => {
+    test("MERGE_IN_PROGRESS_MARKERS exports the five canonical state files in load-bearing order", () => {
       // Pin the public-facing constant so any future change surfaces in the
       // test diff. The order is load-bearing — see the first-match-wins test.
       expect([...MERGE_IN_PROGRESS_MARKERS]).toEqual([
         "MERGE_HEAD",
         "REBASE_HEAD",
         "rebase-merge",
+        "rebase-apply",
         "CHERRY_PICK_HEAD",
       ]);
     });
@@ -486,7 +594,7 @@ describe("checkBranchFreshness (exported)", () => {
 
   describe("mt#1739 checkBranchFreshness mid-merge integration", () => {
     test("does NOT short-circuit on a clean working tree (regression guard for steady-state path)", () => {
-      // With no `.git/*` markers present at /nonexistent/repo, the real
+      // With no real `.git/*` markers under /nonexistent/repo, the production
       // detectMergeInProgress returns null and checkBranchFreshness proceeds
       // past the mid-merge check. With branch=null it falls through to the
       // existing detached-HEAD silent path. This pins that the new mid-merge
@@ -497,6 +605,20 @@ describe("checkBranchFreshness (exported)", () => {
       expect(result.blocked).toBe(false);
       expect(result.reason).not.toContain(MID_MERGE_REASON_FRAGMENT);
       expect(result.silent).toBe(true);
+    });
+
+    test("audit-line reason matches the exact operator-facing contract", () => {
+      // Pin the reason-string shape via a unit-level construction. The
+      // entrypoint prepends `[check-branch-fresh] ` and pipes this string
+      // verbatim to stdout, so changes to the format here change what
+      // operators see at the terminal.
+      const fs = makeFakeFs({
+        directories: [`${FAKE_REPO_DIR}/.git`],
+        presentPaths: [`${FAKE_REPO_DIR}/.git/MERGE_HEAD`],
+      });
+      const marker = detectMergeInProgress(FAKE_REPO_DIR, fs);
+      const constructed = `merge-in-progress (.git/${marker}) — freshness check skipped`;
+      expect(constructed).toBe(EXACT_REASON_FOR_MERGE_HEAD);
     });
   });
 

@@ -31,8 +31,8 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -195,16 +195,19 @@ function budgetAllows(start: number, callBudgetMs: number): boolean {
  * in the given working directory. Returns the name of the detected git-state
  * file/dir when one is present, or null when none are.
  *
- * The four state markers checked are the well-known git transient-operation
- * files:
+ * The state markers checked are the well-known git transient-operation
+ * files, probed under the *resolved* git directory (see `resolveGitDir` —
+ * handles `.git`-as-file indirection used by `git worktree` and submodules):
  *
  *   - `MERGE_HEAD`         — `git merge` in progress, awaiting commit
- *   - `REBASE_HEAD`        — non-interactive rebase in progress
+ *   - `REBASE_HEAD`        — rebase in progress (newer git versions)
  *   - `rebase-merge/`      — interactive rebase (`git rebase -i`) in progress
+ *   - `rebase-apply/`      — non-interactive rebase via `git format-patch`
+ *                            apply path (and older git versions)
  *   - `CHERRY_PICK_HEAD`   — `git cherry-pick` in progress, awaiting commit
  *
- * Detection is a single synchronous `fs.existsSync` per marker — no
- * subprocess, no network. Safe to call ahead of the wall-clock budget guard.
+ * Detection is a `fs.existsSync` per marker — no subprocess, no network.
+ * Safe to call ahead of the wall-clock budget guard.
  *
  * Why this exists (mt#1739): without this detection, the freshness guard
  * blocks `session_commit` even when the commit being prepared is the merge
@@ -216,21 +219,82 @@ function budgetAllows(start: number, callBudgetMs: number): boolean {
  *
  * @see mt#1739 — originating task
  * @see feedback_freshness_guard_mid_merge_paradox — bridge memory
+ * @see PR #1054 R1 — added `rebase-apply` marker + `.git`-file resolution
  */
 export const MERGE_IN_PROGRESS_MARKERS = [
   "MERGE_HEAD",
   "REBASE_HEAD",
   "rebase-merge",
+  "rebase-apply",
   "CHERRY_PICK_HEAD",
 ] as const;
 
+/**
+ * Minimal fs surface used by mid-merge detection. Packaged so tests can
+ * inject a mock without touching the real filesystem (per the
+ * `no-real-fs-in-tests` lint rule).
+ */
+export interface MergeDetectFs {
+  existsSync: (p: string) => boolean;
+  readFileSync: (p: string, encoding: BufferEncoding) => string;
+  statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean };
+}
+
+const DEFAULT_FS: MergeDetectFs = {
+  existsSync,
+  readFileSync: (p, encoding) => readFileSync(p, encoding) as string,
+  statSync: (p) => statSync(p),
+};
+
+/**
+ * Resolve the on-disk git directory for `repoDir`, honoring git's `.git`-as-file
+ * indirection convention. Three cases:
+ *
+ *   1. `<repoDir>/.git` is a directory — return that path (typical clone).
+ *   2. `<repoDir>/.git` is a FILE whose contents are `gitdir: <path>` —
+ *      parse and return the resolved target (typical `git worktree` checkout
+ *      and certain submodule layouts). Relative `<path>` is resolved against
+ *      `repoDir` per git's spec.
+ *   3. `<repoDir>/.git` is missing or unparseable — fall back to
+ *      `<repoDir>/.git` so callers' downstream `existsSync` probes return
+ *      false naturally (no exception thrown for the missing-repo case).
+ *
+ * The fs surface is injectable for test purposes; defaults to real fs.
+ *
+ * @see mt#1739 — added to support worktree-based session layouts where the
+ *   freshness-guard's mid-merge detection would otherwise miss markers
+ *   living under the resolved gitdir, reintroducing the deadlock this fix
+ *   exists to close. PR #1054 R1 BLOCKING #1.
+ */
+export function resolveGitDir(repoDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  const dotGit = join(repoDir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return dotGit;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return dotGit;
+    }
+    const content = fs.readFileSync(dotGit, "utf-8");
+    const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
+    if (match && match[1]) {
+      const target = match[1].trim();
+      return isAbsolute(target) ? target : resolve(repoDir, target);
+    }
+  } catch {
+    // Fall through — any stat/read error falls back to the conventional path,
+    // which callers handle via existsSync returning false.
+  }
+  return dotGit;
+}
+
 export function detectMergeInProgress(
   repoDir: string,
-  existsSyncImpl: (p: string) => boolean = existsSync
+  fs: MergeDetectFs = DEFAULT_FS
 ): string | null {
-  const gitDir = join(repoDir, ".git");
+  const gitDir = resolveGitDir(repoDir, fs);
   for (const marker of MERGE_IN_PROGRESS_MARKERS) {
-    if (existsSyncImpl(join(gitDir, marker))) {
+    if (fs.existsSync(join(gitDir, marker))) {
       return marker;
     }
   }

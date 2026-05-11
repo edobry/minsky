@@ -1305,12 +1305,16 @@ Use only when you have already reviewed main's new commits and confirmed no over
   - detached HEAD (no current branch to compare against)
   - undetectable default branch (no `origin/main` or `origin/master` to compare to)
 - **Allows with audit-line on stdout** when a **merge / rebase / cherry-pick is in
-  progress** (mt#1739). Detected by `fs.existsSync` on `.git/MERGE_HEAD`,
-  `.git/REBASE_HEAD`, `.git/rebase-merge/`, or `.git/CHERRY_PICK_HEAD`. The operator
-  is finalising a commit that *resolves* main-ahead-of-branch staleness (not
-  introducing fresh work on a stale branch); blocking would create a chicken-and-egg
-  deadlock — the merge commit pushed by the resolution is what advances
-  `origin/<branch>` past the staleness gap. The reason emits to stdout as
+  progress** (mt#1739). Detected by `fs.existsSync` on five git transient-operation
+  markers under the **resolved** git directory: `MERGE_HEAD`, `REBASE_HEAD`,
+  `rebase-merge/`, `rebase-apply/`, or `CHERRY_PICK_HEAD`. The resolution step
+  honours git's `.git`-as-file indirection (`gitdir: <path>` redirect used by
+  `git worktree` checkouts and certain submodule layouts), so worktree-based
+  session workspaces are covered. The operator is finalising a commit that
+  *resolves* main-ahead-of-branch staleness (not introducing fresh work on a stale
+  branch); blocking would create a chicken-and-egg deadlock — the merge commit
+  pushed by the resolution is what advances `origin/<branch>` past the staleness
+  gap. The reason emits to stdout as
   `[check-branch-fresh] merge-in-progress (.git/<MARKER>) — freshness check skipped`
   so operators see that the hook recognised the merge state. Distinct from the four
   routine silent paths above: those are "nothing to report"; this one IS reported
