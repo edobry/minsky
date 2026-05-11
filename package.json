@@ -23,6 +23,8 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
+    "build": "bun build --target=bun --outfile=dist/minsky.js src/cli.ts",
+    "prepublishOnly": "bun run build",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
@@ -58,8 +60,15 @@
     "cockpit:build": "vite build"
   },
   "bin": {
-    "minsky": "./src/cli.ts"
+    "minsky": "./scripts/cli-entry.ts"
   },
+  "files": [
+    "dist/",
+    "scripts/cli-entry.ts",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
   "devDependencies": {
     "@eslint/js": "9.29.0",
     "@modelcontextprotocol/inspector": "^0.16.2",
