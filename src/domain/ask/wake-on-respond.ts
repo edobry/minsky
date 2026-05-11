@@ -25,21 +25,56 @@ import type { WakePendingRepository } from "./wake-pending-repository";
  * `responded`. Field set is exactly the seven fields specified in mt#1481 —
  * no extras. Adding fields requires a spec update so downstream consumers
  * know what to expect.
+ *
+ * mt#1725 extended `WakeSignalPayload` with a `kind` discriminator so the same
+ * table and delivery path can carry both Ask-review wakes (`"ask.review"`) and
+ * PR-watch wakes (`"pr.watch"`). The discriminator is optional for backward
+ * compatibility — legacy rows (from before mt#1725) omit it and are treated as
+ * `"ask.review"` by consumers.
+ *
+ * For `"pr.watch"` wakes, `askId` holds the watch ID (a UUID), `reviewBody` /
+ * `reviewState` / `reviewAuthor` hold the match description / event / watcher
+ * identity respectively.
  */
 export interface WakeSignalPayload {
-  /** Primary key of the Ask that just responded. */
+  /**
+   * Discriminator identifying which subsystem produced this wake.
+   *
+   * - `"ask.review"` — a `quality.review` Ask transitioned to `responded`
+   *   (mt#1481 original path).
+   * - `"pr.watch"` — a PR-watch predicate matched and the watch fired
+   *   (mt#1725 extension).
+   *
+   * Absent in legacy rows (pre-mt#1725); treat as `"ask.review"` when absent.
+   */
+  kind?: "ask.review" | "pr.watch";
+  /**
+   * For `"ask.review"`: primary key of the Ask that just responded.
+   * For `"pr.watch"`: primary key of the PrWatch that fired.
+   */
   askId: string;
-  /** Session UUID of the agent that originally filed the Ask. */
+  /** Session UUID of the agent that originally filed the Ask / registered the watch. */
   parentSessionId: string;
   /** Task ID associated with the parent session, when present. */
   parentTaskId?: string;
-  /** Body of the GitHub review that triggered the response. */
+  /**
+   * For `"ask.review"`: body of the GitHub review that triggered the response.
+   * For `"pr.watch"`: human-readable description of the matched event
+   *   (e.g., `"PR #42 — APPROVED by minsky-reviewer[bot]"`).
+   */
   reviewBody: string;
-  /** Verdict of the review (APPROVED, CHANGES_REQUESTED, etc.). */
+  /**
+   * For `"ask.review"`: verdict of the review (APPROVED, CHANGES_REQUESTED, etc.).
+   * For `"pr.watch"`: the PrWatchEvent that matched (`"merged"`, `"review-posted"`,
+   *   or `"check-status-changed"`).
+   */
   reviewState: string;
-  /** Reviewer login (human or bot); null when GitHub did not return one. */
+  /**
+   * For `"ask.review"`: reviewer login (human or bot); null when GitHub did not return one.
+   * For `"pr.watch"`: watcherId of the registered watch (operator identity string).
+   */
   reviewAuthor: string | null;
-  /** Pull request number the review was posted on. */
+  /** Pull request number the review was posted on / the watch targeted. */
   prNumber: number;
 }
 

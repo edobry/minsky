@@ -42,6 +42,7 @@ function toPrWatch(row: PrWatchRecord): PrWatch {
     event: row.event as PrWatchEvent,
     keep: row.keep,
     watcherId: row.watcherId,
+    parentSessionId: row.parentSessionId ?? undefined,
     lastSeen: (row.lastSeen as Record<string, unknown>) ?? undefined,
     createdAt: row.createdAt.toISOString(),
     triggeredAt: row.triggeredAt ? row.triggeredAt.toISOString() : undefined,
@@ -62,6 +63,7 @@ function toInsert(input: CreatePrWatchInput): PrWatchInsert {
     event: input.event,
     keep: input.keep,
     watcherId: input.watcherId,
+    parentSessionId: input.parentSessionId ?? null,
     lastSeen: input.lastSeen ?? null,
     metadata: input.metadata ?? {},
   };
@@ -79,6 +81,15 @@ export interface CreatePrWatchInput {
   event: PrWatchEvent;
   keep: boolean;
   watcherId: string;
+  /**
+   * Minsky session UUID of the agent registering this watch.
+   *
+   * Captured from MCP call context at `pr_watch_create` time. When present,
+   * the watcher routes the wake signal to this session on firing. When absent
+   * (context not resolvable), the watch is stored with null and telemetered as
+   * `pr_watch.no_session_id` at registration time.
+   */
+  parentSessionId?: string;
   lastSeen?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
@@ -319,6 +330,7 @@ export class FakePrWatchRepository implements PrWatchRepository {
       event: input.event,
       keep: input.keep,
       watcherId: input.watcherId,
+      parentSessionId: input.parentSessionId,
       lastSeen: input.lastSeen ? { ...input.lastSeen } : undefined,
       createdAt: now,
       triggeredAt: undefined,
