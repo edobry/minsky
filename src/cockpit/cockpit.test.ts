@@ -16,6 +16,8 @@ import { createAgentsWidget } from "./widgets/agents";
 import type { AgentRow } from "./widgets/agents";
 import { createTaskGraphWidget } from "./widgets/task-graph";
 import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
+import { createWorkstreamsWidget } from "./widgets/workstreams";
+import type { WorkstreamCard, WorkstreamsDeps } from "./widgets/workstreams";
 import type { SessionProviderInterface, SessionRecord } from "../domain/session/types";
 import { SessionStatus } from "../domain/session/types";
 
@@ -689,5 +691,193 @@ describe("Cockpit server", () => {
     expect(body.state).toBe("degraded");
     expect(body.reason).toMatch(/task_graph error/i);
     expect(body.reason).toMatch(/task DB unavailable/i);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Workstreams widget tests (mt#1452)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a minimal mock WorkstreamsDeps for testing.
+   * Accepts fixture tasks and parent relationships.
+   * Edge direction: fromTaskId = child, toTaskId = parent
+   */
+  function makeMockWorkstreamsDeps(
+    tasks: Array<{ id: string; title: string; status: string }>,
+    parentRels: Array<{ fromTaskId: string; toTaskId: string }>
+  ): WorkstreamsDeps {
+    const mockTaskService = {
+      // Accept the production `options` parameter even though the v0 fixture
+      // does not filter. PR #1032 R1 reviewer finding: a mock that drops the
+      // `options` arg silently masks regressions if the widget ever starts
+      // passing meaningful filter options. Marking it `_options` documents
+      // the deliberate v0 no-op and keeps the signature in sync with
+      // TaskServiceInterface.listTasks.
+      listTasks: async (_options?: unknown) =>
+        tasks.map((t) => ({
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          // minimal Task shape — other fields unused by the widget
+          specPath: "",
+          description: "",
+        })),
+      getTask: async (id: string) => tasks.find((t) => t.id === id) ?? null,
+      getTaskStatus: async () => undefined,
+      setTaskStatus: async () => {},
+      createTaskFromTitleAndSpec: async () => {
+        throw new Error("not implemented");
+      },
+      deleteTask: async () => false,
+      getTasks: async () => [],
+      getTaskSpecContent: async () => {
+        throw new Error("not implemented");
+      },
+      getWorkspacePath: () => "/mock",
+    };
+
+    const mockTaskGraphService = {
+      getAllRelationships: async (_type?: string) =>
+        parentRels.map((r) => ({
+          fromTaskId: r.fromTaskId,
+          toTaskId: r.toTaskId,
+          type: "parent" as const,
+        })),
+      // stub other methods to satisfy interface
+      addDependency: async () => ({ created: false }),
+      removeDependency: async () => ({ removed: false }),
+      listDependencies: async () => [],
+      listDependents: async () => [],
+      addParent: async () => ({ created: false }),
+      removeParent: async () => ({ removed: false }),
+      reparent: async () => ({ taskId: "", previousParent: null, newParent: null }),
+      getParent: async () => null,
+      listChildren: async () => [],
+      getAncestors: async () => [],
+      getTransitiveDependencies: async () => new Set<string>(),
+      getRelationshipsForTasks: async () => [],
+    };
+
+    return {
+      taskService: mockTaskService as unknown as WorkstreamsDeps["taskService"],
+      taskGraphService: mockTaskGraphService as unknown as WorkstreamsDeps["taskGraphService"],
+    };
+  }
+
+  // 11a. workstreams widget present in /api/widgets when enabled
+  test("workstreams widget present in /api/widgets when enabled", async () => {
+    const widget = createWorkstreamsWidget(async () => makeMockWorkstreamsDeps([], []));
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "workstreams", enabled: true }],
+      },
+      overrideRegistry: { workstreams: widget },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    const ids = body.map((w) => w.id);
+    expect(ids).toContain("workstreams");
+  });
+
+  // 11b. ok payload — 1 active parent (3 children: IN-PROGRESS, DONE, TODO) +
+  // 1 inactive parent (1 child, DONE only) → 1 workstream returned, counts correct
+  test("/api/widget/workstreams/data returns ok with correct workstream rollup", async () => {
+    // Parent mt#10 has children: mt#11 (IN-PROGRESS), mt#12 (DONE), mt#13 (TODO) → active
+    // Parent mt#20 has children: mt#21 (DONE only) → inactive (no active children)
+    const tasks = [
+      { id: "mt#10", title: "Active Parent", status: "IN-PROGRESS" },
+      { id: "mt#11", title: "Child In Progress", status: "IN-PROGRESS" },
+      { id: "mt#12", title: "Child Done", status: "DONE" },
+      { id: "mt#13", title: "Child Todo", status: "TODO" },
+      { id: "mt#20", title: "Inactive Parent", status: "DONE" },
+      { id: "mt#21", title: "Done Child", status: "DONE" },
+    ];
+    // fromTaskId = child, toTaskId = parent
+    const parentRels = [
+      { fromTaskId: "mt#11", toTaskId: "mt#10" },
+      { fromTaskId: "mt#12", toTaskId: "mt#10" },
+      { fromTaskId: "mt#13", toTaskId: "mt#10" },
+      { fromTaskId: "mt#21", toTaskId: "mt#20" },
+    ];
+
+    const widget = createWorkstreamsWidget(async () => makeMockWorkstreamsDeps(tasks, parentRels));
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "workstreams", enabled: true }],
+      },
+      overrideRegistry: { workstreams: widget },
+    });
+    const res = await fetch(`${url}/api/widget/workstreams/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { workstreams: WorkstreamCard[] };
+    };
+    expect(body.state).toBe("ok");
+
+    // Only 1 workstream: the active parent
+    expect(Array.isArray(body.payload.workstreams)).toBe(true);
+    expect(body.payload.workstreams.length).toBe(1);
+
+    const card = body.payload.workstreams[0];
+    if (!card) throw new Error("expected one workstream card");
+
+    expect(card.parentId).toBe("mt#10");
+    expect(card.parentTitle).toBe("Active Parent");
+
+    // Counts: 2 active (IN-PROGRESS + TODO), 1 done
+    expect(card.activeChildCount).toBe(2);
+    expect(card.doneChildCount).toBe(1);
+    expect(card.blockedChildCount).toBe(0);
+
+    // Children sorted by status weight: IN-PROGRESS (0) → TODO (4) → DONE (6)
+    expect(card.children.length).toBe(3);
+    expect(card.children[0]?.status).toBe("IN-PROGRESS");
+    expect(card.children[2]?.status).toBe("DONE");
+  });
+
+  // 11c. degraded — provider throws → reason matches /workstreams error/
+  test("workstreams widget returns degraded when dep provider throws", async () => {
+    const widget = createWorkstreamsWidget(async () => {
+      throw new Error("task DB connection failed");
+    });
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "workstreams", enabled: true }],
+      },
+      overrideRegistry: { workstreams: widget },
+    });
+    const res = await fetch(`${url}/api/widget/workstreams/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; reason: string };
+    expect(body.state).toBe("degraded");
+    expect(body.reason).toMatch(/workstreams error/i);
+    expect(body.reason).toMatch(/task DB connection failed/i);
+  });
+
+  // 11d. empty — no parent relationships at all → {workstreams: []} with state: "ok"
+  test("workstreams widget returns empty list when no parent relationships exist", async () => {
+    const tasks = [
+      { id: "mt#1", title: "Solo Task A", status: "IN-PROGRESS" },
+      { id: "mt#2", title: "Solo Task B", status: "TODO" },
+    ];
+    // No parent relationships at all
+    const widget = createWorkstreamsWidget(async () => makeMockWorkstreamsDeps(tasks, []));
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "workstreams", enabled: true }],
+      },
+      overrideRegistry: { workstreams: widget },
+    });
+    const res = await fetch(`${url}/api/widget/workstreams/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { workstreams: WorkstreamCard[] };
+    };
+    expect(body.state).toBe("ok");
+    expect(Array.isArray(body.payload.workstreams)).toBe(true);
+    expect(body.payload.workstreams.length).toBe(0);
   });
 });

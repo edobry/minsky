@@ -7,12 +7,14 @@ import { Agents } from "./widgets/Agents";
 import { AttentionStub } from "./widgets/AttentionStub";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { TaskGraph } from "./widgets/TaskGraph";
+import { Workstreams } from "./widgets/Workstreams";
 
 const WIDGET_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
   agents: Agents,
   "attention-stub": AttentionStub,
   "basic-health": BasicHealth,
   "task-graph": TaskGraph,
+  workstreams: Workstreams,
 };
 
 interface WidgetState {

@@ -24,6 +24,9 @@ const DEFAULT_CONFIG: CockpitConfig = {
     // cockpit's first-run behavior stays bound to placeholder widgets.
     // Same pattern as the agents widget (PR #1030 R1).
     { id: "task-graph", enabled: false },
+    // workstreams (mt#1452) is a real-data widget reading from the task DB.
+    // Defaulting to `enabled: false` — same opt-in pattern as agents and task-graph.
+    { id: "workstreams", enabled: false },
   ],
 };
 
