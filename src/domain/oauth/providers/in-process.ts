@@ -337,7 +337,12 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       registration_endpoint: `${providerIssuer}/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
-      token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
+      // v1 supports public PKCE clients only (token_endpoint_auth_method=none).
+      // client_secret_basic and client_secret_post are not supported because
+      // ClientAdapter.find() does not return the raw client_secret (only stores
+      // a hash), so oidc-provider would reject those clients at authorize time
+      // with invalid_client_metadata. See mt#1746.
+      token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["openid", "mcp", "offline_access"],
       code_challenge_methods_supported: ["S256"],
     };
@@ -369,10 +374,25 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       throw new Error("redirect_uris is required for client registration");
     }
 
+    // v1 supports public PKCE clients only (token_endpoint_auth_method=none).
+    // Reject non-none auth methods per RFC 7591: client_secret_basic and
+    // client_secret_post cannot be supported because ClientAdapter.find() stores
+    // only a bcrypt hash of the secret — not the raw secret — so oidc-provider's
+    // authorize handler would reject those clients with invalid_client_metadata.
+    // PKCE (S256) is enforced via pkce.required: () => true. See mt#1746.
+    const authMethod = body.token_endpoint_auth_method ?? "none";
+    if (authMethod !== "none") {
+      throw new Error(
+        `v1 only supports token_endpoint_auth_method='none' (public PKCE clients); ` +
+          `received '${authMethod}'. See docs/architecture/adr-006-agent-identity.md`
+      );
+    }
+
     const clientId = generateRandomId();
-    const clientSecret = generateRandomSecret();
+    // Public clients (none auth method) do NOT get a client_secret.
+    // The adapter's upsert conditionally stores a hash only when client_secret is present
+    // (see in-process-postgres-adapter.ts line ~166).
     const grantTypes = body.grant_types ?? ["authorization_code", "refresh_token"];
-    const authMethod = body.token_endpoint_auth_method ?? "client_secret_basic";
 
     // Persist via the adapter (DCR registration stores in oauth_clients)
     const adapterFactory = createAdapterFactory(this.config.db);
@@ -381,7 +401,9 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       clientId,
       {
         client_id: clientId,
-        client_secret: clientSecret,
+        // Intentionally omit client_secret for public PKCE clients (authMethod=none).
+        // The adapter stores a hash only when client_secret is present; omitting it
+        // here means no secret is stored and oidc-provider can load the client cleanly.
         redirect_uris: body.redirect_uris,
         grant_types: grantTypes,
         token_endpoint_auth_method: authMethod,
@@ -391,9 +413,10 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       Number.MAX_SAFE_INTEGER
     );
 
+    // Public clients: do NOT include client_secret in the response.
+    // RFC 7591 §3.2.1 allows omitting client_secret when the client is public.
     return {
       client_id: clientId,
-      client_secret: clientSecret,
       client_name: body.client_name,
       redirect_uris: body.redirect_uris,
       grant_types: grantTypes,
@@ -524,13 +547,6 @@ function deriveIssuer(req: Request, explicit: string | null | undefined): string
 /** Generates a URL-safe random ID (16 bytes = 32 hex chars). */
 function generateRandomId(): string {
   const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Generates a URL-safe random client secret (32 bytes = 64 hex chars). */
-function generateRandomSecret(): string {
-  const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
