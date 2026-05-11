@@ -1260,7 +1260,7 @@ export class MinskyMCPServer {
         this.disconnectTracker.recordReconnect();
         // mt#1717: write daemon state so the staleness detector hook can compare
         // the running daemon's start-commit against the current HEAD.
-        writeDaemonState("minsky");
+        writeDaemonState("minsky", "stdio");
         log.cli("Minsky MCP Server started with stdio transport");
         log.systemDebug("[MCP] Stdio transport connected successfully");
       } else {
@@ -1269,6 +1269,10 @@ export class MinskyMCPServer {
         const host = httpConfig.host || "localhost";
         const port = httpConfig.port || 3000;
         log.cli(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
+        // mt#1717: write daemon state for HTTP mode too — the hook gates on
+        // transport === "http" and skips, but the file must exist so the hook
+        // knows a daemon is running (BLOCKING 2, PR #1035 R1).
+        writeDaemonState("minsky", "http");
       }
 
       // Debug log of registered items

@@ -42,6 +42,8 @@ const DAEMON_STATE_OBJ = {
   startTimestamp: "2026-01-01T00:00:00.000Z",
   pid: 12345,
   serverName: "minsky",
+  minskyHomeDir: MINSKY_HOME,
+  transport: "stdio" as const,
 };
 
 // ---------------------------------------------------------------------------
@@ -207,6 +209,21 @@ describe("readDaemonStateFile", () => {
   test("returns null when required fields are missing", () => {
     const memFs = makeFs();
     memFs.setFile(STATE_PATH, JSON.stringify({ startCommit: "abc" }));
+    expect(readDaemonStateFile(STATE_PATH, memFs)).toBeNull();
+  });
+
+  test("returns null when minskyHomeDir field is missing (pre-fix daemon)", () => {
+    const memFs = makeFs();
+    // Simulate a state file written by a pre-mt#1717-fix daemon (no minskyHomeDir or transport).
+    memFs.setFile(
+      STATE_PATH,
+      JSON.stringify({
+        startCommit: COMMIT_A,
+        startTimestamp: "2026-01-01T00:00:00.000Z",
+        pid: 12345,
+        serverName: "minsky",
+      })
+    );
     expect(readDaemonStateFile(STATE_PATH, memFs)).toBeNull();
   });
 
@@ -491,6 +508,25 @@ describe("decideAndUpdate", () => {
     }
   });
 
+  // HTTP transport: silent skip (BLOCKING 2, PR #1035 R1)
+  test("http transport in state file → silent skip with http-transport-out-of-scope", () => {
+    const memFs = makeFs();
+    seedDaemonState(memFs, { ...DAEMON_STATE_OBJ, transport: "http" });
+    const git = makeGit({ head: COMMIT_B, changed: ["src/foo.ts"] });
+
+    const result = decideAndUpdate({
+      projectDir: PROJECT_DIR,
+      sessionId: SESSION_ID,
+      env: makeEnv(),
+      fs: memFs,
+      git,
+      homeOverride: HOME_DIR,
+    });
+
+    expect(result.injection).toBeNull();
+    expect(result.log.skipReason).toBe("http-transport-out-of-scope");
+  });
+
   // Additional: git diff failure → silent skip
   test("git diff failure → silent skip", () => {
     const memFs = makeFs();
@@ -513,7 +549,16 @@ describe("decideAndUpdate", () => {
   // Additional: minsky home not resolvable → silent skip
   test("minsky home not found → silent skip", () => {
     const memFs = makeFs();
-    seedDaemonState(memFs);
+    // Seed a state file missing minskyHomeDir (simulates pre-fix daemon)
+    memFs.setFile(
+      STATE_PATH,
+      JSON.stringify({
+        startCommit: COMMIT_A,
+        startTimestamp: "2026-01-01T00:00:00.000Z",
+        pid: 12345,
+        serverName: "minsky",
+      })
+    );
     const git = makeGit({ head: COMMIT_B, changed: ["src/foo.ts"] });
 
     // No MINSKY_HOME, no bun path in fs
@@ -526,7 +571,8 @@ describe("decideAndUpdate", () => {
       homeOverride: HOME_DIR,
     });
 
+    // State file will fail shape validation (missing minskyHomeDir) → no-daemon-state
     expect(result.injection).toBeNull();
-    expect(result.log.skipReason).toBe("no-minsky-home");
+    expect(result.log.skipReason).toBe("no-daemon-state");
   });
 });

@@ -22,7 +22,7 @@
 // @see src/mcp/daemon-state.ts — writes the daemon state file on startup
 // @see src/mcp/server.ts — calls writeDaemonState("minsky") in start()
 
-import { readInput, writeOutput } from "./types";
+import { readInput, writeOutput, execWithPath } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -42,6 +42,18 @@ export interface DaemonState {
   startTimestamp: string;
   pid: number;
   serverName: string;
+  /**
+   * The resolved Minsky working tree directory used to compute startCommit.
+   * Embedded by the daemon so the hook uses the exact same path — eliminates
+   * resolver-mismatch (BLOCKING 1, PR #1035 R1).
+   */
+  minskyHomeDir: string;
+  /**
+   * Transport type at daemon startup. "http" causes the hook to skip —
+   * HTTP reconnects via Claude Code backoff; /mcp is stdio-specific
+   * (BLOCKING 2, PR #1035 R1).
+   */
+  transport: "stdio" | "http";
 }
 
 /** Reported commit pair used for re-warn suppression. */
@@ -112,14 +124,12 @@ export interface GitDeps {
 export const REAL_GIT: GitDeps = {
   resolveHead(repoDir: string): string | null {
     try {
-      const result = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
+      const result = execWithPath(["git", "rev-parse", "HEAD"], {
         cwd: repoDir,
-        stdout: "pipe",
-        stderr: "pipe",
         timeout: 5000,
       });
       if (result.exitCode !== 0) return null;
-      const sha = result.stdout.toString().trim();
+      const sha = result.stdout.trim();
       if (/^[0-9a-f]{7,}$/i.test(sha)) return sha;
       return null;
     } catch {
@@ -129,14 +139,12 @@ export const REAL_GIT: GitDeps = {
 
   diffNames(repoDir: string, from: string, to: string): string[] | null {
     try {
-      const result = Bun.spawnSync(["git", "diff", "--name-only", `${from}..${to}`], {
+      const result = execWithPath(["git", "diff", "--name-only", `${from}..${to}`], {
         cwd: repoDir,
-        stdout: "pipe",
-        stderr: "pipe",
         timeout: 5000,
       });
       if (result.exitCode !== 0) return null;
-      const text = result.stdout.toString().trim();
+      const text = result.stdout.trim();
       if (text === "") return [];
       return text.split("\n").filter((p) => p.length > 0);
     } catch {
@@ -184,7 +192,9 @@ export function readDaemonStateFile(statePath: string, fs: FsDeps = REAL_FS): Da
     typeof obj["startCommit"] !== "string" ||
     typeof obj["startTimestamp"] !== "string" ||
     typeof obj["pid"] !== "number" ||
-    typeof obj["serverName"] !== "string"
+    typeof obj["serverName"] !== "string" ||
+    typeof obj["minskyHomeDir"] !== "string" ||
+    (obj["transport"] !== "stdio" && obj["transport"] !== "http")
   ) {
     return null;
   }
@@ -193,6 +203,8 @@ export function readDaemonStateFile(statePath: string, fs: FsDeps = REAL_FS): Da
     startTimestamp: obj["startTimestamp"] as string,
     pid: obj["pid"] as number,
     serverName: obj["serverName"] as string,
+    minskyHomeDir: obj["minskyHomeDir"] as string,
+    transport: obj["transport"] as "stdio" | "http",
   };
 }
 
@@ -393,9 +405,23 @@ export function decideAndUpdate(args: {
     };
   }
 
-  // Resolve the Minsky working tree.
-  const minskyHome = resolveMinskyHomeDir(args.env, fs);
-  if (!minskyHome) {
+  // HTTP transport: skip staleness detection. HTTP sessions reconnect
+  // automatically via Claude Code's exponential backoff; the /mcp click is
+  // stdio-specific. State file field missing = pre-fix daemon = treat as stdio.
+  if (daemonState.transport === "http") {
+    return {
+      injection: null,
+      newTracker: null,
+      trackerPath,
+      log: { sessionId: args.sessionId, skipped: true, skipReason: "http-transport-out-of-scope" },
+    };
+  }
+
+  // Use the minskyHomeDir embedded by the daemon — same path it used for
+  // startCommit, so the comparison is symmetric (BLOCKING 1, PR #1035 R1).
+  // If the field is absent (pre-fix daemon wrote the file), skip gracefully.
+  const minskyHomeDir = daemonState.minskyHomeDir;
+  if (!minskyHomeDir) {
     return {
       injection: null,
       newTracker: null,
@@ -405,7 +431,7 @@ export function decideAndUpdate(args: {
   }
 
   // Resolve current HEAD.
-  const currentHead = git.resolveHead(minskyHome);
+  const currentHead = git.resolveHead(minskyHomeDir);
   if (!currentHead) {
     return {
       injection: null,
@@ -426,7 +452,7 @@ export function decideAndUpdate(args: {
   }
 
   // Get changed file names between startCommit and currentHead.
-  const changedPaths = git.diffNames(minskyHome, daemonState.startCommit, currentHead);
+  const changedPaths = git.diffNames(minskyHomeDir, daemonState.startCommit, currentHead);
   if (!changedPaths) {
     return {
       injection: null,

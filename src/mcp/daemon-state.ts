@@ -23,8 +23,7 @@ import { log } from "../utils/logger";
 export interface DaemonState {
   /**
    * `git rev-parse HEAD` resolved at daemon startup, from the global-install
-   * working tree (NOT from process.cwd() which may be the user's project).
-   * The hook uses this to detect source drift.
+   * working tree (NOT from process.cwd() which may be the user's project).\n   * The hook uses this to detect source drift.
    */
   startCommit: string;
   /** ISO-8601 timestamp of daemon startup. */
@@ -33,6 +32,19 @@ export interface DaemonState {
   pid: number;
   /** MCP server name — matches the server name used by disconnect-tracker. */
   serverName: string;
+  /**
+   * The resolved Minsky working tree directory used to compute `startCommit`.
+   * Embedded so the hook reads the same path the daemon used — eliminates the
+   * resolver-mismatch class (BLOCKING 1, PR #1035 R1).
+   */
+  minskyHomeDir: string;
+  /**
+   * Transport type in use at daemon startup.
+   * The hook skips staleness detection for "http" transport — HTTP reconnects
+   * automatically via Claude Code exponential backoff; the /mcp click is
+   * stdio-specific (BLOCKING 2, PR #1035 R1).
+   */
+  transport: "stdio" | "http";
 }
 
 // ---------------------------------------------------------------------------
@@ -120,11 +132,14 @@ export function resolveHeadCommit(repoDir: string): string | null {
 /**
  * Write the daemon state file on server startup.
  *
- * Called from `src/mcp/server.ts` constructor after the server is wired.
+ * Called from `src/mcp/server.ts` after the transport is connected.
  * Failures are logged as warnings — the file is informational; missing it
  * causes the hook to silently skip (fail-open posture).
+ *
+ * @param serverName — MCP server name (e.g. "minsky")
+ * @param transport  — transport type in use ("stdio" | "http")
  */
-export function writeDaemonState(serverName: string): void {
+export function writeDaemonState(serverName: string, transport: "stdio" | "http"): void {
   try {
     const minskyDir = resolveMinskyHomeDir();
     const startCommit = resolveHeadCommit(minskyDir);
@@ -140,6 +155,8 @@ export function writeDaemonState(serverName: string): void {
       startTimestamp: new Date().toISOString(),
       pid: process.pid,
       serverName,
+      minskyHomeDir: minskyDir,
+      transport,
     };
 
     const statePath = getDaemonStatePath();
@@ -157,6 +174,7 @@ export function writeDaemonState(serverName: string): void {
       path: statePath,
       startCommit,
       pid: process.pid,
+      transport,
     });
   } catch (err) {
     log.warn("daemon-state: failed to write daemon state file (non-fatal)", {
@@ -193,7 +211,9 @@ export function readDaemonState(statePath?: string): DaemonState | null {
     typeof obj["startCommit"] !== "string" ||
     typeof obj["startTimestamp"] !== "string" ||
     typeof obj["pid"] !== "number" ||
-    typeof obj["serverName"] !== "string"
+    typeof obj["serverName"] !== "string" ||
+    typeof obj["minskyHomeDir"] !== "string" ||
+    (obj["transport"] !== "stdio" && obj["transport"] !== "http")
   ) {
     return null;
   }
@@ -202,5 +222,7 @@ export function readDaemonState(statePath?: string): DaemonState | null {
     startTimestamp: obj["startTimestamp"] as string,
     pid: obj["pid"] as number,
     serverName: obj["serverName"] as string,
+    minskyHomeDir: obj["minskyHomeDir"] as string,
+    transport: obj["transport"] as "stdio" | "http",
   };
 }
