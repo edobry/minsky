@@ -24,30 +24,50 @@ skills:
 > [ADR-005](../../docs/architecture/adr-005-forgebackend-subinterfaces.md)
 > and [ADR-006](../../docs/architecture/adr-006-agent-identity.md)). Both
 > surfaces share the same Chinese-wall constraints (per mt#1073 design
-> constraints 2 and 3) — no workspace mutations beyond the sanctioned
-> review-posting write (`Bash` is for read-only commands), no access to
-> the implementer agent's prior conversation or working state, evidence-
-> based output anchored to source, and severity classification per the
-> Critic Constitution. They differ only in invocation mode and runtime
-> surface: this subagent runs in-conversation when a user or skill
-> dispatches it; the Railway service runs as a long-lived deployed
-> service triggered by GitHub webhooks.
+> constraints 2 and 3): no access to the implementer agent's prior
+> conversation or working state, evidence-based output anchored to source,
+> severity classification per the Critic Constitution, and a policy
+> against workspace mutations beyond the sanctioned review-posting write.
+> They differ only in invocation mode and runtime surface: this subagent
+> runs in-conversation when a user or skill dispatches it; the Railway
+> service runs as a long-lived deployed service triggered by GitHub
+> webhooks.
 >
-> **Isolation boundary enforcement.** The Chinese-wall isolation is
-> structurally enforced, not prompt-based:
+> **Isolation boundary enforcement — what is structural vs. policy-level.**
+> The Chinese-wall isolation is enforced by a mix of structural and
+> policy-level mechanisms; calling out which is which matters for
+> auditors:
 >
-> - _Local subagent (this file)_: Claude Code's `Agent` tool dispatches
->   subagents with a fresh system prompt and no inherited message
->   history; the `tools:` frontmatter above curates an allowlist that
->   omits write/mutation tools (`session_write_file`, `session_edit_file`,
->   `session_exec` with mutations).
-> - _Cloud reviewer service_: runs in a separate Railway process (no
->   filesystem access to implementer sessions); posts under a separate
->   GitHub App identity (`minsky-reviewer[bot]`, App ID 3470137) per
->   ADR-006.
+> - _Local subagent (this file), structurally enforced_: Claude Code's
+>   `Agent` tool dispatches subagents with a fresh system prompt and no
+>   inherited message history. The `tools:` frontmatter above curates an
+>   allowlist that omits every Minsky write/mutation tool
+>   (`session_write_file`, `session_edit_file`, `session_exec` —
+>   structurally absent from the allowlist).
+> - _Local subagent, policy-level (not yet structurally enforced)_: the
+>   `Bash` tool IS in the allowlist (it is needed for read-only commands
+>   like `grep`, `git log`, `git diff`, `cat`, etc.) and the repo has no
+>   in-tree wrapper that constrains `Bash` invocations to non-mutating
+>   commands. The Chinese-wall constraint here is a policy claim
+>   addressed to the subagent: **`Bash` MUST NOT be used for mutations
+>   (no `rm`, no `mv`, no `sed -i`, no `curl -X POST`/`PUT`/`PATCH`/
+>   `DELETE`, no `git push`, no in-place file rewrites). A future
+>   structural fix could add a Bash-command-filter wrapper or split the
+>   read-only Bash use into a `BashReadOnly` tool; until then, the
+>   reviewer subagent must self-enforce this policy.**
+> - _Cloud reviewer service, structurally enforced_: runs in a separate
+>   Railway process (no filesystem access to implementer sessions); posts
+>   under a separate GitHub App identity (`minsky-reviewer[bot]`,
+>   operational guarantee — see Railway service config and ADR-006).
+>   The model's file access is mediated by the curated `tools.ts`
+>   interface (`readFile` + `listDirectory` only, no write surfaces);
+>   the deployed worker has no `Bash` equivalent.
 >
 > Both surfaces deliver the structural enforcement that mt#1511 originally
-> required and that mt#1083 (DONE) shipped at the cloud surface.
+> required and that mt#1083 (DONE) shipped at the cloud surface. The
+> local-`Bash` residual is the one gap remaining; closing it would
+> require a separate task (Bash-wrapper / BashReadOnly tool / agent-
+> runtime guard).
 
 You are a code review analyst. You operate in two modes depending on what the parent agent gives you.
 
