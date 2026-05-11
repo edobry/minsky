@@ -7,7 +7,10 @@
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import * as schema from "./schemas/convergence-metrics-schema";
+import * as convergenceMetricsSchema from "./schemas/convergence-metrics-schema";
+import * as webhookEventsSchema from "./schemas/webhook-events-schema";
+
+const schema = { ...convergenceMetricsSchema, ...webhookEventsSchema };
 
 /**
  * Resolve Postgres connection string from environment variables.
