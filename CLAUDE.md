@@ -734,6 +734,26 @@ Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" 
 
 **`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts). For main-workspace `git status`/`git stash`/`git reset`/`git restore`/`git pull`, prefer the dedicated MCP tools (`git_status`, `git_stash`, `git_reset`, `git_restore`, `git_pull`) shipped by mt#1549 — `session_exec` carve-outs for these still apply only when running them inside a SESSION workspace (e.g., `session_exec(task, 'git stash')`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
 
+## Local MCP daemon: optional proxy for /mcp-click-free reconnection
+
+If you frequently click `/mcp` to reconnect Minsky after merges that touch `src/`,
+switch your local Claude Code config from `minsky mcp start` to `minsky mcp proxy`:
+
+```jsonc
+{
+  "mcpServers": {
+    "minsky": {
+      "command": "minsky",
+      "args": ["mcp", "proxy"]  // was: ["mcp", "start"]
+    }
+  }
+}
+```
+
+The proxy transparently respawns the inner daemon on mt#1322 staleness exits without
+disconnecting Claude Code. Agent-callable restart via `__proxy_restart_server`.
+See `docs/architecture/stdio-proxy.md` for the architecture.
+
 # Decision Defaults
 
 When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Pre-training emphasizes industry-average patterns; without a contrary anchor in this file, the textbook wins. Each entry below names the Minsky-grounded answer, the generic-SE alternative it overrides, and the originating memory.
