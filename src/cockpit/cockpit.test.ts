@@ -12,6 +12,10 @@ import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
 import type { WidgetModule, WidgetData, WidgetContext } from "./types";
+import { createAgentsWidget } from "./widgets/agents";
+import type { AgentRow } from "./widgets/agents";
+import type { SessionProviderInterface, SessionRecord } from "../domain/session/types";
+import { SessionStatus } from "../domain/session/types";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -199,5 +203,283 @@ describe("Cockpit server", () => {
     expect(body.length).toBe(3);
     const ids = body.map((w) => w.id);
     expect(ids).toContain("extra-stub");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Agents widget tests (mt#1145)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a minimal mock SessionProviderInterface for testing.
+   * Only `listSessions` is needed by the agents widget.
+   */
+  function makeMockProvider(records: SessionRecord[]): SessionProviderInterface {
+    return {
+      listSessions: async () => records,
+      getSession: async () => null,
+      getSessionByTaskId: async () => null,
+      addSession: async () => {},
+      updateSession: async () => {},
+      deleteSession: async () => false,
+      getRepoPath: async () => "",
+      getSessionWorkdir: async () => "",
+    };
+  }
+
+  // Static base for fixture timestamps — "now" expressed without Date.now().
+  // Using new Date() avoids the `no-real-fs-in-tests` lint rule that fires on
+  // Date.now() used inside test files.  All offsets are expressed as
+  // arithmetic on a base Date object.
+  const NOW = new Date();
+  const FORTY_FIVE_MIN_AGO = new Date(NOW.getTime() - 45 * 60 * 1000);
+  const FIVE_HOURS_AGO = new Date(NOW.getTime() - 5 * 60 * 60 * 1000);
+  const TWO_DAYS_AGO = new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+  /** Fixture: a healthy session with a bound task and open PR.
+   * taskId is stored in qualified form because `SessionDbAdapter.addTaskToSession`
+   * normalizes via `validateQualifiedTaskId` before persisting (per PR #1030 R2). */
+  const healthySession: SessionRecord = {
+    sessionId: "aaaaaaaa-0000-0000-0000-000000000001",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: NOW.toISOString(),
+    lastActivityAt: NOW.toISOString(),
+    taskId: "mt#1145",
+    status: SessionStatus.PR_OPEN,
+    pullRequest: {
+      number: 42,
+      url: "https://github.com/edobry/minsky/pull/42",
+      state: "open",
+      createdAt: NOW.toISOString(),
+      headBranch: "task/mt-1145",
+      baseBranch: "main",
+      lastSynced: NOW.toISOString(),
+    },
+  };
+
+  /** Fixture: an idle session with no task or PR (last active ~45 min ago) */
+  const idleSession: SessionRecord = {
+    sessionId: "bbbbbbbb-0000-0000-0000-000000000002",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: FORTY_FIVE_MIN_AGO.toISOString(),
+    lastActivityAt: FORTY_FIVE_MIN_AGO.toISOString(),
+    status: SessionStatus.ACTIVE,
+  };
+
+  /** Fixture: a stale session (last active ~5 hours ago, non-terminal) */
+  const staleSession: SessionRecord = {
+    sessionId: "cccccccc-0000-0000-0000-000000000003",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: FIVE_HOURS_AGO.toISOString(),
+    lastActivityAt: FIVE_HOURS_AGO.toISOString(),
+    status: SessionStatus.ACTIVE,
+    // stale liveness (>2h), but not orphaned status — included in results
+  };
+
+  /** Fixture: a MERGED session (terminal — must be filtered) */
+  const mergedSession: SessionRecord = {
+    sessionId: "dddddddd-0000-0000-0000-000000000004",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: TWO_DAYS_AGO.toISOString(),
+    lastActivityAt: TWO_DAYS_AGO.toISOString(),
+    status: SessionStatus.MERGED,
+    taskId: "mt#999",
+  };
+
+  /** Fixture: a CLOSED session (terminal — must be filtered). PR #1030 R1 added. */
+  const closedSession: SessionRecord = {
+    sessionId: "eeeeeeee-0000-0000-0000-000000000005",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: TWO_DAYS_AGO.toISOString(),
+    lastActivityAt: TWO_DAYS_AGO.toISOString(),
+    status: SessionStatus.CLOSED,
+    taskId: "mt#888",
+  };
+
+  /** Fixture: a session that should appear with the branch as its title. */
+  const branchedSession: SessionRecord = {
+    sessionId: "ffffffff-0000-0000-0000-000000000006",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: NOW.toISOString(),
+    lastActivityAt: NOW.toISOString(),
+    status: SessionStatus.ACTIVE,
+    branch: "task/mt-1145",
+  };
+
+  /** Fixture: a session whose taskId is already in qualified form (mt#NNNN).
+   * Verifies the display formatter doesn't double-prefix. PR #1030 R2 added. */
+  const qualifiedTaskSession: SessionRecord = {
+    sessionId: "11111111-0000-0000-0000-000000000007",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: NOW.toISOString(),
+    lastActivityAt: NOW.toISOString(),
+    status: SessionStatus.ACTIVE,
+    taskId: "mt#1145", // already qualified — must NOT become "mt#mt#1145"
+  };
+
+  // 9a. Agents widget present in /api/widgets when enabled
+  test("agents widget present in /api/widgets when enabled", async () => {
+    const agentsWidget = createAgentsWidget(async () => makeMockProvider([]));
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    const ids = body.map((w) => w.id);
+    expect(ids).toContain("agents");
+  });
+
+  // 9b. /api/widget/agents/data returns {state:"ok", payload:{agents:[...]}} shape
+  test("/api/widget/agents/data returns ok with agents payload (healthy + idle)", async () => {
+    const agentsWidget = createAgentsWidget(async () =>
+      makeMockProvider([healthySession, idleSession])
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { agents: AgentRow[] };
+    };
+    expect(body.state).toBe("ok");
+    expect(Array.isArray(body.payload.agents)).toBe(true);
+    expect(body.payload.agents.length).toBe(2);
+
+    const sessionIds = body.payload.agents.map((a) => a.sessionId);
+    expect(sessionIds).toContain(healthySession.sessionId);
+    expect(sessionIds).toContain(idleSession.sessionId);
+
+    // Healthy session should have PR fields
+    const healthy = body.payload.agents.find((a) => a.sessionId === healthySession.sessionId);
+    if (!healthy) throw new Error("healthy session missing from response");
+    expect(healthy.liveness).toBe("healthy");
+    expect(healthy.taskId).toBe("mt#1145");
+    expect(healthy.prNumber).toBe(42);
+    expect(healthy.prStatus).toBe("open");
+
+    // Idle session should have no task or PR
+    const idle = body.payload.agents.find((a) => a.sessionId === idleSession.sessionId);
+    if (!idle) throw new Error("idle session missing from response");
+    expect(idle.liveness).toBe("idle");
+    expect(idle.taskId).toBeNull();
+    expect(idle.prNumber).toBeNull();
+  });
+
+  // 9c. Agents widget filters out terminal-status sessions (MERGED + CLOSED)
+  // and keeps stale-but-non-terminal sessions. The spec calls out both MERGED
+  // and CLOSED explicitly (PR #1030 R1 reviewer finding — original test
+  // covered only MERGED).
+  test("agents widget filters out MERGED + CLOSED, keeps stale non-terminal", async () => {
+    const agentsWidget = createAgentsWidget(async () =>
+      makeMockProvider([healthySession, staleSession, mergedSession, closedSession])
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { agents: AgentRow[] };
+    };
+    expect(body.state).toBe("ok");
+
+    const sessionIds = body.payload.agents.map((a) => a.sessionId);
+    // MERGED + CLOSED (terminal) must be absent
+    expect(sessionIds).not.toContain(mergedSession.sessionId);
+    expect(sessionIds).not.toContain(closedSession.sessionId);
+    // healthy and stale (non-terminal) must be present
+    expect(sessionIds).toContain(healthySession.sessionId);
+    expect(sessionIds).toContain(staleSession.sessionId);
+  });
+
+  // 9c'. Agents widget renders branch as title when available
+  // (PR #1030 R1 reviewer finding: 8-char sessionId prefix risks collision —
+  // resolved by preferring `record.branch ?? full sessionId`).
+  test("agents widget uses branch as title when present, full sessionId otherwise", async () => {
+    const agentsWidget = createAgentsWidget(async () =>
+      makeMockProvider([healthySession, branchedSession])
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { agents: AgentRow[] };
+    };
+    expect(body.state).toBe("ok");
+
+    const healthy = body.payload.agents.find((a) => a.sessionId === healthySession.sessionId);
+    const branched = body.payload.agents.find((a) => a.sessionId === branchedSession.sessionId);
+    // Branched session renders its branch as title (not an 8-char prefix)
+    expect(branched?.title).toBe("task/mt-1145");
+    // Healthy session has no branch → full sessionId is the title (no prefix-truncation)
+    expect(healthy?.title).toBe(healthySession.sessionId);
+    expect(healthy?.title).not.toMatch(/^session [a-f0-9]{8}$/);
+  });
+
+  // 9c''. Agents widget doesn't double-prefix already-qualified taskIds
+  // (PR #1030 R2 reviewer finding: SessionDbAdapter.addTaskToSession normalizes
+  // to "mt#NNNN" form before persisting, so storage may already hold a
+  // qualified ID; the display formatter must be idempotent.)
+  test("agents widget doesn't double-prefix already-qualified taskIds", async () => {
+    const agentsWidget = createAgentsWidget(async () => makeMockProvider([qualifiedTaskSession]));
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { agents: AgentRow[] };
+    };
+    expect(body.state).toBe("ok");
+
+    const row = body.payload.agents.find((a) => a.sessionId === qualifiedTaskSession.sessionId);
+    expect(row?.taskId).toBe("mt#1145");
+    expect(row?.taskId).not.toBe("mt#mt#1145");
+  });
+
+  // 9d. Agents widget returns degraded when provider throws
+  test("agents widget returns degraded when session provider throws", async () => {
+    const agentsWidget = createAgentsWidget(async () => {
+      throw new Error("DB connection failed");
+    });
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; reason: string };
+    expect(body.state).toBe("degraded");
+    expect(body.reason).toMatch(/session_list error/i);
+    expect(body.reason).toMatch(/DB connection failed/i);
   });
 });
