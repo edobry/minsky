@@ -15,14 +15,24 @@
 --   DROP TABLE IF EXISTS subagent_invocations;
 --   DROP TYPE IF EXISTS subagent_invocation_outcome;
 
-CREATE TYPE "subagent_invocation_outcome" AS ENUM (
-  'completed-with-pr',
-  'committed-no-pr',
-  'partial-committed-handoff-written',
-  'partial-uncommitted-no-handoff',
-  'crashed-no-output',
-  'rate-limited'
-);
+-- Guarded enum creation: PG's CREATE TYPE does not support IF NOT EXISTS,
+-- so wrap in a DO block that swallows duplicate_object errors. Lets the
+-- migration be re-applied safely after a partial failure without manual
+-- intervention.
+DO $$
+BEGIN
+  CREATE TYPE "subagent_invocation_outcome" AS ENUM (
+    'completed-with-pr',
+    'committed-no-pr',
+    'partial-committed-handoff-written',
+    'partial-uncommitted-no-handoff',
+    'crashed-no-output',
+    'rate-limited'
+  );
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END
+$$;
 --> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS "subagent_invocations" (

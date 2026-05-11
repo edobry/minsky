@@ -206,6 +206,16 @@ describe("0033_subagent_invocations.sql migration sanity", () => {
     expect(sql).toContain('CREATE TYPE "subagent_invocation_outcome" AS ENUM');
   });
 
+  test("enum creation is guarded against duplicate_object errors (re-runnable)", () => {
+    const sql = readFileSync(migrationPath).toString();
+    // PG's CREATE TYPE doesn't support IF NOT EXISTS; the canonical idiom is a
+    // DO block with EXCEPTION WHEN duplicate_object. Verify both halves of the
+    // pattern are present.
+    expect(sql).toContain("DO $$");
+    expect(sql).toContain("EXCEPTION");
+    expect(sql).toContain("duplicate_object");
+  });
+
   test("migration enum contains all 6 outcome values", () => {
     const sql = readFileSync(migrationPath).toString();
     for (const value of SUBAGENT_INVOCATION_OUTCOME_VALUES) {
@@ -261,5 +271,36 @@ describe("0033_subagent_invocations.sql migration sanity", () => {
   test("migration includes handoff_written boolean column", () => {
     const sql = readFileSync(migrationPath).toString();
     expect(sql).toContain('"handoff_written"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Drizzle journal registration — guards against the "SQL on disk but not
+// applied at runtime" drift class (PR #1040 R1 reviewer-bot finding)
+// ---------------------------------------------------------------------------
+
+describe("drizzle journal registration for 0033_subagent_invocations", () => {
+  const journalPath = join(MIGRATIONS_DIR, "meta", "_journal.json");
+
+  test("journal file exists and parses as JSON", () => {
+    const raw = readFileSync(journalPath).toString();
+    expect(() => JSON.parse(raw)).not.toThrow();
+  });
+
+  test("journal contains an entry tagged 0033_subagent_invocations", () => {
+    const journal = JSON.parse(readFileSync(journalPath).toString()) as {
+      entries: Array<{ idx: number; tag: string; version: string; breakpoints: boolean }>;
+    };
+    const entry = journal.entries.find((e) => e.tag === "0033_subagent_invocations");
+    expect(entry).toBeDefined();
+    expect(entry?.idx).toBe(33);
+    expect(entry?.version).toBe("7");
+    expect(entry?.breakpoints).toBe(true);
+  });
+
+  test("schema is registered in drizzle.pg.config.ts", () => {
+    const configPath = join(import.meta.dir, "../../../..", "drizzle.pg.config.ts");
+    const cfg = readFileSync(configPath).toString();
+    expect(cfg).toContain("subagent-invocations-schema.ts");
   });
 });
