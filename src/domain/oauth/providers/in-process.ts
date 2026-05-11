@@ -503,22 +503,27 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
   }
 
   /**
-   * Forwards interaction-UI requests to the oidc-provider Koa app.
-   * Used by `app.all(/^\/interaction\//, ...)` in start-command.ts.
+   * Forwards requests to the oidc-provider Koa app at oidc-provider's internal
+   * path (no URL rewrite). Used by routes where the Express path and
+   * oidc-provider's internal path already match exactly — passes req.path
+   * through unchanged.
    *
-   * When devInteractions is enabled (the default), oidc-provider registers
-   * GET /interaction/:uid, POST /interaction/:uid, and GET /interaction/:uid/abort
-   * internally. Express has no matching routes, so those redirects 404 without
-   * this forwarding method.
+   * Wired Express callers:
+   * - `app.all(/^\/interaction\/[^/]+/, ...)` — devInteractions consent UI
+   *   (mt#1731). `/interaction/:uid` and subroutes.
+   * - `app.all(/^\/auth\/[^/]+/, ...)` — post-interaction authorization
+   *   continuation (mt#1753). `/auth/:uid` issues the auth code after consent.
    *
-   * The Express path already matches oidc-provider's internal path exactly
-   * (both use /interaction/:uid), so we pass req.path directly as internalPath.
+   * Despite the method name (retained for backward-compat), the contract is
+   * "forward any oidc-provider internal path that doesn't need URL rewrite."
+   * For paths that DO need rewrite (`/oauth/authorize` → `/auth`, etc.), use
+   * `authorize()` and `token()` instead.
    */
   async forwardInteraction(req: Request, res: Response): Promise<void> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
     const provider = this.getProvider(issuer);
-    // req.path is the path without query string, e.g. "/interaction/abc123"
-    // oidc-provider's internal router knows "/interaction/:uid" natively.
+    // req.path is the path without query string, e.g. "/interaction/abc123" or
+    // "/auth/abc123". oidc-provider's internal router knows both natively.
     await forwardToKoaProvider(provider, req, res, req.path);
   }
 
