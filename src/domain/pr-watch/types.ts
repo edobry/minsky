@@ -70,6 +70,18 @@ export interface PrWatch {
    */
   watcherId: string;
 
+  /**
+   * Minsky session UUID of the agent that registered this watch.
+   *
+   * Captured from the MCP call context at `pr_watch_create` time. When present,
+   * the watcher routes the wake signal via `PersistentWakeSignalSink` so the
+   * registering agent receives the firing on its next allowlisted MCP tool call.
+   *
+   * Absent for legacy rows (registered before mt#1725) and for calls where no
+   * session could be resolved from context.
+   */
+  parentSessionId?: string;
+
   // -------------------------------------------------------------------------
   // Cursor / state
   // -------------------------------------------------------------------------

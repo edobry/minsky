@@ -190,15 +190,27 @@ export interface OAuthIdentityProvider {
   token(req: Request, res: Response): Promise<void>;
 
   /**
-   * Forwards interaction-UI requests to the oidc-provider Koa app.
-   * Used by `app.all(/^\/interaction\//, ...)` in start-command.ts.
+   * Forwards requests to the oidc-provider Koa app at oidc-provider's internal
+   * path (no URL rewrite). Used for paths where the Express route name and
+   * oidc-provider's internal route name already match exactly — passes
+   * `req.path` through unchanged.
    *
-   * When `devInteractions: { enabled: true }` is configured (the default),
-   * oidc-provider registers GET/POST /interaction/:uid internally for its
-   * built-in consent UI. Express has no matching routes without this method,
-   * so authorize redirects to /interaction/:uid would 404.
+   * Wired callers in `start-command.ts`:
+   * - `app.all(/^\/interaction\/[^/]+/, ...)` — devInteractions consent UI
+   *   (mt#1731). When `devInteractions: { enabled: true }` is configured,
+   *   oidc-provider registers GET/POST `/interaction/:uid` internally; Express
+   *   has no matching routes without this method, so the authorize → interaction
+   *   redirect would 404.
+   * - `app.all(/^\/auth\/[^/]+/, ...)` — post-interaction authorization
+   *   continuation (mt#1753). After consent submit, oidc-provider redirects to
+   *   `/auth/:uid` to issue the auth code; mirrors the /interaction shape.
    *
-   * @param req - Express request (path must start with /interaction/).
+   * The method name is retained from its original /interaction-only use; despite
+   * the name, the contract is "forward any oidc-provider internal path without
+   * URL rewrite." Use `authorize()` and `token()` for the paths that DO require
+   * URL rewrite (`/oauth/authorize` → `/auth`, `/oauth/token` → `/token`).
+   *
+   * @param req - Express request.
    * @param res - Express response.
    */
   forwardInteraction(req: Request, res: Response): Promise<void>;

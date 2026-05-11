@@ -586,6 +586,36 @@ async function startHttpServer(
     }
   });
 
+  // mt#1753: forward /auth/<uid> requests to oidc-provider. After devInteractions
+  // consent is submitted, oidc-provider 302-redirects to /auth/<uid> (its internal
+  // authorization-continuation endpoint) to issue the auth code and redirect back
+  // to the client's redirect_uri. Express has no match for this path unless we
+  // explicitly mount it. Mirrors the /interaction/<uid> handler exactly — same
+  // forwardInteraction() method because /auth/<uid> is already oidc-provider's
+  // internal path (no URL rewrite needed). The regex anchors after /auth/ to
+  // require a uid segment, so the bare /oauth/authorize → /auth (rewritten) path
+  // from mt#1731 is unaffected.
+  app.all(/^\/auth\/[^/]+/, async (req, res) => {
+    if (!oauthProvider) {
+      res.status(503).json({
+        error: "service_unavailable",
+        error_description: "OAuth provider not configured; database connection required",
+      });
+      return;
+    }
+    try {
+      await oauthProvider.forwardInteraction(req, res);
+    } catch (err) {
+      log.error("OAuth /auth/<uid> error", { error: getErrorMessage(err) });
+      if (!res.headersSent) {
+        res.status(500).json({
+          error: "server_error",
+          error_description: "Authorization-continuation endpoint error",
+        });
+      }
+    }
+  });
+
   // Start the HTTP server
   // NOTE: the `http://...` URLs printed below are the INTERNAL listener
   // (i.e., what Express binds to inside the container). In TLS-fronted
