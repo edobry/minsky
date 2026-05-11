@@ -115,8 +115,22 @@ interface EpicAuditOutput {
 function summarizeCandidates(
   candidates: EpicStalenessCandidate[]
 ): EpicAuditOutput["topCandidates"] {
-  // Top-N by signal-type-count then by total-token-count descending
-  return candidates.slice(0, 25).map((c) => ({
+  // Sort by overlap strength descending so the operator's first 25 candidates
+  // are the strongest matches (signal-type-count desc, then total-token-count
+  // desc). The detector's own sort is by todoChildId asc (deterministic
+  // grouping); calibration output benefits from strength-first ordering.
+  // PR #1033 R1 nit (3): comment used to claim this sort but the code only
+  // sliced the detector's output.
+  const ranked = [...candidates].sort((a, b) => {
+    if (a.overlap.signalTypeCount !== b.overlap.signalTypeCount) {
+      return b.overlap.signalTypeCount - a.overlap.signalTypeCount;
+    }
+    if (a.overlap.totalTokenCount !== b.overlap.totalTokenCount) {
+      return b.overlap.totalTokenCount - a.overlap.totalTokenCount;
+    }
+    return a.todoChildId.localeCompare(b.todoChildId);
+  });
+  return ranked.slice(0, 25).map((c) => ({
     todoChildId: c.todoChildId,
     todoChildTitle: c.todoChildTitle,
     todoChildStatus: c.todoChildStatus,
@@ -140,10 +154,13 @@ async function auditEpic(
   const todoStatuses = retrospective
     ? (["TODO", "PLANNING", "CLOSED"] as const)
     : (["TODO", "PLANNING"] as const);
-  // Wider recency window for retrospective sweeps — the original Sprint-A
-  // deliveries shipped 2026-04-23 which is >30 days from late audits.
+  // Live mode uses the detector's production default (30 days). Retrospective
+  // mode widens to 60 days because the bridge-memory's Sprint-A deliveries
+  // shipped 2026-04-23 — outside the 30-day default for late audits run
+  // 2026-05-11 or later. PR #1033 R1 blocking finding 1.
+  const recencyWindowDays = retrospective ? 60 : undefined;
   const candidates = detectEpicDecompositionStaleness(children, {
-    recencyWindowDays: 60,
+    ...(recencyWindowDays !== undefined ? { recencyWindowDays } : {}),
     todoStatuses,
     minOverlapSignals: 1,
   });
@@ -209,8 +226,9 @@ async function main(): Promise<void> {
           notes: {
             withinEpicScope:
               "v0.1 detects deliveries WITHIN the same epic as the candidate. Cross-epic supersessions (e.g., mt#1083 under mt#1073, mt#1395 under mt#1335) are out of scope; the bridge memory's cluster is detectable because within-epic siblings (mt#1511, mt#1372, mt#1310, mt#1309) also overlap the same scope.",
-            recencyWindow:
-              "60-day window used here to catch deliveries that shipped 2026-04-23 against late audits. Default in production is 30 days.",
+            recencyWindow: retrospective
+              ? "Retrospective mode: 60-day window so the bridge-memory's Sprint-A deliveries (shipped 2026-04-23) qualify against audits run weeks later."
+              : "Live mode: 30-day window (the detector's production default). Run with --retrospective to widen to 60 days for historical audits.",
           },
           auditResults,
           acceptanceTest1: {

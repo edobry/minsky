@@ -288,6 +288,40 @@ describe("detectEpicDecompositionStaleness", () => {
     expect(detectEpicDecompositionStaleness(children, { now })).toEqual([]);
   });
 
+  it("excludes TODO children with unknown createdAt (filed-before invariant)", () => {
+    // PR #1033 R1 blocking finding 2: without todo.createdAt we cannot verify
+    // the temporal invariant "TODO filed before delivery shipped". Reject the
+    // pair rather than admit it permissively.
+    const children: EpicChildSnapshot[] = [
+      {
+        id: "mt#100",
+        title: "no-created-at",
+        status: "TODO",
+        spec: FOO_TS_SCOPE,
+        // createdAt deliberately omitted
+      },
+      childDone("mt#200", FOO_TS_SCOPE),
+    ];
+    expect(detectEpicDecompositionStaleness(children, { now })).toEqual([]);
+  });
+
+  it("excludes delivery siblings with unknown updatedAt (filed-before invariant)", () => {
+    // Symmetric case: without delivery.updatedAt we also cannot verify the
+    // invariant. Reject the pair.
+    const children: EpicChildSnapshot[] = [
+      childTodo("mt#100", FOO_TS_SCOPE),
+      {
+        id: "mt#200",
+        title: "no-updated-at",
+        status: "DONE",
+        spec: FOO_TS_SCOPE,
+        // updatedAt deliberately omitted — also fails the recency-window
+        // filter, so this test is doubly conservative.
+      },
+    ];
+    expect(detectEpicDecompositionStaleness(children, { now })).toEqual([]);
+  });
+
   it("respects minOverlapSignals threshold", () => {
     const children: EpicChildSnapshot[] = [
       childTodo("mt#100", FOO_TS_SCOPE),

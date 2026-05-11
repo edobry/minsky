@@ -88,13 +88,18 @@ mt#1552 audit found 7 such instances in a single sweep.
 
 **Audit procedure:**
 
-1. Invoke `epic-decomposition.audit` with `epic: "mt#<epic-id>"` — surfaces
-   `(todoChild, deliveringSibling)` pairs with scope-overlap signals (file
-   paths, identifiers, keywords).
+1. Invoke the audit:
+   - **Primary:** `mcp__minsky__epic-decomposition_audit({ epic: "mt#<id>" })` —
+     surfaces `(todoChild, deliveringSibling)` pairs with scope-overlap signals
+     (file paths, identifiers, keywords). Returns `EpicAuditResult` with the
+     candidate set grouped by todo-child id.
+   - **Alternative (if the MCP server has not yet picked up the v0.1 build):**
+     run `MINSKY_POSTGRES_URL=... bun scripts/calibrate-epic-decomposition-staleness.ts mt#<id>`.
 2. For each flagged TODO/PLANNING child, read its spec briefly and confirm the
    failure mode it targets is structurally addressed by the delivering sibling.
-3. If superseded: close as CLOSED-superseded with a pointer to the delivering
-   task. If not: leave open and note the false positive.
+3. If superseded: close as CLOSED-superseded via `mcp__minsky__tasks_status_set`
+   with `status: "CLOSED"` and a pointer to the delivering task in the closure
+   reason. If not: leave open and note the false positive.
 4. The detector emits ≤2 false positives per epic in calibration (mt#1552), so
    bulk-close is operator-judgment driven, not automated.
 

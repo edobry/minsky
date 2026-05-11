@@ -493,12 +493,15 @@ export function detectEpicDecompositionStaleness(
       // Skip self-pair (defensive — todo and delivery have different statuses, but check anyway)
       if (todo.id === delivery.id) continue;
 
-      // Require todo filed before delivery shipped
-      if (
-        todo.createdAt !== undefined &&
-        delivery.updatedAt !== undefined &&
-        todo.createdAt > delivery.updatedAt
-      ) {
+      // "Filed before delivery" invariant: a TODO superseded by a delivery
+      // must have been filed BEFORE that delivery shipped. We reject the pair
+      // when EITHER timestamp is unknown — without both we cannot verify the
+      // invariant, and admitting unknowns trades precision for noise. (PR #1033
+      // reviewer-bot R1 blocking finding 2.)
+      if (todo.createdAt === undefined || delivery.updatedAt === undefined) {
+        continue;
+      }
+      if (todo.createdAt > delivery.updatedAt) {
         continue;
       }
 

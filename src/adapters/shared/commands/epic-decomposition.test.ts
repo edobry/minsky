@@ -1,9 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { tasksTable, taskSpecsTable } from "../../../domain/storage/schemas/task-embeddings";
-import {
-  taskRelationshipsTable,
-  PARENT_RELATIONSHIP_TYPE,
-} from "../../../domain/storage/schemas/task-relationships";
+import { taskRelationshipsTable } from "../../../domain/storage/schemas/task-relationships";
 import {
   buildAuditResult,
   fetchChildSnapshots,
@@ -16,9 +13,28 @@ import type { EpicStalenessCandidate } from "../../../domain/detectors/epic-deco
 // Test helpers: in-memory db stub
 // ---------------------------------------------------------------------------
 
-/** Test stub for the AuditDb interface — captures select queries and returns canned rows. */
+/**
+ * Test stub for the AuditDb interface.
+ *
+ * Fidelity choice: drizzle's `where` clause is opaque to the stub (it carries
+ * a SQL-expression tree we can't easily introspect). Rather than ignore the
+ * filter (PR #1033 R1 nit 5), we accept `relationshipsByParent` keyed by the
+ * parent task id and require the test to set `currentParent` before invoking
+ * the query. The stub then returns ONLY the children for the named parent,
+ * matching what the live drizzle query produces with the `to_task_id = epic`
+ * + `type = 'parent'` WHERE clause.
+ *
+ * Tests that pass relationships for multiple parents into the same stub now
+ * exercise the filter contract — switching `currentParent` between queries
+ * proves the stub returns only the matching subset.
+ */
+interface StubDb extends AuditDb {
+  /** Set the parent-task-id context for the next relationship query. */
+  setCurrentParent(parentTaskId: string): void;
+}
+
 function makeStubDb(opts: {
-  relationships?: Array<{ from: string; to: string; type: string }>;
+  relationshipsByParent?: Record<string, string[]>;
   tasks?: Array<{
     id: string;
     title: string | null;
@@ -27,18 +43,21 @@ function makeStubDb(opts: {
     updatedAt: Date | null;
   }>;
   specs?: Array<{ taskId: string; content: string }>;
-}): AuditDb {
-  const relationships = opts.relationships ?? [];
+}): StubDb {
+  const relationshipsByParent = opts.relationshipsByParent ?? {};
   const tasks = opts.tasks ?? [];
   const specs = opts.specs ?? [];
+  let currentParent: string | null = null;
 
-  // The drizzle fluent API: db.select(...).from(table).where(condition)
-  // We don't replicate the query engine; we identify the target table by
-  // identity and return the appropriate filtered shape based on which `from`
-  // is invoked. The `where` clause is opaque — tests construct stubs scoped
-  // tightly enough that filtering by table identity is sufficient.
-
+  // The drizzle fluent API: db.select(...).from(table).where(condition).
+  // We identify the target table by identity. For task_relationships the
+  // stub honours the test-supplied parent-task context to model the
+  // `to_task_id = epic AND type = 'parent'` filter.
   return {
+    setCurrentParent(parentTaskId: string): void {
+      currentParent = parentTaskId;
+    },
+
     select(fields?: any) {
       void fields;
       return {
@@ -46,7 +65,13 @@ function makeStubDb(opts: {
           if (table === taskRelationshipsTable) {
             return {
               where(_condition: any) {
-                return relationships.map((r) => ({ from: r.from }));
+                if (currentParent === null) {
+                  throw new Error(
+                    "StubDb: setCurrentParent() must be called before querying task_relationships — the stub models the to_task_id filter explicitly"
+                  );
+                }
+                const children = relationshipsByParent[currentParent] ?? [];
+                return children.map((from) => ({ from }));
               },
             };
           }
@@ -78,19 +103,38 @@ function makeStubDb(opts: {
 describe("listEpicChildIds", () => {
   it("returns child ids from the parent-edge query", async () => {
     const db = makeStubDb({
-      relationships: [
-        { from: "mt#100", to: "mt#999", type: PARENT_RELATIONSHIP_TYPE },
-        { from: "mt#101", to: "mt#999", type: PARENT_RELATIONSHIP_TYPE },
-      ],
+      relationshipsByParent: {
+        "mt#999": ["mt#100", "mt#101"],
+      },
     });
+    db.setCurrentParent("mt#999");
     const ids = await listEpicChildIds(db, "mt#999");
     expect(ids.sort()).toEqual(["mt#100", "mt#101"]);
   });
 
   it("returns empty array when no children exist", async () => {
-    const db = makeStubDb({ relationships: [] });
+    const db = makeStubDb({ relationshipsByParent: {} });
+    db.setCurrentParent("mt#999");
     const ids = await listEpicChildIds(db, "mt#999");
     expect(ids).toEqual([]);
+  });
+
+  it("filters by the queried parent (cross-epic isolation)", async () => {
+    // PR #1033 R1 nit 5: a stub that ignored the WHERE filter would return
+    // children for ALL parents on every query. Switching currentParent between
+    // queries proves the filter is honoured.
+    const db = makeStubDb({
+      relationshipsByParent: {
+        "mt#999": ["mt#100", "mt#101"],
+        "mt#888": ["mt#200", "mt#201"],
+      },
+    });
+
+    db.setCurrentParent("mt#999");
+    expect((await listEpicChildIds(db, "mt#999")).sort()).toEqual(["mt#100", "mt#101"]);
+
+    db.setCurrentParent("mt#888");
+    expect((await listEpicChildIds(db, "mt#888")).sort()).toEqual(["mt#200", "mt#201"]);
   });
 });
 
