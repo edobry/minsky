@@ -87,6 +87,23 @@ describe("extractAdoptionSignals — function", () => {
     expect(signalsOfKind(signals, "function")).toHaveLength(0);
   });
 
+  it("extracts indented exports (PR #1034 R1 NB1: leading whitespace in fenced code blocks)", () => {
+    // Markdown fenced code blocks under list items often have 2-4 leading spaces.
+    const spec = "Inside a fenced block:\n```ts\n    export function deeplyIndented() {}\n```";
+    const signals = extractAdoptionSignals(spec);
+    const fns = signalsOfKind(signals, "function");
+    expect(fns).toHaveLength(1);
+    expect(findSignal(signals, "function", "deeplyIndented").name).toBe("deeplyIndented");
+  });
+
+  it("extracts indented exported classes (PR #1034 R1 NB1)", () => {
+    const spec = "  export class IndentedClass {}";
+    const signals = extractAdoptionSignals(spec);
+    const classes = signalsOfKind(signals, "class");
+    expect(classes).toHaveLength(1);
+    expect(findSignal(signals, "class", "IndentedClass").name).toBe("IndentedClass");
+  });
+
   it("deduplicates repeated occurrences of the same function name", () => {
     const spec = "export function foo() {}\nexport function foo() {}";
     const signals = extractAdoptionSignals(spec);

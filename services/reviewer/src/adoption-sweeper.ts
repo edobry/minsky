@@ -369,23 +369,34 @@ export interface AdoptionSweepDeps {
 }
 
 /**
- * Narrow shape of a task from tasks_search response.
+ * Narrow shape of a task from tasks_list response.
+ *
+ * `updatedAt` is included so we can post-filter by recency if the backend
+ * doesn't honor the `since` parameter (PR #1034 R1 BLOCKING: backstop in
+ * case `tasks_list` returns tasks outside the lookback window).
  */
 interface TaskSearchItem {
   id?: string;
   taskId?: string;
   title?: string;
   status?: string;
+  updatedAt?: string;
+  closedAt?: string;
+  completedAt?: string;
 }
 
 /**
  * Run a single adoption sweep cycle.
  *
- * 1. Search for tasks with status=DONE updated in the last lookbackDays.
+ * 1. List tasks with status=DONE updated within the last lookbackDays.
  * 2. For each task, fetch the spec via tasks_spec_get.
  * 3. Extract adoption signals from the spec.
  * 4. For each signal, count production callsites via repo_search.
  * 5. If callsites=0 and no existing adoption task, file a follow-up task.
+ *
+ * PR #1034 R1 BLOCKING fix: uses `tasks_list` with `since` (and post-filter
+ * fallback) instead of `tasks_search` so the configured lookback window is
+ * actually applied.
  */
 export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<AdoptionSweepResult> {
   const startedAt = new Date().toISOString();
@@ -405,16 +416,24 @@ export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<Adoptio
     })
   );
 
-  // Step 1: Search for recently-DONE tasks.
+  // Step 1: List DONE tasks updated within the lookback window.
+  // PR #1034 R1 BLOCKING fix: previously used `tasks_search` without a recency
+  // filter, so `lookbackDays` was silently ignored. Now uses `tasks_list` with
+  // `since` AND post-filters by timestamp as a backstop for backends that
+  // don't honor `since`.
+  const sinceMs = Date.now() - deps.lookbackDays * 24 * 60 * 60 * 1000;
+  const sinceIso = new Date(sinceMs).toISOString();
+
   let tasks: TaskSearchItem[] = [];
   try {
-    const listText = await callMcpTool(deps.mcpUrl, deps.mcpToken, "tasks_search", {
+    const listText = await callMcpTool(deps.mcpUrl, deps.mcpToken, "tasks_list", {
       status: "DONE",
-      limit: 100,
+      since: sinceIso,
+      limit: 500,
     });
 
     if (!listText) {
-      result.errors.push("tasks_search returned no content");
+      result.errors.push("tasks_list returned no content");
       console.warn(
         JSON.stringify({
           event: "adoption_sweeper.list_failed",
@@ -429,7 +448,18 @@ export async function runAdoptionSweep(deps: AdoptionSweepDeps): Promise<Adoptio
       tasks?: TaskSearchItem[];
       data?: TaskSearchItem[];
     };
-    tasks = parsed.tasks ?? parsed.data ?? [];
+    const raw = parsed.tasks ?? parsed.data ?? [];
+
+    // Post-filter by timestamp as a backstop. Use whichever of
+    // `updatedAt`/`closedAt`/`completedAt` is present; if none is present,
+    // include the task (we'd rather over-include than miss recent work).
+    tasks = raw.filter((t) => {
+      const ts = t.updatedAt ?? t.closedAt ?? t.completedAt;
+      if (!ts) return true;
+      const parsedTs = Date.parse(ts);
+      if (Number.isNaN(parsedTs)) return true;
+      return parsedTs >= sinceMs;
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     result.errors.push(`Failed to list DONE tasks: ${msg}`);

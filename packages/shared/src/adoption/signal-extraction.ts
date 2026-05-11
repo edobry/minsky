@@ -71,9 +71,11 @@ export interface AdoptionSignal {
  */
 const SIGNAL_PATTERNS: Array<[AdoptionSignalKind, RegExp, number]> = [
   // export function foo / export async function foo
-  ["function", /^export\s+(?:async\s+)?function\s+(\w+)/, 1],
+  // Allow leading whitespace so indented code blocks (fenced under markdown
+  // with leading spaces) are matched too. PR #1034 R1 NB1.
+  ["function", /^\s*export\s+(?:async\s+)?function\s+(\w+)/, 1],
   // export class Foo
-  ["class", /^export\s+class\s+(\w+)/, 1],
+  ["class", /^\s*export\s+class\s+(\w+)/, 1],
   // webhooks.on("event.action") — hook registrations
   ["hook", /webhooks\.on\(\s*["']([^"']+)["']/, 1],
   // id: "session.list" / id: "tasks.get" — MCP tool IDs (dot-separated namespaced form)

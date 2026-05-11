@@ -66,7 +66,10 @@ if (!mcpUrl || !mcpToken) {
 }
 
 const runLiveSweep = process.env["SMOKE_ADOPTION_RUN_LIVE_SWEEP"] === "true";
-const liveSweepTaskId = process.env["SMOKE_ADOPTION_TASK_ID"] ?? "mt#1598";
+// PR #1034 R1 NB3: hard-coded mt#1598 default would rot if the task is closed
+// or its spec changes. Require an explicit env var when running the live sweep
+// so the operator owns the target choice.
+const liveSweepTaskId = process.env["SMOKE_ADOPTION_TASK_ID"];
 
 // Standard PR target (known merged PR; used to verify GitHub API reachability)
 const prOwner = process.env["SMOKE_PR_OWNER"] ?? "edobry";
@@ -236,7 +239,18 @@ async function testMcpToolsRegistered(): Promise<{ pass: boolean; detail: string
 async function testLiveDrySweep(): Promise<{ pass: boolean; detail: string } | null> {
   if (!runLiveSweep) return null;
 
-  // Step 1: Fetch the spec for the known DONE task.
+  // Require an explicit task ID when running the live sweep. PR #1034 R1 NB3:
+  // no more hard-coded mt#1598 default.
+  if (!liveSweepTaskId) {
+    return {
+      pass: false,
+      detail:
+        "SMOKE_ADOPTION_RUN_LIVE_SWEEP=true but SMOKE_ADOPTION_TASK_ID is unset; " +
+        "set both to run Test 3.",
+    };
+  }
+
+  // Step 1: Fetch the spec for the requested DONE task.
   const specResult = await callMcpTool("tasks_spec_get", { taskId: liveSweepTaskId });
   if (!specResult.ok) {
     return {

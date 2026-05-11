@@ -131,9 +131,11 @@ interface FakeTask {
   id: string;
   title?: string;
   status?: string;
+  updatedAt?: string;
+  closedAt?: string;
 }
 
-function tasksSearchResponse(tasks: FakeTask[]): Response {
+function tasksListResponse(tasks: FakeTask[]): Response {
   return mcpResponse({ tasks });
 }
 
@@ -181,11 +183,11 @@ const SPEC_NO_SIGNALS = [
 // ---------------------------------------------------------------------------
 
 describe("runAdoptionSweep — no tasks", () => {
-  it("returns tasksChecked=0 when tasks_search returns empty array", async () => {
+  it("returns tasksChecked=0 when tasks_list returns empty array", async () => {
     fetchHandler = async (_url, init) => {
       const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "tasks_search") {
-        return tasksSearchResponse([]);
+      if (body.params.name === "tasks_list") {
+        return tasksListResponse([]);
       }
       throw new Error(`Unexpected tool call: ${body.params.name}`);
     };
@@ -213,7 +215,7 @@ describe("runAdoptionSweep — task with no spec", () => {
       };
       const toolName = body.params.name;
 
-      if (toolName === "tasks_search") return tasksSearchResponse(tasks);
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
       if (toolName === "tasks_spec_get") {
         // Simulate spec not found — return null-content response
         return mcpResponse({ success: false, content: "" });
@@ -247,13 +249,8 @@ describe("runAdoptionSweep — gap detection", () => {
       };
       const toolName = body.params.name;
 
-      if (toolName === "tasks_search") {
-        const args = body.params.arguments;
-        // First call: list DONE tasks. Subsequent calls: search for existing adoption task.
-        if (args["status"] === "DONE") return tasksSearchResponse(tasks);
-        // Deduplication check: no existing adoption task
-        return tasksSearchEmptyResponse();
-      }
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
+      if (toolName === "tasks_search") return tasksSearchEmptyResponse(); // dedup: no existing
       if (toolName === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
       if (toolName === "repo_search") return repoSearchResponse(0); // No callsites
       if (toolName === "tasks_create") {
@@ -282,7 +279,7 @@ describe("runAdoptionSweep — gap detection", () => {
       };
       const toolName = body.params.name;
 
-      if (toolName === "tasks_search") return tasksSearchResponse(tasks);
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
       if (toolName === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
       if (toolName === "repo_search") return repoSearchResponse(3); // 3 callsites found
       if (toolName === "tasks_create") {
@@ -314,10 +311,9 @@ describe("runAdoptionSweep — idempotent task creation", () => {
       };
       const toolName = body.params.name;
 
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
       if (toolName === "tasks_search") {
-        const args = body.params.arguments;
-        if (args["status"] === "DONE") return tasksSearchResponse(tasks);
-        // Deduplication check: return existing adoption task
+        // Deduplication check: an adoption task already exists for this signal.
         return mcpResponse({
           tasks: [{ id: "mt#300-adoption-existing", title: "mt#300 adoption: myExportedFn" }],
         });
@@ -353,7 +349,7 @@ describe("runAdoptionSweep — task with no signals", () => {
       };
       const toolName = body.params.name;
 
-      if (toolName === "tasks_search") return tasksSearchResponse(tasks);
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
       if (toolName === "tasks_spec_get") return specResponse(SPEC_NO_SIGNALS);
       if (toolName === "repo_search") {
         repoSearchCalled = true;
@@ -374,11 +370,72 @@ describe("runAdoptionSweep — task with no signals", () => {
 // runAdoptionSweep — error handling
 // ---------------------------------------------------------------------------
 
+describe("runAdoptionSweep — lookback filter (PR #1034 R1 BLOCKING)", () => {
+  it("passes `since` derived from lookbackDays to tasks_list", async () => {
+    const tasks: FakeTask[] = [{ id: "mt#900", status: "DONE" }];
+    let observedSince: string | undefined;
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as {
+        params: { name: string; arguments: Record<string, unknown> };
+      };
+      if (body.params.name === "tasks_list") {
+        observedSince = body.params.arguments["since"] as string | undefined;
+        return tasksListResponse(tasks);
+      }
+      if (body.params.name === "tasks_search") return tasksSearchEmptyResponse();
+      if (body.params.name === "tasks_spec_get") return specResponse(SPEC_WITH_FUNCTION_SIGNAL);
+      if (body.params.name === "repo_search") return repoSearchResponse(5);
+      throw new Error(`Unexpected tool call: ${body.params.name}`);
+    };
+
+    await runAdoptionSweep({ ...BASE_DEPS, lookbackDays: 7 });
+
+    expect(observedSince).toBeDefined();
+    const sinceTs = Date.parse(observedSince as string);
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- timestamp comparison, not path
+    const expectedTs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    // Allow 60s slop for test execution time.
+    expect(Math.abs(sinceTs - expectedTs)).toBeLessThan(60_000);
+  });
+
+  it("post-filters out tasks updated before the lookback window (backstop)", async () => {
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- timestamp comparison, not path
+    const oldUpdatedAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // eslint-disable-next-line custom/no-real-fs-in-tests -- timestamp comparison, not path
+    const recentUpdatedAt = new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString();
+    const tasks: FakeTask[] = [
+      { id: "mt#old", status: "DONE", updatedAt: oldUpdatedAt },
+      { id: "mt#recent", status: "DONE", updatedAt: recentUpdatedAt },
+    ];
+    const processedTaskIds: string[] = [];
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as {
+        params: { name: string; arguments: Record<string, unknown> };
+      };
+      if (body.params.name === "tasks_list") return tasksListResponse(tasks);
+      if (body.params.name === "tasks_search") return tasksSearchEmptyResponse();
+      if (body.params.name === "tasks_spec_get") {
+        processedTaskIds.push(body.params.arguments["taskId"] as string);
+        return specResponse(SPEC_NO_SIGNALS);
+      }
+      throw new Error(`Unexpected tool call: ${body.params.name}`);
+    };
+
+    const result = await runAdoptionSweep({ ...BASE_DEPS, lookbackDays: 14 });
+
+    expect(result.tasksChecked).toBe(1); // only mt#recent survives post-filter
+    expect(processedTaskIds).toContain("mt#recent");
+    expect(processedTaskIds).not.toContain("mt#old");
+  });
+});
+
 describe("runAdoptionSweep — error handling", () => {
-  it("returns errors when tasks_search fails with no content", async () => {
+  it("returns errors when tasks_list fails with no content", async () => {
     fetchHandler = async (_url, init) => {
       const body = JSON.parse(init.body as string) as { params: { name: string } };
-      if (body.params.name === "tasks_search") {
+      if (body.params.name === "tasks_list") {
         return jsonResponse({ jsonrpc: "2.0", id: "test", error: { message: "DB unavailable" } });
       }
       throw new Error("Unexpected tool call");
@@ -403,11 +460,8 @@ describe("runAdoptionSweep — error handling", () => {
       };
       const toolName = body.params.name;
 
-      if (toolName === "tasks_search") {
-        const args = body.params.arguments;
-        if (args["status"] === "DONE") return tasksSearchResponse(tasks);
-        return tasksSearchEmptyResponse();
-      }
+      if (toolName === "tasks_list") return tasksListResponse(tasks);
+      if (toolName === "tasks_search") return tasksSearchEmptyResponse(); // dedup: no existing
       if (toolName === "tasks_spec_get") {
         const taskId = body.params.arguments["taskId"] as string;
         if (taskId === "mt#501") {
