@@ -1,0 +1,270 @@
+/**
+ * Webhook-event persistence for the minsky-reviewer service.
+ *
+ * Three public operations:
+ *
+ *   recordWebhookReceipt(deliveryId, eventType, headers, body)
+ *     — insert a new row when the webhook arrives. Uses UPSERT to handle
+ *       GitHub re-deliveries (same delivery ID) idempotently.
+ *
+ *   updateOutcome(deliveryId, outcome, errorDetails?)
+ *     — update the outcome column as the request progresses through the
+ *       pipeline. Also sets processed_at on terminal outcomes.
+ *
+ *   pruneOldRows(retentionDays)
+ *     — delete rows older than `retentionDays`. Called by the retention
+ *       scheduler so the table does not grow unbounded.
+ *
+ * All operations wrap DB calls in try/catch. Errors are logged via the
+ * reviewer-local logger (log.*) but NOT re-thrown — persistence is
+ * observability infrastructure and must never crash the webhook handler.
+ *
+ * TOCTOU analysis (§7b):
+ *   - Read atomicity: recordWebhookReceipt and updateOutcome each make one
+ *     DB call. No multiple reads of the same row in sequence. Accept.
+ *   - Decision-action gap: updateOutcome writes outcome without re-reading
+ *     the current row first. Idempotent: repeated calls with the same outcome
+ *     leave the row in the same state. Accept (idempotent).
+ *   - Stale-read: not applicable — this module only writes, it never reads
+ *     back to make decisions. Accept (N/A).
+ *   - Re-delivery UPSERT: GitHub may re-deliver a webhook with the same
+ *     delivery ID. The UPSERT on conflict(delivery_id) refreshes the row
+ *     rather than inserting a duplicate — idempotent accept-rationale.
+ *
+ * OperatorNotify wiring:
+ *   Non-2xx webhook responses and unhandled processing exceptions are
+ *   surfaced by the caller (server.ts) via structured log.error calls at
+ *   event="webhook_processing_failed". The reviewer service runs on Railway
+ *   where stdout/stderr are the operator-visible channel (Railway logs).
+ *   These error events are the service-level OperatorNotify equivalent —
+ *   distinct from mt#1310 (which alerts on missing reviews from GitHub's
+ *   perspective). Railway log monitoring / alerting can subscribe to
+ *   event="webhook_processing_failed" for automated escalation.
+ *
+ * See mt#1372 and docs/incidents/reviewer-webhook-investigation.md.
+ */
+
+import { eq, lt } from "drizzle-orm";
+import { log } from "./logger";
+import type { ReviewerDb } from "./db/client";
+import { webhookEventsTable, type WebhookOutcome } from "./db/schemas/webhook-events-schema";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Subset of incoming HTTP headers to persist (forensically relevant). */
+export interface PersistedHeaders {
+  "x-github-delivery"?: string;
+  "x-github-event"?: string;
+  /** SHA-256 signature truncated to 12 chars — enough to verify format, not leaking full secret. */
+  "x-hub-signature-256-prefix"?: string;
+  "user-agent"?: string;
+  [key: string]: string | undefined;
+}
+
+/** Error details stored when a webhook fails at any stage. */
+export interface WebhookErrorDetails extends Record<string, unknown> {
+  /** Human-readable error message. */
+  message: string;
+  /** Processing stage where the failure occurred. */
+  stage: string;
+  /** Optional stack trace, truncated for log safety. */
+  stack?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Terminal outcome set (triggers processedAt)
+// ---------------------------------------------------------------------------
+
+/**
+ * Outcomes that are terminal: once reached, processed_at is set.
+ * Non-terminal outcomes (received, tier_resolved, reviewer_called) may still
+ * transition to a later stage.
+ */
+const TERMINAL_OUTCOMES = new Set<WebhookOutcome>([
+  "review_submitted",
+  "skipped",
+  "failed_at_signature",
+  "failed_at_tier_resolve",
+  "failed_at_reviewer",
+]);
+
+// ---------------------------------------------------------------------------
+// Public operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Insert a new webhook-event row when the webhook arrives.
+ *
+ * Uses ON CONFLICT(delivery_id) DO UPDATE to handle GitHub re-deliveries
+ * idempotently — a re-delivered webhook refreshes the row.
+ *
+ * @param db          Drizzle DB instance.
+ * @param deliveryId  X-GitHub-Delivery header value (unique per delivery).
+ * @param eventType   X-GitHub-Event header value (e.g. "pull_request").
+ * @param headers     Subset of HTTP headers to persist.
+ * @param body        Parsed JSON body of the webhook payload (or raw text wrapper).
+ */
+export async function recordWebhookReceipt(
+  db: ReviewerDb,
+  deliveryId: string,
+  eventType: string,
+  headers: PersistedHeaders,
+  body: unknown
+): Promise<void> {
+  try {
+    await db
+      .insert(webhookEventsTable)
+      .values({
+        deliveryId,
+        eventType,
+        headers: headers as Record<string, unknown>,
+        body: (body ?? {}) as Record<string, unknown>,
+        outcome: "received",
+      })
+      .onConflictDoUpdate({
+        target: webhookEventsTable.deliveryId,
+        set: {
+          eventType,
+          headers: headers as Record<string, unknown>,
+          body: (body ?? {}) as Record<string, unknown>,
+          outcome: "received",
+          errorDetails: null,
+          processedAt: null,
+        },
+      });
+
+    log.debug("webhook_event_recorded", {
+      event: "webhook_event_recorded",
+      delivery_id: deliveryId,
+      event_type: eventType,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("webhook_event_record_failed", {
+      event: "webhook_event_record_failed",
+      delivery_id: deliveryId,
+      error: message,
+    });
+    // Do NOT re-throw — persistence must not crash the webhook handler.
+  }
+}
+
+/**
+ * Update the processing outcome for a webhook delivery.
+ *
+ * Sets processed_at when the outcome is terminal (review_submitted, skipped,
+ * or any failed_at_* variant). Non-terminal updates (tier_resolved,
+ * reviewer_called) leave processed_at null.
+ *
+ * @param db            Drizzle DB instance.
+ * @param deliveryId    Delivery ID to update.
+ * @param outcome       New outcome value.
+ * @param errorDetails  Optional error context for failure outcomes.
+ */
+export async function updateOutcome(
+  db: ReviewerDb,
+  deliveryId: string,
+  outcome: WebhookOutcome,
+  errorDetails?: WebhookErrorDetails
+): Promise<void> {
+  const isTerminal = TERMINAL_OUTCOMES.has(outcome);
+  const now = new Date();
+
+  try {
+    await db
+      .update(webhookEventsTable)
+      .set({
+        outcome,
+        errorDetails: errorDetails ? (errorDetails as Record<string, unknown>) : null,
+        ...(isTerminal ? { processedAt: now } : {}),
+      })
+      .where(eq(webhookEventsTable.deliveryId, deliveryId));
+
+    log.debug("webhook_outcome_updated", {
+      event: "webhook_outcome_updated",
+      delivery_id: deliveryId,
+      outcome,
+      terminal: isTerminal,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("webhook_outcome_update_failed", {
+      event: "webhook_outcome_update_failed",
+      delivery_id: deliveryId,
+      outcome,
+      error: message,
+    });
+    // Do NOT re-throw — persistence must not crash the webhook handler.
+  }
+}
+
+/**
+ * Delete webhook-event rows older than `retentionDays`.
+ *
+ * Called by the retention scheduler on a configurable interval.
+ * Returns the number of rows deleted, or -1 on error.
+ *
+ * @param db            Drizzle DB instance.
+ * @param retentionDays Rows older than this many days are deleted (default: 90).
+ */
+export async function pruneOldRows(db: ReviewerDb, retentionDays: number = 90): Promise<number> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - retentionDays);
+
+  try {
+    const deleted = await db
+      .delete(webhookEventsTable)
+      .where(lt(webhookEventsTable.receivedAt, cutoff))
+      .returning({ id: webhookEventsTable.id });
+
+    const count = deleted.length;
+    log.info("webhook_events_pruned", {
+      event: "webhook_events_pruned",
+      retention_days: retentionDays,
+      cutoff: cutoff.toISOString(),
+      deleted_count: count,
+    });
+    return count;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("webhook_events_prune_failed", {
+      event: "webhook_events_prune_failed",
+      retention_days: retentionDays,
+      error: message,
+    });
+    return -1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Header extraction helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the forensically relevant subset of HTTP headers from an incoming
+ * request. Truncates the HMAC signature to a short prefix for privacy.
+ *
+ * @param getHeader  Function to read a header value by name (matches the
+ *                   Bun Request.headers.get() signature).
+ */
+export function extractPersistedHeaders(
+  getHeader: (name: string) => string | null
+): PersistedHeaders {
+  const deliveryId = getHeader("x-github-delivery");
+  const event = getHeader("x-github-event");
+  const sig = getHeader("x-hub-signature-256");
+  const ua = getHeader("user-agent");
+
+  const result: PersistedHeaders = {};
+  if (deliveryId) result["x-github-delivery"] = deliveryId;
+  if (event) result["x-github-event"] = event;
+  // Store only the first 12 chars of the HMAC signature — enough to confirm
+  // the header was present and correctly prefixed, without persisting the
+  // full secret-derived value.
+  if (sig) result["x-hub-signature-256-prefix"] = sig.slice(0, 12);
+  if (ua) result["user-agent"] = ua;
+
+  return result;
+}

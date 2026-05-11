@@ -19,9 +19,16 @@ import {
   loadAsksReconcileSchedulerConfig,
   startAsksReconcileScheduler,
 } from "./asks-reconcile-scheduler";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-state-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
+import {
+  recordWebhookReceipt,
+  updateOutcome,
+  pruneOldRows,
+  extractPersistedHeaders,
+} from "./webhook-events";
 
 interface PullRequestPayload {
   pull_request: {
@@ -226,6 +233,10 @@ export function createApp(
    *
    * Failures are caught and logged as event=review_error. The sweeper
    * (mt#1260) is already live on main as the safety net.
+   *
+   * Persistence: updates the webhook_events row outcome as the review
+   * progresses: reviewer_called → review_submitted OR failed_at_reviewer.
+   * Errors from persistence calls are swallowed (see webhook-events.ts).
    */
   function startDetachedReview(payload: PullRequestPayload, deliveryId: string): void {
     const owner = payload.repository.owner.login;
@@ -233,6 +244,11 @@ export function createApp(
     const prNumber = payload.pull_request.number;
     const prAuthor = payload.pull_request.user.login;
     const headSha = payload.pull_request.head.sha;
+
+    // Mark that the reviewer was called (detached review started).
+    if (db !== undefined) {
+      void updateOutcome(db, deliveryId, "reviewer_called");
+    }
 
     const promise: Promise<unknown> = runReviewFn(
       cfg,
@@ -262,9 +278,26 @@ export function createApp(
           usage: result.usage,
           taskSpecFetch: result.taskSpecFetch,
         });
+
+        // Persist final outcome: review_submitted on success, failed_at_reviewer otherwise.
+        if (db !== undefined) {
+          const outcome = result.status === "reviewed" ? "review_submitted" : "failed_at_reviewer";
+          void updateOutcome(
+            db,
+            deliveryId,
+            outcome,
+            outcome === "failed_at_reviewer"
+              ? {
+                  message: result.reason ?? "review did not complete with status=reviewed",
+                  stage: "reviewer",
+                }
+              : undefined
+          );
+        }
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
+        const stack = err instanceof Error ? err.stack?.slice(0, 500) : undefined;
         log.error("review_error", {
           event: "review_error",
           delivery_id: deliveryId,
@@ -272,6 +305,29 @@ export function createApp(
           pr: prNumber,
           owner,
           repo,
+          error: message,
+        });
+
+        // Persist failure and surface as operator-visible alert.
+        // This is the service-side OperatorNotify equivalent (mt#1372):
+        // the reviewer service runs on Railway where structured log.error
+        // is the operator-visible channel. Distinct from mt#1310 (missing
+        // review alert) — this fires on service-side processing failure.
+        if (db !== undefined) {
+          void updateOutcome(db, deliveryId, "failed_at_reviewer", {
+            message,
+            stage: "reviewer",
+            stack,
+          });
+        }
+        log.error("webhook_processing_failed", {
+          event: "webhook_processing_failed",
+          delivery_id: deliveryId,
+          sha: headSha,
+          pr: prNumber,
+          owner,
+          repo,
+          stage: "reviewer",
           error: message,
         });
       })
@@ -298,6 +354,10 @@ export function createApp(
         owner,
         repo,
       });
+      // Persist skip outcome for draft PRs.
+      if (db !== undefined) {
+        void updateOutcome(db, deliveryId, "skipped");
+      }
       return;
     }
 
@@ -574,14 +634,15 @@ export function createApp(
 
         // Best-effort extract `action` from the JSON body for observability.
         // If the body is not valid JSON or has no `action` field, we emit null.
+        let parsedBody: Record<string, unknown> | null = null;
         let action: string | null = null;
         try {
-          const parsed = JSON.parse(body) as Record<string, unknown>;
-          if (typeof parsed["action"] === "string") {
-            action = parsed["action"];
+          parsedBody = JSON.parse(body) as Record<string, unknown>;
+          if (typeof parsedBody["action"] === "string") {
+            action = parsedBody["action"];
           }
         } catch {
-          // Non-JSON or malformed body — action stays null.
+          // Non-JSON or malformed body — action stays null, parsedBody stays null.
         }
 
         // Log webhook_received BEFORE the missing-headers check so that requests
@@ -594,6 +655,18 @@ export function createApp(
           action,
           signature_present: Boolean(signature),
         });
+
+        // Persist webhook receipt for forensic investigation (mt#1372).
+        // Fire-and-forget: recordWebhookReceipt swallows errors internally.
+        if (db !== undefined && eventName) {
+          void recordWebhookReceipt(
+            db,
+            deliveryId,
+            eventName,
+            extractPersistedHeaders((name) => request.headers.get(name)),
+            parsedBody ?? { raw: safeTruncate(body, 1000, "head") }
+          );
+        }
 
         if (!signature || !eventName) {
           return new Response("missing signature or event headers", { status: 400 });
@@ -624,6 +697,29 @@ export function createApp(
             eventName, // deprecated: kept for log-consumer backward compatibility; remove after consumers migrate to github_event
             error: message,
           });
+
+          // Persist failure outcome and surface as operator-visible alert (mt#1372).
+          // Signature failures are expected from misconfigured senders — only non-signature
+          // errors (dispatch failures) surface as webhook_processing_failed alerts.
+          if (db !== undefined) {
+            void updateOutcome(
+              db,
+              deliveryId,
+              isSignatureError ? "failed_at_signature" : "failed_at_tier_resolve",
+              { message, stage: isSignatureError ? "signature" : "dispatch" }
+            );
+          }
+          if (!isSignatureError) {
+            // Dispatch errors are unexpected — alert the operator (Railway logs).
+            log.error("webhook_processing_failed", {
+              event: "webhook_processing_failed",
+              delivery_id: deliveryId,
+              github_event: eventName,
+              stage: "dispatch",
+              error: message,
+            });
+          }
+
           return new Response(isSignatureError ? "invalid signature" : "internal error", {
             status: isSignatureError ? 401 : 500,
           });
@@ -755,6 +851,30 @@ if (import.meta.main) {
   // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
   // Opt-in: disabled by default; set MERGE_STATE_SWEEPER_ENABLED=true to activate.
   startMergeStateSweeper(config, loadMergeStateSweeperConfig());
+
+  // Start the webhook-event retention pruner (mt#1372).
+  // Deletes reviewer_webhook_events rows older than MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS
+  // (default: 90 days). Runs once every 24 hours. The first prune fires after
+  // the first interval to avoid competing with service startup.
+  // Configurable via MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS (default: 90).
+  const webhookRetentionDays = parseInt(
+    process.env["MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS"] ?? "90",
+    10
+  );
+  const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+  log.info("webhook_retention_pruner_started", {
+    event: "webhook_retention_pruner_started",
+    retention_days: webhookRetentionDays,
+    interval_ms: PRUNE_INTERVAL_MS,
+  });
+  setInterval(() => {
+    pruneOldRows(db, webhookRetentionDays).catch((err: unknown) => {
+      log.error("webhook_retention_prune_error", {
+        event: "webhook_retention_prune_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }, PRUNE_INTERVAL_MS);
 
   if (config.provider === "anthropic") {
     log.warn("degraded_config_warning", {
