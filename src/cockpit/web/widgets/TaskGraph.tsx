@@ -18,7 +18,7 @@
  *   TODO(mt#240): When task-type overlay ships, additively color-code by
  *     task classification using a configurable legend.
  */
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -121,14 +121,22 @@ function computeLayout(
   nodes: GraphNode[],
   edges: GraphEdge[]
 ): Map<string, { x: number; y: number }> {
-  // Build adjacency: predecessors (sources pointing to this node)
+  // Build adjacency: predecessors = dependencies (the nodes a task NEEDS)
+  //
+  // Edge semantics (from src/domain/tasks/task-graph-service.ts):
+  //   edge.source = fromTaskId = dependent (the task that *has* a dependency)
+  //   edge.target = toTaskId   = dependency (the task that *is* depended on)
+  //
+  // For prerequisite-left, dependent-right layout: predecessors of X are X's
+  // dependencies, i.e., the edge.target for every edge where X = edge.source.
+  // (PR #1031 R1 reviewer finding — original direction was inverted.)
   const predecessors = new Map<string, Set<string>>();
   for (const n of nodes) {
     predecessors.set(n.id, new Set());
   }
   for (const e of edges) {
-    const preds = predecessors.get(e.target);
-    if (preds) preds.add(e.source);
+    const preds = predecessors.get(e.source);
+    if (preds) preds.add(e.target);
   }
 
   // Kahn's BFS-based topological sort to assign generation numbers
@@ -147,13 +155,15 @@ function computeLayout(
     }
   }
 
-  // Build successor map for BFS
+  // Build successor map for BFS (mirror of the predecessors flip above):
+  // successors of X = X's dependents = edge.source for every edge where
+  // X = edge.target. (PR #1031 R1 reviewer finding.)
   const successors = new Map<string, string[]>();
   for (const n of nodes) {
     successors.set(n.id, []);
   }
   for (const e of edges) {
-    successors.get(e.source)?.push(e.target);
+    successors.get(e.target)?.push(e.source);
   }
 
   let head = 0;
@@ -295,6 +305,10 @@ function SelectedPanel({ node, onClose }: SelectedPanelProps) {
 // ---------------------------------------------------------------------------
 
 export function TaskGraph({ data }: Props) {
+  // Track whether ReactFlow has performed its initial fit-to-view. After the
+  // first onInit, subsequent renders skip fitView so polling refreshes don't
+  // snap the user's viewport back to the default.
+  const hasFittedRef = useRef(false);
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [selected, setSelected] = useState<{
@@ -376,11 +390,17 @@ export function TaskGraph({ data }: Props) {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onNodeClick={handleNodeClick}
-              fitView
-              fitViewOptions={{ padding: 0.2 }}
+              // fitView fires once on first mount only. Subsequent poll
+              // refreshes update node/edge data without resetting the
+              // viewport, so users can zoom/pan and stay there.
+              // (PR #1031 R1 NON-BLOCKING reviewer finding.)
+              {...(hasFittedRef.current ? {} : { fitView: true, fitViewOptions: { padding: 0.2 } })}
               minZoom={0.1}
               maxZoom={2}
               attributionPosition="bottom-left"
+              onInit={() => {
+                hasFittedRef.current = true;
+              }}
             >
               <Background />
               <Controls />

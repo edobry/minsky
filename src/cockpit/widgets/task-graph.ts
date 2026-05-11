@@ -106,38 +106,30 @@ export function createTaskGraphWidget(getDeps: () => Promise<TaskGraphDeps>): Wi
         // Fetch all dependency edges in one bulk query
         const relationships = await taskGraphService.getAllRelationships("depends");
 
-        // Build the set of task IDs that appear in edges (to include tasks
-        // that may not be in the listTasks result if they're referenced by deps)
-        const edgeTaskIds = new Set<string>();
-        for (const rel of relationships) {
-          edgeTaskIds.add(rel.fromTaskId);
-          edgeTaskIds.add(rel.toTaskId);
-        }
+        // Build nodes ONLY from the authoritative listTasks() result.
+        // Relationships that reference task IDs not in listTasks (orphaned
+        // edges: typos, deleted tasks, cross-project refs) are filtered out
+        // rather than fabricating phantom nodes with default TODO status
+        // (PR #1031 R1 reviewer finding — original code silently created
+        // phantoms which misled users about ground truth).
+        const nodes: GraphNode[] = tasks.map((task) => {
+          const displayId = formatTaskIdForDisplay(task.id);
+          const status = normaliseStatus(task.status ?? "TODO");
+          const label = task.title ? `${displayId}: ${task.title}` : displayId;
+          return { id: task.id, label, status };
+        });
 
-        // Build nodes: include every task from listTasks, plus any task
-        // referenced in edges that wasn't in the list
-        const nodeIds = new Set<string>(tasks.map((t) => t.id));
-        for (const id of edgeTaskIds) {
-          nodeIds.add(id);
-        }
-
-        const nodes: GraphNode[] = [];
-        for (const id of nodeIds) {
-          const task = taskMap.get(id);
-          const displayId = formatTaskIdForDisplay(id);
-          const rawStatus = task?.status ?? "TODO";
-          // Normalise status to the union type — unknown values fall back to TODO
-          const status = normaliseStatus(rawStatus);
-          const label = task?.title ? `${displayId}: ${task.title}` : displayId;
-          nodes.push({ id, label, status });
-        }
-
-        // Build edges: one per "depends" relationship
-        const edges: GraphEdge[] = relationships.map((rel) => ({
-          id: `${rel.fromTaskId}->${rel.toTaskId}`,
-          source: rel.fromTaskId,
-          target: rel.toTaskId,
-        }));
+        // Build edges, filtering out any relationship that references a task
+        // not in the authoritative list. Edge IDs include the relationship
+        // type as a prefix to prevent collision if/when other types (e.g.,
+        // "parent") are added later (PR #1031 R2 reviewer finding).
+        const edges: GraphEdge[] = relationships
+          .filter((rel) => taskMap.has(rel.fromTaskId) && taskMap.has(rel.toTaskId))
+          .map((rel) => ({
+            id: `depends:${rel.fromTaskId}->${rel.toTaskId}`,
+            source: rel.fromTaskId,
+            target: rel.toTaskId,
+          }));
 
         const payload: TaskGraphPayload = { nodes, edges };
         return { state: "ok", payload };

@@ -621,6 +621,57 @@ describe("Cockpit server", () => {
     expect(edgeSources).toContain("mt#3");
   });
 
+  // 10d. task-graph widget filters out edges referencing unknown task IDs
+  // (PR #1031 R1 reviewer finding: original code fabricated phantom TODO nodes
+  // for orphaned relationships; the fix filters them out entirely.)
+  test("task-graph widget filters out edges that reference unknown task IDs", async () => {
+    const widget = createTaskGraphWidget(async () =>
+      makeMockTaskGraphDeps(
+        // Two real tasks
+        [
+          { id: "mt#1", title: "Real task A", status: "READY" },
+          { id: "mt#2", title: "Real task B", status: "IN-PROGRESS" },
+        ],
+        // Three relationships: one valid (mt#2 → mt#1), two orphaned
+        // (referencing mt#999 / mt#888 which don't exist in listTasks)
+        [
+          { fromTaskId: "mt#2", toTaskId: "mt#1" }, // valid
+          { fromTaskId: "mt#999", toTaskId: "mt#1" }, // orphan source
+          { fromTaskId: "mt#2", toTaskId: "mt#888" }, // orphan target
+        ]
+      )
+    );
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "task-graph", enabled: true }],
+      },
+      overrideRegistry: { "task-graph": widget },
+    });
+    const res = await fetch(`${url}/api/widget/task-graph/data`);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { nodes: GraphNode[]; edges: GraphEdge[] };
+    };
+    expect(body.state).toBe("ok");
+
+    // No phantom nodes — only the 2 real tasks should appear
+    const nodeIds = body.payload.nodes.map((n) => n.id);
+    expect(nodeIds.length).toBe(2);
+    expect(nodeIds).toContain("mt#1");
+    expect(nodeIds).toContain("mt#2");
+    expect(nodeIds).not.toContain("mt#999");
+    expect(nodeIds).not.toContain("mt#888");
+
+    // Only the valid edge survived
+    expect(body.payload.edges.length).toBe(1);
+    const edge = body.payload.edges[0];
+    if (!edge) throw new Error("expected one edge to survive filtering");
+    expect(edge).toMatchObject({ source: "mt#2", target: "mt#1" });
+    // Edge ID includes the relationship-type prefix (mt#1031 R2 reviewer
+    // finding — guards against collision if other relationship types added)
+    expect(edge.id).toBe("depends:mt#2->mt#1");
+  });
+
   // 10c. task-graph widget returns degraded when the underlying provider throws
   test("task-graph widget returns degraded when dep provider throws", async () => {
     const widget = createTaskGraphWidget(async () => {
