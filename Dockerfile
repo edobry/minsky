@@ -13,9 +13,13 @@ WORKDIR /app
 # Dependency layer — cached unless package.json/bun.lock changes.
 COPY package.json bun.lock ./
 
-# Workspace package manifests (mt#1681 / mt#1722): bun install needs these
-# to resolve `@minsky/shared@workspace:packages/shared` from the lockfile.
+# Workspace package manifests (mt#1681 / mt#1722 / mt#1727): bun install needs
+# the full workspace tree visible to validate --frozen-lockfile consistency.
+# packages/shared is a direct dep of root; services/reviewer is NOT used by
+# minsky-mcp at runtime but its manifest must be present so bun's workspace
+# install computes the same tree as the committed lockfile.
 COPY packages/shared/package.json ./packages/shared/package.json
+COPY services/reviewer/package.json ./services/reviewer/package.json
 
 RUN bun install --frozen-lockfile
 
