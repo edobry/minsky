@@ -560,11 +560,10 @@ async function startHttpServer(
   });
 
   // mt#1731 Bug-B fix: forward /interaction/:uid requests to the oidc-provider
-  // Koa app. When devInteractions is enabled (the default), oidc-provider registers
-  // GET /interaction/:uid, POST /interaction/:uid, and GET /interaction/:uid/abort
-  // internally. Without this route, the OAuth authorization-code flow breaks because
-  // the authorization endpoint redirects to /interaction/:uid and Express returns 404.
-  app.all(/^\/interaction\//, async (req, res) => {
+  // PR #1042 R1: anchor the regex so it matches /interaction/<uid>(/anything)? but
+  // NOT bare /interaction/ — oidc-provider's interaction routes always have at
+  // least one path segment after /interaction/ (e.g. /interaction/:uid, /interaction/:uid/abort).
+  app.all(/^\/interaction\/[^/]+/, async (req, res) => {
     if (!oauthProvider) {
       res.status(503).json({
         error: "service_unavailable",

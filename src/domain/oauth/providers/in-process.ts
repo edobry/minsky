@@ -564,15 +564,47 @@ function forwardToKoaProvider(
   const queryIdx = original.indexOf("?");
   req.url = queryIdx >= 0 ? internalPath + original.slice(queryIdx) : internalPath;
 
+  // PR #1042 R1 BLOCKING: Koa's `app.callback()` returns a Node-style
+  // `(req, res) => void` handler — there is NO `next` parameter. The earlier
+  // implementation awaited a Promise resolved via that nonexistent `next`,
+  // which Koa never calls, producing a silent deadlock in the Express handler.
+  // Resolve on the response's `finish`/`close` events instead, and reject on
+  // `error`. Also restore `req.url` in finally so downstream middleware /
+  // logging observes the original public URL, not the rewritten internal path.
   const handler = (
     provider as {
-      callback: () => (req: unknown, res: unknown, next: (err?: unknown) => void) => void;
+      callback: () => (req: unknown, res: unknown) => void;
     }
   ).callback();
+
   return new Promise<void>((resolve, reject) => {
-    handler(req, res, (err?: unknown) => {
-      if (err) reject(err instanceof Error ? err : new Error(String(err)));
-      else resolve();
-    });
+    const cleanup = () => {
+      res.removeListener("finish", onFinish);
+      res.removeListener("close", onClose);
+      res.removeListener("error", onError);
+      req.url = original;
+    };
+    const onFinish = () => {
+      cleanup();
+      resolve();
+    };
+    const onClose = () => {
+      cleanup();
+      resolve();
+    };
+    const onError = (err: unknown) => {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    res.once("finish", onFinish);
+    res.once("close", onClose);
+    res.once("error", onError);
+
+    try {
+      handler(req, res);
+    } catch (err) {
+      cleanup();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
