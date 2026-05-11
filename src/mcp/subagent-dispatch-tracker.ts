@@ -162,13 +162,23 @@ export class SubagentDispatchTracker {
           .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId))
           .limit(1);
 
-        if (existing.length > 0) {
-          // UPDATE the existing row — preserve `id` and `startedAt` (insert-only).
-          const { id: _id, ...updateFields } = input;
+        const [firstExisting] = existing;
+        if (firstExisting) {
+          // UPDATE the existing row by primary key (NOT by subagentSessionId).
+          // The schema intentionally has no UNIQUE constraint on subagent_session_id;
+          // if two rows ever share it (concurrent writes, replayed events), updating
+          // by subagentSessionId would mutate both. Target the specific row id we
+          // just selected.
+          //
+          // Also preserve `startedAt`: an upsert that lands later in the dispatch
+          // lifecycle (SubagentStop classifying the outcome) must not overwrite
+          // the dispatch-time timestamp, which `lastDispatch` and `byHourLast24h`
+          // depend on for chronology.
+          const { id: _id, startedAt: _startedAt, ...updateFields } = input;
           await this.db
             .update(subagentInvocationsTable)
             .set(updateFields)
-            .where(eq(subagentInvocationsTable.subagentSessionId, input.subagentSessionId));
+            .where(eq(subagentInvocationsTable.id, firstExisting.id));
         } else {
           // INSERT new row.
           await this.db.insert(subagentInvocationsTable).values(input);
@@ -287,17 +297,22 @@ export class SubagentDispatchTracker {
     }
 
     // ── 4. byHourLast24h ─────────────────────────────────────────────────────
-    // date_trunc('hour', ...) produces PostgreSQL timestamps; we cast to text
-    // for a portable return type. The query returns only hours with ≥1 row.
+    // Enforce UTC explicitly for hour bucketing. `timestamp with time zone` is
+    // stored in UTC, but `date_trunc('hour', ts)` operates in the session time
+    // zone unless explicitly normalized. Without `AT TIME ZONE 'UTC'` the
+    // buckets shift on non-UTC servers and DST boundaries produce incorrect
+    // counts. The literal `Z` in the format string only labels output as UTC;
+    // we must ALSO ensure the underlying truncation happens in UTC.
+    const hourExpr = sql`date_trunc('hour', ${subagentInvocationsTable.startedAt} AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`;
     const hourRows = await this.db
       .select({
-        hour: sql<string>`to_char(date_trunc('hour', ${subagentInvocationsTable.startedAt}), 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
+        hour: sql<string>`to_char(${hourExpr}, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`,
         cnt: count(),
       })
       .from(subagentInvocationsTable)
       .where(gte(subagentInvocationsTable.startedAt, cutoff24h))
-      .groupBy(sql`date_trunc('hour', ${subagentInvocationsTable.startedAt})`)
-      .orderBy(sql`date_trunc('hour', ${subagentInvocationsTable.startedAt})`);
+      .groupBy(hourExpr)
+      .orderBy(hourExpr);
 
     const byHourLast24h = hourRows
       .filter((r) => r.hour != null)

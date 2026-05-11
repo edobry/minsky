@@ -22,7 +22,11 @@
  * @see src/mcp/subagent-dispatch-tracker.ts — implementation
  */
 
+/* eslint-disable custom/no-real-fs-in-tests -- BLOCKING #2 regression guard needs readFileSync */
+
 import { describe, test, expect, beforeEach } from "bun:test";
+import { readFileSync } from "fs";
+import { join } from "path";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -120,6 +124,7 @@ function inputToRow(input: SubagentInvocationInput): FakeRow {
 // ---------------------------------------------------------------------------
 
 const COLUMN_TO_FIELD: Record<string, keyof FakeRow> = {
+  id: "id",
   outcome: "outcome",
   started_at: "startedAt",
   parent_session_id: "parentSessionId",
@@ -160,10 +165,16 @@ function renderCondition(condition: unknown): { sqlStr: string; params: unknown[
  * The column extractor strips the table prefix.
  */
 function buildPredicate(condition: unknown): (row: FakeRow) => boolean {
-  if (!condition) return () => true;
+  if (!condition) {
+    throw new Error("buildPredicate: condition is null/undefined — refusing permissive default");
+  }
 
   const { sqlStr, params } = renderCondition(condition);
-  if (!sqlStr) return () => true;
+  if (!sqlStr) {
+    throw new Error(
+      "buildPredicate: PgDialect could not render condition — refusing permissive default"
+    );
+  }
 
   // Extract just the WHERE clause
   const whereIdx = sqlStr.toUpperCase().indexOf("WHERE");
@@ -195,9 +206,13 @@ function parseWhere(clause: string, params: unknown[]): (row: FakeRow) => boolea
   const isNotNullMatch = clause.match(/"[^"]+"\."([^"]+)" is not null/i);
   if (isNotNullMatch) {
     const colName = isNotNullMatch[1];
-    if (!colName) return () => true;
+    if (!colName) {
+      throw new Error(`parseWhere: malformed IS NOT NULL clause: ${clause}`);
+    }
     const field = COLUMN_TO_FIELD[colName];
-    if (!field) return () => true;
+    if (!field) {
+      throw new Error(`parseWhere: unknown column in IS NOT NULL clause: ${colName}`);
+    }
     return (row) => row[field] != null;
   }
 
@@ -207,11 +222,15 @@ function parseWhere(clause: string, params: unknown[]): (row: FakeRow) => boolea
     const colName = cmpMatch[1];
     const op = cmpMatch[2];
     const paramIdxStr = cmpMatch[3];
-    if (!colName || !op || !paramIdxStr) return () => true;
+    if (!colName || !op || !paramIdxStr) {
+      throw new Error(`parseWhere: malformed comparison clause: ${clause}`);
+    }
     const paramIdx = parseInt(paramIdxStr, 10) - 1; // $1 → params[0]
     const paramVal = params[paramIdx];
     const field = COLUMN_TO_FIELD[colName];
-    if (!field) return () => true;
+    if (!field) {
+      throw new Error(`parseWhere: unknown column in comparison clause: ${colName}`);
+    }
 
     return (row) => {
       const rowVal = row[field];
@@ -256,8 +275,12 @@ function parseWhere(clause: string, params: unknown[]): (row: FakeRow) => boolea
     };
   }
 
-  // Unrecognized — pass all rows through
-  return () => true;
+  // Unrecognized WHERE shape — fail-fast rather than silently pass all rows.
+  // Reviewer-bot R1 NON-BLOCKING (PR #1046): permissive default could mask
+  // future query changes (extra OR/IN/NOT, mismatched column names) by not
+  // filtering at all in tests. If you hit this throw, update parseWhere to
+  // handle the new shape or assert the test against the rendered SQL string.
+  throw new Error(`parseWhere: unrecognized WHERE shape (no test coverage): ${clause}`);
 }
 
 /** Find the index of a top-level " and " (not nested inside parentheses). */
@@ -400,10 +423,6 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
     return rs;
   }
 
-  // Store the last subagentSessionId looked up in a select-before-update so
-  // the update().set().where() can target the correct row.
-  let lastSubagentSessionIdLookup: string | null = null;
-
   const db = {
     select(fields: Record<string, unknown> = {}) {
       // Detect count() by checking for "total" or "cnt" keys
@@ -418,27 +437,7 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
         countField,
       };
 
-      // Wrap chain.where to intercept subagentSessionId lookups
-      const baseChain = makeSelectChain(ctx) as {
-        where: (c: unknown) => unknown;
-        then: (r: (v: unknown) => void, rej: (e: unknown) => void) => Promise<unknown>;
-        [k: string]: unknown;
-      };
-
-      const origWhere = baseChain.where.bind(baseChain);
-      baseChain.where = (condition: unknown) => {
-        // Intercept to capture subagentSessionId lookup for the upsert path
-        if (condition && "id" in fields && !("total" in fields) && !("cnt" in fields)) {
-          // This is likely the "select id by subagentSessionId" query
-          const { sqlStr, params } = renderCondition(condition);
-          if (sqlStr.includes("subagent_session_id") && params.length > 0) {
-            lastSubagentSessionIdLookup = params[0] as string;
-          }
-        }
-        return origWhere(condition);
-      };
-
-      return baseChain;
+      return makeSelectChain(ctx);
     },
 
     insert(_table: unknown) {
@@ -462,19 +461,17 @@ function makeFakeDb(store: Map<string, FakeRow>): PostgresJsDatabase {
       return {
         set(updates: Partial<SubagentInvocationInput>) {
           return {
-            where(_condition: unknown): Promise<void> {
-              // Find and update the row with the matching subagentSessionId.
-              // We use `lastSubagentSessionIdLookup` which was captured during
-              // the preceding select-by-subagentSessionId call.
-              const targetSessionId = lastSubagentSessionIdLookup;
-              if (targetSessionId != null) {
-                for (const [id, row] of store) {
-                  if (row.subagentSessionId === targetSessionId) {
-                    store.set(id, { ...row, ...(updates as Partial<FakeRow>) } as FakeRow);
-                  }
+            where(condition: unknown): Promise<void> {
+              // Parse the WHERE condition and update only matching rows.
+              // PR #1046 R1 BLOCKING #3 fix: tracker now UPDATEs by primary
+              // key (id) instead of subagentSessionId, so the fake must honor
+              // the actual condition rather than the prior session-id hack.
+              const pred = buildPredicate(condition);
+              for (const [id, row] of store) {
+                if (pred(row)) {
+                  store.set(id, { ...row, ...(updates as Partial<FakeRow>) } as FakeRow);
                 }
               }
-              lastSubagentSessionIdLookup = null;
               return Promise.resolve();
             },
           };
@@ -579,6 +576,97 @@ describe("SubagentDispatchTracker", () => {
       await tracker.recordSubagentInvocation(makeInput({ subagentSessionId: "session-1" }));
       await tracker.recordSubagentInvocation(makeInput({ subagentSessionId: "session-2" }));
       expect(store.size).toBe(2);
+    });
+
+    // ─── PR #1046 R1 BLOCKING #1 regression: startedAt preservation on upsert ───
+    test("upsert UPDATE preserves startedAt even when new input has a different value", async () => {
+      const originalStarted = new Date("2026-05-11T10:00:00.000Z");
+      const laterStarted = new Date("2026-05-11T15:00:00.000Z");
+
+      // First call: insert with the original startedAt.
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "preserve-test",
+          startedAt: originalStarted,
+          outcome: OUTCOME_PARTIAL_UNCOMMITTED,
+        })
+      );
+      expect(store.size).toBe(1);
+
+      // Second call: upsert with a DIFFERENT startedAt (simulating SubagentStop
+      // hook firing later in the dispatch lifecycle with `now()` rather than
+      // the original dispatch time). The UPDATE must NOT overwrite startedAt —
+      // lastDispatch and byHourLast24h depend on dispatch-time chronology.
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: "preserve-test",
+          startedAt: laterStarted,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          prUrl: "https://example.com/pr/1",
+        })
+      );
+
+      // Still one row.
+      expect(store.size).toBe(1);
+      const row = Array.from(store.values())[0];
+      // startedAt MUST equal the original — never overwritten by upsert.
+      expect(row?.startedAt.toISOString()).toBe(originalStarted.toISOString());
+      // Other fields DID update.
+      expect(row?.outcome).toBe(OUTCOME_COMPLETED_WITH_PR);
+      expect(row?.prUrl).toBe("https://example.com/pr/1");
+    });
+
+    // ─── PR #1046 R1 BLOCKING #3 regression: UPDATE targets selected id only ───
+    test("upsert UPDATE targets only the selected row when duplicates share subagentSessionId", async () => {
+      // The schema intentionally has no UNIQUE constraint on subagent_session_id.
+      // Seed two rows with the SAME subagentSessionId directly into the fake's
+      // store (bypassing the tracker's upsert logic) to simulate the historical-
+      // duplicates case the reviewer flagged.
+      const duplicateSessionId = "duplicate-session";
+      const baseStarted = new Date("2026-05-11T08:00:00.000Z");
+      const newerStarted = new Date("2026-05-11T09:00:00.000Z");
+
+      const olderRow = inputToRow(
+        makeInput({
+          subagentSessionId: duplicateSessionId,
+          startedAt: baseStarted,
+          outcome: OUTCOME_PARTIAL_UNCOMMITTED,
+          taskId: "mt#older",
+        })
+      );
+      const newerRow = inputToRow(
+        makeInput({
+          subagentSessionId: duplicateSessionId,
+          startedAt: newerStarted,
+          outcome: OUTCOME_PARTIAL_UNCOMMITTED,
+          taskId: "mt#newer",
+        })
+      );
+      store.set(olderRow.id, olderRow);
+      store.set(newerRow.id, newerRow);
+      expect(store.size).toBe(2);
+
+      // Call tracker.recordSubagentInvocation with the same session id.
+      // The tracker does SELECT id ... LIMIT 1, picks ONE row, then UPDATE by id.
+      // It must NOT update both rows (the bug the BLOCKING finding caught).
+      await tracker.recordSubagentInvocation(
+        makeInput({
+          subagentSessionId: duplicateSessionId,
+          outcome: OUTCOME_COMPLETED_WITH_PR,
+          taskId: "mt#updated",
+        })
+      );
+
+      // Still two rows — UPDATE did not insert a third.
+      expect(store.size).toBe(2);
+
+      // Exactly ONE row was updated to COMPLETED_WITH_PR; the other retains
+      // its original outcome. Without the id-targeting fix, BOTH would update.
+      const rows = Array.from(store.values());
+      const updatedCount = rows.filter((r) => r.outcome === OUTCOME_COMPLETED_WITH_PR).length;
+      const unchangedCount = rows.filter((r) => r.outcome === OUTCOME_PARTIAL_UNCOMMITTED).length;
+      expect(updatedCount).toBe(1);
+      expect(unchangedCount).toBe(1);
     });
   });
 
@@ -868,6 +956,43 @@ describe("SubagentDispatchTracker", () => {
       const result = await tracker.getEscalation();
       expect(result).toBe("none");
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // PR #1046 R1 BLOCKING #2 regression: byHourLast24h enforces UTC
+  //
+  // Postgres `date_trunc('hour', ts)` operates in the session time zone, not
+  // UTC, even when the column type is `timestamp with time zone`. Without an
+  // explicit `AT TIME ZONE 'UTC'` normalization, hour buckets shift on non-UTC
+  // servers and DST boundaries produce incorrect counts. The fix wraps the
+  // truncation in `AT TIME ZONE 'UTC' ... AT TIME ZONE 'UTC'`.
+  //
+  // We can't directly simulate a non-UTC session in this unit test (the fake
+  // DB has no notion of session time zone). Instead, guard against accidental
+  // removal of the fix via a source-text assertion: the production module
+  // MUST contain `AT TIME ZONE 'UTC'` in the byHourLast24h query. If this
+  // guard fires, the fix has been regressed and DST/non-UTC behavior breaks
+  // in production.
+  // -------------------------------------------------------------------------
+
+  describe("byHourLast24h UTC enforcement (source-text regression guard)", () => {
+    /* eslint-disable custom/no-real-fs-in-tests -- reading shipped source IS the point of the regression guard */
+    const trackerSourcePath = join(import.meta.dir, "subagent-dispatch-tracker.ts");
+
+    test("production source contains AT TIME ZONE 'UTC' (BLOCKING #2 fix)", () => {
+      const src = readFileSync(trackerSourcePath).toString();
+      // Must enforce UTC explicitly when truncating the timestamp.
+      expect(src).toContain("AT TIME ZONE 'UTC'");
+    });
+
+    test("production source uses the hourExpr alias for groupBy/orderBy/select consistency", () => {
+      const src = readFileSync(trackerSourcePath).toString();
+      // The fix factors out the hour expression into a single `hourExpr`
+      // constant used by select/groupBy/orderBy. Asserting on the variable
+      // name catches accidental divergence between the three callsites.
+      expect(src).toContain("const hourExpr =");
+    });
+    /* eslint-enable custom/no-real-fs-in-tests */
   });
 
   // -------------------------------------------------------------------------
