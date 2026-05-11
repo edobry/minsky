@@ -252,6 +252,23 @@ that class at the merge surface.
 4. On match, blocks with a structured message naming each matched phrase, a short surrounding
    excerpt for context, and the override mechanism.
 
+**Markdown-aware filtering (mt#1707):** before substring scanning, the hook elides three
+markdown contexts that carry textual references rather than coordination instructions:
+
+- **Inline code spans** (`` `rootDirectory` ``) — field-name references.
+- **Fenced code blocks** (`` ```bash ... ``` ``) — command output, grep examples,
+  acceptance evidence.
+- **Blockquote lines** (`> serviceInstanceUpdate is the GraphQL mutation`) —
+  quoted reviewer notes, citations.
+
+The elision pass replaces matched content with same-length whitespace, preserving
+character positions so excerpts in the denial message still slice from the ORIGINAL
+body and show real surrounding context. Trigger phrases in bare prose (e.g., "after
+merge, set rootDirectory to empty") continue to fire — only textual references in
+markdown contexts are filtered out. Originating false-positive: mt#1701 PR #1021
+(2026-05-09) DEPLOY.md docs update, where field-name references in code spans tripped
+the substring matcher and the author worked around it by paraphrasing in the PR body.
+
 **On block:** the hook denies with this shape:
 > "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
 > pre-authorized) BEFORE merging. Matched trigger phrases: [list with excerpts]. If the

@@ -119,18 +119,62 @@ export interface PhraseMatch {
 }
 
 /**
+ * Replace markdown contexts that carry textual references (not coordination
+ * instructions) with same-length whitespace. Preserves character positions so
+ * `indexOf` results in the returned text remain valid offsets into the original
+ * body — excerpts can still be sliced from the original to show real context.
+ *
+ * Passes (in order):
+ *   1. Fenced code blocks (```...```) — multi-line, processed first so they
+ *      cannot be later misread as containing inline spans or blockquotes.
+ *   2. Inline code spans (`...`) — single-line, backtick-delimited.
+ *   3. Blockquote lines (lines starting with `>`).
+ *
+ * The replacement preserves newlines so line-anchored passes after pass 1
+ * still align correctly.
+ *
+ * Catches the mt#1701 PR #1021 false-positive class: docs PRs that legitimately
+ * reference trigger phrases as field names in code spans, rather than as
+ * coordination instructions in bare prose.
+ */
+export function elideMarkdownNonProse(body: string): string {
+  const blankSameLength = (match: string): string => match.replace(/[^\n]/g, " ");
+
+  // Pass 1: fenced code blocks (```lang ... ``` on its own line).
+  let cleaned = body.replace(/^```[\s\S]*?^```$/gm, blankSameLength);
+
+  // Pass 2: inline code spans. Excludes newlines so multi-line content isn't
+  // accidentally swallowed when authors forget to close a backtick.
+  cleaned = cleaned.replace(/`[^`\n]+`/g, blankSameLength);
+
+  // Pass 3: blockquote lines.
+  cleaned = cleaned.replace(/^>[^\n]*$/gm, blankSameLength);
+
+  return cleaned;
+}
+
+/**
  * Scan a PR body for trigger phrases (case-insensitive). Returns one match
  * per distinct phrase that appears at least once. Each match includes a
  * short excerpt of the surrounding text so the operator can see the context.
  *
  * Returns an empty array when no triggers are present.
+ *
+ * Markdown contexts that carry textual references (code spans, code fences,
+ * blockquotes) are filtered out before scanning via {@link elideMarkdownNonProse}
+ * so trigger phrases appearing as field-name references don't fire the gate.
+ * Excerpts are still sliced from the ORIGINAL body so the operator sees real
+ * surrounding context.
  */
 export function scanForTriggerPhrases(body: string): PhraseMatch[] {
   if (!body) return [];
   const matches: PhraseMatch[] = [];
-  const lower = body.toLowerCase();
+  // Same-length whitespace replacement preserves positions: a phrase found at
+  // offset N in the elided text occupies the same offset N in the original
+  // body. Excerpts slice from `body`, so they show what the operator wrote.
+  const scanText = elideMarkdownNonProse(body).toLowerCase();
   for (const phrase of TRIGGER_PHRASES) {
-    const idx = lower.indexOf(phrase.toLowerCase());
+    const idx = scanText.indexOf(phrase.toLowerCase());
     if (idx === -1) continue;
     // Excerpt: ~50 chars before + the match + ~50 chars after, on a single line
     const start = Math.max(0, idx - 50);
