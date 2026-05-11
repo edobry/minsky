@@ -12,6 +12,7 @@ import type { WidgetModule } from "./types";
 import { agentsWidget } from "./widgets/agents";
 import { attentionStubWidget } from "./widgets/attention-stub";
 import { basicHealthWidget } from "./widgets/basic-health";
+import { taskGraphWidget } from "./widgets/task-graph";
 
 export type WidgetRegistry = Record<string, WidgetModule>;
 
@@ -19,4 +20,5 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   agents: agentsWidget,
   "attention-stub": attentionStubWidget,
   "basic-health": basicHealthWidget,
+  "task-graph": taskGraphWidget,
 };
