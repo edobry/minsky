@@ -6,6 +6,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./safe-truncate": "./src/safe-truncate.ts"
+    "./safe-truncate": "./src/safe-truncate.ts",
+    "./adoption/signal-extraction": "./src/adoption/signal-extraction.ts"
   }
 }
