@@ -71,6 +71,43 @@ Recommend: coordinate with mt#X before filing new subtasks, or subsume the scope
 mt#X's criteria are a strict subset.
 ```
 
+### A.1 Epic re-entry: audit for decomposition staleness
+
+When opening or referencing an **epic** that already has children — i.e., the
+intent is "coordinate / plan / pick the next thing" against a parent task with a
+non-empty child set — run the epic-decomposition-staleness audit to surface
+TODO/PLANNING children that may have been substantively delivered by a more
+recent DONE sibling. This is the Shape C complement to §A's parallel-work sweep
+(§A catches duplicate filings; §A.1 catches stale decomposition).
+
+Per `feedback Epic-decomposition-children go stale when parent ships major delivery`
+(memory id `4bc8ee1f-1eee-4561-a865-73c067e48d2e`): when an epic ships a
+"Sprint-A"-style major delivery, decomposition children filed pre-delivery often
+become substantively superseded but remain TODO indefinitely. The 2026-05-11
+mt#1552 audit found 7 such instances in a single sweep.
+
+**Audit procedure:**
+
+1. Invoke `epic-decomposition.audit` with `epic: "mt#<epic-id>"` — surfaces
+   `(todoChild, deliveringSibling)` pairs with scope-overlap signals (file
+   paths, identifiers, keywords).
+2. For each flagged TODO/PLANNING child, read its spec briefly and confirm the
+   failure mode it targets is structurally addressed by the delivering sibling.
+3. If superseded: close as CLOSED-superseded with a pointer to the delivering
+   task. If not: leave open and note the false positive.
+4. The detector emits ≤2 false positives per epic in calibration (mt#1552), so
+   bulk-close is operator-judgment driven, not automated.
+
+**When to invoke (heuristic):** any time the user names an epic ID with a
+coordinating verb — "decompose mt#X", "what's next on mt#X", "plan mt#X family,"
+etc. — and the epic has at least one DONE child within the last 30 days. If
+unsure, run the audit; the cost is one command and a brief read of the candidate
+list.
+
+**Out of scope (v0.1):** the detector is within-epic only. Cross-epic
+supersessions (e.g., a sibling under a different umbrella delivering scope) are
+not surfaced and remain a manual-judgment concern.
+
 ### B. Subtask decomposition before dispatch
 
 **For any non-trivial multi-phase task, decompose into subtasks first.**
