@@ -152,6 +152,12 @@ export interface BannerScanResult {
   /** The line that matched, if found. */
   matchedLine?: string;
   /**
+   * 1-indexed line number of the matched line (1–maxLines), if found.
+   * Note that markers can appear on any of the first maxLines lines, not
+   * just line 1 — this is reported so denial messages show the right line.
+   */
+  matchedLineNumber?: number;
+  /**
    * The reason the scan was inconclusive (file missing, read error, etc.).
    * When set, `found` is always false and the caller should fail-open.
    */
@@ -192,12 +198,18 @@ export async function scanFileForBanner(
 
   for (const { re, name } of GENERATION_BANNER_PATTERNS) {
     if (re.test(text)) {
-      // Find the specific line that matched for the block message
-      const matchedLine = lines.find((line) => re.test(line)) ?? lines[0] ?? "";
+      // Find the specific line that matched for the block message. Markers
+      // can appear on any of the first maxLines lines (e.g., a shebang on
+      // line 1 with a generation banner on line 2), so we report the
+      // 1-indexed line number alongside the line text — PR #1026 R1#2.
+      const matchedIdx = lines.findIndex((line) => re.test(line));
+      const idx = matchedIdx >= 0 ? matchedIdx : 0;
+      const matchedLine = lines[idx] ?? "";
       return {
         found: true,
         patternName: name,
         matchedLine: matchedLine.trim(),
+        matchedLineNumber: idx + 1,
       };
     }
   }
@@ -231,7 +243,8 @@ export function formatDenialReason(
   filePath: string,
   patternName: string,
   matchedLine: string,
-  toolName: string
+  toolName: string,
+  matchedLineNumber: number = 1
 ): string {
   const lines: string[] = [
     `Generated-file edit guard: blocked — the target file appears to be a generated output.`,
@@ -239,7 +252,7 @@ export function formatDenialReason(
     `  File:    ${filePath}`,
     `  Tool:    ${toolName}`,
     `  Marker:  [${patternName}]`,
-    `  Line 1:  ${matchedLine}`,
+    `  Line ${matchedLineNumber}:  ${matchedLine}`,
     "",
     `Generated files must not be edited directly. Find the canonical source and use`,
     `the appropriate authoring API instead. For example:`,
@@ -317,16 +330,11 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Check for override env var — do this BEFORE the file read so the audit
-  // log fires even when the file doesn't exist (covers create-new-file paths
-  // where the generated marker might appear in the write content — out of scope
-  // for this hook, but audit is cheap).
-  if (isOverrideSet()) {
-    emitOverrideAuditLog(input.tool_name, targetPath);
-    process.exit(0);
-  }
-
-  // Scan the file's first 5 lines for generation-banner markers
+  // Scan the file's first 5 lines for generation-banner markers FIRST so that
+  // the override audit log can include the matched marker (PR #1026 R1#3).
+  // Trade-off: an override against a not-yet-existing file produces no audit
+  // log because nothing was blocked. That's acceptable — the audit only
+  // matters when the override actually bypasses a block.
   const scanResult = await scanFileForBanner(targetPath, 5);
 
   if (scanResult.skipReason) {
@@ -339,12 +347,19 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Banner found — emit denial
+  // Banner found. Check for override; if set, audit-log with the matched
+  // marker and permit. Otherwise emit denial.
+  if (isOverrideSet()) {
+    emitOverrideAuditLog(input.tool_name, targetPath, scanResult.patternName);
+    process.exit(0);
+  }
+
   const denialReason = formatDenialReason(
     targetPath,
     scanResult.patternName ?? "unknown",
     scanResult.matchedLine ?? "",
-    input.tool_name
+    input.tool_name,
+    scanResult.matchedLineNumber ?? 1
   );
 
   writeOutput({
