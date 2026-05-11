@@ -5,7 +5,8 @@
  *   - MinskyStdioProxy constructor: accepts options, applies defaults
  *   - Initial state: shuttingDown=false, currentChild=null
  *   - ProxyOptions type contract: childCommand / childArgs overrides accepted
- *   - tearDownPipes idempotency (via spawnChild + double teardown path)
+ *   - tearDownPipes idempotency and child-stream unpipe (BLOCKING 2)
+ *   - handleProxyRestart close-listener detachment (BLOCKING 1)
  *
  * NOTE: classifyExit is module-private (not exported). Its behavior is
  * indirectly verified through the MinskyStdioProxy lifecycle; a dedicated
@@ -19,6 +20,8 @@
  */
 
 import { describe, it, expect } from "bun:test";
+import { Transform } from "stream";
+import type { ChildProcess } from "child_process";
 import { MinskyStdioProxy } from "../../../src/mcp/stdio-proxy/proxy.ts";
 import type { ProxyOptions } from "../../../src/mcp/stdio-proxy/proxy.ts";
 
@@ -38,6 +41,19 @@ function makeTestProxy(opts?: ProxyOptions): MinskyStdioProxy {
     ...opts,
   });
 }
+
+/** Type shim for accessing private proxy internals in tests. */
+type ProxyInternal = {
+  inboundTransform: Transform | null;
+  outboundTransform: Transform | null;
+  tearDownPipes: (child?: ChildProcess) => void;
+  isShuttingDown: boolean;
+};
+
+/** Type shim for the close handler stored on the child by spawnChild(). */
+type ChildWithHandler = {
+  _proxyCloseHandler?: (code: number | null, signal: NodeJS.Signals | null) => void;
+};
 
 // ---------------------------------------------------------------------------
 // Constructor and initial state
@@ -133,5 +149,152 @@ describe("MinskyStdioProxy killChild", () => {
       exitCode: 0,
     } as unknown as import("child_process").ChildProcess;
     await expect(proxy.killChild(fakeExited)).resolves.toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleProxyRestart — close-listener detachment (BLOCKING 1)
+// ---------------------------------------------------------------------------
+
+describe("MinskyStdioProxy handleProxyRestart double-spawn prevention", () => {
+  it("stores _proxyCloseHandler on child after spawnChild so handleProxyRestart can remove it", async () => {
+    // Verify that _proxyCloseHandler is stored on the child after spawnChild.
+    // This is the mechanism that prevents double-spawn: handleProxyRestart
+    // removes the listener before killing the child, so onChildClose does not
+    // fire and schedule an additional respawn.
+    const proxy = makeTestProxy();
+    proxy.spawnChild();
+
+    const child = proxy.currentChild;
+    expect(child).not.toBeNull();
+
+    const stored = (child as unknown as ChildWithHandler)._proxyCloseHandler;
+    expect(typeof stored).toBe("function");
+
+    // Wait for the "true" child to exit naturally (it exits with code 0).
+    if (child && child.pid) {
+      await new Promise<void>((resolve) => {
+        child.once("close", () => resolve());
+      });
+    }
+  });
+
+  it("removeListener removes _proxyCloseHandler from the child's close listeners", async () => {
+    // Simulate the handler-removal step of handleProxyRestart and verify that
+    // the listener is no longer in the child's listener list. This is the
+    // mechanical proof that onChildClose will not fire after the removal.
+    const proxy = makeTestProxy();
+    proxy.spawnChild();
+
+    const child = proxy.currentChild;
+    expect(child).not.toBeNull();
+
+    const handler = (child as unknown as ChildWithHandler)._proxyCloseHandler;
+    expect(typeof handler).toBe("function");
+
+    if (handler && child) {
+      child.removeListener("close", handler);
+      // After removal, the "close" listeners must not include our handler.
+      const closeListeners = child.listeners("close");
+      expect(closeListeners).not.toContain(handler);
+    }
+
+    // Wait for the "true" child to exit (it exits immediately with code 0).
+    if (child && child.pid) {
+      await new Promise<void>((resolve) => {
+        child.once("close", () => resolve());
+      });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// tearDownPipes — child stream unpipe (BLOCKING 2)
+// ---------------------------------------------------------------------------
+
+describe("MinskyStdioProxy tearDownPipes child stream unpipe", () => {
+  it("is accessible via type-unsafe cast (private method test seam)", () => {
+    const proxy = makeTestProxy();
+    const internal = proxy as unknown as ProxyInternal;
+    expect(typeof internal.tearDownPipes).toBe("function");
+  });
+
+  it("calls inboundTransform.unpipe(child.stdin) when child.stdin is provided", () => {
+    const proxy = makeTestProxy();
+    const internal = proxy as unknown as ProxyInternal;
+
+    // Build a real Transform so its unpipe method exists and can be patched.
+    const t = new Transform({
+      transform(chunk, _enc, cb) {
+        this.push(chunk);
+        cb();
+      },
+    });
+
+    let inboundUnpipedTarget: unknown = undefined;
+    const origUnpipe = t.unpipe.bind(t);
+    // Patch unpipe to capture the destination argument.
+    // Transform.unpipe expects NodeJS.WritableStream; cast dest accordingly.
+    (t as unknown as { unpipe: (dest?: unknown) => Transform }).unpipe = (dest?: unknown) => {
+      inboundUnpipedTarget = dest;
+      return origUnpipe(dest as NodeJS.WritableStream);
+    };
+
+    // Build a minimal mock stdin that satisfies the Writable interface for
+    // the unpipe call.
+    const mockStdin = {} as unknown as ChildProcess["stdin"];
+
+    internal.inboundTransform = t;
+    // Leave outboundTransform null — only inbound path is under test here.
+
+    const fakeChild = {
+      stdin: mockStdin,
+      stdout: null,
+    } as unknown as ChildProcess;
+
+    internal.tearDownPipes(fakeChild);
+
+    // inboundTransform.unpipe should have been called with child.stdin.
+    expect(inboundUnpipedTarget).toBe(mockStdin);
+    // After teardown, inboundTransform should be null.
+    expect(internal.inboundTransform).toBeNull();
+  });
+
+  it("calls child.stdout.unpipe(outboundTransform) when child.stdout is provided", () => {
+    const proxy = makeTestProxy();
+    const internal = proxy as unknown as ProxyInternal;
+
+    const t = new Transform({
+      transform(chunk, _enc, cb) {
+        this.push(chunk);
+        cb();
+      },
+    });
+
+    let childStdoutUnpipedWith: unknown = undefined;
+    // Use a plain object rather than ChildProcess["stdout"] to avoid
+    // type-checker disagreements about stream interface shapes across TS versions.
+    const mockStdout = {
+      unpipe: (dest?: unknown) => {
+        childStdoutUnpipedWith = dest;
+      },
+      pipe: (_dest: unknown) => mockStdout,
+      on: (_event: string, _fn: unknown) => mockStdout,
+    };
+
+    // Leave inboundTransform null — only outbound path is under test here.
+    internal.outboundTransform = t;
+
+    const fakeChild = {
+      stdin: null,
+      stdout: mockStdout,
+    } as unknown as ChildProcess;
+
+    internal.tearDownPipes(fakeChild);
+
+    // child.stdout.unpipe should have been called with the outbound transform.
+    expect(childStdoutUnpipedWith).toBe(t);
+    // After teardown, outboundTransform should be null.
+    expect(internal.outboundTransform).toBeNull();
   });
 });

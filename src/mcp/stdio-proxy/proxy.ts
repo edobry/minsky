@@ -160,9 +160,21 @@ export class MinskyStdioProxy {
       log.error("[proxy] Child process error", { error: err.message });
     });
 
-    child.on("close", (code, signal) => {
+    // Store close handler reference so handleProxyRestart can remove it before
+    // killing the child. Without removal, killing fires close → onChildClose →
+    // schedules a respawn PLUS handleProxyRestart calls spawnChild directly =
+    // double-spawn. See BLOCKING 1 in PR #1039 R1 reviewer findings.
+    const closeHandler = (code: number | null, signal: NodeJS.Signals | null) => {
       this.onChildClose(code, signal);
-    });
+    };
+    child.on("close", closeHandler);
+    // Attach the handler reference so handleProxyRestart can detach it before
+    // killing the child (preventing the double-spawn race). ChildProcess has no
+    // _proxyCloseHandler field in its type definition; the as-unknown cast is the
+    // only way to attach this side-channel without modifying the ChildProcess type.
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- side-channel property on ChildProcess, no alternative
+    (child as unknown as { _proxyCloseHandler: typeof closeHandler })._proxyCloseHandler =
+      closeHandler;
 
     log.debug("[proxy] Inner MCP server spawned", { pid: child.pid });
   }
@@ -175,9 +187,13 @@ export class MinskyStdioProxy {
     const cause = classifyExit(code, signal);
     log.debug("[proxy] Inner MCP server exited", { cause, code, signal });
 
-    // Tear down the old pipe connections so we can create new ones on respawn.
-    this.tearDownPipes();
+    // Capture and clear this.child before tearDownPipes so the child streams
+    // are still accessible for unpipe even though this.child is now null.
+    const closedChild = this.child;
     this.child = null;
+
+    // Tear down the old pipe connections so we can create new ones on respawn.
+    this.tearDownPipes(closedChild ?? undefined);
 
     if (this.isShuttingDown) {
       log.debug("[proxy] Shutdown complete; proxy exiting");
@@ -209,13 +225,32 @@ export class MinskyStdioProxy {
   /**
    * Unpipe and destroy the current Transform streams so they don't
    * hold references to the dead child process.
+   *
+   * @param child - The child process being torn down. When provided, also
+   *   unpipes the child-side connections:
+   *   - `inboundTransform.unpipe(child.stdin)` — detaches the inbound
+   *     transform from the old child's stdin.
+   *   - `child.stdout.unpipe(outboundTransform)` — detaches the old child's
+   *     stdout from the outbound transform.
+   *   Without these, the transform streams hold stale references to the dead
+   *   child's streams (BLOCKING 2 in PR #1039 R1 reviewer findings).
    */
-  private tearDownPipes(): void {
+  private tearDownPipes(child?: ChildProcess): void {
     if (this.inboundTransform) {
       (proc.stdin as Readable).unpipe(this.inboundTransform);
+      // Also detach the inbound transform from the child's stdin so it doesn't
+      // hold a stale reference to the dead child's stdin stream.
+      if (child?.stdin) {
+        this.inboundTransform.unpipe(child.stdin as Writable);
+      }
       this.inboundTransform = null;
     }
     if (this.outboundTransform) {
+      // Detach the old child's stdout from the outbound transform before
+      // clearing the transform reference.
+      if (child?.stdout) {
+        (child.stdout as Readable).unpipe(this.outboundTransform);
+      }
       this.outboundTransform.unpipe(proc.stdout as Writable);
       this.outboundTransform = null;
     }
@@ -328,16 +363,38 @@ export class MinskyStdioProxy {
   async handleProxyRestart(request: JsonRpcMessage): Promise<void> {
     log.debug("[proxy] Agent-initiated restart requested");
 
-    // Kill the current child gracefully, capturing it before nulling to prevent
-    // onChildClose from scheduling an additional respawn.
+    // Kill the current child gracefully.
+    // BLOCKING 1 fix: detach the old child's close listener BEFORE killing it.
+    // Without this, killing the child fires the close event → onChildClose runs
+    // → schedules a respawn via setTimeout. handleProxyRestart also calls
+    // spawnChild() directly below → double-spawn. Removing the listener first
+    // ensures only one spawnChild call happens (the direct call below).
     if (this.child && this.child.pid) {
       const oldChild = this.child;
       this.child = null;
-      await this.killChild(oldChild);
-    }
 
-    // Tear down the old pipes so spawnChild creates fresh ones.
-    this.tearDownPipes();
+      // Detach the close listener so onChildClose does not fire when we kill
+      // the child here. The listener reference was stored on the child object
+      // by spawnChild() for exactly this purpose. The as-unknown cast is
+      // necessary to read the _proxyCloseHandler side-channel property that has
+      // no corresponding field in the ChildProcess type definition.
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- read side-channel property; same as the write in spawnChild
+      const handlerHost = oldChild as unknown as {
+        _proxyCloseHandler?: (code: number | null, signal: NodeJS.Signals | null) => void;
+      };
+      const handler = handlerHost._proxyCloseHandler;
+      if (handler) {
+        oldChild.removeListener("close", handler);
+      }
+
+      // Tear down old pipes before killing so streams are cleanly disconnected.
+      this.tearDownPipes(oldChild);
+
+      await this.killChild(oldChild);
+    } else {
+      // No live child; still tear down any stale pipes.
+      this.tearDownPipes();
+    }
 
     // Spawn the fresh child.
     this.spawnChild();
