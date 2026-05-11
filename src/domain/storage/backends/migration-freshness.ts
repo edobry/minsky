@@ -49,10 +49,19 @@ export interface MigrationFreshnessVerdict {
  * | journal | meta table | hash in DB | verdict                  |
  * | ------- | ---------- | ---------- | ------------------------ |
  * | empty   | missing    | n/a        | pending iff fileCount>0  |
- * | empty   | present    | n/a        | pending iff fileCount>0  |
+ * | empty   | present    | n/a        | NOT pending (see note)   |
  * | nonempty| missing    | n/a        | pending                  |
  * | nonempty| present    | yes        | NOT pending              |
  * | nonempty| present    | no         | pending                  |
+ *
+ * Note on the "empty journal + present meta table" case: this is a degenerate
+ * state — files may or may not exist, the meta table records prior applied
+ * migrations, but no journal entries currently exist. We choose NOT pending
+ * (stable) because (a) there is no journal hash to verify, so the hash-based
+ * check has no anchor, and (b) treating this as "pending" would surface a
+ * false alarm in scenarios where the journal has been intentionally cleared
+ * or is being rebuilt. If files exist without a journal entry, the proper
+ * recovery is to regenerate the journal, not to halt every storage init.
  *
  * The `appliedCount > fileCount` case (phantom rows in DB) does not affect
  * the verdict — it emits a warning so operators can investigate but does not

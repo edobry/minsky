@@ -135,21 +135,19 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   }
 
   /**
-   * Determine if there are pending migrations by comparing the number of
-   * migration files in the migrations folder with the number of applied
-   * migrations in the __drizzle_migrations meta table.
+   * Read journal + compute the expected hash for the latest entry.
+   * Pure filesystem operations — does not touch the DB.
    */
-  private async hasPendingMigrations(): Promise<{
-    pending: boolean;
-    appliedCount: number;
+  private readMigrationManifest(): {
+    latestJournalHash: string | undefined;
     fileCount: number;
-  }> {
-    await this.ensureConnection();
-
+    /** True iff the journal was readable and at least one entry was present. */
+    hasJournal: boolean;
+    /** True iff the journal's latest entry's .sql file could not be read. */
+    sqlMissing: boolean;
+  } {
     const migrationsFolder = "./src/domain/storage/migrations/pg";
 
-    // Read the journal to find the latest expected migration tag, and count files
-    // for diagnostic output. The hash check (not the count) drives the verdict.
     let latestJournalTag: string | undefined;
     let fileCount = 0;
     try {
@@ -162,27 +160,38 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       latestJournalTag = entries.length > 0 ? entries[entries.length - 1]?.tag : undefined;
       fileCount = readdirSync(migrationsFolder).filter((n) => n.endsWith(".sql")).length;
     } catch {
-      // Folder/journal absent — treat as no migrations to check
-      return { pending: false, appliedCount: 0, fileCount: 0 };
+      return { latestJournalHash: undefined, fileCount: 0, hasJournal: false, sqlMissing: false };
     }
 
-    // Compute the hash drizzle would store for the journal's latest entry.
-    // Drizzle's hash = sha256(content of `<tag>.sql`). See
-    // node_modules/drizzle-orm/migrator.js readMigrationFiles.
-    let latestJournalHash: string | undefined;
-    if (latestJournalTag !== undefined) {
-      try {
-        const sqlPath = joinPath(migrationsFolder, `${latestJournalTag}.sql`);
-        const sqlContent = readFileSync(sqlPath, "utf8") as string;
-        latestJournalHash = createHash("sha256").update(sqlContent).digest("hex");
-      } catch {
-        // SQL for latest journal entry missing — this is a real defect; report pending.
-        return { pending: true, appliedCount: 0, fileCount };
-      }
+    if (latestJournalTag === undefined) {
+      return { latestJournalHash: undefined, fileCount, hasJournal: false, sqlMissing: false };
     }
 
-    // Check meta-table existence.
-    const existsRes = await this.rawSql<{ exists: boolean }[]>`
+    // Drizzle stores sha256(file content). See node_modules/drizzle-orm/migrator.js
+    // readMigrationFiles. The hash format is pinned by drizzle-orm v0.44 (see
+    // package.json); if drizzle changes the algorithm in a future major version
+    // the hash check will start producing false negatives and this code needs
+    // updating in lockstep.
+    try {
+      const sqlPath = joinPath(migrationsFolder, `${latestJournalTag}.sql`);
+      const sqlContent = readFileSync(sqlPath, "utf8") as string;
+      const latestJournalHash = createHash("sha256").update(sqlContent).digest("hex");
+      return { latestJournalHash, fileCount, hasJournal: true, sqlMissing: false };
+    } catch {
+      return { latestJournalHash: undefined, fileCount, hasJournal: true, sqlMissing: true };
+    }
+  }
+
+  /**
+   * Query the DB for migration-freshness inputs using a caller-supplied sql client.
+   * Extracted so the retry path can pass a fresh, single-shot client (forcing the
+   * Supabase transaction pooler to re-route).
+   */
+  private async fetchMigrationDbState(
+    sql: ReturnType<typeof postgres>,
+    latestJournalHash: string | undefined
+  ): Promise<{ metaTableExists: boolean; appliedCount: number; latestJournalHashInDb: boolean }> {
+    const existsRes = await sql<{ exists: boolean }[]>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
@@ -190,37 +199,78 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     `;
     const metaTableExists = Boolean(existsRes?.[0]?.exists);
 
-    // Look up hash presence and applied count (for diagnostic warnings only).
     let latestJournalHashInDb = false;
     let appliedCount = 0;
     if (metaTableExists) {
       if (latestJournalHash !== undefined) {
-        const hashRes = await this.rawSql<{ exists: boolean }[]>`
+        const hashRes = await sql<{ exists: boolean }[]>`
           SELECT EXISTS (
             SELECT 1 FROM "drizzle"."__drizzle_migrations" WHERE hash = ${latestJournalHash}
           ) as exists;
         `;
         latestJournalHashInDb = Boolean(hashRes?.[0]?.exists);
       }
-      const countRes = await this.rawSql<{ count: string }[]>`
+      const countRes = await sql<{ count: string }[]>`
         SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
       `;
       appliedCount = parseInt(countRes?.[0]?.count || "0", 10);
     }
 
+    return { metaTableExists, appliedCount, latestJournalHashInDb };
+  }
+
+  /**
+   * Determine if there are pending migrations via hash-presence in
+   * `__drizzle_migrations`. Uses the cached connection by default; pass
+   * `useFreshConnection: true` to force a brand-new pooled connection
+   * (the retry path uses this to defuse Supabase-pooler-routed stale reads).
+   */
+  private async hasPendingMigrations(opts?: { useFreshConnection?: boolean }): Promise<{
+    pending: boolean;
+    appliedCount: number;
+    fileCount: number;
+  }> {
+    await this.ensureConnection();
+
+    const manifest = this.readMigrationManifest();
+    if (manifest.sqlMissing) {
+      // .sql for the latest journal entry is missing — real defect.
+      return { pending: true, appliedCount: 0, fileCount: manifest.fileCount };
+    }
+
+    let dbState;
+    if (opts?.useFreshConnection) {
+      // Open a fresh single-shot client so the transaction pooler is forced
+      // to allocate a new connection (and potentially route to a different
+      // backend than the stuck one the cached client landed on).
+      const postgresMod = (await import("postgres")).default;
+      const freshSql = postgresMod(this.connectionString, { prepare: false, max: 1 });
+      try {
+        dbState = await this.fetchMigrationDbState(freshSql, manifest.latestJournalHash);
+      } finally {
+        await freshSql.end({ timeout: 2 });
+      }
+    } else {
+      dbState = await this.fetchMigrationDbState(this.rawSql, manifest.latestJournalHash);
+    }
+
     const verdict = computeMigrationFreshness({
-      latestJournalHash,
-      latestJournalHashInDb,
-      appliedCount,
-      fileCount,
-      metaTableExists,
+      latestJournalHash: manifest.latestJournalHash,
+      latestJournalHashInDb: dbState.latestJournalHashInDb,
+      appliedCount: dbState.appliedCount,
+      fileCount: manifest.fileCount,
+      metaTableExists: dbState.metaTableExists,
     });
 
     for (const warning of verdict.warnings) {
       log.warn(warning);
     }
 
-    return { pending: verdict.pending, appliedCount, fileCount };
+    return {
+      pending: verdict.pending,
+      appliedCount: dbState.appliedCount,
+      fileCount: manifest.fileCount,
+    };
   }
 
   /**
@@ -235,12 +285,15 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   private async enforceMigrationsUpToDate(): Promise<void> {
     let result = await this.hasPendingMigrations();
     if (result.pending) {
-      // One retry to defuse transient pooler-routed false positives.
+      // One retry through a brand-new pooled connection. The cached client may
+      // have landed on a Supabase backend with a stale read view; a fresh
+      // postgres-js client forces the transaction pooler to allocate a new
+      // backend connection, which is highly likely to be consistent. See mt#1750.
       log.warn(
-        "Initial migration check reported pending; retrying once before failing " +
-          "(may be a transient pooler-routed stale read — see mt#1750)."
+        "Initial migration check reported pending; retrying with a fresh pooler " +
+          "connection before failing (see mt#1750)."
       );
-      result = await this.hasPendingMigrations();
+      result = await this.hasPendingMigrations({ useFreshConnection: true });
       if (!result.pending) {
         log.info(
           "Retry confirmed schema up to date — initial check was a transient false positive."
