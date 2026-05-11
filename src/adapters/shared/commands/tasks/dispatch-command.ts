@@ -210,23 +210,23 @@ export function createTasksDispatchCommand(
       //
       // Outcome choice: `crashed-no-output` is the pessimistic default that the
       // SubagentStop classifier will overwrite via upsert on subagentSessionId.
-      // There is no "pending" enum value in the schema (deferred to mt#1739).
+      // There is no "pending" enum value in the schema (deferred follow-up).
       // Using `crashed-no-output` ensures that if the SubagentStop hook never
       // fires (process kill, network error), the row describes the worst-case
       // observed state rather than an unresolved placeholder.
       //
-      // The `subagentSessionId` field is null here because the harness has not
-      // yet assigned an agent_id (that only appears in the SubagentStop payload).
-      // A null-keyed insert creates a new row per dispatch; the SubagentStop
-      // upsert will find and update it by matching on agentSessionId if the
-      // harness exposes a stable agent_id. Without a stable key, the two rows
-      // remain independent, and the stop-time row carries all the useful data.
+      // Correlation key: PR #1053 R1 BLOCKING #1 — the upsert key MUST be the
+      // subagent's Minsky session ID, which is known at BOTH dispatch time
+      // (here, as `sessionId`) AND SubagentStop time (extracted from `cwd`).
+      // The harness's `agent_id` is NOT used as the key — it's stored
+      // separately in `agentSessionId` at Stop time. Without this correlation
+      // the upsert would fail and the dispatch row would orphan as a duplicate.
       try {
         const tracker = getTracker?.();
         if (tracker) {
           await tracker.recordSubagentInvocation({
             taskId,
-            sessionId,
+            subagentSessionId: sessionId, // Minsky session id of the subagent's workspace
             agentType: promptResult.agentType ?? p.type,
             suggestedModel: promptResult.suggestedModel ?? null,
             startedAt: new Date(),

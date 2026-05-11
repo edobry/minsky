@@ -108,11 +108,31 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
 
   const now = new Date();
 
+  // PR #1053 R1 BLOCKING #1: the upsert correlation key is the SUBAGENT's
+  // Minsky session id (NOT the harness agent_id), which is encoded in the
+  // last segment of the cwd path. Dispatch wrote the pending row with
+  // `subagentSessionId = <subagent's Minsky session id>`; we must use the
+  // same key here for the upsert to find that row.
+  //
+  // The harness agent_id is stored separately as `agentSessionId` (joins
+  // `agent_transcripts.agent_session_id` per mt#1313).
+  //
+  // PR #1053 R1 BLOCKING #2: pre-query for the dispatch-time row. If it
+  // exists, omit `agentType` from our upsert payload so the tracker's
+  // update path leaves the dispatch-time value untouched. If it doesn't
+  // exist (orphan Stop without dispatch, dispatch-write failure), include
+  // a placeholder so the INSERT path satisfies the schema's NOT NULL
+  // constraint on `agent_type`.
+  const subagentSessionId = extractMinskySessionId(cwd);
+
+  const dispatchRowExists = subagentSessionId
+    ? await rowExistsBySubagentSessionId(db, subagentSessionId)
+    : false;
+
   await tracker.recordSubagentInvocation({
     taskId,
-    agentType: "general-purpose", // Harness doesn't expose agentType at SubagentStop; the dispatch-time row has it
-    subagentSessionId: agentId,
-    agentSessionId: agentId,
+    subagentSessionId,
+    agentSessionId: agentId, // harness-native conversation UUID
     outcome: classification.outcome,
     prUrl: classification.prUrl ?? null,
     lastCommitHash: classification.lastCommitHash ?? null,
@@ -121,7 +141,9 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     totalTokens: metrics.totalTokens ?? null,
     durationMs: metrics.durationMs ?? null,
     endedAt: now,
-    startedAt: now, // startedAt will be preserved by upsert logic (not overwritten when row exists)
+    startedAt: now, // tracker preserves startedAt on upsert (per mt#1736 R1 fix)
+    // INSERT path needs agentType (NOT NULL); UPDATE path doesn't (would clobber dispatch value).
+    ...(dispatchRowExists ? {} : { agentType: "unknown" }),
   });
 
   try {
@@ -129,6 +151,63 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch-row existence check (PR #1053 R1 BLOCKING #2 helper)
+// ---------------------------------------------------------------------------
+
+/**
+ * Check whether a `subagent_invocations` row exists for the given
+ * `subagentSessionId`. Used to decide whether the upsert will take the
+ * UPDATE path (omit `agentType`) or the INSERT path (include `agentType`
+ * to satisfy the schema's NOT NULL constraint).
+ *
+ * Fail-safe: returns false on DB error so the INSERT path is taken with
+ * a placeholder agentType — better to record a "wrong-agent-type" row
+ * than to silently drop the invocation.
+ */
+async function rowExistsBySubagentSessionId(
+  db: import("drizzle-orm/postgres-js").PostgresJsDatabase,
+  subagentSessionId: string
+): Promise<boolean> {
+  try {
+    const { subagentInvocationsTable } = await import(
+      "../../src/domain/storage/schemas/subagent-invocations-schema"
+    );
+    const { eq } = await import("drizzle-orm");
+    const existing = await db
+      .select({ id: subagentInvocationsTable.id })
+      .from(subagentInvocationsTable)
+      .where(eq(subagentInvocationsTable.subagentSessionId, subagentSessionId))
+      .limit(1);
+    return existing.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Minsky session id extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the subagent's Minsky session id from the cwd path.
+ *
+ * Session workspaces are stored at `~/.local/state/minsky/sessions/<sessionId>`.
+ * The session id is a UUID; we take the last non-empty path segment.
+ *
+ * Used as the upsert correlation key by `recordSubagentInvocation` — both
+ * dispatch-time and SubagentStop-time writes resolve to the same session id
+ * so the upsert finds the pending row.
+ *
+ * Returns null if the cwd doesn't have an extractable session id (e.g.,
+ * empty, no sessions/ segment).
+ */
+function extractMinskySessionId(cwd: string | undefined): string | null {
+  if (!cwd) return null;
+  const match = cwd.match(/\/sessions\/([^/]+)(?:\/|$)/);
+  return match?.[1] ?? null;
 }
 
 // ---------------------------------------------------------------------------
