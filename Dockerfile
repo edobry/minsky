@@ -85,7 +85,13 @@ COPY src ./src
 ENV PORT=3000
 EXPOSE 3000
 
+# Profile B (Railway HTTP): build the bundle at image-build time.
+# This bypasses the bin entry entirely — the bin entry is for source installs
+# (Profile A/C) only. Direct bundle exec avoids the freshness-check overhead
+# and the need for git at runtime.
+RUN bun build --target=bun --outfile=dist/minsky.js src/cli.ts
+
 # Default: start MCP over HTTP with auth required. The MINSKY_MCP_AUTH_TOKEN
 # env var must be set for this to succeed. $PORT expands at container start
 # via the shell form.
-CMD bun run src/cli.ts mcp start --http --host 0.0.0.0 --port $PORT --require-auth
+CMD bun run dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth
