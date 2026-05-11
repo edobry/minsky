@@ -602,6 +602,26 @@ export function registerMemoryCommandsWithMcp(
 }
 
 /**
+ * Register detector commands with MCP (attention-allocation noticer family —
+ * `unasked-direction.*` per mt#1543 / Surface 4, `epic-decomposition.audit`
+ * per mt#1710 / Shape C, and future System 3* detector surfaces).
+ *
+ * Follows the MEMORY single-path model — invoked once via the per-category
+ * adapter `registerDetectorsTools` in `start-command.ts`; intentionally NOT
+ * listed in `registerAllMainCommandsWithMcp`'s category set, pending the
+ * mt#1521 source-of-truth resolution.
+ */
+export function registerDetectorsCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.DETECTORS],
+    ...config,
+  });
+}
+
+/**
  * Register authorship commands with MCP.
  *
  * This is the **least-privilege MCP entry point** for the authorship namespace.
@@ -658,14 +678,14 @@ export function registerProvenanceCommandsWithMcp(
 /**
  * Register all main command categories with MCP.
  *
- * MEMORY is intentionally NOT in this list. Memory commands are registered
- * solely via the per-category adapter `registerMemoryTools` invoked by
- * `start-command.ts`. The dual-registration shape that other categories
- * exhibit (listed here AND independently registered in start-command) is a
- * latent silent-overwrite hazard via `MinskyMCPServer.addTool()`'s Map
- * semantics; mt#1521 owns the structural source-of-truth resolution that
- * may apply this same exclusion to the other categories. Until then, MEMORY
- * is the model.
+ * MEMORY and DETECTORS are intentionally NOT in this list. Their commands are
+ * registered solely via the per-category adapters (`registerMemoryTools`,
+ * `registerDetectorsTools`) invoked by `start-command.ts`. The dual-registration
+ * shape that other categories exhibit (listed here AND independently registered
+ * in start-command) is a latent silent-overwrite hazard via
+ * `MinskyMCPServer.addTool()`'s Map semantics; mt#1521 owns the structural
+ * source-of-truth resolution that may apply this same exclusion to the other
+ * categories. Until then, MEMORY and DETECTORS are the model.
  */
 export function registerAllMainCommandsWithMcp(
   commandMapper: CommandMapper,
