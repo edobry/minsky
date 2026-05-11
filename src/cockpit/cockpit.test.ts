@@ -235,14 +235,16 @@ describe("Cockpit server", () => {
   const FIVE_HOURS_AGO = new Date(NOW.getTime() - 5 * 60 * 60 * 1000);
   const TWO_DAYS_AGO = new Date(NOW.getTime() - 2 * 24 * 60 * 60 * 1000);
 
-  /** Fixture: a healthy session with a bound task and open PR */
+  /** Fixture: a healthy session with a bound task and open PR.
+   * taskId is stored in qualified form because `SessionDbAdapter.addTaskToSession`
+   * normalizes via `validateQualifiedTaskId` before persisting (per PR #1030 R2). */
   const healthySession: SessionRecord = {
     sessionId: "aaaaaaaa-0000-0000-0000-000000000001",
     repoName: "minsky",
     repoUrl: "https://github.com/edobry/minsky",
     createdAt: NOW.toISOString(),
     lastActivityAt: NOW.toISOString(),
-    taskId: "1145",
+    taskId: "mt#1145",
     status: SessionStatus.PR_OPEN,
     pullRequest: {
       number: 42,
@@ -284,7 +286,7 @@ describe("Cockpit server", () => {
     createdAt: TWO_DAYS_AGO.toISOString(),
     lastActivityAt: TWO_DAYS_AGO.toISOString(),
     status: SessionStatus.MERGED,
-    taskId: "999",
+    taskId: "mt#999",
   };
 
   /** Fixture: a CLOSED session (terminal — must be filtered). PR #1030 R1 added. */
@@ -295,7 +297,7 @@ describe("Cockpit server", () => {
     createdAt: TWO_DAYS_AGO.toISOString(),
     lastActivityAt: TWO_DAYS_AGO.toISOString(),
     status: SessionStatus.CLOSED,
-    taskId: "888",
+    taskId: "mt#888",
   };
 
   /** Fixture: a session that should appear with the branch as its title. */
@@ -307,6 +309,18 @@ describe("Cockpit server", () => {
     lastActivityAt: NOW.toISOString(),
     status: SessionStatus.ACTIVE,
     branch: "task/mt-1145",
+  };
+
+  /** Fixture: a session whose taskId is already in qualified form (mt#NNNN).
+   * Verifies the display formatter doesn't double-prefix. PR #1030 R2 added. */
+  const qualifiedTaskSession: SessionRecord = {
+    sessionId: "11111111-0000-0000-0000-000000000007",
+    repoName: "minsky",
+    repoUrl: "https://github.com/edobry/minsky",
+    createdAt: NOW.toISOString(),
+    lastActivityAt: NOW.toISOString(),
+    status: SessionStatus.ACTIVE,
+    taskId: "mt#1145", // already qualified — must NOT become "mt#mt#1145"
   };
 
   // 9a. Agents widget present in /api/widgets when enabled
@@ -424,6 +438,30 @@ describe("Cockpit server", () => {
     // Healthy session has no branch → full sessionId is the title (no prefix-truncation)
     expect(healthy?.title).toBe(healthySession.sessionId);
     expect(healthy?.title).not.toMatch(/^session [a-f0-9]{8}$/);
+  });
+
+  // 9c''. Agents widget doesn't double-prefix already-qualified taskIds
+  // (PR #1030 R2 reviewer finding: SessionDbAdapter.addTaskToSession normalizes
+  // to "mt#NNNN" form before persisting, so storage may already hold a
+  // qualified ID; the display formatter must be idempotent.)
+  test("agents widget doesn't double-prefix already-qualified taskIds", async () => {
+    const agentsWidget = createAgentsWidget(async () => makeMockProvider([qualifiedTaskSession]));
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "agents", enabled: true }],
+      },
+      overrideRegistry: { agents: agentsWidget },
+    });
+    const res = await fetch(`${url}/api/widget/agents/data`);
+    const body = (await res.json()) as {
+      state: string;
+      payload: { agents: AgentRow[] };
+    };
+    expect(body.state).toBe("ok");
+
+    const row = body.payload.agents.find((a) => a.sessionId === qualifiedTaskSession.sessionId);
+    expect(row?.taskId).toBe("mt#1145");
+    expect(row?.taskId).not.toBe("mt#mt#1145");
   });
 
   // 9d. Agents widget returns degraded when provider throws

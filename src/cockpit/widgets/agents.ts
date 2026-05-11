@@ -15,6 +15,7 @@ import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session/types";
 import { SessionStatus } from "../../domain/session/types";
 import { deriveSessionLiveness } from "../../domain/session/types";
+import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
 
 /** Shape of a single agent row emitted in the payload */
 export interface AgentRow {
@@ -50,7 +51,11 @@ function toAgentRow(record: SessionRecord): AgentRow {
   // reviewer finding).
   const title = record.branch ?? record.sessionId;
 
-  const taskId = record.taskId ? `mt#${record.taskId}` : null;
+  // Storage may hold task IDs in either plain ("123") or qualified ("mt#123")
+  // form because `SessionDbAdapter.addTaskToSession()` normalizes to qualified
+  // before persisting. Delegate to the shared display formatter so we don't
+  // double-prefix already-qualified IDs (PR #1030 R2 reviewer finding).
+  const taskId = record.taskId ? formatTaskIdForDisplay(record.taskId) : null;
 
   let prNumber: number | null = null;
   let prStatus: string | null = null;
