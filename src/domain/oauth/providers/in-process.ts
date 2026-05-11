@@ -337,7 +337,12 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       registration_endpoint: `${providerIssuer}/register`,
       response_types_supported: ["code"],
       grant_types_supported: ["authorization_code", "refresh_token"],
-      token_endpoint_auth_methods_supported: ["none", "client_secret_basic", "client_secret_post"],
+      // v1 supports public PKCE clients only (token_endpoint_auth_method=none).
+      // client_secret_basic and client_secret_post are not supported because
+      // ClientAdapter.find() does not return the raw client_secret (only stores
+      // a hash), so oidc-provider would reject those clients at authorize time
+      // with invalid_client_metadata. See mt#1746.
+      token_endpoint_auth_methods_supported: ["none"],
       scopes_supported: ["openid", "mcp", "offline_access"],
       code_challenge_methods_supported: ["S256"],
     };
@@ -369,10 +374,25 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       throw new Error("redirect_uris is required for client registration");
     }
 
+    // v1 supports public PKCE clients only (token_endpoint_auth_method=none).
+    // Reject non-none auth methods per RFC 7591: client_secret_basic and
+    // client_secret_post cannot be supported because ClientAdapter.find() stores
+    // only a bcrypt hash of the secret — not the raw secret — so oidc-provider's
+    // authorize handler would reject those clients with invalid_client_metadata.
+    // PKCE (S256) is enforced via pkce.required: () => true. See mt#1746.
+    const authMethod = body.token_endpoint_auth_method ?? "none";
+    if (authMethod !== "none") {
+      throw new Error(
+        `Only token_endpoint_auth_method='none' (public PKCE clients) is supported; ` +
+          `received '${authMethod}'. Re-register with token_endpoint_auth_method='none'.`
+      );
+    }
+
     const clientId = generateRandomId();
-    const clientSecret = generateRandomSecret();
+    // Public clients (none auth method) do NOT get a client_secret.
+    // The adapter's upsert conditionally stores a hash only when client_secret is present
+    // (see in-process-postgres-adapter.ts line ~166).
     const grantTypes = body.grant_types ?? ["authorization_code", "refresh_token"];
-    const authMethod = body.token_endpoint_auth_method ?? "client_secret_basic";
 
     // Persist via the adapter (DCR registration stores in oauth_clients)
     const adapterFactory = createAdapterFactory(this.config.db);
@@ -381,7 +401,9 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       clientId,
       {
         client_id: clientId,
-        client_secret: clientSecret,
+        // Intentionally omit client_secret for public PKCE clients (authMethod=none).
+        // The adapter stores a hash only when client_secret is present; omitting it
+        // here means no secret is stored and oidc-provider can load the client cleanly.
         redirect_uris: body.redirect_uris,
         grant_types: grantTypes,
         token_endpoint_auth_method: authMethod,
@@ -391,9 +413,10 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       Number.MAX_SAFE_INTEGER
     );
 
+    // Public clients: do NOT include client_secret in the response.
+    // RFC 7591 §3.2.1 allows omitting client_secret when the client is public.
     return {
       client_id: clientId,
-      client_secret: clientSecret,
       client_name: body.client_name,
       redirect_uris: body.redirect_uris,
       grant_types: grantTypes,
@@ -422,6 +445,26 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       return;
     }
 
+    // mt#1746 R2: legacy-client runtime guard. Pre-mt#1746 clients in the DB
+    // may have token_endpoint_auth_method set to client_secret_basic/post.
+    // ClientAdapter.find() does not return the raw secret (only stores a hash),
+    // so oidc-provider would reject those clients at authorize with an opaque
+    // "invalid_client_metadata: client_secret is mandatory property" error.
+    // Catch them here with an actionable "re-register" message.
+    if (query.client_id) {
+      const legacyCheck = await this.checkLegacyClient(query.client_id);
+      if (legacyCheck.isLegacy) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description:
+            `This client was registered with token_endpoint_auth_method='${legacyCheck.authMethod}', ` +
+            `which is no longer supported. Remove and re-add the MCP integration to re-register ` +
+            `as a public PKCE client (token_endpoint_auth_method='none').`,
+        });
+        return;
+      }
+    }
+
     // Forward to the oidc-provider Koa app via the Node.js http callback.
     // The Provider extends Koa, which exposes a callback() method returning a
     // standard Node.js (req, res) => void handler compatible with Express.
@@ -433,6 +476,27 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
   async token(req: Request, res: Response): Promise<void> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
     const provider = this.getProvider(issuer);
+
+    // mt#1746 R2: legacy-client runtime guard (parallel to authorize). Catches
+    // the case where a cached auth code is exchanged against a legacy client.
+    // The client_id may be in form body (client_secret_post-style) or basic auth header.
+    // For "none" clients, RFC 7591 requires client_id in form body.
+    const body = req.body as Record<string, string> | undefined;
+    const clientId = body?.client_id;
+    if (clientId) {
+      const legacyCheck = await this.checkLegacyClient(clientId);
+      if (legacyCheck.isLegacy) {
+        res.status(400).json({
+          error: "invalid_client",
+          error_description:
+            `This client was registered with token_endpoint_auth_method='${legacyCheck.authMethod}', ` +
+            `which is no longer supported. Remove and re-add the MCP integration to re-register ` +
+            `as a public PKCE client (token_endpoint_auth_method='none').`,
+        });
+        return;
+      }
+    }
+
     // Internal path "/token" is the oidc-provider default for the token endpoint
     // (see node_modules/oidc-provider/lib/helpers/defaults.js routes.token).
     await forwardToKoaProvider(provider, req, res, "/token");
@@ -504,6 +568,33 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       audience: row.audience ?? null,
     };
   }
+
+  /**
+   * Look up a client by id and check whether it was registered with a non-"none"
+   * token_endpoint_auth_method. Returns `{ isLegacy: true, authMethod }` for
+   * pre-mt#1746 clients that should be rejected with a re-register message.
+   * Returns `{ isLegacy: false }` for current-shape clients OR for missing
+   * clients (let oidc-provider produce the standard "invalid_client" response).
+   */
+  private async checkLegacyClient(
+    clientId: string
+  ): Promise<{ isLegacy: true; authMethod: string } | { isLegacy: false }> {
+    try {
+      const adapterFactory = createAdapterFactory(this.config.db);
+      const clientAdapter = new adapterFactory("Client");
+      const client = await clientAdapter.find(clientId);
+      if (!client) return { isLegacy: false };
+      const authMethod = (client as { token_endpoint_auth_method?: string })
+        .token_endpoint_auth_method;
+      if (authMethod && authMethod !== "none") {
+        return { isLegacy: true, authMethod };
+      }
+      return { isLegacy: false };
+    } catch {
+      // DB lookup failed: don't block — let oidc-provider produce its own error.
+      return { isLegacy: false };
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -524,13 +615,6 @@ function deriveIssuer(req: Request, explicit: string | null | undefined): string
 /** Generates a URL-safe random ID (16 bytes = 32 hex chars). */
 function generateRandomId(): string {
   const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Generates a URL-safe random client secret (32 bytes = 64 hex chars). */
-function generateRandomSecret(): string {
-  const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
