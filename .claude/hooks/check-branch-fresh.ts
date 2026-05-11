@@ -14,6 +14,11 @@
 //   - Allows silently (no stdout, no additionalContext): branch even with main,
 //     fresh branch (no upstream), detached HEAD, undetectable default branch.
 //     These are the four "nothing to report" paths in the Behavioral Contract.
+//   - Allows with audit-line on stdout: merge / rebase / cherry-pick in
+//     progress (mt#1739). The operator is finalising a commit that resolves
+//     staleness, so blocking would create a chicken-and-egg deadlock. Emits a
+//     stdout audit line (`merge-in-progress (.git/<MARKER>) ...`) so operators
+//     see that the hook recognised the merge state.
 //   - Warnings always surface even on silent paths: when the pre-check git fetch
 //     failed (network down, auth issue, etc.), the resulting "comparison may be
 //     against STALE refs" warning IS emitted regardless of silent. The carve-out
@@ -26,6 +31,8 @@
 // @see feedback_check_branch_behind_main_during_iteration — originating memory
 // @see parallel-work-guard.ts — structural template
 
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import {
   readInput,
   writeOutput,
@@ -181,6 +188,117 @@ export function getCurrentBudgets() {
  */
 function budgetAllows(start: number, callBudgetMs: number): boolean {
   return Date.now() - start + callBudgetMs <= OVERALL_BUDGET_MS;
+}
+
+/**
+ * Detect whether a merge, rebase, or cherry-pick is currently in progress
+ * in the given working directory. Returns the name of the detected git-state
+ * file/dir when one is present, or null when none are.
+ *
+ * The state markers checked are the well-known git transient-operation
+ * files, probed under the *resolved* git directory (see `resolveGitDir` —
+ * handles `.git`-as-file indirection used by `git worktree` and submodules):
+ *
+ *   - `MERGE_HEAD`         — `git merge` in progress, awaiting commit
+ *   - `REBASE_HEAD`        — rebase in progress (newer git versions)
+ *   - `rebase-merge/`      — interactive rebase (`git rebase -i`) in progress
+ *   - `rebase-apply/`      — non-interactive rebase via `git format-patch`
+ *                            apply path (and older git versions)
+ *   - `CHERRY_PICK_HEAD`   — `git cherry-pick` in progress, awaiting commit
+ *
+ * Detection is a `fs.existsSync` per marker — no subprocess, no network.
+ * Safe to call ahead of the wall-clock budget guard.
+ *
+ * Why this exists (mt#1739): without this detection, the freshness guard
+ * blocks `session_commit` even when the commit being prepared is the merge
+ * commit that resolves the staleness it's flagging. The freshness predicate
+ * (`origin/<branch>..origin/main`) only updates after the merge commit is
+ * pushed, creating a chicken-and-egg deadlock. Recognizing mid-merge state
+ * means the operator is *resolving* staleness, not introducing it — silent
+ * allow is the correct response.
+ *
+ * @see mt#1739 — originating task
+ * @see feedback_freshness_guard_mid_merge_paradox — bridge memory
+ * @see PR #1054 R1 — added `rebase-apply` marker + `.git`-file resolution
+ */
+export const MERGE_IN_PROGRESS_MARKERS = [
+  "MERGE_HEAD",
+  "REBASE_HEAD",
+  "rebase-merge",
+  "rebase-apply",
+  "CHERRY_PICK_HEAD",
+] as const;
+
+/**
+ * Minimal fs surface used by mid-merge detection. Packaged so tests can
+ * inject a mock without touching the real filesystem (per the
+ * `no-real-fs-in-tests` lint rule).
+ */
+export interface MergeDetectFs {
+  existsSync: (p: string) => boolean;
+  readFileSync: (p: string, encoding: BufferEncoding) => string;
+  statSync: (p: string) => { isDirectory: () => boolean; isFile: () => boolean };
+}
+
+const DEFAULT_FS: MergeDetectFs = {
+  existsSync,
+  readFileSync: (p, encoding) => readFileSync(p, encoding) as string,
+  statSync: (p) => statSync(p),
+};
+
+/**
+ * Resolve the on-disk git directory for `repoDir`, honoring git's `.git`-as-file
+ * indirection convention. Three cases:
+ *
+ *   1. `<repoDir>/.git` is a directory — return that path (typical clone).
+ *   2. `<repoDir>/.git` is a FILE whose contents are `gitdir: <path>` —
+ *      parse and return the resolved target (typical `git worktree` checkout
+ *      and certain submodule layouts). Relative `<path>` is resolved against
+ *      `repoDir` per git's spec.
+ *   3. `<repoDir>/.git` is missing or unparseable — fall back to
+ *      `<repoDir>/.git` so callers' downstream `existsSync` probes return
+ *      false naturally (no exception thrown for the missing-repo case).
+ *
+ * The fs surface is injectable for test purposes; defaults to real fs.
+ *
+ * @see mt#1739 — added to support worktree-based session layouts where the
+ *   freshness-guard's mid-merge detection would otherwise miss markers
+ *   living under the resolved gitdir, reintroducing the deadlock this fix
+ *   exists to close. PR #1054 R1 BLOCKING #1.
+ */
+export function resolveGitDir(repoDir: string, fs: MergeDetectFs = DEFAULT_FS): string {
+  const dotGit = join(repoDir, ".git");
+  if (!fs.existsSync(dotGit)) {
+    return dotGit;
+  }
+  try {
+    if (fs.statSync(dotGit).isDirectory()) {
+      return dotGit;
+    }
+    const content = fs.readFileSync(dotGit, "utf-8");
+    const match = content.match(/^gitdir:\s*(.+?)\s*$/m);
+    if (match && match[1]) {
+      const target = match[1].trim();
+      return isAbsolute(target) ? target : resolve(repoDir, target);
+    }
+  } catch {
+    // Fall through — any stat/read error falls back to the conventional path,
+    // which callers handle via existsSync returning false.
+  }
+  return dotGit;
+}
+
+export function detectMergeInProgress(
+  repoDir: string,
+  fs: MergeDetectFs = DEFAULT_FS
+): string | null {
+  const gitDir = resolveGitDir(repoDir, fs);
+  for (const marker of MERGE_IN_PROGRESS_MARKERS) {
+    if (fs.existsSync(join(gitDir, marker))) {
+      return marker;
+    }
+  }
+  return null;
 }
 
 /**
@@ -344,6 +462,31 @@ export function checkBranchFreshness(
   const startMs = typeof hookStart === "number" ? hookStart : null;
   const overBudget = (callBudgetMs: number): boolean =>
     startMs !== null && !budgetAllows(startMs, callBudgetMs);
+
+  // mt#1739: mid-merge / mid-rebase / mid-cherry-pick is an allow path. The
+  // operator is finalising a commit that *resolves* main-ahead-of-branch
+  // staleness, not introducing fresh work on a stale branch. Skipping the
+  // remote-ref comparison closes the chicken-and-egg deadlock described in
+  // feedback_freshness_guard_mid_merge_paradox.
+  //
+  // Detection is `fs.existsSync`-only — cheaper than any subprocess in this
+  // hook, so we run it before the budget guard (no risk of exhausting it).
+  //
+  // Returned WITHOUT silent: true because this is an operator-driven action
+  // (not one of the four "nothing to report" routine cases — even-with-main,
+  // fresh branch, detached HEAD, undetectable default). The entrypoint emits
+  // `result.reason` to stdout as an audit line so operators see that the
+  // hook recognised the merge state, mirroring the MINSKY_SKIP_FRESHNESS=1
+  // override-audit convention.
+  const midMergeMarker = detectMergeInProgress(repoDir);
+  if (midMergeMarker) {
+    return {
+      blocked: false,
+      aheadCount: 0,
+      aheadSubjects: [],
+      reason: `merge-in-progress (.git/${midMergeMarker}) — freshness check skipped`,
+    };
+  }
 
   // Budget-guard the branch detection itself (round-5 BLOCKING fix —
   // previously this ran in the entrypoint outside any guard).
