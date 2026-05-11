@@ -6,21 +6,44 @@
 #
 # See docs/deploy-minsky-railway.md for deployment specifics (env vars, auth).
 
-FROM oven/bun:1.2-slim AS base
+# Base-image digest pin (mt#1726). The mutable `oven/bun:1.2-slim` tag is
+# pinned to a content-addressed digest so the build is reproducible and so
+# image-tag drift cannot silently alter the runtime bun version. To rotate
+# the digest: run `docker pull oven/bun:1.2-slim`, copy the `Digest:` line
+# it prints, replace the `@sha256:...` suffix below, commit, let Railway
+# rebuild.
+FROM oven/bun:1.2-slim@sha256:9654aa08d4b7e778b84148921bab8edc1409c8d0a85707b8c801dd7cf1878971 AS base
 
 WORKDIR /app
 
 # Dependency layer — cached unless package.json/bun.lock changes.
 COPY package.json bun.lock ./
 
-# Workspace package manifests (mt#1681 / mt#1722): bun install needs these
-# to resolve `@minsky/shared@workspace:packages/shared` from the lockfile.
+# Workspace package manifests. The root declares
+# `workspaces: ["packages/*", "services/*"]`, and bun's `--frozen-lockfile`
+# install rejects any divergence between the workspace topology in the build
+# context and the committed lockfile. Every workspace member's package.json
+# must be present here even when its source tree isn't pulled into this
+# image (see selective COPY below for what actually ships).
 COPY packages/shared/package.json ./packages/shared/package.json
+COPY services/reviewer/package.json ./services/reviewer/package.json
 
-RUN bun install --frozen-lockfile
+# Hoist deps via the root workspace install (mt#1726). `--production` skips
+# dev deps (smaller image, faster install), `--frozen-lockfile` enforces
+# lockfile fidelity, `--ignore-scripts` skips `prepare: husky` and any other
+# install hooks — husky is a dev-only git-hooks helper that has no place
+# inside a production container. Mirrors `services/reviewer/Dockerfile:24`.
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
-# Source layer.
-COPY . .
+# Source layer — selective COPY (mt#1726). Replaces the prior blanket
+# `COPY . .` which pulled in tests, docs, scripts, eslint configuration,
+# and unrelated service trees. Order: stable files (tsconfig, shared
+# sources) first, main src/ tree last because it changes most often.
+COPY tsconfig.json ./tsconfig.json
+COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
+COPY packages/shared/src ./packages/shared/src
+COPY .minsky/config.yaml ./.minsky/config.yaml
+COPY src ./src
 
 # Default HTTP port. Railway injects $PORT at runtime; MCP server reads it
 # via the --port CLI flag (see CMD below).
