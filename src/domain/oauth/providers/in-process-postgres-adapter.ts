@@ -292,7 +292,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
 
     return {
       clientId: row.clientId,
-      sub: row.sub,
+      accountId: row.sub,
       redirectUri: row.redirectUri,
       scope: scopes.join(" "),
       audience: row.audience ?? undefined,
@@ -389,7 +389,7 @@ class AccessTokenAdapter implements OidcAdapter {
 
     return {
       clientId: row.clientId,
-      sub: row.sub,
+      accountId: row.sub,
       scope: scopes.join(" "),
       audience: row.audience ?? undefined,
     };
@@ -486,7 +486,7 @@ class RefreshTokenAdapter implements OidcAdapter {
     const scopes = JSON.parse(row.scopes) as string[];
     return {
       clientId: row.clientId,
-      sub: row.sub,
+      accountId: row.sub,
       scope: scopes.join(" "),
       audience: row.audience ?? undefined,
     };
