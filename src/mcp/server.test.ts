@@ -1043,3 +1043,286 @@ describe("MCP Server", () => {
     await server.close();
   });
 });
+
+describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt#1779)", () => {
+  // Claude Desktop's frontend validator regex — the source of the bug this
+  // suite protects against. Any tool name surfaced in `tools/list` MUST match.
+  const CLAUDE_DESKTOP_TOOL_NAME_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+  // Mirror of the production `toClaudeDesktopName` — kept local rather than
+  // imported to keep the test asserting against the wire shape, not against
+  // a function that could regress in lockstep with the production code.
+  const expectedDesktopName = (name: string): string => name.replace(/\./g, "_");
+
+  function buildToolDef(name: string): {
+    name: string;
+    description: string;
+    inputSchema: object;
+    handler: (args: Record<string, unknown>) => Promise<unknown>;
+  } {
+    return {
+      name,
+      description: `Test tool ${name}`,
+      inputSchema: { type: "object", properties: {}, additionalProperties: true },
+      handler: async () => ({ ok: true, name }),
+    };
+  }
+
+  test("dotted tool name is dual-registered: both the dotted canonical AND the underscored alias resolve", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("session.pr.get"));
+
+    // Both forms must be dispatchable via the internal tools map (the
+    // CallTool handler does `this.tools.get(request.params.name)`).
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.has("session.pr.get")).toBe(true);
+    expect(tools.has("session_pr_get")).toBe(true);
+    expect(tools.get("session.pr.get")).toBe(tools.get("session_pr_get"));
+
+    await server.close();
+  });
+
+  test("non-dotted tool name is registered exactly once (no spurious alias)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const before = (server as unknown as { tools: Map<string, unknown> }).tools.size;
+    server.addTool(buildToolDef("plain_name"));
+    const after = (server as unknown as { tools: Map<string, unknown> }).tools.size;
+
+    expect(after - before).toBe(1);
+
+    await server.close();
+  });
+
+  // Drive tools/list through the real SDK handler. The SDK Server class is
+  // wired in `setupRequestHandlers` which fires when an SDK Server is connected
+  // to a transport. To exercise it deterministically without a real transport
+  // round-trip, we cast through to the SDK Server's private `_requestHandlers`
+  // map and invoke the handler directly. Mirrors the test pattern used by
+  // mt#1751's defer-DI suite.
+  async function callToolsListHandler(
+    server: import("./server").MinskyMCPServer,
+    clientInfo?: { name: string; version: string }
+  ): Promise<{ tools: Array<{ name: string; description: string; inputSchema: object }> }> {
+    // Stdio mode constructs an internal SDK Server during start(); for tests we
+    // pluck it via the per-session creation path.
+    const sdkServer = (
+      server as unknown as { createConfiguredServer: (k: string) => unknown }
+    ).createConfiguredServer("test-session-key") as {
+      _requestHandlers: Map<string, (req: unknown, extra: unknown) => Promise<unknown>>;
+      _clientVersion?: { name: string; version: string };
+    };
+    if (clientInfo) sdkServer._clientVersion = clientInfo;
+    const handler = sdkServer._requestHandlers.get("tools/list");
+    if (!handler) throw new Error("SDK did not register tools/list handler");
+    return (await handler({ method: "tools/list", params: {} }, {})) as {
+      tools: Array<{ name: string; description: string; inputSchema: object }>;
+    };
+  }
+
+  test("regression: every name surfaced to tools/list matches Claude Desktop's validator regex (Claude client)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a representative set spanning the kinds of names production uses.
+    const names = [
+      "session.list",
+      "session.pr.get",
+      "session.apply_post_merge_state_sync",
+      "tasks.list",
+      "tasks.spec.get",
+      "debug.echo",
+      "debug.listMethods",
+      "rules.create",
+      "git.log",
+      "persistence.check",
+      "validate.lint",
+      "plain_name",
+    ];
+    for (const n of names) server.addTool(buildToolDef(n));
+
+    // Drive through the real SDK handler with a Claude-Desktop-shaped client.
+    const result = await callToolsListHandler(server, { name: "claude-ai", version: "1.0" });
+
+    // Every emitted name must pass Claude Desktop's validator regex.
+    for (const tool of result.tools) {
+      expect(tool.name).toMatch(CLAUDE_DESKTOP_TOOL_NAME_REGEX);
+      expect(tool.name).not.toContain(".");
+    }
+    // Each tool surfaces exactly once.
+    expect(result.tools.length).toBe(names.length);
+    // The Claude-Desktop-mangled names match the expectedDesktopName() of each canonical.
+    const emittedSet = new Set(result.tools.map((t) => t.name));
+    for (const canonical of names) {
+      expect(emittedSet.has(expectedDesktopName(canonical))).toBe(true);
+    }
+
+    await server.close();
+  });
+
+  test("non-Claude clients receive the canonical dotted form (preserves wire contract)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+    server.addTool(buildToolDef("session.pr.get"));
+
+    // Non-Claude client (e.g., a custom MCP consumer).
+    const result = await callToolsListHandler(server, { name: "custom-mcp-client", version: "1" });
+
+    const emittedNames = result.tools.map((t) => t.name).sort();
+    expect(emittedNames).toEqual(["session.pr.get", "tasks.list"]);
+
+    await server.close();
+  });
+
+  test("env override MINSKY_MCP_TOOL_NAMES=underscore forces aliases for all clients", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "underscore";
+    try {
+      const result = await callToolsListHandler(server, {
+        name: "custom-mcp-client",
+        version: "1",
+      });
+      expect(result.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("env override MINSKY_MCP_TOOL_NAMES=dotted forces canonical for all clients (incl. Claude)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "dotted";
+    try {
+      const result = await callToolsListHandler(server, { name: "claude-ai", version: "1.0" });
+      expect(result.tools.map((t) => t.name)).toEqual(["tasks.list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("PR #1071 R1 BLOCKING #1: canonical-key collision refuses to overwrite (symmetric with alias collision)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register `foo.bar` first — this also creates the alias key `foo_bar`.
+    const first = buildToolDef("foo.bar");
+    server.addTool(first);
+
+    // Now attempt to register a DIFFERENT tool with canonical name `foo_bar`.
+    // The pre-fix code would set tools[foo_bar] = second silently, breaking
+    // any subsequent call by foo_bar (which is also the alias for first).
+    const second = buildToolDef("foo_bar");
+    server.addTool(second);
+
+    // The collision must be refused: the alias key still points to first.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.get("foo_bar")).toBe(first);
+    // And the canonical `foo.bar` key is unchanged.
+    expect(tools.get("foo.bar")).toBe(first);
+
+    await server.close();
+  });
+
+  test("PR #1071 R1 BLOCKING #1: alias-key collision refuses to overwrite", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register `foo_bar` first (canonical, no alias since no dot).
+    const first = buildToolDef("foo_bar");
+    server.addTool(first);
+
+    // Now register `foo.bar` — its alias `foo_bar` collides with first.
+    const second = buildToolDef("foo.bar");
+    server.addTool(second);
+
+    // Refused: `foo_bar` still maps to first; `foo.bar` was NOT registered.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.get("foo_bar")).toBe(first);
+    expect(tools.has("foo.bar")).toBe(false);
+
+    await server.close();
+  });
+
+  test("idempotent re-add of same ToolDefinition is a no-op", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const tool = buildToolDef("tasks.list");
+    server.addTool(tool);
+    server.addTool(tool); // same object — should be allowed
+    server.addTool(tool);
+
+    // Both keys still point to the SAME tool; map size unchanged.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.get("tasks.list")).toBe(tool);
+    expect(tools.get("tasks_list")).toBe(tool);
+    expect(tools.size).toBe(2);
+
+    await server.close();
+  });
+});

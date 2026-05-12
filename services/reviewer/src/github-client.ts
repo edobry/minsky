@@ -276,13 +276,23 @@ export async function submitReview(
           )
         : undefined;
 
+    // mt#1782: the inline-comments union ({reply variant} | {inline variant})
+    // doesn't structurally match Octokit's `createReview` `comments` parameter
+    // shape because Octokit's typed signature for `createReview` does not include
+    // `in_reply_to` (which is technically a `createReviewComment` parameter).
+    // mt#1345's use of `in_reply_to` against `createReview` is intentional — GitHub
+    // accepts it at the REST surface — but TS can't reconcile the union with
+    // Octokit's stricter type. Cast at the call site to satisfy the typechecker
+    // without changing behavior. See mt#1782 spec for follow-up tracking on the
+    // wider mt#1345 reply-routing question.
+    type CreateReviewParams = NonNullable<Parameters<typeof octokit.rest.pulls.createReview>[0]>;
     return octokit.rest.pulls.createReview({
       owner,
       repo,
       pull_number: prNumber,
       event,
       body,
-      ...(comments !== undefined ? { comments } : {}),
+      ...(comments !== undefined ? { comments: comments as CreateReviewParams["comments"] } : {}),
       request: { signal },
     });
   });
