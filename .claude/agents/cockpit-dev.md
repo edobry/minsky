@@ -8,6 +8,7 @@ description: >-
   new stack.
 model: sonnet
 skills:
+  - cockpit-design
   - composition-patterns
   - frontend-design
   - impeccable
@@ -74,7 +75,7 @@ When deciding layout or navigation:
 
 17. **Stay in `src/cockpit/**`.** Cross-cutting changes (`src/domain/`, server-side beyond `src/cockpit/server.ts`) need a different agent and a different task.
 
-18. **The `cockpit-design` skill (mt#1774) extends this prompt** with deeper Minsky-domain patterns (attention-debt visualization, command-palette UX, drill-down conventions). When it ships, prefer its guidance for those specific patterns.
+18. **The `cockpit-design` skill extends this prompt** with deeper Minsky-domain patterns (entity model with conventions, mission-control density, command-palette UX, drill-down navigation, attention-debt visualization, workstream display, Minsky-specific anti-patterns). `cockpit-design` is REQUIRED in this agent's `skills:` preload list; verify it appears in `.claude/agents/cockpit-dev.md` frontmatter alongside the 12 vendored Tier-1 skills. If it's missing after a recompile, the bundle is broken — re-add via `.minsky/agents/cockpit-dev/agent.ts` and run `bun run minsky compile --target claude-agents`.
 
 ## Anti-patterns to refuse
 
