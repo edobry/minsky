@@ -141,17 +141,36 @@ interface BundleBootCheckRun {
   status?: unknown;
   conclusion?: unknown;
   html_url?: unknown;
+  started_at?: unknown;
+  completed_at?: unknown;
+}
+
+// Defensive name match (PR #1083 R1 NON-BLOCKING #3): GitHub's API typically
+// returns `name` as the bare job name, but matrix jobs and certain
+// workflow-name compositions can produce "<workflow-name> / <job-name>".
+// Accept both shapes so future GitHub UX/API drift doesn't false-deny merges
+// for a workflow that actually fired and passed.
+function matchesBundleBootSmokeName(name: string): boolean {
+  return (
+    name === BUNDLE_BOOT_SMOKE_CHECK_NAME || name.endsWith(`/ ${BUNDLE_BOOT_SMOKE_CHECK_NAME}`)
+  );
 }
 
 export interface BundleBootSmokeParseSuccess {
   ok: true;
-  // Filtered to runs whose name === BUNDLE_BOOT_SMOKE_CHECK_NAME (defensive
-  // even though the gh api call already passes ?check_name=...).
+  // Filtered to runs whose name matches BUNDLE_BOOT_SMOKE_CHECK_NAME (exactly
+  // OR by `endsWith("/" + name)` to handle GitHub's "<workflow> / <job>"
+  // naming variants). Sorted **latest-first** by completedAt (or startedAt
+  // when not yet completed). PR #1083 R1 BLOCKING — recency matters: a later
+  // failed re-run must override an earlier successful one. The eval function
+  // below relies on `runs[0]` being the most-recent run.
   runs: Array<{
     name: string;
     status: string;
     conclusion: string | null;
     htmlUrl: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
   }>;
 }
 export type BundleBootSmokeParseResult = BundleBootSmokeParseSuccess | CheckRunsParseFailure;
@@ -203,13 +222,26 @@ export function parseBundleBootSmokeResponse(result: {
     return { ok: false, error: "gh api response missing check_runs[]" };
   }
   const runs = (obj.check_runs as BundleBootCheckRun[])
-    .filter((r) => typeof r?.name === "string" && r.name === BUNDLE_BOOT_SMOKE_CHECK_NAME)
+    .filter((r) => typeof r?.name === "string" && matchesBundleBootSmokeName(r.name))
     .map((r) => ({
       name: r.name as string,
       status: typeof r.status === "string" ? r.status : "unknown",
       conclusion: typeof r.conclusion === "string" ? r.conclusion : null,
       htmlUrl: typeof r.html_url === "string" ? r.html_url : null,
-    }));
+      startedAt: typeof r.started_at === "string" ? r.started_at : null,
+      completedAt: typeof r.completed_at === "string" ? r.completed_at : null,
+    }))
+    // Sort latest-first by completedAt (preferred — tells us which run is
+    // the most recent terminal verdict) with startedAt as a fallback for
+    // runs that haven't yet completed. PR #1083 R1 BLOCKING — without this
+    // the eval would treat `runs[0]` as the API's order, which is not a
+    // documented sort guarantee for the check_name-filtered endpoint.
+    .sort((a, b) => {
+      const aKey = a.completedAt ?? a.startedAt ?? "";
+      const bKey = b.completedAt ?? b.startedAt ?? "";
+      if (aKey === bKey) return 0;
+      return aKey < bKey ? 1 : -1;
+    });
   return { ok: true, runs };
 }
 
@@ -221,12 +253,16 @@ export function parseBundleBootSmokeResponse(result: {
 //   2. No matching check_run — the workflow never fired (most likely
 //      cause: PR predates the workflow being added, or webhook miss
 //      analogous to mt#1309).
-//   3. Still in progress — completed === false. Wait for the run.
-//   4. Completed but conclusion !== "success" — the bundle didn't boot
-//      cleanly. The PR is shipping a deploy-time regression and must be
-//      fixed before merge.
+//   3. Latest run still in progress / queued — wait for completion.
+//   4. Latest run completed but conclusion !== "success" — the bundle
+//      didn't boot cleanly. Even if an earlier run succeeded, a later
+//      re-run failure overrides — the gate must reflect current state.
 //
-// Pass: at least one run with conclusion === "success".
+// Pass: the LATEST run (sorted by completedAt then startedAt descending in
+// `parseBundleBootSmokeResponse`) has conclusion === "success". This is the
+// PR #1083 R1 BLOCKING fix — the prior `find(success)` semantics treated
+// the presence of any historical success as sufficient, ignoring later
+// re-run failures and rendering the gate unsafe.
 export function evaluateBundleBootSmokePresence(
   parseResult: BundleBootSmokeParseResult,
   prNumber: string,
@@ -253,27 +289,11 @@ export function evaluateBundleBootSmokePresence(
         `Override after confirming local bundle-boot succeeds: set ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=1.`,
     };
   }
-  const successful = parseResult.runs.find((r) => r.conclusion === "success");
-  if (successful) {
-    return { deny: false };
-  }
-  // At least one run exists but none succeeded. Discriminate "still running"
-  // from "completed but failed."
-  const stillRunning = parseResult.runs.find((r) => r.status !== "completed");
-  if (stillRunning) {
-    return {
-      deny: true,
-      reason:
-        `bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)} is still ${stillRunning.status} (mt#1787). ` +
-        `Wait for the run to complete before merging.`,
-    };
-  }
-  // All runs are completed and none succeeded — the bundle didn't boot.
-  // Defensive: parseResult.runs is non-empty here (length === 0 returned earlier),
-  // but use safe destructuring instead of `!` to satisfy lint:strict.
-  const [failed] = parseResult.runs;
-  if (!failed) {
-    // Unreachable in practice — would mean an empty array passed the length check above.
+  // Latest-first sort happens in the parser; runs[0] is the most recent.
+  // Defensive destructuring for lint:strict (length check above guarantees
+  // non-empty, but `!` is forbidden).
+  const [latest] = parseResult.runs;
+  if (!latest) {
     return {
       deny: true,
       reason:
@@ -281,11 +301,24 @@ export function evaluateBundleBootSmokePresence(
         `is internally inconsistent (mt#1787). Investigate gh api output and the parser.`,
     };
   }
-  const urlSuffix = failed.htmlUrl ? ` See: ${failed.htmlUrl}` : "";
+  if (latest.conclusion === "success") {
+    return { deny: false };
+  }
+  // Latest run did not succeed. Discriminate "still running" from "completed but failed."
+  if (latest.status !== "completed") {
+    return {
+      deny: true,
+      reason:
+        `bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)} is still ${latest.status} (mt#1787). ` +
+        `Wait for the latest run to complete before merging.`,
+    };
+  }
+  // Latest is completed and conclusion is not success — fail.
+  const urlSuffix = latest.htmlUrl ? ` See: ${latest.htmlUrl}` : "";
   return {
     deny: true,
     reason:
-      `bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)} concluded ${failed.conclusion ?? "(no conclusion)"} (mt#1787). ` +
+      `Latest bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)} concluded ${latest.conclusion ?? "(no conclusion)"} (mt#1787). ` +
       `The deployed bundle did not boot cleanly — fix before merging.${urlSuffix} ` +
       `Override after manual verification: set ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=1.`,
   };

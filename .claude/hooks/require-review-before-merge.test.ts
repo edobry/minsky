@@ -267,6 +267,112 @@ describe("parseBundleBootSmokeResponse (mt#1787)", () => {
     }
   });
 
+  it("matches the workflow-prefixed name shape `<workflow> / bundle-boot-smoke` (PR #1083 NON-BLOCKING)", () => {
+    const body = JSON.stringify({
+      check_runs: [
+        {
+          name: `Bundle Boot Smoke / ${BUNDLE_BOOT_SMOKE_CHECK_NAME}`,
+          status: "completed",
+          conclusion: "success",
+        },
+      ],
+    });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.runs).toHaveLength(1);
+      expect(result.runs[0]?.conclusion).toBe("success");
+    }
+  });
+
+  it("does NOT match check_runs whose name only contains the bare token (defensive cap)", () => {
+    const body = JSON.stringify({
+      check_runs: [
+        { name: "not-bundle-boot-smoke", status: "completed", conclusion: "success" },
+        { name: "bundle-boot-smoke-extra", status: "completed", conclusion: "success" },
+      ],
+    });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.runs).toEqual([]);
+    }
+  });
+
+  it("captures startedAt and completedAt timestamps from the API response", () => {
+    const body = checkRun({
+      started_at: "2026-05-12T20:59:08Z",
+      completed_at: "2026-05-12T20:59:40Z",
+    });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.runs[0]?.startedAt).toBe("2026-05-12T20:59:08Z");
+      expect(result.runs[0]?.completedAt).toBe("2026-05-12T20:59:40Z");
+    }
+  });
+
+  it("sorts runs latest-first by completedAt descending (PR #1083 BLOCKING)", () => {
+    const body = JSON.stringify({
+      check_runs: [
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "completed",
+          conclusion: "success",
+          completed_at: "2026-05-12T10:00:00Z",
+        },
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "completed",
+          conclusion: "failure",
+          completed_at: "2026-05-12T11:00:00Z",
+        },
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "completed",
+          conclusion: "success",
+          completed_at: "2026-05-12T09:00:00Z",
+        },
+      ],
+    });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.runs).toHaveLength(3);
+      expect(result.runs.map((r) => r.completedAt)).toEqual([
+        "2026-05-12T11:00:00Z",
+        "2026-05-12T10:00:00Z",
+        "2026-05-12T09:00:00Z",
+      ]);
+    }
+  });
+
+  it("falls back to startedAt when completedAt is missing (in_progress runs)", () => {
+    const body = JSON.stringify({
+      check_runs: [
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "completed",
+          conclusion: "success",
+          completed_at: "2026-05-12T10:00:00Z",
+        },
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "in_progress",
+          conclusion: null,
+          started_at: "2026-05-12T11:00:00Z",
+        },
+      ],
+    });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // in_progress run sorted first because its startedAt > completed run's completedAt
+      expect(result.runs[0]?.status).toBe("in_progress");
+      expect(result.runs[1]?.conclusion).toBe("success");
+    }
+  });
+
   it("returns empty runs array when API has no matching check_runs", () => {
     const result = parseBundleBootSmokeResponse(ok('{"check_runs":[]}'));
     expect(result.ok).toBe(true);
@@ -340,12 +446,16 @@ describe("parseBundleBootSmokeResponse (mt#1787)", () => {
 describe("evaluateBundleBootSmokePresence (mt#1787)", () => {
   const pr = "1234";
   const headSha = "abcdef0123456789abcdef0123456789abcdef01";
+  // Helper builds a parse result where runs are already sorted latest-first
+  // (the parser does this; eval relies on `runs[0]` being most recent).
   const okWith = (
     runs: Array<{
       name?: string;
       status?: string;
       conclusion?: string | null;
       htmlUrl?: string | null;
+      startedAt?: string | null;
+      completedAt?: string | null;
     }>
   ) => ({
     ok: true as const,
@@ -354,11 +464,13 @@ describe("evaluateBundleBootSmokePresence (mt#1787)", () => {
       status: r.status ?? "completed",
       conclusion: r.conclusion ?? null,
       htmlUrl: r.htmlUrl ?? null,
+      startedAt: r.startedAt ?? null,
+      completedAt: r.completedAt ?? null,
     })),
   });
   const failWith = (error: string) => ({ ok: false as const, error });
 
-  it("allows merge when at least one run concluded success", () => {
+  it("allows merge when the only run concluded success", () => {
     const result = evaluateBundleBootSmokePresence(
       okWith([{ status: "completed", conclusion: "success" }]),
       pr,
@@ -368,16 +480,45 @@ describe("evaluateBundleBootSmokePresence (mt#1787)", () => {
     expect(result.reason).toBeUndefined();
   });
 
-  it("allows merge when one of multiple runs succeeded (latest re-run wins)", () => {
+  it("allows merge when latest succeeded over an earlier failure (latest-wins, success direction)", () => {
     const result = evaluateBundleBootSmokePresence(
       okWith([
-        { status: "completed", conclusion: "failure" },
-        { status: "completed", conclusion: "success" },
+        { status: "completed", conclusion: "success" }, // latest (runs[0])
+        { status: "completed", conclusion: "failure" }, // earlier
       ]),
       pr,
       headSha
     );
     expect(result.deny).toBe(false);
+  });
+
+  it("DENIES when latest is failure even if an earlier run succeeded (PR #1083 R1 BLOCKING — recency)", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([
+        { status: "completed", conclusion: "failure" }, // latest re-run
+        { status: "completed", conclusion: "success" }, // earlier
+      ]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("Latest");
+    expect(result.reason).toContain("failure");
+    expect(result.reason).toContain("did not boot cleanly");
+  });
+
+  it("DENIES when latest is in_progress even if an earlier run succeeded (PR #1083 R1 BLOCKING — recency)", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([
+        { status: "in_progress", conclusion: null }, // latest re-run, still running
+        { status: "completed", conclusion: "success" }, // earlier
+      ]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("in_progress");
+    expect(result.reason).toContain("Wait for the latest run");
   });
 
   it("denies when no matching check_run exists (workflow didn't fire)", () => {

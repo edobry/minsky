@@ -59,6 +59,8 @@ jobs:
 
       - name: Boot bundled binary and probe /health
         run: |
+          set -euo pipefail
+
           # Random ephemeral port to avoid collisions with other jobs.
           PORT=$(( 30000 + RANDOM % 20000 ))
           echo "Boot port: $PORT"
@@ -66,10 +68,33 @@ jobs:
           # Bind to 127.0.0.1 (not localhost) so curl-via-IPv4 hits the
           # listener — Bun/Node's "localhost" default may resolve to ::1
           # which curl probes IPv4 first.
-          bun dist/minsky.js mcp start --http --host=127.0.0.1 --port=$PORT \
+          # Start the server in a NEW process group (`setsid`) so we can
+          # signal the entire group on cleanup — covers any child the
+          # server might fork that holds the port open. PR #1083 R1 BLOCKING:
+          # plain `kill` against a PID can leak children and leave the
+          # listener up across job retries within the same runner.
+          setsid bun dist/minsky.js mcp start --http --host=127.0.0.1 --port=$PORT \
             > /tmp/bundle-boot.log 2>&1 &
           BOOT_PID=$!
           echo "Boot PID: $BOOT_PID"
+
+          # Cleanup: TERM the process group, wait briefly, KILL if still
+          # alive. `wait` reaps the PID without re-raising the signal.
+          cleanup() {
+            local exit_code=$?
+            # `-PID` addresses the process group; `2>/dev/null || true`
+            # tolerates the case where the process already exited.
+            kill -TERM "-$BOOT_PID" 2>/dev/null || true
+            # Give the server up to 2s to flush logs and exit cleanly.
+            for _ in 1 2 3 4; do
+              if ! kill -0 "$BOOT_PID" 2>/dev/null; then break; fi
+              sleep 0.5
+            done
+            kill -KILL "-$BOOT_PID" 2>/dev/null || true
+            wait "$BOOT_PID" 2>/dev/null || true
+            return $exit_code
+          }
+          trap cleanup EXIT
 
           # Poll /health for up to 30s.
           DEADLINE=$(( $(date +%s) + 30 ))
@@ -78,7 +103,8 @@ jobs:
               echo "/health responded within deadline:"
               cat /tmp/health.json
               echo
-              kill "$BOOT_PID" 2>/dev/null || true
+              # `trap cleanup EXIT` handles teardown; exit cleanly so the
+              # signal escalation runs even on the happy path.
               exit 0
             fi
             sleep 0.5
@@ -87,5 +113,4 @@ jobs:
           echo "/health did not respond 200 within 30s"
           echo "--- boot log tail ---"
           tail -50 /tmp/bundle-boot.log || true
-          kill "$BOOT_PID" 2>/dev/null || true
           exit 1
