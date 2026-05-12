@@ -258,6 +258,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
         codeChallengeMethod: payload.codeChallengeMethod as string | undefined,
         expiresAt,
         consumedAt: null,
+        payload: payload as Record<string, unknown>,
       })
       .onConflictDoUpdate({
         target: oauthAuthorizationCodesTable.codeHash,
@@ -270,6 +271,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
           codeChallenge: payload.codeChallenge as string | undefined,
           codeChallengeMethod: payload.codeChallengeMethod as string | undefined,
           expiresAt,
+          payload: payload as Record<string, unknown>,
         },
       });
   }
@@ -288,18 +290,14 @@ class AuthorizationCodeAdapter implements OidcAdapter {
     const now = new Date();
     if (row.expiresAt < now) return undefined;
 
-    const scopes = JSON.parse(row.scopes) as string[];
-
-    return {
-      clientId: row.clientId,
-      accountId: row.sub,
-      redirectUri: row.redirectUri,
-      scope: scopes.join(" "),
-      resource: row.audience ?? undefined,
-      codeChallenge: row.codeChallenge ?? undefined,
-      codeChallengeMethod: row.codeChallengeMethod ?? undefined,
-      consumed: row.consumedAt ? Math.floor(row.consumedAt.getTime() / 1000) : undefined,
-    };
+    // Return the full stored payload as-is (JSONB round-trip — mt#1762).
+    // The consumed field is derived from the typed column so it stays current
+    // even after a `consume()` call updates consumedAt without re-upsert.
+    const result = row.payload as OidcAdapterPayload;
+    if (row.consumedAt) {
+      return { ...result, consumed: Math.floor(row.consumedAt.getTime() / 1000) };
+    }
+    return result;
   }
 
   async findByUserCode(): Promise<undefined> {
@@ -356,6 +354,7 @@ class AccessTokenAdapter implements OidcAdapter {
         audience: audience ?? null,
         expiresAt,
         revokedAt: null,
+        payload: payload as Record<string, unknown>,
       })
       .onConflictDoUpdate({
         target: oauthAccessTokensTable.tokenHash,
@@ -366,6 +365,7 @@ class AccessTokenAdapter implements OidcAdapter {
           audience: audience ?? null,
           expiresAt,
           revokedAt: null,
+          payload: payload as Record<string, unknown>,
         },
       });
   }
@@ -385,14 +385,8 @@ class AccessTokenAdapter implements OidcAdapter {
     if (row.expiresAt < now) return undefined;
     if (row.revokedAt !== null) return undefined;
 
-    const scopes = JSON.parse(row.scopes) as string[];
-
-    return {
-      clientId: row.clientId,
-      accountId: row.sub,
-      scope: scopes.join(" "),
-      resource: row.audience ?? undefined,
-    };
+    // Return the full stored payload as-is (JSONB round-trip — mt#1762).
+    return row.payload as OidcAdapterPayload;
   }
 
   async findByUserCode(): Promise<undefined> {
@@ -447,6 +441,7 @@ class RefreshTokenAdapter implements OidcAdapter {
         expiresAt,
         revokedAt: null,
         replacedByHash: null,
+        payload: payload as Record<string, unknown>,
       })
       .onConflictDoUpdate({
         target: oauthRefreshTokensTable.tokenHash,
@@ -456,6 +451,7 @@ class RefreshTokenAdapter implements OidcAdapter {
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
           expiresAt,
+          payload: payload as Record<string, unknown>,
         },
       });
   }
@@ -474,22 +470,15 @@ class RefreshTokenAdapter implements OidcAdapter {
     const now = new Date();
     if (row.expiresAt < now) return undefined;
     if (row.revokedAt !== null) return undefined;
+
+    // Return the full stored payload as-is (JSONB round-trip — mt#1762).
+    const result = row.payload as OidcAdapterPayload;
     if (row.replacedByHash !== null) {
       // Token was already rotated -- mark as consumed so oidc-provider rejects re-use
-      return { ...this.rowToPayload(row), consumed: Math.floor(Date.now() / 1000) };
+      return { ...result, consumed: Math.floor(Date.now() / 1000) };
     }
 
-    return this.rowToPayload(row);
-  }
-
-  private rowToPayload(row: typeof oauthRefreshTokensTable.$inferSelect): OidcAdapterPayload {
-    const scopes = JSON.parse(row.scopes) as string[];
-    return {
-      clientId: row.clientId,
-      accountId: row.sub,
-      scope: scopes.join(" "),
-      resource: row.audience ?? undefined,
-    };
+    return result;
   }
 
   async findByUserCode(): Promise<undefined> {
