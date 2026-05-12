@@ -175,6 +175,17 @@ export class MinskyMCPServer {
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  /**
+   * mt#1751: DI initialization promise. When set via `setInitPromise`, every
+   * CallTool dispatch awaits this promise before invoking the tool handler.
+   * The MCP `initialize` handshake and `tools/list` do NOT await it (they
+   * don't need persistence) — only tool execution does. This lets the server
+   * accept the initialize handshake while DI runs in the background.
+   *
+   * Null in HTTP mode (init runs synchronously via preAction) and in tests
+   * that pre-populate the container.
+   */
+  private initPromise: Promise<void> | null = null;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -764,6 +775,15 @@ export class MinskyMCPServer {
           // Read-only tools (mutating === false or unset) are allowed through.
           this.checkDriftGate(tool);
 
+          // mt#1751: await DI initialization before dispatching to the tool
+          // handler. The MCP `initialize` handshake completes before DI runs
+          // in stdio mode (so the server appears connected fast); the first
+          // tool call pays the cost. After the first await resolves, the
+          // promise is settled and subsequent awaits are O(1).
+          if (this.initPromise) {
+            await this.initPromise;
+          }
+
           const result = await tool.handler(request.params.arguments || {});
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
@@ -971,6 +991,25 @@ export class MinskyMCPServer {
   setWakeService(service: WakeServiceSurface, sessionResolver: WakeSessionResolver): void {
     this.wakeService = service;
     this.wakeSessionResolver = sessionResolver;
+  }
+
+  /**
+   * mt#1751: Set the DI initialization promise.
+   *
+   * When set, every CallTool dispatch awaits this promise before invoking the
+   * tool handler. The MCP `initialize` handshake and `tools/list` do NOT await
+   * it (they don't need persistence), so the server can become responsive
+   * immediately while DI runs in the background.
+   *
+   * The promise must complete in finite time and must not be cancellable —
+   * tool handlers depend on the container being fully resolved. If init
+   * fails, the rejection propagates to the first tool call.
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitPromise(p: Promise<void>): void {
+    this.initPromise = p;
   }
 
   /**

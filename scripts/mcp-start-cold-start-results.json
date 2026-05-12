@@ -1,398 +1,399 @@
 {
-  "timestamp": "2026-05-11T22:14:50.981Z",
+  "timestamp": "2026-05-12T04:09:51.957Z",
   "iterations": 10,
   "timeoutMs": 15000,
-  "speedupInitialize": 1.0422536189310256,
-  "speedupToolsList": 1.04234921236481,
+  "speedupInitialize": 1.0129125601444366,
+  "speedupToolsList": 1.0050248032508955,
   "source": {
     "label": "source",
-    "entry": "/Users/edobry/.local/state/minsky/sessions/501f6b8e-b227-497e-ad78-6755f7ee51fc/src/cli.ts",
+    "entry": "/Users/edobry/.local/state/minsky/sessions/9cddc962-d896-4c2c-a11a-dbec42fe74e1/src/cli.ts",
     "iterations": 10,
     "initializeWallClock": {
       "count": 10,
-      "median": 1581.1431664999998,
-      "p95": 1834.0457080000006,
-      "min": 1561.1212909999995,
-      "max": 1834.0457080000006,
+      "median": 406.23024950000024,
+      "p95": 421.02220799999986,
+      "min": 399.5589160000004,
+      "max": 421.02220799999986,
       "raw": [
-        1578.2607080000002, 1579.5753330000002, 1834.0457080000006, 1584.8229589999992, 1572.20975,
-        1590.189542, 1569.33475, 1582.7109999999993, 1816.3752920000006, 1561.1212909999995
+        403.20975, 412.9476669999999, 407.50341600000024, 400.2674579999998, 399.5589160000004,
+        421.02220799999986, 401.2061670000003, 409.23141699999996, 404.95708300000024,
+        416.6293340000002
       ]
     },
     "toolsListWallClock": {
       "count": 10,
-      "median": 1582.769646,
-      "p95": 1835.5525830000006,
-      "min": 1562.7399159999986,
-      "max": 1835.5525830000006,
+      "median": 409.52604099999996,
+      "p95": 424.40804100000014,
+      "min": 403.25179100000014,
+      "max": 424.40804100000014,
       "raw": [
-        1580.016416, 1581.1817919999999, 1835.5525830000006, 1586.3050839999996, 1573.8329169999997,
-        1591.639541999999, 1571.2958339999986, 1584.3575, 1818.0855420000007, 1562.7399159999986
+        406.640583, 416.40274999999997, 410.65066600000023, 403.64045799999985, 403.25179100000014,
+        424.40804100000014, 404.37125000000015, 412.502125, 408.4014159999997, 420.2452090000006
       ]
     },
     "checkpoints": [
       {
         "name": "cli_top",
         "count": 10,
-        "median": 10.1,
-        "p95": 11.14,
-        "min": 9.58,
-        "max": 11.14
+        "median": 9.274999999999999,
+        "p95": 9.54,
+        "min": 8.91,
+        "max": 9.54
       },
       {
         "name": "config_setup_complete",
         "count": 10,
-        "median": 46.165,
-        "p95": 47.02,
-        "min": 44.08,
-        "max": 47.02
+        "median": 40.07,
+        "p95": 42.1,
+        "min": 39.06,
+        "max": 42.1
       },
       {
         "name": "cli_imports_complete",
         "count": 10,
-        "median": 46.19,
-        "p95": 47.05,
-        "min": 44.1,
-        "max": 47.05
+        "median": 40.085,
+        "p95": 42.12,
+        "min": 39.08,
+        "max": 42.12
       },
       {
         "name": "before_shared_commands_load",
         "count": 10,
-        "median": 51.93,
-        "p95": 53.28,
-        "min": 50.07,
-        "max": 53.28
+        "median": 45.15,
+        "p95": 46.84,
+        "min": 43.39,
+        "max": 46.84
       },
       {
         "name": "shared_commands_module_loaded",
         "count": 10,
-        "median": 207.37,
-        "p95": 213.26,
-        "min": 198.54,
-        "max": 213.26
+        "median": 183.345,
+        "p95": 189.33,
+        "min": 180.03,
+        "max": 189.33
       },
       {
         "name": "shared_commands_registered",
         "count": 10,
-        "median": 214.96,
-        "p95": 220.46,
-        "min": 205.98,
-        "max": 220.46
+        "median": 189.715,
+        "p95": 195.93,
+        "min": 186.3,
+        "max": 195.93
       },
       {
         "name": "cli_factory_registered",
         "count": 10,
-        "median": 220.76,
-        "p95": 226.07,
-        "min": 212.18,
-        "max": 226.07
+        "median": 194.915,
+        "p95": 201.56,
+        "min": 191.41,
+        "max": 201.56
       },
       {
         "name": "before_mcp_command_load",
         "count": 10,
-        "median": 220.79500000000002,
-        "p95": 226.09,
-        "min": 212.21,
-        "max": 226.09
+        "median": 194.935,
+        "p95": 201.58,
+        "min": 191.43,
+        "max": 201.58
       },
       {
         "name": "mcp_command_module_loaded",
         "count": 10,
-        "median": 330.82,
-        "p95": 337.63,
-        "min": 317.11,
-        "max": 337.63
+        "median": 288.47,
+        "p95": 304.81,
+        "min": 285.05,
+        "max": 304.81
       },
       {
         "name": "mcp_command_added",
         "count": 10,
-        "median": 331.135,
-        "p95": 338.11,
-        "min": 317.46,
-        "max": 338.11
+        "median": 288.78999999999996,
+        "p95": 305.14,
+        "min": 285.37,
+        "max": 305.14
       },
       {
-        "name": "preaction_before_container_init",
+        "name": "preaction_skipped_for_mcp_stdio",
         "count": 10,
-        "median": 331.865,
-        "p95": 338.84,
-        "min": 318.24,
-        "max": 338.84
-      },
-      {
-        "name": "preaction_after_container_init",
-        "count": 10,
-        "median": 1471.385,
-        "p95": 1722.26,
-        "min": 1448.83,
-        "max": 1722.26
+        "median": 289.56,
+        "p95": 305.95,
+        "min": 286.16,
+        "max": 305.95
       },
       {
         "name": "action_entry",
         "count": 10,
-        "median": 1471.865,
-        "p95": 1722.82,
-        "min": 1449.32,
-        "max": 1722.82
+        "median": 290,
+        "p95": 306.4,
+        "min": 286.66,
+        "max": 306.4
       },
       {
         "name": "server_constructed",
         "count": 10,
-        "median": 1488.23,
-        "p95": 1740.05,
-        "min": 1465.35,
-        "max": 1740.05
+        "median": 310.40999999999997,
+        "p95": 322.69,
+        "min": 305.02,
+        "max": 322.69
       },
       {
         "name": "mapper_constructed",
         "count": 10,
-        "median": 1488.275,
-        "p95": 1740.1,
-        "min": 1465.4,
-        "max": 1740.1
+        "median": 310.455,
+        "p95": 322.73,
+        "min": 305.25,
+        "max": 322.73
       },
       {
         "name": "tools_registered",
         "count": 10,
-        "median": 1497.755,
-        "p95": 1749.49,
-        "min": 1475.06,
-        "max": 1749.49
+        "median": 319.205,
+        "p95": 331.11,
+        "min": 316.59,
+        "max": 331.11
+      },
+      {
+        "name": "background_init_kicked_off",
+        "count": 10,
+        "median": 319.36,
+        "p95": 331.24,
+        "min": 316.75,
+        "max": 331.24
       },
       {
         "name": "knowledge_resources_registered",
         "count": 10,
-        "median": 1498.045,
-        "p95": 1749.77,
-        "min": 1475.31,
-        "max": 1749.77
+        "median": 319.535,
+        "p95": 331.38,
+        "min": 316.92,
+        "max": 331.38
       },
       {
         "name": "server_started",
         "count": 10,
-        "median": 1512.315,
-        "p95": 1763.38,
-        "min": 1488.46,
-        "max": 1763.38
+        "median": 331.395,
+        "p95": 342.74,
+        "min": 328.95,
+        "max": 342.74
       }
     ],
     "topStageCosts": [
       {
-        "stage": "preaction_before_container_init → preaction_after_container_init",
-        "medianMs": 1139.52
-      },
-      {
         "stage": "before_shared_commands_load → shared_commands_module_loaded",
-        "medianMs": 155.44
+        "medianMs": 138.195
       },
       {
         "stage": "before_mcp_command_load → mcp_command_module_loaded",
-        "medianMs": 110.02499999999998
+        "medianMs": 93.53500000000003
       },
       {
         "stage": "server_started → initialize_response (SDK handshake)",
-        "medianMs": 68.82816649999972
+        "medianMs": 74.83524950000026
       },
       {
         "stage": "cli_top → config_setup_complete",
-        "medianMs": 36.065
+        "medianMs": 30.795
+      },
+      {
+        "stage": "action_entry → server_constructed",
+        "medianMs": 20.409999999999968
       }
     ]
   },
   "bundle": {
     "label": "bundle",
-    "entry": "/Users/edobry/.local/state/minsky/sessions/501f6b8e-b227-497e-ad78-6755f7ee51fc/dist/minsky.js",
+    "entry": "/Users/edobry/.local/state/minsky/sessions/9cddc962-d896-4c2c-a11a-dbec42fe74e1/dist/minsky.js",
     "iterations": 10,
     "initializeWallClock": {
       "count": 10,
-      "median": 1517.0426255000002,
-      "p95": 1574.3846249999988,
-      "min": 1497.5667089999988,
-      "max": 1574.3846249999988,
+      "median": 401.0516459999999,
+      "p95": 497.5564999999997,
+      "min": 368.9500420000004,
+      "max": 497.5564999999997,
       "raw": [
-        1517.9697090000009, 1548.4010000000017, 1516.1155419999996, 1511.8273750000008,
-        1524.6287919999995, 1547.354625, 1574.3846249999988, 1497.5667089999988, 1510.068207999997,
-        1500.2566249999945
+        376.49666699999943, 497.5564999999997, 416.0914160000011, 400.05962499999987,
+        382.811208000001, 415.4467079999995, 368.9500420000004, 402.0436669999999,
+        407.88491599999907, 388.12787500000013
       ]
     },
     "toolsListWallClock": {
       "count": 10,
-      "median": 1518.4638959999993,
-      "p95": 1575.8777499999997,
-      "min": 1499.0383750000037,
-      "max": 1575.8777499999997,
+      "median": 407.4785415000006,
+      "p95": 500.9175409999998,
+      "min": 372.54233300000124,
+      "max": 500.9175409999998,
       "raw": [
-        1519.447250000001, 1549.943166000001, 1517.4805419999975, 1513.3390830000026,
-        1526.3378329999978, 1548.8801249999997, 1575.8777499999997, 1499.0383750000037,
-        1512.0343749999956, 1501.8756670000002
+        380.0778339999997, 500.9175409999998, 419.549500000001, 403.40754200000083,
+        386.54270800000086, 419.106749999999, 372.54233300000124, 419.88004199999887,
+        411.5495410000003, 391.498458
       ]
     },
     "checkpoints": [
       {
         "name": "cli_top",
         "count": 10,
-        "median": 15.5,
-        "p95": 16.85,
-        "min": 15.06,
-        "max": 16.85
+        "median": 15.879999999999999,
+        "p95": 29.71,
+        "min": 15.03,
+        "max": 29.71
       },
       {
         "name": "config_setup_complete",
         "count": 10,
-        "median": 29.79,
-        "p95": 31.82,
-        "min": 29.3,
-        "max": 31.82
+        "median": 30.935,
+        "p95": 45.09,
+        "min": 28.92,
+        "max": 45.09
       },
       {
         "name": "cli_imports_complete",
         "count": 10,
-        "median": 29.810000000000002,
-        "p95": 31.84,
-        "min": 29.31,
-        "max": 31.84
+        "median": 30.96,
+        "p95": 45.11,
+        "min": 28.93,
+        "max": 45.11
       },
       {
         "name": "before_shared_commands_load",
         "count": 10,
-        "median": 30.83,
-        "p95": 32.93,
-        "min": 30.38,
-        "max": 32.93
+        "median": 32.105000000000004,
+        "p95": 46.21,
+        "min": 29.9,
+        "max": 46.21
       },
       {
         "name": "shared_commands_module_loaded",
         "count": 10,
-        "median": 74.66,
-        "p95": 77.15,
-        "min": 70.97,
-        "max": 77.15
+        "median": 74.71000000000001,
+        "p95": 90.21,
+        "min": 70.47,
+        "max": 90.21
       },
       {
         "name": "shared_commands_registered",
         "count": 10,
-        "median": 79.92,
-        "p95": 82.35,
-        "min": 75.79,
-        "max": 82.35
+        "median": 79.57,
+        "p95": 95.39,
+        "min": 75.4,
+        "max": 95.39
       },
       {
         "name": "cli_factory_registered",
         "count": 10,
-        "median": 84.485,
-        "p95": 87.09,
-        "min": 80.54,
-        "max": 87.09
+        "median": 84.63499999999999,
+        "p95": 100.23,
+        "min": 79.78,
+        "max": 100.23
       },
       {
         "name": "before_mcp_command_load",
         "count": 10,
-        "median": 84.495,
-        "p95": 87.11,
-        "min": 80.55,
-        "max": 87.11
+        "median": 84.655,
+        "p95": 100.24,
+        "min": 79.8,
+        "max": 100.24
       },
       {
         "name": "mcp_command_module_loaded",
         "count": 10,
-        "median": 119.315,
-        "p95": 122.84,
-        "min": 117.02,
-        "max": 122.84
+        "median": 120.58,
+        "p95": 137.14,
+        "min": 113.72,
+        "max": 137.14
       },
       {
         "name": "mcp_command_added",
         "count": 10,
-        "median": 119.78,
-        "p95": 123.34,
-        "min": 117.58,
-        "max": 123.34
+        "median": 121.14,
+        "p95": 137.7,
+        "min": 114.17,
+        "max": 137.7
       },
       {
-        "name": "preaction_before_container_init",
+        "name": "preaction_skipped_for_mcp_stdio",
         "count": 10,
-        "median": 120.52000000000001,
-        "p95": 124.16,
-        "min": 118.44,
-        "max": 124.16
-      },
-      {
-        "name": "preaction_after_container_init",
-        "count": 10,
-        "median": 1254.2150000000001,
-        "p95": 1313.04,
-        "min": 1237.98,
-        "max": 1313.04
+        "median": 122.07,
+        "p95": 138.6,
+        "min": 115.03,
+        "max": 138.6
       },
       {
         "name": "action_entry",
         "count": 10,
-        "median": 1254.705,
-        "p95": 1313.6,
-        "min": 1238.45,
-        "max": 1313.6
+        "median": 122.555,
+        "p95": 139.11,
+        "min": 115.5,
+        "max": 139.11
       },
       {
         "name": "server_constructed",
         "count": 10,
-        "median": 1271.805,
-        "p95": 1333.45,
-        "min": 1254.39,
-        "max": 1333.45
+        "median": 142.87,
+        "p95": 184,
+        "min": 132.54,
+        "max": 184
       },
       {
         "name": "mapper_constructed",
         "count": 10,
-        "median": 1271.85,
-        "p95": 1333.5,
-        "min": 1254.43,
-        "max": 1333.5
+        "median": 142.905,
+        "p95": 184.04,
+        "min": 132.58,
+        "max": 184.04
       },
       {
         "name": "tools_registered",
         "count": 10,
-        "median": 1281.12,
-        "p95": 1343.64,
-        "min": 1263.55,
-        "max": 1343.64
+        "median": 152.18,
+        "p95": 192.57,
+        "min": 143.1,
+        "max": 192.57
+      },
+      {
+        "name": "background_init_kicked_off",
+        "count": 10,
+        "median": 152.31,
+        "p95": 192.69,
+        "min": 143.26,
+        "max": 192.69
       },
       {
         "name": "knowledge_resources_registered",
         "count": 10,
-        "median": 1281.4250000000002,
-        "p95": 1343.89,
-        "min": 1263.8,
-        "max": 1343.89
+        "median": 152.505,
+        "p95": 192.89,
+        "min": 143.46,
+        "max": 192.89
       },
       {
         "name": "server_started",
         "count": 10,
-        "median": 1294.69,
-        "p95": 1357.02,
-        "min": 1275.7,
-        "max": 1357.02
+        "median": 166.39,
+        "p95": 248.21,
+        "min": 158.1,
+        "max": 248.21
       }
     ],
     "topStageCosts": [
       {
-        "stage": "preaction_before_container_init → preaction_after_container_init",
-        "medianMs": 1133.6950000000002
-      },
-      {
         "stage": "server_started → initialize_response (SDK handshake)",
-        "medianMs": 222.35262550000016
+        "medianMs": 234.6616459999999
       },
       {
         "stage": "before_shared_commands_load → shared_commands_module_loaded",
-        "medianMs": 43.83
+        "medianMs": 42.605000000000004
       },
       {
         "stage": "before_mcp_command_load → mcp_command_module_loaded",
-        "medianMs": 34.81999999999999
+        "medianMs": 35.925
       },
       {
         "stage": "action_entry → server_constructed",
-        "medianMs": 17.100000000000136
+        "medianMs": 20.314999999999998
+      },
+      {
+        "stage": "spawn → cli_top (bun startup + reflect-metadata)",
+        "medianMs": 15.879999999999999
       }
     ]
   }

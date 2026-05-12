@@ -141,17 +141,20 @@ async function registerAllTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
 ): Promise<void> {
-  // Ensure the container is initialized before registering tools.
-  // MCP tool invocations bypass Commander's preAction hook, so initialization
-  // must happen here — making it impossible to register tools without persistence.
-  if (container && !container.has("persistence")) {
-    await container.initialize();
-    profileCheckpoint("container_initialized_inline");
-    log.debug("Container initialized for MCP server");
-  }
+  // mt#1751: Tool handlers (which need persistence) await the server's
+  // `initPromise` before dispatching, so the container is NOT eagerly
+  // initialized here. For stdio mode, the caller in `createStartCommand`
+  // kicks off `container.initialize()` in the background and wires it via
+  // `server.setInitPromise()`. For HTTP mode, `src/cli.ts`'s preAction has
+  // already run init synchronously before this function is called.
+  //
+  // Pre-mt#1751 a defensive eager `container.initialize()` ran here as a
+  // safety net. That defense is gone: it would defeat the stdio defer.
 
-  // Health check: verify critical dependencies are available after init
-  if (container && !container.has("sessionProvider")) {
+  // Health check (HTTP-mode only — preAction already ran init eagerly).
+  // For stdio mode, sessionProvider becomes available after the background
+  // init resolves, so the check is meaningless until then.
+  if (container && container.has("persistence") && !container.has("sessionProvider")) {
     log.error(
       "MCP startup health check failed: sessionProvider not available after container init. " +
         "Session tools will fail. Check database connectivity."
@@ -863,14 +866,35 @@ export function createStartCommand(
         const server = new MinskyMCPServer(serverConfig);
         profileCheckpoint("server_constructed");
 
-        // Register tools via adapter-based approach (initializes container if needed)
+        // Register tools via adapter-based approach. Note: tool DEFINITIONS
+        // register synchronously; HANDLERS (which need persistence) await
+        // the server's init promise before dispatching — see setInitPromise
+        // below and the `await this.initPromise` in server.ts's CallTool
+        // handler. The container is NOT initialized inside registerAllTools.
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         profileCheckpoint("mapper_constructed");
         await registerAllTools(commandMapper, container);
         profileCheckpoint("tools_registered");
 
-        // Wire the container into the server so agentId can be written to session records
-        // (must happen after registerAllTools which triggers container.initialize())
+        // mt#1751: For stdio mode, kick off `container.initialize()` in the
+        // background AFTER tool registration but BEFORE `server.start()`.
+        // The MCP `initialize` JSON-RPC handshake (~17ms post-connect)
+        // doesn't need DI; tool handlers await `initPromise` before running.
+        // This drops perceived cold-start time from ~1500ms to ~400ms on
+        // the source path (mt#1745 measured DI at 72-75% of total). For
+        // HTTP mode, preAction (`src/cli.ts`) has already initialized
+        // synchronously — no defer needed (Profile B is long-lived).
+        if (container && transportType === "stdio" && !container.has("persistence")) {
+          const initPromise = container.initialize().then(() => {
+            profileCheckpoint("background_container_initialized");
+          });
+          server.setInitPromise(initPromise);
+          profileCheckpoint("background_init_kicked_off");
+        }
+
+        // Wire the container into the server so agentId can be written to session records.
+        // Safe to call before background init resolves — setContainer just stores the
+        // reference; consumers that need resolved services await initPromise.
         if (container) {
           server.setContainer(container);
         }
