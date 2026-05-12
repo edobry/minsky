@@ -7,6 +7,8 @@
  * not opinions; rejection authority, not approval bias.
  */
 
+import type { ReviewThread } from "./github-client";
+
 /**
  * Build the Critic Constitution system prompt.
  *
@@ -419,6 +421,13 @@ export interface ReviewPromptInput {
    * between the task spec and the diff. Undefined or empty string → section omitted.
    */
   priorReviews?: string;
+  /**
+   * Active review threads fetched from the GitHub GraphQL API (mt#1345).
+   * When present and non-empty, injected as a "## Active Review Threads" section
+   * so the model can reply to existing threads (via submit_inline_comment with
+   * inReplyTo) instead of opening duplicates. Undefined or empty → section omitted.
+   */
+  reviewThreads?: ReviewThread[];
 }
 
 export function buildReviewPrompt(input: ReviewPromptInput): string {
@@ -437,6 +446,11 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
   const priorReviewsSection =
     input.priorReviews && input.priorReviews.trim() ? `\n\n${input.priorReviews}` : "";
 
+  const reviewThreadsSection =
+    input.reviewThreads && input.reviewThreads.length > 0
+      ? `\n\n${buildReviewThreadsSection(input.reviewThreads)}`
+      : "";
+
   return `# PR Review Request
 
 ## PR Metadata
@@ -450,7 +464,7 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
 
 ${input.prBody || "(empty)"}
 
-${specSection}${outOfRepoBlock}${priorReviewsSection}
+${specSection}${outOfRepoBlock}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff
 
@@ -461,6 +475,55 @@ ${input.diff}
 ---
 
 Review this PR per the Critic Constitution. Remember: you are the adversarial reviewer. You are not verifying correctness; you are looking for what the implementer got wrong. A clean-looking diff is still suspect. Read it as a stranger would.`;
+}
+
+/**
+ * Render the "## Active Review Threads" section for injection into the
+ * reviewer prompt (mt#1345). Shows unresolved threads so the model can
+ * reply to them (via submit_inline_comment inReplyTo) instead of opening
+ * duplicates, and resolve them (via submit_thread_resolve) when fixed.
+ *
+ * Only unresolved, non-outdated threads with at least one comment are included.
+ * The first comment's databaseId is shown so the model can use it as inReplyTo.
+ *
+ * Exported for tests.
+ */
+export function buildReviewThreadsSection(threads: ReviewThread[]): string {
+  // Only surface actionable threads: unresolved and not outdated.
+  const active = threads.filter((t) => !t.isResolved && !t.isOutdated);
+  if (active.length === 0) return "";
+
+  const lines: string[] = [
+    "## Active Review Threads",
+    "",
+    "These threads are open on this PR. For each one:",
+    "- If the underlying concern has been addressed in this PR, call `submit_thread_resolve` with the thread ID and a brief reason.",
+    "- If it still applies, reply with `submit_inline_comment` using `inReplyTo: <first-comment databaseId>` and a brief update.",
+    "- Only resolve threads where the first comment author is `minsky-reviewer[bot]` — never auto-resolve human-opened threads.",
+    "",
+  ];
+
+  for (const thread of active) {
+    const lineRange =
+      thread.startLine !== undefined && thread.startLine !== thread.line
+        ? `${thread.startLine}-${thread.line ?? "?"}`
+        : String(thread.line ?? "?");
+    lines.push(`### Thread \`${thread.id}\``);
+    lines.push(`**File:** ${thread.path}:${lineRange}`);
+    if (thread.truncatedComments) {
+      lines.push(`*Note: thread has more than 10 comments — only the first 10 are shown.*`);
+    }
+    lines.push("");
+
+    for (const comment of thread.comments) {
+      const author = comment.author ?? "(deleted account)";
+      lines.push(`**Comment (databaseId: ${comment.databaseId}) by ${author}:**`);
+      lines.push(comment.body);
+      lines.push("");
+    }
+  }
+
+  return lines.join("\n");
 }
 
 function tierLabel(tier: 1 | 2 | 3): string {

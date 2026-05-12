@@ -215,6 +215,25 @@ export interface SubmittedReview {
   htmlUrl: string;
 }
 
+/**
+ * A single inline comment to submit as part of a review.
+ * When `inReplyTo` is set this comment is a reply to an existing comment;
+ * GitHub anchors it to the parent comment's location (path/line are ignored).
+ */
+export interface ReviewInlineComment {
+  /** File path of the comment anchor (relative to repo root). */
+  path: string;
+  /** Line number in the diff the comment anchors to (1-based). */
+  line: number;
+  /** Comment body text. */
+  body: string;
+  /**
+   * When present, this comment is a reply to the existing review comment with
+   * this database ID. Obtain the ID from `fetchReviewThreads` comments[].databaseId.
+   */
+  inReplyTo?: number;
+}
+
 export async function submitReview(
   octokit: Octokit,
   owner: string,
@@ -224,19 +243,35 @@ export async function submitReview(
   body: string,
   // mt#1086: per-call timeout. Optional + defaulted (see fetchListFiles
   // for rationale).
-  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS,
+  // mt#1345: optional inline comments with optional in_reply_to wiring.
+  inlineComments?: ReviewInlineComment[]
 ): Promise<SubmittedReview> {
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
-  const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) =>
-    octokit.rest.pulls.createReview({
+  const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
+    // Map inlineComments to the Octokit comments[] shape.
+    // When inReplyTo is set, GitHub ignores path/position and anchors the reply
+    // to the parent comment's location.
+    const comments =
+      inlineComments !== undefined && inlineComments.length > 0
+        ? inlineComments.map((c) => ({
+            path: c.path,
+            line: c.line,
+            body: c.body,
+            ...(c.inReplyTo !== undefined ? { in_reply_to: c.inReplyTo } : {}),
+          }))
+        : undefined;
+
+    return octokit.rest.pulls.createReview({
       owner,
       repo,
       pull_number: prNumber,
       event,
       body,
+      ...(comments !== undefined ? { comments } : {}),
       request: { signal },
-    })
-  );
+    });
+  });
 
   return {
     id: response.data.id,

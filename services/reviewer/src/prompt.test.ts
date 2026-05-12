@@ -14,10 +14,12 @@ import { describe, expect, test } from "bun:test";
 import {
   buildCriticConstitution,
   buildReviewPrompt,
+  buildReviewThreadsSection,
   CRITIC_CONSTITUTION,
   extractOutOfRepoReferences,
   type ReviewPromptInput,
 } from "./prompt";
+import type { ReviewThread } from "./github-client";
 
 // Shared string constants used across multiple test assertions.
 // Extracted to prevent the no-magic-string-duplication lint rule from triggering.
@@ -769,5 +771,170 @@ describe("buildCriticConstitution — scope-aware calibration (mt#1188)", () => 
     expect(prompt).toContain(SCOPE_CALIBRATION_HEADING);
     expect(prompt).toContain(NO_TOOLS_SECTION_HEADING);
     expect(prompt).not.toContain("## Tool access");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildReviewThreadsSection (mt#1345)
+// ---------------------------------------------------------------------------
+
+// Reviewer bot login constant — prevents magic-string-duplication lint warnings.
+const REVIEWER_BOT_LOGIN = "minsky-reviewer[bot]";
+
+function makeReviewThread(overrides: Partial<ReviewThread> = {}): ReviewThread {
+  return {
+    id: "PRRT_kwDOX1",
+    path: "src/foo.ts",
+    line: 42,
+    isResolved: false,
+    isOutdated: false,
+    isCollapsed: false,
+    truncatedComments: false,
+    comments: [
+      {
+        databaseId: 100001,
+        author: REVIEWER_BOT_LOGIN,
+        body: "This null check is missing.",
+        createdAt: "2026-05-01T00:00:00Z",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+describe("buildReviewThreadsSection (mt#1345)", () => {
+  const THREADS_HEADING = "## Active Review Threads";
+
+  test("returns empty string when threads array is empty", () => {
+    expect(buildReviewThreadsSection([])).toBe("");
+  });
+
+  test("returns empty string when all threads are resolved", () => {
+    const allResolved = [
+      makeReviewThread({ isResolved: true }),
+      makeReviewThread({ id: "T_2", isResolved: true }),
+    ];
+    expect(buildReviewThreadsSection(allResolved)).toBe("");
+  });
+
+  test("returns empty string when all threads are outdated", () => {
+    const allOutdated = [makeReviewThread({ isOutdated: true })];
+    expect(buildReviewThreadsSection(allOutdated)).toBe("");
+  });
+
+  test("renders heading and thread ID for active thread", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain(THREADS_HEADING);
+    expect(section).toContain("PRRT_kwDOX1");
+  });
+
+  test("renders file path with line number", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain("src/foo.ts:42");
+  });
+
+  test("renders file path with range when startLine differs from line", () => {
+    const section = buildReviewThreadsSection([makeReviewThread({ startLine: 10, line: 20 })]);
+    expect(section).toContain("src/foo.ts:10-20");
+  });
+
+  test("renders comment databaseId and author", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain("100001");
+    expect(section).toContain(REVIEWER_BOT_LOGIN);
+  });
+
+  test("renders null author as (deleted account)", () => {
+    const section = buildReviewThreadsSection([
+      makeReviewThread({
+        comments: [
+          {
+            databaseId: 99999,
+            author: null,
+            body: "old comment",
+            createdAt: "2026-05-01T00:00:00Z",
+          },
+        ],
+      }),
+    ]);
+    expect(section).toContain("(deleted account)");
+  });
+
+  test("includes resolve and reply-with-inReplyTo instructions", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain("submit_thread_resolve");
+    expect(section).toContain("submit_inline_comment");
+    expect(section).toContain("inReplyTo");
+  });
+
+  test("human-thread guard instruction present", () => {
+    const section = buildReviewThreadsSection([makeReviewThread()]);
+    expect(section).toContain(REVIEWER_BOT_LOGIN);
+    expect(section).toContain("never auto-resolve human-opened threads");
+  });
+
+  test("shows truncatedComments note when flag is true", () => {
+    const section = buildReviewThreadsSection([makeReviewThread({ truncatedComments: true })]);
+    expect(section).toContain("more than 10 comments");
+  });
+
+  test("does NOT show truncatedComments note when flag is false", () => {
+    const section = buildReviewThreadsSection([makeReviewThread({ truncatedComments: false })]);
+    expect(section).not.toContain("more than 10 comments");
+  });
+
+  test("filters out resolved threads, only renders active ones", () => {
+    const threads = [
+      makeReviewThread({ id: "T_active", isResolved: false }),
+      makeReviewThread({ id: "T_resolved", isResolved: true }),
+    ];
+    const section = buildReviewThreadsSection(threads);
+    expect(section).toContain("T_active");
+    expect(section).not.toContain("T_resolved");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildReviewPrompt — reviewThreads injection (mt#1345)
+// ---------------------------------------------------------------------------
+
+describe("buildReviewPrompt — reviewThreads injection (mt#1345)", () => {
+  const THREADS_HEADING = "## Active Review Threads";
+  const baseInput: ReviewPromptInput = {
+    prNumber: 42,
+    prTitle: "My PR",
+    prBody: "Some description.",
+    taskSpec: null,
+    diff: "diff --git a/foo b/foo",
+    authorshipTier: 3,
+    branchName: "task/mt-1345",
+    baseBranch: "main",
+  };
+
+  test("omits Active Review Threads section when reviewThreads is undefined", () => {
+    const prompt = buildReviewPrompt(baseInput);
+    expect(prompt).not.toContain(THREADS_HEADING);
+  });
+
+  test("omits Active Review Threads section when reviewThreads is empty array", () => {
+    const prompt = buildReviewPrompt({ ...baseInput, reviewThreads: [] });
+    expect(prompt).not.toContain(THREADS_HEADING);
+  });
+
+  test("injects Active Review Threads section when reviewThreads has active threads", () => {
+    const threads = [makeReviewThread()];
+    const prompt = buildReviewPrompt({ ...baseInput, reviewThreads: threads });
+    expect(prompt).toContain(THREADS_HEADING);
+    expect(prompt).toContain("PRRT_kwDOX1");
+    expect(prompt).toContain("src/foo.ts:42");
+  });
+
+  test("Active Review Threads section appears before Diff section", () => {
+    const threads = [makeReviewThread()];
+    const prompt = buildReviewPrompt({ ...baseInput, reviewThreads: threads });
+    const threadsIdx = prompt.indexOf(THREADS_HEADING);
+    const diffIdx = prompt.indexOf("## Diff");
+    expect(threadsIdx).toBeGreaterThan(0);
+    expect(threadsIdx).toBeLessThan(diffIdx);
   });
 });
