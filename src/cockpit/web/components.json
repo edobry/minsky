@@ -1,0 +1,21 @@
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "default",
+  "rsc": false,
+  "tsx": true,
+  "tailwind": {
+    "config": "tailwind.config.ts",
+    "css": "src/cockpit/web/index.css",
+    "baseColor": "slate",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "aliases": {
+    "components": "src/cockpit/web/components",
+    "utils": "src/cockpit/web/lib/utils",
+    "ui": "src/cockpit/web/components/ui",
+    "lib": "src/cockpit/web/lib",
+    "hooks": "src/cockpit/web/hooks"
+  },
+  "iconLibrary": "lucide"
+}
