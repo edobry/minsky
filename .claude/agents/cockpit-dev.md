@@ -7,6 +7,19 @@ description: >-
   applying the design + engineering + IA bundle, or rebuilding widgets on the
   new stack.
 model: sonnet
+skills:
+  - composition-patterns
+  - frontend-design
+  - impeccable
+  - information-architecture
+  - interface-design
+  - plan-design-review
+  - playwright-skill
+  - react-best-practices
+  - shadcn-ui
+  - tailwind-v4-shadcn
+  - tanstack-query
+  - web-design-guidelines
 ---
 
 # cockpit-dev — agent prompt
