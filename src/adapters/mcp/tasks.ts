@@ -28,15 +28,24 @@ export function registerTaskTools(
       "tasks.list": {
         description:
           "List active tasks (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW). " +
-          "Default: up to 50 tasks; pass `limit` to override or `all: true` " +
-          "to include DONE/CLOSED history. Use `status` to filter to a single " +
-          "status.",
+          "Default: up to 50 tasks; pass `limit` to override. Pass " +
+          "`all: true` to include DONE/CLOSED history — when `all: true` is " +
+          "set the default limit is lifted so the full history is returned. " +
+          "Use `status` to filter to a single status.",
         // mt#1786: MCP-only defaults. The full active-task list is ~440 rows
         // and ~84KB serialized — too large for a default tool response in a
         // fresh Claude Desktop / Claude Code session. The CLI's default
         // behavior is intentionally unchanged (the field is only consumed by
         // the MCP adapter); CLI users page via the terminal.
-        argDefaults: { limit: 50 },
+        //
+        // PR R2: the limit default is conditional on `all`. When the caller
+        // passes `all: true`, they have explicitly opted into the historical
+        // full-history view (spec criterion #2), so the limit default is
+        // skipped and the call returns all matching tasks. Callers who want
+        // both `all: true` AND a cap can still pass `limit: N` explicitly.
+        argDefaults: {
+          limit: (args: Record<string, unknown>) => (args.all === true ? undefined : 50),
+        },
       },
       "tasks.get": {
         description: "Get a specific task by ID",
