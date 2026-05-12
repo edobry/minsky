@@ -1,0 +1,196 @@
+---
+name: Subagent dispatch cadence
+description: 'Outcome taxonomy, escalation thresholds, and operator-side SQL inspection patterns for the subagent dispatch tracker (mt#1005 child D / mt#1735-1738).'
+alwaysApply: true
+tags:
+  - minsky
+  - subagent
+  - operations
+---
+# Subagent dispatch cadence and escalation threshold
+
+The Minsky subagent dispatch tracker persists every subagent invocation to the
+`subagent_invocations` Postgres table (schema: mt#1735) and exposes cadence
+aggregates via `mcp__minsky__debug_systemInfo` under `subagentDispatches`.
+Operators read the cadence live from the MCP surface or by querying the table
+directly with the SQL patterns below.
+
+## Outcome taxonomy
+
+Each row in `subagent_invocations` carries an `outcome` column classifying how
+the dispatch ended. Six classes are recognised:
+
+1. **`completed-with-pr`** — The subagent completed its task, committed all
+   changes, and created a pull request. The dispatch landed cleanly. This is
+   the success class.
+
+2. **`committed-no-pr`** — The subagent committed its changes but did not
+   create a PR (e.g., reached the commit step but the context budget was
+   exhausted before `session_pr_create`). Work is recoverable — the session
+   has the committed diff. Escalation is not triggered by this class alone, but
+   a high count indicates PR-creation is being systematically skipped.
+
+3. **`partial-committed-handoff-written`** — The subagent ran out of budget
+   mid-task, committed whatever it had, and wrote a `.minsky/sessions/<id>/handoff.md`
+   file describing remaining work. A follow-up dispatch can resume from the
+   handoff note. This is the **graceful partial** class — the operator-recommended
+   checkpoint landing pattern.
+
+4. **`partial-uncommitted-no-handoff`** — The subagent ran out of budget with
+   modified files that were neither committed nor described in a handoff note.
+   The work exists only in the session workspace and requires manual recovery.
+   This is the **failure class** that drives escalation — it represents lost
+   or stranded work that a successor dispatch cannot find automatically.
+
+5. **`crashed-no-output`** — The subagent process exited abnormally (tool error,
+   unhandled exception, network failure) before producing any output. No commits,
+   no handoff. Requires diagnosis of the root cause before retrying.
+
+6. **`rate-limited`** — The Claude API rejected the dispatch due to rate limits
+   or quota exhaustion. No work was attempted. Repeated occurrences indicate
+   a structural capacity problem (throughput exceeds quota, or quota has not
+   been raised after a workload increase).
+
+## Escalation rule
+
+The tracker emits `escalation: "none" | "session" | "daily"` in the
+`debug.systemInfo` payload, computed from the `subagent_invocations` table:
+
+- **`"session"`** fires when `partial-uncommitted-no-handoff` outcomes in the
+  **most recent parent session** (identified by the most recently seen
+  `parent_session_id` value in the table) exceed
+  `SESSION_PARTIAL_UNCOMMITTED_THRESHOLD = 2` (i.e., > 2, meaning 3 or more).
+
+- **`"daily"`** fires when EITHER:
+  - `partial-uncommitted-no-handoff` outcomes in the last 24h exceed
+    `DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5` (i.e., > 5, meaning 6 or more), OR
+  - `rate-limited` outcomes in the last 24h exceed
+    `DAILY_RATE_LIMITED_THRESHOLD = 3` (i.e., > 3, meaning 4 or more).
+
+- **`"none"`** is returned below all thresholds, or if a DB error occurs
+  (fail-safe: the tracker never throws on read, always returns safe defaults).
+
+**When escalation is non-`none`:** file or update the structural-fix follow-up
+task. The daily rate-limited threshold (`DAILY_RATE_LIMITED_THRESHOLD = 3`) is
+calibrated at first-week defaults — 3 rate-limit hits/day suggests a structural
+capacity problem. The partial-uncommitted thresholds are calibrated such that
+2 per session or 5 per day is noise; 3+ per session or 6+ per day is a pattern.
+
+**Threshold constants** (tunable from a single location):
+```ts
+// src/mcp/subagent-dispatch-tracker.ts
+export const SESSION_PARTIAL_UNCOMMITTED_THRESHOLD = 2;
+export const DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5;
+export const DAILY_RATE_LIMITED_THRESHOLD = 3;
+```
+
+## SQL inspection patterns
+
+The `subagent_invocations` table is the canonical store. Query it directly for
+investigation when the MCP surface is unavailable or more detail is needed.
+
+```sql
+-- Outcome distribution (all-time)
+SELECT outcome, COUNT(*) AS cnt
+FROM subagent_invocations
+GROUP BY outcome
+ORDER BY cnt DESC;
+
+-- Outcome distribution last 24h
+SELECT outcome, COUNT(*) AS cnt
+FROM subagent_invocations
+WHERE started_at >= NOW() - INTERVAL '24 hours'
+GROUP BY outcome
+ORDER BY cnt DESC;
+
+-- Hourly dispatch rate last 24h (UTC buckets)
+SELECT
+  date_trunc('hour', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS hour_utc,
+  COUNT(*) AS cnt
+FROM subagent_invocations
+WHERE started_at >= NOW() - INTERVAL '24 hours'
+GROUP BY hour_utc
+ORDER BY hour_utc;
+
+-- Partial-uncommitted count in the most recent parent session
+-- (mirrors the session escalation check in the tracker)
+SELECT COUNT(*) AS partial_uncommitted_count
+FROM subagent_invocations
+WHERE parent_session_id = (
+  SELECT parent_session_id
+  FROM subagent_invocations
+  WHERE parent_session_id IS NOT NULL
+  ORDER BY started_at DESC
+  LIMIT 1
+)
+AND outcome = 'partial-uncommitted-no-handoff';
+
+-- Rate-limited dispatches in last 24h
+SELECT COUNT(*) AS rate_limited_24h
+FROM subagent_invocations
+WHERE outcome = 'rate-limited'
+  AND started_at >= NOW() - INTERVAL '24 hours';
+
+-- Most recent dispatch per agent type
+SELECT DISTINCT ON (agent_type)
+  agent_type,
+  started_at,
+  outcome,
+  task_id
+FROM subagent_invocations
+ORDER BY agent_type, started_at DESC;
+
+-- Dispatches by agent type (all-time)
+SELECT agent_type, COUNT(*) AS cnt
+FROM subagent_invocations
+GROUP BY agent_type
+ORDER BY cnt DESC;
+
+-- Full record for a specific session's dispatches
+SELECT id, task_id, agent_type, outcome, started_at, ended_at,
+       duration_ms, tool_use_count, total_tokens, pr_url, handoff_written
+FROM subagent_invocations
+WHERE parent_session_id = '<your-session-id>'
+ORDER BY started_at;
+```
+
+## Reading from debug_systemInfo
+
+The `subagentDispatches` field in `mcp__minsky__debug_systemInfo` returns:
+
+```ts
+{
+  total: number;               // All-time row count
+  lastDispatch: string | null; // ISO-8601 of most recent startedAt
+  byOutcome: {                 // Count per outcome class (all 6 always present)
+    "completed-with-pr": number;
+    "committed-no-pr": number;
+    "partial-committed-handoff-written": number;
+    "partial-uncommitted-no-handoff": number;
+    "crashed-no-output": number;
+    "rate-limited": number;
+  };
+  byAgentType: Record<string, number>; // Count per agentType string
+  byHourLast24h: Array<{               // Hourly dispatch counts, last 24h
+    hour: string;   // ISO-8601 UTC hour (e.g. "2026-05-11T14:00:00Z")
+    count: number;
+  }>;
+  escalation: "none" | "session" | "daily";
+}
+```
+
+Returns zero-filled aggregates on the CLI path (no Postgres) or before the DB
+connection is resolved by the MCP start-command.
+
+## Cross-references
+
+- `mt#1005` — parent epic: Persist subagent execution history
+- `mt#1735` — schema + migration (`subagent_invocations` table)
+- `mt#1736` — tracker implementation (`src/mcp/subagent-dispatch-tracker.ts`)
+- `mt#1737` — SubagentStop hook + workspace classifier (write side)
+- `mt#1738` — debug surface + this documentation rule (this task)
+- `mt#1728` — downstream RFC: subagent cadence → attention-allocation input
+- `mt#1645` / `mt#1682` — architectural precedent: MCP disconnect tracker
+- `src/mcp/subagent-dispatch-tracker.ts` — implementation
+- `src/adapters/shared/commands/debug.ts` — `debug.systemInfo` integration point
+- `src/commands/mcp/start-command.ts` — `buildSubagentDispatchTracker()` wiring

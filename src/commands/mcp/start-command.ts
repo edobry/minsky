@@ -786,6 +786,46 @@ async function buildMemoryServiceForSpike(
 }
 
 /**
+ * Wire the SubagentDispatchTracker singleton (mt#1738).
+ *
+ * Calls `SubagentDispatchTracker.setInstance(db)` once the DB connection is
+ * resolved. After this call, `debug.systemInfo` returns real dispatch cadence
+ * aggregates rather than the zero-filled no-op defaults.
+ *
+ * Returns null when persistence is unavailable (CLI path, SQLite-only
+ * deployment, or construction failure) — the singleton stays as the no-op
+ * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
+ *
+ * @see mt#1738 — this wiring
+ * @see mt#1736 — SubagentDispatchTracker implementation
+ */
+async function buildSubagentDispatchTracker(container: AppContainerInterface): Promise<boolean> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return false;
+
+    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return false;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return false;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return false;
+
+    const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+    SubagentDispatchTracker.setInstance(
+      connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+    return true;
+  } catch (err) {
+    log.debug("[mt#1738] buildSubagentDispatchTracker threw", {
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
@@ -936,6 +976,25 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#1661] Wake-enrichment middleware unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#1738: wire the SubagentDispatchTracker singleton so debug.systemInfo
+        // returns real dispatch cadence aggregates instead of the zero-filled
+        // no-op defaults. The call is fire-and-forget — if the DB is unavailable,
+        // the singleton stays as the no-op tracker and subagentDispatches returns
+        // zero-filled aggregates (graceful degradation).
+        if (container) {
+          buildSubagentDispatchTracker(container)
+            .then((wired) => {
+              if (wired) {
+                log.debug("[mt#1738] SubagentDispatchTracker wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1738] SubagentDispatchTracker unavailable", {
                 error: getErrorMessage(err),
               });
             });
