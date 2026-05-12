@@ -75,13 +75,13 @@ export interface MemorySearchResponseLite {
 // ---------------------------------------------------------------------------
 
 /** Default K (top-K results returned by memory_search). */
-export const DEFAULT_K = 5;
+export const DEFAULT_K = 3;
 
 /** Default total token budget for the injected context (envelope + results). */
-export const DEFAULT_TOKEN_BUDGET = 2000;
+export const DEFAULT_TOKEN_BUDGET = 800;
 
 /** Minimum prompt length below which we skip search (trivial-prompt heuristic). */
-export const MIN_PROMPT_LENGTH = 20;
+export const MIN_PROMPT_LENGTH = 50;
 
 /** Hard cap on prompt length sent to memory_search — embeddings get noisy past a few hundred chars. */
 const MAX_QUERY_LENGTH = 500;
