@@ -36,6 +36,7 @@ import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
 import { registerEpicDecompositionCommands } from "./epic-decomposition";
+import { registerObservabilityCommands } from "./observability";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -135,6 +136,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // noticer family — mt#1710)
   registerEpicDecompositionCommands(container);
 
+  // Register observability commands (Braintrust smoke-test etc. — mt#1795)
+  registerObservabilityCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -171,4 +175,5 @@ export {
   registerWindowCommands,
   registerUnaskedDirectionCommands,
   registerEpicDecompositionCommands,
+  registerObservabilityCommands,
 };
