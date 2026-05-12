@@ -1390,6 +1390,112 @@ backslash paths in settings.json work cross-platform.
 
 - **Verify workspace before making changes:** Check which workspace you're in (main or session) at the start of interactions. Make changes in the appropriate session workspace unless explicitly directed otherwise.
 
+# Documentation Taxonomy
+
+Minsky has eight kinds of written artifacts. Each has a home, a title pattern, and a lifecycle. Picking the wrong type creates friction (RFCs in `docs/` won't get reviewed; ADRs in Notion drift from the code). This rule names them so the choice is mechanical, not improvised.
+
+## The eight categories
+
+| Type | Where | Title pattern | Lifecycle | Use when |
+| --- | --- | --- | --- | --- |
+| **ADR** | `docs/architecture/adr-NNN-<slug>.md` | `ADR-NNN: <topic>` | Proposed → Accepted → (Superseded by ADR-MMM) | Committing to one architectural option among alternatives; future readers will ask "why this and not that?" |
+| **RFC** | Notion under Minsky home (`33a937f0-3cb4-8197-a93e-cd4a98a94261`) | `RFC: <topic>` | Draft → Accepted → Implemented (or Declined / Superseded) | Strategic proposal opening discussion; multi-phase roadmap; cross-cutting architectural move |
+| **Design doc** | Notion under Minsky home | `Design: <feature>` | Draft → Implementing → Shipped (or Abandoned) | Concrete implementation plan, usually following an RFC or task spec |
+| **Position paper** | Notion under Minsky home | `Position: <thesis>` | Living | Arguing for a stance that should outlive specific implementation choices |
+| **Architecture reference** | `docs/architecture/<feature>.md` | descriptive | Living | Engineering reference for a deployed subsystem |
+| **Engineering guide** | `docs/<topic>.md` | descriptive | Living | Setup, config, migration, ops, testing patterns |
+| **Incident memo** | `docs/incidents/<date>-<topic>.md` per-incident, Notion for cross-incident synthesis | descriptive | Static | Per-incident postmortems; cross-incident memos in Notion |
+| **Vision / Insight / Field notes** | Notion under Minsky home | `Vision: …`, `Insight: …`, `Field notes: …` | Living | Foundational theory, competitive positioning, operational observations |
+
+## Where each home is
+
+**Repo `docs/`** is for **implementation, operational, and decision-record** material that should version with the code. It's consulted by engineers next to the artifacts it describes.
+
+- `docs/architecture/adr-NNN-*.md` — ADRs
+- `docs/architecture/<feature>.md` — non-numbered architecture references
+- `docs/<topic>.md` — engineering guides
+- `docs/incidents/<date>-<topic>.md` — per-incident postmortems
+- `docs/research/<topic>.md` — raw research artifacts (preserve for provenance)
+
+**Notion under the Minsky home page** is for **strategic, persuasive, and observational** material that's read and discussed. Page IDs are stable; titles drift, so cross-link by ID.
+
+- Minsky home: `33a937f0-3cb4-8197-a93e-cd4a98a94261`
+- Mesh RFC (precedent): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+
+## Lifecycle conventions
+
+**ADRs.** Numbered sequentially (`adr-NNN` where NNN is zero-padded; current highest is 009). Status field at top of the doc (one of: Proposed, Accepted, Superseded, Deprecated). Immutable after Accepted — changes are made by writing a new numbered ADR that references the old one's number ("Supersedes ADR-005"). Each ADR addresses exactly one decision; if you're tempted to put two in one doc, write two ADRs.
+
+**RFCs.** Notion page with a Status header at the top (Draft / Accepted / Declined / Implemented / Superseded). Living during the discussion phase — content updates as the proposal evolves. Once Accepted, the RFC becomes the reference for implementation; further updates note what shipped. References any tasks it produces (by task ID) and any ADRs it generates (by number).
+
+**Design docs.** Notion page with a Status header (Draft / Implementing / Shipped / Abandoned). Often follows an RFC; references it. Status tracks implementation progress. Once Shipped, the doc may be superseded by an architecture reference in `docs/architecture/`.
+
+**Position papers.** No formal status. Living prose, dated. May be revised when the position evolves; revisions noted with date stamps.
+
+**Architecture reference, engineering guide, incident memo, vision/insight/field notes.** No lifecycle status; updated as needed when the underlying reality changes.
+
+## Cross-referencing conventions
+
+- **Task specs** link to strategic docs by Notion page URL (RFCs / Position papers / Design docs) or repo file path (ADRs / architecture references / engineering guides). Never link by title — titles drift.
+- **Memory entries** link to any of the above by ID.
+- **ADRs** reference other ADRs by number (`ADR-002`, `ADR-006`).
+- **Notion pages** cross-link by page ID, not title.
+
+## Triggers — which type to produce
+
+A specific architectural choice with alternatives weighed → ADR.
+
+A new subsystem proposal, a multi-phase roadmap, or a cross-cutting architectural move → RFC. Often produces ADRs (for sub-decisions) and tasks (for implementation) once Accepted.
+
+"Should we even do this?" argued as prose → Position paper.
+
+"We've decided, here's how we'll build it" → Design doc.
+
+"Here's how this subsystem works in production" → Architecture reference.
+
+"Here's how to set up X" / "Here's the migration steps" → Engineering guide.
+
+Postmortem of one incident → Incident memo (repo). Synthesis across multiple incidents → Notion incident memo.
+
+Foundational theory, competitive positioning, observation of operational reality → Vision / Insight / Field notes.
+
+## Examples currently in Minsky
+
+- **ADRs:** `docs/architecture/adr-002-persistence-provider-architecture.md`, `adr-005-forgebackend-subinterfaces.md`, `adr-008-attention-allocation-subsystem.md`
+- **RFCs:** [`RFC: the mesh`](https://www.notion.so/33a937f03cb4814f8603ff6faa52ec6b), [`RFC: memory system roadmap`](https://www.notion.so/34a937f03cb48176906cd2bd814a6498), [`RFC: Braintrust trace shape for Minsky`](https://www.notion.so/35e937f03cb481baa6ddf1f571d1020a)
+- **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135)
+- **Architecture references:** `docs/architecture/stdio-proxy.md`, `docs/architecture/bundling.md`
+- **Engineering guides:** `docs/configuration-guide.md`, `docs/deploy-minsky-railway.md`, `docs/testing-patterns.md`
+- **Vision/Insight:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4)
+
+## How to apply
+
+When about to write a strategic or operational doc:
+
+1. Pick the category from the triggers above.
+2. Use the title pattern. Title sets reader expectations and search retrievability.
+3. Use the home (repo path or Notion under Minsky home page).
+4. For RFCs / ADRs / Design docs: set a status header. For ADRs: pick the next sequential number.
+5. Cross-reference by ID/path, not title.
+
+For RFC authoring specifically, use the `/draft-rfc` skill which encodes the full research → draft → expert-review → revise → ship lifecycle.
+
+For ADR authoring specifically, use the `/draft-adr` skill which walks the Michael-Nygard format with the numbered-file convention.
+
+## Subsumes
+
+This rule subsumes the prior memory `Strategic RFCs and roadmap docs go in Notion, not repo docs/` — that memory covered the single repo-vs-Notion axis; this rule covers the full taxonomy. The prior memory remains as historical anchor but should be considered superseded.
+
+## Cross-references
+
+- `humility.mdc` — escalation discipline that informs when an RFC is the right surface
+- `principal-context.mdc §Build vs buy` — framework for whether to fold a doc-type lifecycle into Minsky proper
+- `decision-defaults.mdc §User does not review PRs in the loop` — sibling rule on convergence discipline
+- `.claude/skills/draft-rfc/SKILL.md` — lifecycle skill for RFC authoring
+- `.claude/skills/draft-adr/SKILL.md` — format skill for ADR authoring
+- `.claude/skills/engineering-writing/SKILL.md` — writing-craft skill referenced by both
+- Originating context: 2026-05-12 documentation-process retrospective and the Braintrust trace RFC that demonstrated the lifecycle
+
 # Subagent dispatch cadence and escalation threshold
 
 The Minsky subagent dispatch tracker persists every subagent invocation to the
