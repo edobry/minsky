@@ -17,6 +17,7 @@ import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
+import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { resolveAgentId } from "../domain/agent-identity/resolve";
@@ -105,6 +106,29 @@ export interface MinskyMCPServerOptions {
 }
 
 // Tool definitions for MCP server
+/**
+ * mt#1751: Tools that demonstrably don't touch DI services — these skip the
+ * `initPromise` await in the CallTool handler. Currently covers the three
+ * debug commands routed through the shared-command bridge (which doesn't
+ * thread the `requiresInit` field). Add to this set, or set
+ * `requiresInit: false` on the ToolDefinition directly, when you've verified
+ * a tool's handler does not call `container.get(...)` or otherwise depend on
+ * a resolved DI service.
+ *
+ * Tool names are matched against `request.params.name` exactly. The
+ * shared-command bridge registers debug tools with **dotted** IDs (e.g.,
+ * `debug.listMethods` — see `src/adapters/shared/commands/debug.ts`), and
+ * `CommandMapper.normalizeMethodName` (`src/mcp/command-mapper.ts:42`)
+ * preserves dots, so the protocol-level tool name keeps the dot. We list
+ * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
+ * underscore names — `debug_echo` — and the allowlist never matched.)
+ */
+const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "debug.echo",
+  "debug.listMethods",
+  "debug.systemInfo",
+]);
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -117,6 +141,18 @@ export interface ToolDefinition {
    * Read-only tools leave this unset or set it to false.
    */
   mutating?: boolean;
+  /**
+   * mt#1751: when explicitly `false`, this tool does NOT require the DI
+   * container to be initialized — the CallTool handler skips the init
+   * await for it. Default (unset/`true`) is to await DI init, which is
+   * the safe choice for any tool that calls `container.get(...)`.
+   *
+   * Opt out only for tools that demonstrably do not touch DI services
+   * (e.g. `debug_echo`, `debug_listMethods`). Mis-opting-out a tool that
+   * does need DI would surface as a "Service ... is not available"
+   * runtime error on first call before background init completes.
+   */
+  requiresInit?: boolean;
 }
 
 interface ResourceDefinition {
@@ -175,6 +211,17 @@ export class MinskyMCPServer {
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  /**
+   * mt#1751: DI initialization promise. When set via `setInitPromise`, every
+   * CallTool dispatch awaits this promise before invoking the tool handler.
+   * The MCP `initialize` handshake and `tools/list` do NOT await it (they
+   * don't need persistence) — only tool execution does. This lets the server
+   * accept the initialize handshake while DI runs in the background.
+   *
+   * Null in HTTP mode (init runs synchronously via preAction) and in tests
+   * that pre-populate the container.
+   */
+  private initPromise: Promise<void> | null = null;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -722,13 +769,32 @@ export class MinskyMCPServer {
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
-      return {
-        tools: Array.from(this.tools.values()).map((tool) => ({
-          name: tool.name,
+      // mt#1779: dedupe by ToolDefinition identity (dual-registration in
+      // `addTool` puts the same tool object under both dotted and underscored
+      // keys). Whether to emit the underscored alias is feature-detected from
+      // the client's `clientInfo.name` reported during `initialize` —
+      // `shouldEmitDesktopAliases` defaults to false for non-Claude clients so
+      // the canonical dotted wire contract is preserved. Claude clients
+      // (clientInfo.name starts with "claude") see the underscored form that
+      // passes their strict frontend validator regex.
+      const clientInfo = server.getClientVersion() as { name?: string } | undefined;
+      const emitDesktop = shouldEmitDesktopAliases(clientInfo);
+      const seen = new Set<ToolDefinition>();
+      const tools: Array<{
+        name: string;
+        description: string;
+        inputSchema: object;
+      }> = [];
+      for (const tool of this.tools.values()) {
+        if (seen.has(tool)) continue;
+        seen.add(tool);
+        tools.push({
+          name: emitDesktop ? toClaudeDesktopName(tool.name) : tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema || {},
-        })),
-      };
+        });
+      }
+      return { tools };
     });
 
     // Call tool
@@ -763,6 +829,25 @@ export class MinskyMCPServer {
           // Drift gate: refuse mutating tools when the server is stale.
           // Read-only tools (mutating === false or unset) are allowed through.
           this.checkDriftGate(tool);
+
+          // mt#1751: await DI initialization before dispatching to the tool
+          // handler. The MCP `initialize` handshake completes before DI runs
+          // in stdio mode (so the server appears connected fast); the first
+          // DI-dependent tool call pays the cost. After the first await
+          // resolves, the promise is settled and subsequent awaits are O(1).
+          //
+          // Tools that declare `requiresInit: false` skip the await — this
+          // gates the latency to DI-dependent tools only, so read-only
+          // debug tools (`debug_echo`, `debug_listMethods`) respond
+          // immediately even if init is still in flight. The name-based
+          // allowlist below opts out specific shared-command-bridge tools
+          // that don't carry the explicit field through their registration
+          // pipeline.
+          const requiresInit =
+            tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
+          if (this.initPromise && requiresInit) {
+            await this.initPromise;
+          }
 
           const result = await tool.handler(request.params.arguments || {});
 
@@ -971,6 +1056,25 @@ export class MinskyMCPServer {
   setWakeService(service: WakeServiceSurface, sessionResolver: WakeSessionResolver): void {
     this.wakeService = service;
     this.wakeSessionResolver = sessionResolver;
+  }
+
+  /**
+   * mt#1751: Set the DI initialization promise.
+   *
+   * When set, every CallTool dispatch awaits this promise before invoking the
+   * tool handler. The MCP `initialize` handshake and `tools/list` do NOT await
+   * it (they don't need persistence), so the server can become responsive
+   * immediately while DI runs in the background.
+   *
+   * The promise must complete in finite time and must not be cancellable —
+   * tool handlers depend on the container being fully resolved. If init
+   * fails, the rejection propagates to the first tool call.
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitPromise(p: Promise<void>): void {
+    this.initPromise = p;
   }
 
   /**
@@ -1218,11 +1322,66 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Add a tool to the server
+   * Add a tool to the server.
+   *
+   * mt#1779: Tools whose canonical name contains a dot (e.g., `tasks.list`,
+   * `session.pr.get`) are dual-registered under both the canonical name AND
+   * an underscored alias produced by `toClaudeDesktopName(name)`. Reason:
+   * Claude Desktop's frontend validator regex `^[a-zA-Z0-9_-]{1,64}$` rejects
+   * dotted names, blocking every tool call. Legacy consumers using dotted
+   * names (Reviewer service: `session.list`, `session.pr.get`) keep working
+   * because the dotted key remains in the map. Both keys point to the SAME
+   * `ToolDefinition` object, so `tool.name` (used by logs, drift gate, and
+   * `DI_FREE_TOOL_NAMES` allowlist) keeps its canonical dotted form.
+   *
+   * `tools/list` (see `setupRequestHandlers`) dedupes by ToolDefinition
+   * identity and emits the variant appropriate for the connected client
+   * (see `shouldEmitDesktopAliases`).
+   *
+   * PR #1071 R1 BLOCKING #1 fix: pre-flight check BOTH the canonical and
+   * alias keys before any write. The pre-fix code wrote `tool.name` first
+   * then checked the alias — a canonical-name collision (e.g., adding
+   * `foo_bar` after `foo.bar` had been registered and created the
+   * `foo_bar` alias key) would overwrite silently. The fix is symmetric:
+   * any collision on either key to a different `ToolDefinition` refuses
+   * the registration and logs a clear warning. Idempotent re-adds of the
+   * same `ToolDefinition` object are allowed (no-op).
    */
   addTool(tool: ToolDefinition): void {
+    const desktopName = toClaudeDesktopName(tool.name);
+    const aliasDiffers = desktopName !== tool.name;
+
+    // Pre-flight: detect collisions BEFORE writing. Idempotent re-adds (same
+    // ToolDefinition object) are permitted as no-ops.
+    const canonicalExisting = this.tools.get(tool.name);
+    if (canonicalExisting && canonicalExisting !== tool) {
+      log.warn("mt#1779: tool name collision — refusing to overwrite existing tool", {
+        name: tool.name,
+        existing: canonicalExisting.name,
+      });
+      return;
+    }
+    if (aliasDiffers) {
+      const aliasExisting = this.tools.get(desktopName);
+      if (aliasExisting && aliasExisting !== tool) {
+        log.warn("mt#1779: Claude Desktop alias collision — refusing to register tool", {
+          canonical: tool.name,
+          desktopAlias: desktopName,
+          existing: aliasExisting.name,
+        });
+        return;
+      }
+    }
+
+    // No conflicts — register under both keys (or just the one if equal).
     this.tools.set(tool.name, tool);
-    log.debug("Added tool", { name: tool.name });
+    if (aliasDiffers) {
+      this.tools.set(desktopName, tool);
+    }
+    log.debug("Added tool", {
+      name: tool.name,
+      ...(aliasDiffers ? { desktopAlias: desktopName } : {}),
+    });
   }
 
   /**

@@ -582,6 +582,194 @@ minsky persistence migrate --execute
 ## Cross-References
 - See `persistence.migrate` behavior and other commands using `--execute` semantics.
 
+# Subagent dispatch cadence and escalation threshold
+
+The Minsky subagent dispatch tracker persists every subagent invocation to the
+`subagent_invocations` Postgres table (schema: mt#1735) and exposes cadence
+aggregates via `mcp__minsky__debug_systemInfo` under `subagentDispatches`.
+Operators read the cadence live from the MCP surface or by querying the table
+directly with the SQL patterns below.
+
+## Outcome taxonomy
+
+Each row in `subagent_invocations` carries an `outcome` column classifying how
+the dispatch ended. Six classes are recognised:
+
+1. **`completed-with-pr`** — The subagent completed its task, committed all
+   changes, and created a pull request. The dispatch landed cleanly. This is
+   the success class.
+
+2. **`committed-no-pr`** — The subagent committed its changes but did not
+   create a PR (e.g., reached the commit step but the context budget was
+   exhausted before `session_pr_create`). Work is recoverable — the session
+   has the committed diff. Escalation is not triggered by this class alone, but
+   a high count indicates PR-creation is being systematically skipped.
+
+3. **`partial-committed-handoff-written`** — The subagent ran out of budget
+   mid-task, committed whatever it had, and wrote a `.minsky/sessions/<id>/handoff.md`
+   file describing remaining work. A follow-up dispatch can resume from the
+   handoff note. This is the **graceful partial** class — the operator-recommended
+   checkpoint landing pattern.
+
+4. **`partial-uncommitted-no-handoff`** — The subagent ran out of budget with
+   modified files that were neither committed nor described in a handoff note.
+   The work exists only in the session workspace and requires manual recovery.
+   This is the **failure class** that drives escalation — it represents lost
+   or stranded work that a successor dispatch cannot find automatically.
+
+5. **`crashed-no-output`** — The subagent process exited abnormally (tool error,
+   unhandled exception, network failure) before producing any output. No commits,
+   no handoff. Requires diagnosis of the root cause before retrying.
+
+6. **`rate-limited`** — The Claude API rejected the dispatch due to rate limits
+   or quota exhaustion. No work was attempted. Repeated occurrences indicate
+   a structural capacity problem (throughput exceeds quota, or quota has not
+   been raised after a workload increase).
+
+## Escalation rule
+
+The tracker emits `escalation: "none" | "session" | "daily"` in the
+`debug.systemInfo` payload, computed from the `subagent_invocations` table:
+
+- **`"session"`** fires when `partial-uncommitted-no-handoff` outcomes in the
+  **most recent parent session** (identified by the most recently seen
+  `parent_session_id` value in the table) exceed
+  `SESSION_PARTIAL_UNCOMMITTED_THRESHOLD = 2` (i.e., > 2, meaning 3 or more).
+
+- **`"daily"`** fires when EITHER:
+  - `partial-uncommitted-no-handoff` outcomes in the last 24h exceed
+    `DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5` (i.e., > 5, meaning 6 or more), OR
+  - `rate-limited` outcomes in the last 24h exceed
+    `DAILY_RATE_LIMITED_THRESHOLD = 3` (i.e., > 3, meaning 4 or more).
+
+- **`"none"`** is returned below all thresholds, or if a DB error occurs
+  (fail-safe: the tracker never throws on read, always returns safe defaults).
+
+**When escalation is non-`none`:** file or update the structural-fix follow-up
+task. The daily rate-limited threshold (`DAILY_RATE_LIMITED_THRESHOLD = 3`) is
+calibrated at first-week defaults — 3 rate-limit hits/day suggests a structural
+capacity problem. The partial-uncommitted thresholds are calibrated such that
+2 per session or 5 per day is noise; 3+ per session or 6+ per day is a pattern.
+
+**Threshold constants** (tunable from a single location):
+```ts
+// src/mcp/subagent-dispatch-tracker.ts
+export const SESSION_PARTIAL_UNCOMMITTED_THRESHOLD = 2;
+export const DAILY_PARTIAL_UNCOMMITTED_THRESHOLD = 5;
+export const DAILY_RATE_LIMITED_THRESHOLD = 3;
+```
+
+## SQL inspection patterns
+
+The `subagent_invocations` table is the canonical store. Query it directly for
+investigation when the MCP surface is unavailable or more detail is needed.
+
+```sql
+-- Outcome distribution (all-time)
+SELECT outcome, COUNT(*) AS cnt
+FROM subagent_invocations
+GROUP BY outcome
+ORDER BY cnt DESC;
+
+-- Outcome distribution last 24h
+SELECT outcome, COUNT(*) AS cnt
+FROM subagent_invocations
+WHERE started_at >= NOW() - INTERVAL '24 hours'
+GROUP BY outcome
+ORDER BY cnt DESC;
+
+-- Hourly dispatch rate last 24h (UTC buckets)
+SELECT
+  date_trunc('hour', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS hour_utc,
+  COUNT(*) AS cnt
+FROM subagent_invocations
+WHERE started_at >= NOW() - INTERVAL '24 hours'
+GROUP BY hour_utc
+ORDER BY hour_utc;
+
+-- Partial-uncommitted count in the most recent parent session
+-- (mirrors the session escalation check in the tracker)
+SELECT COUNT(*) AS partial_uncommitted_count
+FROM subagent_invocations
+WHERE parent_session_id = (
+  SELECT parent_session_id
+  FROM subagent_invocations
+  WHERE parent_session_id IS NOT NULL
+  ORDER BY started_at DESC
+  LIMIT 1
+)
+AND outcome = 'partial-uncommitted-no-handoff';
+
+-- Rate-limited dispatches in last 24h
+SELECT COUNT(*) AS rate_limited_24h
+FROM subagent_invocations
+WHERE outcome = 'rate-limited'
+  AND started_at >= NOW() - INTERVAL '24 hours';
+
+-- Most recent dispatch per agent type
+SELECT DISTINCT ON (agent_type)
+  agent_type,
+  started_at,
+  outcome,
+  task_id
+FROM subagent_invocations
+ORDER BY agent_type, started_at DESC;
+
+-- Dispatches by agent type (all-time)
+SELECT agent_type, COUNT(*) AS cnt
+FROM subagent_invocations
+GROUP BY agent_type
+ORDER BY cnt DESC;
+
+-- Full record for a specific session's dispatches
+SELECT id, task_id, agent_type, outcome, started_at, ended_at,
+       duration_ms, tool_use_count, total_tokens, pr_url, handoff_written
+FROM subagent_invocations
+WHERE parent_session_id = '<your-session-id>'
+ORDER BY started_at;
+```
+
+## Reading from debug_systemInfo
+
+The `subagentDispatches` field in `mcp__minsky__debug_systemInfo` returns:
+
+```ts
+{
+  total: number;               // All-time row count
+  lastDispatch: string | null; // ISO-8601 of most recent startedAt
+  byOutcome: {                 // Count per outcome class (all 6 always present)
+    "completed-with-pr": number;
+    "committed-no-pr": number;
+    "partial-committed-handoff-written": number;
+    "partial-uncommitted-no-handoff": number;
+    "crashed-no-output": number;
+    "rate-limited": number;
+  };
+  byAgentType: Record<string, number>; // Count per agentType string
+  byHourLast24h: Array<{               // Hourly dispatch counts, last 24h
+    hour: string;   // ISO-8601 UTC hour (e.g. "2026-05-11T14:00:00Z")
+    count: number;
+  }>;
+  escalation: "none" | "session" | "daily";
+}
+```
+
+Returns zero-filled aggregates on the CLI path (no Postgres) or before the DB
+connection is resolved by the MCP start-command.
+
+## Cross-references
+
+- `mt#1005` — parent epic: Persist subagent execution history
+- `mt#1735` — schema + migration (`subagent_invocations` table)
+- `mt#1736` — tracker implementation (`src/mcp/subagent-dispatch-tracker.ts`)
+- `mt#1737` — SubagentStop hook + workspace classifier (write side)
+- `mt#1738` — debug surface + this documentation rule (this task)
+- `mt#1728` — downstream RFC: subagent cadence → attention-allocation input
+- `mt#1645` / `mt#1682` — architectural precedent: MCP disconnect tracker
+- `src/mcp/subagent-dispatch-tracker.ts` — implementation
+- `src/adapters/shared/commands/debug.ts` — `debug.systemInfo` integration point
+- `src/commands/mcp/start-command.ts` — `buildSubagentDispatchTracker()` wiring
+
 # Subagent Routing
 
 When spawning subagents, use the appropriate model and type:
@@ -779,6 +967,8 @@ This file is the **policy corpus** that the mt#1541 policy-coverage detector (Su
 
 When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
 
+**Scope note (added 2026-05-12):** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy` below). Conflating the two is the policy-laundering pattern from `feedback_build_vs_buy_default_for_non_core`.
+
 **Generic-SE override:** "use Redis for queues, MinIO for blob storage, Mongo for documents, polyglot persistence." See `feedback_postgres_default_datastore`.
 
 ## Reliability: sweeper, not durable queue
@@ -836,6 +1026,55 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 **Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
 
+## Build vs buy: default to buy for non-core capabilities
+
+When considering whether to build a capability in-house vs adopt an existing tool: **for any capability that is not Minsky's core differentiating value-add, the default is buy (or use existing OSS)**, not build. Minsky's core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer. Auxiliary capabilities — LLM observability, analytics, eval UIs, dashboards, CI infrastructure, tracing platforms, prompt-management UIs — are **not** the core. Building any of these consumes engineering time that does not advance Minsky's value.
+
+The bar to flip the default (from buy to build) requires all four:
+
+1. **Core relevance** — the capability is part of Minsky's distinctive value, not an industry-standard auxiliary
+2. **No mature option** — at least 3 mature OSS/SaaS options have been evaluated against concrete needs, each failing on a named requirement
+3. **Build cost ≪ ongoing buy cost** — quantified at our scale, not estimated
+4. **Strategic ownership** — clear product reason to own the capability (differentiator, unique integration with Minsky structures)
+
+**Generic-SE override:** "build from scratch is the safe / principled / open-source-pure / no-vendor-lock-in choice." That bias treats engineering time as free; it isn't. Engineering time is the scarcest resource for a small team; every hour spent building auxiliary infra is an hour not spent on Minsky core.
+
+**Specific biases to watch for in self:**
+
+1. **Policy-laundering at recommendation-time** — invoking `§Datastores: Postgres-via-Supabase by default` to justify building auxiliary analytics on Postgres. That policy is about Minsky's **source-of-truth state**, NOT about observability / analytics / event sinks. Observability data has near-zero lock-in cost (OTel is the wire standard; switching backends is an afternoon). Conflating the two is the confabulation pattern from `feedback_confabulated_strategic_frame_to_justify_tactical_preference`. "Recommending the cheaper-or-faster option AND describing it as 'principled'" is the tell.
+
+2. **Build-path-as-research at action-execution-time** (added 2026-05-12 R2): "use existing signals" / "capture from logs" / "extend in-house schemas (mt#1306, mt#1110, etc.)" / "grep what's already there" reads as research-discipline but is functionally the build path. Extracting from `/tmp/<hook>.log` or GitHub API by hand instead of adopting a tool that ingests the same data with a UI is the same substitution shape as policy-laundering, but operates at action-execution-time rather than recommendation-time. The corpus rule fires at recommendation; this anti-pattern slips past during action-now execution. Originating incident: 2026-05-12 PR #1073 was shipped using grep-of-logs as the baseline substrate while skipping the user-sequenced observability-platform-evaluation step. Triggered by "do it now" action-bias.
+
+**Anti-pattern checklist before recommending OR executing build:**
+
+- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance) before recommending?
+- [ ] Did I evaluate ≥3 mature OSS/SaaS options with concrete cost / feature comparison, not just name them?
+- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation from scratch.
+- [ ] Is my "principled" framing actually preference-laundering? (If the principled story arrived AFTER the build preference, it's laundering.)
+- [ ] **At action-execution time:** is my chosen first action "extract from existing in-house data"? If yes, I'm in the build path — the SaaS evaluation step was skipped. Stop, restate the user's plan, name the skipped step.
+- [ ] **At action-execution time:** if the user gave multi-step direction and then said "do it now," did I restate the steps and identify which one is next BEFORE my first tool call? (See `§Multi-step direction execution` below.)
+
+**Originating incidents:**
+
+- 2026-05-12 R1 (recommendation-time): recommended "build narrow on Postgres" for context-economics measurement (mt#1776) across three turns despite mature community OSS+SaaS options. See `feedback_build_vs_buy_default_for_non_core`.
+- 2026-05-12 R2 (action-execution-time): even after the R1 fix landed in this rule, executed on "do it now" by skipping the user-sequenced platform-evaluation step and reverting to in-house data extraction. See `feedback_build_path_as_research_at_action_time`.
+
+## Multi-step direction execution
+
+When the user provides multi-step direction (e.g., "X first, then Y, then Z" or "before doing W, do V") AND a later prompt contains action-now language (e.g., "do it now," "proceed," "go," "why not do it now?"): the agent MUST, before any tool call that would advance the plan:
+
+1. **Restate the multi-step plan** as understood, in one line per step.
+2. **Identify the next step explicitly** — which step is up, why this step and not another.
+3. **Name any skipped step** — if proceeding with a step that's not the named "next," explain why; if the cheapest immediate action skips a more expensive prerequisite step the user named, this is the signal to stop and confirm rather than proceed.
+
+Action-now language is permission to act, NOT permission to compress steps. Compression that drops user-named prerequisites is the failure mode this rule prevents.
+
+**Generic-SE override:** "act on the most recent direction; treat earlier direction as context." That heuristic works for single-step direction but collapses multi-step plans into action-bias.
+
+**Originating incident:** 2026-05-12 R2. User said "implement observability tool first, use the hook tuning as its first test case" then "do it now." I executed the hook tune (cheap, immediate) and skipped the observability tool selection (expensive, requires user account creation). The multi-step plan compressed to the cheapest step in flight.
+
+**Structural escalation target:** filed as separate task — a skill-step in `/orchestrate` or `/implement-task` that fires when prior-turn user direction includes sequencing keywords AND current-turn includes action-now keywords. Until that ships, the rule is checklist-driven discipline.
+
 ## How this is enforced
 
 Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
@@ -851,6 +1090,10 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1035 — System 3\* detector design (defines the consumer of this corpus)
 - mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
 - mt#1508 — the audit task that produced this corpus
+- `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy` R1
+- `feedback_build_path_as_research_at_action_time` — originating memory for R2 (action-execution-time slice)
+- `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
+- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
 
 # Memory Usage
 

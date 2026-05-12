@@ -30,17 +30,22 @@ export class CommandMapper {
   }
 
   /**
-   * Normalize method name to ensure compatibility with MCP
+   * Normalize method name for MCP tool registration.
    *
-   * The MCP protocol supports dots in method names for namespacing,
-   * but some JSON-RPC implementations may have issues with dot notation.
-   * We normalize method names and provide underscore aliases for compatibility.
+   * Strips any character outside `[a-zA-Z0-9._-]`. Dots are preserved for
+   * backward-compat with existing dotted-name consumers (Reviewer service:
+   * `session.list`, `session.pr.get`, `session.apply_post_merge_state_sync`).
+   *
+   * The Claude Desktop frontend validator uses the stricter regex
+   * `^[a-zA-Z0-9_-]{1,64}$` (no dots). See `toClaudeDesktopName()` for the
+   * underscored variant emitted in `tools/list`. mt#1779: tools register under
+   * BOTH the dotted canonical name AND the underscored alias so Claude Desktop
+   * can call them by name while legacy consumers using dotted names keep working.
    *
    * @param methodName Original method name (may contain dots for namespacing)
-   * @returns Normalized method name safe for JSON-RPC
+   * @returns Normalized canonical method name (may include dots)
    */
   private normalizeMethodName(methodName: string): string {
-    // Remove any characters that could cause issues in JSON-RPC
     return methodName.replace(/[^a-zA-Z0-9._-]/g, "");
   }
 
@@ -125,6 +130,14 @@ export class CommandMapper {
      * by the server when drift is detected (loaded commit !== workspace HEAD).
      */
     mutating?: boolean;
+    /**
+     * mt#1751: when explicitly `false`, this command does NOT require the DI
+     * container to be initialized — the CallTool handler skips the init
+     * await for it. Default (unset/`true`) is to await DI init, which is
+     * the safe choice for any command whose handler calls `container.get(...)`.
+     * Opt out only for handlers that demonstrably don't touch DI services.
+     */
+    requiresInit?: boolean;
   }): void {
     // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
@@ -149,6 +162,7 @@ export class CommandMapper {
       description: command.description,
       inputSchema,
       mutating: command.mutating,
+      requiresInit: command.requiresInit,
       handler: async (args) => {
         try {
           log.debug("Executing MCP command", {

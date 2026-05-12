@@ -121,7 +121,7 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 
 # Mode 2 Protocol
 
-1. **Fetch PR context** — call `mcp__minsky__session_pr_review_context` with the task ID. This returns PR metadata, diff, parsed diff (as `parsedDiff: DiffFile[]`), CI check runs, and the task spec in a single call. If both `mcp__minsky__session_pr_review_context` and `mcp__minsky__tasks_spec_get` fail, submit a `COMMENT` review documenting the context-fetch failure, then stop. Do not return findings to the parent — Mode 2 is self-contained.
+1. **Fetch PR context** — call `mcp__minsky__session_pr_review_context` with the task ID. This returns PR metadata, diff, parsed diff (as `parsedDiff: DiffFile[]`), CI check runs, the task spec, and **`reviewThreads[]`** (existing inline thread state) in a single call. If both `mcp__minsky__session_pr_review_context` and `mcp__minsky__tasks_spec_get` fail, submit a `COMMENT` review documenting the context-fetch failure, then stop. Do not return findings to the parent — Mode 2 is self-contained.
 2. **If spec is missing** — fall back to `mcp__minsky__tasks_spec_get` with the task ID.
 
 **Source freshness (required for adoption sweep at step 5b).** Local `Read`, `Glob`, and `Grep` are only safe to use for codebase-wide reads when the workspace is checked out at the PR HEAD. The two supported invocation modes:
@@ -132,15 +132,27 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 The same staleness class that motivated the auditor's freshness preamble (mt#1485 false-FAIL) applies here. Adoption findings based on stale-main reads are unreliable and must not be reported as BLOCKING.
 
 3. **Analyze the diff** — for each file in the diff, follow steps 2–3 from Mode 1 above. For large PRs (200+ files), request Mode 1 sectioning from the parent instead of attempting a whole-PR review in one run.
-4. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
-   - Find the `DiffFile` in `parsedDiff`. The lookup depends on side and rename status:
-     - **RIGHT-side anchor:** match `file.path === path` (the current filename).
-     - **LEFT-side anchor on a rename** (`DiffFile.oldPath` set, `oldPath !== path`): match `file.oldPath === path` only. Do NOT match `file.path === path` — that would be the post-rename name and produces a wrong-side anchor.
-     - **LEFT-side anchor on a non-rename** (`DiffFile.oldPath` undefined): match `file.path === path` only.
-   - Skip warning-flagged files (`file.warning` set).
-   - Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
-   - **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
-   - If any of those checks fail, record the finding in the review body instead of `comments[]`.
+   4a. **Reply to existing threads (mt#1345) — convergence loop.** When `reviewThreads[]` is non-empty, review each **unresolved, non-outdated** thread before opening new findings. For each thread:
+
+   - **Still applies** → reply with a `comments[]` entry using `inReplyTo: <first-comment databaseId>` so the reply threads under the existing discussion instead of opening a new one. Keep the reply brief: `"Still pending — [evidence from current diff]"`.
+   - **Fixed** → call `mcp__minsky__session_pr_review_thread_resolve` with `threadId` and a one-line reason. **Guard: only resolve threads where `comments[0].author === "minsky-reviewer[bot]"` — never resolve human-opened threads.**
+   - **Outdated / no longer relevant** → call `mcp__minsky__session_pr_review_thread_resolve` with a note. Same human-author guard applies.
+
+   After processing all existing threads, open new `comments[]` entries ONLY for genuinely new findings not covered by an existing thread. This prevents duplicate findings accumulating across rounds.
+
+   The `inReplyTo` field in `comments[]` takes the **`databaseId`** (numeric) from `reviewThreads[N].comments[0].databaseId`. When `inReplyTo` is set, GitHub anchors the reply to the parent comment's location — `path` and `line` are ignored by GitHub but should still be set to the parent's values for schema validity.
+
+4b. **Anchor-validate findings** — before assigning `(path, line, side)` to a finding, verify that anchor exists in `parsedDiff`. GitHub rejects the **entire review** (422) if any comment targets a line that isn't in the diff. Steps:
+
+- Find the `DiffFile` in `parsedDiff`. The lookup depends on side and rename status:
+  - **RIGHT-side anchor:** match `file.path === path` (the current filename).
+  - **LEFT-side anchor on a rename** (`DiffFile.oldPath` set, `oldPath !== path`): match `file.oldPath === path` only. Do NOT match `file.path === path` — that would be the post-rename name and produces a wrong-side anchor.
+  - **LEFT-side anchor on a non-rename** (`DiffFile.oldPath` undefined): match `file.path === path` only.
+- Skip warning-flagged files (`file.warning` set).
+- Iterate `file.hunks[].lines[]` to confirm a `DiffLine` exists at the target `line` (`newLine` for RIGHT, `oldLine` for LEFT).
+- **For multi-line ranges** (`startLine` set): also confirm a `DiffLine` exists at `startLine` on the same side, AND that both endpoints fall within the SAME `DiffHunk` (GitHub 422s ranges that span hunks). Verify `startSide === side` before constructing the comment.
+- If any of those checks fail, record the finding in the review body instead of `comments[]`.
+
 5. **Verify against task spec, run adoption sweep, run smoke test.** This step is mandatory and consolidates three sub-checks the Mode 2 reviewer must run before posting (per mt#1551, replacing the post-merge auditor surface):
 
    **5a. Spec verification.** Read every success criterion in the task spec. For each, verify the PR delivers it by checking the code. Classify Met / Not met / N/A and record the result for the spec-verification table that goes in the review body. Any "Not met" criterion is a BLOCKING finding.
@@ -275,6 +287,15 @@ interface ReviewComment {
   side?: "LEFT" | "RIGHT"; // defaults to RIGHT if absent
   startLine?: number; // first line of multi-line range (must be < line)
   startSide?: "LEFT" | "RIGHT"; // required when startLine is set; must equal side
+  /**
+   * When present, this comment is a REPLY to the existing review comment with
+   * this database ID (mt#1345 — reply-to-thread loop). Obtain the ID from
+   * reviewThreads[N].comments[0].databaseId (returned by session_pr_review_context).
+   * When inReplyTo is set, GitHub anchors the reply to the parent comment's
+   * location — path/line/side are ignored by GitHub but should still be set
+   * to the parent's values for schema validity.
+   */
+  inReplyTo?: number;
 }
 ```
 

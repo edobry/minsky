@@ -130,6 +130,55 @@ export interface SubagentDispatchCadence {
  * matches the fail-safe contract of `DisconnectTracker`'s file I/O layer.
  */
 export class SubagentDispatchTracker {
+  /**
+   * Process-lifetime singleton. Null until `setInstance(db)` is called.
+   * `getInstance()` returns a no-op tracker when no instance has been set —
+   * this mirrors `DisconnectTracker.getInstance` which creates one on first
+   * call. The no-op path uses an empty fake DB so callers always get a typed
+   * value without throwing.
+   *
+   * Set once from the MCP start-command after the DB connection is resolved
+   * (same pattern as memory-enrichment and wake-enrichment middleware).
+   */
+  private static _instance: SubagentDispatchTracker | null = null;
+
+  /**
+   * Return the process-lifetime singleton.
+   *
+   * If no instance has been set via `setInstance`, returns a no-op tracker
+   * whose DB always returns empty result sets. This matches the
+   * `DisconnectTracker.getInstance` contract — callers never receive null.
+   */
+  static getInstance(): SubagentDispatchTracker {
+    if (!SubagentDispatchTracker._instance) {
+      // No-op tracker: create with a dummy DB that returns empty arrays.
+      // This path fires on the CLI path (no Postgres) or if setInstance
+      // hasn't been called yet. The fail-safe methods in getCadence/
+      // getEscalation catch any DB errors and return safe defaults.
+      SubagentDispatchTracker._instance = new SubagentDispatchTracker(createNullDatabase());
+    }
+    return SubagentDispatchTracker._instance;
+  }
+
+  /**
+   * Set the process-lifetime singleton to a tracker backed by `db`.
+   * Called from the MCP start-command once the DB connection is resolved.
+   * Idempotent — subsequent calls replace the instance (useful for tests).
+   */
+  static setInstance(db: PostgresJsDatabase): SubagentDispatchTracker {
+    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+    return SubagentDispatchTracker._instance;
+  }
+
+  /**
+   * Reset the singleton for tests — creates a fresh instance backed by the
+   * provided `db`. Pass the fake DB from test fixtures.
+   */
+  static resetForTest(db: PostgresJsDatabase): SubagentDispatchTracker {
+    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+    return SubagentDispatchTracker._instance;
+  }
+
   constructor(private readonly db: PostgresJsDatabase) {}
 
   /**
@@ -418,4 +467,59 @@ function emptyCADENCE(): SubagentDispatchCadence {
     byAgentType: {},
     byHourLast24h: [],
   };
+}
+
+/**
+ * Create a no-op DB object that satisfies the `PostgresJsDatabase` runtime
+ * shape. Returned by `getInstance()` before `setInstance(db)` is called, so
+ * `getCadence()` / `getEscalation()` produce zero-filled aggregates on the
+ * CLI path or before MCP server startup wiring completes.
+ *
+ * Implementation: a Proxy that returns itself for any property access (every
+ * method returns the same proxy) AND is awaitable via `then()` resolving
+ * with `[]`. This makes the proxy resilient to future Drizzle call-chain
+ * additions — PR #1062 R1 BLOCKING #1 fix: the prior implementation
+ * enumerated `from/where/groupBy/orderBy/limit/select/insert/update/set/values`
+ * explicitly, so any new method (e.g., `having`, `offset`, `onConflictDoNothing`)
+ * would throw `db.foo is not a function`. The Proxy approach has no allowlist.
+ *
+ * The tracker's outer try/catch wrappers in `getCadence()` / `getEscalation()`
+ * remain the last line of defense; the Proxy is a strictly-additional safety
+ * layer that avoids hitting those wrappers on the no-DB path.
+ */
+function createNullDatabase(): PostgresJsDatabase {
+  // We type the proxy via `Record<string | symbol, unknown>` so the
+  // get-trap return type aligns. The final cast to PostgresJsDatabase is
+  // unavoidable — Drizzle's type is not assignable from a runtime proxy
+  // without the library's internal types.
+  const proxy: Record<string | symbol, unknown> = new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        // Make the proxy thenable so `await db.select(...)` resolves to `[]`.
+        // Drizzle query builders are thenable on the terminal call; the proxy
+        // is awaitable at any point in the chain — equivalent semantics for
+        // a null DB whose tables are always empty.
+        if (prop === "then") {
+          return (
+            resolve: (v: unknown[]) => unknown,
+            _reject: (e: unknown) => unknown
+          ): Promise<unknown> => Promise.resolve([]).then(resolve);
+        }
+        // Symbol.toPrimitive / Symbol.iterator / inspect helpers — return
+        // undefined so utilities like `console.log` and `Promise.resolve`
+        // handle the proxy as a plain object rather than trying to coerce.
+        if (typeof prop === "symbol") {
+          return undefined;
+        }
+        // Every other property access returns a function that returns the
+        // proxy itself, so chained calls (select().from().where()...) and
+        // mutation calls (insert().values(), update().set().where()) both
+        // continue to type-check and eventually await to `[]`.
+        return (..._args: unknown[]) => proxy;
+      },
+    }
+  );
+  // eslint-disable-next-line custom/no-excessive-as-unknown
+  return proxy as unknown as PostgresJsDatabase;
 }

@@ -1,13 +1,18 @@
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
-import express from "express";
+// mt#1719 Intervention 2: `express`, `launchInspector`/`isInspectorAvailable`,
+// and `resolveOAuthProvider` were top-level imports. They are HTTP-only
+// (express, OAuth) or inspector-only (inspector-launcher) — pulling them
+// in at module-load time costs ~10-30ms each on stdio cold-start where
+// none of them run. Each is converted to function-local dynamic import
+// at its sole use site below. Type positions (`import("express").Request`)
+// remain top-level since TS erases them at runtime.
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
-import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
 import { registerDebugTools } from "../../adapters/mcp/debug";
@@ -34,7 +39,11 @@ import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { AppContainerInterface } from "../../composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
-import { resolveOAuthProvider } from "../../domain/oauth/registry";
+// mt#1719 Intervention 2: `resolveOAuthProvider` top-level import deferred —
+// pulls in `oidc-provider` + Koa middleware closure (~30-50ms estimated).
+// Sole call site is inside `if (transportType === "http" && container)`
+// block, so stdio mode never needs it. The type imports below are erased
+// at runtime by TypeScript and stay top-level.
 import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
 import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
 import { profileCheckpoint } from "../../utils/cold-start-profile";
@@ -135,23 +144,77 @@ export async function validateOAuthBearer(
 }
 
 /**
+ * Inject an OAuth-derived agentId into a JSON-RPC message's `params._meta`.
+ *
+ * mt#1765: The MCP SDK's `JSONRPCRequestSchema` is `.strict()` — any extra
+ * top-level key fails the union parse and the SDK returns `-32700 Parse error:
+ * Invalid JSON-RPC message`. Request-scoped `_meta` must live inside
+ * `params._meta`, which the SDK surfaces to handlers as `RequestHandlerExtra._meta`
+ * (the location Layer 2's `readLayer2` reads from).
+ *
+ * Behavior:
+ * - Only injects when `params` is a non-array object (or absent — in which case a
+ *   fresh `params: { _meta: {...} }` is created). When `params` is an array
+ *   (positional parameters, valid per JSON-RPC 2.0 but not used by MCP today)
+ *   or any other non-object value, the message is returned unchanged so the
+ *   middleware never clobbers caller-provided positional payloads (PR #1064 R1
+ *   BLOCKING).
+ * - Cooperative Layer 2: if the caller has already declared
+ *   `params._meta[AGENT_ID_META_KEY]`, the existing value wins and the message
+ *   is returned unchanged.
+ *
+ * Exported for tests so the regression suite exercises the real implementation
+ * rather than a hand-mirrored copy (PR #1064 R1 NON-BLOCKING #1).
+ */
+export function injectAgentIdMeta(
+  msg: Record<string, unknown>,
+  agentId: string
+): Record<string, unknown> {
+  // Array params (positional) is valid JSON-RPC 2.0; do not clobber it.
+  // Any non-object, non-undefined `params` value is also left untouched.
+  if (msg.params !== undefined) {
+    if (typeof msg.params !== "object" || msg.params === null || Array.isArray(msg.params)) {
+      return msg;
+    }
+  }
+  const existingParams = (msg.params as Record<string, unknown> | undefined) ?? {};
+  const existingParamsMeta =
+    existingParams._meta &&
+    typeof existingParams._meta === "object" &&
+    !Array.isArray(existingParams._meta)
+      ? (existingParams._meta as Record<string, unknown>)
+      : {};
+  if (existingParamsMeta[AGENT_ID_META_KEY]) return msg;
+  return {
+    ...msg,
+    params: {
+      ...existingParams,
+      _meta: { ...existingParamsMeta, [AGENT_ID_META_KEY]: agentId },
+    },
+  };
+}
+
+/**
  * Register all MCP tool adapters on the given command mapper.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
 ): Promise<void> {
-  // Ensure the container is initialized before registering tools.
-  // MCP tool invocations bypass Commander's preAction hook, so initialization
-  // must happen here — making it impossible to register tools without persistence.
-  if (container && !container.has("persistence")) {
-    await container.initialize();
-    profileCheckpoint("container_initialized_inline");
-    log.debug("Container initialized for MCP server");
-  }
+  // mt#1751: Tool handlers (which need persistence) await the server's
+  // `initPromise` before dispatching, so the container is NOT eagerly
+  // initialized here. For stdio mode, the caller in `createStartCommand`
+  // kicks off `container.initialize()` in the background and wires it via
+  // `server.setInitPromise()`. For HTTP mode, `src/cli.ts`'s preAction has
+  // already run init synchronously before this function is called.
+  //
+  // Pre-mt#1751 a defensive eager `container.initialize()` ran here as a
+  // safety net. That defense is gone: it would defeat the stdio defer.
 
-  // Health check: verify critical dependencies are available after init
-  if (container && !container.has("sessionProvider")) {
+  // Health check (HTTP-mode only — preAction already ran init eagerly).
+  // For stdio mode, sessionProvider becomes available after the background
+  // init resolves, so the check is meaningless until then.
+  if (container && container.has("persistence") && !container.has("sessionProvider")) {
     log.error(
       "MCP startup health check failed: sessionProvider not available after container init. " +
         "Session tools will fail. Check database connectivity."
@@ -261,6 +324,10 @@ async function startHttpServer(
   projectContext?: ReturnType<typeof createProjectContext>,
   oauthProvider?: OAuthIdentityProvider
 ): Promise<void> {
+  // mt#1719 Intervention 2: function-local dynamic import. Express is only
+  // needed in HTTP mode; deferring this off the stdio-mode import graph
+  // shaves the express closure (~10-20ms) off `mcp_command_module_loaded`.
+  const { default: express } = await import("express");
   const app = express();
   // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
   // to `1` rather than `true` limits the X-Forwarded-* trust to one upstream
@@ -369,37 +436,21 @@ async function startHttpServer(
           return;
         }
 
-        // Inject agentId into the MCP request body's _meta so Layer 2 picks it up.
-        // Only inject for POST requests that carry a body — GET (SSE) connections
-        // don't carry a JSON body and don't have tool-call context.
+        // Inject agentId into the MCP request body's params._meta so Layer 2 picks it up.
+        // mt#1765: see `injectAgentIdMeta` above for rationale (the SDK's JSON-RPC envelope
+        // is strictly typed; _meta must live in params._meta, not at top level).
+        // Only inject for POST requests that carry a body — GET (SSE) connections don't
+        // carry a JSON body and don't have tool-call context.
         if (req.method === "POST" && req.body && typeof req.body === "object") {
-          // For a batch request (array), inject into each item; for a single
-          // request (object), inject into the top-level _meta.
-          const injectMeta = (msg: Record<string, unknown>): Record<string, unknown> => {
-            const existingMeta =
-              msg._meta && typeof msg._meta === "object" && !Array.isArray(msg._meta)
-                ? (msg._meta as Record<string, unknown>)
-                : {};
-            // Only inject if the caller has not already declared an agentId
-            // (cooperative Layer 2: caller-declared _meta wins over OAuth-derived).
-            if (existingMeta[AGENT_ID_META_KEY]) return msg;
-            return {
-              ...msg,
-              _meta: {
-                ...existingMeta,
-                [AGENT_ID_META_KEY]: oauthResult.agentId,
-              },
-            };
-          };
-
           if (Array.isArray(req.body)) {
+            // Batch request: inject per-item, preserving any item that isn't a plain object.
             req.body = req.body.map((item: unknown) =>
               item && typeof item === "object" && !Array.isArray(item)
-                ? injectMeta(item as Record<string, unknown>)
+                ? injectAgentIdMeta(item as Record<string, unknown>, oauthResult.agentId)
                 : item
             );
           } else {
-            req.body = injectMeta(req.body as Record<string, unknown>);
+            req.body = injectAgentIdMeta(req.body as Record<string, unknown>, oauthResult.agentId);
           }
         }
       } else {
@@ -770,6 +821,46 @@ async function buildMemoryServiceForSpike(
 }
 
 /**
+ * Wire the SubagentDispatchTracker singleton (mt#1738).
+ *
+ * Calls `SubagentDispatchTracker.setInstance(db)` once the DB connection is
+ * resolved. After this call, `debug.systemInfo` returns real dispatch cadence
+ * aggregates rather than the zero-filled no-op defaults.
+ *
+ * Returns null when persistence is unavailable (CLI path, SQLite-only
+ * deployment, or construction failure) — the singleton stays as the no-op
+ * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
+ *
+ * @see mt#1738 — this wiring
+ * @see mt#1736 — SubagentDispatchTracker implementation
+ */
+async function buildSubagentDispatchTracker(container: AppContainerInterface): Promise<boolean> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return false;
+
+    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return false;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return false;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return false;
+
+    const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
+    SubagentDispatchTracker.setInstance(
+      connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+    return true;
+  } catch (err) {
+    log.debug("[mt#1738] buildSubagentDispatchTracker threw", {
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
@@ -863,14 +954,53 @@ export function createStartCommand(
         const server = new MinskyMCPServer(serverConfig);
         profileCheckpoint("server_constructed");
 
-        // Register tools via adapter-based approach (initializes container if needed)
+        // Register tools via adapter-based approach. Note: tool DEFINITIONS
+        // register synchronously; HANDLERS (which need persistence) await
+        // the server's init promise before dispatching — see setInitPromise
+        // below and the `await this.initPromise` in server.ts's CallTool
+        // handler. The container is NOT initialized inside registerAllTools.
         const commandMapper = new CommandMapper(server, server.getProjectContext());
         profileCheckpoint("mapper_constructed");
         await registerAllTools(commandMapper, container);
         profileCheckpoint("tools_registered");
 
-        // Wire the container into the server so agentId can be written to session records
-        // (must happen after registerAllTools which triggers container.initialize())
+        // mt#1751: For stdio mode, kick off `container.initialize()` in the
+        // background AFTER tool registration but BEFORE `server.start()`.
+        // The MCP `initialize` JSON-RPC handshake (~17ms post-connect)
+        // doesn't need DI; tool handlers await `initPromise` before running.
+        // This drops perceived cold-start time from ~1500ms to ~400ms on
+        // the source path (mt#1745 measured DI at 72-75% of total). For
+        // HTTP mode, preAction (`src/cli.ts`) has already initialized
+        // synchronously — no defer needed (Profile B is long-lived).
+        if (container && transportType === "stdio" && !container.has("persistence")) {
+          const initPromise = container.initialize().then(() => {
+            profileCheckpoint("background_container_initialized");
+          });
+
+          // PR #1063 R2 BLOCKING: attach a SIDE-EFFECT-ONLY log catch on a
+          // FORKED reference (not the one passed to setInitPromise). This
+          // consumes the rejection so Node never emits `unhandledRejection`
+          // if init fails and no tool call ever awaits — the side `.catch`
+          // attaches a handler to a copy of the chain, preventing the
+          // unhandled-rejection hazard. The ORIGINAL `initPromise` remains
+          // rejecting; when a tool call awaits via `server.initPromise`
+          // (see server.ts CallTool handler), the error surfaces to the
+          // MCP client with the actual root cause (DB connection failure,
+          // missing config, etc.) — NOT a downstream "Service ... is not
+          // available" symptom.
+          initPromise.catch((err: unknown) => {
+            log.error("[mt#1751] background container.initialize() failed", {
+              error: getErrorMessage(err),
+            });
+          });
+
+          server.setInitPromise(initPromise);
+          profileCheckpoint("background_init_kicked_off");
+        }
+
+        // Wire the container into the server so agentId can be written to session records.
+        // Safe to call before background init resolves — setContainer just stores the
+        // reference; consumers that need resolved services await initPromise.
         if (container) {
           server.setContainer(container);
         }
@@ -925,6 +1055,25 @@ export function createStartCommand(
             });
         }
 
+        // mt#1738: wire the SubagentDispatchTracker singleton so debug.systemInfo
+        // returns real dispatch cadence aggregates instead of the zero-filled
+        // no-op defaults. The call is fire-and-forget — if the DB is unavailable,
+        // the singleton stays as the no-op tracker and subagentDispatches returns
+        // zero-filled aggregates (graceful degradation).
+        if (container) {
+          buildSubagentDispatchTracker(container)
+            .then((wired) => {
+              if (wired) {
+                log.debug("[mt#1738] SubagentDispatchTracker wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#1738] SubagentDispatchTracker unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
         // Register knowledge MCP resources on the server
         registerKnowledgeResources(server, container);
         profileCheckpoint("knowledge_resources_registered");
@@ -960,6 +1109,10 @@ export function createStartCommand(
                 } catch {
                   oauthConfig = undefined;
                 }
+                // mt#1719 Intervention 2: function-local dynamic import.
+                // OAuth provider pulls in oidc-provider + Koa middleware
+                // closure; deferring keeps it off the stdio import graph.
+                const { resolveOAuthProvider } = await import("../../domain/oauth/registry");
                 oauthProvider = resolveOAuthProvider(oauthConfig, {
                   db,
                   endpointPath: normalizeEndpointPath(options.endpoint),
@@ -978,6 +1131,12 @@ export function createStartCommand(
 
         // Launch inspector if requested
         if (options.withInspector) {
+          // mt#1719 Intervention 2: function-local dynamic import. Inspector
+          // launcher is only needed when --with-inspector is passed; deferring
+          // keeps it off every other invocation's import graph.
+          const { launchInspector, isInspectorAvailable } = await import(
+            "../../mcp/inspector-launcher"
+          );
           if (!isInspectorAvailable()) {
             log.cliError(
               "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"

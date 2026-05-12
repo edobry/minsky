@@ -17,6 +17,8 @@ This file is the **policy corpus** that the mt#1541 policy-coverage detector (Su
 
 When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
 
+**Scope note (added 2026-05-12):** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy` below). Conflating the two is the policy-laundering pattern from `feedback_build_vs_buy_default_for_non_core`.
+
 **Generic-SE override:** "use Redis for queues, MinIO for blob storage, Mongo for documents, polyglot persistence." See `feedback_postgres_default_datastore`.
 
 ## Reliability: sweeper, not durable queue
@@ -74,6 +76,55 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 **Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
 
+## Build vs buy: default to buy for non-core capabilities
+
+When considering whether to build a capability in-house vs adopt an existing tool: **for any capability that is not Minsky's core differentiating value-add, the default is buy (or use existing OSS)**, not build. Minsky's core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer. Auxiliary capabilities — LLM observability, analytics, eval UIs, dashboards, CI infrastructure, tracing platforms, prompt-management UIs — are **not** the core. Building any of these consumes engineering time that does not advance Minsky's value.
+
+The bar to flip the default (from buy to build) requires all four:
+
+1. **Core relevance** — the capability is part of Minsky's distinctive value, not an industry-standard auxiliary
+2. **No mature option** — at least 3 mature OSS/SaaS options have been evaluated against concrete needs, each failing on a named requirement
+3. **Build cost ≪ ongoing buy cost** — quantified at our scale, not estimated
+4. **Strategic ownership** — clear product reason to own the capability (differentiator, unique integration with Minsky structures)
+
+**Generic-SE override:** "build from scratch is the safe / principled / open-source-pure / no-vendor-lock-in choice." That bias treats engineering time as free; it isn't. Engineering time is the scarcest resource for a small team; every hour spent building auxiliary infra is an hour not spent on Minsky core.
+
+**Specific biases to watch for in self:**
+
+1. **Policy-laundering at recommendation-time** — invoking `§Datastores: Postgres-via-Supabase by default` to justify building auxiliary analytics on Postgres. That policy is about Minsky's **source-of-truth state**, NOT about observability / analytics / event sinks. Observability data has near-zero lock-in cost (OTel is the wire standard; switching backends is an afternoon). Conflating the two is the confabulation pattern from `feedback_confabulated_strategic_frame_to_justify_tactical_preference`. "Recommending the cheaper-or-faster option AND describing it as 'principled'" is the tell.
+
+2. **Build-path-as-research at action-execution-time** (added 2026-05-12 R2): "use existing signals" / "capture from logs" / "extend in-house schemas (mt#1306, mt#1110, etc.)" / "grep what's already there" reads as research-discipline but is functionally the build path. Extracting from `/tmp/<hook>.log` or GitHub API by hand instead of adopting a tool that ingests the same data with a UI is the same substitution shape as policy-laundering, but operates at action-execution-time rather than recommendation-time. The corpus rule fires at recommendation; this anti-pattern slips past during action-now execution. Originating incident: 2026-05-12 PR #1073 was shipped using grep-of-logs as the baseline substrate while skipping the user-sequenced observability-platform-evaluation step. Triggered by "do it now" action-bias.
+
+**Anti-pattern checklist before recommending OR executing build:**
+
+- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance) before recommending?
+- [ ] Did I evaluate ≥3 mature OSS/SaaS options with concrete cost / feature comparison, not just name them?
+- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation from scratch.
+- [ ] Is my "principled" framing actually preference-laundering? (If the principled story arrived AFTER the build preference, it's laundering.)
+- [ ] **At action-execution time:** is my chosen first action "extract from existing in-house data"? If yes, I'm in the build path — the SaaS evaluation step was skipped. Stop, restate the user's plan, name the skipped step.
+- [ ] **At action-execution time:** if the user gave multi-step direction and then said "do it now," did I restate the steps and identify which one is next BEFORE my first tool call? (See `§Multi-step direction execution` below.)
+
+**Originating incidents:**
+
+- 2026-05-12 R1 (recommendation-time): recommended "build narrow on Postgres" for context-economics measurement (mt#1776) across three turns despite mature community OSS+SaaS options. See `feedback_build_vs_buy_default_for_non_core`.
+- 2026-05-12 R2 (action-execution-time): even after the R1 fix landed in this rule, executed on "do it now" by skipping the user-sequenced platform-evaluation step and reverting to in-house data extraction. See `feedback_build_path_as_research_at_action_time`.
+
+## Multi-step direction execution
+
+When the user provides multi-step direction (e.g., "X first, then Y, then Z" or "before doing W, do V") AND a later prompt contains action-now language (e.g., "do it now," "proceed," "go," "why not do it now?"): the agent MUST, before any tool call that would advance the plan:
+
+1. **Restate the multi-step plan** as understood, in one line per step.
+2. **Identify the next step explicitly** — which step is up, why this step and not another.
+3. **Name any skipped step** — if proceeding with a step that's not the named "next," explain why; if the cheapest immediate action skips a more expensive prerequisite step the user named, this is the signal to stop and confirm rather than proceed.
+
+Action-now language is permission to act, NOT permission to compress steps. Compression that drops user-named prerequisites is the failure mode this rule prevents.
+
+**Generic-SE override:** "act on the most recent direction; treat earlier direction as context." That heuristic works for single-step direction but collapses multi-step plans into action-bias.
+
+**Originating incident:** 2026-05-12 R2. User said "implement observability tool first, use the hook tuning as its first test case" then "do it now." I executed the hook tune (cheap, immediate) and skipped the observability tool selection (expensive, requires user account creation). The multi-step plan compressed to the cheapest step in flight.
+
+**Structural escalation target:** filed as separate task — a skill-step in `/orchestrate` or `/implement-task` that fires when prior-turn user direction includes sequencing keywords AND current-turn includes action-now keywords. Until that ships, the rule is checklist-driven discipline.
+
 ## How this is enforced
 
 Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
@@ -89,3 +140,7 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1035 — System 3\* detector design (defines the consumer of this corpus)
 - mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
 - mt#1508 — the audit task that produced this corpus
+- `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy` R1
+- `feedback_build_path_as_research_at_action_time` — originating memory for R2 (action-execution-time slice)
+- `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
+- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern

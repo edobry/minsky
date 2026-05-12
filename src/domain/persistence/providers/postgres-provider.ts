@@ -317,7 +317,7 @@ export class PostgresVectorPersistenceProvider
     try {
       const result = await this.sql`
         SELECT EXISTS (
-          SELECT 1 FROM pg_extension WHERE extname = 'vector'  
+          SELECT 1 FROM pg_extension WHERE extname = 'vector'
         ) as exists
       `;
 

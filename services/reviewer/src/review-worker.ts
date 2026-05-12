@@ -45,11 +45,15 @@ import {
   createOctokit,
   fetchPriorReviews,
   fetchPullRequestContext,
+  fetchReviewThreads,
   getAppIdentity,
   listDirectoryAtRef,
   readFileAtRef,
+  resolveThread,
   submitReview,
   type PullRequestContext,
+  type ReviewInlineComment,
+  type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
 import type { ReviewerDb } from "./db/client";
@@ -700,6 +704,23 @@ export async function runReview(
     priorFlatFindings = [];
   }
 
+  // Fetch review threads (mt#1345): provides existing inline thread state to
+  // the model so it can reply to existing threads rather than opening duplicates.
+  // Non-blocking — returns [] on any error (graceful degradation like prior reviews).
+  // Only fetch when output tools are likely active; for non-OpenAI providers the
+  // thread context is informational but not yet wired into the prompt.
+  let reviewThreads: ReviewThread[] = [];
+  try {
+    reviewThreads = await fetchReviewThreads(octokit, owner, repo, prNumber);
+  } catch (err: unknown) {
+    // fetchReviewThreads already degrades gracefully internally; this outer
+    // catch is a safety net for any unexpected throw from the wiring.
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[mt#1345] Review-thread fetch failed, continuing without thread context: ${message}`
+    );
+  }
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
@@ -710,6 +731,7 @@ export async function runReview(
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
     priorReviews: priorReviewsMarkdown || undefined,
+    reviewThreads: reviewThreads.length > 0 ? reviewThreads : undefined,
   });
 
   // Construct the tool context for this PR's HEAD ref. The model can use these
@@ -986,6 +1008,19 @@ export async function runReview(
     }
 
     const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
+
+    // Map composed inline comments (file/line/body/inReplyTo) to the shape
+    // expected by submitReview's new inlineComments parameter (mt#1345).
+    const inlineCommentsForSubmit: ReviewInlineComment[] | undefined =
+      composed.inlineComments.length > 0
+        ? composed.inlineComments.map((c) => ({
+            path: c.file,
+            line: c.line,
+            body: c.body,
+            ...(c.inReplyTo !== undefined ? { inReplyTo: c.inReplyTo } : {}),
+          }))
+        : undefined;
+
     const review = await submitReview(
       octokit,
       owner,
@@ -993,8 +1028,66 @@ export async function runReview(
       prNumber,
       event,
       reviewBody,
-      config.githubTimeoutMs
+      config.githubTimeoutMs,
+      inlineCommentsForSubmit
     );
+
+    // Thread-resolve loop (mt#1345): after posting the review, resolve threads
+    // that the model marked as fixed. Guard: only resolve threads whose first
+    // comment was authored by the reviewer bot itself — never auto-resolve
+    // threads opened by humans. The guard is applied here (not in the model
+    // prompt alone) as a structural safety net.
+    if (composed.threadResolves.length > 0) {
+      const reviewerBotLogin = reviewerIdentity.login;
+      // Build a lookup from threadId → first-comment author from the fetched threads.
+      const threadAuthorMap = new Map<string, string | null>();
+      for (const t of reviewThreads) {
+        threadAuthorMap.set(t.id, t.comments[0]?.author ?? null);
+      }
+
+      for (const entry of composed.threadResolves) {
+        const firstAuthor = threadAuthorMap.get(entry.threadId);
+        // Allow resolve only when the first comment is ours.
+        if (firstAuthor !== reviewerBotLogin) {
+          console.log(
+            JSON.stringify({
+              event: "reviewer.thread_resolve_skipped",
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              sha: pr.headSha,
+              threadId: entry.threadId,
+              firstAuthor,
+              reason: "human-thread guard: first comment not from reviewer bot",
+            })
+          );
+          continue;
+        }
+
+        try {
+          await resolveThread(octokit, entry.threadId);
+          console.log(
+            JSON.stringify({
+              event: "reviewer.thread_resolved",
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              sha: pr.headSha,
+              threadId: entry.threadId,
+              modelReason: entry.reason,
+            })
+          );
+        } catch (resolveErr: unknown) {
+          const message = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+          console.log(
+            JSON.stringify({
+              event: "reviewer.thread_resolve_failed",
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              sha: pr.headSha,
+              threadId: entry.threadId,
+              error: message,
+            })
+          );
+          // Non-fatal: resolve failure should not abort the review result.
+        }
+      }
+    }
 
     const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce(
       (acc, n) => acc + n,
