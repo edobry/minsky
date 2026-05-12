@@ -241,16 +241,17 @@ class AuthorizationCodeAdapter implements OidcAdapter {
     const codeHash = sha256(id);
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const audience = Array.isArray(payload.resource)
-      ? payload.resource[0]
-      : (payload.resource as string | undefined);
+    const audience = Array.isArray(payload.audience)
+      ? (payload.audience as string[])[0]
+      : (((payload.audience ?? payload.resource) as string | undefined) ??
+        (Array.isArray(payload.resource) ? (payload.resource as string[])[0] : undefined));
 
     await this.db
       .insert(oauthAuthorizationCodesTable)
       .values({
         codeHash,
         clientId: payload.clientId as string,
-        sub: payload.accountId as string,
+        sub: (payload.sub ?? payload.accountId) as string,
         redirectUri: payload.redirectUri as string,
         scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
         audience: audience ?? null,
@@ -264,7 +265,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
         target: oauthAuthorizationCodesTable.codeHash,
         set: {
           clientId: payload.clientId as string,
-          sub: payload.accountId as string,
+          sub: (payload.sub ?? payload.accountId) as string,
           redirectUri: payload.redirectUri as string,
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
@@ -340,16 +341,17 @@ class AccessTokenAdapter implements OidcAdapter {
     const tokenHash = sha256(id);
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const audience = Array.isArray(payload.resource)
-      ? payload.resource[0]
-      : (payload.resource as string | undefined);
+    const audience = Array.isArray(payload.audience)
+      ? (payload.audience as string[])[0]
+      : (((payload.audience ?? payload.resource) as string | undefined) ??
+        (Array.isArray(payload.resource) ? (payload.resource as string[])[0] : undefined));
 
     await this.db
       .insert(oauthAccessTokensTable)
       .values({
         tokenHash,
         clientId: payload.clientId as string,
-        sub: payload.accountId as string,
+        sub: (payload.sub ?? payload.accountId) as string,
         scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
         audience: audience ?? null,
         expiresAt,
@@ -360,7 +362,7 @@ class AccessTokenAdapter implements OidcAdapter {
         target: oauthAccessTokensTable.tokenHash,
         set: {
           clientId: payload.clientId as string,
-          sub: payload.accountId as string,
+          sub: (payload.sub ?? payload.accountId) as string,
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
           expiresAt,
@@ -426,16 +428,17 @@ class RefreshTokenAdapter implements OidcAdapter {
     const tokenHash = sha256(id);
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const audience = Array.isArray(payload.resource)
-      ? payload.resource[0]
-      : (payload.resource as string | undefined);
+    const audience = Array.isArray(payload.audience)
+      ? (payload.audience as string[])[0]
+      : (((payload.audience ?? payload.resource) as string | undefined) ??
+        (Array.isArray(payload.resource) ? (payload.resource as string[])[0] : undefined));
 
     await this.db
       .insert(oauthRefreshTokensTable)
       .values({
         tokenHash,
         clientId: payload.clientId as string,
-        sub: payload.accountId as string,
+        sub: (payload.sub ?? payload.accountId) as string,
         scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
         audience: audience ?? null,
         expiresAt,
@@ -447,7 +450,7 @@ class RefreshTokenAdapter implements OidcAdapter {
         target: oauthRefreshTokensTable.tokenHash,
         set: {
           clientId: payload.clientId as string,
-          sub: payload.accountId as string,
+          sub: (payload.sub ?? payload.accountId) as string,
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
           expiresAt,
