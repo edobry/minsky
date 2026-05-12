@@ -7,8 +7,6 @@ description: >-
   applying the design + engineering + IA bundle, or rebuilding widgets on the
   new stack.
 model: sonnet
-skills:
-  - cockpit-design
 ---
 
 # cockpit-dev — agent prompt
