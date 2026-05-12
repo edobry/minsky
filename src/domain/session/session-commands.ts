@@ -358,7 +358,14 @@ export async function sessionCommit(
             // a future regex regression were to admit a leading-`-`
             // value. SAFE_REF_RE already forbids leading `-`; this
             // keeps the call safe under any validator drift.
-            const out = await casGitService.execInRepository(dir, `git rev-parse -- "${ref}"`);
+            // mt#1742 R1: wrap `ref` with safeShellQuote rather than relying on
+            // the doc-asserted SAFE_REF_RE validation at this call site. Same
+            // shell-safety class as the commit-message fix; consistency at
+            // every interpolation in this file's git templates.
+            const out = await casGitService.execInRepository(
+              dir,
+              `git rev-parse -- ${safeShellQuote(ref)}`
+            );
             const sha = out.trim();
             return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
           } catch {

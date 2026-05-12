@@ -110,6 +110,67 @@ describe("commitImpl shell-safety (mt#1742)", () => {
     expect(cmd).toContain("--amend");
     expect(cmd).toContain("-m 'msg'");
   });
+
+  // ---------------------------------------------------------------------------
+  // PR #1058 R1 — workdir interpolation must also be single-quoted
+  // ---------------------------------------------------------------------------
+  //
+  // R1 BLOCKING #1 + #2: the message was single-quoted but workdir was left
+  // unquoted, which (a) breaks on paths containing spaces and (b) is
+  // inconsistent with the PR's shell-safety framing. The R1 fix wraps
+  // workdir at every interpolation site in `commitImpl` (and the sibling
+  // `commitWithDepsImpl`). These tests pin the new quoting.
+
+  test("workdir with spaces is single-quoted in the commit command (R1 #1)", async () => {
+    const { execAsync, calls } = makeFakeExecAsync();
+    const workdirWithSpaces = "/Users/me/path with spaces/session";
+
+    await commitImpl(execAsync, "msg", workdirWithSpaces);
+
+    const cmd = findCommitCommand(calls);
+    // Post-R1: `git -C '/Users/me/path with spaces/session' commit ... -m 'msg'`
+    expect(cmd).toContain(`git -C '${workdirWithSpaces}' commit`);
+    // Pre-R1 shape — workdir unquoted — must be ABSENT:
+    expect(cmd).not.toContain(`git -C ${workdirWithSpaces} commit`);
+  });
+
+  test("workdir with shell metacharacters is single-quoted (R1 #1)", async () => {
+    const { execAsync, calls } = makeFakeExecAsync();
+    // Pathological workdir that would corrupt the command if unquoted:
+    // - Backticks would trigger substitution (the exact mt#1742 root cause class)
+    // - $VAR would expand
+    // - Spaces would split the argument
+    const evilWorkdir = "/tmp/`bun install`/$HOME/work dir";
+
+    await commitImpl(execAsync, "msg", evilWorkdir);
+
+    const cmd = findCommitCommand(calls);
+    expect(cmd).toContain(`git -C '${evilWorkdir}' commit`);
+  });
+
+  test("log-fallback path also quotes workdir (R1 #1, extractCommitHash regression)", async () => {
+    // The commitImpl log-fallback (extractCommitHash → `git log -1`) was a
+    // second unquoted workdir site in the same function. R1 fix extends to
+    // every interpolation in the function body, not just the commit line.
+    const { execAsync, calls } = makeFakeExecAsync(
+      // Force extractCommitHash to fall back to `git log -1` by returning
+      // commit stdout that contains no SHA:
+      "no SHA in this output\n"
+    );
+    const workdirWithSpaces = "/Users/me/path with spaces/session";
+
+    await commitImpl(execAsync, "msg", workdirWithSpaces);
+
+    const logCall = calls.find((c) => c.command.includes("log -1"));
+    if (!logCall) {
+      throw new Error(
+        `expected commitImpl to fall back to 'git log -1'; captured: ${JSON.stringify(
+          calls.map((c) => c.command)
+        )}`
+      );
+    }
+    expect(logCall.command).toContain(`git -C '${workdirWithSpaces}' log -1`);
+  });
 });
 
 /**

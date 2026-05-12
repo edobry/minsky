@@ -79,10 +79,12 @@ export async function commitImpl(
   try {
     // mt#1742: commit messages can contain markdown backticks, $-prefixed
     // identifiers, and other shell metacharacters. `safeShellQuote` wraps
-    // the message in POSIX single quotes so /bin/sh -c does not perform
-    // command substitution or variable expansion on its contents.
+    // both the message AND the workdir in POSIX single quotes so /bin/sh -c
+    // does not perform command substitution or variable expansion on either.
+    // PR #1058 R1: extended workdir quoting per class-not-instance — same
+    // shell-safety treatment for every interpolation in this template.
     ({ stdout, stderr } = await execAsync(
-      `git -C ${workdir} commit ${amendFlag} -m ${safeShellQuote(message)}`
+      `git -C ${safeShellQuote(workdir)} commit ${amendFlag} -m ${safeShellQuote(message)}`
     ));
   } catch (err: unknown) {
     if (classifyNothingToCommit(err)) {
@@ -92,7 +94,9 @@ export async function commitImpl(
   }
 
   return extractCommitHash(stdout, stderr, async () => {
-    const { stdout: logOutput } = await execAsync(`git -C ${workdir} log -1 --pretty=format:%H`);
+    const { stdout: logOutput } = await execAsync(
+      `git -C ${safeShellQuote(workdir)} log -1 --pretty=format:%H`
+    );
     return logOutput;
   });
 }
