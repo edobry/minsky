@@ -218,7 +218,7 @@ export interface SubmittedReview {
 /**
  * A single inline comment to submit as part of a review.
  * When `inReplyTo` is set this comment is a reply to an existing comment;
- * GitHub anchors it to the parent comment's location (path/line are ignored).
+ * GitHub anchors it to the parent comment's location (path/line/side are ignored).
  */
 export interface ReviewInlineComment {
   /** File path of the comment anchor (relative to repo root). */
@@ -227,6 +227,14 @@ export interface ReviewInlineComment {
   line: number;
   /** Comment body text. */
   body: string;
+  /**
+   * Which side of the diff the line refers to. Defaults to `"RIGHT"` (the new
+   * version of the file). GitHub's `pulls.createReview` requires `side` when
+   * anchoring by `line` — defaulting is not guaranteed, so we always send it
+   * when `inReplyTo` is undefined. When `inReplyTo` IS set GitHub anchors via
+   * the parent comment and ignores `side`.
+   */
+  side?: "LEFT" | "RIGHT";
   /**
    * When present, this comment is a reply to the existing review comment with
    * this database ID. Obtain the ID from `fetchReviewThreads` comments[].databaseId.
@@ -250,16 +258,22 @@ export async function submitReview(
   // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal via request: { signal }.
   const response = await withTimeout("github.pulls.createReview", timeoutMs, (signal) => {
     // Map inlineComments to the Octokit comments[] shape.
-    // When inReplyTo is set, GitHub ignores path/position and anchors the reply
-    // to the parent comment's location.
+    //
+    // Two branches per comment (PR #1069 R1 BLOCKING #2):
+    //   - inReplyTo set: GitHub anchors via the parent comment; omit
+    //     path/line/side from the payload. Only body + in_reply_to are
+    //     required.
+    //   - inReplyTo NOT set: top-level comment anchored by file+line+side.
+    //     side defaults to "RIGHT" because the GitHub API does not guarantee
+    //     a default; sending without it risks a 422 that rejects the entire
+    //     review payload.
     const comments =
       inlineComments !== undefined && inlineComments.length > 0
-        ? inlineComments.map((c) => ({
-            path: c.path,
-            line: c.line,
-            body: c.body,
-            ...(c.inReplyTo !== undefined ? { in_reply_to: c.inReplyTo } : {}),
-          }))
+        ? inlineComments.map((c) =>
+            c.inReplyTo !== undefined
+              ? { body: c.body, in_reply_to: c.inReplyTo }
+              : { path: c.path, line: c.line, side: c.side ?? "RIGHT", body: c.body }
+          )
         : undefined;
 
     return octokit.rest.pulls.createReview({

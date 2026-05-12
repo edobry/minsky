@@ -483,8 +483,10 @@ Review this PR per the Critic Constitution. Remember: you are the adversarial re
  * reply to them (via submit_inline_comment inReplyTo) instead of opening
  * duplicates, and resolve them (via submit_thread_resolve) when fixed.
  *
- * Only unresolved, non-outdated threads with at least one comment are included.
- * The first comment's databaseId is shown so the model can use it as inReplyTo.
+ * Only unresolved, non-outdated threads are included (GitHub's GraphQL
+ * `reviewThreads.nodes[].comments` always contains at least one comment, so
+ * no explicit empty-comments filter is needed). The first comment's
+ * databaseId is shown so the model can use it as inReplyTo.
  *
  * Exported for tests.
  */

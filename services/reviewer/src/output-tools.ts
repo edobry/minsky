@@ -86,8 +86,8 @@ export const SubmitInlineCommentArgsSchema = z.object({
 
   /**
    * When replying to an existing review-thread comment, set this to the parent
-   * comment's database ID. Obtain from `reviewThreads[].comments[].id` (the
-   * numeric REST databaseId) in the context provided by the worker.
+   * comment's database ID. Obtain from `reviewThreads[].comments[].databaseId`
+   * (the numeric REST id) in the context provided by the worker.
    *
    * When present, GitHub anchors the reply to the parent thread — the `file`
    * and `line` fields on this comment are ignored by the GitHub API.
@@ -274,7 +274,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "questions, or suggestions that do not warrant a full finding entry. " +
         "For issues that block merge, use submit_finding with severity BLOCKING instead. " +
         "When replying to an existing review thread from a prior round, set inReplyTo to the " +
-        "parent comment's numeric ID (from reviewThreads[].comments[].id in context). " +
+        "parent comment's numeric ID (from reviewThreads[].comments[].databaseId in context). " +
         "Using inReplyTo keeps the conversation incremental rather than opening duplicate threads.",
       parameters: {
         type: "object",
@@ -299,7 +299,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             minimum: 1,
             description:
               "If replying to an existing review-thread comment, the parent comment's numeric " +
-              "database ID. From `reviewThreads[].comments[].id` in context. When set, file " +
+              "database ID. From `reviewThreads[].comments[].databaseId` in context. When set, file " +
               "and line are ignored by GitHub — the reply anchors to the parent thread.",
           },
         },

@@ -24,6 +24,7 @@ import {
   MAX_FILES_FETCHED,
   fetchReviewThreads,
   resolveThread,
+  submitReview,
 } from "./github-client";
 
 // ---------------------------------------------------------------------------
@@ -624,5 +625,157 @@ describe("resolveThread", () => {
     const octokit = { graphql: graphqlMock } as unknown as Octokit;
 
     await expect(resolveThread(octokit, "PRRT_kwDOX1")).rejects.toThrow("Not authorized");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// submitReview tests (PR #1069 R1 BLOCKING #2 — Octokit payload shape)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a minimal fake Octokit that exposes only `rest.pulls.createReview`
+ * as a mock. The mock returns the response shape `submitReview` reads
+ * (`{ data: { id, html_url } }`). Tests inspect the call args.
+ */
+function buildFakeCreateReviewOctokit() {
+  const createReviewMock = mock(
+    async (_args: unknown): Promise<{ data: { id: number; html_url: string } }> => ({
+      data: { id: 999, html_url: "https://example/pr/1#pullrequestreview-999" },
+    })
+  );
+  const octokit = {
+    rest: {
+      pulls: {
+        createReview: createReviewMock,
+      },
+    },
+  } as unknown as Octokit;
+  return { octokit, createReviewMock };
+}
+
+describe("submitReview", () => {
+  // Guard message used when narrowing `args.comments` after asserting it's defined.
+  // Tests assert `expect(comments).toBeDefined()` before this throw — the throw is
+  // a TypeScript-narrowing convenience, not an expected runtime path in passing tests.
+  const COMMENTS_MISSING = "comments missing";
+
+  test("top-level inline comment payload includes side='RIGHT' default + path + line + body, no in_reply_to", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "src/foo.ts", line: 42, body: "issue here" },
+    ]);
+
+    expect(createReviewMock.mock.calls).toHaveLength(1);
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    expect(comments).toBeDefined();
+    expect(comments).toHaveLength(1);
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    const c = comments[0];
+    expect(c).toEqual({
+      path: "src/foo.ts",
+      line: 42,
+      side: "RIGHT",
+      body: "issue here",
+    });
+  });
+
+  test("top-level inline comment honors explicit side='LEFT'", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "src/foo.ts", line: 42, side: "LEFT", body: "issue here" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments[0]).toEqual({
+      path: "src/foo.ts",
+      line: 42,
+      side: "LEFT",
+      body: "issue here",
+    });
+  });
+
+  test("reply comment (inReplyTo set) payload contains only body + in_reply_to, no path/line/side", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "COMMENT", "body", undefined, [
+      { path: "src/foo.ts", line: 42, body: "still applies", inReplyTo: 12345 },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]).toEqual({
+      body: "still applies",
+      in_reply_to: 12345,
+    });
+  });
+
+  test("mixed array produces both top-level and reply shapes correctly", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "REQUEST_CHANGES", "body", undefined, [
+      { path: "a.ts", line: 1, body: "new finding" },
+      { path: "b.ts", line: 2, body: "reply", inReplyTo: 555 },
+      { path: "c.ts", line: 3, body: "another new finding", side: "LEFT" },
+    ]);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as {
+      comments?: Array<Record<string, unknown>>;
+    };
+    const comments = args.comments;
+    if (!comments) throw new Error(COMMENTS_MISSING);
+    expect(comments).toHaveLength(3);
+
+    // First: top-level, default side
+    expect(comments[0]).toEqual({
+      path: "a.ts",
+      line: 1,
+      side: "RIGHT",
+      body: "new finding",
+    });
+
+    // Second: reply, only body + in_reply_to
+    expect(comments[1]).toEqual({
+      body: "reply",
+      in_reply_to: 555,
+    });
+
+    // Third: top-level, explicit LEFT side
+    expect(comments[2]).toEqual({
+      path: "c.ts",
+      line: 3,
+      side: "LEFT",
+      body: "another new finding",
+    });
+  });
+
+  test("empty inline comments array → no comments field in Octokit payload", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "APPROVE", "body", undefined, []);
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
+  });
+
+  test("undefined inline comments → no comments field in Octokit payload", async () => {
+    const { octokit, createReviewMock } = buildFakeCreateReviewOctokit();
+
+    await submitReview(octokit, "owner", "repo", 1, "APPROVE", "body");
+
+    const args = createReviewMock.mock.calls[0]?.[0] as { comments?: unknown };
+    expect(args.comments).toBeUndefined();
   });
 });
