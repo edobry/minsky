@@ -250,7 +250,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
       .values({
         codeHash,
         clientId: payload.clientId as string,
-        sub: payload.sub as string,
+        sub: payload.accountId as string,
         redirectUri: payload.redirectUri as string,
         scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
         audience: audience ?? null,
@@ -263,7 +263,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
         target: oauthAuthorizationCodesTable.codeHash,
         set: {
           clientId: payload.clientId as string,
-          sub: payload.sub as string,
+          sub: payload.accountId as string,
           redirectUri: payload.redirectUri as string,
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
@@ -351,7 +351,7 @@ class AccessTokenAdapter implements OidcAdapter {
       .values({
         tokenHash,
         clientId: payload.clientId as string,
-        sub: payload.sub as string,
+        sub: payload.accountId as string,
         scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
         audience: audience ?? null,
         expiresAt,
@@ -361,7 +361,7 @@ class AccessTokenAdapter implements OidcAdapter {
         target: oauthAccessTokensTable.tokenHash,
         set: {
           clientId: payload.clientId as string,
-          sub: payload.sub as string,
+          sub: payload.accountId as string,
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
           expiresAt,
@@ -441,7 +441,7 @@ class RefreshTokenAdapter implements OidcAdapter {
       .values({
         tokenHash,
         clientId: payload.clientId as string,
-        sub: payload.sub as string,
+        sub: payload.accountId as string,
         scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
         audience: audience ?? null,
         expiresAt,
@@ -452,7 +452,7 @@ class RefreshTokenAdapter implements OidcAdapter {
         target: oauthRefreshTokensTable.tokenHash,
         set: {
           clientId: payload.clientId as string,
-          sub: payload.sub as string,
+          sub: payload.accountId as string,
           scopes: JSON.stringify((payload.scope ?? "").split(" ").filter(Boolean)),
           audience: audience ?? null,
           expiresAt,
