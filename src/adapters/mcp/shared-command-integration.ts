@@ -133,6 +133,19 @@ export interface McpSharedCommandConfig {
       spec?: string;
       /** Hide command from MCP */
       hidden?: boolean;
+      /**
+       * Per-argument defaults applied at the MCP layer only (mt#1786).
+       *
+       * Merged into the caller's args before parameter conversion: any key in
+       * `argDefaults` whose value the caller did not provide is filled in from
+       * here. Explicit caller values always win. This is how MCP-only defaults
+       * are expressed without changing the underlying shared command's CLI
+       * behavior (which doesn't read this field).
+       *
+       * Used by `tasks.list` to default `limit: 50` so a default MCP call
+       * returns a digestible result instead of the full active-task list.
+       */
+      argDefaults?: Record<string, unknown>;
     }
   >;
   /** Whether to enable debug logging */
@@ -294,8 +307,23 @@ export function registerSharedCommandsWithMcp(
               context: redact(safeCtx),
             });
 
-            // Convert MCP args to expected parameter format
-            const filteredArgs = { ...args };
+            // Convert MCP args to expected parameter format.
+            //
+            // Apply MCP-only argDefaults (mt#1786) BEFORE conversion: each key
+            // from the override's argDefaults is filled in only when the caller
+            // omitted it. Explicit caller values always win. This lets the MCP
+            // adapter shape default behavior (e.g., default `tasks.list` to
+            // `limit: 50`) without affecting CLI defaults defined on the
+            // underlying shared command.
+            const filteredArgs: Record<string, unknown> = { ...args };
+            const argDefaults = overrides?.argDefaults;
+            if (argDefaults) {
+              for (const [key, value] of Object.entries(argDefaults)) {
+                if (filteredArgs[key] === undefined) {
+                  filteredArgs[key] = value;
+                }
+              }
+            }
             log.debug(`[MCP] Processing args: ${command.id}`, {
               filteredArgs: redact(filteredArgs),
             });

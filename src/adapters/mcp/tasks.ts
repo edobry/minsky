@@ -26,7 +26,17 @@ export function registerTaskTools(
     debug: true,
     commandOverrides: {
       "tasks.list": {
-        description: "List all tasks in the current repository",
+        description:
+          "List active tasks (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW). " +
+          "Default: up to 50 tasks; pass `limit` to override or `all: true` " +
+          "to include DONE/CLOSED history. Use `status` to filter to a single " +
+          "status.",
+        // mt#1786: MCP-only defaults. The full active-task list is ~440 rows
+        // and ~84KB serialized — too large for a default tool response in a
+        // fresh Claude Desktop / Claude Code session. The CLI's default
+        // behavior is intentionally unchanged (the field is only consumed by
+        // the MCP adapter); CLI users page via the terminal.
+        argDefaults: { limit: 50 },
       },
       "tasks.get": {
         description: "Get a specific task by ID",
