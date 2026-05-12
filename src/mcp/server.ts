@@ -105,6 +105,29 @@ export interface MinskyMCPServerOptions {
 }
 
 // Tool definitions for MCP server
+/**
+ * mt#1751: Tools that demonstrably don't touch DI services — these skip the
+ * `initPromise` await in the CallTool handler. Currently covers the three
+ * debug commands routed through the shared-command bridge (which doesn't
+ * thread the `requiresInit` field). Add to this set, or set
+ * `requiresInit: false` on the ToolDefinition directly, when you've verified
+ * a tool's handler does not call `container.get(...)` or otherwise depend on
+ * a resolved DI service.
+ *
+ * Tool names are matched against `request.params.name` exactly. The
+ * shared-command bridge registers debug tools with **dotted** IDs (e.g.,
+ * `debug.listMethods` — see `src/adapters/shared/commands/debug.ts`), and
+ * `CommandMapper.normalizeMethodName` (`src/mcp/command-mapper.ts:42`)
+ * preserves dots, so the protocol-level tool name keeps the dot. We list
+ * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
+ * underscore names — `debug_echo` — and the allowlist never matched.)
+ */
+const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "debug.echo",
+  "debug.listMethods",
+  "debug.systemInfo",
+]);
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -117,6 +140,18 @@ export interface ToolDefinition {
    * Read-only tools leave this unset or set it to false.
    */
   mutating?: boolean;
+  /**
+   * mt#1751: when explicitly `false`, this tool does NOT require the DI
+   * container to be initialized — the CallTool handler skips the init
+   * await for it. Default (unset/`true`) is to await DI init, which is
+   * the safe choice for any tool that calls `container.get(...)`.
+   *
+   * Opt out only for tools that demonstrably do not touch DI services
+   * (e.g. `debug_echo`, `debug_listMethods`). Mis-opting-out a tool that
+   * does need DI would surface as a "Service ... is not available"
+   * runtime error on first call before background init completes.
+   */
+  requiresInit?: boolean;
 }
 
 interface ResourceDefinition {
@@ -175,6 +210,17 @@ export class MinskyMCPServer {
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  /**
+   * mt#1751: DI initialization promise. When set via `setInitPromise`, every
+   * CallTool dispatch awaits this promise before invoking the tool handler.
+   * The MCP `initialize` handshake and `tools/list` do NOT await it (they
+   * don't need persistence) — only tool execution does. This lets the server
+   * accept the initialize handshake while DI runs in the background.
+   *
+   * Null in HTTP mode (init runs synchronously via preAction) and in tests
+   * that pre-populate the container.
+   */
+  private initPromise: Promise<void> | null = null;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -764,6 +810,25 @@ export class MinskyMCPServer {
           // Read-only tools (mutating === false or unset) are allowed through.
           this.checkDriftGate(tool);
 
+          // mt#1751: await DI initialization before dispatching to the tool
+          // handler. The MCP `initialize` handshake completes before DI runs
+          // in stdio mode (so the server appears connected fast); the first
+          // DI-dependent tool call pays the cost. After the first await
+          // resolves, the promise is settled and subsequent awaits are O(1).
+          //
+          // Tools that declare `requiresInit: false` skip the await — this
+          // gates the latency to DI-dependent tools only, so read-only
+          // debug tools (`debug_echo`, `debug_listMethods`) respond
+          // immediately even if init is still in flight. The name-based
+          // allowlist below opts out specific shared-command-bridge tools
+          // that don't carry the explicit field through their registration
+          // pipeline.
+          const requiresInit =
+            tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
+          if (this.initPromise && requiresInit) {
+            await this.initPromise;
+          }
+
           const result = await tool.handler(request.params.arguments || {});
 
           // Write agentId to any touched session record (fire-and-forget, non-blocking)
@@ -971,6 +1036,25 @@ export class MinskyMCPServer {
   setWakeService(service: WakeServiceSurface, sessionResolver: WakeSessionResolver): void {
     this.wakeService = service;
     this.wakeSessionResolver = sessionResolver;
+  }
+
+  /**
+   * mt#1751: Set the DI initialization promise.
+   *
+   * When set, every CallTool dispatch awaits this promise before invoking the
+   * tool handler. The MCP `initialize` handshake and `tools/list` do NOT await
+   * it (they don't need persistence), so the server can become responsive
+   * immediately while DI runs in the background.
+   *
+   * The promise must complete in finite time and must not be cancellable —
+   * tool handlers depend on the container being fully resolved. If init
+   * fails, the rejection propagates to the first tool call.
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitPromise(p: Promise<void>): void {
+    this.initPromise = p;
   }
 
   /**

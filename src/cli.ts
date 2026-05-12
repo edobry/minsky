@@ -21,6 +21,7 @@ import { exit } from "./utils/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "./schemas/error";
 import type { AppContainerInterface } from "./composition/types";
+import { isMcpStartStdio } from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 
 /**
@@ -51,13 +52,35 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   // Initialize the container lazily via preAction hook — only when a command
   // actually executes, not during registration or help display. This defers
   // the DB connection (~1s) past Commander parsing.
-  cli.hook("preAction", async () => {
-    if (!container.has("persistence")) {
-      profileCheckpoint("preaction_before_container_init");
-      await container.initialize();
-      profileCheckpoint("preaction_after_container_init");
-      log.debug("Container initialized (lazy, on first command)");
+  //
+  // mt#1751: For `mcp start` stdio mode, skip this eager init entirely. The
+  // start-command action will kick off init in the background AFTER server
+  // construction, so the MCP `initialize` JSON-RPC handshake can complete
+  // while DI is still resolving. Tool handlers await the init promise
+  // before dispatching, so the first tool call pays the deferred cost (and
+  // subsequent calls find the container ready). This matters because the
+  // /mcp reconnect path spawns a fresh process for every reconnect — paying
+  // ~1.1s of DB connection cost before the handshake responds is the
+  // single biggest contributor to perceived cold-start latency (mt#1745
+  // measured it at 72-75% of total).
+  //
+  // Non-stdio paths (HTTP mode, all other CLI commands) keep the eager
+  // preAction init because their startup pattern is different: HTTP mode
+  // is long-lived (Profile B per mt#1720), and CLI commands typically need
+  // the container resolved before the action body runs.
+  cli.hook("preAction", async (_thisCommand, actionCommand) => {
+    if (container.has("persistence")) return;
+
+    if (isMcpStartStdio(actionCommand)) {
+      profileCheckpoint("preaction_skipped_for_mcp_stdio");
+      log.debug("Container init deferred for mcp start stdio (mt#1751)");
+      return;
     }
+
+    profileCheckpoint("preaction_before_container_init");
+    await container.initialize();
+    profileCheckpoint("preaction_after_container_init");
+    log.debug("Container initialized (lazy, on first command)");
   });
 
   // Register shared commands (session, tasks, git, rules, config, etc.)

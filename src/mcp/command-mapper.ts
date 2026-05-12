@@ -125,6 +125,14 @@ export class CommandMapper {
      * by the server when drift is detected (loaded commit !== workspace HEAD).
      */
     mutating?: boolean;
+    /**
+     * mt#1751: when explicitly `false`, this command does NOT require the DI
+     * container to be initialized — the CallTool handler skips the init
+     * await for it. Default (unset/`true`) is to await DI init, which is
+     * the safe choice for any command whose handler calls `container.get(...)`.
+     * Opt out only for handlers that demonstrably don't touch DI services.
+     */
+    requiresInit?: boolean;
   }): void {
     // Normalize the method name for JSON-RPC compatibility
     const normalizedName = this.normalizeMethodName(command.name);
@@ -149,6 +157,7 @@ export class CommandMapper {
       description: command.description,
       inputSchema,
       mutating: command.mutating,
+      requiresInit: command.requiresInit,
       handler: async (args) => {
         try {
           log.debug("Executing MCP command", {
