@@ -17,6 +17,7 @@ import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
+import { toClaudeDesktopName } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { resolveAgentId } from "../domain/agent-identity/resolve";
@@ -768,13 +769,26 @@ export class MinskyMCPServer {
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
-      return {
-        tools: Array.from(this.tools.values()).map((tool) => ({
-          name: tool.name,
+      // mt#1779: dedupe by ToolDefinition identity (dual-registration in
+      // `addTool` puts the same tool object under both dotted and underscored
+      // keys). Emit the underscored variant so Claude Desktop's frontend
+      // validator regex `^[a-zA-Z0-9_-]{1,64}$` accepts every name.
+      const seen = new Set<ToolDefinition>();
+      const tools: Array<{
+        name: string;
+        description: string;
+        inputSchema: object;
+      }> = [];
+      for (const tool of this.tools.values()) {
+        if (seen.has(tool)) continue;
+        seen.add(tool);
+        tools.push({
+          name: toClaudeDesktopName(tool.name),
           description: tool.description,
           inputSchema: tool.inputSchema || {},
-        })),
-      };
+        });
+      }
+      return { tools };
     });
 
     // Call tool
@@ -1302,11 +1316,41 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Add a tool to the server
+   * Add a tool to the server.
+   *
+   * mt#1779: Tools whose canonical name contains a dot (e.g., `tasks.list`,
+   * `session.pr.get`) are dual-registered under both the canonical name AND
+   * an underscored alias produced by `toClaudeDesktopName(name)`. Reason:
+   * Claude Desktop's frontend validator regex `^[a-zA-Z0-9_-]{1,64}$` rejects
+   * dotted names, blocking every tool call. Legacy consumers using dotted
+   * names (Reviewer service: `session.list`, `session.pr.get`) keep working
+   * because the dotted key remains in the map. Both keys point to the SAME
+   * `ToolDefinition` object, so `tool.name` (used by logs, drift gate, and
+   * `DI_FREE_TOOL_NAMES` allowlist) keeps its canonical dotted form.
+   *
+   * `tools/list` (see `setupRequestHandlers`) dedupes by ToolDefinition
+   * identity and emits the underscored variant so Claude Desktop's
+   * validator passes.
    */
   addTool(tool: ToolDefinition): void {
     this.tools.set(tool.name, tool);
-    log.debug("Added tool", { name: tool.name });
+    const desktopName = toClaudeDesktopName(tool.name);
+    if (desktopName !== tool.name) {
+      const existing = this.tools.get(desktopName);
+      if (existing && existing !== tool) {
+        log.warn("mt#1779: Claude Desktop alias collision — refusing to overwrite existing tool", {
+          canonical: tool.name,
+          desktopAlias: desktopName,
+          existing: existing.name,
+        });
+      } else {
+        this.tools.set(desktopName, tool);
+      }
+    }
+    log.debug("Added tool", {
+      name: tool.name,
+      ...(desktopName !== tool.name ? { desktopAlias: desktopName } : {}),
+    });
   }
 
   /**

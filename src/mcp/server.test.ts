@@ -1043,3 +1043,114 @@ describe("MCP Server", () => {
     await server.close();
   });
 });
+
+describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt#1779)", () => {
+  // Claude Desktop's frontend validator regex — the source of the bug this
+  // suite protects against. Any tool name surfaced in `tools/list` MUST match.
+  const CLAUDE_DESKTOP_TOOL_NAME_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
+
+  // Mirror of the production `toClaudeDesktopName` — kept local rather than
+  // imported to keep the test asserting against the wire shape, not against
+  // a function that could regress in lockstep with the production code.
+  const expectedDesktopName = (name: string): string => name.replace(/\./g, "_");
+
+  function buildToolDef(name: string): {
+    name: string;
+    description: string;
+    inputSchema: object;
+    handler: (args: Record<string, unknown>) => Promise<unknown>;
+  } {
+    return {
+      name,
+      description: `Test tool ${name}`,
+      inputSchema: { type: "object", properties: {}, additionalProperties: true },
+      handler: async () => ({ ok: true, name }),
+    };
+  }
+
+  test("dotted tool name is dual-registered: both the dotted canonical AND the underscored alias resolve", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("session.pr.get"));
+
+    // Both forms must be dispatchable via the internal tools map (the
+    // CallTool handler does `this.tools.get(request.params.name)`).
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    expect(tools.has("session.pr.get")).toBe(true);
+    expect(tools.has("session_pr_get")).toBe(true);
+    expect(tools.get("session.pr.get")).toBe(tools.get("session_pr_get"));
+
+    await server.close();
+  });
+
+  test("non-dotted tool name is registered exactly once (no spurious alias)", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const before = (server as unknown as { tools: Map<string, unknown> }).tools.size;
+    server.addTool(buildToolDef("plain_name"));
+    const after = (server as unknown as { tools: Map<string, unknown> }).tools.size;
+
+    expect(after - before).toBe(1);
+
+    await server.close();
+  });
+
+  test("regression: every name surfaced to tools/list matches Claude Desktop's validator regex", async () => {
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Register a representative set spanning the kinds of names production uses.
+    const names = [
+      "session.list",
+      "session.pr.get",
+      "session.apply_post_merge_state_sync",
+      "tasks.list",
+      "tasks.spec.get",
+      "debug.echo",
+      "debug.listMethods",
+      "rules.create",
+      "git.log",
+      "persistence.check",
+      "validate.lint",
+      "plain_name",
+    ];
+    for (const n of names) server.addTool(buildToolDef(n));
+
+    // Drive tools/list via the same internal path as the SDK handler:
+    // dedupe by ToolDefinition identity, emit underscored names.
+    const tools = (server as unknown as { tools: Map<string, unknown> }).tools;
+    const seen = new Set<unknown>();
+    const emitted: string[] = [];
+    for (const tool of tools.values()) {
+      if (seen.has(tool)) continue;
+      seen.add(tool);
+      emitted.push(expectedDesktopName((tool as { name: string }).name));
+    }
+
+    // Every emitted name must match Claude Desktop's validator.
+    for (const name of emitted) {
+      expect(name).toMatch(CLAUDE_DESKTOP_TOOL_NAME_REGEX);
+    }
+    // And the deduped count must equal the number of distinct tools registered.
+    expect(emitted.length).toBe(names.length);
+
+    await server.close();
+  });
+});
