@@ -129,14 +129,16 @@ describe("deferred-init dispatch contract — mt#1751 PR #1063 R1", () => {
     return { awaited };
   }
 
-  const DI_FREE = new Set(["debug_echo", "debug_listMethods", "debug_systemInfo"]);
+  // Names use the dotted protocol form (e.g. `debug.echo`) — see
+  // server.ts DI_FREE_TOOL_NAMES comment for why dots, not underscores.
+  const DI_FREE = new Set(["debug.echo", "debug.listMethods", "debug.systemInfo"]);
 
   test("tools/call AWAITS initPromise for a DI-requiring tool", async () => {
     let resolveInit!: () => void;
     const initPromise = new Promise<void>((r) => {
       resolveInit = r;
     });
-    const dispatchPromise = dispatch(initPromise, { name: "tasks_list" }, DI_FREE);
+    const dispatchPromise = dispatch(initPromise, { name: "tasks.list" }, DI_FREE);
 
     // Resolve init after a microtask delay — proves the dispatch is blocked.
     await new Promise((r) => setImmediate(r));
@@ -147,21 +149,21 @@ describe("deferred-init dispatch contract — mt#1751 PR #1063 R1", () => {
   });
 
   test("tools/call does NOT await when initPromise is null (HTTP-mode / already initialized)", async () => {
-    const result = await dispatch(null, { name: "tasks_list" }, DI_FREE);
+    const result = await dispatch(null, { name: "tasks.list" }, DI_FREE);
     expect(result.awaited).toBe(false);
   });
 
-  test("debug_echo (DI-free name-allowlist) does NOT await initPromise", async () => {
+  test("debug.echo (DI-free name-allowlist) does NOT await initPromise", async () => {
     const initPromise = new Promise<void>(() => {
       // never resolves — if dispatch awaited this, the test would time out
     });
-    const result = await dispatch(initPromise, { name: "debug_echo" }, DI_FREE);
+    const result = await dispatch(initPromise, { name: "debug.echo" }, DI_FREE);
     expect(result.awaited).toBe(false);
   });
 
-  test("debug_listMethods (DI-free name-allowlist) does NOT await initPromise", async () => {
+  test("debug.listMethods (DI-free name-allowlist) does NOT await initPromise", async () => {
     const initPromise = new Promise<void>(() => {});
-    const result = await dispatch(initPromise, { name: "debug_listMethods" }, DI_FREE);
+    const result = await dispatch(initPromise, { name: "debug.listMethods" }, DI_FREE);
     expect(result.awaited).toBe(false);
   });
 
@@ -169,24 +171,45 @@ describe("deferred-init dispatch contract — mt#1751 PR #1063 R1", () => {
     const initPromise = new Promise<void>(() => {});
     const result = await dispatch(
       initPromise,
-      { name: "some_custom_tool", requiresInit: false },
+      { name: "some.custom.tool", requiresInit: false },
       DI_FREE
     );
     expect(result.awaited).toBe(false);
   });
 
-  test("tools/list does NOT touch the CallTool dispatch path at all", () => {
-    // tools/list is handled by ListToolsRequestSchema (separate handler in
-    // server.ts:723), which does NOT contain the initPromise await. The
-    // contract is enforced structurally: only CallToolRequestSchema's
-    // handler has the `if (this.initPromise && requiresInit)` block. This
-    // test documents that contract — if ListTools is ever modified to
-    // await DI, this test stays passing (the handler under test is the
-    // CallTool one) but a separate ListTools-await test would be needed.
-    // The structural-separation guarantee is what we lean on.
-    expect(true).toBe(true);
+  test("underscored debug names (the pre-R3 bug) DO incorrectly await — regression guard", async () => {
+    // PR #1063 R3 BLOCKING: the original allowlist used underscore names
+    // (`debug_echo`) but tools register with dots (`debug.echo`). The
+    // allowlist never matched. This test pins the contract: with a
+    // DI_FREE set containing only DOTTED names, an underscore name will
+    // (correctly) be treated as DI-requiring and the dispatch will await.
+    // If a future refactor reintroduces underscore names without updating
+    // the allowlist, this test still passes (the underscore form correctly
+    // awaits) — but the corresponding "debug.echo does NOT await" test
+    // would then fail, surfacing the mismatch.
+    let resolveInit!: () => void;
+    const initPromise = new Promise<void>((r) => {
+      resolveInit = r;
+    });
+    const dispatchPromise = dispatch(initPromise, { name: "debug_echo" }, DI_FREE);
+    await new Promise((r) => setImmediate(r));
+    resolveInit();
+    const result = await dispatchPromise;
+    expect(result.awaited).toBe(true);
   });
 });
+
+// Note on tools/list: the `setRequestHandler(ListToolsRequestSchema, ...)`
+// in src/mcp/server.ts:723 is a SEPARATE SDK handler from CallToolRequestSchema
+// and does NOT contain the `await this.initPromise` block — only the
+// CallTool handler does. This is a structural invariant of the SDK's
+// dispatch model. We don't test it via filesystem read (forbidden by
+// `custom/no-real-fs-in-tests`) and instantiating a full MinskyMCPServer
+// to invoke ListTools via mock SDK round-trip exceeds the unit-test scope.
+// The contract is enforced at the code-organization level: any change
+// that wires ListTools to also await DI would need to touch the dispatch
+// helper or add the await explicitly, and code review (this PR's own
+// reviewer-bot loop) is the appropriate verification surface.
 
 // --- Unhandled rejection hazard (PR #1063 R2 BLOCKING) ---
 

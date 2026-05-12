@@ -114,13 +114,18 @@ export interface MinskyMCPServerOptions {
  * a tool's handler does not call `container.get(...)` or otherwise depend on
  * a resolved DI service.
  *
- * Tool names use the MCP-normalized form (`__` separator after `mcp`,
- * underscore-separated thereafter; see CommandMapper.normalizeMethodName).
+ * Tool names are matched against `request.params.name` exactly. The
+ * shared-command bridge registers debug tools with **dotted** IDs (e.g.,
+ * `debug.listMethods` — see `src/adapters/shared/commands/debug.ts`), and
+ * `CommandMapper.normalizeMethodName` (`src/mcp/command-mapper.ts:42`)
+ * preserves dots, so the protocol-level tool name keeps the dot. We list
+ * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
+ * underscore names — `debug_echo` — and the allowlist never matched.)
  */
 const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
-  "debug_echo",
-  "debug_listMethods",
-  "debug_systemInfo",
+  "debug.echo",
+  "debug.listMethods",
+  "debug.systemInfo",
 ]);
 
 export interface ToolDefinition {
