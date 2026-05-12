@@ -51,6 +51,11 @@ export const environmentMappings = {
 
   AI_DEFAULT_PROVIDER: "ai.defaultProvider",
 
+  // Observability provider configuration (mt#1791)
+  BRAINTRUST_API_KEY: "observability.providers.braintrust.apiKey",
+  BRAINTRUST_PROJECT_NAME: "observability.providers.braintrust.projectName",
+  BRAINTRUST_API_URL: "observability.providers.braintrust.apiUrl",
+
   // Persistence configuration (modern — populates `persistence.*`)
   MINSKY_PERSISTENCE_BACKEND: "persistence.backend",
   MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
