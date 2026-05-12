@@ -363,11 +363,20 @@ waiting on. Per `feedback_post_pr_convergence_idle_drift` (the bridge memory
 this section retires), "standing by" without a named mechanism is the failure
 mode this section was written to prevent.
 
-**Note:** `mcp__minsky__pr_watch_create` is a tempting candidate but is
-**inert today** — its runner is wired to a stub GitHub client, no scheduler
-fires it, and `OperatorNotify` targets the local desktop rather than the
-agent's conversation context. Don't recommend it until the production gaps
-close. See `feedback_survey_event_resumption_toolkit_before_proposing_self_poll_or_user_ping`.
+**Note:** `mcp__minsky__pr_watch_create` is now functional for agent-initiated
+watches as of mt#1725. The three originally-named gaps are all closed:
+real Octokit-backed GitHub client (mt#1618), reviewer-service-internal
+scheduler runs `pr_watch_run` periodically (mt#1618, opt-in via
+`PR_WATCH_ENABLED=true`), and firing now emits a `WakeSignalSink` row keyed
+on the registering agent's `parentSessionId` (captured at `pr_watch_create`
+time) which drains via `enrichWakeResponse` middleware on the agent's next
+allowlisted MCP tool call (mt#1725). Inherits mt#1661 v0's coverage profile:
+delivery succeeds when the same agent's next MCP call carries a session arg
+that resolves to the registering session; failures are telemetered as
+`wake.enrichment.no_session_id`. mt#1506 (PLANNING) is the long-term
+retirement path for v0's addressing limitations. Use `pr_watch_create`
+alongside `session_pr_wait-for-review` when you want a fire-and-forget
+notification that arrives on your next tool call rather than a blocking wait.
 
 **When the bot posts**, branch on review state:
 

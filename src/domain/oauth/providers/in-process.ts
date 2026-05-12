@@ -200,6 +200,16 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
 
     if (this.provider) return this.provider;
 
+    // PR #1055 R1: surface the v1 security posture explicitly. devInteractions
+    // is enabled (mt#1665 placeholder) and the consent step is therefore
+    // unauthenticated UI theatre — the user's input is discarded by findAccount,
+    // which hardcodes sub="operator". This means tokens always represent the
+    // single operator principal, but the public OAuth flow is reachable to
+    // anyone. mt#1683 replaces devInteractions with token-gated consent.
+    log.warn(
+      "[InProcessOAuthProvider] OAuth v1 security posture: devInteractions UI is unauthenticated; all issued tokens use sub=operator. See mt#1683 for the token-gated consent UI that supersedes this placeholder."
+    );
+
     const adapterFactory = createAdapterFactory(this.config.db);
     const issuer = this.resolvedIssuer;
     const privateJwk = this.keyPair.privateJwk;
@@ -298,6 +308,98 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
         short: { signed: false },
         long: { signed: false },
         keys: ["ephemeral-cookie-secret"],
+      },
+
+      // mt#1754: minimal findAccount for single-tenant Minsky v1.
+      // SECURITY: returns a FIXED operator identity regardless of what input
+      // the user typed in devInteractions. The username field in the dev UI is
+      // theatre — entered text is discarded. The sub claim is always "operator",
+      // which means any token issued by this server represents the same single
+      // operator principal. This is the correct posture for single-tenant Minsky
+      // MCP, where there is no user-account model.
+      //
+      // Why not echo the devInteractions input (PR #1055 R1 BLOCKING): with DCR
+      // enabled and devInteractions enabled, ANY reachable client could
+      // self-assert an arbitrary `sub` by typing it in the login form, and that
+      // value would propagate into `agentId` and authorization decisions. The
+      // hardcode neutralizes that surface — there is exactly one identity that
+      // can be issued.
+      //
+      // mt#1683 will replace devInteractions with token-gated consent UI
+      // (operator presents MINSKY_MCP_AUTH_TOKEN), at which point this
+      // placeholder either disappears or stays as the same fixed identity but
+      // the consent step actually authenticates the operator.
+      findAccount: async (_ctx: unknown, _id: string) => ({
+        accountId: "operator",
+        async claims() {
+          return { sub: "operator" };
+        },
+      }),
+
+      // mt#1757: override oidc-provider's default renderError so internal
+      // exceptions get logged at error-level (with stack trace) AND surfaced
+      // visibly to the user. The default renderer returns an opaque "oops!"
+      // HTML page and silently swallows the underlying Error — which makes
+      // OAuth-flow debugging unusably slow (each iteration requires another
+      // deploy just to discover what was actually broken).
+      renderError: async (ctx: unknown, out: unknown, err: unknown) => {
+        const errAsError = err instanceof Error ? err : null;
+        const errAsAny = err as { statusCode?: number } | null;
+        const outAsObj = (out ?? {}) as {
+          error?: string;
+          error_description?: string;
+          status?: number;
+          headers?: Record<string, string>;
+        };
+
+        // Server-side: full error with stack for debugging.
+        log.error("oidc-provider renderError invoked", {
+          error: errAsError?.message ?? String(err),
+          stack: errAsError?.stack,
+          errorClass: errAsError?.constructor?.name ?? typeof err,
+          out: outAsObj,
+          // Read ctx fields defensively — Koa context, not a plain object.
+          path: (ctx as { path?: string } | null)?.path,
+          method: (ctx as { method?: string } | null)?.method,
+        });
+
+        // PR #1057 R1: operate on the real Koa context (no `?? {}` fallback —
+        // that would create a detached plain object and the response would
+        // never actually be written). Set status, headers, type, and body
+        // through the Koa context APIs.
+        const kctx = ctx as {
+          type?: string;
+          status?: number;
+          body?: string;
+          set?: (k: string, v: string) => void;
+        };
+
+        // Propagate oidc-provider's intended status (prefer out.status; fall
+        // back to err.statusCode if it's a Koa-style HTTP error; default 500).
+        kctx.status = outAsObj.status ?? errAsAny?.statusCode ?? 500;
+
+        // Propagate any headers oidc-provider supplied (e.g., WWW-Authenticate
+        // for auth-class errors). Use kctx.set if available; otherwise skip.
+        if (outAsObj.headers && typeof kctx.set === "function") {
+          for (const [k, v] of Object.entries(outAsObj.headers)) {
+            kctx.set(k, v);
+          }
+        }
+
+        // Client-side: page with the exception class + message (no stack).
+        kctx.type = "html";
+        kctx.body = `<!DOCTYPE html>
+<html><head><title>OAuth flow error</title></head>
+<body style="font-family: system-ui; max-width: 700px; margin: 2em auto; padding: 1em;">
+  <h1>OAuth flow error</h1>
+  <p>The OAuth authorization server encountered an internal error.</p>
+  <pre style="background: #f0f0f0; padding: 1em; border-radius: 4px; overflow-x: auto;">
+error:             ${escapeHtml(outAsObj.error ?? "unknown")}
+error_description: ${escapeHtml(outAsObj.error_description ?? "unknown")}
+exception:         ${escapeHtml(errAsError?.constructor?.name ?? "Error")}: ${escapeHtml(errAsError?.message ?? String(err))}
+  </pre>
+  <p><small>This information is also logged server-side. mt#1757 added this diagnostic surface.</small></p>
+</body></html>`;
       },
 
       // For Bun/non-standard runtime compatibility
@@ -503,22 +605,27 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
   }
 
   /**
-   * Forwards interaction-UI requests to the oidc-provider Koa app.
-   * Used by `app.all(/^\/interaction\//, ...)` in start-command.ts.
+   * Forwards requests to the oidc-provider Koa app at oidc-provider's internal
+   * path (no URL rewrite). Used by routes where the Express path and
+   * oidc-provider's internal path already match exactly — passes req.path
+   * through unchanged.
    *
-   * When devInteractions is enabled (the default), oidc-provider registers
-   * GET /interaction/:uid, POST /interaction/:uid, and GET /interaction/:uid/abort
-   * internally. Express has no matching routes, so those redirects 404 without
-   * this forwarding method.
+   * Wired Express callers:
+   * - `app.all(/^\/interaction\/[^/]+/, ...)` — devInteractions consent UI
+   *   (mt#1731). `/interaction/:uid` and subroutes.
+   * - `app.all(/^\/auth\/[^/]+/, ...)` — post-interaction authorization
+   *   continuation (mt#1753). `/auth/:uid` issues the auth code after consent.
    *
-   * The Express path already matches oidc-provider's internal path exactly
-   * (both use /interaction/:uid), so we pass req.path directly as internalPath.
+   * Despite the method name (retained for backward-compat), the contract is
+   * "forward any oidc-provider internal path that doesn't need URL rewrite."
+   * For paths that DO need rewrite (`/oauth/authorize` → `/auth`, etc.), use
+   * `authorize()` and `token()` instead.
    */
   async forwardInteraction(req: Request, res: Response): Promise<void> {
     const issuer = deriveIssuer(req, this.config.issuer ?? this.resolvedIssuer);
     const provider = this.getProvider(issuer);
-    // req.path is the path without query string, e.g. "/interaction/abc123"
-    // oidc-provider's internal router knows "/interaction/:uid" natively.
+    // req.path is the path without query string, e.g. "/interaction/abc123" or
+    // "/auth/abc123". oidc-provider's internal router knows both natively.
     await forwardToKoaProvider(provider, req, res, req.path);
   }
 
@@ -610,6 +717,20 @@ function deriveIssuer(req: Request, explicit: string | null | undefined): string
   if (explicit) return explicit;
   const host = req.hostname || "localhost";
   return `${req.protocol}://${host}`;
+}
+
+/**
+ * Minimal HTML-escape for user-visible error pages.
+ * Escapes the 5 characters that have special meaning in HTML text content.
+ * mt#1757.
+ */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /** Generates a URL-safe random ID (16 bytes = 32 hex chars). */

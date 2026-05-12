@@ -13,6 +13,7 @@ import {
   hasNativeSubagentSupport,
 } from "../../../../domain/runtime/harness-detection";
 import { log } from "../../../../utils/logger";
+import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 
 const tasksDispatchParams = {
   title: {
@@ -64,7 +65,14 @@ export function createTasksDispatchCommand(
     import("../../../../domain/session/types").SessionProviderInterface
   >,
   getTaskGraphService: () => TaskGraphService,
-  getTaskService: () => import("../../../../domain/tasks/taskService").TaskServiceInterface
+  getTaskService: () => import("../../../../domain/tasks/taskService").TaskServiceInterface,
+  /**
+   * Optional tracker for recording subagent invocations (mt#1737).
+   * When provided, a pending row is written at dispatch time so that
+   * crashed subagents leave a stale-pending row that is classifiable later.
+   * When absent (e.g., DB unavailable at startup), the write is skipped silently.
+   */
+  getTracker?: () => SubagentDispatchTracker | null
 ) {
   return {
     id: "tasks.dispatch",
@@ -197,6 +205,39 @@ export function createTasksDispatchCommand(
       // carry the parent agentId so the subagent knows its parent chain.
       // See: src/domain/agent-identity/resolve.ts for the resolver,
       //      src/domain/agent-identity/layer2.ts for the _meta key constant (AGENT_ID_META_KEY).
+
+      // Step 5 (mt#1737): Write a pending invocation row at dispatch time.
+      //
+      // Outcome choice: `crashed-no-output` is the pessimistic default that the
+      // SubagentStop classifier will overwrite via upsert on subagentSessionId.
+      // There is no "pending" enum value in the schema (deferred follow-up).
+      // Using `crashed-no-output` ensures that if the SubagentStop hook never
+      // fires (process kill, network error), the row describes the worst-case
+      // observed state rather than an unresolved placeholder.
+      //
+      // Correlation key: PR #1053 R1 BLOCKING #1 — the upsert key MUST be the
+      // subagent's Minsky session ID, which is known at BOTH dispatch time
+      // (here, as `sessionId`) AND SubagentStop time (extracted from `cwd`).
+      // The harness's `agent_id` is NOT used as the key — it's stored
+      // separately in `agentSessionId` at Stop time. Without this correlation
+      // the upsert would fail and the dispatch row would orphan as a duplicate.
+      try {
+        const tracker = getTracker?.();
+        if (tracker) {
+          await tracker.recordSubagentInvocation({
+            taskId,
+            subagentSessionId: sessionId, // Minsky session id of the subagent's workspace
+            agentType: promptResult.agentType ?? p.type,
+            suggestedModel: promptResult.suggestedModel ?? null,
+            startedAt: new Date(),
+            outcome: "crashed-no-output",
+          });
+          log.debug("[tasks.dispatch] Pending invocation row written", { taskId });
+        }
+      } catch (err) {
+        // Non-fatal: fail-safe. The invocation row is best-effort telemetry.
+        log.warn(`[tasks.dispatch] Failed to write pending invocation row: ${err}`);
+      }
 
       return {
         success: true,

@@ -466,6 +466,21 @@ Use only when you have already reviewed main's new commits and confirmed no over
   - fresh branch (no upstream ref yet — typical of a brand-new session's first push)
   - detached HEAD (no current branch to compare against)
   - undetectable default branch (no `origin/main` or `origin/master` to compare to)
+- **Allows with audit-line on stdout** when a **merge / rebase / cherry-pick is in
+  progress** (mt#1739). Detected by `fs.existsSync` on five git transient-operation
+  markers under the **resolved** git directory: `MERGE_HEAD`, `REBASE_HEAD`,
+  `rebase-merge/`, `rebase-apply/`, or `CHERRY_PICK_HEAD`. The resolution step
+  honours git's `.git`-as-file indirection (`gitdir: <path>` redirect used by
+  `git worktree` checkouts and certain submodule layouts), so worktree-based
+  session workspaces are covered. The operator is finalising a commit that
+  *resolves* main-ahead-of-branch staleness (not introducing fresh work on a stale
+  branch); blocking would create a chicken-and-egg deadlock — the merge commit
+  pushed by the resolution is what advances `origin/<branch>` past the staleness
+  gap. The reason emits to stdout as
+  `[check-branch-fresh] merge-in-progress (.git/<MARKER>) — freshness check skipped`
+  so operators see that the hook recognised the merge state. Distinct from the four
+  routine silent paths above: those are "nothing to report"; this one IS reported
+  via the audit line, mirroring the `MINSKY_SKIP_FRESHNESS=1` override convention.
 - **Warnings always surface** even on silent paths. If the pre-check `git fetch`
   failed (network down, auth issue, slow remote), the resulting "comparison may be
   against STALE refs" warning IS emitted regardless of whether the path is silent.
@@ -1048,6 +1063,43 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 - **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
 - **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge.
 - **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)
+
+## Skill-chain semantics
+
+The canonical Minsky lifecycle chain is:
+
+```
+/create-task → /plan-task → /implement-task → /prepare-pr → /review-pr → merge
+```
+
+Transitions between adjacent skills are **chain-walked by default**, NOT ceded to the user. When a skill reaches a successful hand-off point (e.g., `/plan-task` transitions a task to READY), the agent's default behavior is to invoke the next skill in the chain immediately. Stopping at the hand-off with "Use `/<next-skill>` to continue" wording is a failure mode (originating incident: 2026-05-11 `/plan-task mt#1725` sequence where the user said "proceed" three times in one session and the agent stopped each time).
+
+**Brief affirmatives at hand-off points** ("proceed", "continue", "go", "ok", "yes") mean: walk the chain forward, NOT acknowledge and stop. Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately") this is the default in all modes.
+
+**Auto-walked transitions** (chain forward unless an explicit halt condition holds):
+
+- `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
+- `/implement-task` §8 → §9 internally (PR created → drive to convergence)
+- `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)
+- `/prepare-pr` → `/review-pr` after PR creation (when /prepare-pr is the entrypoint rather than /implement-task)
+
+**Manual gate** (does NOT auto-walk, even in auto mode):
+
+- `/review-pr` → merge: posting a review never triggers a merge. Merge is a separate destructive action that requires explicit invocation. This carve-out is consistent with auto-mode's "do not take overly destructive actions" principle.
+
+**Explicit halt conditions** that override the chain-walk default at any transition:
+
+- The user said something during the prior step that explicitly defers the next step ("don't implement yet", "just plan it", "I'll handle the impl").
+- The current step surfaced a new blocking signal (failed gate criterion, dependency status mismatch, security concern).
+- The task is gated on an external decision the user owns, explicitly stated in the spec or an Ask.
+
+**Confabulated halt rationales** (do NOT halt for any of these):
+
+- "Planning is the skill's scope; implementation is a separate skill."
+- "User might want to review the gate report before I proceed."
+- "The next move is user-driven."
+
+**Tracking task:** mt#1478. Status as of 2026-05-11: `/plan-task` Step 4's chain-walk amendment shipped; the analogous amendments to `/implement-task`, `/prepare-pr`, `/review-pr` SKILL exit texts are deferred until recurrence patterns at those boundaries justify the change. The bridge memory `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51`) covers the discipline at boundaries not yet structurally amended.
 
 # Rule: Ensure ASCII Code Symbols
 
