@@ -17,7 +17,7 @@ import { createProjectContextFromCwd } from "../types/project";
 import { getErrorMessage } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
-import { toClaudeDesktopName } from "./tool-name";
+import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { resolveAgentId } from "../domain/agent-identity/resolve";
@@ -771,8 +771,14 @@ export class MinskyMCPServer {
       this.diag.captureRequest("tools/list", request, extra);
       // mt#1779: dedupe by ToolDefinition identity (dual-registration in
       // `addTool` puts the same tool object under both dotted and underscored
-      // keys). Emit the underscored variant so Claude Desktop's frontend
-      // validator regex `^[a-zA-Z0-9_-]{1,64}$` accepts every name.
+      // keys). Whether to emit the underscored alias is feature-detected from
+      // the client's `clientInfo.name` reported during `initialize` —
+      // `shouldEmitDesktopAliases` defaults to false for non-Claude clients so
+      // the canonical dotted wire contract is preserved. Claude clients
+      // (clientInfo.name starts with "claude") see the underscored form that
+      // passes their strict frontend validator regex.
+      const clientInfo = server.getClientVersion() as { name?: string } | undefined;
+      const emitDesktop = shouldEmitDesktopAliases(clientInfo);
       const seen = new Set<ToolDefinition>();
       const tools: Array<{
         name: string;
@@ -783,7 +789,7 @@ export class MinskyMCPServer {
         if (seen.has(tool)) continue;
         seen.add(tool);
         tools.push({
-          name: toClaudeDesktopName(tool.name),
+          name: emitDesktop ? toClaudeDesktopName(tool.name) : tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema || {},
         });
@@ -1329,27 +1335,52 @@ export class MinskyMCPServer {
    * `DI_FREE_TOOL_NAMES` allowlist) keeps its canonical dotted form.
    *
    * `tools/list` (see `setupRequestHandlers`) dedupes by ToolDefinition
-   * identity and emits the underscored variant so Claude Desktop's
-   * validator passes.
+   * identity and emits the variant appropriate for the connected client
+   * (see `shouldEmitDesktopAliases`).
+   *
+   * PR #1071 R1 BLOCKING #1 fix: pre-flight check BOTH the canonical and
+   * alias keys before any write. The pre-fix code wrote `tool.name` first
+   * then checked the alias — a canonical-name collision (e.g., adding
+   * `foo_bar` after `foo.bar` had been registered and created the
+   * `foo_bar` alias key) would overwrite silently. The fix is symmetric:
+   * any collision on either key to a different `ToolDefinition` refuses
+   * the registration and logs a clear warning. Idempotent re-adds of the
+   * same `ToolDefinition` object are allowed (no-op).
    */
   addTool(tool: ToolDefinition): void {
-    this.tools.set(tool.name, tool);
     const desktopName = toClaudeDesktopName(tool.name);
-    if (desktopName !== tool.name) {
-      const existing = this.tools.get(desktopName);
-      if (existing && existing !== tool) {
-        log.warn("mt#1779: Claude Desktop alias collision — refusing to overwrite existing tool", {
+    const aliasDiffers = desktopName !== tool.name;
+
+    // Pre-flight: detect collisions BEFORE writing. Idempotent re-adds (same
+    // ToolDefinition object) are permitted as no-ops.
+    const canonicalExisting = this.tools.get(tool.name);
+    if (canonicalExisting && canonicalExisting !== tool) {
+      log.warn("mt#1779: tool name collision — refusing to overwrite existing tool", {
+        name: tool.name,
+        existing: canonicalExisting.name,
+      });
+      return;
+    }
+    if (aliasDiffers) {
+      const aliasExisting = this.tools.get(desktopName);
+      if (aliasExisting && aliasExisting !== tool) {
+        log.warn("mt#1779: Claude Desktop alias collision — refusing to register tool", {
           canonical: tool.name,
           desktopAlias: desktopName,
-          existing: existing.name,
+          existing: aliasExisting.name,
         });
-      } else {
-        this.tools.set(desktopName, tool);
+        return;
       }
+    }
+
+    // No conflicts — register under both keys (or just the one if equal).
+    this.tools.set(tool.name, tool);
+    if (aliasDiffers) {
+      this.tools.set(desktopName, tool);
     }
     log.debug("Added tool", {
       name: tool.name,
-      ...(desktopName !== tool.name ? { desktopAlias: desktopName } : {}),
+      ...(aliasDiffers ? { desktopAlias: desktopName } : {}),
     });
   }
 

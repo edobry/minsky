@@ -21,3 +21,35 @@
 export function toClaudeDesktopName(methodName: string): string {
   return methodName.replace(/\./g, "_");
 }
+
+/**
+ * mt#1779 PR #1071 R1 BLOCKING #2: feature-detect strict-validator clients.
+ *
+ * Returns true when `tools/list` should emit underscored names instead of
+ * canonical dotted names. Avoids a silent wire-contract change for non-Claude
+ * clients that discover tools via `tools/list` and then call by the returned
+ * `name`. The override env var `MINSKY_MCP_TOOL_NAMES` forces specific
+ * behavior:
+ *   - `"underscore"` → always emit underscored
+ *   - `"dotted"` → always emit canonical (the pre-mt#1779 behavior; will fail
+ *     against Claude Desktop)
+ *   - unset or `"auto"` → feature-detect from clientInfo.name (default)
+ *
+ * Auto-detection: case-insensitive prefix match `claude*` against
+ * `clientInfo.name`. Covers Claude Desktop, claude.ai web, Claude Code CLI,
+ * and any future Anthropic-emitted MCP client. Other clients (e.g., custom
+ * MCP clients, OpenAI's, the Reviewer service if it ever uses `tools/list`)
+ * see the canonical dotted form they may already expect.
+ */
+export function shouldEmitDesktopAliases(
+  clientInfo: { name?: string } | undefined,
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const override = (env.MINSKY_MCP_TOOL_NAMES ?? "auto").toLowerCase();
+  if (override === "underscore") return true;
+  if (override === "dotted") return false;
+  // auto — feature-detect
+  const name = clientInfo?.name;
+  if (!name) return false;
+  return name.toLowerCase().startsWith("claude");
+}

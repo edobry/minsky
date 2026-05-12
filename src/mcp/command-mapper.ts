@@ -3,7 +3,6 @@ import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { getErrorMessage } from "../errors/index";
 import type { MinskyMCPServer, ToolDefinition } from "./server";
-export { toClaudeDesktopName } from "./tool-name";
 
 /**
  * The CommandMapper class provides utilities for mapping Minsky CLI commands
