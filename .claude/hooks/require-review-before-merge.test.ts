@@ -1,5 +1,16 @@
 import { describe, expect, it } from "bun:test";
-import { evaluateCheckRunsPresence, parseCheckRunsResponse } from "./require-review-before-merge";
+import {
+  BUNDLE_BOOT_SMOKE_CHECK_NAME,
+  BUNDLE_BOOT_SMOKE_OVERRIDE_ENV,
+  evaluateBundleBootSmokePresence,
+  evaluateCheckRunsPresence,
+  parseBundleBootSmokeResponse,
+  parseCheckRunsResponse,
+} from "./require-review-before-merge";
+
+// Shared error string fixture — used in both mt#1309 and mt#1787 test groups
+// to drive parser-failure assertions. Extracted to dodge no-magic-string-duplication.
+const EMPTY_RESPONSE_ERR = "gh api returned empty response";
 
 describe("parseCheckRunsResponse (mt#1309)", () => {
   const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: "" });
@@ -182,12 +193,8 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
   });
 
   it("API-failure denial reason embeds the parser error verbatim", () => {
-    const result = evaluateCheckRunsPresence(
-      failWith("gh api returned empty response"),
-      pr,
-      headSha
-    );
-    expect(result.reason).toContain("gh api returned empty response");
+    const result = evaluateCheckRunsPresence(failWith(EMPTY_RESPONSE_ERR), pr, headSha);
+    expect(result.reason).toContain(EMPTY_RESPONSE_ERR);
   });
 
   it("API-failure denial reason still references /review-pr step 7a as the last-resort fallback", () => {
@@ -207,5 +214,257 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
     );
     expect(result.reason).toContain("#9999");
     expect(result.reason).toContain(headSha.slice(0, 7));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bundle-boot smoke check (mt#1787)
+// ---------------------------------------------------------------------------
+
+describe("parseBundleBootSmokeResponse (mt#1787)", () => {
+  const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: "" });
+  const checkRun = (overrides: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      check_runs: [
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "completed",
+          conclusion: "success",
+          html_url: "https://github.com/edobry/minsky/runs/1",
+          ...overrides,
+        },
+      ],
+    });
+
+  it("extracts a successful matching check_run", () => {
+    const result = parseBundleBootSmokeResponse(ok(checkRun()));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const [first] = result.runs;
+      expect(result.runs).toHaveLength(1);
+      expect(first?.name).toBe(BUNDLE_BOOT_SMOKE_CHECK_NAME);
+      expect(first?.conclusion).toBe("success");
+    }
+  });
+
+  it("filters out check_runs with non-matching names (defensive)", () => {
+    const body = JSON.stringify({
+      check_runs: [
+        { name: "build", status: "completed", conclusion: "success" },
+        {
+          name: BUNDLE_BOOT_SMOKE_CHECK_NAME,
+          status: "completed",
+          conclusion: "failure",
+        },
+      ],
+    });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const [first] = result.runs;
+      expect(result.runs).toHaveLength(1);
+      expect(first?.conclusion).toBe("failure");
+    }
+  });
+
+  it("returns empty runs array when API has no matching check_runs", () => {
+    const result = parseBundleBootSmokeResponse(ok('{"check_runs":[]}'));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.runs).toEqual([]);
+    }
+  });
+
+  it("returns null conclusion when the run is still in progress", () => {
+    const body = checkRun({ status: "in_progress", conclusion: null });
+    const result = parseBundleBootSmokeResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const [first] = result.runs;
+      expect(first?.status).toBe("in_progress");
+      expect(first?.conclusion).toBeNull();
+    }
+  });
+
+  it("returns failure when gh api exits non-zero", () => {
+    const result = parseBundleBootSmokeResponse({
+      exitCode: 1,
+      stdout: "",
+      stderr: "rate limit exceeded",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("exited 1");
+      expect(result.error).toContain("rate limit");
+    }
+  });
+
+  it("returns failure with timeout reason when execSync times out", () => {
+    const result = parseBundleBootSmokeResponse({
+      exitCode: 1,
+      stdout: "",
+      stderr: "",
+      timedOut: true,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("timed out");
+    }
+  });
+
+  it("returns failure when stdout is empty", () => {
+    const result = parseBundleBootSmokeResponse(ok(""));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("empty response");
+    }
+  });
+
+  it("returns failure when JSON is not an object", () => {
+    const result = parseBundleBootSmokeResponse(ok("null"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("not an object");
+    }
+  });
+
+  it("returns failure when check_runs[] is missing", () => {
+    const result = parseBundleBootSmokeResponse(ok("{}"));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("missing check_runs");
+    }
+  });
+});
+
+describe("evaluateBundleBootSmokePresence (mt#1787)", () => {
+  const pr = "1234";
+  const headSha = "abcdef0123456789abcdef0123456789abcdef01";
+  const okWith = (
+    runs: Array<{
+      name?: string;
+      status?: string;
+      conclusion?: string | null;
+      htmlUrl?: string | null;
+    }>
+  ) => ({
+    ok: true as const,
+    runs: runs.map((r) => ({
+      name: r.name ?? BUNDLE_BOOT_SMOKE_CHECK_NAME,
+      status: r.status ?? "completed",
+      conclusion: r.conclusion ?? null,
+      htmlUrl: r.htmlUrl ?? null,
+    })),
+  });
+  const failWith = (error: string) => ({ ok: false as const, error });
+
+  it("allows merge when at least one run concluded success", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([{ status: "completed", conclusion: "success" }]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(false);
+    expect(result.reason).toBeUndefined();
+  });
+
+  it("allows merge when one of multiple runs succeeded (latest re-run wins)", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([
+        { status: "completed", conclusion: "failure" },
+        { status: "completed", conclusion: "success" },
+      ]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(false);
+  });
+
+  it("denies when no matching check_run exists (workflow didn't fire)", () => {
+    const result = evaluateBundleBootSmokePresence(okWith([]), pr, headSha);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain(BUNDLE_BOOT_SMOKE_CHECK_NAME);
+    expect(result.reason).toContain("mt#1787");
+    expect(result.reason).toContain(BUNDLE_BOOT_SMOKE_OVERRIDE_ENV);
+  });
+
+  it("missing-check denial reason includes PR number and short HEAD sha", () => {
+    const result = evaluateBundleBootSmokePresence(okWith([]), pr, headSha);
+    expect(result.reason).toContain(`#${pr}`);
+    expect(result.reason).toContain(headSha.slice(0, 7));
+  });
+
+  it("missing-check denial reason names the rebase / webhook-wake recovery paths", () => {
+    const result = evaluateBundleBootSmokePresence(okWith([]), pr, headSha);
+    expect(result.reason).toContain("rebase");
+    expect(result.reason).toContain("noFiles");
+  });
+
+  it("denies when the only run is still in progress", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([{ status: "in_progress", conclusion: null }]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("in_progress");
+    expect(result.reason).toContain("mt#1787");
+  });
+
+  it("denies when the only run is queued (still pre-completion)", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([{ status: "queued", conclusion: null }]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("queued");
+  });
+
+  it("denies when run completed with failure conclusion", () => {
+    const result = evaluateBundleBootSmokePresence(
+      okWith([
+        {
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: "https://github.com/edobry/minsky/runs/9",
+        },
+      ]),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("failure");
+    expect(result.reason).toContain("https://github.com/edobry/minsky/runs/9");
+    expect(result.reason).toContain("did not boot cleanly");
+  });
+
+  it("denies when run completed with cancelled / timed_out / neutral conclusions", () => {
+    for (const conclusion of ["cancelled", "timed_out", "neutral", "action_required"]) {
+      const result = evaluateBundleBootSmokePresence(
+        okWith([{ status: "completed", conclusion }]),
+        pr,
+        headSha
+      );
+      expect(result.deny).toBe(true);
+      expect(result.reason).toContain(conclusion);
+    }
+  });
+
+  it("denies with API-failure reason on parse failure (distinct from check-missing)", () => {
+    const result = evaluateBundleBootSmokePresence(
+      failWith("gh api exited 1: 502 Bad Gateway"),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("Unable to query bundle-boot-smoke");
+    expect(result.reason).toContain("gh api transport/parse failure");
+    expect(result.reason).toContain(BUNDLE_BOOT_SMOKE_OVERRIDE_ENV);
+  });
+
+  it("API-failure denial reason embeds the parser error verbatim", () => {
+    const result = evaluateBundleBootSmokePresence(failWith(EMPTY_RESPONSE_ERR), pr, headSha);
+    expect(result.reason).toContain(EMPTY_RESPONSE_ERR);
   });
 });
