@@ -2,6 +2,7 @@ import { MinskyError } from "../../errors/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { NothingToCommitError } from "../../errors/index";
+import { safeShellQuote } from "../../utils/exec";
 import { classifyNothingToCommit, extractCommitHash } from "./git-with-deps";
 import type { GitStatus, StashResult, PullResult } from "./types";
 
@@ -76,7 +77,13 @@ export async function commitImpl(
   let stdout: string;
   let stderr: string;
   try {
-    ({ stdout, stderr } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`));
+    // mt#1742: commit messages can contain markdown backticks, $-prefixed
+    // identifiers, and other shell metacharacters. `safeShellQuote` wraps
+    // the message in POSIX single quotes so /bin/sh -c does not perform
+    // command substitution or variable expansion on its contents.
+    ({ stdout, stderr } = await execAsync(
+      `git -C ${workdir} commit ${amendFlag} -m ${safeShellQuote(message)}`
+    ));
   } catch (err: unknown) {
     if (classifyNothingToCommit(err)) {
       throw new NothingToCommitError();

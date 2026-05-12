@@ -1,6 +1,7 @@
 import { NothingToCommitError } from "../../errors/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { safeShellQuote } from "../../utils/exec";
 import type {
   BasicGitDependencies,
   PrDependencies,
@@ -68,8 +69,10 @@ export async function commitWithDepsImpl(
   let stdout: string;
   let stderr: string;
   try {
+    // mt#1742: see git-core-operations.ts:commitImpl for the rationale —
+    // POSIX single-quote the message to suppress shell substitution.
     ({ stdout, stderr } = await deps.execAsync(
-      `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+      `git -C ${workdir} commit ${amendFlag} -m ${safeShellQuote(message)}`
     ));
   } catch (err: unknown) {
     if (classifyNothingToCommit(err)) {
