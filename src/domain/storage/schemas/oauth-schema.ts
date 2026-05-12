@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, index, foreignKey } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, index, foreignKey, jsonb } from "drizzle-orm/pg-core";
 
 /**
  * OAuth token-store schema — mt#1662
@@ -127,6 +127,14 @@ export const oauthAuthorizationCodesTable = pgTable(
      * NULL = not yet consumed. Non-null = already used (reject re-use).
      */
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
+
+    /**
+     * Full oidc-provider payload as JSONB — mt#1762.
+     * Source of truth for the adapter round-trip contract. Written on upsert
+     * from the complete payload object; returned as-is on find.
+     * The typed columns above remain for query convenience (denormalized).
+     */
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   },
   (table) => ({
     // FK: authorization code → client
@@ -186,6 +194,14 @@ export const oauthAccessTokensTable = pgTable(
      * NULL = still valid (subject to expiresAt check).
      */
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+
+    /**
+     * Full oidc-provider payload as JSONB — mt#1762.
+     * Source of truth for the adapter round-trip contract. Written on upsert
+     * from the complete payload object; returned as-is on find.
+     * The typed columns above remain for query convenience (denormalized).
+     */
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   },
   (table) => ({
     // FK: access token → client
@@ -256,6 +272,14 @@ export const oauthRefreshTokensTable = pgTable(
      * Self-referential: replaced_by_hash → oauth_refresh_tokens.token_hash.
      */
     replacedByHash: text("replaced_by_hash"),
+
+    /**
+     * Full oidc-provider payload as JSONB — mt#1762.
+     * Source of truth for the adapter round-trip contract. Written on upsert
+     * from the complete payload object; returned as-is on find.
+     * The typed columns above remain for query convenience (denormalized).
+     */
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   },
   (table) => ({
     // FK: refresh token → client
