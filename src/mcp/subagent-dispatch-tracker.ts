@@ -130,6 +130,55 @@ export interface SubagentDispatchCadence {
  * matches the fail-safe contract of `DisconnectTracker`'s file I/O layer.
  */
 export class SubagentDispatchTracker {
+  /**
+   * Process-lifetime singleton. Null until `setInstance(db)` is called.
+   * `getInstance()` returns a no-op tracker when no instance has been set —
+   * this mirrors `DisconnectTracker.getInstance` which creates one on first
+   * call. The no-op path uses an empty fake DB so callers always get a typed
+   * value without throwing.
+   *
+   * Set once from the MCP start-command after the DB connection is resolved
+   * (same pattern as memory-enrichment and wake-enrichment middleware).
+   */
+  private static _instance: SubagentDispatchTracker | null = null;
+
+  /**
+   * Return the process-lifetime singleton.
+   *
+   * If no instance has been set via `setInstance`, returns a no-op tracker
+   * whose DB always returns empty result sets. This matches the
+   * `DisconnectTracker.getInstance` contract — callers never receive null.
+   */
+  static getInstance(): SubagentDispatchTracker {
+    if (!SubagentDispatchTracker._instance) {
+      // No-op tracker: create with a dummy DB that returns empty arrays.
+      // This path fires on the CLI path (no Postgres) or if setInstance
+      // hasn't been called yet. The fail-safe methods in getCadence/
+      // getEscalation catch any DB errors and return safe defaults.
+      SubagentDispatchTracker._instance = new SubagentDispatchTracker(createNullDatabase());
+    }
+    return SubagentDispatchTracker._instance;
+  }
+
+  /**
+   * Set the process-lifetime singleton to a tracker backed by `db`.
+   * Called from the MCP start-command once the DB connection is resolved.
+   * Idempotent — subsequent calls replace the instance (useful for tests).
+   */
+  static setInstance(db: PostgresJsDatabase): SubagentDispatchTracker {
+    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+    return SubagentDispatchTracker._instance;
+  }
+
+  /**
+   * Reset the singleton for tests — creates a fresh instance backed by the
+   * provided `db`. Pass the fake DB from test fixtures.
+   */
+  static resetForTest(db: PostgresJsDatabase): SubagentDispatchTracker {
+    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+    return SubagentDispatchTracker._instance;
+  }
+
   constructor(private readonly db: PostgresJsDatabase) {}
 
   /**
@@ -418,4 +467,37 @@ function emptyCADENCE(): SubagentDispatchCadence {
     byAgentType: {},
     byHourLast24h: [],
   };
+}
+
+/**
+ * Create a minimal no-op DB object that satisfies the `PostgresJsDatabase`
+ * type but returns empty results for every query. Used as the backing store
+ * for the no-op `SubagentDispatchTracker` returned by `getInstance()` before
+ * `setInstance(db)` is called.
+ *
+ * The tracker's fail-safe `getCadence()` / `getEscalation()` wrappers catch
+ * any runtime errors, so the no-op DB never needs to fully simulate a real
+ * Drizzle database — it only needs to return values that don't throw at the
+ * point of `await this.db.select(...).from(...).where(...)`.
+ */
+function createNullDatabase(): PostgresJsDatabase {
+  const chain: unknown = {
+    from: () => chain,
+    where: () => chain,
+    groupBy: () => chain,
+    orderBy: () => chain,
+    limit: () => chain,
+    select: () => chain,
+    insert: () => chain,
+    update: () => chain,
+    set: () => chain,
+    values: () => chain,
+    then(resolve: (v: unknown[]) => unknown, _reject: (e: unknown) => unknown): Promise<unknown> {
+      return Promise.resolve([]).then(resolve);
+    },
+  };
+  // Structural proxy: satisfies the drizzle runtime interface without the full compile-time type.
+  // No proper Drizzle type can be assigned to this minimal no-op object without the library internals.
+  // eslint-disable-next-line custom/no-excessive-as-unknown
+  return chain as unknown as PostgresJsDatabase;
 }
