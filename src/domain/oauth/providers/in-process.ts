@@ -336,6 +336,48 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
         },
       }),
 
+      // mt#1757: override oidc-provider's default renderError so internal
+      // exceptions get logged at error-level (with stack trace) AND surfaced
+      // visibly to the user. The default renderer returns an opaque "oops!"
+      // HTML page and silently swallows the underlying Error — which makes
+      // OAuth-flow debugging unusably slow (each iteration requires another
+      // deploy just to discover what was actually broken).
+      renderError: async (ctx: unknown, out: unknown, err: unknown) => {
+        const errAsError = err instanceof Error ? err : null;
+        const outAsObj = (out ?? {}) as { error?: string; error_description?: string };
+        const ctxAsObj = (ctx ?? {}) as {
+          path?: string;
+          method?: string;
+          type?: string;
+          body?: string;
+        };
+
+        // Server-side: full error with stack for debugging.
+        log.error("oidc-provider renderError invoked", {
+          error: errAsError?.message ?? String(err),
+          stack: errAsError?.stack,
+          errorClass: errAsError?.constructor?.name ?? typeof err,
+          out: outAsObj,
+          path: ctxAsObj.path,
+          method: ctxAsObj.method,
+        });
+
+        // Client-side: page with the exception class + message (no stack).
+        ctxAsObj.type = "html";
+        ctxAsObj.body = `<!DOCTYPE html>
+<html><head><title>OAuth flow error</title></head>
+<body style="font-family: system-ui; max-width: 700px; margin: 2em auto; padding: 1em;">
+  <h1>OAuth flow error</h1>
+  <p>The OAuth authorization server encountered an internal error.</p>
+  <pre style="background: #f0f0f0; padding: 1em; border-radius: 4px; overflow-x: auto;">
+error:             ${escapeHtml(outAsObj.error ?? "unknown")}
+error_description: ${escapeHtml(outAsObj.error_description ?? "unknown")}
+exception:         ${escapeHtml(errAsError?.constructor?.name ?? "Error")}: ${escapeHtml(errAsError?.message ?? String(err))}
+  </pre>
+  <p><small>This information is also logged server-side. mt#1757 added this diagnostic surface.</small></p>
+</body></html>`;
+      },
+
       // For Bun/non-standard runtime compatibility
       httpOptions: () => ({ timeout: 30000 }),
     }) as OidcProvider;
@@ -651,6 +693,20 @@ function deriveIssuer(req: Request, explicit: string | null | undefined): string
   if (explicit) return explicit;
   const host = req.hostname || "localhost";
   return `${req.protocol}://${host}`;
+}
+
+/**
+ * Minimal HTML-escape for user-visible error pages.
+ * Escapes the 5 characters that have special meaning in HTML text content.
+ * mt#1757.
+ */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 /** Generates a URL-safe random ID (16 bytes = 32 hex chars). */
