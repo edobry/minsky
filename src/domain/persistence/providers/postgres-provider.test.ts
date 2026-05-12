@@ -6,7 +6,15 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
+  shouldAutoMigrate,
+  resolveMigrationsFolder,
 } from "./postgres-provider";
+// PR #1065 R1 BLOCKING #4: real fs usage is intentional in this file — the
+// `resolveMigrationsFolder` tests below assert that the production path
+// resolution lands on an actual existing directory on disk (a structural
+// production guarantee). Mocking fs would only test that the test mock fires.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { existsSync } from "node:fs";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 import { first } from "../../../utils/array-safety";
@@ -440,6 +448,99 @@ describe("PostgresPersistenceProvider auto-migration (mt#1763)", () => {
     } finally {
       if (prev === undefined) delete process.env.MINSKY_AUTO_MIGRATE;
       else process.env.MINSKY_AUTO_MIGRATE = prev;
+    }
+  });
+});
+
+// PR #1065 R1 BLOCKING #3: positive default-path test via the extracted
+// `shouldAutoMigrate` predicate. The reviewer correctly noted that the
+// initial commit only tested skip conditions; this block asserts the
+// happy-path decision logic (no deps + default env → auto-migrate fires).
+// We test the pure-function predicate rather than the full initialize()
+// path because the latter would try to open a real TCP connection.
+
+describe("shouldAutoMigrate predicate (mt#1763 / PR #1065 R1)", () => {
+  test("no deps + default env → returns true (the production auto-migrate happy path)", () => {
+    expect(shouldAutoMigrate(undefined, {} as NodeJS.ProcessEnv)).toBe(true);
+    expect(shouldAutoMigrate({}, {} as NodeJS.ProcessEnv)).toBe(true);
+  });
+
+  test("MINSKY_AUTO_MIGRATE=false → returns false", () => {
+    expect(
+      shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" } as NodeJS.ProcessEnv)
+    ).toBe(false);
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "0" } as NodeJS.ProcessEnv)).toBe(
+      false
+    );
+    expect(
+      shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "FALSE" } as NodeJS.ProcessEnv)
+    ).toBe(false);
+  });
+
+  test("MINSKY_AUTO_MIGRATE=true / unset / other → returns true (default-on posture)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "true" } as NodeJS.ProcessEnv)).toBe(
+      true
+    );
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "1" } as NodeJS.ProcessEnv)).toBe(
+      true
+    );
+    expect(shouldAutoMigrate(undefined, {} as NodeJS.ProcessEnv)).toBe(true);
+  });
+
+  test("caller-injected sqlClient → returns false (test seam)", () => {
+    expect(shouldAutoMigrate({ sqlClient: {} }, {} as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  test("caller-injected postgresFactory → returns false (test seam)", () => {
+    expect(shouldAutoMigrate({ postgresFactory: () => ({}) }, {} as NodeJS.ProcessEnv)).toBe(false);
+  });
+
+  test("env-var opt-out wins even when no deps are injected", () => {
+    expect(
+      shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" } as NodeJS.ProcessEnv)
+    ).toBe(false);
+  });
+});
+
+// PR #1065 R1 BLOCKING #4: assert fileURLToPath-based resolution returns a
+// real, fs-checkable absolute path (not a `%20`-encoded URL.pathname value).
+// Asserts the assertion-failure surface fires cleanly when the directory is
+// missing — exercises the override-env-var path.
+
+describe("resolveMigrationsFolder path resolution (mt#1763 / PR #1065 R1)", () => {
+  test("default path resolves under src/domain/storage/migrations/pg AND exists on disk", () => {
+    const resolved = resolveMigrationsFolder();
+    // Must be an absolute path with no URL encoding.
+    expect(resolved.startsWith("/")).toBe(true);
+    expect(resolved).not.toContain("%20");
+    expect(resolved).not.toContain("file://");
+    // The directory must actually exist where we resolved it to. Real fs is
+    // intentional here — see the import-site eslint-disable for rationale.
+    // eslint-disable-next-line custom/no-real-fs-in-tests
+    expect(existsSync(resolved)).toBe(true);
+    // Concretely, the path should end with the expected migrations subtree.
+    expect(resolved.endsWith("/storage/migrations/pg")).toBe(true);
+  });
+
+  test("MINSKY_MIGRATIONS_FOLDER override is used when set to an existing directory", () => {
+    const prev = process.env.MINSKY_MIGRATIONS_FOLDER;
+    process.env.MINSKY_MIGRATIONS_FOLDER = "/tmp"; // /tmp exists on every test env we run on
+    try {
+      expect(resolveMigrationsFolder()).toBe("/tmp");
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MIGRATIONS_FOLDER;
+      else process.env.MINSKY_MIGRATIONS_FOLDER = prev;
+    }
+  });
+
+  test("MINSKY_MIGRATIONS_FOLDER pointing at a missing directory throws a clear error", () => {
+    const prev = process.env.MINSKY_MIGRATIONS_FOLDER;
+    process.env.MINSKY_MIGRATIONS_FOLDER = "/nonexistent-path-mt1763-test";
+    try {
+      expect(() => resolveMigrationsFolder()).toThrow(/MINSKY_MIGRATIONS_FOLDER=.*does not exist/);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MIGRATIONS_FOLDER;
+      else process.env.MINSKY_MIGRATIONS_FOLDER = prev;
     }
   });
 });
