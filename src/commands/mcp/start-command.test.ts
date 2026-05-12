@@ -8,6 +8,7 @@ import {
   normalizeEndpointPath,
   extractBearer,
   validateOAuthBearer,
+  injectAgentIdMeta,
 } from "./start-command";
 import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
 import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
@@ -1010,37 +1011,21 @@ describe("OAuth /mcp auth middleware (mt#1666 unit)", () => {
             return;
           }
 
-          // Inject agentId into body (mt#1765: into params._meta, NOT top-level _meta —
-          // top-level extras fail the SDK's strict JSONRPCRequestSchema parse).
+          // Inject agentId into body (mt#1765: into params._meta, NOT top-level _meta).
+          // Uses the real production helper so the test exercises the same code path the
+          // middleware uses (no hand-mirrored copy that could drift — PR #1064 R1 NON-BLOCKING).
           if (req.method === "POST" && req.body && typeof req.body === "object") {
-            const injectMeta = (msg: Record<string, unknown>): Record<string, unknown> => {
-              const existingParams =
-                msg.params && typeof msg.params === "object" && !Array.isArray(msg.params)
-                  ? (msg.params as Record<string, unknown>)
-                  : {};
-              const existingParamsMeta =
-                existingParams._meta &&
-                typeof existingParams._meta === "object" &&
-                !Array.isArray(existingParams._meta)
-                  ? (existingParams._meta as Record<string, unknown>)
-                  : {};
-              if (existingParamsMeta[metaKey]) return msg;
-              return {
-                ...msg,
-                params: {
-                  ...existingParams,
-                  _meta: { ...existingParamsMeta, [metaKey]: oauthResult.agentId },
-                },
-              };
-            };
             if (Array.isArray(req.body)) {
               req.body = req.body.map((item: unknown) =>
                 item && typeof item === "object" && !Array.isArray(item)
-                  ? injectMeta(item as Record<string, unknown>)
+                  ? injectAgentIdMeta(item as Record<string, unknown>, oauthResult.agentId)
                   : item
               );
             } else {
-              req.body = injectMeta(req.body as Record<string, unknown>);
+              req.body = injectAgentIdMeta(
+                req.body as Record<string, unknown>,
+                oauthResult.agentId
+              );
             }
           }
         } else {
@@ -1290,38 +1275,11 @@ describe("OAuth _meta injection — JSONRPCMessageSchema compatibility (mt#1765)
   // parse and the SDK returns -32700 "Parse error: Invalid JSON-RPC message" — the
   // class of failure that blocked claude.ai web from connecting after OAuth.
   //
-  // This test reproduces the injection in isolation and runs the result through
-  // the SDK's actual schema. Top-level injection fails; params._meta injection passes.
+  // These tests exercise the REAL `injectAgentIdMeta` helper (imported above), not a
+  // hand-mirrored copy. Drift between production code and test mock is structurally
+  // impossible (PR #1064 R1 NON-BLOCKING #1).
 
   const MT1765_TEST_AGENT_ID = "oauth:claude-ai:user-operator";
-
-  // Mirror of the production injectMeta from start-command.ts (mt#1765 shape),
-  // hoisted to module scope so each test reuses the same helper rather than
-  // duplicating its body (and the strings it embeds) per test.
-  const injectMetaMt1765 = (
-    msg: Record<string, unknown>,
-    agentId: string,
-    metaKey: string
-  ): Record<string, unknown> => {
-    const existingParams =
-      msg.params && typeof msg.params === "object" && !Array.isArray(msg.params)
-        ? (msg.params as Record<string, unknown>)
-        : {};
-    const existingParamsMeta =
-      existingParams._meta &&
-      typeof existingParams._meta === "object" &&
-      !Array.isArray(existingParams._meta)
-        ? (existingParams._meta as Record<string, unknown>)
-        : {};
-    if (existingParamsMeta[metaKey]) return msg;
-    return {
-      ...msg,
-      params: {
-        ...existingParams,
-        _meta: { ...existingParamsMeta, [metaKey]: agentId },
-      },
-    };
-  };
 
   test("post-injection body passes JSONRPCMessageSchema.parse (initialize request)", () => {
     // A realistic MCP initialize request (the exact shape claude.ai sends).
@@ -1336,7 +1294,7 @@ describe("OAuth _meta injection — JSONRPCMessageSchema compatibility (mt#1765)
       },
     };
 
-    const injected = injectMetaMt1765(initialize, MT1765_TEST_AGENT_ID, AGENT_ID_META_KEY);
+    const injected = injectAgentIdMeta(initialize, MT1765_TEST_AGENT_ID);
 
     // The post-injection body must pass the SDK's strict schema.
     expect(JSONRPCMessageSchema.safeParse(injected).success).toBe(true);
@@ -1350,7 +1308,7 @@ describe("OAuth _meta injection — JSONRPCMessageSchema compatibility (mt#1765)
   test("post-injection body passes JSONRPCMessageSchema.parse (tools/list request)", () => {
     // tools/list with no caller params is a common shape post-handshake.
     const toolsList = { jsonrpc: "2.0", id: 2, method: "tools/list" };
-    const injected = injectMetaMt1765(toolsList, MT1765_TEST_AGENT_ID, AGENT_ID_META_KEY);
+    const injected = injectAgentIdMeta(toolsList, MT1765_TEST_AGENT_ID);
     expect(JSONRPCMessageSchema.safeParse(injected).success).toBe(true);
   });
 
@@ -1384,8 +1342,55 @@ describe("OAuth _meta injection — JSONRPCMessageSchema compatibility (mt#1765)
         _meta: { [AGENT_ID_META_KEY]: callerDeclared },
       },
     };
-    const result = injectMetaMt1765(msg, MT1765_TEST_AGENT_ID, AGENT_ID_META_KEY);
+    const result = injectAgentIdMeta(msg, MT1765_TEST_AGENT_ID);
     const meta = (result.params as Record<string, unknown>)._meta as Record<string, unknown>;
     expect(meta[AGENT_ID_META_KEY]).toBe(callerDeclared);
+  });
+
+  test("array params (positional) is NOT clobbered — message returned unchanged (PR #1064 R1 BLOCKING)", () => {
+    // JSON-RPC 2.0 permits positional parameters via an array `params`. The pre-fix
+    // injectMeta replaced it with an object, corrupting the payload. The fix
+    // short-circuits and returns the message unchanged when `params` is an array.
+    const positional = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "some_method",
+      params: ["arg1", 42, { nested: true }],
+    };
+    const result = injectAgentIdMeta(positional, MT1765_TEST_AGENT_ID);
+
+    // Same object identity OR deep-equal preserved.
+    expect(result.params).toEqual(positional.params);
+    expect(Array.isArray(result.params)).toBe(true);
+
+    // No top-level _meta was added either (we did not mutate the envelope at all).
+    expect((result as Record<string, unknown>)._meta).toBeUndefined();
+  });
+
+  test("batch request: each item gets params._meta injection and the batch as a whole passes schema", () => {
+    // Mirrors the production middleware's batch path: each message in the array is
+    // independently injected. Mix two valid object-params messages so each one's
+    // post-injection envelope is schema-clean.
+    const batch = [
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2024-11-05",
+          capabilities: {},
+          clientInfo: { name: "x", version: "1" },
+        },
+      },
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    ];
+    const injected = batch.map((m) => injectAgentIdMeta(m, MT1765_TEST_AGENT_ID));
+
+    for (const m of injected) {
+      expect(JSONRPCMessageSchema.safeParse(m).success).toBe(true);
+      const meta = ((m as Record<string, unknown>).params as Record<string, unknown>)
+        ._meta as Record<string, unknown>;
+      expect(meta[AGENT_ID_META_KEY]).toBe(MT1765_TEST_AGENT_ID);
+    }
   });
 });
