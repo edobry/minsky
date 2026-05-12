@@ -1,13 +1,18 @@
 import fs from "fs";
 import path from "path";
 import { Command } from "commander";
-import express from "express";
+// mt#1719 Intervention 2: `express`, `launchInspector`/`isInspectorAvailable`,
+// and `resolveOAuthProvider` were top-level imports. They are HTTP-only
+// (express, OAuth) or inspector-only (inspector-launcher) — pulling them
+// in at module-load time costs ~10-30ms each on stdio cold-start where
+// none of them run. Each is converted to function-local dynamic import
+// at its sole use site below. Type positions (`import("express").Request`)
+// remain top-level since TS erases them at runtime.
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
-import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
 import { registerDebugTools } from "../../adapters/mcp/debug";
@@ -34,7 +39,11 @@ import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { AppContainerInterface } from "../../composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
-import { resolveOAuthProvider } from "../../domain/oauth/registry";
+// mt#1719 Intervention 2: `resolveOAuthProvider` top-level import deferred —
+// pulls in `oidc-provider` + Koa middleware closure (~30-50ms estimated).
+// Sole call site is inside `if (transportType === "http" && container)`
+// block, so stdio mode never needs it. The type imports below are erased
+// at runtime by TypeScript and stay top-level.
 import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
 import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
 import { profileCheckpoint } from "../../utils/cold-start-profile";
@@ -315,6 +324,10 @@ async function startHttpServer(
   projectContext?: ReturnType<typeof createProjectContext>,
   oauthProvider?: OAuthIdentityProvider
 ): Promise<void> {
+  // mt#1719 Intervention 2: function-local dynamic import. Express is only
+  // needed in HTTP mode; deferring this off the stdio-mode import graph
+  // shaves the express closure (~10-20ms) off `mcp_command_module_loaded`.
+  const { default: express } = await import("express");
   const app = express();
   // Trust exactly one proxy hop (Railway's edge / TLS terminator). Scoping
   // to `1` rather than `true` limits the X-Forwarded-* trust to one upstream
@@ -1096,6 +1109,10 @@ export function createStartCommand(
                 } catch {
                   oauthConfig = undefined;
                 }
+                // mt#1719 Intervention 2: function-local dynamic import.
+                // OAuth provider pulls in oidc-provider + Koa middleware
+                // closure; deferring keeps it off the stdio import graph.
+                const { resolveOAuthProvider } = await import("../../domain/oauth/registry");
                 oauthProvider = resolveOAuthProvider(oauthConfig, {
                   db,
                   endpointPath: normalizeEndpointPath(options.endpoint),
@@ -1114,6 +1131,12 @@ export function createStartCommand(
 
         // Launch inspector if requested
         if (options.withInspector) {
+          // mt#1719 Intervention 2: function-local dynamic import. Inspector
+          // launcher is only needed when --with-inspector is passed; deferring
+          // keeps it off every other invocation's import graph.
+          const { launchInspector, isInspectorAvailable } = await import(
+            "../../mcp/inspector-launcher"
+          );
           if (!isInspectorAvailable()) {
             log.cliError(
               "MCP Inspector not found. Please install it with: bun add -d @modelcontextprotocol/inspector"
