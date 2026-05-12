@@ -33,18 +33,20 @@ The forward path is `TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW �
 
 #### Status color conventions
 
-Use semantic tokens, not raw colors. Pattern (uses shadcn semantic palette + may need a `warning` semantic token added):
+Use semantic tokens, not raw colors. The shadcn semantic palette covers most states; two states need tokens that are NOT in the current palette (`warning`, `success`) — these MUST be added to `tailwind.config.ts` + the CSS variable system in `src/cockpit/web/index.css` BEFORE using the class names below. **Class names `bg-warning`, `text-warning`, `bg-success`, `text-success` are aspirational — they will produce invalid Tailwind output until the palette is extended.** Adding them: define `--warning`/`--warning-foreground`/`--success`/`--success-foreground` CSS vars in `:root` and `.dark` blocks, then add `warning: { DEFAULT: "hsl(var(--warning))", foreground: "hsl(var(--warning-foreground))" }` (and same for `success`) under `theme.extend.colors` in `tailwind.config.ts`.
+
+Status mapping (some classes still pending palette addition — marked **[needs token]**):
 
 - TODO: `text-muted-foreground bg-muted` — neutral gray
 - PLANNING: `text-foreground bg-secondary` — active but pre-work
 - READY: `text-primary-foreground bg-primary` — calls action
 - IN-PROGRESS: `text-foreground bg-accent` — distinct from READY
-- IN-REVIEW: `text-foreground bg-warning` — needs attention (warning palette may need addition)
+- IN-REVIEW: **[needs token]** `text-foreground bg-warning` — add `warning` palette first
 - DONE: `text-muted-foreground bg-muted opacity-60` — settled, dim
 - BLOCKED: `text-destructive-foreground bg-destructive/30` — urgent
 - CLOSED: `text-muted-foreground line-through opacity-50` — terminal
 
-If the `warning` token doesn't exist in the semantic palette, add it to `tailwind.config.ts` and the CSS variable system before using it. Don't fall back to raw hex.
+Don't fall back to raw hex (e.g., `bg-yellow-500`) — that bypasses the dark-mode-first theming and creates per-widget drift. Always go through the semantic layer.
 
 ### Sessions
 
@@ -58,10 +60,12 @@ A session is the agent's workspace for a task. Has:
 
 #### Session liveness conventions
 
-- `healthy`: green dot (`bg-success` if added, else `bg-green-500`) + relative time
-- `idle`: yellow dot + relative time
-- `stale`: orange dot + relative time + "stale" label
-- `exited`: gray dot + "exited" label, optional reason
+Liveness dots need the `success` semantic token added (see the palette-extension note under "Status color conventions" above). The **[needs token]** marker below indicates classes that depend on that extension.
+
+- `healthy`: green dot — **[needs token]** `bg-success` (canonical); fall back to `bg-green-500` ONLY as a temporary placeholder while the palette extension is pending, with a `// TODO: bg-success once palette extends` comment
+- `idle`: yellow dot — **[needs token]** `bg-warning` once it lands
+- `stale`: orange dot — use `bg-destructive/30` (lower-saturation destructive) until a `warning` mid-tone is available
+- `exited`: gray dot — `bg-muted` (already in palette)
 
 ### Changesets
 
@@ -209,12 +213,18 @@ Cockpit's primary navigation is drill-down: dashboard → entity detail → acti
 
 ### URL conventions
 
+The `#` character in `mt#X` is a URL fragment delimiter in standard parsing — it MUST be percent-encoded as `%23` in URL path segments, otherwise the browser interprets it as a fragment marker and the route never resolves. Most React routers (TanStack Router, React Router v6+) handle path-segment encoding/decoding automatically when you use route parameters — declare `<Route path="/task/:taskId" />` and pass `taskId="mt#1772"`; the router emits `/task/mt%231772` in the address bar and decodes on read. If hand-constructing URLs (e.g., in command-palette navigation handlers), wrap the task ID with `encodeURIComponent(taskId)` before composing the path.
+
+UI display vs URL: show users `mt#1772` (the canonical form). `%23` appears in the URL bar only.
+
 - Dashboard: `/` (no path)
-- Task detail: `/task/mt#X` (URL-encode the `#` as `%23` if router requires)
-- Session detail: `/session/<id>` (full UUID)
-- PR detail: `/pr/<number>` (number only, repo is implicit)
-- Agent detail: `/agent/<id>`
-- Widget panels: `/widget/<name>` (e.g., `/widget/agents`)
+- Task detail: `/task/:taskId` (taskId parameter holds `mt#X`; renders as `/task/mt%231772` in the URL bar)
+- Session detail: `/session/:sessionId` (full UUID; no encoding needed)
+- PR detail: `/pr/:prNumber` (number only, repo is implicit)
+- Agent detail: `/agent/:agentId`
+- Widget panels: `/widget/:widgetName` (e.g., `/widget/agents`)
+
+When the router is picked in phase B (mt#1773), confirm this scheme matches its conventions and update this section if it diverges (e.g., some routers prefer search-params over path-params for IDs containing special chars).
 
 ### Breadcrumb conventions
 
