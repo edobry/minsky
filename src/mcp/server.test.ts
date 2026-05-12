@@ -1178,7 +1178,15 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
     await server.close();
   });
 
-  test("non-Claude clients receive the canonical dotted form (preserves wire contract)", async () => {
+  // Shared test-fixture client identities (avoids the no-magic-string-duplication lint rule).
+  const NON_CLAUDE_CLIENT_NAME = "custom-mcp-client";
+  const CLAUDE_CLIENT_NAME = "claude-ai";
+
+  test("mt#1785: DEFAULT (no env var) emits underscored regardless of client identity", async () => {
+    // mt#1785: the new default is `underscore`. Even a non-Claude client now
+    // receives validator-clean names. Use case: Anthropic's tools-list cache
+    // is keyed by MCP-server name and persists snapshots; ensuring EVERY
+    // snapshot is underscored prevents the cached-dotted-name failure mode.
     const { MinskyMCPServer: MMS } = await import("./server");
     const server = new MMS({
       name: "Test Server",
@@ -1190,11 +1198,59 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
     server.addTool(buildToolDef("tasks.list"));
     server.addTool(buildToolDef("session.pr.get"));
 
-    // Non-Claude client (e.g., a custom MCP consumer).
-    const result = await callToolsListHandler(server, { name: "custom-mcp-client", version: "1" });
+    // Belt-and-suspenders: make sure MINSKY_MCP_TOOL_NAMES is not set (so the
+    // test exercises the actual default), restore on exit.
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    delete process.env.MINSKY_MCP_TOOL_NAMES;
+    try {
+      // Non-Claude client + no env var → underscored by default (mt#1785).
+      const result = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      const emittedNames = result.tools.map((t) => t.name).sort();
+      expect(emittedNames).toEqual(["session_pr_get", "tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
 
-    const emittedNames = result.tools.map((t) => t.name).sort();
-    expect(emittedNames).toEqual(["session.pr.get", "tasks.list"]);
+    await server.close();
+  });
+
+  test("mt#1785: MINSKY_MCP_TOOL_NAMES=auto restores feature-detect (non-Claude → dotted)", async () => {
+    // The mt#1779 behavior is preserved as an opt-in mode. Non-Claude clients
+    // see canonical dotted; Claude clients see underscored.
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "auto";
+    try {
+      // Non-Claude in `auto` mode → canonical dotted.
+      const nonClaude = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(nonClaude.tools.map((t) => t.name)).toEqual(["tasks.list"]);
+
+      // Claude client in `auto` mode → underscored.
+      const claude = await callToolsListHandler(server, {
+        name: CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(claude.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
 
     await server.close();
   });

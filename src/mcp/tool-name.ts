@@ -23,32 +23,40 @@ export function toClaudeDesktopName(methodName: string): string {
 }
 
 /**
- * mt#1779 PR #1071 R1 BLOCKING #2: feature-detect strict-validator clients.
+ * Decide whether `tools/list` should emit the underscored Claude-Desktop alias
+ * or the canonical dotted name.
  *
- * Returns true when `tools/list` should emit underscored names instead of
- * canonical dotted names. Avoids a silent wire-contract change for non-Claude
- * clients that discover tools via `tools/list` and then call by the returned
- * `name`. The override env var `MINSKY_MCP_TOOL_NAMES` forces specific
- * behavior:
- *   - `"underscore"` → always emit underscored
- *   - `"dotted"` → always emit canonical (the pre-mt#1779 behavior; will fail
- *     against Claude Desktop)
- *   - unset or `"auto"` → feature-detect from clientInfo.name (default)
+ * mt#1785: the default is `"underscore"` — always emit Claude-Desktop-compatible
+ * names. The previous default (`"auto"`, feature-detect via `clientInfo.name`)
+ * shipped in mt#1779 but proved insufficient against Anthropic's server-side
+ * tools-list cache. The cache is keyed by MCP-server name; once it captures a
+ * dotted-name snapshot from any path that misses our feature-detect (e.g., a
+ * client invocation whose `clientInfo.name` doesn't begin with "claude"), the
+ * chat session continues to serve the cached dotted names regardless of what
+ * subsequent `tools/list` fetches return. Emitting underscored unconditionally
+ * means EVERY snapshot Anthropic might cache is validator-clean.
  *
- * Auto-detection: case-insensitive prefix match `claude*` against
- * `clientInfo.name`. Covers Claude Desktop, claude.ai web, Claude Code CLI,
- * and any future Anthropic-emitted MCP client. Other clients (e.g., custom
- * MCP clients, OpenAI's, the Reviewer service if it ever uses `tools/list`)
- * see the canonical dotted form they may already expect.
+ * Env var `MINSKY_MCP_TOOL_NAMES` modes:
+ *   - `"underscore"` (default) — always emit underscored
+ *   - `"dotted"` — always emit canonical (pre-mt#1779 behavior; will fail
+ *     against Claude Desktop's strict-validator path)
+ *   - `"auto"` — feature-detect from `clientInfo.name` (mt#1779 behavior;
+ *     case-insensitive `claude*` prefix match)
+ *
+ * Note: `tool.name` (used internally by `DI_FREE_TOOL_NAMES`, drift gate,
+ * and log lines) keeps the canonical dotted form regardless of this setting.
+ * The dual-registered map in `MinskyMCPServer.addTool` ensures CallTool
+ * dispatch resolves either name form, so dotted-name consumers continue to
+ * work whatever this setting emits.
  */
 export function shouldEmitDesktopAliases(
   clientInfo: { name?: string } | undefined,
   env: NodeJS.ProcessEnv = process.env
 ): boolean {
-  const override = (env.MINSKY_MCP_TOOL_NAMES ?? "auto").toLowerCase();
-  if (override === "underscore") return true;
-  if (override === "dotted") return false;
-  // auto — feature-detect
+  const mode = (env.MINSKY_MCP_TOOL_NAMES ?? "underscore").toLowerCase();
+  if (mode === "underscore") return true;
+  if (mode === "dotted") return false;
+  // auto — feature-detect (case-insensitive `claude*` prefix on clientInfo.name)
   const name = clientInfo?.name;
   if (!name) return false;
   return name.toLowerCase().startsWith("claude");
