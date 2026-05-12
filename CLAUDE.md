@@ -1030,7 +1030,7 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 Agent harnesses ship internal task-tracking systems (Claude Code's `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`, Cursor's `.cursor/scratchpad.md`, Cline, Devin, OpenHands). Minsky's task system covers a different layer: durable, status-machine-driven, audit-trailed, multi-backend (the orchestration substrate). These two surfaces overlap, and the boundary needs an explicit policy.
 
-**Durable work → Minsky task.** Anything with a spec, a status transition, a PR or merge milestone, cross-conversation relevance, or an audit-trail requirement. Use `tasks_create`, `tasks_status_set`, the skill chain.
+**Durable work → Minsky task.** Anything with a spec, a status transition, a PR or merge milestone, cross-conversation relevance, or an audit-trail requirement. Use `mcp__minsky__tasks_create`, `mcp__minsky__tasks_status_set`, the skill chain.
 
 **Ephemeral, intra-conversation work → harness todo.** Pre-task triage (request hasn't been task-fied yet), multi-subagent intra-conversation bookkeeping, multi-step plans where the user benefits from a rendered progress view in the harness UI, investigation before deciding what's a task.
 
