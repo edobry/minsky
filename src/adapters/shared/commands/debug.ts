@@ -10,6 +10,7 @@ import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "../../../utils/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
+import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -151,6 +152,17 @@ export function registerDebugCommands(): void {
         // server name so the call never throws.
         const disconnectSummary = DisconnectTracker.getInstance("minsky").getSummary();
 
+        // mt#1738: include subagent dispatch cadence in system info.
+        // Uses the SubagentDispatchTracker singleton. If no DB-backed instance
+        // has been set via setInstance(), the singleton returns a no-op tracker
+        // that produces zero-filled aggregates (same pattern as DisconnectTracker).
+        // Both getCadence() and getEscalation() are fail-safe (catch + log).
+        const dispatchTracker = SubagentDispatchTracker.getInstance();
+        const [dispatchCadence, dispatchEscalation] = await Promise.all([
+          dispatchTracker.getCadence(),
+          dispatchTracker.getEscalation(),
+        ]);
+
         // Return formatted system information
         return {
           nodejs: {
@@ -183,6 +195,30 @@ export function registerDebugCommands(): void {
            *   "daily"   = > 3 disconnects in last 24h — file structural-fix task
            */
           mcpDisconnects: disconnectSummary,
+          /**
+           * Subagent dispatch cadence (mt#1738).
+           *
+           * Aggregates from the `subagent_invocations` table (mt#1735/1736).
+           * Populated once the DB-backed tracker is wired by the MCP start-command.
+           * Returns zero-filled aggregates on the CLI path (no Postgres) or before
+           * the DB connection is resolved.
+           *
+           * `escalation` field values (calibrated first-week defaults):
+           *   "none"    = below all thresholds
+           *   "session" = > SESSION_PARTIAL_UNCOMMITTED_THRESHOLD (2) partial-uncommitted
+           *               outcomes in the most recent parent session
+           *   "daily"   = > DAILY_PARTIAL_UNCOMMITTED_THRESHOLD (5) partial-uncommitted
+           *               outcomes in last 24h, OR > DAILY_RATE_LIMITED_THRESHOLD (3)
+           *               rate-limited outcomes in last 24h
+           *
+           * When escalation is non-"none", file or update the structural-fix follow-up
+           * task (mt#1728 or a successor). See .minsky/rules/subagent-dispatch-cadence.mdc
+           * for threshold derivation and SQL inspection patterns.
+           */
+          subagentDispatches: {
+            ...dispatchCadence,
+            escalation: dispatchEscalation,
+          },
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };
