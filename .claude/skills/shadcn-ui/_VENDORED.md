@@ -7,4 +7,12 @@
 - **Task:** mt#1777
 - **Bundle:** mt#1768 (Cockpit design + engineering bundle)
 
-This skill is vendored as-is from the upstream repo. To update, refetch from the source URL and replace SKILL.md (preserving frontmatter).
+This skill is vendored from the upstream repo with one modification: `allowed-tools` has been
+stripped from the frontmatter. To update, refetch from the source URL and replace SKILL.md,
+then re-apply this strip.
+
+**Modification from upstream:** Stripped `allowed-tools: Bash(npx shadcn@latest *), Bash(pnpm dlx shadcn@latest *), Bash(bunx --bun shadcn@latest *)` from
+frontmatter — vendored as documentation-only per mt#1777 R1 review
+(https://github.com/edobry/minsky/pull/1077#pullrequestreview-4275477162).
+If executable capability is needed, add tools explicitly at the agent level
+(`.minsky/agents/cockpit-dev/agent.ts`).

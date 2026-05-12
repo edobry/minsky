@@ -14,3 +14,8 @@ template (28KB), which is the authoring source. Template placeholders ({{PREAMBL
 as they depend on the gstack toolchain. The core design review methodology is preserved intact.
 
 To update: fetch SKILL.md.tmpl from the source URL above and regenerate.
+
+**Modification from upstream:** Stripped `allowed-tools` from frontmatter — vendored as
+documentation-only per mt#1777 R1 review (https://github.com/edobry/minsky/pull/1077#pullrequestreview-4275477162).
+If executable capability is needed, add tools explicitly at the agent level
+(`.minsky/agents/cockpit-dev/agent.ts`).

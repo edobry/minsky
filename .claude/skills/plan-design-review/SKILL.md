@@ -11,13 +11,6 @@ description: |
   or "design critique".
   Proactively suggest when the user has a plan with UI/UX components that
   should be reviewed before implementation. (gstack)
-allowed-tools:
-  - Read
-  - Edit
-  - Grep
-  - Glob
-  - Bash
-  - AskUserQuestion
 triggers:
   - design plan review
   - review ux plan
