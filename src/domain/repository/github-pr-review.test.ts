@@ -244,6 +244,8 @@ function buildApiComment(c: ReviewComment): Record<string, unknown> {
           start_side: (c.startSide ?? resolvedSide) as "LEFT" | "RIGHT",
         }
       : {}),
+    // Mirror the production mapper: forward inReplyTo as in_reply_to (mt#1345).
+    ...(c.inReplyTo !== undefined ? { in_reply_to: c.inReplyTo } : {}),
   };
 }
 
@@ -412,6 +414,47 @@ describe("Octokit payload mapping", () => {
     expect(body).not.toContain("\r");
     // The suggestion content must be present with plain \n separators.
     expect(body).toContain("const x = 1;\nconst y = 2;");
+  });
+
+  // inReplyTo field mapping (mt#1345)
+  test("comment with inReplyTo: in_reply_to is present in API payload", () => {
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "still applies — see evidence",
+      inReplyTo: 98765,
+    });
+
+    expect(payload.in_reply_to).toBe(98765);
+  });
+
+  test("comment without inReplyTo: in_reply_to is absent from API payload", () => {
+    const payload = buildApiComment({
+      path: "src/foo.ts",
+      line: 10,
+      body: "new comment",
+    });
+
+    expect("in_reply_to" in payload).toBe(false);
+  });
+
+  test("multi-comment array: mixed inReplyTo — present on some, absent on others", () => {
+    const comments: ReviewComment[] = [
+      { path: "src/a.ts", line: 1, body: "new top-level" },
+      { path: "src/b.ts", line: 2, body: "reply to existing", inReplyTo: 12345 },
+      { path: "src/c.ts", line: 3, body: "another new top-level" },
+    ];
+
+    const payloads = comments.map(buildApiComment);
+    const [first, second, third] = payloads as [
+      Record<string, unknown>,
+      Record<string, unknown>,
+      Record<string, unknown>,
+    ];
+
+    expect("in_reply_to" in first).toBe(false);
+    expect(second.in_reply_to).toBe(12345);
+    expect("in_reply_to" in third).toBe(false);
   });
 
   // BLOCKING 2: Dynamic fence length when suggestion contains backticks

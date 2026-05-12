@@ -713,6 +713,17 @@ export const sessionPrReviewSubmitCommandParams = {
           .describe(
             "Replacement code for a GitHub suggestion block. Line count must match the anchored range."
           ),
+        inReplyTo: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "When present, this comment is a REPLY to the existing review comment with this " +
+              "database ID. Obtain the ID from reviewThreads[].comments[].databaseId in " +
+              "session_pr_review_context. When inReplyTo is set, path/line/side are ignored " +
+              "by GitHub — the reply is anchored to the parent comment's location."
+          ),
       })
     ),
     description: "Optional inline line-level comments",
