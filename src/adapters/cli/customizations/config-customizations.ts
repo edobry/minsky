@@ -89,6 +89,64 @@ function formatFlattenedConfiguration(resolved: Record<string, unknown>): string
 }
 
 /**
+ * Render a config value for terminal output. Scalars print bare (`sk-XXX`,
+ * `42`, `true`) so the result is shell-pipeable; objects/arrays print as
+ * pretty-JSON. The handler upstream guarantees `value !== undefined` on the
+ * success path, so we only handle the null branch defensively.
+ */
+export function formatConfigValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+/**
+ * Pure renderers for config-command results. Return the line to print; the
+ * outputFormatter wrappers below pass the return value to log.cli. Separating
+ * "what to print" from "where to print" makes the renderers unit-testable
+ * without module-level log mocks.
+ */
+export function renderConfigGetResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+  if (result.success && result.exists) {
+    return formatConfigValue(result.value);
+  }
+  if (result.error) {
+    return `Error: ${result.error}`;
+  }
+  return `Configuration path '${result.key ?? "<unknown>"}' not found`;
+}
+
+export function renderConfigSetResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+  if (!result.success) {
+    return `Error: ${result.error ?? "unknown error"}`;
+  }
+  const key = String(result.key ?? "");
+  const newValue = formatConfigValue(result.newValue);
+  return `${key} = ${newValue}`;
+}
+
+export function renderConfigUnsetResult(result: Record<string, unknown>): string {
+  if (result.json) {
+    return JSON.stringify(result, null, 2);
+  }
+  if (!result.success) {
+    return `Error: ${result.error ?? "unknown error"}`;
+  }
+  const key = String(result.key ?? "");
+  return `unset ${key}`;
+}
+
+/**
  * Get config command customizations configuration
  * @returns Config category customization options
  */
@@ -169,6 +227,37 @@ export function getConfigCustomizations(): {
             } else {
               log.cli(JSON.stringify(result, null, 2));
             }
+          },
+        },
+        "config.get": {
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigGetResult(result));
+          },
+        },
+        "config.set": {
+          parameters: {
+            key: {
+              asArgument: true,
+              description: "Configuration key path",
+            },
+            value: {
+              asArgument: true,
+              description: "Value to set",
+            },
+          },
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigSetResult(result));
+          },
+        },
+        "config.unset": {
+          parameters: {
+            key: {
+              asArgument: true,
+              description: "Configuration key path",
+            },
+          },
+          outputFormatter: (result: Record<string, unknown>) => {
+            log.cli(renderConfigUnsetResult(result));
           },
         },
       },
