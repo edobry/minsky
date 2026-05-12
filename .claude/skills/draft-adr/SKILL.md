@@ -49,7 +49,7 @@ List existing ADRs:
 ls docs/architecture/adr-*.md | sort
 ```
 
-The next ADR's NNN is the highest existing number plus one. Zero-pad to three digits (`adr-010`, `adr-011`, …). At time of writing, the highest is `adr-009`.
+Determine the maximum existing `adr-NNN` number and add one. Zero-pad the result to three digits. For example, if the highest existing file is `adr-009-foo.md`, the next is `adr-010-<slug>.md`. Do NOT hardcode an expected number — always compute it from the directory listing, because other in-flight branches may have advanced the sequence.
 
 ### 3. Choose the slug
 

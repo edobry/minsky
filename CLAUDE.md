@@ -658,7 +658,7 @@ Foundational theory, competitive positioning, observation of operational reality
 - **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135)
 - **Architecture references:** `docs/architecture/stdio-proxy.md`, `docs/architecture/bundling.md`
 - **Engineering guides:** `docs/configuration-guide.md`, `docs/deploy-minsky-railway.md`, `docs/testing-patterns.md`
-- **Vision/Insight:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb48197a93ecd4a98a94261), [Insight: shift-left quality infrastructure](https://www.notion.so/33a937f03cb48197a93ecd4a98a94261)
+- **Vision/Insight:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4)
 
 ## How to apply
 

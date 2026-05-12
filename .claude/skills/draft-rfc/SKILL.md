@@ -80,12 +80,14 @@ See `engineering-writing/SKILL.md` for the full writing checklist, AI-voice tell
 
 Before shipping, dispatch an expert review. This is the structural quality lever — Chinese-wall review for prose, mirroring how subagent reviewers catch issues in code PRs.
 
+The Notion MCP tool names referenced below (`mcp__plugin_Notion_notion__notion-fetch`, `notion-search`, `notion-create-pages`, `notion-update-page`) are provided by Claude Code's harness-level Notion plugin, not by this repository. They are available in the agent's tool surface when the user has the Notion plugin connected. If the plugin is not connected, fall back to manual Notion edits — but for this skill we assume it is, since the doc lives in Notion. Verify presence with the harness's tool-search before assuming availability.
+
 ```
 Agent({
   description: "Expert review of <RFC topic> draft",
   subagent_type: "general-purpose",
   model: "opus",
-  prompt: "You are a <domain> expert reviewing a design RFC. Read the doc first: Notion page id <page-id>. Fetch via mcp__plugin_Notion_notion__notion-fetch. Review carefully. Specific axes: <axes>. Push back specifically. Deliver findings with severity (BLOCKING / IMPORTANT / NICE-TO-HAVE) and concrete recommendations. Return as final message, do not post."
+  prompt: "You are a <domain> expert reviewing a design RFC. Read the doc first: Notion page id <page-id>. Fetch via mcp__plugin_Notion_notion__notion-fetch (Notion plugin tool, harness-provided). Review carefully end-to-end. Specific axes: <axes>. Push back specifically with concrete findings. Deliver findings with severity (BLOCKING / IMPORTANT / NICE-TO-HAVE) and concrete recommendations. Return as final message; do not post to GitHub or Notion."
 })
 ```
 
@@ -110,15 +112,19 @@ Add an "Origin and review" section near the end of the RFC summarizing what the 
 
 ### 7. Publish to Notion
 
-Use `mcp__plugin_Notion_notion__notion-create-pages` with:
+Use the Notion plugin's `notion-create-pages` tool (harness-provided as `mcp__plugin_Notion_notion__notion-create-pages` in Claude Code).
 
-- Parent: Minsky home page (`33a937f0-3cb4-8197-a93e-cd4a98a94261`)
-- Title: `RFC: <topic>` (per `documentation-taxonomy.mdc` title pattern)
-- Status header at top of body: `**Status:** Draft (<date>)`
-- Body: the revised content
-- Optional icon: an emoji that's distinctive but tasteful (`🔭` for observability, `🧠` for memory, `🪢` for mesh, etc.)
+Required call shape:
 
-After publish, the page ID becomes the canonical reference. Save a memory anchor linking back to the page so future agents pick it up automatically via memory search.
+- `parent`: `{ "type": "page_id", "page_id": "33a937f0-3cb4-8197-a93e-cd4a98a94261" }` — Minsky home page
+- `pages`: array of one page with:
+  - `properties.title`: `RFC: <topic>` (per `documentation-taxonomy.mdc` title pattern)
+  - `content`: the revised body in Notion-flavored Markdown, starting with `**Status:** Draft (<date>)` on the first line
+  - `icon` (optional): distinctive emoji (`🔭` observability, `🧠` memory, `🪢` mesh, `📐` architecture)
+
+For updates to an existing RFC (status transitions, content revisions): use `notion-update-page` with `command: "update_properties"` to rename or change properties, or `command: "replace_content"` to rewrite the body. Title updates require `properties: { "title": "<new title>" }`; body updates require the full new content as `new_str`.
+
+After publish, the returned page ID becomes the canonical reference. Save a memory anchor linking back to the page (via `mcp__minsky__memory_create`) so future agents pick it up automatically via memory search.
 
 ### 8. File implementation tasks
 
