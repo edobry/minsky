@@ -18,7 +18,13 @@
 import { describe, test, expect, mock, spyOn } from "bun:test";
 import type { Octokit } from "@octokit/rest";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
-import { fetchPriorReviews, fetchListFiles, MAX_FILES_FETCHED } from "./github-client";
+import {
+  fetchPriorReviews,
+  fetchListFiles,
+  MAX_FILES_FETCHED,
+  fetchReviewThreads,
+  resolveThread,
+} from "./github-client";
 
 // ---------------------------------------------------------------------------
 // Fake Octokit builder
@@ -363,5 +369,260 @@ describe("fetchListFiles", () => {
     // Should return filenames, not fall back to []
     expect(result).toHaveLength(MAX_FILES_FETCHED);
     expect(result[0]).toBe("src/file0.ts");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchReviewThreads tests (mt#1345)
+// ---------------------------------------------------------------------------
+
+/**
+ * GQL response shape for a single page of review threads.
+ */
+interface FakeGqlPage {
+  nodes: Array<{
+    id: string;
+    path: string;
+    line: number | null;
+    startLine: number | null;
+    isResolved: boolean;
+    isOutdated: boolean;
+    isCollapsed: boolean;
+    comments: {
+      totalCount: number;
+      nodes: Array<{
+        databaseId: number;
+        author: { login: string } | null;
+        body: string;
+        createdAt: string;
+      }>;
+    };
+  }>;
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}
+
+function buildThreadOctokit(pages: FakeGqlPage[]): Octokit {
+  let pageIndex = 0;
+  const graphqlMock = mock(async (_query: string, _vars: unknown) => {
+    const page = pages[pageIndex++] ?? {
+      nodes: [],
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
+    return {
+      repository: {
+        pullRequest: {
+          reviewThreads: page,
+        },
+      },
+    };
+  });
+  return { graphql: graphqlMock } as unknown as Octokit;
+}
+
+function makeThread(overrides: Partial<FakeGqlPage["nodes"][0]> = {}): FakeGqlPage["nodes"][0] {
+  return {
+    id: "PRRT_kwDOX1",
+    path: "src/foo.ts",
+    line: 42,
+    startLine: null,
+    isResolved: false,
+    isOutdated: false,
+    isCollapsed: false,
+    comments: {
+      totalCount: 1,
+      nodes: [
+        {
+          databaseId: 100001,
+          author: { login: "minsky-reviewer[bot]" },
+          body: "Still a concern.",
+          createdAt: "2026-05-01T00:00:00Z",
+        },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+describe("fetchReviewThreads", () => {
+  test("single page: threads mapped correctly including databaseId", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [
+          makeThread({ id: "T_1", path: "src/a.ts", line: 10 }),
+          makeThread({ id: "T_2", path: "src/b.ts", line: 20, isResolved: true }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]?.id).toBe("T_1");
+    expect(result[0]?.path).toBe("src/a.ts");
+    expect(result[0]?.line).toBe(10);
+    expect(result[0]?.isResolved).toBe(false);
+    expect(result[0]?.comments[0]?.databaseId).toBe(100001);
+    expect(result[1]?.isResolved).toBe(true);
+  });
+
+  test("null author maps to null in comments", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [
+          makeThread({
+            id: "T_null_author",
+            comments: {
+              totalCount: 1,
+              nodes: [
+                {
+                  databaseId: 99999,
+                  author: null,
+                  body: "Bot deleted",
+                  createdAt: "2026-05-01T00:00:00Z",
+                },
+              ],
+            },
+          }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result[0]?.comments[0]?.author).toBeNull();
+  });
+
+  test("truncatedComments: true when totalCount > comments.nodes.length", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [
+          makeThread({
+            comments: {
+              totalCount: 15, // more than the 1 node we return
+              nodes: [
+                {
+                  databaseId: 111,
+                  author: { login: "alice" },
+                  body: "First comment",
+                  createdAt: "2026-05-01T00:00:00Z",
+                },
+              ],
+            },
+          }),
+        ],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result[0]?.truncatedComments).toBe(true);
+  });
+
+  test("truncatedComments: false when totalCount equals comments.nodes.length", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [makeThread()], // totalCount:1, nodes.length:1
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result[0]?.truncatedComments).toBe(false);
+  });
+
+  test("pagination: calls graphql twice when hasNextPage=true on first page", async () => {
+    const octokit = buildThreadOctokit([
+      {
+        nodes: [makeThread({ id: "T_page1" })],
+        pageInfo: { hasNextPage: true, endCursor: "cursor1" },
+      },
+      {
+        nodes: [makeThread({ id: "T_page2" })],
+        pageInfo: { hasNextPage: false, endCursor: null },
+      },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result).toHaveLength(2);
+    expect(result[0]?.id).toBe("T_page1");
+    expect(result[1]?.id).toBe("T_page2");
+    // graphql was called twice
+    expect((octokit.graphql as unknown as ReturnType<typeof mock>).mock.calls).toHaveLength(2);
+  });
+
+  test("empty PR: returns empty array when pullRequest has no threads", async () => {
+    const octokit = buildThreadOctokit([
+      { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+    ]);
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result).toEqual([]);
+  });
+
+  test("returns [] and emits reviewer_fetch_threads_error on GraphQL error", async () => {
+    const graphqlMock = mock(async () => {
+      throw new Error("GraphQL rate limit exceeded");
+    });
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+
+      expect(result).toEqual([]);
+      const logCalls = logSpy.mock.calls;
+      const errorLog = logCalls
+        .map((args) => {
+          try {
+            return JSON.parse(args[0] as string);
+          } catch {
+            return null;
+          }
+        })
+        .find((obj) => obj?.event === "reviewer_fetch_threads_error");
+      expect(errorLog).not.toBeNull();
+      expect(errorLog?.pr).toBe(42);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("returns [] when repository.pullRequest is null (permissions / not found)", async () => {
+    const graphqlMock = mock(async () => ({
+      repository: { pullRequest: null },
+    }));
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
+    expect(result).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveThread tests (mt#1345)
+// ---------------------------------------------------------------------------
+
+describe("resolveThread", () => {
+  test("calls octokit.graphql with the mutation and threadId", async () => {
+    const graphqlMock = mock(async (_query: string, vars: unknown) => ({
+      resolveReviewThread: { thread: { id: "PRRT_kwDOX1", isResolved: true } },
+    }));
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    await resolveThread(octokit, "PRRT_kwDOX1");
+
+    expect(graphqlMock.mock.calls).toHaveLength(1);
+    const [_query, vars] = graphqlMock.mock.calls[0] as [string, { threadId: string }];
+    expect(vars.threadId).toBe("PRRT_kwDOX1");
+  });
+
+  test("throws when graphql mutation returns an error", async () => {
+    const graphqlMock = mock(async () => {
+      throw new Error("Not authorized to resolve thread");
+    });
+    const octokit = { graphql: graphqlMock } as unknown as Octokit;
+
+    await expect(resolveThread(octokit, "PRRT_kwDOX1")).rejects.toThrow("Not authorized");
   });
 });

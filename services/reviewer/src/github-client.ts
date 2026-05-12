@@ -524,6 +524,250 @@ export async function listDirectoryAtRef(
   }
 }
 
+// ── Review threads (mt#1345) ─────────────────────────────────────────────────
+
+/**
+ * A single comment within a review thread, as surfaced in the reviewer prompt.
+ */
+export interface ReviewThreadComment {
+  /** GitHub database ID of the comment (numeric). Used for in_reply_to wiring. */
+  databaseId: number;
+  /** GitHub login of the comment author, or null for deleted accounts. */
+  author: string | null;
+  /** Comment body text. */
+  body: string;
+  /** ISO-8601 timestamp of comment creation. */
+  createdAt: string;
+}
+
+/**
+ * A review thread (inline diff discussion) on a pull request.
+ * Shape matches the GraphQL `reviewThreads.nodes` projection.
+ */
+export interface ReviewThread {
+  /** GraphQL node ID of the thread — used for the resolveReviewThread mutation. */
+  id: string;
+  /** File path the thread is anchored to. */
+  path: string;
+  /**
+   * Line number the thread ends on (1-based). Null when the thread is
+   * outdated (the anchored line was removed from the diff).
+   */
+  line: number | null;
+  /** First line of a multi-line range (1-based). Undefined for single-line. */
+  startLine?: number;
+  /** Whether the thread has been marked resolved. */
+  isResolved: boolean;
+  /** Whether the thread is outdated (anchored line no longer in the diff). */
+  isOutdated: boolean;
+  /** Whether the thread is collapsed in the GitHub UI. */
+  isCollapsed: boolean;
+  /** Ordered list of comments in the thread (oldest first, up to 10). */
+  comments: ReviewThreadComment[];
+  /** True when the thread has more than 10 comments (only first 10 are present). */
+  truncatedComments: boolean;
+}
+
+// ── GraphQL types ─────────────────────────────────────────────────────────────
+
+interface GqlThreadComment {
+  databaseId: number;
+  author: { login: string } | null;
+  body: string;
+  createdAt: string;
+}
+
+interface GqlThread {
+  id: string;
+  path: string;
+  line: number | null;
+  startLine: number | null;
+  isResolved: boolean;
+  isOutdated: boolean;
+  isCollapsed: boolean;
+  comments: {
+    totalCount: number;
+    nodes: GqlThreadComment[];
+  };
+}
+
+interface GqlPageInfo {
+  hasNextPage: boolean;
+  endCursor: string | null;
+}
+
+interface GqlReviewThreadsResponse {
+  repository: {
+    pullRequest: {
+      reviewThreads: {
+        nodes: GqlThread[];
+        pageInfo: GqlPageInfo;
+      };
+    } | null;
+  } | null;
+}
+
+const REVIEW_THREADS_QUERY = `
+  query GetReviewerThreads($owner: String!, $repo: String!, $prNumber: Int!, $after: String) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $prNumber) {
+        reviewThreads(first: 50, after: $after) {
+          nodes {
+            id
+            path
+            line
+            startLine
+            isResolved
+            isOutdated
+            isCollapsed
+            comments(first: 10) {
+              totalCount
+              nodes {
+                databaseId
+                author { login }
+                body
+                createdAt
+              }
+            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+  }
+`;
+
+const RESOLVE_THREAD_MUTATION = `
+  mutation ResolveReviewerThread($threadId: ID!) {
+    resolveReviewThread(input: { threadId: $threadId }) {
+      thread { id isResolved }
+    }
+  }
+`;
+
+/** Hard cap on threads fetched per PR to avoid runaway pagination. */
+const MAX_REVIEW_THREADS = 200;
+
+/**
+ * Fetch all review threads for a pull request.
+ *
+ * Paginates through `pullRequest.reviewThreads` (50 per page) and caps at
+ * MAX_REVIEW_THREADS (200). Returns an empty array on any network/auth/GraphQL
+ * error — thread context is non-fatal and degrades gracefully.
+ *
+ * @param octokit  Authenticated Octokit instance.
+ * @param owner    Repository owner.
+ * @param repo     Repository name.
+ * @param prNumber Pull request number.
+ * @param signal   Optional AbortSignal for request cancellation.
+ */
+export async function fetchReviewThreads(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  signal?: AbortSignal
+): Promise<ReviewThread[]> {
+  const allThreads: ReviewThread[] = [];
+  let hasNextPage = true;
+  let cursor: string | null = null;
+
+  while (hasNextPage) {
+    let response: GqlReviewThreadsResponse;
+    try {
+      response = await octokit.graphql<GqlReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
+        owner,
+        repo,
+        prNumber,
+        after: cursor,
+        request: { signal },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log(
+        JSON.stringify({
+          event: "reviewer_fetch_threads_error",
+          owner,
+          repo,
+          pr: prNumber,
+          error: message,
+        })
+      );
+      return allThreads;
+    }
+
+    const pr = response?.repository?.pullRequest;
+    if (pr === null || pr === undefined) {
+      return allThreads;
+    }
+
+    const { nodes, pageInfo } = pr.reviewThreads;
+
+    for (const node of nodes) {
+      if (allThreads.length >= MAX_REVIEW_THREADS) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer_threads_cap_exceeded",
+            owner,
+            repo,
+            pr: prNumber,
+            cap: MAX_REVIEW_THREADS,
+          })
+        );
+        return allThreads;
+      }
+
+      const comments: ReviewThreadComment[] = node.comments.nodes.map((c) => ({
+        databaseId: c.databaseId,
+        author: c.author?.login ?? null,
+        body: c.body,
+        createdAt: c.createdAt,
+      }));
+
+      allThreads.push({
+        id: node.id,
+        path: node.path,
+        line: node.line,
+        ...(node.startLine !== null ? { startLine: node.startLine } : {}),
+        isResolved: node.isResolved,
+        isOutdated: node.isOutdated,
+        isCollapsed: node.isCollapsed,
+        comments,
+        truncatedComments: node.comments.totalCount > node.comments.nodes.length,
+      });
+    }
+
+    hasNextPage = pageInfo.hasNextPage;
+    cursor = pageInfo.endCursor;
+  }
+
+  return allThreads;
+}
+
+/**
+ * Resolve a review thread via the GraphQL `resolveReviewThread` mutation.
+ *
+ * Throws if the mutation fails (the caller should decide whether to surface
+ * the error or swallow it).
+ *
+ * @param octokit  Authenticated Octokit instance.
+ * @param threadId GraphQL node ID of the thread to resolve.
+ * @param signal   Optional AbortSignal for request cancellation.
+ */
+export async function resolveThread(
+  octokit: Octokit,
+  threadId: string,
+  signal?: AbortSignal
+): Promise<void> {
+  await octokit.graphql(RESOLVE_THREAD_MUTATION, {
+    threadId,
+    request: { signal },
+  });
+}
+
 /**
  * Return the reviewer App's bot identity (login name) via the /app endpoint.
  *
