@@ -91,8 +91,10 @@ function formatFlattenedConfiguration(resolved: Record<string, unknown>): string
 /**
  * Render a config value for terminal output. Scalars print bare (`sk-XXX`,
  * `42`, `true`) so the result is shell-pipeable; objects/arrays print as
- * pretty-JSON. The handler upstream guarantees `value !== undefined` on the
- * success path, so we only handle the null branch defensively.
+ * pretty-JSON with a BigInt-safe replacer so nested bigints stringify
+ * as their decimal representation rather than throwing. The handler upstream
+ * guarantees `value !== undefined` on the success path, so we only handle
+ * the null branch defensively.
  */
 export function formatConfigValue(value: unknown): string {
   if (value === null) return "null";
@@ -101,7 +103,7 @@ export function formatConfigValue(value: unknown): string {
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
     return String(value);
   }
-  return JSON.stringify(value, null, 2);
+  return JSON.stringify(value, (_key, v: unknown) => (typeof v === "bigint" ? v.toString() : v), 2);
 }
 
 /**
@@ -117,10 +119,11 @@ export function renderConfigGetResult(result: Record<string, unknown>): string {
   if (result.success && result.exists) {
     return formatConfigValue(result.value);
   }
-  if (result.error) {
-    return `Error: ${result.error}`;
-  }
-  return `Configuration path '${result.key ?? "<unknown>"}' not found`;
+  const message =
+    typeof result.error === "string" && result.error.length > 0
+      ? result.error
+      : `Configuration path '${result.key ?? "<unknown>"}' not found`;
+  return `Error: ${message}`;
 }
 
 export function renderConfigSetResult(result: Record<string, unknown>): string {

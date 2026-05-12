@@ -7,7 +7,7 @@
  * Usage: bun scripts/mt1794-profile-config-set.ts
  */
 import "reflect-metadata";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createConfigWriter } from "../src/domain/configuration/config-writer";
@@ -33,10 +33,13 @@ async function main(): Promise<void> {
   console.log(`temp config dir: ${tmp}`);
   console.log(`N=${N} runs per phase\n`);
 
-  // Phase A: end-to-end setConfigValue (cold per iteration)
+  // Phase A: end-to-end setConfigValue (cold per iteration).
+  // The writer recreates tmp/minsky/ via mkdir -p on each call, so rmSync
+  // before the writer call is the cold-state setup.
   const e2e: number[] = [];
   for (let i = 0; i < N; i++) {
     rmSync(tmp, { recursive: true, force: true });
+    mkdirSync(tmp, { recursive: true });
     const start = process.hrtime.bigint();
     const result = await writer.setConfigValue(
       "observability.providers.braintrust.apiKey",
@@ -67,7 +70,10 @@ async function main(): Promise<void> {
     valid.push(ms(start));
   }
 
-  // Phase C: YAML serialize+write only
+  // Phase C: YAML serialize+write only. Ensure tmp exists — Phase A may have
+  // left it removed if its last iteration's writer call errored before
+  // recreating the directory.
+  mkdirSync(tmp, { recursive: true });
   const yamlWrite: number[] = [];
   for (let i = 0; i < N; i++) {
     const start = process.hrtime.bigint();

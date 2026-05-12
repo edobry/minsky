@@ -52,6 +52,43 @@ describe("config CLI customizations — pure renderers (mt#1794)", () => {
       expect(out).not.toContain("Success");
     });
 
+    test("synthesizes 'Error:' prefix when error field is absent (defensive)", () => {
+      // PR #1084 R1: reviewer flagged that the fallback path returned the
+      // not-found message without the "Error:" prefix, contradicting the
+      // documented UX.
+      const out = renderConfigGetResult({
+        success: false,
+        exists: false,
+        key: "missing.key",
+        json: false,
+      });
+      expect(out).toBe("Error: Configuration path 'missing.key' not found");
+      expect(out.startsWith("Error:")).toBe(true);
+    });
+
+    test("synthesizes 'Error:' prefix when error field is an empty string", () => {
+      const out = renderConfigGetResult({
+        success: false,
+        exists: false,
+        key: "x",
+        error: "",
+        json: false,
+      });
+      expect(out.startsWith("Error:")).toBe(true);
+      expect(out).toContain("not found");
+    });
+
+    test("renders nested bigint values via the JSON replacer (no throw)", () => {
+      const out = renderConfigGetResult({
+        success: true,
+        exists: true,
+        key: "container",
+        value: { count: BigInt("9007199254740993") },
+        json: false,
+      });
+      expect(JSON.parse(out)).toEqual({ count: "9007199254740993" });
+    });
+
     test("emits JSON form when result.json is true", () => {
       const out = renderConfigGetResult({
         success: true,
