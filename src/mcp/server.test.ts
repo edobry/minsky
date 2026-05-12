@@ -1049,6 +1049,11 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
   // suite protects against. Any tool name surfaced in `tools/list` MUST match.
   const CLAUDE_DESKTOP_TOOL_NAME_REGEX = /^[a-zA-Z0-9_-]{1,64}$/;
 
+  // Shared test-fixture client identities (avoids the no-magic-string-duplication
+  // lint rule).
+  const NON_CLAUDE_CLIENT_NAME = "custom-mcp-client";
+  const CLAUDE_CLIENT_NAME = "claude-ai";
+
   // Mirror of the production `toClaudeDesktopName` — kept local rather than
   // imported to keep the test asserting against the wire shape, not against
   // a function that could regress in lockstep with the production code.
@@ -1160,7 +1165,10 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
     for (const n of names) server.addTool(buildToolDef(n));
 
     // Drive through the real SDK handler with a Claude-Desktop-shaped client.
-    const result = await callToolsListHandler(server, { name: "claude-ai", version: "1.0" });
+    const result = await callToolsListHandler(server, {
+      name: CLAUDE_CLIENT_NAME,
+      version: "1.0",
+    });
 
     // Every emitted name must pass Claude Desktop's validator regex.
     for (const tool of result.tools) {
@@ -1177,10 +1185,6 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
 
     await server.close();
   });
-
-  // Shared test-fixture client identities (avoids the no-magic-string-duplication lint rule).
-  const NON_CLAUDE_CLIENT_NAME = "custom-mcp-client";
-  const CLAUDE_CLIENT_NAME = "claude-ai";
 
   test("mt#1785: DEFAULT (no env var) emits underscored regardless of client identity", async () => {
     // mt#1785: the new default is `underscore`. Even a non-Claude client now
@@ -1270,7 +1274,7 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
     process.env.MINSKY_MCP_TOOL_NAMES = "underscore";
     try {
       const result = await callToolsListHandler(server, {
-        name: "custom-mcp-client",
+        name: NON_CLAUDE_CLIENT_NAME,
         version: "1",
       });
       expect(result.tools.map((t) => t.name)).toEqual(["tasks_list"]);
@@ -1296,8 +1300,55 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
     const prev = process.env.MINSKY_MCP_TOOL_NAMES;
     process.env.MINSKY_MCP_TOOL_NAMES = "dotted";
     try {
-      const result = await callToolsListHandler(server, { name: "claude-ai", version: "1.0" });
+      const result = await callToolsListHandler(server, {
+        name: CLAUDE_CLIENT_NAME,
+        version: "1.0",
+      });
       expect(result.tools.map((t) => t.name)).toEqual(["tasks.list"]);
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
+      else process.env.MINSKY_MCP_TOOL_NAMES = prev;
+    }
+
+    await server.close();
+  });
+
+  test("mt#1785 PR #1074 R1 BLOCKING: unknown env value falls back to safe default 'underscore' (does NOT route to dotted via auto)", async () => {
+    // PR #1074 R1 BLOCKING: a typo like `MINSKY_MCP_TOOL_NAMES=underscroe` or
+    // any unrecognized value previously fell through to the `auto` branch.
+    // With clientInfo absent or non-Claude, that emitted dotted names — the
+    // exact failure mode mt#1785 set out to prevent. Validate the safe-default
+    // for both Claude and non-Claude clients, and reset the one-time warning
+    // latch between cases so each test can be observed independently.
+    const { MinskyMCPServer: MMS } = await import("./server");
+    const { __resetUnknownModeWarningForTests } = await import("./tool-name");
+    const server = new MMS({
+      name: "Test Server",
+      version: "1.0.0",
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    server.addTool(buildToolDef("tasks.list"));
+
+    const prev = process.env.MINSKY_MCP_TOOL_NAMES;
+    process.env.MINSKY_MCP_TOOL_NAMES = "underscroe"; // operator typo
+    try {
+      __resetUnknownModeWarningForTests();
+      // Non-Claude → still underscored (safe fallback, not `auto`'s dotted).
+      const nonClaude = await callToolsListHandler(server, {
+        name: NON_CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(nonClaude.tools.map((t) => t.name)).toEqual(["tasks_list"]);
+
+      __resetUnknownModeWarningForTests();
+      // Claude → also underscored (matches the safe default; no surprise).
+      const claude = await callToolsListHandler(server, {
+        name: CLAUDE_CLIENT_NAME,
+        version: "1",
+      });
+      expect(claude.tools.map((t) => t.name)).toEqual(["tasks_list"]);
     } finally {
       if (prev === undefined) delete process.env.MINSKY_MCP_TOOL_NAMES;
       else process.env.MINSKY_MCP_TOOL_NAMES = prev;
