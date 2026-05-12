@@ -369,25 +369,41 @@ async function startHttpServer(
           return;
         }
 
-        // Inject agentId into the MCP request body's _meta so Layer 2 picks it up.
+        // Inject agentId into the MCP request body's params._meta so Layer 2 picks it up.
         // Only inject for POST requests that carry a body — GET (SSE) connections
         // don't carry a JSON body and don't have tool-call context.
+        //
+        // mt#1765: _meta MUST live inside params._meta, NOT as a top-level envelope key.
+        // The MCP SDK's JSONRPCRequestSchema is .strict() (types.js:114-120) — any extra
+        // top-level key fails union-parse and the SDK returns -32700 "Parse error: Invalid
+        // JSON-RPC message". The SDK reads request-scoped _meta from request.params._meta
+        // (shared/protocol.js:321) and surfaces it to handlers as RequestHandlerExtra._meta
+        // — the same location Layer 2's readLayer2 reads from.
         if (req.method === "POST" && req.body && typeof req.body === "object") {
           // For a batch request (array), inject into each item; for a single
-          // request (object), inject into the top-level _meta.
+          // request (object), inject into the single message.
           const injectMeta = (msg: Record<string, unknown>): Record<string, unknown> => {
-            const existingMeta =
-              msg._meta && typeof msg._meta === "object" && !Array.isArray(msg._meta)
-                ? (msg._meta as Record<string, unknown>)
+            const existingParams =
+              msg.params && typeof msg.params === "object" && !Array.isArray(msg.params)
+                ? (msg.params as Record<string, unknown>)
+                : {};
+            const existingParamsMeta =
+              existingParams._meta &&
+              typeof existingParams._meta === "object" &&
+              !Array.isArray(existingParams._meta)
+                ? (existingParams._meta as Record<string, unknown>)
                 : {};
             // Only inject if the caller has not already declared an agentId
-            // (cooperative Layer 2: caller-declared _meta wins over OAuth-derived).
-            if (existingMeta[AGENT_ID_META_KEY]) return msg;
+            // (cooperative Layer 2: caller-declared params._meta wins over OAuth-derived).
+            if (existingParamsMeta[AGENT_ID_META_KEY]) return msg;
             return {
               ...msg,
-              _meta: {
-                ...existingMeta,
-                [AGENT_ID_META_KEY]: oauthResult.agentId,
+              params: {
+                ...existingParams,
+                _meta: {
+                  ...existingParamsMeta,
+                  [AGENT_ID_META_KEY]: oauthResult.agentId,
+                },
               },
             };
           };
