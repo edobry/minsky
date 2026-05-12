@@ -523,6 +523,12 @@ Operator-side delivery (terminal bell + native OS notification via `OperatorNoti
   at registration, routes firings via `WakeSignalSink` to the registering agent's
   conversation context. Closes the §4.3 residual gap; promotes `pr_watch_create` from
   Class C (operator-only) to Class B (agent-context-deliverable).
+- **`feedback_event_resumption_toolkit_survey`** memory (id `557006ff`) — the
+  originating three-gaps record from 2026-05-05. Updated in mt#1725's PR #1048 with the
+  post-fix status: all three originally-named gaps (stub GitHub client, missing scheduler,
+  desktop-only delivery) are closed (gaps #1+#2 by mt#1618; gap #3 by mt#1725). Read this
+  memory when making toolkit-survey decisions about `pr_watch_create`; it is the
+  canonical operational reference and parallels this doc's §2.12 + §4.3.
 - **mt#1315** — MCP signaling spike (DONE). `notifications/message` UI render path is
   unobserved from agent-side; recommendation locks in `exit-plus-message` for staleness
   only. Cited in §2.1 as the reason Class A is mostly aspirational.
