@@ -78,11 +78,13 @@ export function shouldEmitDesktopAliases(
     // names if clientInfo.name is missing or non-Claude.
     if (!warnedUnknownMode) {
       warnedUnknownMode = true;
-      log.warn("[mt#1785] Unknown MINSKY_MCP_TOOL_NAMES value — falling back to safe default", {
-        rawValue: raw,
-        fallback: "underscore",
-        validModes: ["underscore", "dotted", "auto"],
-      });
+      // PR #1074 R2 NON-BLOCKING: use cliWarn so the warning reaches operator
+      // stderr in HUMAN mode (log.warn is a no-op in HUMAN mode unless
+      // ENABLE_AGENT_LOGS is set, per src/utils/logger.ts:264).
+      log.cliWarn(
+        `[mt#1785] Unknown MINSKY_MCP_TOOL_NAMES value ${JSON.stringify(raw)} — ` +
+          `falling back to safe default "underscore". Valid modes: underscore | dotted | auto.`
+      );
     }
     return true;
   }
