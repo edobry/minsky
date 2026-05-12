@@ -188,6 +188,71 @@ describe("deferred-init dispatch contract — mt#1751 PR #1063 R1", () => {
   });
 });
 
+// --- Unhandled rejection hazard (PR #1063 R2 BLOCKING) ---
+
+const SIMULATED_INIT_FAILURE = "simulated init failure";
+
+describe("background init rejection — PR #1063 R2 contract", () => {
+  /**
+   * Reproduces the fork pattern from `start-command.ts`. The contract is:
+   *
+   *   const initPromise = baseInit;
+   *   initPromise.catch(logOnly);          // side-effect-only fork
+   *   server.setInitPromise(initPromise);  // original still rejecting
+   *
+   * The side `.catch` consumes the rejection on a copy of the chain, so
+   * Node never sees `unhandledRejection`. The original `initPromise`
+   * remains rejecting — a tool call's `await initPromise` (via
+   * `server.initPromise`) still surfaces the error.
+   */
+  test("logged rejection does NOT trigger unhandledRejection when no awaiter attaches", async () => {
+    const unhandledEvents: unknown[] = [];
+    const unhandledListener = (reason: unknown) => {
+      unhandledEvents.push(reason);
+    };
+    // The Minsky-narrowed `process` shape doesn't include the EventEmitter
+    // methods, but at test runtime under Bun/Node these are present. Cast
+    // to access them safely.
+    const proc = process as unknown as {
+      on(event: string, listener: (reason: unknown) => void): void;
+      off(event: string, listener: (reason: unknown) => void): void;
+    };
+    proc.on("unhandledRejection", unhandledListener);
+
+    try {
+      let logged = false;
+      const initPromise = Promise.reject(new Error(SIMULATED_INIT_FAILURE));
+
+      // The pattern under test: log-only fork.
+      initPromise.catch(() => {
+        logged = true;
+      });
+
+      // Pretend NO tool call ever awaits server.initPromise. The original
+      // promise still rejects internally, but the side .catch consumes it.
+
+      // Give the microtask queue a chance to surface unhandled rejections.
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(logged).toBe(true);
+      expect(unhandledEvents).toEqual([]);
+    } finally {
+      proc.off("unhandledRejection", unhandledListener);
+    }
+  });
+
+  test("first tool-call await STILL surfaces the rejection (not silently swallowed)", async () => {
+    const baseInit = Promise.reject(new Error(SIMULATED_INIT_FAILURE));
+    // Match the start-command.ts shape: forked log-only catch.
+    baseInit.catch(() => {});
+
+    // The server's initPromise field would hold `baseInit`. The CallTool
+    // handler does `await this.initPromise` — verify that propagates the
+    // error to the awaiter.
+    await expect(baseInit).rejects.toThrow(SIMULATED_INIT_FAILURE);
+  });
+});
+
 // --- End-to-end verification ---
 //
 // The full deferred-init behavior is end-to-end-verified by

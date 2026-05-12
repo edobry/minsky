@@ -885,22 +885,27 @@ export function createStartCommand(
         // HTTP mode, preAction (`src/cli.ts`) has already initialized
         // synchronously — no defer needed (Profile B is long-lived).
         if (container && transportType === "stdio" && !container.has("persistence")) {
-          const initPromise = container
-            .initialize()
-            .then(() => {
-              profileCheckpoint("background_container_initialized");
-            })
-            .catch((err: unknown) => {
-              // PR #1063 R1 BLOCKING: log the failure but re-throw so the
-              // first tool call's await still surfaces the error to the
-              // MCP client. A swallowed init error would let tool handlers
-              // see "Service ... is not available" instead of the actual
-              // root cause (DB connection failure, missing config, etc.).
-              log.error("[mt#1751] background container.initialize() failed", {
-                error: getErrorMessage(err),
-              });
-              throw err;
+          const initPromise = container.initialize().then(() => {
+            profileCheckpoint("background_container_initialized");
+          });
+
+          // PR #1063 R2 BLOCKING: attach a SIDE-EFFECT-ONLY log catch on a
+          // FORKED reference (not the one passed to setInitPromise). This
+          // consumes the rejection so Node never emits `unhandledRejection`
+          // if init fails and no tool call ever awaits — the side `.catch`
+          // attaches a handler to a copy of the chain, preventing the
+          // unhandled-rejection hazard. The ORIGINAL `initPromise` remains
+          // rejecting; when a tool call awaits via `server.initPromise`
+          // (see server.ts CallTool handler), the error surfaces to the
+          // MCP client with the actual root cause (DB connection failure,
+          // missing config, etc.) — NOT a downstream "Service ... is not
+          // available" symptom.
+          initPromise.catch((err: unknown) => {
+            log.error("[mt#1751] background container.initialize() failed", {
+              error: getErrorMessage(err),
             });
+          });
+
           server.setInitPromise(initPromise);
           profileCheckpoint("background_init_kicked_off");
         }
