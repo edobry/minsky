@@ -885,9 +885,22 @@ export function createStartCommand(
         // HTTP mode, preAction (`src/cli.ts`) has already initialized
         // synchronously — no defer needed (Profile B is long-lived).
         if (container && transportType === "stdio" && !container.has("persistence")) {
-          const initPromise = container.initialize().then(() => {
-            profileCheckpoint("background_container_initialized");
-          });
+          const initPromise = container
+            .initialize()
+            .then(() => {
+              profileCheckpoint("background_container_initialized");
+            })
+            .catch((err: unknown) => {
+              // PR #1063 R1 BLOCKING: log the failure but re-throw so the
+              // first tool call's await still surfaces the error to the
+              // MCP client. A swallowed init error would let tool handlers
+              // see "Service ... is not available" instead of the actual
+              // root cause (DB connection failure, missing config, etc.).
+              log.error("[mt#1751] background container.initialize() failed", {
+                error: getErrorMessage(err),
+              });
+              throw err;
+            });
           server.setInitPromise(initPromise);
           profileCheckpoint("background_init_kicked_off");
         }

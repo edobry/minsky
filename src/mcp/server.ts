@@ -105,6 +105,24 @@ export interface MinskyMCPServerOptions {
 }
 
 // Tool definitions for MCP server
+/**
+ * mt#1751: Tools that demonstrably don't touch DI services — these skip the
+ * `initPromise` await in the CallTool handler. Currently covers the three
+ * debug commands routed through the shared-command bridge (which doesn't
+ * thread the `requiresInit` field). Add to this set, or set
+ * `requiresInit: false` on the ToolDefinition directly, when you've verified
+ * a tool's handler does not call `container.get(...)` or otherwise depend on
+ * a resolved DI service.
+ *
+ * Tool names use the MCP-normalized form (`__` separator after `mcp`,
+ * underscore-separated thereafter; see CommandMapper.normalizeMethodName).
+ */
+const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "debug_echo",
+  "debug_listMethods",
+  "debug_systemInfo",
+]);
+
 export interface ToolDefinition {
   name: string;
   description: string;
@@ -117,6 +135,18 @@ export interface ToolDefinition {
    * Read-only tools leave this unset or set it to false.
    */
   mutating?: boolean;
+  /**
+   * mt#1751: when explicitly `false`, this tool does NOT require the DI
+   * container to be initialized — the CallTool handler skips the init
+   * await for it. Default (unset/`true`) is to await DI init, which is
+   * the safe choice for any tool that calls `container.get(...)`.
+   *
+   * Opt out only for tools that demonstrably do not touch DI services
+   * (e.g. `debug_echo`, `debug_listMethods`). Mis-opting-out a tool that
+   * does need DI would surface as a "Service ... is not available"
+   * runtime error on first call before background init completes.
+   */
+  requiresInit?: boolean;
 }
 
 interface ResourceDefinition {
@@ -778,9 +808,19 @@ export class MinskyMCPServer {
           // mt#1751: await DI initialization before dispatching to the tool
           // handler. The MCP `initialize` handshake completes before DI runs
           // in stdio mode (so the server appears connected fast); the first
-          // tool call pays the cost. After the first await resolves, the
-          // promise is settled and subsequent awaits are O(1).
-          if (this.initPromise) {
+          // DI-dependent tool call pays the cost. After the first await
+          // resolves, the promise is settled and subsequent awaits are O(1).
+          //
+          // Tools that declare `requiresInit: false` skip the await — this
+          // gates the latency to DI-dependent tools only, so read-only
+          // debug tools (`debug_echo`, `debug_listMethods`) respond
+          // immediately even if init is still in flight. The name-based
+          // allowlist below opts out specific shared-command-bridge tools
+          // that don't carry the explicit field through their registration
+          // pipeline.
+          const requiresInit =
+            tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
+          if (this.initPromise && requiresInit) {
             await this.initPromise;
           }
 
