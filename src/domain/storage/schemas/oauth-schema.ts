@@ -134,7 +134,7 @@ export const oauthAuthorizationCodesTable = pgTable(
      * from the complete payload object; returned as-is on find.
      * The typed columns above remain for query convenience (denormalized).
      */
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   },
   (table) => ({
     // FK: authorization code → client
@@ -201,7 +201,7 @@ export const oauthAccessTokensTable = pgTable(
      * from the complete payload object; returned as-is on find.
      * The typed columns above remain for query convenience (denormalized).
      */
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   },
   (table) => ({
     // FK: access token → client
@@ -279,7 +279,7 @@ export const oauthRefreshTokensTable = pgTable(
      * from the complete payload object; returned as-is on find.
      * The typed columns above remain for query convenience (denormalized).
      */
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
   },
   (table) => ({
     // FK: refresh token → client
