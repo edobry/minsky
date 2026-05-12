@@ -6,6 +6,7 @@ export default defineAgent({
     "Frontend engineering and design for the Cockpit mission-control web app (src/cockpit/**): React + Tailwind + shadcn/ui + TanStack Query stack with Minsky-domain IA. Use when implementing or redesigning Cockpit widgets, applying the design + engineering + IA bundle, or rebuilding widgets on the new stack.",
   model: "sonnet",
   skills: [
+    "cockpit-design",
     "composition-patterns",
     "frontend-design",
     "impeccable",

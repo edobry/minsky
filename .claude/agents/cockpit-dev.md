@@ -8,6 +8,7 @@ description: >-
   new stack.
 model: sonnet
 skills:
+  - cockpit-design
   - composition-patterns
   - frontend-design
   - impeccable
