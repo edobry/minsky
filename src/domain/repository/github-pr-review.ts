@@ -78,6 +78,23 @@ export interface ReviewComment {
    * before the Octokit call if the counts differ.
    */
   suggestion?: string;
+  /**
+   * When present, this comment is a REPLY to the existing review comment with
+   * this database ID (the numeric REST API ID, not the GraphQL node ID).
+   *
+   * Sources:
+   *  - `reviewThreads[].comments[].databaseId` from `session_pr_review_context`
+   *  - REST: `GET /repos/{owner}/{repo}/pulls/{n}/comments` → item `id` field
+   *
+   * When `inReplyTo` is set, GitHub anchors the reply to the parent comment's
+   * location. The `path`, `line`, and `side` fields on this comment are ignored
+   * by the GitHub API — only `body` and `in_reply_to` are forwarded.
+   *
+   * Used by the reviewer reply/resolve loop (mt#1345) to keep thread
+   * conversation incremental rather than opening new threads for the same
+   * finding on each review round.
+   */
+  inReplyTo?: number;
 }
 
 /**
@@ -373,6 +390,10 @@ export async function submitReview(
               start_side: (c.startSide ?? resolvedSide) as "LEFT" | "RIGHT",
             }
           : {}),
+        // When inReplyTo is set, forward as in_reply_to on the Octokit comment
+        // entry. GitHub uses this to anchor the comment as a reply in the
+        // existing thread rather than opening a new one (mt#1345 reply loop).
+        ...(c.inReplyTo !== undefined ? { in_reply_to: c.inReplyTo } : {}),
       };
     });
 
