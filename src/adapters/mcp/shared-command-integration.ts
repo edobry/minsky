@@ -142,6 +142,15 @@ export interface McpSharedCommandConfig {
        * are expressed without changing the underlying shared command's CLI
        * behavior (which doesn't read this field).
        *
+       * **Registration-time validation (PR R1):** each `argDefaults` value is
+       * `safeParse`-validated against the corresponding parameter's Zod schema
+       * at registration time. A misconfigured override (e.g., `{ limit: "50" }`
+       * where the schema requires `z.number()`) throws at startup, before any
+       * tool call runs — so an unvalidated default cannot reach
+       * `command.execute`. Unknown keys (not in the command's parameters) also
+       * throw. Plain-object (non-Zod) schemas fall through unchecked, matching
+       * `convertParametersToZodSchema`'s tolerance for legacy definitions.
+       *
        * Used by `tasks.list` to default `limit: 50` so a default MCP call
        * returns a digestible result instead of the full active-task list.
        */
@@ -272,6 +281,46 @@ export function registerSharedCommandsWithMcp(
       }
 
       const description = overrides?.description || command.description;
+
+      // Registration-time validation of argDefaults (mt#1786 PR R1).
+      // argDefaults are merged into caller args AFTER the MCP framework's
+      // Zod-validation step on inbound args, which means a misconfigured
+      // override (e.g., a string where the schema requires a number) would
+      // otherwise reach command.execute() unvalidated. Since argDefaults are
+      // statically declared at startup, validating each value against its
+      // parameter's schema here makes the misconfiguration a fail-fast
+      // registration error rather than a runtime hazard.
+      if (overrides?.argDefaults) {
+        for (const [key, value] of Object.entries(overrides.argDefaults)) {
+          const paramDef = command.parameters?.[key];
+          if (!paramDef) {
+            const known = Object.keys(command.parameters ?? {}).join(", ") || "(none)";
+            throw new Error(
+              `[MCP] argDefaults misconfigured for "${command.id}": ` +
+                `unknown parameter "${key}". Known parameters: ${known}.`
+            );
+          }
+          const schema = paramDef.schema as z.ZodTypeAny;
+          if (typeof schema?.safeParse === "function") {
+            const result = schema.safeParse(value);
+            if (!result.success) {
+              const issues = result.error.issues
+                .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+                .join("; ");
+              throw new Error(
+                `[MCP] argDefaults misconfigured for "${command.id}.${key}": ` +
+                  `value ${JSON.stringify(value)} does not satisfy parameter schema. ` +
+                  `Issues: ${issues}`
+              );
+            }
+          }
+          // Non-Zod (plain-object) schemas fall through unchecked; this
+          // mirrors convertParametersToZodSchema's tolerance for legacy
+          // command definitions and is intentional (no schema to validate
+          // against). The plain-object schema regression guard test
+          // covers this code path.
+        }
+      }
 
       log.debug(`Registering command ${command.id} with MCP`, {
         category,

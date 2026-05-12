@@ -541,6 +541,91 @@ describe("MCP shared-command bridge", () => {
       expect(calls[0]?.params.status).toBe("DONE");
     });
 
+    test("throws at registration time when an argDefault value fails its schema (PR R1)", () => {
+      // Reviewer concern: argDefaults are merged AFTER the MCP framework's
+      // Zod validation, so a misconfigured override (e.g., string for a
+      // numeric param) would reach command.execute unvalidated. The fix
+      // is registration-time safeParse — misconfiguration fails fast at
+      // startup, before any tool call runs.
+      const id = "tasks.__mcp_bridge_argdefaults_typecheck__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults registration-time validation",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { limit: "fifty" as unknown as number } },
+          },
+        });
+      }).toThrow(/argDefaults misconfigured.*limit/i);
+    });
+
+    test("throws at registration time when an argDefault names an unknown parameter (PR R1)", () => {
+      const id = "tasks.__mcp_bridge_argdefaults_unknown_key__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults registration-time validation: unknown key",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { not_a_param: 1 } },
+          },
+        });
+      }).toThrow(/argDefaults misconfigured.*unknown parameter.*not_a_param/i);
+    });
+
+    test("does not throw at registration time for valid argDefault values (PR R1)", () => {
+      // Regression guard: the validation check must not throw on the
+      // happy path, including for parameters with optional/default-wrapped
+      // schemas like the ones in real production overrides.
+      const id = "tasks.__mcp_bridge_argdefaults_valid__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults registration-time validation: happy path",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+          all: { schema: z.boolean(), description: "all", required: false },
+          status: { schema: z.string(), description: "status", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { limit: 50, all: false, status: "TODO" } },
+          },
+        });
+      }).not.toThrow();
+    });
+
     test("no-op when override has no argDefaults field", async () => {
       const id = "tasks.__mcp_bridge_argdefaults_absent__";
       const calls: CapturedCall[] = [];
