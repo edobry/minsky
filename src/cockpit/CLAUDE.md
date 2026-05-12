@@ -10,7 +10,7 @@ Parent task: mt#1143. Bundle umbrella: mt#1768 (this CLAUDE.md is its phase-A de
 
 ## Invocation
 
-For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev` — that agent has this guidance plus the `cockpit-design` skill (mt#1774) preloaded. This CLAUDE.md is the always-on floor (auto-loaded path-scoped via Claude Code's subdirectory CLAUDE.md mechanism); the agent is the explicit unit of focused work.
+For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev` — the explicit invocation surface for focused Cockpit work. The agent currently ships with no preloaded skills (`skills: []`); mt#1774 will add the `cockpit-design` skill and mt#1777 will add the Tier-1 community skill bundle to its `skills:` list. This CLAUDE.md is the always-on floor (auto-loaded path-scoped via Claude Code's subdirectory CLAUDE.md mechanism); the agent is the explicit unit of focused work.
 
 ## Stack
 
