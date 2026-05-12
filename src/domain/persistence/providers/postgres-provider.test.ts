@@ -432,6 +432,37 @@ describe("PostgresPersistenceProvider auto-migration (mt#1763)", () => {
     expect((testProvider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 
+  test("initialize() positive path: runMigrations IS called via the auto-migrate branch (PR #1065 R2 BLOCKING)", async () => {
+    // Behavioral test of the happy path. The challenge: the predicate
+    // shouldAutoMigrate suppresses auto-migration for any caller-injected
+    // deps (so tests using postgresFactory to avoid a real socket can't reach
+    // the auto-migrate branch). The `_overrideAutoMigrate` test seam
+    // (initialize signature) lets a test inject a stub factory AND still flow
+    // through the auto-migrate branch. Production callsites never set this.
+    const { factory } = makeMockPostgresFactory();
+    const runMigrationsSpy = mock(() => Promise.resolve());
+    (testProvider as unknown as { runMigrations: typeof runMigrationsSpy }).runMigrations =
+      runMigrationsSpy;
+
+    await testProvider.initialize({
+      postgresFactory: factory as any,
+      _overrideAutoMigrate: true,
+    });
+
+    expect(runMigrationsSpy).toHaveBeenCalledTimes(1);
+    // The migrations folder argument must be a real absolute path (the
+    // resolveMigrationsFolder helper would have thrown otherwise).
+    const calls = runMigrationsSpy.mock.calls as unknown as Array<[string]>;
+    const calledWith = calls[0]?.[0];
+    expect(calledWith).toBeDefined();
+    expect(calledWith?.startsWith("/")).toBe(true);
+    expect(calledWith?.endsWith("/storage/migrations/pg")).toBe(true);
+
+    // Provider must be fully ready post-migration (BLOCKING #1: flag flip
+    // happens only after migrations succeed).
+    expect((testProvider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+
   test("MINSKY_AUTO_MIGRATE=false disables auto-migration even with no deps", async () => {
     const { factory } = makeMockPostgresFactory();
     const runMigrationsSpy = mock(() => Promise.resolve());

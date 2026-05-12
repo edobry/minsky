@@ -165,6 +165,15 @@ export class PostgresPersistenceProvider
   async initialize(deps?: {
     sqlClient?: ReturnType<typeof postgres>;
     postgresFactory?: typeof postgres;
+    /**
+     * Test-only override (mt#1763 / PR #1065 R2): when explicitly set,
+     * overrides the deps-based suppression in `shouldAutoMigrate`. Lets a
+     * test that injects a `postgresFactory` (to avoid a real socket) still
+     * flow through the auto-migrate branch so behavioral coverage of the
+     * happy path is possible without a real DB. Production callsites leave
+     * this `undefined` and let `shouldAutoMigrate` decide.
+     */
+    _overrideAutoMigrate?: boolean;
   }): Promise<void> {
     if (this.isInitialized) {
       return;
@@ -219,7 +228,10 @@ export class PostgresPersistenceProvider
       // Skip conditions (see `shouldAutoMigrate` for the predicate):
       // - Caller injected any `deps` (sqlClient or postgresFactory): test seam.
       // - `MINSKY_AUTO_MIGRATE` env var is "false" / "0": explicit opt-out.
-      if (shouldAutoMigrate(deps)) {
+      // The `_overrideAutoMigrate` test seam can force the auto-migrate branch
+      // (see initialize signature for rationale).
+      const autoMigrate = deps?._overrideAutoMigrate ?? shouldAutoMigrate(deps);
+      if (autoMigrate) {
         await this.runMigrations(resolveMigrationsFolder());
       } else if (deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined) {
         log.debug("Skipping auto-migration: caller-injected deps (test seam)");
@@ -404,6 +416,15 @@ export class PostgresVectorPersistenceProvider
   async initialize(deps?: {
     sqlClient?: ReturnType<typeof postgres>;
     postgresFactory?: typeof postgres;
+    /**
+     * Test-only override (mt#1763 / PR #1065 R2): when explicitly set,
+     * overrides the deps-based suppression in `shouldAutoMigrate`. Lets a
+     * test that injects a `postgresFactory` (to avoid a real socket) still
+     * flow through the auto-migrate branch so behavioral coverage of the
+     * happy path is possible without a real DB. Production callsites leave
+     * this `undefined` and let `shouldAutoMigrate` decide.
+     */
+    _overrideAutoMigrate?: boolean;
   }): Promise<void> {
     // Initialize base PostgreSQL functionality first
     await super.initialize(deps);
