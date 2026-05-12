@@ -470,34 +470,56 @@ function emptyCADENCE(): SubagentDispatchCadence {
 }
 
 /**
- * Create a minimal no-op DB object that satisfies the `PostgresJsDatabase`
- * type but returns empty results for every query. Used as the backing store
- * for the no-op `SubagentDispatchTracker` returned by `getInstance()` before
- * `setInstance(db)` is called.
+ * Create a no-op DB object that satisfies the `PostgresJsDatabase` runtime
+ * shape. Returned by `getInstance()` before `setInstance(db)` is called, so
+ * `getCadence()` / `getEscalation()` produce zero-filled aggregates on the
+ * CLI path or before MCP server startup wiring completes.
  *
- * The tracker's fail-safe `getCadence()` / `getEscalation()` wrappers catch
- * any runtime errors, so the no-op DB never needs to fully simulate a real
- * Drizzle database — it only needs to return values that don't throw at the
- * point of `await this.db.select(...).from(...).where(...)`.
+ * Implementation: a Proxy that returns itself for any property access (every
+ * method returns the same proxy) AND is awaitable via `then()` resolving
+ * with `[]`. This makes the proxy resilient to future Drizzle call-chain
+ * additions — PR #1062 R1 BLOCKING #1 fix: the prior implementation
+ * enumerated `from/where/groupBy/orderBy/limit/select/insert/update/set/values`
+ * explicitly, so any new method (e.g., `having`, `offset`, `onConflictDoNothing`)
+ * would throw `db.foo is not a function`. The Proxy approach has no allowlist.
+ *
+ * The tracker's outer try/catch wrappers in `getCadence()` / `getEscalation()`
+ * remain the last line of defense; the Proxy is a strictly-additional safety
+ * layer that avoids hitting those wrappers on the no-DB path.
  */
 function createNullDatabase(): PostgresJsDatabase {
-  const chain: unknown = {
-    from: () => chain,
-    where: () => chain,
-    groupBy: () => chain,
-    orderBy: () => chain,
-    limit: () => chain,
-    select: () => chain,
-    insert: () => chain,
-    update: () => chain,
-    set: () => chain,
-    values: () => chain,
-    then(resolve: (v: unknown[]) => unknown, _reject: (e: unknown) => unknown): Promise<unknown> {
-      return Promise.resolve([]).then(resolve);
-    },
-  };
-  // Structural proxy: satisfies the drizzle runtime interface without the full compile-time type.
-  // No proper Drizzle type can be assigned to this minimal no-op object without the library internals.
+  // We type the proxy via `Record<string | symbol, unknown>` so the
+  // get-trap return type aligns. The final cast to PostgresJsDatabase is
+  // unavoidable — Drizzle's type is not assignable from a runtime proxy
+  // without the library's internal types.
+  const proxy: Record<string | symbol, unknown> = new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        // Make the proxy thenable so `await db.select(...)` resolves to `[]`.
+        // Drizzle query builders are thenable on the terminal call; the proxy
+        // is awaitable at any point in the chain — equivalent semantics for
+        // a null DB whose tables are always empty.
+        if (prop === "then") {
+          return (
+            resolve: (v: unknown[]) => unknown,
+            _reject: (e: unknown) => unknown
+          ): Promise<unknown> => Promise.resolve([]).then(resolve);
+        }
+        // Symbol.toPrimitive / Symbol.iterator / inspect helpers — return
+        // undefined so utilities like `console.log` and `Promise.resolve`
+        // handle the proxy as a plain object rather than trying to coerce.
+        if (typeof prop === "symbol") {
+          return undefined;
+        }
+        // Every other property access returns a function that returns the
+        // proxy itself, so chained calls (select().from().where()...) and
+        // mutation calls (insert().values(), update().set().where()) both
+        // continue to type-check and eventually await to `[]`.
+        return (..._args: unknown[]) => proxy;
+      },
+    }
+  );
   // eslint-disable-next-line custom/no-excessive-as-unknown
-  return chain as unknown as PostgresJsDatabase;
+  return proxy as unknown as PostgresJsDatabase;
 }
