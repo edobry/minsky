@@ -135,6 +135,57 @@ export async function validateOAuthBearer(
 }
 
 /**
+ * Inject an OAuth-derived agentId into a JSON-RPC message's `params._meta`.
+ *
+ * mt#1765: The MCP SDK's `JSONRPCRequestSchema` is `.strict()` — any extra
+ * top-level key fails the union parse and the SDK returns `-32700 Parse error:
+ * Invalid JSON-RPC message`. Request-scoped `_meta` must live inside
+ * `params._meta`, which the SDK surfaces to handlers as `RequestHandlerExtra._meta`
+ * (the location Layer 2's `readLayer2` reads from).
+ *
+ * Behavior:
+ * - Only injects when `params` is a non-array object (or absent — in which case a
+ *   fresh `params: { _meta: {...} }` is created). When `params` is an array
+ *   (positional parameters, valid per JSON-RPC 2.0 but not used by MCP today)
+ *   or any other non-object value, the message is returned unchanged so the
+ *   middleware never clobbers caller-provided positional payloads (PR #1064 R1
+ *   BLOCKING).
+ * - Cooperative Layer 2: if the caller has already declared
+ *   `params._meta[AGENT_ID_META_KEY]`, the existing value wins and the message
+ *   is returned unchanged.
+ *
+ * Exported for tests so the regression suite exercises the real implementation
+ * rather than a hand-mirrored copy (PR #1064 R1 NON-BLOCKING #1).
+ */
+export function injectAgentIdMeta(
+  msg: Record<string, unknown>,
+  agentId: string
+): Record<string, unknown> {
+  // Array params (positional) is valid JSON-RPC 2.0; do not clobber it.
+  // Any non-object, non-undefined `params` value is also left untouched.
+  if (msg.params !== undefined) {
+    if (typeof msg.params !== "object" || msg.params === null || Array.isArray(msg.params)) {
+      return msg;
+    }
+  }
+  const existingParams = (msg.params as Record<string, unknown> | undefined) ?? {};
+  const existingParamsMeta =
+    existingParams._meta &&
+    typeof existingParams._meta === "object" &&
+    !Array.isArray(existingParams._meta)
+      ? (existingParams._meta as Record<string, unknown>)
+      : {};
+  if (existingParamsMeta[AGENT_ID_META_KEY]) return msg;
+  return {
+    ...msg,
+    params: {
+      ...existingParams,
+      _meta: { ...existingParamsMeta, [AGENT_ID_META_KEY]: agentId },
+    },
+  };
+}
+
+/**
  * Register all MCP tool adapters on the given command mapper.
  */
 async function registerAllTools(
@@ -369,37 +420,21 @@ async function startHttpServer(
           return;
         }
 
-        // Inject agentId into the MCP request body's _meta so Layer 2 picks it up.
-        // Only inject for POST requests that carry a body — GET (SSE) connections
-        // don't carry a JSON body and don't have tool-call context.
+        // Inject agentId into the MCP request body's params._meta so Layer 2 picks it up.
+        // mt#1765: see `injectAgentIdMeta` above for rationale (the SDK's JSON-RPC envelope
+        // is strictly typed; _meta must live in params._meta, not at top level).
+        // Only inject for POST requests that carry a body — GET (SSE) connections don't
+        // carry a JSON body and don't have tool-call context.
         if (req.method === "POST" && req.body && typeof req.body === "object") {
-          // For a batch request (array), inject into each item; for a single
-          // request (object), inject into the top-level _meta.
-          const injectMeta = (msg: Record<string, unknown>): Record<string, unknown> => {
-            const existingMeta =
-              msg._meta && typeof msg._meta === "object" && !Array.isArray(msg._meta)
-                ? (msg._meta as Record<string, unknown>)
-                : {};
-            // Only inject if the caller has not already declared an agentId
-            // (cooperative Layer 2: caller-declared _meta wins over OAuth-derived).
-            if (existingMeta[AGENT_ID_META_KEY]) return msg;
-            return {
-              ...msg,
-              _meta: {
-                ...existingMeta,
-                [AGENT_ID_META_KEY]: oauthResult.agentId,
-              },
-            };
-          };
-
           if (Array.isArray(req.body)) {
+            // Batch request: inject per-item, preserving any item that isn't a plain object.
             req.body = req.body.map((item: unknown) =>
               item && typeof item === "object" && !Array.isArray(item)
-                ? injectMeta(item as Record<string, unknown>)
+                ? injectAgentIdMeta(item as Record<string, unknown>, oauthResult.agentId)
                 : item
             );
           } else {
-            req.body = injectMeta(req.body as Record<string, unknown>);
+            req.body = injectAgentIdMeta(req.body as Record<string, unknown>, oauthResult.agentId);
           }
         }
       } else {
