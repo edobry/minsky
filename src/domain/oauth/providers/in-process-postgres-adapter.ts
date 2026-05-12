@@ -241,9 +241,9 @@ class AuthorizationCodeAdapter implements OidcAdapter {
     const codeHash = sha256(id);
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const audience = Array.isArray(payload.audience)
-      ? payload.audience[0]
-      : (payload.audience as string | undefined);
+    const audience = Array.isArray(payload.resource)
+      ? payload.resource[0]
+      : (payload.resource as string | undefined);
 
     await this.db
       .insert(oauthAuthorizationCodesTable)
@@ -295,7 +295,7 @@ class AuthorizationCodeAdapter implements OidcAdapter {
       accountId: row.sub,
       redirectUri: row.redirectUri,
       scope: scopes.join(" "),
-      audience: row.audience ?? undefined,
+      resource: row.audience ?? undefined,
       codeChallenge: row.codeChallenge ?? undefined,
       codeChallengeMethod: row.codeChallengeMethod ?? undefined,
       consumed: row.consumedAt ? Math.floor(row.consumedAt.getTime() / 1000) : undefined,
@@ -342,9 +342,9 @@ class AccessTokenAdapter implements OidcAdapter {
     const tokenHash = sha256(id);
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const audience = Array.isArray(payload.audience)
-      ? payload.audience[0]
-      : (payload.audience as string | undefined);
+    const audience = Array.isArray(payload.resource)
+      ? payload.resource[0]
+      : (payload.resource as string | undefined);
 
     await this.db
       .insert(oauthAccessTokensTable)
@@ -391,7 +391,7 @@ class AccessTokenAdapter implements OidcAdapter {
       clientId: row.clientId,
       accountId: row.sub,
       scope: scopes.join(" "),
-      audience: row.audience ?? undefined,
+      resource: row.audience ?? undefined,
     };
   }
 
@@ -432,9 +432,9 @@ class RefreshTokenAdapter implements OidcAdapter {
     const tokenHash = sha256(id);
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
 
-    const audience = Array.isArray(payload.audience)
-      ? payload.audience[0]
-      : (payload.audience as string | undefined);
+    const audience = Array.isArray(payload.resource)
+      ? payload.resource[0]
+      : (payload.resource as string | undefined);
 
     await this.db
       .insert(oauthRefreshTokensTable)
@@ -488,7 +488,7 @@ class RefreshTokenAdapter implements OidcAdapter {
       clientId: row.clientId,
       accountId: row.sub,
       scope: scopes.join(" "),
-      audience: row.audience ?? undefined,
+      resource: row.audience ?? undefined,
     };
   }
 
