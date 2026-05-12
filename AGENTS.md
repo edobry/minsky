@@ -1834,6 +1834,26 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 **Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
 
+## Agent todos vs. Minsky tasks: durable to Minsky, ephemeral to harness
+
+Agent harnesses ship internal task-tracking systems (Claude Code's `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`, Cursor's `.cursor/scratchpad.md`, Cline, Devin, OpenHands). Minsky's task system covers a different layer: durable, status-machine-driven, audit-trailed, multi-backend (the orchestration substrate). These two surfaces overlap, and the boundary needs an explicit policy.
+
+**Durable work → Minsky task.** Anything with a spec, a status transition, a PR or merge milestone, cross-conversation relevance, or an audit-trail requirement. Use `mcp__minsky__tasks_create`, `mcp__minsky__tasks_status_set`, the skill chain.
+
+**Ephemeral, intra-conversation work → harness todo.** Pre-task triage (request hasn't been task-fied yet), multi-subagent intra-conversation bookkeeping, multi-step plans where the user benefits from a rendered progress view in the harness UI, investigation before deciding what's a task.
+
+**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/review-pr`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
+
+**When the harness emits a `TaskCreate` reminder during a Minsky skill chain → disregard silently.** Do NOT echo acknowledgment text ("ignoring harness reminder", "not applicable", etc.) to the user. The reminder fires on a frequency-based heuristic the harness operates that does not know the agent is inside a Minsky chain; environmental shaping (this rule) is the fix, not user-facing commentary. The user cannot see the reminder; making it visible by echoing turns harness noise into chat noise.
+
+**Generic-SE override:** "use the harness's todo system for all task tracking" or "use no task tracking at all." The first duplicates state with sync hazards; the second loses the external-memory benefit that research validates for long-horizon work. See `feedback_agent_todos_vs_minsky_tasks` and the position paper [*Position: Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c).
+
+**Deferred follow-up:** mt#1797 (RFC: harness-agnostic working-notes surface — Shape C). Activates when the operator regularly uses a second harness on the same Minsky backend, OR cross-harness session-resume becomes recurring, OR upstream Claude Code [Issue #6760](https://github.com/anthropics/claude-code/issues/6760) lands enabling cheap MCP-backed routing.
+
+**Pattern note:** This is the second instance of the "Minsky abstraction meets harness/protocol-native primitive" decision shape; the first was mt#1316 (Asks ↔ MCP elicitation). Both decompose into three architectural shapes — A (independent), B (bounded boundary with policy), C (Minsky owns both) — with the same decision drivers (overlap, protocol-native richness, build/maintain cost, cross-harness portability benefit). Future instances of this shape (harness file-edit tracking, harness search, harness memory) can use the same template; see the position paper for the reusable analysis frame.
+
+**Worked example.** During `/implement-task mt#X`: do not call `TaskCreate`. The Minsky task spec, gate criteria, and status transitions are the plan state. If a `TaskCreate` reminder fires mid-task, continue without echoing it. Versus: a user asks "look into the duplicate session-cleanup edge case I keep seeing", with no task filed yet. `TaskCreate` is appropriate here — list the diagnostic steps as ephemeral checklist items while you investigate; once you know what the bug is and want to fix it, call `mcp__minsky__tasks_create` to file the durable task and continue the work under the skill chain (at which point the harness todo becomes redundant and is dropped).
+
 ## Build vs buy: default to buy for non-core capabilities
 
 When considering whether to build a capability in-house vs adopt an existing tool: **for any capability that is not Minsky's core differentiating value-add, the default is buy (or use existing OSS)**, not build. Minsky's core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer. Auxiliary capabilities — LLM observability, analytics, eval UIs, dashboards, CI infrastructure, tracing platforms, prompt-management UIs — are **not** the core. Building any of these consumes engineering time that does not advance Minsky's value.
@@ -1901,6 +1921,11 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy` R1
 - `feedback_build_path_as_research_at_action_time` — originating memory for R2 (action-execution-time slice)
 - `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
+- `feedback_agent_todos_vs_minsky_tasks` — originating memory for `§Agent todos vs. Minsky tasks`
+- Notion position paper *Position: Agent todos vs. Minsky tasks — the durable/ephemeral boundary* (35e937f0-3cb4-812e-9734-f0c0f9a8b26c)
+- mt#1316 — Asks ↔ MCP elicitation: the structurally equivalent first-instance of this shape (informs `§Agent todos vs. Minsky tasks`)
+- mt#1796 — this rule's implementation task
+- mt#1797 — deferred Shape C tracking task (harness-agnostic working-notes surface)
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
 
 # Memory Usage
