@@ -374,3 +374,72 @@ describe("PostgresVectorPersistenceProvider", () => {
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 });
+
+describe("PostgresPersistenceProvider auto-migration (mt#1763)", () => {
+  // mt#1763: initialize() auto-runs Drizzle migrations when no deps are
+  // injected. These tests assert the test-seam skip behavior — verifying
+  // that test-injected deps disable the auto-migration path that would
+  // otherwise try to apply schema changes against a mock SQL client and
+  // throw with the cryptic `client.unsafe is not a function` error.
+
+  let testProvider: PostgresPersistenceProvider;
+  let testConfig: PersistenceConfig;
+
+  beforeEach(() => {
+    testConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: "postgresql://testuser:testpass@localhost:5432/testdb",
+        maxConnections: 10,
+        connectTimeout: 30,
+      },
+    };
+    testProvider = new PostgresPersistenceProvider(testConfig);
+  });
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test("initialize({sqlClient}) skips auto-migration — does NOT call runMigrations", async () => {
+    const runMigrationsSpy = mock(() => Promise.resolve());
+    (testProvider as unknown as { runMigrations: typeof runMigrationsSpy }).runMigrations =
+      runMigrationsSpy;
+
+    await testProvider.initialize({ sqlClient: mockSql as any });
+
+    expect(runMigrationsSpy).not.toHaveBeenCalled();
+    expect((testProvider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+
+  test("initialize({postgresFactory}) skips auto-migration — does NOT call runMigrations", async () => {
+    const { factory } = makeMockPostgresFactory();
+    const runMigrationsSpy = mock(() => Promise.resolve());
+    (testProvider as unknown as { runMigrations: typeof runMigrationsSpy }).runMigrations =
+      runMigrationsSpy;
+
+    await testProvider.initialize({ postgresFactory: factory as any });
+
+    expect(runMigrationsSpy).not.toHaveBeenCalled();
+    expect((testProvider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+
+  test("MINSKY_AUTO_MIGRATE=false disables auto-migration even with no deps", async () => {
+    const { factory } = makeMockPostgresFactory();
+    const runMigrationsSpy = mock(() => Promise.resolve());
+    (testProvider as unknown as { runMigrations: typeof runMigrationsSpy }).runMigrations =
+      runMigrationsSpy;
+
+    const prev = process.env.MINSKY_AUTO_MIGRATE;
+    process.env.MINSKY_AUTO_MIGRATE = "false";
+    try {
+      // Even without deps, the env-var opt-out short-circuits. Inject the
+      // factory anyway so the test doesn't try to open a real connection.
+      await testProvider.initialize({ postgresFactory: factory as any });
+      expect(runMigrationsSpy).not.toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env.MINSKY_AUTO_MIGRATE;
+      else process.env.MINSKY_AUTO_MIGRATE = prev;
+    }
+  });
+});

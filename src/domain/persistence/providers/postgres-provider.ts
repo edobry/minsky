@@ -142,6 +142,36 @@ export class PostgresPersistenceProvider
       this.db = db;
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
+
+      // mt#1763: Auto-apply pending Drizzle migrations after the connection is
+      // verified. Drizzle's migrate() is idempotent — it tracks applied
+      // migrations in `__drizzle_migrations` and skips any whose hash is
+      // already recorded. This eliminates the "deploy lands, schema isn't
+      // updated, INSERT fails" failure class (originating incident mt#1762).
+      //
+      // Skip conditions:
+      // - Caller injected any `deps` (sqlClient or postgresFactory): the
+      //   caller owns the client wiring and has not asked the provider to
+      //   manage its schema — this is the test seam. Production callsites
+      //   call `initialize()` with no args.
+      // - `MINSKY_AUTO_MIGRATE` env var is "false" / "0": explicit opt-out.
+      //
+      // If migrations fail, the provider stays initialized=true (the
+      // connection IS valid; only the schema is behind), but initialize()
+      // re-throws so the caller can decide whether to proceed. The
+      // production deployment path treats this as fail-closed.
+      const autoMigrateEnabled = !["false", "0"].includes(
+        (process.env.MINSKY_AUTO_MIGRATE ?? "true").toLowerCase()
+      );
+      const callerOwnsClient = deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined;
+      if (!callerOwnsClient && autoMigrateEnabled) {
+        const migrationsFolder = new URL("../../storage/migrations/pg", import.meta.url).pathname;
+        await this.runMigrations(migrationsFolder);
+      } else if (callerOwnsClient) {
+        log.debug("Skipping auto-migration: caller-injected deps (test seam)");
+      } else {
+        log.warn("Skipping auto-migration: MINSKY_AUTO_MIGRATE=false");
+      }
     } catch (error) {
       // Clean up connection we created to prevent pool leaks
       if (createdSql) {
