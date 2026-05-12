@@ -344,12 +344,12 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
       // deploy just to discover what was actually broken).
       renderError: async (ctx: unknown, out: unknown, err: unknown) => {
         const errAsError = err instanceof Error ? err : null;
-        const outAsObj = (out ?? {}) as { error?: string; error_description?: string };
-        const ctxAsObj = (ctx ?? {}) as {
-          path?: string;
-          method?: string;
-          type?: string;
-          body?: string;
+        const errAsAny = err as { statusCode?: number } | null;
+        const outAsObj = (out ?? {}) as {
+          error?: string;
+          error_description?: string;
+          status?: number;
+          headers?: Record<string, string>;
         };
 
         // Server-side: full error with stack for debugging.
@@ -358,13 +358,37 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
           stack: errAsError?.stack,
           errorClass: errAsError?.constructor?.name ?? typeof err,
           out: outAsObj,
-          path: ctxAsObj.path,
-          method: ctxAsObj.method,
+          // Read ctx fields defensively — Koa context, not a plain object.
+          path: (ctx as { path?: string } | null)?.path,
+          method: (ctx as { method?: string } | null)?.method,
         });
 
+        // PR #1057 R1: operate on the real Koa context (no `?? {}` fallback —
+        // that would create a detached plain object and the response would
+        // never actually be written). Set status, headers, type, and body
+        // through the Koa context APIs.
+        const kctx = ctx as {
+          type?: string;
+          status?: number;
+          body?: string;
+          set?: (k: string, v: string) => void;
+        };
+
+        // Propagate oidc-provider's intended status (prefer out.status; fall
+        // back to err.statusCode if it's a Koa-style HTTP error; default 500).
+        kctx.status = outAsObj.status ?? errAsAny?.statusCode ?? 500;
+
+        // Propagate any headers oidc-provider supplied (e.g., WWW-Authenticate
+        // for auth-class errors). Use kctx.set if available; otherwise skip.
+        if (outAsObj.headers && typeof kctx.set === "function") {
+          for (const [k, v] of Object.entries(outAsObj.headers)) {
+            kctx.set(k, v);
+          }
+        }
+
         // Client-side: page with the exception class + message (no stack).
-        ctxAsObj.type = "html";
-        ctxAsObj.body = `<!DOCTYPE html>
+        kctx.type = "html";
+        kctx.body = `<!DOCTYPE html>
 <html><head><title>OAuth flow error</title></head>
 <body style="font-family: system-ui; max-width: 700px; margin: 2em auto; padding: 1em;">
   <h1>OAuth flow error</h1>
