@@ -6,6 +6,7 @@
 
 import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { safeShellQuote } from "../../utils/exec";
 import type { AskRepository } from "../ask/repository";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
@@ -265,9 +266,14 @@ export async function sessionCommit(
         const allowEmpty = params.noFiles === true && isCleanTree && !params.amend;
         if (allowEmpty) {
           const gitServiceForEmpty = createGitService();
+          // mt#1742: replace the prior `replace(/"/g, ...)` quote-escape with
+          // `safeShellQuote`. The old escape only handled `"` and left backticks /
+          // $VAR / other shell metacharacters interpreted by /bin/sh — which is
+          // the exact attack surface the originating incident exploited via
+          // backticks in markdown commit messages.
           const rawHash = await gitServiceForEmpty.execInRepository(
             workdir,
-            `git commit --allow-empty -m "${params.message.replace(/"/g, '\\"')}"`
+            `git commit --allow-empty -m ${safeShellQuote(params.message)}`
           );
           const hash = rawHash.trim().match(/[0-9a-f]{40}/i)?.[0] ?? null;
           // Fallback: read the latest commit hash if the output did not contain it directly
@@ -352,7 +358,14 @@ export async function sessionCommit(
             // a future regex regression were to admit a leading-`-`
             // value. SAFE_REF_RE already forbids leading `-`; this
             // keeps the call safe under any validator drift.
-            const out = await casGitService.execInRepository(dir, `git rev-parse -- "${ref}"`);
+            // mt#1742 R1: wrap `ref` with safeShellQuote rather than relying on
+            // the doc-asserted SAFE_REF_RE validation at this call site. Same
+            // shell-safety class as the commit-message fix; consistency at
+            // every interpolation in this file's git templates.
+            const out = await casGitService.execInRepository(
+              dir,
+              `git rev-parse -- ${safeShellQuote(ref)}`
+            );
             const sha = out.trim();
             return /^[0-9a-f]{40}$/.test(sha) ? sha : null;
           } catch {
