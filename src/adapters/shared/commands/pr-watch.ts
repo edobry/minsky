@@ -218,7 +218,21 @@ const prWatchCreateParams = {
 // pr.watch.list
 // ---------------------------------------------------------------------------
 
-const prWatchListParams = {};
+const prWatchListParams = {
+  session: {
+    schema: z.string().optional(),
+    description:
+      "Filter watches by registering session's parentSessionId. When provided, only watches " +
+      "registered by this session are returned, AND the wake-enrichment middleware can route " +
+      "pending wakes to the calling session on this tool call (mt#1755).",
+    required: false,
+  },
+  sessionId: {
+    schema: z.string().optional(),
+    description: "Alias for session. The first non-empty value of session/sessionId is used.",
+    required: false,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // pr.watch.cancel
@@ -313,10 +327,10 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
       id: "pr.watch.list",
       category: CommandCategory.TOOLS,
       name: "list",
-      description: "List all active PR watches",
+      description: "List all active PR watches, optionally filtered by registering session",
       requiresSetup: true,
       parameters: prWatchListParams,
-      execute: async (): Promise<{ watches: PrWatch[]; total: number }> => {
+      execute: async (params): Promise<{ watches: PrWatch[]; total: number }> => {
         const prWatchRepository = await buildPrWatchRepository(container);
         if (!prWatchRepository) {
           throw new Error(
@@ -324,7 +338,11 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
           );
         }
 
-        const watches = await prWatchRepository.listActive();
+        const allWatches = await prWatchRepository.listActive();
+        const sessionFilter = extractSessionId(params);
+        const watches = sessionFilter
+          ? allWatches.filter((w) => w.parentSessionId === sessionFilter)
+          : allWatches;
         return { watches, total: watches.length };
       },
     })
