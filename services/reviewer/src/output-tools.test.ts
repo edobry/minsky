@@ -8,7 +8,7 @@
  *   - Missing required fields throw.
  *   - Invalid JSON in argsJson throws.
  *   - Unknown tool name throws.
- *   - OUTPUT_TOOL_DEFINITIONS length is 4 with the required structure.
+ *   - OUTPUT_TOOL_DEFINITIONS length is 5 with the required structure.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -20,6 +20,7 @@ import {
   type SubmitFindingArgs,
   type SubmitInlineCommentArgs,
   type SubmitSpecVerificationArgs,
+  type SubmitThreadResolveArgs,
 } from "./output-tools";
 
 // Tool name constants — used throughout tests to satisfy the
@@ -28,6 +29,7 @@ const TOOL_SUBMIT_FINDING = "submit_finding";
 const TOOL_SUBMIT_INLINE_COMMENT = "submit_inline_comment";
 const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
 const TOOL_CONCLUDE_REVIEW = "conclude_review";
+const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
 
 // ---------------------------------------------------------------------------
 // submit_finding
@@ -358,12 +360,85 @@ describe("acceptance tests (spec §Acceptance Tests)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// submit_thread_resolve (mt#1345)
+// ---------------------------------------------------------------------------
+
+describe("parseToolCall — submit_thread_resolve", () => {
+  const BASE_ARGS: SubmitThreadResolveArgs = {
+    threadId: "PRRT_kwDOABcde12345",
+    reason: "Fix verified in updated implementation.",
+  };
+
+  test("parses with threadId and reason", () => {
+    const result = parseToolCall(TOOL_SUBMIT_THREAD_RESOLVE, JSON.stringify(BASE_ARGS));
+    expect(result.name).toBe(TOOL_SUBMIT_THREAD_RESOLVE);
+    expect(result.args).toEqual(BASE_ARGS);
+  });
+
+  test("throws on missing threadId", () => {
+    const { threadId: _omit, ...args } = BASE_ARGS;
+    expect(() => parseToolCall(TOOL_SUBMIT_THREAD_RESOLVE, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on missing reason", () => {
+    const { reason: _omit, ...args } = BASE_ARGS;
+    expect(() => parseToolCall(TOOL_SUBMIT_THREAD_RESOLVE, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on empty threadId", () => {
+    const args = { ...BASE_ARGS, threadId: "" };
+    expect(() => parseToolCall(TOOL_SUBMIT_THREAD_RESOLVE, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on empty reason", () => {
+    const args = { ...BASE_ARGS, reason: "" };
+    expect(() => parseToolCall(TOOL_SUBMIT_THREAD_RESOLVE, JSON.stringify(args))).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// submit_inline_comment — inReplyTo (mt#1345)
+// ---------------------------------------------------------------------------
+
+describe("parseToolCall — submit_inline_comment — inReplyTo", () => {
+  const BASE_ARGS: SubmitInlineCommentArgs = {
+    file: "src/utils.ts",
+    line: 7,
+    body: "Consider renaming this variable for clarity.",
+  };
+
+  test("parses with optional inReplyTo present", () => {
+    const args = { ...BASE_ARGS, inReplyTo: 123456 };
+    const result = parseToolCall(TOOL_SUBMIT_INLINE_COMMENT, JSON.stringify(args));
+    expect(result.name).toBe(TOOL_SUBMIT_INLINE_COMMENT);
+    if (result.name !== TOOL_SUBMIT_INLINE_COMMENT) throw new Error("unreachable");
+    expect(result.args.inReplyTo).toBe(123456);
+  });
+
+  test("parses without inReplyTo — field is absent", () => {
+    const result = parseToolCall(TOOL_SUBMIT_INLINE_COMMENT, JSON.stringify(BASE_ARGS));
+    if (result.name !== TOOL_SUBMIT_INLINE_COMMENT) throw new Error("unreachable");
+    expect(result.args.inReplyTo).toBeUndefined();
+  });
+
+  test("throws on non-positive inReplyTo (zero)", () => {
+    const args = { ...BASE_ARGS, inReplyTo: 0 };
+    expect(() => parseToolCall(TOOL_SUBMIT_INLINE_COMMENT, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on non-integer inReplyTo", () => {
+    const args = { ...BASE_ARGS, inReplyTo: 1.5 };
+    expect(() => parseToolCall(TOOL_SUBMIT_INLINE_COMMENT, JSON.stringify(args))).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // OUTPUT_TOOL_DEFINITIONS shape
 // ---------------------------------------------------------------------------
 
 describe("OUTPUT_TOOL_DEFINITIONS", () => {
-  test("has exactly 4 entries", () => {
-    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(4);
+  test("has exactly 5 entries", () => {
+    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(5);
   });
 
   test("each entry has type: function", () => {
@@ -406,12 +481,13 @@ describe("OUTPUT_TOOL_DEFINITIONS", () => {
     }
   });
 
-  test("tool names match the expected four", () => {
+  test("tool names match the expected five", () => {
     const names = OUTPUT_TOOL_DEFINITIONS.map((d) => d.function.name);
     expect(names).toContain(TOOL_SUBMIT_FINDING);
     expect(names).toContain(TOOL_SUBMIT_INLINE_COMMENT);
     expect(names).toContain(TOOL_SUBMIT_SPEC_VERIFICATION);
     expect(names).toContain(TOOL_CONCLUDE_REVIEW);
+    expect(names).toContain(TOOL_SUBMIT_THREAD_RESOLVE);
   });
 
   test("submit_finding requires severity, file, line, summary, details", () => {
@@ -459,6 +535,21 @@ describe("OUTPUT_TOOL_DEFINITIONS", () => {
     const required = def.function.parameters.required ?? [];
     expect(required).toContain("event");
     expect(required).toContain("summary");
+  });
+
+  test("submit_thread_resolve requires threadId and reason", () => {
+    const def = OUTPUT_TOOL_DEFINITIONS.find((d) => d.function.name === TOOL_SUBMIT_THREAD_RESOLVE);
+    if (!def) throw new Error(`${TOOL_SUBMIT_THREAD_RESOLVE} not found`);
+    const required = def.function.parameters.required ?? [];
+    expect(required).toContain("threadId");
+    expect(required).toContain("reason");
+  });
+
+  test("submit_inline_comment does NOT require inReplyTo (it is optional)", () => {
+    const def = OUTPUT_TOOL_DEFINITIONS.find((d) => d.function.name === TOOL_SUBMIT_INLINE_COMMENT);
+    if (!def) throw new Error(`${TOOL_SUBMIT_INLINE_COMMENT} not found`);
+    const required = def.function.parameters.required ?? [];
+    expect(required).not.toContain("inReplyTo");
   });
 });
 

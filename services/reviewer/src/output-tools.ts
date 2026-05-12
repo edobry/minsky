@@ -83,9 +83,45 @@ export const SubmitInlineCommentArgsSchema = z.object({
 
   /** Comment body. Markdown is supported. */
   body: z.string().min(1),
+
+  /**
+   * When replying to an existing review-thread comment, set this to the parent
+   * comment's database ID. Obtain from `reviewThreads[].comments[].id` (the
+   * numeric REST databaseId) in the context provided by the worker.
+   *
+   * When present, GitHub anchors the reply to the parent thread — the `file`
+   * and `line` fields on this comment are ignored by the GitHub API.
+   *
+   * Use this instead of opening a new top-level thread when the finding was
+   * already raised in a prior review round and still applies.
+   */
+  inReplyTo: z.number().int().positive().optional(),
 });
 
 export type SubmitInlineCommentArgs = z.infer<typeof SubmitInlineCommentArgsSchema>;
+
+/**
+ * Args for the `submit_thread_resolve` tool.
+ *
+ * Requests that the worker resolve a review thread. Use when the diff has
+ * addressed the original finding or when the finding is no longer relevant.
+ */
+export const SubmitThreadResolveArgsSchema = z.object({
+  /**
+   * GraphQL node ID of the `PullRequestReviewThread` to resolve.
+   * Obtain from `reviewThreads[].id` in the context provided by the worker.
+   */
+  threadId: z.string().min(1),
+
+  /**
+   * Short justification for the resolution (e.g., "fix verified — see commit
+   * abc123", "outdated — function was deleted"). Kept in the worker's log and
+   * may be surfaced as a reply comment before resolution.
+   */
+  reason: z.string().min(1).max(280),
+});
+
+export type SubmitThreadResolveArgs = z.infer<typeof SubmitThreadResolveArgsSchema>;
 
 /**
  * Args for the `submit_spec_verification` tool.
@@ -236,7 +272,10 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
       description:
         "Submit a targeted inline comment on a specific line. Use for minor observations, " +
         "questions, or suggestions that do not warrant a full finding entry. " +
-        "For issues that block merge, use submit_finding with severity BLOCKING instead.",
+        "For issues that block merge, use submit_finding with severity BLOCKING instead. " +
+        "When replying to an existing review thread from a prior round, set inReplyTo to the " +
+        "parent comment's numeric ID (from reviewThreads[].comments[].id in context). " +
+        "Using inReplyTo keeps the conversation incremental rather than opening duplicate threads.",
       parameters: {
         type: "object",
         properties: {
@@ -255,8 +294,49 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             minLength: 1,
             description: "Comment body. Markdown is supported.",
           },
+          inReplyTo: {
+            type: "integer",
+            minimum: 1,
+            description:
+              "If replying to an existing review-thread comment, the parent comment's numeric " +
+              "database ID. From `reviewThreads[].comments[].id` in context. When set, file " +
+              "and line are ignored by GitHub — the reply anchors to the parent thread.",
+          },
         },
         required: ["file", "line", "body"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_thread_resolve",
+      description:
+        "Resolve a review thread. Use when the diff has addressed the original finding OR " +
+        "the finding is no longer relevant. " +
+        "Do NOT resolve threads where the first comment's author is human (not the reviewer bot). " +
+        "Call this after verifying the fix in the diff — not speculatively.",
+      parameters: {
+        type: "object",
+        properties: {
+          threadId: {
+            type: "string",
+            minLength: 1,
+            description:
+              "GraphQL node ID of the PullRequestReviewThread to resolve. " +
+              "From `reviewThreads[].id` in context.",
+          },
+          reason: {
+            type: "string",
+            minLength: 1,
+            maxLength: 280,
+            description:
+              "Short justification: 'fix verified — see <evidence>' for addressed findings, " +
+              "or 'outdated — <one-line reason>' when the concern is no longer relevant.",
+          },
+        },
+        required: ["threadId", "reason"],
         additionalProperties: false,
       },
     },
@@ -345,7 +425,8 @@ export type ReviewToolCall =
   | { name: "submit_finding"; args: SubmitFindingArgs }
   | { name: "submit_inline_comment"; args: SubmitInlineCommentArgs }
   | { name: "submit_spec_verification"; args: SubmitSpecVerificationArgs }
-  | { name: "conclude_review"; args: ConcludeReviewArgs };
+  | { name: "conclude_review"; args: ConcludeReviewArgs }
+  | { name: "submit_thread_resolve"; args: SubmitThreadResolveArgs };
 
 /** Schema registry for runtime dispatch. */
 const TOOL_SCHEMAS = {
@@ -353,6 +434,7 @@ const TOOL_SCHEMAS = {
   submit_inline_comment: SubmitInlineCommentArgsSchema,
   submit_spec_verification: SubmitSpecVerificationArgsSchema,
   conclude_review: ConcludeReviewArgsSchema,
+  submit_thread_resolve: SubmitThreadResolveArgsSchema,
 } as const;
 
 type ToolName = keyof typeof TOOL_SCHEMAS;
@@ -367,7 +449,7 @@ function isToolName(name: string): name is ToolName {
  * @param name     - The tool name emitted by the model (e.g. "submit_finding").
  * @param argsJson - The raw JSON string of arguments from the model.
  * @returns The discriminated-union tool call with validated args.
- * @throws If `name` is not one of the four known output tools.
+ * @throws If `name` is not one of the five known output tools.
  * @throws If `argsJson` is not valid JSON.
  * @throws If the parsed args fail zod validation for the named tool.
  */
@@ -405,5 +487,7 @@ export function parseToolCall(name: string, argsJson: string): ReviewToolCall {
       return { name, args: result.data as SubmitSpecVerificationArgs };
     case "conclude_review":
       return { name, args: result.data as ConcludeReviewArgs };
+    case "submit_thread_resolve":
+      return { name, args: result.data as SubmitThreadResolveArgs };
   }
 }
