@@ -7,7 +7,6 @@ tags:
   - principles
   - decision-defaults
 ---
-
 # Decision Defaults
 
 When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Pre-training emphasizes industry-average patterns; without a contrary anchor in this file, the textbook wins. Each entry below names the Minsky-grounded answer, the generic-SE alternative it overrides, and the originating memory.
@@ -17,6 +16,8 @@ This file is the **policy corpus** that the mt#1541 policy-coverage detector (Su
 ## Datastores: Postgres-via-Supabase by default
 
 When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
+
+**Scope note (added 2026-05-12):** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy` below). Conflating the two is the policy-laundering pattern from `feedback_build_vs_buy_default_for_non_core`.
 
 **Generic-SE override:** "use Redis for queues, MinIO for blob storage, Mongo for documents, polyglot persistence." See `feedback_postgres_default_datastore`.
 
@@ -75,6 +76,30 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 **Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
 
+## Build vs buy: default to buy for non-core capabilities
+
+When considering whether to build a capability in-house vs adopt an existing tool: **for any capability that is not Minsky's core differentiating value-add, the default is buy (or use existing OSS)**, not build. Minsky's core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer. Auxiliary capabilities — LLM observability, analytics, eval UIs, dashboards, CI infrastructure, tracing platforms, prompt-management UIs — are **not** the core. Building any of these consumes engineering time that does not advance Minsky's value.
+
+The bar to flip the default (from buy to build) requires all four:
+
+1. **Core relevance** — the capability is part of Minsky's distinctive value, not an industry-standard auxiliary
+2. **No mature option** — at least 3 mature OSS/SaaS options have been evaluated against concrete needs, each failing on a named requirement
+3. **Build cost ≪ ongoing buy cost** — quantified at our scale, not estimated
+4. **Strategic ownership** — clear product reason to own the capability (differentiator, unique integration with Minsky structures)
+
+**Generic-SE override:** "build from scratch is the safe / principled / open-source-pure / no-vendor-lock-in choice." That bias treats engineering time as free; it isn't. Engineering time is the scarcest resource for a small team; every hour spent building auxiliary infra is an hour not spent on Minsky core.
+
+**Specific bias to watch for in self:** invoking `§Datastores: Postgres-via-Supabase by default` to justify building auxiliary analytics on Postgres. That policy is about Minsky's **source-of-truth state**, NOT about observability / analytics / event sinks. Observability data has near-zero lock-in cost (OTel is the wire standard; switching backends is an afternoon). Conflating the two is the confabulation pattern from `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — "recommending the cheaper-or-faster option AND describing it as 'principled'" is the tell, and citing this policy when it doesn't apply is one shape it takes.
+
+**Anti-pattern checklist before recommending build:**
+
+- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance) before recommending?
+- [ ] Did I evaluate ≥3 mature OSS/SaaS options with concrete cost / feature comparison, not just name them?
+- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation from scratch.
+- [ ] Is my "principled" framing actually preference-laundering? (If the principled story arrived AFTER the build preference, it's laundering.)
+
+**Originating incident:** 2026-05-12, recommended "build narrow on Postgres" for context-economics measurement (mt#1776) across three turns despite the community having mature OSS+SaaS options (Langfuse, Phoenix, Helicone, PostHog, OpenLLMetry, OTel-GenAI conventions). User correction: "Why do you keep pushing for us to build our own? ... We need to get back to our core focus and value-add, which is building Minsky, not building an LLM observability platform." See `feedback_build_vs_buy_default_for_non_core`.
+
 ## How this is enforced
 
 Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
@@ -90,3 +115,5 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1035 — System 3\* detector design (defines the consumer of this corpus)
 - mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
 - mt#1508 — the audit task that produced this corpus
+- `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy`
+- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
