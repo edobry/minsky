@@ -472,6 +472,58 @@ auto-syncs state (task DONE, session MERGED, workspace cleanup) on any merge
 path within ≤5 min. `/verify-task` is now only the manual fallback for when
 both the webhook and sweeper miss, not a normal post-merge step.
 
+### 10. Post-merge deploy verification (when the task touches a deployed service)
+
+When the merged PR changes code that runs in a deployed service (anything under
+`services/<svc>/` that has a `deploy.config.ts`, or any source that the deploy
+image bundles via the project Dockerfile), do NOT stop at merge. The merge
+triggers an auto-deploy on Railway (or whatever platform the service declares);
+that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
+missing env var, schema migration error, container crash on start. Verify the
+post-merge deploy succeeded before reporting the task done.
+
+**Primary mechanism: `mcp__minsky__deployment_wait-for-latest`.**
+
+```
+deployment_wait-for-latest(service?: string, timeoutSeconds?: number)
+```
+
+Block-and-return on the latest deployment for the configured service.
+Returns the terminal `DeploymentRecord` (SUCCESS / FAILED / CANCELLED /
+CRASHED). Platform-neutral; the tool routes to the platform declared in
+`services/<svc>/deploy.config.ts` (Railway is the v1 concrete adapter; v2
+candidates: Vercel, Cloudflare Pages, etc.). See
+`docs/deployment-platforms.md` for the abstraction.
+
+**Follow-ups for inspection (not for waiting):**
+
+- `mcp__minsky__deployment_status(service?)` — snapshot of the latest
+  deployment without blocking. Useful for "is something already running?"
+  checks.
+- `mcp__minsky__deployment_logs(deploymentId, type?, lines?, service?)` —
+  fetch build (`type: "build"`) or runtime (`type: "deploy"`) logs for a
+  specific deployment. Block-and-return; streaming is out of scope for v1
+  (see mt#1725 for the notification path).
+
+**Anti-patterns to avoid:**
+
+- Polling the application's HTTP endpoint in a Bash loop. Correctness-by-
+  eventual-consistency; no failure signal until timeout.
+- `ScheduleWakeup` with a guessed interval. Latency model is wrong by
+  default (see `feedback_reviewer_bot_actual_latency_calibration_data`
+  for the sibling lesson on reviewer-bot timing).
+- Shelling out to `railway logs --build` from Bash. The MCP tool wraps the
+  same underlying Railway GraphQL; the platform-neutral surface keeps the
+  agent's reach platform-aware without memorizing CLI flags.
+
+**When the deploy fails:** call `deployment_logs(deploymentId, type: "build")`
+on the failed deployment ID, inspect the failure, and either fix-forward
+in a new PR or surface to the user with the logs attached.
+
+This step does NOT change the task's DONE status — that's still owned by
+the at-merge handler. Post-merge deploy verification is a quality gate on
+the deploy itself, not the task lifecycle.
+
 ## Constraints
 
 These constraints apply throughout implementation:
