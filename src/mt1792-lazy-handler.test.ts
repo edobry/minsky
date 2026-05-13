@@ -291,3 +291,88 @@ describe("mt#1792 — CommandMapper.addCommand getHandler threading", () => {
     expect(result).toEqual({ lazy: true, thunkCount: 1 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// PR #1103 R1 NON-BLOCKING — in-flight memoization contract
+//
+// Mirrors the post-R1 server.ts CallTool dispatch logic which adds a
+// `tool.__resolving` sentinel so concurrent first calls share a single
+// `getHandler()` invocation. Two contracts:
+//   1. Concurrent first calls invoke `getHandler()` exactly ONCE.
+//   2. On rejection, the sentinel clears so retry can succeed.
+// ---------------------------------------------------------------------------
+
+async function dispatchMemo(tool: ToolDefinition, args: Record<string, unknown>): Promise<unknown> {
+  if (!tool.handler && tool.getHandler) {
+    if (!tool.__resolving) {
+      const thunk = tool.getHandler;
+      tool.__resolving = thunk().catch((err) => {
+        tool.__resolving = undefined;
+        throw err;
+      });
+    }
+    tool.handler = await tool.__resolving;
+    tool.__resolving = undefined;
+  }
+  if (!tool.handler) throw new Error(`Tool '${tool.name}' has no handler`);
+  return tool.handler(args);
+}
+
+describe("mt#1792 — PR #1103 R1: in-flight thunk memoization", () => {
+  test("concurrent first calls share a single getHandler() invocation", async () => {
+    let thunkCallCount = 0;
+    let resolveThunk!: (fn: (args: Record<string, unknown>) => Promise<unknown>) => void;
+    const thunkPending = new Promise<(args: Record<string, unknown>) => Promise<unknown>>((r) => {
+      resolveThunk = r;
+    });
+
+    const tool: ToolDefinition = {
+      name: "test.race",
+      description: "test",
+      getHandler: async () => {
+        thunkCallCount++;
+        return thunkPending;
+      },
+    };
+
+    // Kick off 3 concurrent first-calls before resolving the thunk
+    const calls = [dispatchMemo(tool, {}), dispatchMemo(tool, {}), dispatchMemo(tool, {})];
+
+    // Yield so all 3 dispatches enter the resolution branch
+    await new Promise((r) => setImmediate(r));
+
+    // Now resolve — all 3 should share the same resolved handler
+    resolveThunk(async (_args) => ({ ok: true }));
+
+    const results = await Promise.all(calls);
+    expect(results).toEqual([{ ok: true }, { ok: true }, { ok: true }]);
+
+    // Critical assertion: getHandler invoked exactly ONCE despite 3 concurrent calls
+    expect(thunkCallCount).toBe(1);
+  });
+
+  test("on getHandler rejection, __resolving is cleared so retry can succeed", async () => {
+    let thunkCallCount = 0;
+    const tool: ToolDefinition = {
+      name: "test.retry",
+      description: "test",
+      getHandler: async () => {
+        thunkCallCount++;
+        if (thunkCallCount === 1) {
+          throw new Error("transient load failure");
+        }
+        return async (_args) => ({ recovered: true });
+      },
+    };
+
+    // First call rejects
+    await expect(dispatchMemo(tool, {})).rejects.toThrow("transient load failure");
+    expect(thunkCallCount).toBe(1);
+    expect(tool.__resolving).toBeUndefined(); // sentinel cleared by .catch
+
+    // Retry succeeds — sentinel was cleared so getHandler is invoked again
+    const result = await dispatchMemo(tool, {});
+    expect(thunkCallCount).toBe(2);
+    expect(result).toEqual({ recovered: true });
+  });
+});

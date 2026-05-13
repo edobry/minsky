@@ -33,7 +33,16 @@ const TaskIdentifierSchema = z.object({
  */
 const TaskEditSchema = TaskIdentifierSchema.extend(
   z.object({
-    instructions: z.string().describe("Instructions describing the edit to make"),
+    // PR #1103 R1 BLOCKING: instructions is optional. The handler supports two
+    // paths: marker-based merge (uses instructions) and full replacement (does
+    // not use instructions). Requiring it in all cases tightens the contract
+    // unnecessarily and breaks parity with session.edit_file.
+    instructions: z
+      .string()
+      .optional()
+      .describe(
+        "Optional instructions describing the marker-based edit. Used only on the marker-merge path; ignored for full-replacement writes."
+      ),
     content: z.string().describe("The edit content with '// ... existing code ...' markers"),
     dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
   }).shape
@@ -93,10 +102,12 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         { getTaskSpecContentFromParams, updateTaskFromParams },
         { applyEditPattern },
         { autoIndexTaskEmbedding },
+        { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
         import("../../domain/tasks"),
         import("../../domain/ai/edit-pattern-service"),
         import("../shared/commands/tasks/auto-index-embedding"),
+        import("../../domain/schemas"),
       ]);
 
       function getTaskDeps(
@@ -168,8 +179,8 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
               newLines: finalContent.split("\n").length,
             };
 
-            return {
-              success: true,
+            // PR #1103 R1 BLOCKING: use the standardized response envelope.
+            return createSuccessResponse({
               dryRun: true,
               taskId: typedArgs.taskId,
               message: `Dry-run: Would update task ${typedArgs.taskId} specification`,
@@ -179,7 +190,7 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
                 totalLines: stats.newLines,
               },
               preview: finalContent,
-            };
+            });
           }
 
           // Apply the changes by updating the task
@@ -205,15 +216,18 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
 
           log.debug("Task spec.patch operation completed", { taskId: typedArgs.taskId });
 
-          return {
-            success: true,
+          // PR #1103 R1 BLOCKING: use the standardized response envelope.
+          return createSuccessResponse({
             taskId: typedArgs.taskId,
             message: `Successfully updated task ${typedArgs.taskId} specification`,
             instructions: typedArgs.instructions,
-          };
+          });
         } catch (error) {
           log.error("Task spec.patch operation failed", { taskId: typedArgs.taskId, error });
-          throw error;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return createErrorResponse(errorMessage, undefined, {
+            taskId: typedArgs.taskId,
+          });
         }
       };
     },
@@ -227,11 +241,15 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
     parameters: TaskSearchReplaceSchema,
     getHandler: async () => {
       // mt#1792: defer heavy domain imports until first call.
-      const [{ getTaskSpecContentFromParams, updateTaskFromParams }, { autoIndexTaskEmbedding }] =
-        await Promise.all([
-          import("../../domain/tasks"),
-          import("../shared/commands/tasks/auto-index-embedding"),
-        ]);
+      const [
+        { getTaskSpecContentFromParams, updateTaskFromParams },
+        { autoIndexTaskEmbedding },
+        { createSuccessResponse, createErrorResponse },
+      ] = await Promise.all([
+        import("../../domain/tasks"),
+        import("../shared/commands/tasks/auto-index-embedding"),
+        import("../../domain/schemas"),
+      ]);
 
       function getTaskDeps(
         c?: import("../../composition/types").AppContainerInterface
@@ -331,19 +349,22 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
             replaceLength: typedArgs.replace.length,
           });
 
-          return {
-            success: true,
+          // PR #1103 R1 BLOCKING: use the standardized response envelope.
+          return createSuccessResponse({
             taskId: typedArgs.taskId,
             message: `Successfully replaced text in task ${typedArgs.taskId} specification`,
             search: typedArgs.search,
             replace: typedArgs.replace,
-          };
+          });
         } catch (error) {
           log.error("Task search_replace operation failed", {
             taskId: typedArgs.taskId,
             error,
           });
-          throw error;
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          return createErrorResponse(errorMessage, undefined, {
+            taskId: typedArgs.taskId,
+          });
         }
       };
     },
