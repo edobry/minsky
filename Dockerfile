@@ -91,6 +91,17 @@ EXPOSE 3000
 # and the need for git at runtime.
 RUN bun build --target=bun --outfile=dist/minsky.js src/cli.ts
 
+# mt#1767 — copy Drizzle migrations next to the bundle so the bundled
+# `postgres-provider.ts`'s `resolveMigrationsFolder()` can find them via the
+# `./storage/migrations/pg` candidate (relative to `import.meta.url` of
+# `dist/minsky.js` = `/app/dist/storage/migrations/pg/`).
+#
+# Without this COPY, mt#1763's auto-migrate path crashed Railway in a boot
+# loop on 2026-05-12 because the source-relative path `../../storage/...`
+# resolved outside `/app`. mt#1787's bundle-boot-smoke CI gate now catches
+# any future regression of this exact class at PR time before merge.
+RUN mkdir -p dist/storage/migrations && cp -r src/domain/storage/migrations/pg dist/storage/migrations/pg
+
 # Default: start MCP over HTTP with auth required. The MINSKY_MCP_AUTH_TOKEN
 # env var must be set for this to succeed. $PORT expands at container start
 # via the shell form.
