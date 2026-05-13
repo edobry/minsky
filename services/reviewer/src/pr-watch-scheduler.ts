@@ -41,6 +41,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { parsePositiveIntEnv } from "./config";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,9 @@ export interface PrWatchSchedulerConfig {
 
 export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
   return {
-    intervalMs: parseInt(process.env["PR_WATCH_POLL_INTERVAL_MS"] ?? "60000", 10),
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values would
+    // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
+    intervalMs: parsePositiveIntEnv("PR_WATCH_POLL_INTERVAL_MS", 60_000),
     enabled: (process.env["PR_WATCH_ENABLED"] ?? "false") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
     mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",

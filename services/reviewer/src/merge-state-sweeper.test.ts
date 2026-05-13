@@ -495,6 +495,54 @@ describe("loadMergeStateSweeperConfig", () => {
       }
     }
   });
+
+  it("throws on non-numeric MERGE_STATE_SWEEPER_INTERVAL_MS (mt#1811 R1 BLOCKING fix)", () => {
+    const saved = process.env[ENV_SWEEPER_INTERVAL_MS];
+    process.env[ENV_SWEEPER_INTERVAL_MS] = "ten_minutes";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_INTERVAL_MS must be a positive integer/
+      );
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_INTERVAL_MS];
+      }
+    }
+  });
+
+  it("throws on negative MERGE_STATE_SWEEPER_INTERVAL_MS (mt#1811 R1 BLOCKING fix)", () => {
+    const saved = process.env[ENV_SWEEPER_INTERVAL_MS];
+    process.env[ENV_SWEEPER_INTERVAL_MS] = "-5";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_INTERVAL_MS must be a positive integer/
+      );
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_INTERVAL_MS];
+      }
+    }
+  });
+
+  it("throws on zero MERGE_STATE_SWEEPER_INTERVAL_MS (mt#1811 R1 BLOCKING fix)", () => {
+    const saved = process.env[ENV_SWEEPER_INTERVAL_MS];
+    process.env[ENV_SWEEPER_INTERVAL_MS] = "0";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_INTERVAL_MS must be a positive integer/
+      );
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_INTERVAL_MS];
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

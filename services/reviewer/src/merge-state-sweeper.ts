@@ -55,6 +55,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { parsePositiveIntEnv } from "./config";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
@@ -81,7 +82,12 @@ export interface MergeStateSweeperConfig {
 export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
   return {
     // 10-minute default: see cadence rationale in module docstring.
-    intervalMs: parseInt(process.env["MERGE_STATE_SWEEPER_INTERVAL_MS"] ?? "600000", 10),
+    // Strict-positive parse (mt#1811 R1 BLOCKING fix): now that the sweeper
+    // defaults to enabled, a misconfigured interval would feed NaN to
+    // setInterval and produce a tight CPU loop. parsePositiveIntEnv throws
+    // at boot time on any non-positive-integer value, making misconfiguration
+    // a clear startup error instead.
+    intervalMs: parsePositiveIntEnv("MERGE_STATE_SWEEPER_INTERVAL_MS", 600_000),
     // Default to enabled (mt#1811). If MCP creds are absent, startMergeStateSweeper
     // emits "missing_credentials" and refuses to start — no behavior regression for
     // deploys without the credentials, but a clear log signal instead of silent disable.
@@ -459,8 +465,9 @@ export async function runMergeStateSweep(
  * Start the merge-state sweeper on an in-process interval.
  *
  * Same pattern as sweeper.ts (mt#1260) and pr-watch-scheduler.ts (mt#1618).
- * Opt-in via MERGE_STATE_SWEEPER_ENABLED=true (disabled by default).
- * Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN.
+ * **Enabled by default (mt#1811)**: explicit opt-out via
+ * `MERGE_STATE_SWEEPER_ENABLED=false`. Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN
+ * to start — without them, logs `missing_credentials` and returns null.
  *
  * Cadence: 10 min by default (MERGE_STATE_SWEEPER_INTERVAL_MS). See module
  * docstring for calibration rationale.

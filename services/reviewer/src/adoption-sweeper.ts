@@ -83,6 +83,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { parsePositiveIntEnv } from "./config";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import {
   extractAdoptionSignals,
@@ -115,10 +116,12 @@ export function loadAdoptionSweeperConfig(): AdoptionSweeperConfig {
     enabled: (process.env["ADOPTION_SWEEPER_ENABLED"] ?? "false") === "true",
     // 24-hour default: daily cadence calibrated against Minsky's merge frequency.
     // See spec mt#1630 §Plan-time decisions for rationale.
-    intervalMs: parseInt(process.env["ADOPTION_SWEEPER_INTERVAL_MS"] ?? "86400000", 10),
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values would
+    // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
+    intervalMs: parsePositiveIntEnv("ADOPTION_SWEEPER_INTERVAL_MS", 86_400_000),
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
     mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
-    lookbackDays: parseInt(process.env["ADOPTION_SWEEPER_LOOKBACK_DAYS"] ?? "14", 10),
+    lookbackDays: parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14),
   };
 }
 

@@ -67,10 +67,12 @@ The reviewer service hosts mt#1614's post-merge state-sync recovery layer: a
 `pull_request.closed && merged=true` webhook handler plus a 10-minute sweeper
 backstop. Both paths invoke `apply_post_merge_state_sync` on the Minsky MCP
 server to transition merged PRs from IN-REVIEW → DONE (and apply the full
-session state-sync). Without these env vars the recovery layer is silently
-no-op (originating incident: mt#1811 — four PRs bypass-merged 2026-05-12 did
-not auto-sync because MCP credentials and/or the sweeper toggle were unset on
-the deployed service).
+session state-sync). Without these env vars no state-sync occurs — but the
+service logs explicit signals so operators can detect the misconfiguration:
+`at_merge_handler.mcp_not_configured` on each missed webhook and
+`merge_state_sweeper.missing_credentials` once at boot. Originating incident:
+mt#1811 — four PRs bypass-merged 2026-05-12 failed to auto-sync because MCP
+credentials and/or the sweeper toggle were unset on the deployed service.
 
 ```bash
 # REQUIRED for the recovery layer to function. Both must be set together.
@@ -290,4 +292,9 @@ If no new deployment appears within ~60s of the merge, check:
 
 **Review posts but uses Claude:** you've left `REVIEWER_PROVIDER=anthropic` which is the fallback path; switch to `openai` or `google` for real model diversity.
 
-**Merged PRs not auto-syncing to DONE (mt#1614 recovery layer silent):** if PRs merge cleanly on GitHub but their Minsky tasks stay at IN-REVIEW, the recovery layer is not active. Tail `railway logs` for `at_merge_handler.mcp_not_configured` or `merge_state_sweeper.missing_credentials`/`merge_state_sweeper.disabled` — both indicate missing env vars. Fix by setting `MINSKY_MCP_URL` and `MINSKY_MCP_TOKEN` per "Recovery layer activation" above. Originating incident: mt#1811.
+**Merged PRs not auto-syncing to DONE (mt#1614 recovery layer silent):** if PRs merge cleanly on GitHub but their Minsky tasks stay at IN-REVIEW, the recovery layer is not active. Tail `railway logs` and check for one of two distinct causes:
+
+- **Missing MCP credentials** (most likely): the webhook path emits `at_merge_handler.mcp_not_configured` per missed delivery, and the sweeper emits `merge_state_sweeper.missing_credentials` once at boot. Fix by setting `MINSKY_MCP_URL` and `MINSKY_MCP_TOKEN` per "Recovery layer activation" above.
+- **Explicit opt-out**: the sweeper emits `merge_state_sweeper.disabled` once at boot. This indicates an operator set `MERGE_STATE_SWEEPER_ENABLED=false`; the webhook path may still be active. Unset the variable (or set it to `true`) to re-enable the backstop.
+
+Originating incident: mt#1811.

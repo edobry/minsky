@@ -9,7 +9,7 @@
 
 import { Webhooks } from "@octokit/webhooks";
 import type { ReviewerConfig } from "./config";
-import { loadConfig } from "./config";
+import { loadConfig, parsePositiveIntEnv } from "./config";
 import { log } from "./logger";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
@@ -884,9 +884,11 @@ if (import.meta.main) {
   // (default: 90 days). Runs once every 24 hours. The first prune fires after
   // the first interval to avoid competing with service startup.
   // Configurable via MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS (default: 90).
-  const webhookRetentionDays = parseInt(
-    process.env["MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS"] ?? "90",
-    10
+  // Strict-positive parse (mt#1811 cascade-defense): NaN flowing into
+  // pruneOldRows would yield unpredictable retention behavior.
+  const webhookRetentionDays = parsePositiveIntEnv(
+    "MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS",
+    90
   );
   const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
   log.info("webhook_retention_pruner_started", {
