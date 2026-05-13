@@ -246,12 +246,19 @@ export class ConfigWriter {
   }
 
   /**
-   * Create a backup of the configuration file
+   * Create a backup of the configuration file. Uses a fixed `<file>.backup`
+   * path (overwritten on each write) rather than timestamped per-write
+   * filenames — mt#1802 retired timestamped rotation because the use case
+   * the backup actually serves is "recover the immediately-previous state if
+   * a write corrupts the file", and a single rolling backup captures that
+   * exactly without unbounded accumulation in the config directory.
+   *
+   * Legacy `<file>.backup.<ISO>` files written by the prior implementation
+   * are NOT auto-deleted; cleanup is a user concern.
    */
   private async createBackup(configFile: string): Promise<ConfigBackupResult> {
     try {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const backupPath = `${configFile}.backup.${timestamp}`;
+      const backupPath = `${configFile}.backup`;
 
       await this.fs.copyFile(configFile, backupPath);
 
