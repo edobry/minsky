@@ -10,13 +10,9 @@ A framework for building ui, components and design systems. Components are added
 
 > **IMPORTANT:** Run all CLI commands using the project's package runner: `npx shadcn@latest`, `pnpm dlx shadcn@latest`, or `bunx --bun shadcn@latest` — based on the project's `packageManager`. Examples below use `npx shadcn@latest` but substitute the correct runner for the project.
 
-## Current Project Context
+## Getting Project Context
 
-```json
-!`npx shadcn@latest info --json`
-```
-
-The JSON above contains the project config and installed components. Use `npx shadcn@latest docs <component>` to get documentation and example URLs for any component.
+To refresh project config and installed-component status when working with shadcn, run `npx shadcn@latest info --json`. Use `npx shadcn@latest docs <component>` to get documentation and example URLs for any component.
 
 ## Principles
 
