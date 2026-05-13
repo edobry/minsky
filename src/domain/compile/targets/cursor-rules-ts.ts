@@ -22,6 +22,10 @@ import type {
   MinskyTargetOptions,
   MinskyCompileFsDeps,
 } from "../types";
+// Single-source-of-truth banner constant; the same import is used by the
+// legacy writer (`src/domain/rules/compile/targets/cursor-rules.ts`) and by
+// `.claude/hooks/check-generated-file-edit.ts`'s detection patterns.
+import { GENERATED_BANNER } from "../../rules/compile/banner-constants";
 
 /** Injectable dynamic import — overridden in tests. */
 export type DynamicImportFn = (path: string) => Promise<unknown>;
@@ -55,7 +59,10 @@ function ruleOutputPath(workspacePath: string, ruleName: string): string {
  * Emits YAML frontmatter (description, globs, alwaysApply, tags, name if
  * present) followed by the content body. Uses gray-matter's matter.stringify
  * for consistency with the other TS targets. Output canonicalization matches
- * what the legacy cursor-rules target produces.
+ * what the legacy cursor-rules target produces. A generated-file banner
+ * (mt#1798) is injected as a YAML comment immediately after the opening
+ * `---` delimiter so the file remains a valid Cursor `.mdc` while the
+ * `check-generated-file-edit` hook can detect it as a compiled output.
  */
 export function buildRuleMdc(rule: RuleDefinition): string {
   const frontmatterData: Record<string, unknown> = {};
@@ -85,7 +92,12 @@ export function buildRuleMdc(rule: RuleDefinition): string {
   // gray-matter.stringify places content immediately after "---\n" unless the
   // content starts with "\n". This matches the format of existing .mdc files.
   const body = rule.content.startsWith("\n") ? rule.content : `\n${rule.content}`;
-  return matter.stringify(body, frontmatterData);
+  const raw = matter.stringify(body, frontmatterData);
+  // Inject the generated-file banner as the first frontmatter line. The
+  // opener is `---\n` (or `---\r\n` on a hypothetical CRLF-emitting build of
+  // gray-matter); the regex is tolerant of both. The injected newline matches
+  // the original opener's line-ending so the file stays internally consistent.
+  return raw.replace(/^---(\r?\n)/, `---$1${GENERATED_BANNER}$1`);
 }
 
 /**
