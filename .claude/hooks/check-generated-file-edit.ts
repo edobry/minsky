@@ -68,8 +68,8 @@ export function getCurrentBudget(): number {
 // writers and this detection hook can't drift (mt#1798). To add a new banner
 // form, edit `src/domain/rules/compile/banner-constants.ts`.
 
-export { GENERATION_BANNER_PATTERNS } from "../../src/domain/rules/compile/banner-constants";
 import { GENERATION_BANNER_PATTERNS } from "../../src/domain/rules/compile/banner-constants";
+export { GENERATION_BANNER_PATTERNS };
 
 // ---------------------------------------------------------------------------
 // Path extraction by tool name
