@@ -17,6 +17,64 @@ import {
   findPRNumberForBranch,
 } from "./github-pr-operations";
 
+/**
+ * Minimal review shape consumed by `pickLatestReviewPerReviewer`. Matches
+ * the GitHub REST review payload (and the Octokit-typed listReviews response)
+ * but constrained to the fields the per-reviewer reducer needs. Exported so
+ * tests can construct synthetic reviews without depending on Octokit types.
+ */
+export interface MinimalReview {
+  user: { login: string } | null | undefined;
+  state: string;
+  submitted_at: string | null | undefined;
+}
+
+/**
+ * Reduce a review list to the latest review per reviewer (by `submitted_at`).
+ *
+ * GitHub's own `review_decision` semantics: a reviewer's most recent review
+ * supersedes their earlier ones. So `[CHANGES_REQUESTED then APPROVED]` from
+ * the same reviewer collapses to APPROVED (resolved); `[APPROVED then
+ * CHANGES_REQUESTED]` collapses to CHANGES_REQUESTED (re-rejected).
+ *
+ * This function preserves that semantics for downstream code that computes
+ * `isApproved`. The previous implementation counted every CHANGES_REQUESTED
+ * review regardless of whether the same reviewer later approved, producing
+ * a false-blocking merge state for the common reviewer-bot cycle (request
+ * changes → fix → approve). See mt#1830 for the originating incident
+ * (mt#1824 / PR #1110 R1 → R2).
+ *
+ * Behavior:
+ *   - Reviews without a `user.login` are dropped (cannot key by reviewer).
+ *   - `submitted_at` is compared as an ISO-8601 lexicographic string
+ *     (matches temporal ordering for valid ISO timestamps). Reviews with
+ *     missing `submitted_at` are treated as oldest (empty string < any
+ *     real timestamp).
+ *   - On tie (identical `submitted_at`), the LATER entry in the input
+ *     array wins. This matches the order in which `listReviews` returns
+ *     them (chronological), so the most-recently-listed review wins.
+ *   - Returns reviews in arbitrary order (Map insertion order). Callers
+ *     that need a deterministic order should sort the result themselves.
+ */
+export function pickLatestReviewPerReviewer<R extends MinimalReview>(reviews: R[]): R[] {
+  const byReviewer = new Map<string, R>();
+  for (const r of reviews) {
+    const login = r.user?.login;
+    if (!login) continue;
+    const prev = byReviewer.get(login);
+    if (!prev) {
+      byReviewer.set(login, r);
+      continue;
+    }
+    const prevTs = prev.submitted_at ?? "";
+    const currTs = r.submitted_at ?? "";
+    if (currTs >= prevTs) {
+      byReviewer.set(login, r);
+    }
+  }
+  return Array.from(byReviewer.values());
+}
+
 // ── GitHub API shape interfaces ──────────────────────────────────────────
 
 /** Partial shape of a GitHub check run as returned by the Checks API. */
@@ -191,8 +249,25 @@ export async function getPullRequestApprovalStatus(
 
     const pr = prResponse.data;
 
+    // Apply GitHub's per-reviewer "latest review wins" semantics for the
+    // isApproved decision: a CHANGES_REQUESTED that the same reviewer later
+    // approved is resolved, not still-blocking. The `approvals` array below
+    // is kept as the chronological full list of APPROVED reviews for the
+    // return value's `approvals: ApprovalInfo[]` field (consumer contract
+    // preserved); only the isApproved predicate uses the per-reviewer
+    // reduction. See mt#1830 for the originating incident.
+    // Cast to MinimalReview[]: Octokit's review type carries many fields
+    // (author_association, _links, etc.) that don't structurally widen to
+    // MinimalReview's tighter user shape. The runtime fields the helper
+    // touches (user.login, state, submitted_at) are present on the Octokit
+    // shape — only the TS type assertion is needed.
+    // eslint-disable-next-line custom/no-excessive-as-unknown -- Octokit's listReviews response type carries many fields that don't structurally narrow to MinimalReview; the runtime fields the helper touches are guaranteed to be present.
+    const latestPerReviewer = pickLatestReviewPerReviewer(reviews as unknown as MinimalReview[]);
+    const effectiveApprovals = latestPerReviewer.filter((r) => r.state === "APPROVED");
+    const effectiveRejections = latestPerReviewer.filter((r) => r.state === "CHANGES_REQUESTED");
+
+    // Backward-compat: chronological list of all APPROVED reviews, unchanged.
     const approvals = reviews.filter((r) => r.state === "APPROVED");
-    const rejections = reviews.filter((r) => r.state === "CHANGES_REQUESTED");
 
     // Determine required approvals from branch protection
     let requiredApprovals = 0;
@@ -211,9 +286,13 @@ export async function getPullRequestApprovalStatus(
       requiredApprovals = 0;
     }
 
+    // Use the per-reviewer effective counts so a CHANGES_REQUESTED superseded
+    // by a later APPROVE from the same reviewer doesn't keep blocking.
     const isApproved =
-      (requiredApprovals === 0 && rejections.length === 0) ||
-      (requiredApprovals > 0 && approvals.length >= requiredApprovals && rejections.length === 0);
+      (requiredApprovals === 0 && effectiveRejections.length === 0) ||
+      (requiredApprovals > 0 &&
+        effectiveApprovals.length >= requiredApprovals &&
+        effectiveRejections.length === 0);
 
     // Capture draft state: GitHub returns state="open" for draft PRs, so we need
     // to check the separate `draft` boolean (B3).
