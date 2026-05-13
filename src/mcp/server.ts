@@ -14,7 +14,7 @@ import {
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getErrorMessageWithCause } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
@@ -501,10 +501,14 @@ export class MinskyMCPServer {
         res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
       }
     } catch (error) {
-      log.error("Error handling HTTP request", { error: getErrorMessage(error) });
+      // mt#1831: surface `.cause` chain on the HTTP transport error path too,
+      // so DrizzleQueryError-shaped failures don't reach HTTP clients as the
+      // generic "Failed query:" string with no underlying signal.
+      const wireMessage = getErrorMessageWithCause(error);
+      log.error("Error handling HTTP request", { error: wireMessage });
       res.status(500).json({
         error: "Internal server error",
-        message: getErrorMessage(error),
+        message: wireMessage,
       });
     }
   }
@@ -966,9 +970,15 @@ export class MinskyMCPServer {
             ],
           };
         } catch (error) {
+          // mt#1831: surface the underlying `.cause` chain so operators can
+          // discriminate stale-connection failures (ECONNRESET, Connection
+          // terminated) from real DB errors (schema mismatch, constraint
+          // violation). DrizzleQueryError stashes the driver error on
+          // `.cause` but only surfaces "Failed query: <SQL>" via `.message`.
+          const wireMessage = getErrorMessageWithCause(error);
           log.error("Tool execution failed", {
             tool: request.params.name,
-            error: getErrorMessage(error),
+            error: wireMessage,
           });
 
           // Check for staleness on error path too — trigger fires notification
@@ -984,7 +994,7 @@ export class MinskyMCPServer {
           if (error instanceof McpError) {
             throw error;
           }
-          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+          throw new Error(`Tool execution failed: ${wireMessage}`);
         }
       } finally {
         this.inFlightRequests.delete(trackingId);

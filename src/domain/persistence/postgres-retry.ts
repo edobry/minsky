@@ -44,43 +44,43 @@ const DEFAULT_MAX_DELAY_MS = 2000;
 const JITTER_SPREAD = 0.4;
 const JITTER_FLOOR = 0.8;
 
+// Shared pre-send guard for retryable connection-class predicates.
+// postgres-js attaches `query` as an own-property to ALL `PostgresError`
+// instances. For pre-send errors (connection acquisition failures, including
+// pool saturation and stale-connection closures), `query` is exactly
+// `undefined`; for post-send errors, it holds the SQL string that reached the
+// server. Only pre-send errors are safe to retry — retrying a mutation whose
+// query already executed would double-apply.
+//
+// Errors with NO `query` own-property at all (e.g. plain Error from undici,
+// PgBouncer's wire-protocol-rejection errors that bypass postgres-js' error
+// wrapping) fall through to the predicate's code/message match — they could
+// not have transmitted a query through postgres-js.
+//
+// mt#1193 originally used `"query" in e` (presence + prototype-chain check),
+// which returns `true` even when `e.query === undefined`. That made the
+// exhaustion predicate reject every real `PostgresError`, and
+// `withPgPoolRetry` was a silent no-op for the production path from
+// 2026-04-25 to 2026-04-28. mt#1461 corrected this to a CONSERVATIVE
+// own-property check: only `query === undefined` (own-property) counts as
+// pre-send. Any other own-property value of `query` — including `null`,
+// `""`, or a SQL string — is treated as ambiguous and rejected. A wrapper
+// that redacts post-send SQL to `null` would otherwise create a double-apply
+// hazard for mutating callers; rejecting it is the safe default.
+//
+// Why hasOwnProperty instead of `in`: prototype-chain inheritance. If any
+// wrapper or accidental global mutation defines `query` on `Error.prototype`,
+// `"query" in e` would be true for unrelated errors and they'd be silently
+// rejected. Own-property check guarantees we only inspect what postgres-js
+// actually attached. (Reviewer-bot raised this on PR #893.)
+function hasNonRetryableQueryShape(e: Record<string, unknown>): boolean {
+  return Object.prototype.hasOwnProperty.call(e, "query") && e.query !== undefined;
+}
+
 export function isPgPoolExhaustionError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as Record<string, unknown>;
-  // postgres-js attaches `query` as an own-property to ALL `PostgresError`
-  // instances. For pre-send errors (connection acquisition failures,
-  // including pool saturation), `query` is exactly `undefined`; for
-  // post-send errors, it holds the SQL string that reached the server.
-  // We must distinguish these — only post-send errors are unsafe to
-  // retry, because retrying a mutation whose query already executed
-  // would double-apply.
-  //
-  // Errors with NO `query` own-property at all (e.g. plain Error,
-  // PgBouncer's wire-protocol-rejection errors that bypass postgres-js'
-  // error wrapping) fall through to the code/message match below — they
-  // could not have transmitted a query through postgres-js.
-  //
-  // mt#1193 originally used `"query" in e` (presence + prototype-chain
-  // check), which returns `true` even when `e.query === undefined`.
-  // That made `isPgPoolExhaustionError` reject every real `PostgresError`,
-  // and `withPgPoolRetry` was a silent no-op for the entire production
-  // path from 2026-04-25 to 2026-04-28.
-  //
-  // mt#1461 corrects this with a CONSERVATIVE own-property check that
-  // ONLY accepts the concrete postgres-js pre-send shape (`query` own-
-  // property exactly `undefined`). Any other own-property value of
-  // `query` — including `null`, `""`, or a SQL string — is treated as
-  // ambiguous and rejected. A wrapper that redacts the SQL of a post-
-  // send error to `null` would otherwise create a double-apply hazard
-  // for mutating callers; rejecting it is the safe default.
-  //
-  // Why hasOwnProperty instead of `in`: prototype-chain inheritance.
-  // If any wrapper or accidental global mutation defines `query` on
-  // `Error.prototype` (or another prototype in the chain), `"query" in e`
-  // would be true for unrelated errors and they'd be silently rejected.
-  // Own-property check guarantees we only inspect what postgres-js
-  // actually attached. (Reviewer-bot raised this on PR #893.)
-  if (Object.prototype.hasOwnProperty.call(e, "query") && e.query !== undefined) return false;
+  if (hasNonRetryableQueryShape(e)) return false;
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
   return (
@@ -89,6 +89,52 @@ export function isPgPoolExhaustionError(err: unknown): boolean {
     /too_many_connections/i.test(message) ||
     /sorry, too many clients already/i.test(message)
   );
+}
+
+/**
+ * mt#1831: matches transient connection-closed shapes — the in-process pool
+ * had a dead postgres-js client whose socket was torn down by the OS / DB
+ * while idle. First use of that client surfaces as `ECONNRESET`,
+ * `CONNECTION_CLOSED`, `CONNECTION_ENDED`, or "Connection terminated".
+ *
+ * Unlike pool exhaustion (server is overloaded), stale-connection failures
+ * resolve immediately on retry because postgres-js discards the dead client
+ * and acquires a fresh one. The same pre-send guard
+ * (`query === undefined`) applies — retrying a post-send error would double-
+ * apply mutations, which is rejected by design.
+ *
+ * Symptom space that motivated this predicate (originating mt#1831 incident
+ * 2026-05-13): `memory_update` returned `"Failed query: update memories
+ * set ..."` with no underlying error text; `/mcp` reconnect resolved it
+ * instantly. Without the retry, every stale-pool encounter forces operator
+ * intervention. With it, the first attempt absorbs the transient.
+ */
+export function isPgStaleConnectionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as Record<string, unknown>;
+  if (hasNonRetryableQueryShape(e)) return false;
+  const code = typeof e.code === "string" ? e.code : undefined;
+  const message = typeof e.message === "string" ? e.message : String(e);
+  return (
+    code === "CONNECTION_CLOSED" ||
+    code === "CONNECTION_ENDED" ||
+    code === "CONNECTION_DESTROYED" ||
+    code === "ECONNRESET" ||
+    code === "EPIPE" ||
+    /connection terminated/i.test(message) ||
+    /connection (closed|ended|destroyed)/i.test(message) ||
+    /socket hang up/i.test(message) ||
+    /econnreset/i.test(message)
+  );
+}
+
+/**
+ * Union predicate used by `withPgPoolRetry` — fires on either pool-exhaustion
+ * or stale-connection shapes. Both classes are pre-send retryable failures
+ * where retry-with-backoff is the correct recovery, not operator intervention.
+ */
+export function isPgRetryableConnectionError(err: unknown): boolean {
+  return isPgPoolExhaustionError(err) || isPgStaleConnectionError(err);
 }
 
 export async function withPgPoolRetry<T>(
@@ -106,7 +152,7 @@ export async function withPgPoolRetry<T>(
     try {
       return await fn();
     } catch (err) {
-      if (!isPgPoolExhaustionError(err) || attempt === maxAttempts) {
+      if (!isPgRetryableConnectionError(err) || attempt === maxAttempts) {
         throw err;
       }
       lastErr = err;
@@ -118,8 +164,15 @@ export async function withPgPoolRetry<T>(
       const rawMessage = typeof e.message === "string" ? e.message : String(err);
       const errSummary =
         rawMessage.length > 120 ? `${safeTruncate(rawMessage, 117, "head")}...` : rawMessage;
+      // mt#1831: distinguish the two retry classes in the log line so
+      // operators can tell pool saturation (server overloaded) from stale
+      // connections (client-side socket teardown) without spelunking the raw
+      // error text.
+      const failureClass = isPgPoolExhaustionError(err)
+        ? "pg pool saturation"
+        : "pg stale connection";
       log.warn(
-        `[retry ${attempt}/${maxAttempts}] ${label}: pg pool saturation (code=${errCode}): ${errSummary} — retrying in ${delay}ms`
+        `[retry ${attempt}/${maxAttempts}] ${label}: ${failureClass} (code=${errCode}): ${errSummary} — retrying in ${delay}ms`
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
