@@ -74,6 +74,13 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
       code: 'const v = process.env["MINSKY_TOTALLY_BOGUS_NAME"];',
       filename: srcFile("utils", "dynamic.ts"),
     },
+    // PR #1089 R1 BLOCKING #5: only .ts files in src/ are linted; .js files
+    // (rare in src/ but possible for transitional/generated content) are out
+    // of scope per spec.
+    {
+      code: "const v = process.env.MINSKY_TOTALLY_BOGUS_NAME;",
+      filename: srcFile("legacy", "loader.js"),
+    },
   ],
   invalid: [
     // Unregistered MINSKY_* read in a regular src/ file.

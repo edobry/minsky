@@ -25,9 +25,11 @@
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, sep as pathSep, normalize as pathNormalize } from "node:path";
 
-const REGISTRATION_FILE = "src/domain/configuration/sources/environment.ts";
+const REGISTRATION_FILE_POSIX = "src/domain/configuration/sources/environment.ts";
+// OS-specific form for cross-platform endsWith() checks (PR #1089 R1 BLOCKING #1).
+const REGISTRATION_FILE_NATIVE = REGISTRATION_FILE_POSIX.split("/").join(pathSep);
 
 /**
  * Build the set of registered MINSKY_* env-var names from both allowlists by
@@ -35,34 +37,59 @@ const REGISTRATION_FILE = "src/domain/configuration/sources/environment.ts";
  * directly (ESLint runs under Node which can't load TypeScript without a
  * loader).
  *
- * Patterns matched (anchored to the canonical structure of environment.ts):
- *   environmentMappings: `  MINSKY_FOO_BAR: "..."` (object key with colon)
- *   HOOK_ONLY_ENV_VARS:  `  "MINSKY_FOO_BAR",` (Set member as string literal)
+ * Patterns matched (covers the canonical structure of environment.ts AND
+ * tolerates Prettier reformat / quoted keys / inline comments / trailing-
+ * comma omission per PR #1089 R1 BLOCKING #2 + #3):
+ *   environmentMappings:
+ *     `  MINSKY_FOO_BAR: "..."` (bare identifier key)
+ *     `  "MINSKY_FOO_BAR": "..."` (quoted key — needed when name contains
+ *       characters that aren't valid identifiers, OR when style mandates
+ *       quoting)
+ *   HOOK_ONLY_ENV_VARS:
+ *     `  "MINSKY_FOO_BAR",` (Set member as string literal, with trailing comma)
+ *     `  "MINSKY_FOO_BAR", // comment` (trailing inline comment, currently
+ *       used by every entry in this file)
+ *     `  "MINSKY_FOO_BAR"` (last entry, no trailing comma)
+ *     Single OR double quotes for any of the above.
  *
- * Both allowlists live in the same file. If the structure changes, this
- * extractor will quietly under-report and the rule will start false-positive
- * flagging registered names — which is conservative-loud (preferable to
- * silent under-flagging).
+ * On read failure (file missing, permission error, etc.) the function returns
+ * an empty Set with a console warning — fail-soft so a misconfigured rule
+ * doesn't break ESLint entirely.
  */
 function buildRegisteredSet() {
-  // The rule file is at `eslint-rules/no-unregistered-minsky-env-var.js`;
-  // resolve the env source relative to the project root (one level up).
-  const ruleDir = dirname(fileURLToPath(import.meta.url));
-  const sourcePath = resolve(ruleDir, "..", REGISTRATION_FILE);
-  const text = readFileSync(sourcePath, "utf8");
-
   const registered = new Set();
+  let text;
+  try {
+    // The rule file is at `eslint-rules/no-unregistered-minsky-env-var.js`;
+    // resolve the env source relative to the project root (one level up).
+    const ruleDir = dirname(fileURLToPath(import.meta.url));
+    const sourcePath = resolve(ruleDir, "..", REGISTRATION_FILE_POSIX);
+    text = readFileSync(sourcePath, "utf8");
+  } catch (e) {
+    // PR #1089 R1: guard the I/O so a missing/unreadable file doesn't crash
+    // the entire ESLint run. Empty registry means the rule will conservatively
+    // flag every MINSKY_* read — loud failure mode, easy to diagnose.
+    console.warn(
+      `[no-unregistered-minsky-env-var] could not read ${REGISTRATION_FILE_POSIX}: ` +
+        `${e instanceof Error ? e.message : String(e)}. ` +
+        `Rule will flag every process.env.MINSKY_* read until the file is readable.`
+    );
+    return registered;
+  }
 
-  // environmentMappings keys: `  MINSKY_NAME: "..."` (bare-identifier key).
-  // The dot-path parser only fires for MINSKY_-prefixed names.
-  const mappingKeyRe = /^\s*(MINSKY_[A-Z0-9_]+)\s*:/gm;
+  // environmentMappings keys: bare or quoted identifier followed by colon.
+  // The leading anchor allows for indentation; the optional quote wrapper
+  // handles `"MINSKY_X": ...` shape (PR #1089 R1 BLOCKING #2).
+  const mappingKeyRe = /^[ \t]*["']?(MINSKY_[A-Z0-9_]+)["']?[ \t]*:/gm;
   for (const m of text.matchAll(mappingKeyRe)) {
     registered.add(m[1]);
   }
 
-  // HOOK_ONLY_ENV_VARS Set members: `  "MINSKY_NAME",` (string literal in
-  // a Set constructor's array). Single OR double quotes.
-  const setMemberRe = /^\s*["'](MINSKY_[A-Z0-9_]+)["']\s*,/gm;
+  // HOOK_ONLY_ENV_VARS Set members: quoted string literal, trailing
+  // comma OR end-of-input-relative-to-array. Lookahead allows `,`, end-of-
+  // line (last entry without trailing comma), or comment markers.
+  // (PR #1089 R1 BLOCKING #3.)
+  const setMemberRe = /^[ \t]*["'](MINSKY_[A-Z0-9_]+)["'][ \t]*(?=,|\r?$|\/\/|\/\*)/gm;
   for (const m of text.matchAll(setMemberRe)) {
     registered.add(m[1]);
   }
@@ -87,24 +114,31 @@ export default {
     fixable: null,
     schema: [],
     messages: {
-      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VARS\` (hook-only) at ${REGISTRATION_FILE}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788.`,
+      unregistered: `process.env.{{name}} is not registered. Add it to either \`environmentMappings\` (config-mapped) or \`HOOK_ONLY_ENV_VARS\` (hook-only) at ${REGISTRATION_FILE_POSIX}, or rename it to NOT start with MINSKY_ to bypass the dot-path parser. Without registration the env-var-to-config parser auto-maps {{name}} to \`{{configPath}}\` which the strict schema rejects, crashing the container at boot. See mt#1788.`,
     },
   },
 
   create(context) {
     const filename = context.getFilename();
+    // Normalize to native separators so includes()/endsWith() match on
+    // Windows (PR #1089 R1 BLOCKING #1). Path.normalize collapses `..`
+    // and rewrites separators to `path.sep`.
+    const normalized = pathNormalize(filename);
 
     // Scope per spec: lint src/**/*.ts only. Root-level config files like
     // drizzle.pg.config.ts have their own lifecycle (drizzle-kit migrate,
     // not the MCP boot path) and don't conflict with the env-var-to-config
-    // parser at runtime.
-    if (!filename.includes("/src/")) {
+    // parser at runtime. Both the path-segment match and the .ts extension
+    // are required (PR #1089 R1 BLOCKING #5 — without the extension check
+    // the rule was also firing on .js files under src/).
+    const srcSegment = `${pathSep}src${pathSep}`;
+    if (!normalized.includes(srcSegment) || !normalized.endsWith(".ts")) {
       return {};
     }
 
     // Don't lint the registration file itself — its `process.env.X` reads
     // are the loader machinery that consumes the allowlists.
-    if (filename.endsWith(REGISTRATION_FILE)) {
+    if (normalized.endsWith(REGISTRATION_FILE_NATIVE)) {
       return {};
     }
 
