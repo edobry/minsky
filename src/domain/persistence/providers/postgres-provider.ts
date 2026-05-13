@@ -201,7 +201,14 @@ export class PostgresPersistenceProvider
       // Resolve the factory — allows tests to inject a mock without mock.module()
       const pgFactory = deps?.postgresFactory ?? postgres;
 
-      // Create PostgreSQL connection (use injected client or create new one)
+      // Create PostgreSQL connection (use injected client or create new one).
+      // `onnotice` is wired to a no-op so Postgres NOTICE messages (drizzle's
+      // `CREATE SCHEMA IF NOT EXISTS drizzle` + `CREATE TABLE IF NOT EXISTS
+      // __drizzle_migrations` emit codes 42P06 / 42P07 on every cold start)
+      // don't print to stdout. The CLI's stdout is a data channel — e.g., the
+      // memory-search bridge hook (.claude/hooks/memory-search.ts) JSON-parses
+      // it — and any leakage breaks the consumer. Matches the existing
+      // suppression at postgres-migration-operations.ts:121,284,432 (mt#1827).
       const sql =
         deps?.sqlClient ??
         pgFactory(pgConfig.connectionString, {
@@ -209,6 +216,7 @@ export class PostgresPersistenceProvider
           connect_timeout: pgConfig.connectTimeout || 10,
           idle_timeout: pgConfig.idleTimeout || 60,
           prepare: pgConfig.prepareStatements ?? false,
+          onnotice: () => {},
         });
 
       // Track only connections we created, so we can clean up on failure without
