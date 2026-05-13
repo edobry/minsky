@@ -84,6 +84,8 @@ Before making a strategic recommendation (tool selection, architectural directio
 3. **If the frame is wrong, switch.** The correct frame for tooling decisions is "what's the workflow fit for a principal shipping a commercial AI product, with paying customers as the consumer of the agent's quality?"
 4. **Name what you switched and why.** Surfacing this lets Eugene spot framework mismatches early instead of after 15 turns of recommendations under the wrong frame.
 
+**Structural enforcement.** The `/declare-framework` skill operationalizes the four steps above as numbered process steps with required user-facing output. Invoke it explicitly when about to deliver a strategic recommendation, or auto-trigger when comparing ≥ 2 named candidates. See `.claude/skills/declare-framework/SKILL.md`.
+
 ## Anti-patterns to recognize in self
 
 - **Re-inferring persona from local signals.** If you're inferring "solo dev / hobby project" because the git user is one person and the cost-sensitivity signal is present, you're wrong. Read this rule instead.
@@ -93,16 +95,17 @@ Before making a strategic recommendation (tool selection, architectural directio
 
 ## Originating incidents
 
-- **2026-05-12 R3 retrospective** — across 15+ turns of platform-recommendation discussion, agent applied OSS-purist evaluation framework to a commercial-product-loop decision without ever surfacing the framework choice. User had to articulate "I, Eugene, as the principal of whatever company is producing Minsky" themselves to break the agent out of the wrong frame. Bridge memory: `feedback_explicit_framework_selection`. Structural escalation target: mt#1789 (skill-step requiring explicit framework declaration before strategic recommendations).
+- **2026-05-12 R3 retrospective** — across 15+ turns of platform-recommendation discussion, agent applied OSS-purist evaluation framework to a commercial-product-loop decision without ever surfacing the framework choice. User had to articulate "I, Eugene, as the principal of whatever company is producing Minsky" themselves to break the agent out of the wrong frame. Bridge memory: `feedback_explicit_framework_selection`. Structural escalation: mt#1789 — IMPLEMENTED 2026-05-13 via `/declare-framework` skill.
 
 ## Cross-references
 
 - `humility.mdc` — design principle on delegation boundary; this rule provides the persona context that the boundary is drawn around
 - `decision-defaults.mdc` — policy corpus that presupposes this rule; particularly `§Build vs buy` and `§Multi-step direction execution` reference principal-context implicitly
 - `work-completion.mdc` — work-completion discipline that presupposes commercial-product framing
+- `.claude/skills/declare-framework/SKILL.md` — structural enforcement of the trigger rule (mt#1789)
 - mt#1034 — attention-allocation subsystem (eventually the structural home for persona-aware decision frameworks)
-- mt#1789 — structural escalation task (skill-step requiring explicit framework declaration)
-- `feedback_explicit_framework_selection` — meta-rule on naming frameworks before applying them
+- mt#1789 — structural escalation task (skill-step requiring explicit framework declaration) — IMPLEMENTED
+- `feedback_explicit_framework_selection` — meta-rule on naming frameworks before applying them (bridge memory, retiring with this skill)
 - `feedback_build_vs_buy_default_for_non_core` — R1 of the same pattern
 - `feedback_build_path_as_research_at_action_time` — R2 of the same pattern
 - This rule is R3 (meta) of the pattern
