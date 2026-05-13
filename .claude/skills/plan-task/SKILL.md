@@ -52,6 +52,8 @@ a status transition; everything else is investigation and gate-check.
   - (f) Subtasks filed for multi-phase work
   - (g) No parallel work in flight
   - (h) Contract-propagation enumeration
+  - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
+    with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -313,6 +315,89 @@ following deployed-environment locations must be explicitly checked and enumerat
 A spec that says "sole consumer is X" without a verified sweep of the consumer classes does
 not satisfy this criterion — the claim must be grounded in an actual search, not an assumption.
 
+#### Gate criterion (j) — Premise label verification
+
+When the spec or amendment applies a categorization label that determines policy treatment,
+the agent MUST produce a four-step citation-and-mapping protocol BEFORE the label is applied.
+Categorization labels that determine policy treatment include (but are not limited to):
+
+- `source-of-truth state` (vs derived analytics / observability)
+- `auxiliary capability` (vs core)
+- `ephemeral` (vs durable)
+- `derived analytics` (vs source-of-truth)
+- `complement` / `in-house substrate` / `parallel implementation`
+- `tier N` (e.g., T0 / T1 / T4 in Progressive Adoption Model)
+- `policy carve-out` / `scope boundary` / `out of scope per §X`
+
+Rationale: four recurrences of the confabulated-strategic-frame failure family in six days
+(R1 hosted-MCP 2026-05-08; R2 build-vs-buy 2026-05-12; R3 explicit-framework-selection
+2026-05-12; R4 mt#1306 spec amendment 2026-05-13). Prior tier escalations: memory entry →
+corpus rule (`decision-defaults.mdc §Build vs buy`) → `/declare-framework` skill (mt#1789).
+The R4 sub-pattern — applying a categorization label _within_ a framework without verifying
+the label against the framework's actual definition — wasn't covered by `/declare-framework`
+(which addresses framework selection, not label application). Gate (j) is the sibling
+chain-step escalation for label application.
+
+The structural insight: memory-tier and corpus-tier rules say "watch for confabulation."
+They are advisory text that requires the agent to remember and apply the check at the right
+moment — which is mid-spec-amendment when attention is on substantive content. Citation is
+mechanical; introspection is unreliable. The four-step protocol forces specificity:
+citation, verbatim quote, explicit mapping, and explicit verdict. The agent cannot
+rationalize past "what is the actual definition of this label?" with the same fluency it
+can rationalize past "is this a confabulation?"
+
+**Trigger condition.** This criterion fires when the spec or amendment contains a
+categorization label from the list above (or a synonym/paraphrase). If no such label
+appears, the criterion passes automatically. State that explicitly:
+"(j) No categorization label applied — criterion passes."
+
+**Required four-step protocol (when triggered):**
+
+1. **Cite the rule** that defines the label. Examples: `decision-defaults.mdc §Datastores`
+   for "source-of-truth state"; `decision-defaults.mdc §Build vs buy` for "auxiliary
+   capability"; `progressive-adoption-model` memory for "tier N".
+2. **Quote the definition verbatim** — not paraphrased. Paraphrase is where confabulation
+   re-enters. Copy the exact language from the cited rule into the gate output.
+3. **Map the artifact's properties to the definition's criteria** — explicitly list what
+   the criteria say and what the artifact actually has. One-to-one mapping; identify any
+   criterion the artifact does not satisfy.
+4. **State the verdict:** "criteria met" / "criteria not met" / "criteria ambiguous". If
+   ambiguous, file an Ask rather than applying the label.
+
+A spec that applies a categorization label without producing this four-step output fails
+gate (j) and must not proceed to READY. If the mapping in step 3 cannot be cleanly
+produced, the label is suspect — surface this as a blocking gap and the user decides
+whether to apply a different label, retire the categorization, or file an Ask.
+
+**Regression example — mt#1306 (2026-05-13).** During a reviewer-cluster cleanup session,
+the agent labeled mt#1306 (in-house Postgres convergence-metrics table) "source-of-truth
+state" to justify keeping it in-house, applied that framing across three spec amendments
+(mt#1110/mt#1497/mt#1552). On user challenge ("Are you sure we want it to be in-house?
+Help me understand the justification"), checking `decision-defaults.mdc §Datastores`'s
+actual definition immediately invalidated the label.
+
+Walkthrough of what gate (j) would have produced:
+
+1. **Cite:** `decision-defaults.mdc §Datastores`
+2. **Quote:** _"this policy covers Minsky's source-of-truth state — places that hold
+   authoritative product data the system owns. It does NOT cover derived analytics,
+   observability sinks, or event streams."_
+3. **Map:** mt#1306 holds blocker-count aggregates derived from GitHub-side review data.
+   GitHub owns reviews (source of truth); Minsky owns tasks. mt#1306 doesn't own anything
+   authoritative — it's a measurement aggregate. Criterion "authoritative product data"
+   → NO. Criterion "the system owns" → NO.
+4. **Verdict:** Criteria NOT met. Label "source-of-truth state" is invalid for mt#1306.
+   The artifact is observability data, not source-of-truth.
+
+Gate (j) would have blocked the original spec amendment. The agent would have surfaced
+the gap, leading to the user's challenge being avoided entirely — or, if the user wanted
+to proceed anyway, the explicit "label not justified by definition" record would have
+made the choice intentional rather than confabulated.
+
+Cross-reference: `feedback_premise_label_verification_required` (id `b8bcebec`) is the
+bridge memory until this gate ships; once shipped, that memory's job becomes historical
+record + pointer here. Sibling skill: `/declare-framework` (mt#1789, framework selection).
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -379,6 +464,27 @@ To re-run the gate after fixes: `/plan-task mt#X`
    (or confirm they do not after a verified grep).
 
 To re-run the gate after fixes: `/plan-task mt#1610`
+```
+
+**Example (j) failure.** For a task that amends a spec to label mt#1306 as "source-of-truth state"
+without producing the citation-and-mapping protocol:
+
+```
+## Gap Report for mt#1306 amendment (PLANNING — not yet READY)
+
+### Blocking gaps
+- (j) Premise label verification: spec applies the label "source-of-truth state" to mt#1306
+  without producing the four-step protocol. The label triggers gate (j) per the trigger list.
+  Required: cite `decision-defaults.mdc §Datastores`; quote the definition verbatim; map
+  mt#1306's properties (derived measurement counts of GitHub-side review data) against the
+  criteria ("authoritative product data the system owns"); state verdict.
+
+### Required actions before READY
+1. Produce the four-step protocol in the spec or amendment.
+2. If the mapping fails, retire the label (and the policy treatment it implied) OR file an
+   Ask to confirm whether a different label fits.
+
+To re-run the gate after fixes: `/plan-task <task-id>`
 ```
 
 ## State transition map
