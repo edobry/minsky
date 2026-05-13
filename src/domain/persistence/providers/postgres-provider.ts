@@ -4,7 +4,7 @@
  * Full-featured persistence provider with SQL, transactions, JSONB, and vector support.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
@@ -83,9 +83,14 @@ export function shouldAutoMigrate(
 export function resolveMigrationsFolder(): string {
   const override = process.env.MINSKY_MIGRATIONS_FOLDER;
   if (override) {
-    if (!existsSync(override)) {
+    // PR #1094 R1 BLOCKING: validate the override is a directory, not just any
+    // existing path. Without `isDirectory()`, a regular-file path would pass
+    // this gate and then fail downstream inside drizzle's migrator with a less
+    // actionable error. The error message below promises a directory check, so
+    // honor that contract here.
+    if (!existsSync(override) || !statSync(override).isDirectory()) {
       throw new Error(
-        `MINSKY_MIGRATIONS_FOLDER=${override} but the directory does not exist. ` +
+        `MINSKY_MIGRATIONS_FOLDER=${override} but the directory does not exist or is not a directory. ` +
           `Set MINSKY_MIGRATIONS_FOLDER to a directory containing Drizzle migrations or unset to use the default.`
       );
     }

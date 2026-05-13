@@ -461,7 +461,16 @@ describe("resolveMigrationsFolder (mt#1767)", () => {
   test("MINSKY_MIGRATIONS_FOLDER override throws when path does not exist", () => {
     process.env.MINSKY_MIGRATIONS_FOLDER = "/definitely/not/a/real/path/anywhere";
     expect(() => resolveMigrationsFolder()).toThrow(/MINSKY_MIGRATIONS_FOLDER/);
-    expect(() => resolveMigrationsFolder()).toThrow(/does not exist/);
+    expect(() => resolveMigrationsFolder()).toThrow(/does not exist or is not a directory/);
+  });
+
+  test("MINSKY_MIGRATIONS_FOLDER override throws when path is a file, not a directory (PR #1094 R1)", () => {
+    // Use a known-existing file (this very test file). A regular-file path
+    // exists but is not a directory; the override gate must reject it with
+    // an actionable error, not pass it to drizzle's migrator.
+    process.env.MINSKY_MIGRATIONS_FOLDER = __filename;
+    expect(() => resolveMigrationsFolder()).toThrow(/MINSKY_MIGRATIONS_FOLDER/);
+    expect(() => resolveMigrationsFolder()).toThrow(/not a directory/);
   });
 
   test("error message names BOTH candidates when default resolution fails", () => {
