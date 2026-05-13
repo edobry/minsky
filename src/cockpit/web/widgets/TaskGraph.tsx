@@ -29,7 +29,7 @@ import ReactFlow, {
   type NodeMouseHandler,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server GraphNode / GraphEdge shapes.

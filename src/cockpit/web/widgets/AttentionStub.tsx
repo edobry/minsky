@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"; reason: string };
 

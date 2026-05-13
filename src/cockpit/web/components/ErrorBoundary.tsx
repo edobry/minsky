@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "./Card";
+import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 
 interface Props {
   id: string;

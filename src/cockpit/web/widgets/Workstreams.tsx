@@ -12,7 +12,7 @@
  * separate refactor concern per mt#1146 review feedback.
  */
 import { useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server WorkstreamCard / WorkstreamsPayload shapes.
