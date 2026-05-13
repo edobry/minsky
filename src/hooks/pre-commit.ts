@@ -417,16 +417,24 @@ export class PreCommitHook {
       const violations: string[] = [];
 
       for (const file of stagedFiles) {
-        // Read the staged content (index version, not working tree)
+        // Read the staged content (index version, not working tree).
+        // Use `gitShowStagedBytes` (argv-based, no shell) for the same
+        // safety reasons documented on `runNulByteCheck`: file names with
+        // shell metacharacters cannot break the command or enable
+        // injection. Raw bytes are decoded to utf-8 string for the
+        // shebang / `npm run` / `npx` regex scans (this check operates
+        // on text content, not byte content). Class-not-instance sweep
+        // alongside PR #1110 R1 BLOCKING #1.
         let content: string;
         try {
-          const catResult = await execGitWithTimeout("show", `show :${file}`, {
-            workdir: this.projectRoot,
-            timeout: 5000,
-          });
-          content = catResult.stdout.toString();
+          const bytes = await this.gitShowStagedBytes(file);
+          // TextDecoder rather than Buffer.toString("utf8") because the
+          // project's Buffer stub doesn't accept encoding args; the runtime
+          // result is equivalent. fatal: false keeps the lossy-decode
+          // behavior that this check expects (it scans for ASCII patterns).
+          content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
         } catch {
-          // File may be binary or unavailable — skip
+          // File may be binary, gitlink, or unavailable — skip
           continue;
         }
 
@@ -518,6 +526,54 @@ export class PreCommitHook {
    * for the originating-incident context, and `src/hooks/nul-byte-detector.ts`
    * for the pure-function implementation that this method wraps.
    */
+  /**
+   * Fetch the staged blob for `file` as raw bytes using `Bun.spawn` with
+   * argv (no shell). Replaces `execGitWithTimeout(... `git show :${file}`)`
+   * for the NUL-byte check specifically to address two reviewer-bot
+   * BLOCKING findings on PR #1110 R1:
+   *
+   *   1. Shell-interpolation safety: the legacy path embedded the file
+   *      name into a single shell command string. Filenames containing
+   *      spaces, quotes, colons, or shell metacharacters could break the
+   *      command or enable argument injection. Argv bypasses shell
+   *      parsing entirely — git receives each argument as a literal
+   *      C-string from `execvp`.
+   *   2. Byte fidelity: the legacy path returned utf-8 decoded strings.
+   *      Re-encoding via `Buffer.from(string)` corrupts non-UTF-8 byte
+   *      sequences and shifts the reported byte offset of the first NUL.
+   *      `Bun.spawn` with `stdout: "pipe"` plus `arrayBuffer()` returns
+   *      the exact bytes git produced — necessary for the spec's
+   *      "byte offset of first NUL" guarantee to be correct for any
+   *      encoding.
+   *
+   * Throws on non-zero exit (gitlinks, deleted-then-modified edge cases,
+   * etc.); callers handle via `Promise.allSettled`.
+   */
+  private async gitShowStagedBytes(file: string): Promise<Buffer> {
+    const TIMEOUT_MS = 5000;
+    const proc = Bun.spawn(["git", "-C", this.projectRoot, "show", `:${file}`], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
+    try {
+      const bytesPromise = new Response(proc.stdout).arrayBuffer();
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) {
+        // Drain stderr for diagnostics, but don't block on it indefinitely.
+        const stderrText = await new Response(proc.stderr).text();
+        throw new Error(
+          `git show :${file} exited ${exitCode}: ${stderrText.trim() || "no stderr"}`
+        );
+      }
+      const bytes = await bytesPromise;
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- Bun's Buffer.from accepts ArrayBuffer at runtime; project's Buffer stub is narrowed to string | any[] for portability with the Bun-light TS environment, so the cast is required to bridge the typing gap.
+      return Buffer.from(bytes as unknown as number[]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async runNulByteCheck(): Promise<HookResult> {
     log.cli("Checking staged files for NUL bytes...");
 
@@ -547,31 +603,32 @@ export class PreCommitHook {
       // Filter allowlisted paths up-front so we never even fetch their content.
       const candidates = stagedFiles.filter((f) => !isPathAllowlisted(f));
 
-      // Fetch staged blobs in parallel — each `git show` is a subprocess,
-      // and at the AT6 target of 20 files the serial cost (~11ms/spawn)
-      // dominates. Parallelization cuts the wall-clock close to single-call
-      // latency. `Promise.allSettled` so a single bad path (gitlink, etc.)
-      // doesn't kill the rest.
+      // Fetch staged blobs in parallel via `Bun.spawn` with argv. Two
+      // reasons (PR #1110 R1 reviewer-bot, both BLOCKING):
+      //   1. Argv bypasses shell parsing — file paths with spaces, quotes,
+      //      colons, or shell metacharacters cannot break the command or
+      //      enable argument injection. `execGitWithTimeout` interpolates
+      //      into a single shell string, which is unsafe for untrusted
+      //      paths (staged file names are operator-controlled but a hostile
+      //      filename in a contributor's repo could still cause damage).
+      //   2. Raw-bytes stdout — `execGitWithTimeout` returns utf-8 decoded
+      //      strings, which corrupts non-UTF-8 byte sequences and shifts
+      //      the reported byte offset of the first NUL. The spec requires
+      //      the offset to be the TRUE byte offset in the staged blob.
+      //
+      // `Promise.allSettled` so a single bad path (gitlink, etc.) doesn't
+      // kill the rest.
       const results = await Promise.allSettled(
-        candidates.map((file) =>
-          execGitWithTimeout("show", `show :${file}`, {
-            workdir: this.projectRoot,
-            timeout: 5000,
-          }).then((r) => ({ file, stdout: r.stdout }))
-        )
+        candidates.map((file) => this.gitShowStagedBytes(file))
       );
 
       const stagedContent = new Map<string, Buffer>();
-      for (const r of results) {
-        if (r.status !== "fulfilled") continue;
-        // execGitWithTimeout returns stdout as a string (utf-8 decoded).
-        // U+0000 characters in the decoded string round-trip cleanly to
-        // 0x00 bytes when re-encoded as utf-8, so `Buffer.from(str)` is
-        // sufficient for NUL detection. The offset reported is byte-offset
-        // in the buffer (diagnostic — may differ from the file's pre-decode
-        // byte offset if the file contains multi-byte UTF-8 before the NUL,
-        // but adequate for pointing the operator at the right region).
-        stagedContent.set(r.value.file, Buffer.from(r.value.stdout));
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r === undefined || r.status !== "fulfilled") continue;
+        const file = candidates[i];
+        if (file === undefined) continue;
+        stagedContent.set(file, r.value);
       }
 
       const violations = detectNulByteViolations(stagedContent);
