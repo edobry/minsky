@@ -20,9 +20,20 @@
 // allowing -C on session_exec would let callers scope operations outside the
 // session root, violating session isolation. Denied unconditionally.
 //
+// Carve-out (mt#1806): `git add <explicit-paths>` is permitted when ALL
+// specified paths are in git's "conflicted" (unmerged) set, as reported by
+// `git diff --name-only --diff-filter=U`. This covers the final step of
+// stash-pop / merge conflict resolution: after stripping conflict markers the
+// agent runs `git add <file>` to mark the path resolved in the git index.
+// Broad staging ops (`git add .`, `git add -A`, `git add -u`, `git add`
+// with no paths) are NOT carved out — only explicit-path additions where
+// every named path is in the unmerged set.
+//
 // @see mt#1196 — extending this hook to cover session_exec after PR #717
 // retrospective surfaced the loophole.
+// @see mt#1806 — git add carve-out for conflict resolution
 
+import { execSync } from "child_process";
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 
@@ -53,6 +64,92 @@ export interface DenialRule {
    * be self-contradictory.
    */
   allowedInSessionExec?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Git add conflict-resolution carve-out helpers (mt#1806)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the explicit path arguments from a `git add` arg list.
+ *
+ * Returns null (meaning "use broad staging") when:
+ * - No args are provided (bare `git add`)
+ * - Any arg starts with `-` (flags like `-A`, `-u`, `-p`, `--all`, etc. that
+ *   imply broad/interactive staging)
+ *
+ * Returns the path list when all args are non-flag explicit paths.
+ *
+ * Examples:
+ *   ["add", "src/foo.ts"]       → ["src/foo.ts"]
+ *   ["add", "a.ts", "b.ts"]     → ["a.ts", "b.ts"]
+ *   ["add", "-A"]               → null (broad flag)
+ *   ["add", "."]                → null (`.` is treated as a broad path glob)
+ *   ["add"]                     → null (no paths)
+ */
+export function extractGitAddPaths(args: string[]): string[] | null {
+  // args[0] === "add"; path args start at index 1
+  const pathArgs = args.slice(1);
+  // No path args — broad staging intent
+  if (pathArgs.length === 0) return null;
+  // Any flag arg → broad staging
+  if (pathArgs.some((a) => a.startsWith("-"))) return null;
+  // `.` is equivalent to adding everything — treat as broad
+  if (pathArgs.includes(".")) return null;
+  return pathArgs;
+}
+
+/**
+ * Return the set of unmerged (conflicted) file paths in the current git repo
+ * by running `git diff --name-only --diff-filter=U`.
+ *
+ * Injectable `runGit` parameter lets tests substitute a fake runner without
+ * spawning real processes.
+ *
+ * Returns null when:
+ * - The command fails (not in a git repo, git unavailable, etc.)
+ * - The output cannot be parsed
+ * Fail-closed: callers treat null as "unmerged set unknown → deny".
+ */
+export function getUnmergedPaths(
+  runGit: (cmd: string) => string = defaultRunGit
+): Set<string> | null {
+  try {
+    const output = runGit("git diff --name-only --diff-filter=U");
+    const paths = output
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+    return new Set(paths);
+  } catch {
+    return null;
+  }
+}
+
+/** Production git runner using execSync. */
+export function defaultRunGit(cmd: string): string {
+  return execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+}
+
+/**
+ * Check whether `git add <paths>` should be permitted as conflict resolution.
+ *
+ * Permitted when ALL of:
+ * 1. `paths` is non-null and non-empty (extracted via extractGitAddPaths — no flags/`.`)
+ * 2. `unmergedPaths` is non-null (git ran successfully)
+ * 3. Every path in `paths` appears in `unmergedPaths`
+ *
+ * Injectable `runGit` for tests.
+ */
+export function isConflictResolutionAdd(
+  args: string[],
+  runGit: (cmd: string) => string = defaultRunGit
+): boolean {
+  const paths = extractGitAddPaths(args);
+  if (paths === null || paths.length === 0) return false;
+  const unmerged = getUnmergedPaths(runGit);
+  if (unmerged === null) return false;
+  return paths.every((p) => unmerged.has(p));
 }
 
 // ---------------------------------------------------------------------------
@@ -467,13 +564,32 @@ export function findGhApiPrMergeEndpointToken(args: string[]): string | null {
  * `context === "session_exec"` — their reasons redirect to session_exec, so
  * applying them on session_exec itself would be self-contradictory.
  *
+ * For `git add` specifically, the conflict-resolution carve-out (mt#1806) is
+ * applied: if ALL explicitly-named paths are in git's unmerged set, the call
+ * is permitted with a stderr audit line. Injectable `runGit` for tests.
+ *
  * Returns the denial reason string if denied, or null if allowed.
  */
-export function checkDenial(parsed: ParsedCommand, context: HookTool = "bash"): string | null {
+export function checkDenial(
+  parsed: ParsedCommand,
+  context: HookTool = "bash",
+  runGit: (cmd: string) => string = defaultRunGit
+): string | null {
   const denials = parsed.binary === "git" ? gitDenials : ghDenials;
   for (const rule of denials) {
     if (context === "session_exec" && rule.allowedInSessionExec) continue;
     if (rule.match(parsed.args)) {
+      // git add conflict-resolution carve-out (mt#1806): permit if every
+      // explicitly-named path is in git's unmerged set.
+      if (parsed.binary === "git" && parsed.args[0] === "add") {
+        if (isConflictResolutionAdd(parsed.args, runGit)) {
+          const paths = extractGitAddPaths(parsed.args) ?? [];
+          process.stderr.write(
+            `[block-git-gh-cli] git-add carve-out for conflict resolution: ${paths.join(", ")}\n`
+          );
+          return null;
+        }
+      }
       return rule.reason;
     }
   }

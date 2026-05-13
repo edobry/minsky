@@ -12,8 +12,15 @@
 // whose `file_path` resolves inside the main workspace and outside any session
 // workspace.
 //
+// Carve-out (mt#1806): if the target file currently contains git conflict
+// markers (<<<<<<< / ======= / >>>>>>>), the edit is stripping those markers
+// as part of conflict resolution, not new code work. In that case the edit
+// is permitted with a stderr audit line.
+//
 // @see mt#1103 — structural fix for main-workspace edit violations
+// @see mt#1806 — conflict-resolution carve-out
 
+import { readFileSync } from "fs";
 import { readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
 
@@ -30,13 +37,37 @@ export interface DenialDecision {
   reason?: string;
 }
 
+/** Production file-reader used by checkFilePathDenial. */
+export function defaultReadFile(filePath: string): string {
+  return readFileSync(filePath, "utf-8");
+}
+
+/**
+ * Return true if the file content currently contains git conflict markers,
+ * indicating a stash-pop or merge conflict that the agent is resolving.
+ * Requires all three marker forms to be present.
+ *
+ * This is a pure string check — callers pass the file content.
+ * Fail-closed: exceptions from the upstream readFile call should be handled
+ * by the caller.
+ */
+export function contentHasConflictMarkers(content: string): boolean {
+  return (
+    content.includes("<<<<<<< ") && content.includes("=======") && content.includes(">>>>>>> ")
+  );
+}
+
 /**
  * Decide whether a tool call targeting `filePath` should be denied as a
  * main-workspace edit. Absolute paths only (Edit/Write enforce this).
+ *
+ * @param readFile Injectable file reader for testing (defaults to readFileSync).
+ *   Must throw when the file doesn't exist so the carve-out fails closed.
  */
 export function checkFilePathDenial(
   toolName: string,
-  filePath: string | undefined
+  filePath: string | undefined,
+  readFile: (path: string) => string = defaultReadFile
 ): DenialDecision {
   if (!FILE_EDITING_TOOLS.has(toolName)) return { denied: false };
   if (!filePath) return { denied: false };
@@ -45,8 +76,22 @@ export function checkFilePathDenial(
   // Session workspaces live under SESSION_WORKSPACE_ROOT. Allow anything there.
   if (filePath.startsWith(`${SESSION_WORKSPACE_ROOT}/`)) return { denied: false };
 
-  // Main workspace edits are denied.
+  // Main workspace edits are denied — unless the file contains conflict markers,
+  // in which case the edit is conflict resolution (stripping <<<<<<</=======/>>>>>>>
+  // lines), not new code work. Permit with a stderr audit line.
   if (filePath === MAIN_WORKSPACE || filePath.startsWith(`${MAIN_WORKSPACE}/`)) {
+    // Attempt to read the file; fail closed on any error (file missing, permission, etc.)
+    let hasMarkers = false;
+    try {
+      hasMarkers = contentHasConflictMarkers(readFile(filePath));
+    } catch {
+      // File unreadable or doesn't exist — treat as no conflict markers (deny).
+      hasMarkers = false;
+    }
+    if (hasMarkers) {
+      process.stderr.write(`[require-session] conflict-resolution carve-out: ${filePath}\n`);
+      return { denied: false };
+    }
     return {
       denied: true,
       reason:
