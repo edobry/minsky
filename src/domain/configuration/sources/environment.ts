@@ -117,6 +117,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
   "MINSKY_SKIP_BUNDLE_SMOKE", // .claude/hooks/require-review-before-merge.ts (mt#1787)
+  "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
   // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
   // Many of these arguably belong in environmentMappings with a proper config
   // path; that promotion is a follow-up. The immediate goal is making the
