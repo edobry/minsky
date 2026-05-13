@@ -133,7 +133,30 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: object;
-  handler: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * Eager (legacy) handler. At least one of `handler` or `getHandler` must be
+   * provided. When both are present, `handler` takes precedence.
+   */
+  handler?: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * mt#1792: lazy handler thunk — defers handler-module loading until first
+   * invocation. Mutually exclusive with `handler` at registration time: provide
+   * EITHER a direct `handler` (eager, legacy form) OR a `getHandler` thunk
+   * (lazy form). The CallTool dispatch resolves the thunk on first call and
+   * caches the resolved function back onto `handler` for subsequent calls.
+   *
+   * When both are provided, the legacy `handler` takes precedence and
+   * `getHandler` is ignored — backward-compatible coexistence.
+   */
+  getHandler?: () => Promise<(args: Record<string, unknown>) => Promise<unknown>>;
+  /**
+   * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
+   * call when `getHandler` resolution starts; subsequent concurrent first
+   * calls share this promise instead of invoking `getHandler()` again.
+   * Cleared on success (resolved value cached on `handler`) and on rejection
+   * (so retry can occur). Internal; not part of the registration API.
+   */
+  __resolving?: Promise<(args: Record<string, unknown>) => Promise<unknown>>;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
    * create/edit/merge, force-push, session-update). The server will refuse
@@ -847,6 +870,32 @@ export class MinskyMCPServer {
             tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
           if (this.initPromise && requiresInit) {
             await this.initPromise;
+          }
+
+          // mt#1792: lazy handler resolution. Resolve the getHandler thunk on
+          // first call and cache the result back onto tool.handler so subsequent
+          // calls use the resolved function directly (O(1) cached path).
+          // Handler resolution happens AFTER initPromise so DI services are
+          // available before the first handler module is loaded.
+          //
+          // PR #1103 R1 NON-BLOCKING: memoize the in-flight thunk resolution on
+          // `tool.__resolving` so concurrent first calls share a single
+          // `getHandler()` invocation (no redundant heavy module loads under
+          // parallel load). On rejection, the sentinel is cleared so a
+          // subsequent retry can re-attempt resolution.
+          if (!tool.handler && tool.getHandler) {
+            if (!tool.__resolving) {
+              const thunk = tool.getHandler;
+              tool.__resolving = thunk().catch((err) => {
+                tool.__resolving = undefined;
+                throw err;
+              });
+            }
+            tool.handler = await tool.__resolving;
+            tool.__resolving = undefined;
+          }
+          if (!tool.handler) {
+            throw new Error(`Tool '${request.params.name}' has no handler or getHandler`);
           }
 
           const result = await tool.handler(request.params.arguments || {});
