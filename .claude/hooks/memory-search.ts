@@ -234,13 +234,16 @@ export function parseSearchOutput(stdout: string): MemorySearchResponseLite | nu
     // on multi-line indented JSON because interior lines (`  "results": [`,
     // `    {`, etc.) don't all start with `{`, so it anchored on a nested brace
     // and produced "unparseable output". Replacement: scan top-down for lines
-    // whose first character is `{` (top-level opening brace, no leading
-    // indent — interior braces are at indent >= 2 in the response shape). Try
-    // candidates last-to-first since the real response follows any noise.
+    // that begin with `{` after stripping leading whitespace, then try parsing
+    // last-to-first (the real response follows any noise). Interior `{` lines
+    // become candidates too but fail JSON.parse on their truncated suffix and
+    // the algorithm falls through to the real top-level brace. PR #1108 R1 NB#1:
+    // use trimStart() rather than `lines[i][0] === "{"` so future formatters
+    // that emit indented top-level JSON still parse.
     const lines = trimmed.split("\n");
     const candidateStarts: number[] = [];
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i][0] === "{") {
+      if (lines[i].trimStart().startsWith("{")) {
         candidateStarts.push(i);
       }
     }

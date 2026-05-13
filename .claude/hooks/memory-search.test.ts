@@ -293,6 +293,39 @@ describe("parseSearchOutput", () => {
     expect(parsed?.degraded).toBe(false);
   });
 
+  it("recovers when the top-level response itself starts with leading whitespace (PR #1108 R1 NB#2)", () => {
+    // Defensive: if a future CLI formatter or wrapper script prepends spaces
+    // before the response's opening brace (e.g., `  {\n    "results": ...`),
+    // the parser should still find it. The original `lines[i][0] === "{"`
+    // predicate would have missed an indented top-level brace; trimStart()
+    // doesn't.
+    const indentedTopLevelResponse = `  {
+    "results": [
+      {
+        "record": {
+          "id": "${VALID_RECORD.id}",
+          "type": "${VALID_RECORD.type}",
+          "name": "${VALID_RECORD.name}",
+          "description": "${VALID_RECORD.description}",
+          "content": "${VALID_RECORD.content}"
+        },
+        "score": 0.55
+      }
+    ],
+    "backend": "embeddings",
+    "degraded": false
+  }`;
+    // Add a non-JSON prefix line to force the fallback path (without it,
+    // JSON.parse on the trimmed input would succeed via the happy path —
+    // trim() strips the leading whitespace and the brace lands at the start).
+    const stdout = `[memory.search] Search succeeded\n${indentedTopLevelResponse}`;
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.55);
+    expect(parsed?.backend).toBe("embeddings");
+  });
+
   it("parses indented multi-line JSON response (regression: bottom-up walk would anchor on inner brace)", () => {
     // The original parser's fallback walked lines from the bottom up while the
     // line started with `{`, stopping at the first non-`{` line. For indented
