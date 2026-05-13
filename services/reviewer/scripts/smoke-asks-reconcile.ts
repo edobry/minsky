@@ -31,7 +31,7 @@
  *   GITHUB_TOKEN=ghp_xxx bun services/reviewer/scripts/smoke-asks-reconcile.ts
  *   GITHUB_TOKEN=ghp_xxx SMOKE_PR_OWNER=edobry SMOKE_PR_REPO=minsky SMOKE_PR_NUMBER=1 \
  *     bun services/reviewer/scripts/smoke-asks-reconcile.ts
- *   GITHUB_TOKEN=ghp_xxx MINSKY_MCP_URL=http://localhost:4000 MINSKY_MCP_TOKEN=xxx \
+ *   GITHUB_TOKEN=ghp_xxx MINSKY_MCP_URL=http://localhost:4000 MINSKY_MCP_AUTH_TOKEN=xxx \
  *     bun services/reviewer/scripts/smoke-asks-reconcile.ts
  */
 
@@ -90,7 +90,8 @@ async function testGithubReviewClientListReviews(): Promise<{ pass: boolean; det
 
 async function testAsksReconcileMcpCall(): Promise<{ pass: boolean; detail: string } | null> {
   const mcpUrl = process.env["MINSKY_MCP_URL"];
-  const mcpToken = process.env["MINSKY_MCP_TOKEN"];
+  // mt#1825: prefer canonical name; fall back to legacy during rename migration.
+  const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
 
   if (!mcpUrl || !mcpToken) {
     return null; // Skip — MCP not configured

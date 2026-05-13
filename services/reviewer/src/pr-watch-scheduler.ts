@@ -24,7 +24,7 @@
  *   Set lower for active iteration windows; 60 s covers the "within one
  *   polling interval" acceptance test criterion.
  * - `PR_WATCH_ENABLED` — set to `"true"` to activate (disabled by default).
- * - `MINSKY_MCP_URL` + `MINSKY_MCP_TOKEN` — used to call `pr_watch_run` via
+ * - `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` — used to call `pr_watch_run` via
  *   the Minsky MCP server (existing wiring in server.ts); required when this
  *   scheduler is enabled.
  *
@@ -66,7 +66,8 @@ export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
     intervalMs: parsePositiveIntEnv("PR_WATCH_POLL_INTERVAL_MS", 60_000),
     enabled: (process.env["PR_WATCH_ENABLED"] ?? "false") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
+    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
   };
 }
 
@@ -180,7 +181,7 @@ export function startPrWatchScheduler(
       JSON.stringify({
         event: "pr_watch_scheduler.missing_credentials",
         message:
-          "PR_WATCH_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+          "PR_WATCH_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
           "PR-watch scheduler will not start.",
       })
     );

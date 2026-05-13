@@ -15,24 +15,25 @@
  *
  * ## Env gate
  *
- * Skips gracefully (exit 0) when MINSKY_MCP_URL or MINSKY_MCP_TOKEN is unset
+ * Skips gracefully (exit 0) when MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is unset
  * so it is safe to ship in CI without live credentials. The main agent runs
  * this against the deployed minsky-mcp endpoint and pastes the redacted output
  * into the PR body's "## Live verification" section per implement-task §7a.
  *
  * Usage:
  *   MINSKY_MCP_URL=https://minsky-mcp-production.up.railway.app/mcp \
- *     MINSKY_MCP_TOKEN=$(cat ~/.config/minsky/minsky-mcp.env | grep AUTH | cut -d= -f2) \
+ *     MINSKY_MCP_AUTH_TOKEN=$(cat ~/.config/minsky/minsky-mcp.env | grep AUTH | cut -d= -f2) \
  *     bun services/reviewer/scripts/smoke-mcp-init.ts
  */
 
 import { callMcp } from "../src/mcp-client";
 
 const mcpUrl = process.env["MINSKY_MCP_URL"];
-const mcpToken = process.env["MINSKY_MCP_TOKEN"];
+// mt#1825: prefer canonical name; fall back to legacy during rename migration.
+const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
 
 if (!mcpUrl || !mcpToken) {
-  console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_TOKEN not set; skipping live smoke test.");
+  console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping live smoke test.");
   process.exit(0);
 }
 

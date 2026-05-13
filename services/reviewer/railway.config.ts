@@ -49,23 +49,20 @@ export default defineRailwayConfig({
     SWEEPER_ENABLED: "true",
 
     // -------------------------------------------------------------------
-    // mt#1614 recovery-layer wiring (mt#1811)
+    // mt#1614 recovery-layer wiring (mt#1811, mt#1825)
     //
     // The reviewer service hosts the post-merge state-sync recovery layer
     // (webhook handler + 10-min sweeper backstop). Both paths invoke
     // apply_post_merge_state_sync on the Minsky MCP server.
     //
-    // The deployed env-var name is MINSKY_MCP_TOKEN (client side); the
-    // matching server-side env var on minsky-mcp is MINSKY_MCP_AUTH_TOKEN.
-    // Per mt#1811 outcome these carry the same value, but they are stored
-    // under separate keys in railway-secrets.json (MINSKY_MCP_TOKEN and
-    // MINSKY_MCP_AUTH_TOKEN respectively) so each config file's secret()
-    // argument matches its deployed env-var name. The duplication is
-    // intentional — the alternative (one shared key, mismatched secret()
-    // argument on one side) was flagged as a footgun in mt#1818 review.
+    // The bearer token is named MINSKY_MCP_AUTH_TOKEN on both sides
+    // (server: services/minsky-mcp; client: this service) per mt#1825 —
+    // the rename eliminated the prior MINSKY_MCP_TOKEN ↔ MINSKY_MCP_AUTH_TOKEN
+    // dual-naming footgun. railway-secrets.json holds a single
+    // MINSKY_MCP_AUTH_TOKEN entry resolved by both sides' secret() calls.
     // -------------------------------------------------------------------
     MINSKY_MCP_URL: "https://minsky-mcp-production.up.railway.app/mcp",
-    MINSKY_MCP_TOKEN: secret("MINSKY_MCP_TOKEN"),
+    MINSKY_MCP_AUTH_TOKEN: secret("MINSKY_MCP_AUTH_TOKEN"),
 
     // -------------------------------------------------------------------
     // Postgres connection for the reviewer service's convergence-metrics

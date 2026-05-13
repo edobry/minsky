@@ -162,7 +162,8 @@ async function testGithubPrClientListCheckRuns(): Promise<{ pass: boolean; detai
 
 async function testMcpPrWatchRun(): Promise<{ pass: boolean; detail: string } | null> {
   const mcpUrl = process.env["MINSKY_MCP_URL"];
-  const mcpToken = process.env["MINSKY_MCP_TOKEN"];
+  // mt#1825: prefer canonical name; fall back to legacy during rename migration.
+  const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
 
   if (!mcpUrl || !mcpToken) {
     return null; // Skip — MCP not configured

@@ -112,11 +112,15 @@ export function loadConfig(): ReviewerConfig {
   })();
 
   const mcpUrl = process.env["MINSKY_MCP_URL"] ?? undefined;
-  const mcpToken = process.env["MINSKY_MCP_TOKEN"] ?? undefined;
+  // mt#1825: prefer canonical name (matches server-side); fall back to legacy
+  // name during the rename migration window. Remove the fallback in a follow-up
+  // after the Railway env-var rename has propagated.
+  const mcpToken =
+    process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? undefined;
 
   if (!mcpUrl || !mcpToken) {
     log.warn(
-      "minsky-reviewer: MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+      "minsky-reviewer: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
         "Provenance-based tier resolution (mt#1085) falls back to the PR-body marker, " +
         "and task-spec fetch (mt#1187) is disabled for every review."
     );
