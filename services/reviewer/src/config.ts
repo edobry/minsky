@@ -112,11 +112,7 @@ export function loadConfig(): ReviewerConfig {
   })();
 
   const mcpUrl = process.env["MINSKY_MCP_URL"] ?? undefined;
-  // mt#1825: prefer canonical name (matches server-side); fall back to legacy
-  // name during the rename migration window. Remove the fallback in a follow-up
-  // after the Railway env-var rename has propagated.
-  const mcpToken =
-    process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? undefined;
+  const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? undefined;
 
   if (!mcpUrl || !mcpToken) {
     log.warn(

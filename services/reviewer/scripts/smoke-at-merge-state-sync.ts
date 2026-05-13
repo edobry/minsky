@@ -18,8 +18,7 @@
  *    when idempotent, the safe default for CI is to skip.
  *
  * This is a live-verification artifact per implement-task §7a. The script
- * gates on `GITHUB_TOKEN` + `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` env vars
- * (legacy `MINSKY_MCP_TOKEN` accepted during the mt#1825 rename migration);
+ * gates on `GITHUB_TOKEN` + `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` env vars;
  * it skips gracefully when any are absent, so it is safe to ship in CI
  * without live credentials.
  *
@@ -59,8 +58,7 @@ import { Octokit } from "@octokit/rest";
 
 const githubToken = process.env["GITHUB_TOKEN"];
 const mcpUrl = process.env["MINSKY_MCP_URL"];
-// mt#1825: prefer canonical name; fall back to legacy during rename migration.
-const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
+const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"];
 
 if (!githubToken) {
   console.log("SKIP: GITHUB_TOKEN not set; skipping live smoke test.");

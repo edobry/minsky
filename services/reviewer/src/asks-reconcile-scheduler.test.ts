@@ -84,7 +84,6 @@ const ENV_ASKS_RECONCILE_ENABLED = "ASKS_RECONCILE_ENABLED";
 const ENV_ASKS_RECONCILE_POLL_INTERVAL_MS = "ASKS_RECONCILE_POLL_INTERVAL_MS";
 const ENV_MINSKY_MCP_URL = "MINSKY_MCP_URL";
 const ENV_MINSKY_MCP_AUTH_TOKEN = "MINSKY_MCP_AUTH_TOKEN";
-const ENV_MINSKY_MCP_TOKEN = "MINSKY_MCP_TOKEN"; // mt#1825: legacy name, fallback only
 
 // ---------------------------------------------------------------------------
 // loadAsksReconcileSchedulerConfig
@@ -104,7 +103,6 @@ describe("loadAsksReconcileSchedulerConfig", () => {
       ENV_ASKS_RECONCILE_POLL_INTERVAL_MS,
       ENV_MINSKY_MCP_URL,
       ENV_MINSKY_MCP_AUTH_TOKEN,
-      ENV_MINSKY_MCP_TOKEN,
     ]) {
       if (key in originalEnv) {
         process.env[key] = originalEnv[key];
@@ -119,7 +117,6 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     delete process.env[ENV_ASKS_RECONCILE_POLL_INTERVAL_MS];
     delete process.env[ENV_MINSKY_MCP_URL];
     delete process.env[ENV_MINSKY_MCP_AUTH_TOKEN];
-    delete process.env[ENV_MINSKY_MCP_TOKEN];
 
     const cfg = loadAsksReconcileSchedulerConfig();
 
@@ -141,29 +138,12 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     expect(cfg.intervalMs).toBe(60_000);
   });
 
-  test("reads MINSKY_MCP_URL and canonical MINSKY_MCP_AUTH_TOKEN", () => {
+  test("reads MINSKY_MCP_URL and MINSKY_MCP_AUTH_TOKEN", () => {
     process.env[ENV_MINSKY_MCP_URL] = "http://mcp.example.com";
     process.env[ENV_MINSKY_MCP_AUTH_TOKEN] = "my-token";
     const cfg = loadAsksReconcileSchedulerConfig();
     expect(cfg.mcpUrl).toBe("http://mcp.example.com");
     expect(cfg.mcpToken).toBe("my-token");
-  });
-
-  // mt#1825: transitional fallback. Remove this test when the legacy
-  // MINSKY_MCP_TOKEN fallback is dropped (Step 5 of the rename plan).
-  test("falls back to legacy MINSKY_MCP_TOKEN when canonical name is unset", () => {
-    process.env[ENV_MINSKY_MCP_URL] = "http://mcp.example.com";
-    process.env[ENV_MINSKY_MCP_TOKEN] = "legacy-token";
-    const cfg = loadAsksReconcileSchedulerConfig();
-    expect(cfg.mcpToken).toBe("legacy-token");
-  });
-
-  test("canonical MINSKY_MCP_AUTH_TOKEN takes precedence over legacy MINSKY_MCP_TOKEN", () => {
-    process.env[ENV_MINSKY_MCP_URL] = "http://mcp.example.com";
-    process.env[ENV_MINSKY_MCP_AUTH_TOKEN] = "canonical";
-    process.env[ENV_MINSKY_MCP_TOKEN] = "legacy";
-    const cfg = loadAsksReconcileSchedulerConfig();
-    expect(cfg.mcpToken).toBe("canonical");
   });
 });
 
