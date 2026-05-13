@@ -11,6 +11,12 @@ import { execAsync } from "../utils/exec";
 import { execGitWithTimeout } from "../utils/git-exec";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
+import {
+  detectNulByteViolations,
+  isPathAllowlisted,
+  isOverrideTruthy,
+  NUL_BYTE_CHECK_OVERRIDE_ENV,
+} from "./nul-byte-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -82,6 +88,15 @@ export class PreCommitHook {
       const nodeShimResult = await this.runNodeShimCheck();
       if (!nodeShimResult.success) {
         return nodeShimResult;
+      }
+
+      // Step 3b: NUL-byte detection — reject any tracked text file containing
+      // a literal 0x00 byte (mt#1824). Closes the gate-gap exposed by mt#1821
+      // / PR #1107 R1 where a JSON-escaped U+0000 landed on disk inside a TS
+      // template literal and slipped past every other quality gate.
+      const nulByteResult = await this.runNulByteCheck();
+      if (!nulByteResult.success) {
+        return nulByteResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -475,6 +490,131 @@ export class PreCommitHook {
       return {
         success: false,
         message: `Node shim check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
+   * Scan staged files for NUL bytes (0x00) and block the commit if any
+   * tracked text file contains one.
+   *
+   * Closes the gate-gap exposed by mt#1821 / PR #1107 R1: a JSON-escaped
+   * U+0000 in a `session_write_file` content parameter landed as a literal
+   * NUL byte inside a TypeScript template literal and slipped past tsc,
+   * eslint, prettier, bun test, CI build, and CI bundle-boot-smoke. Git's
+   * binary-file detector and the reviewer-bot's diff renderer were the
+   * only gates that caught it — at review time, not commit time.
+   *
+   * Allowlist:
+   *   - `KNOWN_BINARY_EXTENSIONS` (png / woff / so / etc.) — NULs expected.
+   *   - `FIXTURE_PATH_PREFIXES` (tests/fixtures/) — regression fixtures may
+   *     legitimately contain NUL bytes.
+   *
+   * Override: setting `MINSKY_SKIP_NUL_CHECK` to `1` / `true` / `yes` skips
+   * the check and emits a one-line audit message to stdout.
+   *
+   * See `feedback_json_tool_writes_interpret_unicode_escapes` (b7e2f8ef)
+   * for the originating-incident context, and `src/hooks/nul-byte-detector.ts`
+   * for the pure-function implementation that this method wraps.
+   */
+  private async runNulByteCheck(): Promise<HookResult> {
+    log.cli("Checking staged files for NUL bytes...");
+
+    if (isOverrideTruthy(process.env[NUL_BYTE_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:nul-byte-check] override ${NUL_BYTE_CHECK_OVERRIDE_ENV}=${process.env[NUL_BYTE_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — NUL-byte check skipped`
+      );
+      return { success: true, message: "NUL-byte check skipped via override", exitCode: 0 };
+    }
+
+    try {
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+
+      const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (stagedFiles.length === 0) {
+        log.cli("No staged files — skipping NUL-byte check.");
+        return { success: true, message: "No staged files to check", exitCode: 0 };
+      }
+
+      // Filter allowlisted paths up-front so we never even fetch their content.
+      const candidates = stagedFiles.filter((f) => !isPathAllowlisted(f));
+
+      // Fetch staged blobs in parallel — each `git show` is a subprocess,
+      // and at the AT6 target of 20 files the serial cost (~11ms/spawn)
+      // dominates. Parallelization cuts the wall-clock close to single-call
+      // latency. `Promise.allSettled` so a single bad path (gitlink, etc.)
+      // doesn't kill the rest.
+      const results = await Promise.allSettled(
+        candidates.map((file) =>
+          execGitWithTimeout("show", `show :${file}`, {
+            workdir: this.projectRoot,
+            timeout: 5000,
+          }).then((r) => ({ file, stdout: r.stdout }))
+        )
+      );
+
+      const stagedContent = new Map<string, Buffer>();
+      for (const r of results) {
+        if (r.status !== "fulfilled") continue;
+        // execGitWithTimeout returns stdout as a string (utf-8 decoded).
+        // U+0000 characters in the decoded string round-trip cleanly to
+        // 0x00 bytes when re-encoded as utf-8, so `Buffer.from(str)` is
+        // sufficient for NUL detection. The offset reported is byte-offset
+        // in the buffer (diagnostic — may differ from the file's pre-decode
+        // byte offset if the file contains multi-byte UTF-8 before the NUL,
+        // but adequate for pointing the operator at the right region).
+        stagedContent.set(r.value.file, Buffer.from(r.value.stdout));
+      }
+
+      const violations = detectNulByteViolations(stagedContent);
+
+      if (violations.length === 0) {
+        log.cli(`No NUL bytes detected in ${candidates.length} staged text file(s).`);
+        return { success: true, message: "NUL-byte check passed", exitCode: 0 };
+      }
+
+      log.cli("");
+      log.cli("NUL byte(s) detected in staged text files. Commit blocked.");
+      log.cli("");
+      for (const v of violations) {
+        log.cli(`   ${v.path}: first NUL byte at offset ${v.offset}`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli("   - Tracking task:        mt#1824");
+      log.cli("   - Originating incident: mt#1821 / PR #1107 R1");
+      log.cli(
+        "   - Memory:               feedback_json_tool_writes_interpret_unicode_escapes (b7e2f8ef)"
+      );
+      log.cli("");
+      log.cli("Common cause: a JSON-parameterized file-write tool received a content");
+      log.cli('   string with a "\\u0000" escape. JSON parsing converts the escape to');
+      log.cli("   a literal NUL byte BEFORE writing to disk. Pick a printable separator");
+      log.cli("   instead (e.g. a pipe, colon, or multi-char string).");
+      log.cli("");
+      log.cli(
+        `If a NUL byte is legitimate (rare), set ${NUL_BYTE_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `NUL bytes detected in ${violations.length} file(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`NUL-byte check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `NUL-byte check failed: ${errorMsg}`,
         exitCode: 1,
       };
     }
