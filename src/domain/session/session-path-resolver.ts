@@ -16,14 +16,45 @@ export class SessionNotFoundError extends Error {
 }
 
 /**
+ * Session-provider input accepted by SessionPathResolver: either a direct
+ * provider instance, or a thunk that returns one at call time. The thunk form
+ * supports lazy DI — MCP tool registration runs before container.initialize(),
+ * so the provider isn't available at resolver-construction time but is
+ * available at handler-dispatch time (mt#1799).
+ */
+export type SessionProviderInput =
+  | import("./index").SessionProviderInterface
+  | (() => import("./index").SessionProviderInterface | undefined)
+  | undefined;
+
+function isProviderThunk(
+  input: SessionProviderInput
+): input is () => import("./index").SessionProviderInterface | undefined {
+  return typeof input === "function";
+}
+
+/**
  * Provides session-aware path resolution and validation
  * Ensures all paths are within session workspace boundaries
  */
 export class SessionPathResolver {
-  private sessionProvider?: import("./index").SessionProviderInterface;
+  private sessionProvider: SessionProviderInput;
 
-  constructor(sessionProvider?: import("./index").SessionProviderInterface) {
+  constructor(sessionProvider?: SessionProviderInput) {
     this.sessionProvider = sessionProvider;
+  }
+
+  /**
+   * Resolve the stored provider at call time. Returns the direct instance when
+   * one was passed to the constructor, or invokes the thunk if a deferred-
+   * lookup form was provided. Used internally by every method that needs a
+   * provider so the lazy-DI shape is encapsulated in one place.
+   */
+  private resolveProvider(): import("./index").SessionProviderInterface | undefined {
+    if (isProviderThunk(this.sessionProvider)) {
+      return this.sessionProvider();
+    }
+    return this.sessionProvider;
   }
 
   /**
@@ -223,12 +254,18 @@ export class SessionPathResolver {
     sessionProvider?: import("./index").SessionProviderInterface
   ): Promise<string> {
     const { resolveSessionDirectory } = await import("./resolve-session-directory");
-    const provider = sessionProvider ?? this.sessionProvider;
+    const provider = sessionProvider ?? this.resolveProvider();
 
     if (!provider) {
+      // Distinguish between "constructor was called with undefined" vs
+      // "constructor was called with a thunk that returns undefined" so the
+      // operator can pinpoint which DI site is at fault (mt#1799).
+      const cause = isProviderThunk(this.sessionProvider)
+        ? "stored provider thunk returned undefined — container.has('sessionProvider') was false at dispatch time"
+        : "stored provider is undefined — constructor was called without a provider";
       throw new Error(
-        "SessionPathResolver requires a sessionProvider. " +
-          "Pass it to the constructor or to getSessionWorkspacePath()."
+        `SessionPathResolver requires a sessionProvider. Pass it to the ` +
+          `constructor or to getSessionWorkspacePath(). Cause: ${cause}.`
       );
     }
     return resolveSessionDirectory(sessionId, provider);
