@@ -1,7 +1,7 @@
 import { useEffect, useState, type ComponentType } from "react";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { Card, CardHeader, CardTitle, CardContent } from "./components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
 import { fetchWidgets, fetchWidgetData, type WidgetMeta, type WidgetData } from "./lib/widget-client";
 import { Agents } from "./widgets/Agents";
 import { AttentionStub } from "./widgets/AttentionStub";

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
 // (no imports of server code). Keep in sync with src/cockpit/widgets/agents.ts.
@@ -18,20 +19,18 @@ interface AgentsPayload {
   agents: AgentRow[];
 }
 
-type AgentsWidgetData =
-  | { state: "ok"; payload: AgentsPayload }
-  | { state: "degraded"; reason: string };
+// Narrows the shared `WidgetData` envelope to the agents-specific payload shape.
+// Keeps transport handling shared with `fetchWidgetData` while preserving local typing.
+function isAgentsPayload(payload: unknown): payload is AgentsPayload {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    Array.isArray((payload as { agents?: unknown }).agents)
+  );
+}
 
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
-
-async function fetchAgentsData(): Promise<AgentsWidgetData> {
-  const res = await fetch("/api/widget/agents/data");
-  if (!res.ok) {
-    throw new Error(`Agents endpoint returned ${res.status}`);
-  }
-  return res.json() as Promise<AgentsWidgetData>;
+async function fetchAgents(): Promise<WidgetData> {
+  return fetchWidgetData("agents");
 }
 
 // ---------------------------------------------------------------------------
@@ -94,9 +93,9 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
   const label = livenessLabel(agent.liveness);
   return (
     <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
-      {/* Liveness dot — screen-reader accessible via role="status" + aria-label */}
+      {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
+          spam on the 5s polling refetch; the label is read when the dot receives focus. */}
       <span
-        role="status"
         aria-label={`Liveness: ${label}`}
         className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
       />
@@ -152,9 +151,9 @@ function AgentsTableHeader() {
 // ---------------------------------------------------------------------------
 
 export function Agents() {
-  const query = useQuery<AgentsWidgetData, Error>({
+  const query = useQuery<WidgetData, Error>({
     queryKey: ["agents"],
-    queryFn: fetchAgentsData,
+    queryFn: fetchAgents,
     staleTime: 30_000,
     refetchInterval: 5_000,
   });
@@ -203,7 +202,22 @@ export function Agents() {
     );
   }
 
-  const agents = data.payload.agents ?? [];
+  // Payload shape guard (defensive — server should never send a non-agents
+  // payload under the "agents" widget id, but we narrow before indexing).
+  if (!isAgentsPayload(data.payload)) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Agents</CardTitle>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm">
+          <p>Unexpected payload shape</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const agents = data.payload.agents;
 
   return (
     <Card>
@@ -212,7 +226,7 @@ export function Agents() {
       </CardHeader>
       <CardContent>
         {agents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No active agents</p>
+          <p className="text-sm text-muted-foreground">No agents</p>
         ) : (
           <div>
             <AgentsTableHeader />
