@@ -138,6 +138,13 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_MEMORY_ENRICHMENT", // src/mcp (feature flag)
   "MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS", // src/mcp (feature config)
   "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
+  // mt#1767 — auto-migration controls in postgres-provider.ts. Process-only;
+  // they govern boot-time behavior, not runtime config. Adding to the
+  // hook-only set so Railway env-var sets (e.g. MINSKY_AUTO_MIGRATE=false
+  // as the documented escape valve) don't crash the loader via the
+  // env-var-to-config dot-path parser.
+  "MINSKY_AUTO_MIGRATE", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-out)
+  "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
 ]);
 
 /**

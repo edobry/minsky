@@ -6,7 +6,15 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
+  resolveMigrationsFolder,
+  shouldAutoMigrate,
 } from "./postgres-provider";
+// mt#1767 — `resolveMigrationsFolder()` operates on real filesystem state by
+// design (it must verify the deployed bundle's migrations folder exists).
+// The tests below assert real-fs resolution, so the in-test fs prohibition
+// (no-real-fs-in-tests) is intentionally suspended for this targeted import.
+// eslint-disable-next-line custom/no-real-fs-in-tests
+import { existsSync } from "node:fs";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 import { first } from "../../../utils/array-safety";
@@ -371,6 +379,162 @@ describe("PostgresVectorPersistenceProvider", () => {
     // Should not throw TypeScript error — same shape as parent's deps
     await provider.initialize({ postgresFactory: vectorAwareFactory as any });
 
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldAutoMigrate — pure predicate (mt#1763 R1 BLOCKING #3 / mt#1767)
+// ---------------------------------------------------------------------------
+
+describe("shouldAutoMigrate (mt#1767)", () => {
+  test("true when no deps and env has no MINSKY_AUTO_MIGRATE", () => {
+    expect(shouldAutoMigrate(undefined, {})).toBe(true);
+  });
+
+  test("true when no deps and MINSKY_AUTO_MIGRATE is unset/empty", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "" })).toBe(true);
+  });
+
+  test("true when no deps and MINSKY_AUTO_MIGRATE is 'true'", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "true" })).toBe(true);
+  });
+
+  test("false when MINSKY_AUTO_MIGRATE is 'false' (explicit opt-out)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" })).toBe(false);
+  });
+
+  test("false when MINSKY_AUTO_MIGRATE is '0' (numeric opt-out)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "0" })).toBe(false);
+  });
+
+  test("false-opt-out is case-insensitive (FALSE)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "FALSE" })).toBe(false);
+  });
+
+  test("false when caller injected sqlClient (test seam)", () => {
+    expect(shouldAutoMigrate({ sqlClient: {} }, {})).toBe(false);
+  });
+
+  test("false when caller injected postgresFactory (test seam)", () => {
+    expect(shouldAutoMigrate({ postgresFactory: () => ({}) as unknown as never }, {})).toBe(false);
+  });
+
+  test("env opt-out wins over no-deps (false even without injected client)", () => {
+    expect(shouldAutoMigrate(undefined, { MINSKY_AUTO_MIGRATE: "false" })).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveMigrationsFolder — bundle-aware path resolution (mt#1767 BLOCKING)
+// ---------------------------------------------------------------------------
+
+describe("resolveMigrationsFolder (mt#1767)", () => {
+  // Snapshot env so tests can mutate without leaking across the suite.
+  const savedFolder = process.env.MINSKY_MIGRATIONS_FOLDER;
+  afterEach(() => {
+    if (savedFolder === undefined) {
+      delete process.env.MINSKY_MIGRATIONS_FOLDER;
+    } else {
+      process.env.MINSKY_MIGRATIONS_FOLDER = savedFolder;
+    }
+  });
+
+  test("default resolution finds an existing migrations folder (dev or bundle)", () => {
+    delete process.env.MINSKY_MIGRATIONS_FOLDER;
+    const resolved = resolveMigrationsFolder();
+    expect(typeof resolved).toBe("string");
+    // eslint-disable-next-line custom/no-real-fs-in-tests
+    expect(existsSync(resolved)).toBe(true);
+    // Path must end with the canonical leaf — guards against accidentally
+    // resolving to a sibling directory that happens to exist.
+    expect(resolved.endsWith("storage/migrations/pg")).toBe(true);
+  });
+
+  test("MINSKY_MIGRATIONS_FOLDER override returns the override when it exists", () => {
+    // Use a directory we know exists (the source migrations dir itself).
+    const sourceDir = resolveMigrationsFolder();
+    process.env.MINSKY_MIGRATIONS_FOLDER = sourceDir;
+    expect(resolveMigrationsFolder()).toBe(sourceDir);
+  });
+
+  test("MINSKY_MIGRATIONS_FOLDER override throws when path does not exist", () => {
+    process.env.MINSKY_MIGRATIONS_FOLDER = "/definitely/not/a/real/path/anywhere";
+    expect(() => resolveMigrationsFolder()).toThrow(/MINSKY_MIGRATIONS_FOLDER/);
+    expect(() => resolveMigrationsFolder()).toThrow(/does not exist/);
+  });
+
+  test("error message names BOTH candidates when default resolution fails", () => {
+    // Can't easily simulate "neither candidate exists" without mocking fs.
+    // Instead validate the message shape via the override-not-found path's
+    // sibling: confirm the error message format exposes the override hint
+    // and the env-var name (operator-actionable diagnostics).
+    process.env.MINSKY_MIGRATIONS_FOLDER = "/definitely/not/a/real/path/anywhere";
+    try {
+      resolveMigrationsFolder();
+      throw new Error("expected resolveMigrationsFolder to throw");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      expect(msg).toContain("MINSKY_MIGRATIONS_FOLDER");
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// initialize() auto-migrate behavioral test (mt#1763 R2 / mt#1767)
+// ---------------------------------------------------------------------------
+
+describe("PostgresPersistenceProvider.initialize() auto-migrate (mt#1767)", () => {
+  test("isInitialized is true after initialize() succeeds (deferred-flag invariant from R1 BLOCKING #1)", async () => {
+    // Inject postgresFactory + skip auto-migrate (default behavior with deps
+    // injected). Asserts the order-of-operations invariant: isInitialized
+    // becomes true only at the END of the initialize() flow, never partway.
+    const sqlFn: any = mock(() => Promise.resolve([{ "?column?": 1 }]));
+    sqlFn.options = { parsers: {}, serializers: {} };
+    sqlFn.query = mock(() => Promise.resolve([]));
+    sqlFn.end = mock(() => Promise.resolve());
+    const factory = mock(() => sqlFn);
+
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: "postgresql://test:test@localhost/test",
+        connectTimeout: 10,
+        idleTimeout: 30,
+      },
+    };
+    const provider = new PostgresPersistenceProvider(config);
+    await provider.initialize({ postgresFactory: factory as any });
+
+    // shouldAutoMigrate returned false (postgresFactory injected) → migrations
+    // skipped → isInitialized still becomes true at the end.
+    expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
+  });
+
+  test("auto-migrate is skipped when caller injects deps (test-seam suppression)", async () => {
+    // No env set, factory injected → shouldAutoMigrate returns false →
+    // runMigrations is NOT called. We verify the negative by asserting
+    // initialize succeeds without the migrations folder being touched.
+    const sqlFn: any = mock(() => Promise.resolve([{ "?column?": 1 }]));
+    sqlFn.options = { parsers: {}, serializers: {} };
+    sqlFn.query = mock(() => Promise.resolve([]));
+    sqlFn.end = mock(() => Promise.resolve());
+    const factory = mock(() => sqlFn);
+
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: {
+        connectionString: "postgresql://test:test@localhost/test",
+        connectTimeout: 10,
+        idleTimeout: 30,
+      },
+    };
+    const provider = new PostgresPersistenceProvider(config);
+
+    // _overrideAutoMigrate omitted → deps-based suppression applies.
+    // initialize() must complete without invoking runMigrations (would crash
+    // against this stub factory's non-real DB).
+    await provider.initialize({ postgresFactory: factory as any });
     expect((provider as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 });

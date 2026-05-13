@@ -57,6 +57,18 @@ jobs:
           test -f dist/minsky.js || { echo "dist/minsky.js missing after build"; exit 1; }
           ls -la dist/minsky.js
 
+      # mt#1767 — copy migrations next to the bundle, mirroring the Dockerfile
+      # step. Without this, postgres-provider.ts's resolveMigrationsFolder
+      # falls back to the source-adjacent path which doesn't exist relative
+      # to dist/. The smoke would crash at boot — exactly the regression class
+      # mt#1787 was built to catch, but here it's the EXPECTED happy-path
+      # provisioning rather than a code defect.
+      - name: Copy migrations next to bundle (Dockerfile parity)
+        run: |
+          mkdir -p dist/storage/migrations
+          cp -r src/domain/storage/migrations/pg dist/storage/migrations/pg
+          ls dist/storage/migrations/pg/ | head -3
+
       - name: Boot bundled binary and probe /health
         run: |
           set -euo pipefail

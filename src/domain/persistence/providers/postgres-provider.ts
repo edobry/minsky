@@ -4,6 +4,8 @@
  * Full-featured persistence provider with SQL, transactions, JSONB, and vector support.
  */
 
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -34,6 +36,76 @@ const DEFAULT_POSTGRES_MAX_CONNECTIONS = 3;
 // Upper bound matching the config schema's .max(100). Applied to env-var
 // overrides too so a misconfigured value can't re-saturate the pooler.
 const MAX_POSTGRES_MAX_CONNECTIONS = 100;
+
+/**
+ * mt#1763 (PR #1065 R1 BLOCKING #3) — pure-function predicate for the
+ * auto-migration decision. Extracted so tests can exercise the decision
+ * logic without needing a real DB connection.
+ *
+ * Returns true when both:
+ *   - the caller did NOT inject any `deps` (sqlClient or postgresFactory), AND
+ *   - `MINSKY_AUTO_MIGRATE` env var is not explicitly disabled ("false" / "0").
+ *
+ * The `env` parameter is injectable so tests can override the env-var lookup
+ * without mutating `process.env` (which leaks across tests).
+ */
+export function shouldAutoMigrate(
+  deps?: { sqlClient?: unknown; postgresFactory?: unknown },
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const enabled = !["false", "0"].includes((env.MINSKY_AUTO_MIGRATE ?? "true").toLowerCase());
+  if (!enabled) return false;
+  const callerOwnsClient = deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined;
+  return !callerOwnsClient;
+}
+
+/**
+ * mt#1767 — bundle-aware migrations folder resolution. Replaces mt#1763's
+ * single-candidate path that worked in dev (Bun running `src/`) but failed
+ * in the production bundle (Bun running `/app/dist/minsky.js`) because the
+ * `import.meta.url`-relative `../../storage/migrations/pg` landed at
+ * `/storage/migrations/pg`, outside `/app`.
+ *
+ * Resolution order (first existing wins):
+ *   1. `MINSKY_MIGRATIONS_FOLDER` env override (errors loud if set + missing).
+ *   2. `./storage/migrations/pg` relative to this module — production bundle
+ *      path: bundle is at `/app/dist/minsky.js`, Dockerfile copies migrations
+ *      to `/app/dist/storage/migrations/pg/`.
+ *   3. `../../storage/migrations/pg` relative to this module — dev path:
+ *      this file is at `src/domain/persistence/providers/postgres-provider.ts`,
+ *      migrations are at `src/domain/storage/migrations/pg/`.
+ *
+ * If none exist, throws with the candidates listed so the operator sees
+ * exactly where the lookup looked. The mt#1787 bundle-boot-smoke CI gate
+ * exercises this path on every PR — any regression in the Dockerfile copy
+ * step or path-resolution logic surfaces at PR time.
+ */
+export function resolveMigrationsFolder(): string {
+  const override = process.env.MINSKY_MIGRATIONS_FOLDER;
+  if (override) {
+    if (!existsSync(override)) {
+      throw new Error(
+        `MINSKY_MIGRATIONS_FOLDER=${override} but the directory does not exist. ` +
+          `Set MINSKY_MIGRATIONS_FOLDER to a directory containing Drizzle migrations or unset to use the default.`
+      );
+    }
+    return override;
+  }
+  const candidates = [
+    fileURLToPath(new URL("./storage/migrations/pg", import.meta.url)),
+    fileURLToPath(new URL("../../storage/migrations/pg", import.meta.url)),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `Auto-migration directory not found. Tried: ${candidates.join(", ")}. ` +
+      `This indicates the build artifact does not include the migrations folder. ` +
+      `Either copy src/domain/storage/migrations/pg/ next to the compiled module, ` +
+      `or set MINSKY_MIGRATIONS_FOLDER to an absolute path, ` +
+      `or set MINSKY_AUTO_MIGRATE=false and apply migrations out-of-band.`
+  );
+}
 
 function resolveMaxConnections(configured: number | undefined): number {
   const pick = (n: number): number => {
@@ -100,6 +172,15 @@ export class PostgresPersistenceProvider
   async initialize(deps?: {
     sqlClient?: ReturnType<typeof postgres>;
     postgresFactory?: typeof postgres;
+    /**
+     * Test-only override (mt#1763 PR #1065 R2 / mt#1767): when explicitly set,
+     * overrides the deps-based suppression in `shouldAutoMigrate`. Lets a test
+     * that injects a `postgresFactory` (to avoid a real socket) still flow
+     * through the auto-migrate branch so behavioral coverage of the happy path
+     * is possible without a real DB. Production callsites leave this
+     * `undefined` and let `shouldAutoMigrate` decide.
+     */
+    _overrideAutoMigrate?: boolean;
   }): Promise<void> {
     if (this.isInitialized) {
       return;
@@ -137,9 +218,30 @@ export class PostgresPersistenceProvider
       // Verify connection — retry on pool saturation (mt#1193)
       await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
 
-      // All checks passed — now cache
+      // Cache the connection objects BEFORE running migrations. runMigrations
+      // uses `this.db` / `this.sql`, but `this.isInitialized` stays false until
+      // migrations succeed — per mt#1763 R1 BLOCKING #1, callers waiting on
+      // initialize() must not see isInitialized=true while migrations are
+      // still running (race window where they could read pre-migration schema).
       this.sql = sql;
       this.db = db;
+
+      // mt#1767 (mt#1763 redo, post-revert): auto-run pending migrations.
+      // Skip conditions (see `shouldAutoMigrate` for the predicate):
+      // - Caller injected any `deps` (sqlClient or postgresFactory): test seam.
+      // - `MINSKY_AUTO_MIGRATE` env var is "false" / "0": explicit opt-out.
+      // The `_overrideAutoMigrate` test seam can force the auto-migrate branch
+      // (see initialize signature for rationale).
+      const autoMigrate = deps?._overrideAutoMigrate ?? shouldAutoMigrate(deps);
+      if (autoMigrate) {
+        await this.runMigrations(resolveMigrationsFolder());
+      } else if (deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined) {
+        log.debug("Skipping auto-migration: caller-injected deps (test seam)");
+      } else {
+        log.warn("Skipping auto-migration: MINSKY_AUTO_MIGRATE=false");
+      }
+
+      // All checks passed AND migrations applied — now mark initialized.
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
@@ -305,6 +407,12 @@ export class PostgresVectorPersistenceProvider
   async initialize(deps?: {
     sqlClient?: ReturnType<typeof postgres>;
     postgresFactory?: typeof postgres;
+    /**
+     * Test-only override (mt#1763 PR #1065 R2 / mt#1767): forwarded to
+     * `super.initialize()` so the auto-migrate branch is exercisable in
+     * tests that inject a `postgresFactory` to avoid a real DB socket.
+     */
+    _overrideAutoMigrate?: boolean;
   }): Promise<void> {
     // Initialize base PostgreSQL functionality first
     await super.initialize(deps);
