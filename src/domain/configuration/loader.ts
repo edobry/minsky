@@ -16,6 +16,23 @@ import { log } from "../../utils/logger";
 import { deepMergeConfigs } from "./deep-merge";
 
 /**
+ * Typed marker for schema-validation failures at config-load time. The CLI
+ * boundary catch recognizes this class precisely (instanceof check) and
+ * renders a clean one-line diagnostic plus remediation hint instead of the
+ * default Winston cascade of log.error → uncaughtException dump.
+ *
+ * The wrapped message is the raw "Configuration validation failed: <detail>"
+ * produced by validateConfiguration — preserving the unrecognized-key name
+ * and field path that the operator needs to fix the config file.
+ */
+export class ConfigValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigValidationError";
+  }
+}
+
+/**
  * Configuration source metadata
  */
 export interface ConfigurationSourceMetadata {
@@ -150,9 +167,15 @@ export class ConfigurationLoader {
 
       return result;
     } catch (error) {
-      throw new Error(
-        `Configuration loading failed: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // Wrap schema-validation failures in a typed marker so the CLI boundary
+      // catch can recognize them precisely and render a clean one-line
+      // diagnostic. Other failure modes (file-read errors, etc.) get the
+      // generic prefix and fall through to the default error renderer.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("Configuration validation failed:")) {
+        throw new ConfigValidationError(message);
+      }
+      throw new Error(`Configuration loading failed: ${message}`);
     }
   }
 

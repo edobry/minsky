@@ -10,9 +10,32 @@ profileCheckpoint("cli_top");
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it
 import { setupConfiguration } from "./config-setup";
+import { ConfigValidationError } from "./domain/configuration/loader";
 
-// Wait for configuration to be initialized before proceeding with other imports
-await setupConfiguration();
+// Wait for configuration to be initialized before proceeding with other imports.
+// Schema-validation failures get a clean one-line user-facing error here at
+// the CLI boundary, instead of propagating to the Winston uncaughtException
+// handler which would emit a stack trace + process-metadata dump (mt#1801).
+try {
+  await setupConfiguration();
+} catch (error) {
+  if (error instanceof ConfigValidationError) {
+    // ConfigValidationError.message starts with "Configuration validation failed: ..."
+    // — already names the unrecognized key and field path. Emit cleanly +
+    // a remediation hint, then exit non-zero.
+    process.stderr.write(`Error: ${error.message}\n`);
+    process.stderr.write(
+      "Hint: the config file contains a key the installed Minsky binary doesn't recognize. " +
+        "Edit ~/.config/minsky/config.yaml to remove the unknown key, or rebuild the binary " +
+        "(bun run build) if it's outdated.\n"
+    );
+    process.exit(1);
+  }
+  // Unknown failure: let it propagate to the Winston uncaughtException
+  // handler so we get the full diagnostic dump for genuinely unexpected
+  // errors.
+  throw error;
+}
 profileCheckpoint("config_setup_complete");
 
 import { Command } from "commander";

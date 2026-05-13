@@ -6,26 +6,22 @@
  */
 
 import { initializeConfiguration, CustomConfigFactory } from "./domain/configuration";
-import { log } from "./utils/logger";
 
 /**
  * Initialize the custom configuration system
  *
- * This replaces node-config with our custom type-safe configuration system.
- * Must be called before any configuration access.
+ * Wraps node-config replacement with our custom type-safe configuration
+ * system. Must be called before any configuration access.
+ *
+ * Error handling is owned by the CLI boundary catch in `cli.ts` (mt#1801).
+ * This function lets errors propagate; the CLI boundary recognizes
+ * ConfigValidationError vs. unknown failure and renders accordingly.
+ * Wrapping here would emit a duplicate log line with no remediation value.
  */
 export async function setupConfiguration(): Promise<void> {
-  try {
-    const factory = new CustomConfigFactory();
-    await initializeConfiguration(factory, {
-      workingDirectory: process.cwd(),
-      enableCache: true,
-    });
-  } catch (error) {
-    log.error(
-      "✗ Failed to initialize configuration system:",
-      error instanceof Error ? error : { error: String(error) }
-    );
-    throw error;
-  }
+  const factory = new CustomConfigFactory();
+  await initializeConfiguration(factory, {
+    workingDirectory: process.cwd(),
+    enableCache: true,
+  });
 }

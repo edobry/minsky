@@ -152,10 +152,15 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       }
       this.configResult = { ...this.configResult, config: cfg as Configuration };
     } catch (error) {
-      log.error(
-        "Configuration loading failed:",
-        error instanceof Error ? error : { error: String(error) }
-      );
+      // Downgraded from log.error to log.debug as part of mt#1801 — the
+      // user-facing rendering is owned by the CLI boundary catch in cli.ts.
+      // Keeping this at debug preserves the diagnostic context for operators
+      // running with MINSKY_LOG_MODE=STRUCTURED without spamming users with
+      // duplicate cascade output.
+      log.debug("CustomConfigurationProvider.initialize failed", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       throw error;
     }
   }
