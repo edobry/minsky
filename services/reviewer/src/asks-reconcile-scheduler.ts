@@ -26,7 +26,7 @@
  *   covers the "within ≤ 1 polling interval" acceptance test criterion for
  *   active iteration. Operators can set higher values for quieter deployments.
  * - `ASKS_RECONCILE_ENABLED` — set to `"true"` to activate (disabled by default).
- * - `MINSKY_MCP_URL` + `MINSKY_MCP_TOKEN` — used to call `asks_reconcile` via
+ * - `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` — used to call `asks_reconcile` via
  *   the Minsky MCP server; required when this scheduler is enabled.
  *
  * ## Invocation mechanism
@@ -69,7 +69,8 @@ export function loadAsksReconcileSchedulerConfig(): AsksReconcileSchedulerConfig
     intervalMs: parsePositiveIntEnv("ASKS_RECONCILE_POLL_INTERVAL_MS", 30_000),
     enabled: (process.env["ASKS_RECONCILE_ENABLED"] ?? "false") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
+    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
   };
 }
 
@@ -186,7 +187,7 @@ export function startAsksReconcileScheduler(
       JSON.stringify({
         event: "asks_reconcile_scheduler.missing_credentials",
         message:
-          "ASKS_RECONCILE_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+          "ASKS_RECONCILE_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
           "Asks-reconcile scheduler will not start.",
       })
     );
