@@ -26,16 +26,16 @@ capability is needed, add tools explicitly at the agent level
 ## Modification 2 (mt#1803): auto-executing context block strip
 
 Removed the "Current Project Context" section, which contained the following
-auto-executing pattern at the top of the file:
+auto-executing pattern at the top of the file (rendered here with a tilde-fence so the
+inner backticks display verbatim):
 
 ````
 ## Current Project Context
 
 ```json
 !`npx shadcn@latest info --json`
-````
-
 ```
+````
 
 The leading `!` is Claude Code's skill-markdown context-injection syntax that runs the
 backticked command at skill-load time. The auto-mode classifier denies this preemptively
@@ -46,4 +46,3 @@ Replacement: a "Getting Project Context" section that documents the same command
 guidance to invoke at task-time. The auto-loaded JSON dump has low information value when
 vendored anyway (it runs once at skill load, not at the moment the user asks
 shadcn-related questions).
-```
