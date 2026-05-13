@@ -139,6 +139,21 @@ interface SessionListItem {
  * caching, which prior to mt#1821 was missing here and caused every sweep
  * cycle to fail with `-32600 "first request must be initialize"`.
  *
+ * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+ * implementation. Passed explicitly (not relying on the helper's default)
+ * so any future change to the helper's default does not silently regress
+ * the sweeper's prior behavior.
+ *
+ * Observability: `callMcp` emits structured `console.warn` events with the
+ * `merge_state_sweeper.mcp` prefix. The event name suffixes are
+ * `_init_fetch_error`, `_init_http_error`, `_init_no_session_id`,
+ * `_init_notif_failed`, `_session_expired_retrying`, `_fetch_error`,
+ * `_http_error`, `_body_read_error`, `_parse_error`, `_rpc_error`, and
+ * `_tool_error`. The original
+ * `merge_state_sweeper.mcp_{http_error,rpc_error,fetch_error}` events are
+ * preserved at the same prefix; additional more-granular handshake events
+ * are added.
+ *
  * Returns the concatenated text content from the tool result, or null on
  * any error (transport / RPC / tool-level).
  */
@@ -152,7 +167,7 @@ async function callMcpTool(
     toolName,
     args,
     { mcpUrl, mcpToken },
-    { logPrefix: "merge_state_sweeper.mcp" }
+    { logPrefix: "merge_state_sweeper.mcp", timeoutMs: 15_000 }
   );
   return result.ok ? result.contentText : null;
 }

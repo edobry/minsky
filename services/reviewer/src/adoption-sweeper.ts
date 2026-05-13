@@ -167,6 +167,15 @@ export interface AdoptionSweepResult {
  * don't change. The shared helper performs the MCP initialize handshake
  * and caches the session id; without it the server rejects every
  * `tools/call` with `-32600 "first request must be initialize"`.
+ *
+ * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+ * implementation. Passed explicitly so any future change to the helper's
+ * default does not silently regress sweep behavior.
+ *
+ * Observability: `callMcp` emits structured `console.warn` events with the
+ * `adoption_sweeper.mcp` prefix; the legacy
+ * `adoption_sweeper.mcp_{http_error,rpc_error,fetch_error}` events are
+ * preserved at the same prefix.
  */
 async function callMcpTool(
   mcpUrl: string,
@@ -178,7 +187,7 @@ async function callMcpTool(
     toolName,
     args,
     { mcpUrl, mcpToken },
-    { logPrefix: "adoption_sweeper.mcp" }
+    { logPrefix: "adoption_sweeper.mcp", timeoutMs: 15_000 }
   );
   return result.ok ? result.contentText : null;
 }

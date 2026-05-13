@@ -140,6 +140,16 @@ export function createApp(
    * and caches the session id; without it the server rejected every
    * `tools/call` with `-32600 "first request must be initialize"` and the
    * at-merge state-sync silently no-op'd.
+   *
+   * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+   * implementation (per PR #1010 R1 — without a timeout, a hung MCP call
+   * kept the detached promise in `inflight` indefinitely). Passed explicitly
+   * so any future change to the helper's default does not silently regress
+   * the inflight-drain behavior on shutdown.
+   *
+   * Observability: `callMcp` emits structured `console.warn` events with the
+   * `at_merge_handler.mcp` prefix; the legacy
+   * `at_merge_handler.mcp_fetch_error` event is preserved.
    */
   async function callMcpToolLocal(
     mcpUrl: string,
@@ -151,7 +161,7 @@ export function createApp(
       toolName,
       args,
       { mcpUrl, mcpToken },
-      { logPrefix: "at_merge_handler.mcp" }
+      { logPrefix: "at_merge_handler.mcp", timeoutMs: 15_000 }
     );
     return result.ok ? result.contentText : null;
   }

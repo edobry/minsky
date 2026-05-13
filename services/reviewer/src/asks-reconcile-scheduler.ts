@@ -99,11 +99,25 @@ interface McpCallResult {
  * must not crash the reviewer service.
  */
 async function callAsksReconcile(mcpUrl: string, mcpToken: string): Promise<McpCallResult> {
+  // Timeout: 15s, matching the sweeper convention; passed explicitly so any
+  // future change to the helper's default does not silently regress scheduler
+  // behavior.
+  //
+  // Observability: `callMcp` emits structured `console.warn` events with the
+  // `asks_reconcile_scheduler.mcp` prefix; the legacy
+  // `asks_reconcile_scheduler.mcp_{http_error,rpc_error}` events are
+  // preserved at the same prefix. The legacy
+  // `asks_reconcile_scheduler.call_failed` event (emitted only when fetch
+  // itself threw) is renamed to
+  // `asks_reconcile_scheduler.mcp_init_fetch_error` or
+  // `asks_reconcile_scheduler.mcp_fetch_error` depending on which phase
+  // failed — same data, different name. Update any dashboards keying on
+  // `call_failed` to also match the new event names.
   const result = await callMcp(
     "asks_reconcile",
     {},
     { mcpUrl, mcpToken },
-    { logPrefix: "asks_reconcile_scheduler.mcp" }
+    { logPrefix: "asks_reconcile_scheduler.mcp", timeoutMs: 15_000 }
   );
 
   if (!result.ok) {

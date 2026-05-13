@@ -95,11 +95,24 @@ interface McpCallResult {
  * must not crash the reviewer service.
  */
 async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCallResult> {
+  // Timeout: 15s, matching the sweeper convention; passed explicitly so any
+  // future change to the helper's default does not silently regress scheduler
+  // behavior.
+  //
+  // Observability: `callMcp` emits structured `console.warn` events with the
+  // `pr_watch_scheduler.mcp` prefix; the legacy
+  // `pr_watch_scheduler.mcp_{http_error,rpc_error}` events are preserved at
+  // the same prefix. The legacy `pr_watch_scheduler.call_failed` event
+  // (emitted only when fetch itself threw, e.g. ECONNREFUSED) is renamed to
+  // `pr_watch_scheduler.mcp_init_fetch_error` or
+  // `pr_watch_scheduler.mcp_fetch_error` depending on which phase failed —
+  // same data, different name. Update any dashboards keying on
+  // `call_failed` to also match the new event names.
   const result = await callMcp(
     "pr_watch_run",
     {},
     { mcpUrl, mcpToken },
-    { logPrefix: "pr_watch_scheduler.mcp" }
+    { logPrefix: "pr_watch_scheduler.mcp", timeoutMs: 15_000 }
   );
 
   if (!result.ok) {
