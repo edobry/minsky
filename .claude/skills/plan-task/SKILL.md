@@ -52,7 +52,8 @@ a status transition; everything else is investigation and gate-check.
   - (f) Subtasks filed for multi-phase work
   - (g) No parallel work in flight
   - (h) Contract-propagation enumeration
-  - (j) Premise label verification
+  - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
+    with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
