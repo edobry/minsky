@@ -116,15 +116,32 @@ export class CommandMapper {
   /**
    * Add a command to the MCP server as a tool
    * @param command Command configuration object
+   *
+   * Provide EITHER `handler` (eager, legacy form) OR `getHandler` (lazy thunk,
+   * mt#1792). When `getHandler` is provided without `handler`, the tool is
+   * registered with a lazy thunk; the CallTool dispatch resolves it on first
+   * call and caches the result. Both forms can coexist in the registry.
    */
   addCommand(command: {
     name: string;
     description: string;
     parameters?: z.ZodType;
-    handler: (
+    handler?: (
       args: Record<string, unknown>,
       context?: ProjectContext
     ) => Promise<string | Record<string, unknown>>;
+    /**
+     * mt#1792: lazy handler thunk. When provided (without `handler`), the tool
+     * module is imported on first call instead of at registration time.
+     * The thunk receives the ProjectContext snapshot captured at addCommand
+     * time, so it behaves identically to the eager form.
+     */
+    getHandler?: () => Promise<
+      (
+        args: Record<string, unknown>,
+        context?: ProjectContext
+      ) => Promise<string | Record<string, unknown>>
+    >;
     /**
      * When true, the tool performs external side effects and will be refused
      * by the server when drift is detected (loaded commit !== workspace HEAD).
@@ -156,42 +173,92 @@ export class CommandMapper {
     // Track registered method names for debugging
     this.registeredMethodNames.push(normalizedName);
 
-    // Create the tool definition
-    const toolDefinition: ToolDefinition = {
-      name: normalizedName,
-      description: command.description,
-      inputSchema,
-      mutating: command.mutating,
-      requiresInit: command.requiresInit,
-      handler: async (args) => {
-        try {
-          log.debug("Executing MCP command", {
-            methodName: normalizedName,
-            args: args || {},
-            hasProjectContext: !!this.projectContext,
-          });
+    // Build the tool definition — eager or lazy path.
+    let toolDefinition: ToolDefinition;
 
-          // Pass the project context to the handler if available
-          const result = await command.handler(args || {}, this.projectContext);
+    if (command.handler) {
+      // Eager (legacy) path: wrap handler inline as before.
+      const eagerHandler = command.handler;
+      const capturedContext = this.projectContext;
+      toolDefinition = {
+        name: normalizedName,
+        description: command.description,
+        inputSchema,
+        mutating: command.mutating,
+        requiresInit: command.requiresInit,
+        handler: async (args) => {
+          try {
+            log.debug("Executing MCP command", {
+              methodName: normalizedName,
+              args: args || {},
+              hasProjectContext: !!capturedContext,
+            });
 
-          log.debug("MCP command executed successfully", {
-            methodName: normalizedName,
-            resultType: typeof result,
-          });
+            const result = await eagerHandler(args || {}, capturedContext);
 
-          return result;
-        } catch (error) {
-          log.error("MCP command execution failed", {
-            methodName: normalizedName,
-            error: getErrorMessage(error),
-            args: args || {},
-          });
+            log.debug("MCP command executed successfully", {
+              methodName: normalizedName,
+              resultType: typeof result,
+            });
 
-          // Re-throw to let the MCP server handle error presentation
-          throw error;
-        }
-      },
-    };
+            return result;
+          } catch (error) {
+            log.error("MCP command execution failed", {
+              methodName: normalizedName,
+              error: getErrorMessage(error),
+              args: args || {},
+            });
+            throw error;
+          }
+        },
+      };
+    } else if (command.getHandler) {
+      // mt#1792 lazy path: store a getHandler thunk that wraps the
+      // CommandMapper logging + context-injection concerns around the
+      // resolved handler function. The thunk is resolved once on first
+      // call by the CallTool dispatch in server.ts and cached on
+      // tool.handler for subsequent calls.
+      const lazyGetHandler = command.getHandler;
+      const capturedContext = this.projectContext;
+      toolDefinition = {
+        name: normalizedName,
+        description: command.description,
+        inputSchema,
+        mutating: command.mutating,
+        requiresInit: command.requiresInit,
+        getHandler: async () => {
+          const resolvedFn = await lazyGetHandler();
+          // Return a wrapped handler that injects project context + logging,
+          // matching the eager path's behaviour exactly.
+          return async (args: Record<string, unknown>) => {
+            try {
+              log.debug("Executing MCP command (lazy-resolved)", {
+                methodName: normalizedName,
+                args: args || {},
+                hasProjectContext: !!capturedContext,
+              });
+              const result = await resolvedFn(args || {}, capturedContext);
+              log.debug("MCP command executed successfully (lazy-resolved)", {
+                methodName: normalizedName,
+                resultType: typeof result,
+              });
+              return result;
+            } catch (error) {
+              log.error("MCP command execution failed (lazy-resolved)", {
+                methodName: normalizedName,
+                error: getErrorMessage(error),
+                args: args || {},
+              });
+              throw error;
+            }
+          };
+        },
+      };
+    } else {
+      throw new Error(
+        `addCommand: command "${command.name}" must provide either "handler" or "getHandler"`
+      );
+    }
 
     // Register the tool with the server
     this.server.addTool(toolDefinition);
@@ -200,6 +267,7 @@ export class CommandMapper {
       methodName: normalizedName,
       description: command.description,
       hasParameters: !!command.parameters,
+      isLazy: !command.handler && !!command.getHandler,
       totalRegisteredMethods: this.registeredMethodNames.length,
     });
   }

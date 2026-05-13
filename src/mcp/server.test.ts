@@ -766,7 +766,8 @@ describe("MCP Server", () => {
       server as unknown as { triggerStaleSignal: (s: typeof sdkServer) => void }
     ).triggerStaleSignal.bind(server);
 
-    // Verify tool call succeeds
+    // Verify tool call succeeds (handler is set; getHandler was not used here)
+    if (!echoTool.handler) throw new Error("echoTool.handler unexpectedly undefined");
     const result = await echoTool.handler({ value: "hello" });
     expect(result).toBe("hello");
 
