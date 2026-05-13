@@ -32,6 +32,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { parsePositiveIntEnv } from "./config";
 import { createOctokit, getAppIdentity } from "./github-client";
 import { runReview } from "./review-worker";
 import { decideRouting, extractTierFromPRBody } from "./tier-routing";
@@ -56,7 +57,10 @@ export function loadSweeperConfig(): SweeperConfig {
   return {
     owner: process.env["SWEEPER_REPO_OWNER"] ?? "edobry",
     repo: process.env["SWEEPER_REPO_NAME"] ?? "minsky",
-    intervalMs: parseInt(process.env["SWEEPER_INTERVAL_MS"] ?? "600000", 10),
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values
+    // would feed NaN to setInterval. parsePositiveIntEnv throws at boot
+    // time on any non-positive-integer value.
+    intervalMs: parsePositiveIntEnv("SWEEPER_INTERVAL_MS", 600_000),
     enabled: (process.env["SWEEPER_ENABLED"] ?? "false") === "true",
   };
 }

@@ -44,6 +44,7 @@
  */
 
 import type { ReviewerConfig } from "./config";
+import { parsePositiveIntEnv } from "./config";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,9 @@ export interface AsksReconcileSchedulerConfig {
 
 export function loadAsksReconcileSchedulerConfig(): AsksReconcileSchedulerConfig {
   return {
-    intervalMs: parseInt(process.env["ASKS_RECONCILE_POLL_INTERVAL_MS"] ?? "30000", 10),
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values would
+    // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
+    intervalMs: parsePositiveIntEnv("ASKS_RECONCILE_POLL_INTERVAL_MS", 30_000),
     enabled: (process.env["ASKS_RECONCILE_ENABLED"] ?? "false") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
     mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",

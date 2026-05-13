@@ -429,12 +429,12 @@ describe("runMergeStateSweep — error handling", () => {
 // ---------------------------------------------------------------------------
 
 describe("loadMergeStateSweeperConfig", () => {
-  it("defaults to enabled=false when env var not set", () => {
+  it("defaults to enabled=true when env var not set (mt#1811)", () => {
     const saved = process.env[ENV_SWEEPER_ENABLED];
     delete process.env[ENV_SWEEPER_ENABLED];
     try {
       const cfg = loadMergeStateSweeperConfig();
-      expect(cfg.enabled).toBe(false);
+      expect(cfg.enabled).toBe(true);
     } finally {
       if (saved !== undefined) process.env[ENV_SWEEPER_ENABLED] = saved;
     }
@@ -446,6 +446,21 @@ describe("loadMergeStateSweeperConfig", () => {
     try {
       const cfg = loadMergeStateSweeperConfig();
       expect(cfg.enabled).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_ENABLED] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_ENABLED];
+      }
+    }
+  });
+
+  it("enabled=false when MERGE_STATE_SWEEPER_ENABLED=false (explicit opt-out)", () => {
+    const saved = process.env[ENV_SWEEPER_ENABLED];
+    process.env[ENV_SWEEPER_ENABLED] = "false";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.enabled).toBe(false);
     } finally {
       if (saved !== undefined) {
         process.env[ENV_SWEEPER_ENABLED] = saved;
@@ -472,6 +487,54 @@ describe("loadMergeStateSweeperConfig", () => {
     try {
       const cfg = loadMergeStateSweeperConfig();
       expect(cfg.intervalMs).toBe(30_000);
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_INTERVAL_MS];
+      }
+    }
+  });
+
+  it("throws on non-numeric MERGE_STATE_SWEEPER_INTERVAL_MS (mt#1811 R1 BLOCKING fix)", () => {
+    const saved = process.env[ENV_SWEEPER_INTERVAL_MS];
+    process.env[ENV_SWEEPER_INTERVAL_MS] = "ten_minutes";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_INTERVAL_MS must be a positive integer/
+      );
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_INTERVAL_MS];
+      }
+    }
+  });
+
+  it("throws on negative MERGE_STATE_SWEEPER_INTERVAL_MS (mt#1811 R1 BLOCKING fix)", () => {
+    const saved = process.env[ENV_SWEEPER_INTERVAL_MS];
+    process.env[ENV_SWEEPER_INTERVAL_MS] = "-5";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_INTERVAL_MS must be a positive integer/
+      );
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_INTERVAL_MS];
+      }
+    }
+  });
+
+  it("throws on zero MERGE_STATE_SWEEPER_INTERVAL_MS (mt#1811 R1 BLOCKING fix)", () => {
+    const saved = process.env[ENV_SWEEPER_INTERVAL_MS];
+    process.env[ENV_SWEEPER_INTERVAL_MS] = "0";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_INTERVAL_MS must be a positive integer/
+      );
     } finally {
       if (saved !== undefined) {
         process.env[ENV_SWEEPER_INTERVAL_MS] = saved;
