@@ -40,6 +40,12 @@ export default {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        liveness: {
+          healthy: "hsl(var(--liveness-healthy))",
+          idle: "hsl(var(--liveness-idle))",
+          stale: "hsl(var(--liveness-stale))",
+          orphaned: "hsl(var(--liveness-orphaned))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",

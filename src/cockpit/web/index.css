@@ -23,6 +23,11 @@
   --input: 214.3 31.8% 91.4%;
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
+  /* Liveness status dot tokens — semantic, dark-mode-first */
+  --liveness-healthy: 142 71% 45%;
+  --liveness-idle: 43 96% 56%;
+  --liveness-stale: 0 72% 51%;
+  --liveness-orphaned: 215 14% 60%;
 }
 
 .dark {
@@ -45,6 +50,11 @@
   --border: 217.2 32.6% 17.5%;
   --input: 217.2 32.6% 17.5%;
   --ring: 212.7 26.8% 83.9%;
+  /* Liveness status dot tokens — tuned for dark elevation */
+  --liveness-healthy: 142 71% 38%;
+  --liveness-idle: 43 96% 48%;
+  --liveness-stale: 0 72% 44%;
+  --liveness-orphaned: 215 14% 42%;
 }
 
 @layer base {

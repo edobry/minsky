@@ -9,8 +9,13 @@ import { BasicHealth } from "./widgets/BasicHealth";
 import { TaskGraph } from "./widgets/TaskGraph";
 import { Workstreams } from "./widgets/Workstreams";
 
-const WIDGET_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
+// Widgets that are self-fetching (use TanStack Query internally; receive no data prop)
+const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   agents: Agents,
+};
+
+// Widgets that receive data from App-level polling
+const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
   "attention-stub": AttentionStub,
   "basic-health": BasicHealth,
   "task-graph": TaskGraph,
@@ -41,6 +46,11 @@ export function App() {
       setWidgets(metas.map((meta) => ({ meta, data: null })));
 
       for (const meta of metas) {
+        // Self-fetching widgets own their own data — skip App-level polling for them
+        if (SELF_FETCHING_RENDERERS[meta.id]) {
+          continue;
+        }
+
         // Initial fetch
         fetchWidgetData(meta.id)
           .then((data) => {
@@ -83,10 +93,15 @@ export function App() {
   return (
     <Layout>
       {widgets.map(({ meta, data }) => {
-        const Renderer = WIDGET_RENDERERS[meta.id];
+        const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
+        const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
+
         return (
           <ErrorBoundary key={meta.id} id={meta.id}>
-            {!Renderer ? (
+            {SelfFetchingRenderer ? (
+              // Self-fetching widget — no data prop needed; widget owns its own fetch
+              <SelfFetchingRenderer />
+            ) : !PropDrivenRenderer ? (
               <Card>
                 <CardHeader>
                   <CardTitle>{meta.title}</CardTitle>
@@ -105,7 +120,7 @@ export function App() {
                 </CardContent>
               </Card>
             ) : (
-              <Renderer data={data} />
+              <PropDrivenRenderer data={data} />
             )}
           </ErrorBoundary>
         );

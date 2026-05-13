@@ -1,4 +1,5 @@
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { useQuery } from "@tanstack/react-query";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 // Inline mirror of the server AgentRow shape — frontend must stay self-contained
 // (no imports of server code). Keep in sync with src/cockpit/widgets/agents.ts.
@@ -17,27 +18,37 @@ interface AgentsPayload {
   agents: AgentRow[];
 }
 
-type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"; reason: string };
+type AgentsWidgetData =
+  | { state: "ok"; payload: AgentsPayload }
+  | { state: "degraded"; reason: string };
 
-interface Props {
-  data: WidgetData;
+// ---------------------------------------------------------------------------
+// Data fetching
+// ---------------------------------------------------------------------------
+
+async function fetchAgentsData(): Promise<AgentsWidgetData> {
+  const res = await fetch("/api/widget/agents/data");
+  if (!res.ok) {
+    throw new Error(`Agents endpoint returned ${res.status}`);
+  }
+  return res.json() as Promise<AgentsWidgetData>;
 }
 
 // ---------------------------------------------------------------------------
 // Liveness helpers
 // ---------------------------------------------------------------------------
 
-/** Tailwind dot color for each liveness value */
+/** Semantic Tailwind class for each liveness value — uses the liveness-* token group */
 function livenessDotClass(liveness: AgentRow["liveness"]): string {
   switch (liveness) {
     case "healthy":
-      return "bg-green-500";
+      return "bg-liveness-healthy";
     case "idle":
-      return "bg-amber-400";
+      return "bg-liveness-idle";
     case "stale":
-      return "bg-red-500";
+      return "bg-liveness-stale";
     case "orphaned":
-      return "bg-gray-400";
+      return "bg-liveness-orphaned";
   }
 }
 
@@ -80,12 +91,14 @@ function formatRelative(isoTimestamp: string): string {
 // ---------------------------------------------------------------------------
 
 function AgentRowItem({ agent }: { agent: AgentRow }) {
+  const label = livenessLabel(agent.liveness);
   return (
-    <div className="flex items-center gap-3 py-2 border-b border-border last:border-0">
-      {/* Liveness dot */}
+    <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
+      {/* Liveness dot — screen-reader accessible via role="status" + aria-label */}
       <span
+        role="status"
+        aria-label={`Liveness: ${label}`}
         className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
-        title={livenessLabel(agent.liveness)}
       />
 
       {/* Title + task ID */}
@@ -105,7 +118,7 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
       )}
 
       {/* Last activity */}
-      <span className="text-xs text-muted-foreground flex-shrink-0">
+      <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
         {formatRelative(agent.lastActivityAt)}
       </span>
     </div>
@@ -113,36 +126,96 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main widget component
+// Column header
 // ---------------------------------------------------------------------------
 
-export function Agents({ data }: Props) {
+function AgentsTableHeader() {
+  return (
+    <div className="flex items-center gap-3 py-1 mb-0.5 border-b border-border">
+      {/* dot placeholder */}
+      <span className="inline-block h-2 w-2 flex-shrink-0" />
+      <span className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+        Session
+      </span>
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0">
+        PR
+      </span>
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 tabular-nums">
+        Activity
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget component — self-fetching via TanStack Query
+// ---------------------------------------------------------------------------
+
+export function Agents() {
+  const query = useQuery<AgentsWidgetData, Error>({
+    queryKey: ["agents"],
+    queryFn: fetchAgentsData,
+    staleTime: 30_000,
+    refetchInterval: 5_000,
+  });
+
+  // Error state (network failure, non-200, JSON parse error)
+  if (query.isError) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Agents</CardTitle>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm">
+          <p>Failed to load agents: {query.error.message}</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Loading state (no data yet, not an error)
+  if (query.isLoading || !query.data) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Agents</CardTitle>
+        </CardHeader>
+        <CardContent className="text-muted-foreground text-sm">
+          <p>Loading…</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const data = query.data;
+
+  // Degraded state (server-reported)
   if (data.state === "degraded") {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Agents</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Agents</CardTitle>
         </CardHeader>
-        <CardContent className="text-muted-foreground">
+        <CardContent className="text-muted-foreground text-sm">
           <p>{data.reason}</p>
         </CardContent>
       </Card>
     );
   }
 
-  const payload = data.payload as AgentsPayload;
-  const agents = payload.agents ?? [];
+  const agents = data.payload.agents ?? [];
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Agents</CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">Agents</CardTitle>
       </CardHeader>
       <CardContent>
         {agents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No agents</p>
+          <p className="text-sm text-muted-foreground">No active agents</p>
         ) : (
           <div>
+            <AgentsTableHeader />
             {agents.map((agent) => (
               <AgentRowItem key={agent.sessionId} agent={agent} />
             ))}
