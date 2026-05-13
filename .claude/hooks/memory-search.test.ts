@@ -1,11 +1,13 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   AFFIRMATIVE_WORDS,
   buildInjection,
+  deriveVariantTag,
   estimateTokens,
   HOOK_VERSION,
   isTrivialPrompt,
   parseSearchOutput,
+  readBraintrustConfig,
   renderResult,
   rotateLogIfNeeded,
   TRUNCATION_MARKER,
@@ -576,5 +578,76 @@ describe("writeLog", () => {
         failingFs
       );
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Braintrust integration (mt#1813 — Phase 1a)
+// ---------------------------------------------------------------------------
+
+describe("deriveVariantTag", () => {
+  it("encodes the three knobs as a single comma-separated string", () => {
+    expect(deriveVariantTag(5, 2000, 20)).toBe("K=5,B=2000,MIN=20");
+    expect(deriveVariantTag(3, 800, 50)).toBe("K=3,B=800,MIN=50");
+  });
+
+  it("uses the source-level defaults when called with no arguments", () => {
+    // The default-derived variant must match the same shape; specific values
+    // are whatever the source constants currently encode, which is the point —
+    // the tag auto-updates when constants change in source.
+    const tag = deriveVariantTag();
+    expect(tag).toMatch(/^K=\d+,B=\d+,MIN=\d+$/);
+  });
+});
+
+describe("readBraintrustConfig", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    // Clear all the Braintrust env vars before each test so we test in isolation
+    delete process.env.BRAINTRUST_API_KEY;
+    delete process.env.BRAINTRUST_PROJECT_NAME;
+    delete process.env.BRAINTRUST_API_URL;
+  });
+
+  afterEach(() => {
+    // Restore original env so tests don't leak state
+    process.env = { ...originalEnv };
+  });
+
+  it("reads apiKey from BRAINTRUST_API_KEY env var", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test-from-env";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.apiKey).toBe("sk-test-from-env");
+  });
+
+  it("uses default projectName=minsky when not set in env", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.projectName).toBe("minsky");
+  });
+
+  it("uses default appUrl when not set in env", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.appUrl).toBe("https://api.braintrust.dev");
+  });
+
+  it("env vars override config-file values for projectName + appUrl", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    process.env.BRAINTRUST_PROJECT_NAME = "override-project";
+    process.env.BRAINTRUST_API_URL = "https://override.example.com";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.projectName).toBe("override-project");
+    expect(cfg?.appUrl).toBe("https://override.example.com");
+  });
+
+  it("returns null when no apiKey is available anywhere", async () => {
+    // HOME pointed at a temp dir without a Minsky config file
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-12345";
+    const cfg = await readBraintrustConfig();
+    expect(cfg).toBeNull();
+    process.env.HOME = originalHome;
   });
 });

@@ -515,6 +515,140 @@ export function writeLog(
 }
 
 // ---------------------------------------------------------------------------
+// Braintrust emission (mt#1813 — Phase 1a of the trace-shape RFC)
+//
+// Each hook invocation also emits a Braintrust log event with K/budget/MIN/
+// sessionId/variant/injectedTokens/latencyMs metadata, so we can compare hook-
+// tuning intervention variants (mt#1783) in the Braintrust dashboard.
+//
+// Emission is graceful-degradation: missing/invalid config → silent skip;
+// SDK or network failure → silent skip; we never block the hook on
+// instrumentation. The local JSONL log at `/tmp/claude-memory-search-hook.log`
+// remains the source of truth.
+// ---------------------------------------------------------------------------
+
+/** Resolved Braintrust configuration; null if not configured or disabled. */
+export interface BraintrustConfig {
+  apiKey: string;
+  projectName: string;
+  appUrl: string;
+}
+
+/**
+ * Read Braintrust config from env vars (highest precedence) then
+ * `~/.config/minsky/config.yaml` under `observability.providers.braintrust.*`.
+ * Returns null when the provider is disabled, missing an apiKey, or the
+ * config file can't be read.
+ */
+export async function readBraintrustConfig(): Promise<BraintrustConfig | null> {
+  // Env vars take precedence (matches the `environmentMappings` table)
+  let apiKey: string | undefined = process.env.BRAINTRUST_API_KEY;
+  let projectName: string | undefined = process.env.BRAINTRUST_PROJECT_NAME;
+  let appUrl: string | undefined = process.env.BRAINTRUST_API_URL;
+  let enabled = true;
+
+  if (!apiKey) {
+    try {
+      const home = process.env.HOME ?? process.env.USERPROFILE;
+      if (!home) return null;
+      const configPath = `${home}/.config/minsky/config.yaml`;
+      const yaml = await import("yaml");
+      const content = await Bun.file(configPath).text();
+      const parsed = yaml.parse(content) as Record<string, unknown> | undefined;
+      const obs = (parsed?.["observability"] as Record<string, unknown> | undefined)?.[
+        "providers"
+      ] as Record<string, unknown> | undefined;
+      const bt = obs?.["braintrust"] as
+        | { apiKey?: string; projectName?: string; apiUrl?: string; enabled?: boolean }
+        | undefined;
+      if (bt) {
+        apiKey = bt.apiKey ?? apiKey;
+        projectName = projectName ?? bt.projectName;
+        appUrl = appUrl ?? bt.apiUrl;
+        enabled = bt.enabled !== false;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  if (!apiKey || !enabled) return null;
+  return {
+    apiKey,
+    projectName: projectName ?? "minsky",
+    appUrl: appUrl ?? "https://api.braintrust.dev",
+  };
+}
+
+/**
+ * Derive the variant tag from the current K/budget/MIN constants.
+ * Auto-updates when the constants change in source; lets pre/post comparison
+ * happen via filtering on `metadata.variant` in Braintrust's UI.
+ */
+export function deriveVariantTag(
+  k: number = DEFAULT_K,
+  budget: number = DEFAULT_TOKEN_BUDGET,
+  minLen: number = MIN_PROMPT_LENGTH
+): string {
+  return `K=${k},B=${budget},MIN=${minLen}`;
+}
+
+/**
+ * Emit a hook-fire event to Braintrust. Lazy-imports the SDK only when
+ * config is present. Synchronous flush (asyncFlush: false) so the event
+ * lands before the hook subprocess exits.
+ *
+ * Always awaitable; throws on no condition that the caller should handle —
+ * internal failures are swallowed. The caller calls `await emitBraintrust(...)`
+ * before `process.exit(0)`.
+ */
+export async function emitBraintrust(entry: LogEntry): Promise<void> {
+  try {
+    const cfg = await readBraintrustConfig();
+    if (!cfg) return;
+
+    const { initLogger } = await import("braintrust");
+    const logger = initLogger({
+      apiKey: cfg.apiKey,
+      projectName: cfg.projectName,
+      appUrl: cfg.appUrl,
+      asyncFlush: false,
+    });
+
+    const variant = deriveVariantTag();
+    const output = entry.skipped
+      ? { skipped: true, skipReason: entry.skipReason ?? "unknown" }
+      : {
+          skipped: false,
+          injectedTokens: entry.injectedTokens,
+          injectedCount: entry.injectedCount,
+          backend: entry.backend,
+        };
+
+    await logger.log({
+      input: {
+        prompt_prefix: entry.promptPrefix,
+        prompt_length: entry.promptLength,
+      },
+      output,
+      metadata: {
+        sessionId: entry.sessionId,
+        variant,
+        k: DEFAULT_K,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
+        minPromptLength: MIN_PROMPT_LENGTH,
+        latencyMs: entry.latencyMs,
+        hookVersion: HOOK_VERSION,
+        warning: entry.warning,
+        source: "minsky.hooks.memory-search",
+      },
+    });
+  } catch {
+    // Instrumentation failures never block the hook.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Search invocation
 // ---------------------------------------------------------------------------
 
@@ -625,9 +759,18 @@ if (import.meta.main) {
   const prompt = input.prompt ?? "";
   const promptPrefix = prompt.slice(0, 80).replace(/\s+/g, " ").trim();
 
+  // Helper: write to both the local JSONL log and Braintrust, then exit.
+  // Braintrust emission is fire-and-await with internal failure swallowed; the
+  // local log is the source of truth and is never blocked by instrumentation.
+  const recordAndExit = async (entry: LogEntry): Promise<never> => {
+    writeLog(entry);
+    await emitBraintrust(entry);
+    process.exit(0);
+  };
+
   // Trivial-prompt skip
   if (isTrivialPrompt(prompt)) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -635,7 +778,6 @@ if (import.meta.main) {
       skipped: true,
       skipReason: "trivial",
     });
-    process.exit(0);
   }
 
   // Run search. The warning carries any host-cap fallback signal so operators
@@ -644,7 +786,7 @@ if (import.meta.main) {
   const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
 
   if (!response) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -654,12 +796,11 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Degraded backend → skip injection but record the signal
   if (response.degraded) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -671,12 +812,11 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Empty results → nothing useful to inject
   if (response.results.length === 0) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -687,13 +827,12 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Build the injected text within budget
   const injection = buildInjection(response.results);
   if (!injection) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -704,7 +843,6 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Emit via the shared writer so any future schema changes / instrumentation
@@ -717,7 +855,7 @@ if (import.meta.main) {
   };
   writeOutput(output);
 
-  writeLog({
+  await recordAndExit({
     ts: new Date().toISOString(),
     sessionId,
     promptPrefix,
@@ -730,6 +868,4 @@ if (import.meta.main) {
     latencyMs,
     warning,
   });
-
-  process.exit(0);
 }
