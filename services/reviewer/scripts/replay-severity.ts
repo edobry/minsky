@@ -129,7 +129,11 @@ import {
   type FlatFinding,
   type SeverityInflationResult,
 } from "../src/replay-summary";
-import { applyMonotonicityRecovery, type DowngradeAuditEntry } from "../src/severity-recovery";
+import {
+  applyMonotonicityRecovery,
+  type DowngradeAuditEntry,
+  type FlatPriorFinding,
+} from "../src/severity-recovery";
 
 // ---------------------------------------------------------------------------
 // Environment gating
@@ -483,20 +487,18 @@ async function replayEntry(
     let effectiveToolCalls = output.toolCalls;
     let downgrades: DowngradeAuditEntry[] = [];
     if (recovery) {
-      // FlatFinding (replay-summary.ts) and FlatPriorFinding (severity-recovery.ts)
-      // share {file, severity, line}; the only structural mismatch is that
-      // FlatPriorFinding has an optional lineEnd field that FlatFinding omits.
-      // Both are structurally compatible — missing lineEnd resolves as undefined
-      // at runtime (JS structural typing), so the cast is safe. Adding lineEnd to
-      // FlatFinding or FetchedIterationContext.priorFindings is out of scope per
-      // mt#1497 spec ("ONLY modify replay-severity.ts").
-      /* eslint-disable custom/no-excessive-as-unknown */
-      const result = applyMonotonicityRecovery(
-        output.toolCalls,
-        ctx.priorFindings as unknown as Parameters<typeof applyMonotonicityRecovery>[1],
-        ctx.diffAtIteration
-      );
-      /* eslint-enable custom/no-excessive-as-unknown */
+      // Structural adapter: FlatFinding (replay-summary.ts) and FlatPriorFinding
+      // (severity-recovery.ts) share {file, severity, line}; only FlatPriorFinding
+      // carries the optional lineEnd field. Map explicitly rather than casting
+      // through `unknown` — keeps type safety, stays local to this file (no shared
+      // type changes), and avoids the no-excessive-as-unknown lint suppression.
+      // PR #1104 R1#3 fix.
+      const priorAdapter: FlatPriorFinding[] = ctx.priorFindings.map((f) => ({
+        file: f.file,
+        severity: f.severity,
+        ...(f.line !== undefined ? { line: f.line } : {}),
+      }));
+      const result = applyMonotonicityRecovery(output.toolCalls, priorAdapter, ctx.diffAtIteration);
       effectiveToolCalls = result.toolCalls;
       downgrades = result.downgrades;
     }
@@ -505,6 +507,12 @@ async function replayEntry(
     const scratchSanitized = sanitizeReviewBody(output.text);
     const postedBodySanitized = sanitizeReviewBody(composed.body);
 
+    // When --recovery is active, effectiveToolCalls = recovery-adjusted calls,
+    // so baseAttempt.blockingFindingCount reflects POST-recovery counts (not
+    // raw model output). The downgrade audit is captured separately on
+    // attemptResult.downgrades. When --recovery is inactive, effectiveToolCalls
+    // === output.toolCalls and the metrics match the raw model output.
+    // PR #1104 R1#2 clarification.
     const baseAttempt = buildAttemptResult(
       attemptNum,
       effectiveToolCalls,
@@ -516,12 +524,16 @@ async function replayEntry(
     // PR #920 R6#3 orphan dedup: drop duplicate submit_finding emissions
     // (observed on PR #732 attempt 3 — two identical BLOCKING findings on
     // src/adapters/mcp/shared-command-integration.ts:186). Key on
-    // `${file}:${line}:${severity}`; keep first occurrence.
+    // file:line:lineEnd:side:severity so legitimately-distinct findings
+    // (multi-line ranges vs single-line at the same start; LEFT-side deletion
+    // vs RIGHT-side addition at the same line) are NOT collapsed. Keep first
+    // occurrence per unique key. PR #1104 R1#1 fix to the original dedup
+    // (which keyed on file:line:severity only).
     const seenFindingKeys = new Set<string>();
     const currentFindings: FlatFinding[] = [];
     for (const tc of effectiveToolCalls) {
       if (tc.name !== "submit_finding") continue;
-      const key = `${tc.args.file}:${tc.args.line}:${tc.args.severity}`;
+      const key = `${tc.args.file}:${tc.args.line}:${tc.args.lineEnd ?? ""}:${tc.args.side ?? ""}:${tc.args.severity}`;
       if (seenFindingKeys.has(key)) continue;
       seenFindingKeys.add(key);
       currentFindings.push({
@@ -641,6 +653,12 @@ async function main() {
     `Prompt variant: ${baseline ? "baseline (pre-mt#1465)" : "post-restructure (mt#1465 sub-fix 2)"}`
   );
   console.log(`Recovery: ${recovery ? "enabled (mt#1496 applyMonotonicityRecovery)" : "disabled"}`);
+  const resolvedOutputFilename = baseline
+    ? "replay-severity-baseline-results.json"
+    : recovery
+      ? "replay-severity-recovery-results.json"
+      : "replay-severity-results.json";
+  console.log(`Output: services/reviewer/scripts/${resolvedOutputFilename}`);
   console.log(`Corpus entries: ${corpus.map((e) => `#${e.prNumber}@R${e.iteration}`).join(", ")}`);
   console.log(`Attempts per entry: ${attemptsPerEntry}`);
   console.log(`Total API calls: ${corpus.length * attemptsPerEntry}`);
@@ -726,12 +744,7 @@ async function main() {
   };
 
   const scriptDir = dirname(fileURLToPath(import.meta.url));
-  const outputFilename = baseline
-    ? "replay-severity-baseline-results.json"
-    : recovery
-      ? "replay-severity-recovery-results.json"
-      : "replay-severity-results.json";
-  const outputPath = join(scriptDir, outputFilename);
+  const outputPath = join(scriptDir, resolvedOutputFilename);
   writeFileSync(outputPath, JSON.stringify(runResult, null, 2), "utf-8");
 
   console.log("\n=== Replay Summary ===");
