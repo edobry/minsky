@@ -40,10 +40,12 @@ export function registerSessionEditTools(
   commandMapper: CommandMapper,
   container?: import("../../composition/types").AppContainerInterface
 ): void {
-  const sessionProvider = container?.has("sessionProvider")
-    ? container.get("sessionProvider")
-    : undefined;
-  const pathResolver = new SessionPathResolver(sessionProvider);
+  // Lazy DI: defer sessionProvider lookup until dispatch time. Tool
+  // registration runs before container.initialize() so a direct lookup here
+  // would observe container.has("sessionProvider") === false (mt#1799).
+  const pathResolver = new SessionPathResolver(() =>
+    container?.has("sessionProvider") ? container.get("sessionProvider") : undefined
+  );
 
   // Session edit file tool
   commandMapper.addCommand({

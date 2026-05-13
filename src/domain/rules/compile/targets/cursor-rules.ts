@@ -11,6 +11,10 @@ import * as fs from "fs/promises";
 import * as jsYaml from "js-yaml";
 import type { Rule } from "../../types";
 import type { CompileTarget, CompileResult, TargetOptions } from "../types";
+// Single-source-of-truth banner constant; the same import is used by the
+// TS-first writer (`src/domain/compile/targets/cursor-rules-ts.ts`) and by
+// `.claude/hooks/check-generated-file-edit.ts`'s detection patterns.
+import { GENERATED_BANNER } from "../banner-constants";
 
 /**
  * Serialize a Rule back to .mdc format (YAML frontmatter + markdown content)
@@ -31,7 +35,7 @@ function serializeRuleToMdc(rule: Rule): string {
     forceQuotes: false,
   });
 
-  return `---\n${yamlStr}---\n${rule.content}`;
+  return `---\n${GENERATED_BANNER}\n${yamlStr}---\n${rule.content}`;
 }
 
 export interface CursorRulesFileList {
