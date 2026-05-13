@@ -6,6 +6,7 @@
  */
 
 import { log } from "../../utils/logger";
+import { logPostgresNotice } from "./postgres-notice-handler";
 
 /** Shape of a single journal entry from _journal.json */
 export interface JournalEntry {
@@ -118,7 +119,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   const maskedConn = connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
 
   const postgres = (await import("postgres")).default;
-  const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 5 });
+  const sql = postgres(connectionString, { prepare: false, onnotice: logPostgresNotice, max: 5 });
 
   let schemaExists = false;
   let metaExists = false;
@@ -281,7 +282,7 @@ export async function runPostgresSchemaMigrations(
 
   const sql = postgres(connectionString, {
     prepare: false,
-    onnotice: () => {},
+    onnotice: logPostgresNotice,
     max: 10,
   });
   try {
@@ -429,7 +430,7 @@ export async function runPostgresSchemaMigrationsForBackend(
   const postgres = (await import("postgres")).default;
   const sql = postgres(connectionString, {
     prepare: false,
-    onnotice: () => {},
+    onnotice: logPostgresNotice,
     max: 10,
   });
   try {

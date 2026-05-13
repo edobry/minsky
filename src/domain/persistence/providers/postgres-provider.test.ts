@@ -2,7 +2,7 @@
  * Layer 1: Persistence Layer Tests
  * Test that persistence providers work correctly with mocked database connections
  */
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import {
   PostgresPersistenceProvider,
   PostgresVectorPersistenceProvider,
@@ -314,14 +314,17 @@ describe("PostgresPersistenceProvider", () => {
     expect((p as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
 
-  test("initialize() wires onnotice handler to suppress Postgres NOTICE stdout pollution (mt#1827)", async () => {
+  test("initialize() wires onnotice handler that routes NOTICEs through the logger (mt#1827 + mt#1828)", async () => {
     // mt#1827: drizzle's `CREATE SCHEMA IF NOT EXISTS drizzle` + `CREATE TABLE
     // IF NOT EXISTS __drizzle_migrations` emit Postgres NOTICE codes 42P06 +
     // 42P07 on every cold start. Without an `onnotice` handler, postgres-js's
     // default routes NOTICEs to stdout, breaking any CLI consumer that
-    // JSON-parses the output (the memory-search bridge hook was silently
-    // failing on every non-trivial turn). This test guards the wiring so a
-    // future refactor doesn't drop the handler.
+    // JSON-parses the output.
+    //
+    // mt#1828 strengthens the contract: the wired handler must route through
+    // `log.debug` (preserving the operational signal) rather than dropping
+    // silently. This test asserts both — handler exists AND invoking it calls
+    // log.debug, not stdout.
     const { factory: pgFactory, getCapturedArgs } = makeMockPostgresFactory();
     const config: PersistenceConfig = {
       backend: "postgres",
@@ -337,8 +340,36 @@ describe("PostgresPersistenceProvider", () => {
       const [, opts] = capturedArgs;
       const onnotice = (opts as { onnotice?: (notice: unknown) => unknown }).onnotice;
       expect(typeof onnotice).toBe("function");
-      // No-op: invoking it should not throw and should not return anything.
-      expect(onnotice?.({ severity: "NOTICE", code: "42P06" })).toBeUndefined();
+
+      // Invoke the wired handler and confirm it routes to log.debug with the
+      // structured-field shape from postgres-notice-handler.ts. Filter the
+      // captured call list by the notice-prefix string so we don't conflate
+      // unrelated log.debug calls from the broader initialize() path.
+      const { log } = await import("../../../utils/logger");
+      const debugSpy = spyOn(log, "debug").mockImplementation(() => {});
+      try {
+        const result = onnotice?.({
+          severity: "NOTICE",
+          code: "42P06",
+          message: "test notice for mt#1828 wiring",
+          routine: "CreateSchemaCommand",
+        });
+        expect(result).toBeUndefined();
+        const noticeCalls = debugSpy.mock.calls.filter(
+          (call: unknown[]) =>
+            typeof call[0] === "string" && (call[0] as string).startsWith("postgres notice:")
+        );
+        expect(noticeCalls).toHaveLength(1);
+        const [message, context] = noticeCalls[0] as [string, Record<string, unknown>];
+        expect(message).toBe("postgres notice: test notice for mt#1828 wiring");
+        expect(context).toEqual({
+          severity: "NOTICE",
+          code: "42P06",
+          routine: "CreateSchemaCommand",
+        });
+      } finally {
+        debugSpy.mockRestore();
+      }
     }
   });
 });
