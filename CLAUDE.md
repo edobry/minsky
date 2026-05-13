@@ -1461,3 +1461,4 @@ This is the manual-discipline form of stage 4 (Packaging) in the Ask subsystem (
 - Prefer template literals over string concatenation
 - Max 400 lines per file (warn), 1500 (error)
 - Custom ESLint rules under `eslint-rules/` enforce architectural patterns and deploy-boundary safety
+- `custom/no-unregistered-minsky-env-var` (mt#1788) — every `process.env.MINSKY_*` read in `src/` must be registered in `environmentMappings` (config-mapped) or `HOOK_ONLY_ENV_VARS` (hook-only) at `src/domain/configuration/sources/environment.ts`; otherwise the env-var-to-config dot-path parser will reject it at boot when the var is set on Railway. Severity `error`.
