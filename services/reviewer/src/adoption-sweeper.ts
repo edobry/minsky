@@ -120,7 +120,8 @@ export function loadAdoptionSweeperConfig(): AdoptionSweeperConfig {
     // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
     intervalMs: parsePositiveIntEnv("ADOPTION_SWEEPER_INTERVAL_MS", 86_400_000),
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
+    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
     lookbackDays: parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14),
   };
 }
@@ -627,7 +628,7 @@ function buildFollowUpSpec(parentTaskId: string, signal: AdoptionSignal): string
  *
  * Same pattern as merge-state-sweeper.ts. Opt-in via
  * ADOPTION_SWEEPER_ENABLED=true (disabled by default until mt#1711 ships).
- * Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN.
+ * Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN.
  *
  * Returns an object with a `stop()` method to clean up the interval, or null
  * if the sweeper is disabled or credentials are missing.
@@ -653,7 +654,7 @@ export function startAdoptionSweeper(
       JSON.stringify({
         event: "adoption_sweeper.missing_credentials",
         message:
-          "ADOPTION_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+          "ADOPTION_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
           "Adoption sweeper will not start.",
       })
     );

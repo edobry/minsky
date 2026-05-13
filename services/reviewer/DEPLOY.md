@@ -74,15 +74,26 @@ service logs explicit signals so operators can detect the misconfiguration:
 mt#1811 — four PRs bypass-merged 2026-05-12 failed to auto-sync because MCP
 credentials and/or the sweeper toggle were unset on the deployed service.
 
+> **MIGRATION-IN-PROGRESS (mt#1825):** the deployed `minsky-reviewer-webhook`
+> Railway service may still hold the legacy `MINSKY_MCP_TOKEN` env var until
+> the `bun scripts/railway/apply.ts services/reviewer --execute` +
+> `--prune --execute` sequence has run. During the dual-write window both
+> names point to the same bearer-token value; the reviewer code reads
+> `MINSKY_MCP_AUTH_TOKEN ?? MINSKY_MCP_TOKEN`. See `services/reviewer/railway.config.ts`
+> for the full apply sequence and `docs/deploy-minsky-railway.md` for cross-
+> service context. Do not remove the legacy fallback from `src/*` until the
+> `--prune` step has been verified on the deployed service.
+
 ```bash
 # REQUIRED for the recovery layer to function. Both must be set together.
 # - MINSKY_MCP_URL: HTTPS endpoint of the Minsky MCP server (hosted form).
-# - MINSKY_MCP_TOKEN: bearer token issued by the Minsky MCP server.
+# - MINSKY_MCP_AUTH_TOKEN: bearer token issued by the Minsky MCP server. Same
+#   name on both sides per mt#1825 (server: services/minsky-mcp; client: this).
 # Without these, the webhook handler logs "at_merge_handler.mcp_not_configured"
 # and skips (silent no-op); the sweeper logs "merge_state_sweeper.missing_credentials"
 # and refuses to start. The PR will be left stranded at IN-REVIEW until manual sync.
 railway variable set MINSKY_MCP_URL=<https://your-minsky-mcp-host/mcp>
-railway variable set MINSKY_MCP_TOKEN=<bearer-token-from-minsky-mcp>
+railway variable set MINSKY_MCP_AUTH_TOKEN=<bearer-token-from-minsky-mcp>
 
 # OPTIONAL — sweeper is enabled by default (mt#1811). Set to "false" only if
 # you want to disable the 10-minute backstop sweep entirely.
@@ -294,7 +305,7 @@ If no new deployment appears within ~60s of the merge, check:
 
 **Merged PRs not auto-syncing to DONE (mt#1614 recovery layer silent):** if PRs merge cleanly on GitHub but their Minsky tasks stay at IN-REVIEW, the recovery layer is not active. Tail `railway logs` and check for one of two distinct causes:
 
-- **Missing MCP credentials** (most likely): the webhook path emits `at_merge_handler.mcp_not_configured` per missed delivery, and the sweeper emits `merge_state_sweeper.missing_credentials` once at boot. Fix by setting `MINSKY_MCP_URL` and `MINSKY_MCP_TOKEN` per "Recovery layer activation" above.
+- **Missing MCP credentials** (most likely): the webhook path emits `at_merge_handler.mcp_not_configured` per missed delivery, and the sweeper emits `merge_state_sweeper.missing_credentials` once at boot. Fix by setting `MINSKY_MCP_URL` and `MINSKY_MCP_AUTH_TOKEN` per "Recovery layer activation" above.
 - **Explicit opt-out**: the sweeper emits `merge_state_sweeper.disabled` once at boot. This indicates an operator set `MERGE_STATE_SWEEPER_ENABLED=false`; the webhook path may still be active. Unset the variable (or set it to `true`) to re-enable the backstop.
 
 Originating incident: mt#1811.

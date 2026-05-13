@@ -511,7 +511,7 @@ export function createApp(
           pr: prNumber,
           taskId,
           message:
-            "MINSKY_MCP_URL or MINSKY_MCP_TOKEN not set — cannot call apply_post_merge_state_sync. " +
+            "MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set — cannot call apply_post_merge_state_sync. " +
             "The merge-state sweeper will catch this when it next runs.",
         })
       );
@@ -783,7 +783,7 @@ if (import.meta.main) {
   // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
   // that registered PR watches fire automatically without manual operator action.
   // Configurable via PR_WATCH_ENABLED, PR_WATCH_POLL_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
   // Opt-in: disabled by default; set PR_WATCH_ENABLED=true to activate.
   startPrWatchScheduler(config, loadPrWatchSchedulerConfig());
 
@@ -792,7 +792,7 @@ if (import.meta.main) {
   // that quality.review Asks transition to `responded` automatically when a review
   // is posted on the watched PR — without requiring manual operator action.
   // Configurable via ASKS_RECONCILE_ENABLED, ASKS_RECONCILE_POLL_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
   // Opt-in: disabled by default; set ASKS_RECONCILE_ENABLED=true to activate.
   startAsksReconcileScheduler(config, loadAsksReconcileSchedulerConfig());
 
@@ -800,7 +800,7 @@ if (import.meta.main) {
   // Catches sessions stuck in PR_OPEN with closed-merged PRs — the safety net
   // for when the pull_request.closed webhook handler misses an event.
   // Configurable via MERGE_STATE_SWEEPER_ENABLED, MERGE_STATE_SWEEPER_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set on the deployed service.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set on the deployed service.
   // **Enabled by default (mt#1811)**: set MERGE_STATE_SWEEPER_ENABLED=false to opt out.
   // If MCP credentials are absent the sweeper logs "missing_credentials" and refuses
   // to start — operators see a clear log line instead of a silent disable.
@@ -812,7 +812,7 @@ if (import.meta.main) {
   // mt#X-adoption follow-up tasks for gaps.
   // Configurable via ADOPTION_SWEEPER_ENABLED, ADOPTION_SWEEPER_INTERVAL_MS,
   // ADOPTION_SWEEPER_LOOKBACK_DAYS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
   // DEFAULT DISABLED until mt#1711 (env-var wiring) ships.
   // Set ADOPTION_SWEEPER_ENABLED=true to activate.
   startAdoptionSweeper(config, loadAdoptionSweeperConfig());

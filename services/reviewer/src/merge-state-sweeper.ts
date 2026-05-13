@@ -47,7 +47,7 @@
  *   Owner: infrastructure monitoring (mt#1310).
  * - GitHub API being unreachable (sweeper can't check PR state).
  *   Owner: infrastructure monitoring.
- * - **Deploys where MINSKY_MCP_URL or MINSKY_MCP_TOKEN is unset** (mt#1811). The
+ * - **Deploys where MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is unset** (mt#1811). The
  *   sweeper defaults to enabled but cannot start without MCP credentials —
  *   startup emits "merge_state_sweeper.missing_credentials" and returns null.
  *   Operators must set both env vars on the deployed service. See
@@ -93,7 +93,8 @@ export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
     // deploys without the credentials, but a clear log signal instead of silent disable.
     enabled: (process.env["MERGE_STATE_SWEEPER_ENABLED"] ?? "true") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
+    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
   };
 }
 
@@ -398,7 +399,7 @@ export async function runMergeStateSweep(
  *
  * Same pattern as sweeper.ts (mt#1260) and pr-watch-scheduler.ts (mt#1618).
  * **Enabled by default (mt#1811)**: explicit opt-out via
- * `MERGE_STATE_SWEEPER_ENABLED=false`. Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN
+ * `MERGE_STATE_SWEEPER_ENABLED=false`. Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN
  * to start — without them, logs `missing_credentials` and returns null.
  *
  * Cadence: 10 min by default (MERGE_STATE_SWEEPER_INTERVAL_MS). See module
@@ -423,7 +424,7 @@ export function startMergeStateSweeper(
       JSON.stringify({
         event: "merge_state_sweeper.missing_credentials",
         message:
-          "MERGE_STATE_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+          "MERGE_STATE_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
           "Merge-state sweeper will not start.",
       })
     );

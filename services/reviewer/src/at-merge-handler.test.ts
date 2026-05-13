@@ -5,7 +5,7 @@
  *   - A closed+merged PR on a task/mt-N branch calls session.get + apply_post_merge_state_sync.
  *   - A closed-without-merge PR (merged=false) does NOT trigger sync.
  *   - A closed+merged PR on a non-task branch is skipped gracefully.
- *   - When MINSKY_MCP_URL / MINSKY_MCP_TOKEN are absent, the handler logs and returns.
+ *   - When MINSKY_MCP_URL / MINSKY_MCP_AUTH_TOKEN are absent, the handler logs and returns.
  *   - The handler returns 200 immediately (fire-and-forget), without waiting for MCP calls.
  *
  * Strategy: same pattern as server.test.ts — use createApp() with port=0,
