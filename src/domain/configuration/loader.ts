@@ -143,7 +143,9 @@ export class ConfigurationLoader {
         const errorMessage = validationResult.error
           ? this.extractValidationErrors(validationResult.error).join(", ")
           : "Unknown validation error";
-        throw new Error(`Configuration validation failed: ${errorMessage}`);
+        // Throw the typed marker directly — avoids the brittle message-prefix
+        // check at the outer catch (PR #1090 R1 NB#2).
+        throw new ConfigValidationError(`Configuration validation failed: ${errorMessage}`);
       }
 
       // Build result
@@ -167,14 +169,14 @@ export class ConfigurationLoader {
 
       return result;
     } catch (error) {
-      // Wrap schema-validation failures in a typed marker so the CLI boundary
-      // catch can recognize them precisely and render a clean one-line
-      // diagnostic. Other failure modes (file-read errors, etc.) get the
-      // generic prefix and fall through to the default error renderer.
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.startsWith("Configuration validation failed:")) {
-        throw new ConfigValidationError(message);
+      // ConfigValidationError is thrown directly by the validator block above;
+      // let it propagate so the CLI boundary catch can recognize it via
+      // instanceof. Other failure modes (file-read errors, malformed YAML,
+      // etc.) get the generic "Configuration loading failed:" prefix.
+      if (error instanceof ConfigValidationError) {
+        throw error;
       }
+      const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Configuration loading failed: ${message}`);
     }
   }

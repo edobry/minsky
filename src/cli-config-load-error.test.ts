@@ -79,4 +79,37 @@ describe("CLI config-load error rendering (mt#1801)", () => {
     // --version exits 0 from commander
     expect(status).toBe(0);
   });
+
+  test("STRUCTURED mode + LOGLEVEL=debug: still no upstream debug leak (PR #1090 R1 regression guard)", () => {
+    // R1's BLOCKING finding: a log.debug at the upstream initialize() catch
+    // routed through agentLogger which has a Console transport in STRUCTURED
+    // mode. If LOGLEVEL=debug raised the threshold, the upstream diagnostic
+    // would leak to stdout BEFORE the CLI boundary catch's clean output.
+    // Fix removed the upstream log entirely; this test guards against
+    // re-introduction.
+    writeFileSync(
+      join(tmpHome, "minsky", "config.yaml"),
+      "version: 1\nbackendConfig: {}\nrogueKey: value\n"
+    );
+
+    const result = spawnSync("bun", ["run", "src/cli.ts", "config", "get", "rogueKey"], {
+      env: {
+        ...process.env,
+        XDG_CONFIG_HOME: tmpHome,
+        MINSKY_LOG_MODE: "STRUCTURED",
+        LOGLEVEL: "debug",
+      },
+      encoding: "utf8",
+      timeout: 15000,
+    });
+    const combined = (result.stdout ?? "") + (result.stderr ?? "");
+
+    expect(result.status).toBe(1);
+    expect(combined).toContain("rogueKey");
+    // The upstream-diagnostic shape we don't want to see:
+    expect(combined).not.toContain("CustomConfigurationProvider.initialize failed");
+    // And still no cascade artifacts:
+    expect(combined).not.toContain("uncaughtException");
+    expect(combined).not.toContain("memoryUsage");
+  });
 });

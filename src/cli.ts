@@ -22,12 +22,13 @@ try {
   if (error instanceof ConfigValidationError) {
     // ConfigValidationError.message starts with "Configuration validation failed: ..."
     // — already names the unrecognized key and field path. Emit cleanly +
-    // a remediation hint, then exit non-zero.
+    // a remediation hint, then exit non-zero. The hint is environment-agnostic
+    // (PR #1090 R1 NB#1) — doesn't prescribe a specific config path or install
+    // method since both vary by platform and install source.
     process.stderr.write(`Error: ${error.message}\n`);
     process.stderr.write(
-      "Hint: the config file contains a key the installed Minsky binary doesn't recognize. " +
-        "Edit ~/.config/minsky/config.yaml to remove the unknown key, or rebuild the binary " +
-        "(bun run build) if it's outdated.\n"
+      "Hint: remove the unknown key from your Minsky config file, " +
+        "or update the Minsky binary if it predates the relevant schema change.\n"
     );
     process.exit(1);
   }
