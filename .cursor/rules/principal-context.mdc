@@ -84,7 +84,7 @@ Before making a strategic recommendation (tool selection, architectural directio
 3. **If the frame is wrong, switch.** The correct frame for tooling decisions is "what's the workflow fit for a principal shipping a commercial AI product, with paying customers as the consumer of the agent's quality?"
 4. **Name what you switched and why.** Surfacing this lets Eugene spot framework mismatches early instead of after 15 turns of recommendations under the wrong frame.
 
-**Structural enforcement.** The `/declare-framework` skill operationalizes the four steps above as numbered process steps with required user-facing output. Invoke it explicitly when about to deliver a strategic recommendation, or auto-trigger when comparing ≥ 2 named candidates. See `.claude/skills/declare-framework/SKILL.md`.
+**Structural enforcement.** The `/declare-framework` skill operationalizes the four steps above as numbered process steps with required user-facing output. Invoke it explicitly when about to deliver a strategic recommendation, or self-trigger via the cues in the skill (the agent recognizes it is comparing ≥ 2 named candidates / a strategic recommendation is in flight). The skill is agent-invoked discipline, not harness-fired. See `.claude/skills/declare-framework/SKILL.md`.
 
 ## Anti-patterns to recognize in self
 

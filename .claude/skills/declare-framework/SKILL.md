@@ -28,7 +28,9 @@ A strategic recommendation is any of:
 - **Architectural decision** — choosing among design alternatives with substantive trade-offs (database backend, service decomposition, persistence model, etc.)
 - **Scope change** — expanding or narrowing an in-flight task's stated bounds
 
-**Auto-trigger heuristics** (the agent should fire this skill without explicit `/declare-framework` invocation when):
+**Self-trigger cues (advisory — agent self-discipline, not harness-fired).** The Claude Code harness does not fire this skill automatically based on the agent's internal state. These cues are agent self-recognition signals; when one fires, the agent should invoke `/declare-framework` explicitly or internally walk through the 5-step process before continuing. If meta-recurrence (R4+) shows the self-discipline cues are insufficient, a follow-up task will wire structural enforcement (PreToolUse hook on recommendation output, or chain-step inside `/plan-task` / `/implement-task` / `/orchestrate`).
+
+Recognize a strategic recommendation is in flight when:
 
 - The agent is about to write a recommendation message that picks among ≥ 2 named candidates
 - The agent is asked "which X should I use" / "what's the right tool for Y" / "should we go with A or B"
@@ -60,6 +62,8 @@ Pick at least two; force yourself to name them. Common implicit frameworks to en
 - **Lock-in-minimization** — what can I switch from cheaply
 
 This is non-exhaustive. The point is enumeration: an implicit framework you can't name is one you can't verify against principal-context.
+
+**Exception — if only one candidate framework exists.** If after honest enumeration you can name only one plausible framework for the decision at hand, the decision is either (a) so well-bounded by `principal-context.mdc` that the framework is pre-determined (in which case state it explicitly and proceed), or (b) not actually a strategic recommendation (e.g., a tactical execution inside an already-decided framework — see "When NOT to invoke"). In case (b), skip the skill.
 
 ### Step 3: Check each candidate against `principal-context.mdc`
 
