@@ -91,6 +91,19 @@ export function isPgPoolExhaustionError(err: unknown): boolean {
   );
 }
 
+// Strong code-based signals for the stale-connection class. Any of these as
+// `code` is sufficient evidence that the error fired during connection
+// acquisition or first use of a dead pooled client — postgres-js / undici
+// only emit these codes on the transport layer before the query reaches the
+// server, so retrying is safe regardless of whether `query` is set.
+const PG_RETRYABLE_CONNECTION_CODES = new Set([
+  "CONNECTION_CLOSED",
+  "CONNECTION_ENDED",
+  "CONNECTION_DESTROYED",
+  "ECONNRESET",
+  "EPIPE",
+]);
+
 /**
  * mt#1831: matches transient connection-closed shapes — the in-process pool
  * had a dead postgres-js client whose socket was torn down by the OS / DB
@@ -99,28 +112,48 @@ export function isPgPoolExhaustionError(err: unknown): boolean {
  *
  * Unlike pool exhaustion (server is overloaded), stale-connection failures
  * resolve immediately on retry because postgres-js discards the dead client
- * and acquires a fresh one. The same pre-send guard
- * (`query === undefined`) applies — retrying a post-send error would double-
- * apply mutations, which is rejected by design.
+ * and acquires a fresh one. The pre-send guard (`query === undefined` own-
+ * property) applies — retrying a post-send error would double-apply
+ * mutations, which is rejected by design.
  *
- * Symptom space that motivated this predicate (originating mt#1831 incident
- * 2026-05-13): `memory_update` returned `"Failed query: update memories
- * set ..."` with no underlying error text; `/mcp` reconnect resolved it
- * instantly. Without the retry, every stale-pool encounter forces operator
- * intervention. With it, the first attempt absorbs the transient.
+ * mt#1831 PR #1113 R1 BLOCKING (reviewer-bot, 2026-05-13): strict two-tier
+ * matching to preserve the pre-send safety contract:
+ *
+ * 1. **Strong path (code match).** Any of `PG_RETRYABLE_CONNECTION_CODES`
+ *    as `code` is sufficient on its own — these codes are only emitted at
+ *    the transport layer before the query reaches the server, so retrying
+ *    is safe regardless of whether `query` is an own-property.
+ *
+ * 2. **Weak path (message-only match).** Message regexes alone (e.g.,
+ *    "connection terminated", "socket hang up") are NOT sufficient — a
+ *    wrapper that rethrows after a post-send transport failure could drop
+ *    properties entirely, leaving us with just a message. We require
+ *    positive evidence that the error is pre-send: `query` is an own-
+ *    property with value `undefined` (the concrete postgres-js
+ *    connection-acquisition shape from mt#1461). Wrappers that drop
+ *    `query` entirely are ambiguous and rejected as non-retryable.
  */
 export function isPgStaleConnectionError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const e = err as Record<string, unknown>;
   if (hasNonRetryableQueryShape(e)) return false;
+
   const code = typeof e.code === "string" ? e.code : undefined;
   const message = typeof e.message === "string" ? e.message : String(e);
+
+  // Strong path: code-only match is safe regardless of `query` shape.
+  if (code !== undefined && PG_RETRYABLE_CONNECTION_CODES.has(code)) return true;
+
+  // Weak path: message-only matches require positive pre-send evidence.
+  // postgres-js attaches `query: undefined` as an own-property on
+  // connection-acquisition failures; that's the only shape that proves the
+  // query did NOT reach the server. Wrappers that drop `query` entirely are
+  // ambiguous — treat them as non-retryable to avoid double-applying a
+  // mutation that already executed.
+  const hasPreSendShape = Object.prototype.hasOwnProperty.call(e, "query") && e.query === undefined;
+  if (!hasPreSendShape) return false;
+
   return (
-    code === "CONNECTION_CLOSED" ||
-    code === "CONNECTION_ENDED" ||
-    code === "CONNECTION_DESTROYED" ||
-    code === "ECONNRESET" ||
-    code === "EPIPE" ||
     /connection terminated/i.test(message) ||
     /connection (closed|ended|destroyed)/i.test(message) ||
     /socket hang up/i.test(message) ||

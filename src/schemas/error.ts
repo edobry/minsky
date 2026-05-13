@@ -163,11 +163,15 @@ const MAX_CAUSE_DEPTH = 8;
  * rules as `getErrorMessage` and included in the chain.
  */
 export function getCauseChain(error: unknown): string[] {
+  // mt#1831 PR #1113 R1 NON-BLOCKING: bound the loop on `messages.length`
+  // directly so the cap semantics are exact regardless of where the chain
+  // terminates (cycle, undefined cause, non-Error coercion). Prior form
+  // incremented a separate `depth` counter after push+advance, which made
+  // the cap reasoning sensitive to the order of operations.
   const messages: string[] = [];
   const visited = new Set<unknown>();
   let current: unknown = error;
-  let depth = 0;
-  while (current !== undefined && current !== null && depth < MAX_CAUSE_DEPTH) {
+  while (current !== undefined && current !== null && messages.length < MAX_CAUSE_DEPTH) {
     if (typeof current === "object" && visited.has(current)) {
       break;
     }
@@ -181,7 +185,6 @@ export function getCauseChain(error: unknown): string[] {
     } else {
       break;
     }
-    depth += 1;
   }
   return messages;
 }

@@ -995,11 +995,15 @@ export class MinskyMCPServer {
 
           // Preserve structured McpError instances (e.g. StructuredMcpError with
           // machine-readable data payload) so the SDK propagates `code` and `data`
-          // to the caller intact. Plain Error objects are wrapped as before.
+          // to the caller intact. Plain Error objects are wrapped as before, but
+          // mt#1831 PR #1113 R1 NON-BLOCKING: preserve the original error via the
+          // ES2022 `cause` option so downstream handlers can still inspect machine-
+          // readable fields (driver code, sub-error chain) even though the
+          // user-facing message is the flattened wireMessage string.
           if (error instanceof McpError) {
             throw error;
           }
-          throw new Error(`Tool execution failed: ${wireMessage}`);
+          throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
       } finally {
         this.inFlightRequests.delete(trackingId);
