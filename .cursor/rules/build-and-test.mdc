@@ -14,3 +14,5 @@ tags:
 - **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 ./src ./tests/adapters ./tests/domain`
 - **Format**: `bun run format:check` / `bun run format:all`
 - **All checks**: `bun run validate-all`
+- **Bundle**: `bun run build` (produces `dist/minsky.js`, ~32 MB).
+- **Bundle-boot smoke (CI gate, mt#1787)**: every PR runs `.github/workflows/bundle-boot-smoke.yml` which builds the bundle and asserts `GET /health` returns 200 within 30s. The merge gate (`.claude/hooks/require-review-before-merge.ts`) denies merge unless this check fired and concluded `success`. Local repro: `bun run build && bun dist/minsky.js mcp start --http --host=127.0.0.1 --port=<n>` then `curl http://127.0.0.1:<n>/health`. Override after manual verification: `MINSKY_SKIP_BUNDLE_SMOKE=1` (audit-logged).

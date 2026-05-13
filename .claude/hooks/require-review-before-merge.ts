@@ -123,6 +123,207 @@ export function evaluateCheckRunsPresence(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Bundle-boot smoke check (mt#1787) — exported for tests
+// ---------------------------------------------------------------------------
+
+// The check_run name produced by .github/workflows/bundle-boot-smoke.yml.
+// Single source of truth so tests, the workflow, and the gate cannot drift.
+export const BUNDLE_BOOT_SMOKE_CHECK_NAME = "bundle-boot-smoke";
+
+// Override env var honored by the gate. Registered as hook-only in
+// src/domain/configuration/sources/environment.ts (mt#1788 rule).
+export const BUNDLE_BOOT_SMOKE_OVERRIDE_ENV = "MINSKY_SKIP_BUNDLE_SMOKE";
+
+interface BundleBootCheckRun {
+  // GitHub's Checks-API check_run shape, narrowed to the fields we read.
+  name?: unknown;
+  status?: unknown;
+  conclusion?: unknown;
+  html_url?: unknown;
+  started_at?: unknown;
+  completed_at?: unknown;
+}
+
+// Defensive name match (PR #1083 R1 NON-BLOCKING #3): GitHub's API typically
+// returns `name` as the bare job name, but matrix jobs and certain
+// workflow-name compositions can produce "<workflow-name> / <job-name>".
+// Accept both shapes so future GitHub UX/API drift doesn't false-deny merges
+// for a workflow that actually fired and passed.
+function matchesBundleBootSmokeName(name: string): boolean {
+  return (
+    name === BUNDLE_BOOT_SMOKE_CHECK_NAME || name.endsWith(`/ ${BUNDLE_BOOT_SMOKE_CHECK_NAME}`)
+  );
+}
+
+export interface BundleBootSmokeParseSuccess {
+  ok: true;
+  // Filtered to runs whose name matches BUNDLE_BOOT_SMOKE_CHECK_NAME (exactly
+  // OR by `endsWith("/" + name)` to handle GitHub's "<workflow> / <job>"
+  // naming variants). Sorted **latest-first** by completedAt (or startedAt
+  // when not yet completed). PR #1083 R1 BLOCKING — recency matters: a later
+  // failed re-run must override an earlier successful one. The eval function
+  // below relies on `runs[0]` being the most-recent run.
+  runs: Array<{
+    name: string;
+    status: string;
+    conclusion: string | null;
+    htmlUrl: string | null;
+    startedAt: string | null;
+    completedAt: string | null;
+  }>;
+}
+export type BundleBootSmokeParseResult = BundleBootSmokeParseSuccess | CheckRunsParseFailure;
+
+export interface BundleBootSmokeEvalResult {
+  deny: boolean;
+  reason?: string;
+}
+
+// Parse a `gh api .../check-runs?check_name=bundle-boot-smoke` response.
+// Distinguishes API/parse failure from "the workflow ran but conclusion is X"
+// so the gate can give an accurate, actionable diagnosis.
+export function parseBundleBootSmokeResponse(result: {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+}): BundleBootSmokeParseResult {
+  if (result.timedOut) {
+    return {
+      ok: false,
+      error: `gh api timed out: ${result.stderr || "(no stderr)"}`,
+    };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      error: `gh api exited ${result.exitCode}: ${result.stderr || "(no stderr)"}`,
+    };
+  }
+  const trimmed = result.stdout.trim();
+  if (!trimmed) {
+    return { ok: false, error: "gh api returned empty response" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `failed to parse gh api response as JSON: ${(e as Error).message}`,
+    };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { ok: false, error: "gh api response is not an object" };
+  }
+  const obj = parsed as { check_runs?: unknown };
+  if (!Array.isArray(obj.check_runs)) {
+    return { ok: false, error: "gh api response missing check_runs[]" };
+  }
+  const runs = (obj.check_runs as BundleBootCheckRun[])
+    .filter((r) => typeof r?.name === "string" && matchesBundleBootSmokeName(r.name))
+    .map((r) => ({
+      name: r.name as string,
+      status: typeof r.status === "string" ? r.status : "unknown",
+      conclusion: typeof r.conclusion === "string" ? r.conclusion : null,
+      htmlUrl: typeof r.html_url === "string" ? r.html_url : null,
+      startedAt: typeof r.started_at === "string" ? r.started_at : null,
+      completedAt: typeof r.completed_at === "string" ? r.completed_at : null,
+    }))
+    // Sort latest-first by completedAt (preferred — tells us which run is
+    // the most recent terminal verdict) with startedAt as a fallback for
+    // runs that haven't yet completed. PR #1083 R1 BLOCKING — without this
+    // the eval would treat `runs[0]` as the API's order, which is not a
+    // documented sort guarantee for the check_name-filtered endpoint.
+    .sort((a, b) => {
+      const aKey = a.completedAt ?? a.startedAt ?? "";
+      const bKey = b.completedAt ?? b.startedAt ?? "";
+      if (aKey === bKey) return 0;
+      return aKey < bKey ? 1 : -1;
+    });
+  return { ok: true, runs };
+}
+
+// Evaluate whether a PR's HEAD commit has a passing bundle-boot-smoke
+// check_run. Four denial classes:
+//
+//   1. API/parse failure — gh transport error, malformed response.
+//      Distinct reason so operators investigate gh, not the workflow.
+//   2. No matching check_run — the workflow never fired (most likely
+//      cause: PR predates the workflow being added, or webhook miss
+//      analogous to mt#1309).
+//   3. Latest run still in progress / queued — wait for completion.
+//   4. Latest run completed but conclusion !== "success" — the bundle
+//      didn't boot cleanly. Even if an earlier run succeeded, a later
+//      re-run failure overrides — the gate must reflect current state.
+//
+// Pass: the LATEST run (sorted by completedAt then startedAt descending in
+// `parseBundleBootSmokeResponse`) has conclusion === "success". This is the
+// PR #1083 R1 BLOCKING fix — the prior `find(success)` semantics treated
+// the presence of any historical success as sufficient, ignoring later
+// re-run failures and rendering the gate unsafe.
+export function evaluateBundleBootSmokePresence(
+  parseResult: BundleBootSmokeParseResult,
+  prNumber: string,
+  headSha: string
+): BundleBootSmokeEvalResult {
+  if (!parseResult.ok) {
+    return {
+      deny: true,
+      reason:
+        `Unable to query bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)}: ${parseResult.error}. ` +
+        `This is a gh api transport/parse failure — investigate before retrying. ` +
+        `If the failure persists, set ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=1 to bypass after confirming local bundle-boot succeeds.`,
+    };
+  }
+  if (parseResult.runs.length === 0) {
+    return {
+      deny: true,
+      reason:
+        `No "${BUNDLE_BOOT_SMOKE_CHECK_NAME}" check_run found for PR #${prNumber} HEAD ${headSha.slice(0, 7)} (mt#1787). ` +
+        `This is the bundle-boot smoke CI gate — it builds dist/minsky.js and verifies /health responds 200 within 30s. ` +
+        `Likely causes: (a) PR predates the workflow (rebase on main); ` +
+        `(b) webhook miss (push an empty commit to wake it: session_commit { noFiles: true, noStage: true }); ` +
+        `(c) workflow file is malformed (check the Actions tab). ` +
+        `Override after confirming local bundle-boot succeeds: set ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=1.`,
+    };
+  }
+  // Latest-first sort happens in the parser; runs[0] is the most recent.
+  // Defensive destructuring for lint:strict (length check above guarantees
+  // non-empty, but `!` is forbidden).
+  const [latest] = parseResult.runs;
+  if (!latest) {
+    return {
+      deny: true,
+      reason:
+        `bundle-boot-smoke check_run state for PR #${prNumber} HEAD ${headSha.slice(0, 7)} ` +
+        `is internally inconsistent (mt#1787). Investigate gh api output and the parser.`,
+    };
+  }
+  if (latest.conclusion === "success") {
+    return { deny: false };
+  }
+  // Latest run did not succeed. Discriminate "still running" from "completed but failed."
+  if (latest.status !== "completed") {
+    return {
+      deny: true,
+      reason:
+        `bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)} is still ${latest.status} (mt#1787). ` +
+        `Wait for the latest run to complete before merging.`,
+    };
+  }
+  // Latest is completed and conclusion is not success — fail.
+  const urlSuffix = latest.htmlUrl ? ` See: ${latest.htmlUrl}` : "";
+  return {
+    deny: true,
+    reason:
+      `Latest bundle-boot-smoke check_run for PR #${prNumber} HEAD ${headSha.slice(0, 7)} concluded ${latest.conclusion ?? "(no conclusion)"} (mt#1787). ` +
+      `The deployed bundle did not boot cleanly — fix before merging.${urlSuffix} ` +
+      `Override after manual verification: set ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=1.`,
+  };
+}
+
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
@@ -234,6 +435,39 @@ if (import.meta.main) {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
           permissionDecisionReason: checkRunsResult.reason,
+        },
+      });
+      process.exit(0);
+    }
+  }
+
+  // mt#1787: bundle-boot smoke gate — verify the deployed bundle actually boots.
+  // Honors BUNDLE_BOOT_SMOKE_OVERRIDE_ENV escape valve for cases where the
+  // operator has manually verified local boot but CI cannot run the workflow
+  // (e.g., the workflow file itself is broken on the PR being merged).
+  const skipBundleSmoke = process.env[BUNDLE_BOOT_SMOKE_OVERRIDE_ENV];
+  if (skipBundleSmoke && /^(1|true|yes)$/i.test(skipBundleSmoke)) {
+    process.stdout.write(
+      `[require-review-before-merge] bundle-boot smoke skipped via ${BUNDLE_BOOT_SMOKE_OVERRIDE_ENV}=${skipBundleSmoke} ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+    );
+  } else if (headSha) {
+    const bundleSmokeResp = execSync(
+      [
+        "gh",
+        "api",
+        `repos/edobry/minsky/commits/${headSha}/check-runs?check_name=${BUNDLE_BOOT_SMOKE_CHECK_NAME}`,
+      ],
+      { timeout: 10000 }
+    );
+    const bundleParseResult = parseBundleBootSmokeResponse(bundleSmokeResp);
+    const bundleResult = evaluateBundleBootSmokePresence(bundleParseResult, pr, headSha);
+    if (bundleResult.deny && bundleResult.reason) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: bundleResult.reason,
         },
       });
       process.exit(0);

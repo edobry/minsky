@@ -1,0 +1,116 @@
+name: Bundle Boot Smoke
+
+# mt#1787 — bundle-boot smoke CI gate.
+#
+# Builds the production bundle (dist/minsky.js), boots it via
+# `mcp start --http`, and asserts that GET /health returns 200 within 30s.
+#
+# This catches the dev-vs-deployed divergence class (mt#1681 procedural,
+# mt#1763 bundle-path drift, mt#1785 env-var-namespace) that source-only
+# review surfaces (reviewer-bot) and PR-body-text gates (mt#1695) miss.
+# A 45-min production outage on 2026-05-12 was the trigger.
+#
+# The bundled binary is what Railway actually runs; building + booting it
+# in CI is the only mechanical verification of "the thing we deploy actually
+# starts." Source-tree tests cannot substitute.
+#
+# Job name (`bundle-boot-smoke`) is the contract: the merge-gate hook
+# `.claude/hooks/require-review-before-merge.ts` queries the GitHub
+# Checks API for a check_run with this name and denies merge unless it
+# fired and concluded success.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  bundle-boot-smoke:
+    name: bundle-boot-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('bun.lock', 'services/reviewer/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --no-progress
+
+      - name: Build production bundle
+        run: bun run build
+
+      - name: Verify bundle exists
+        run: |
+          test -f dist/minsky.js || { echo "dist/minsky.js missing after build"; exit 1; }
+          ls -la dist/minsky.js
+
+      - name: Boot bundled binary and probe /health
+        run: |
+          set -euo pipefail
+
+          # Random ephemeral port to avoid collisions with other jobs.
+          PORT=$(( 30000 + RANDOM % 20000 ))
+          echo "Boot port: $PORT"
+
+          # Bind to 127.0.0.1 (not localhost) so curl-via-IPv4 hits the
+          # listener — Bun/Node's "localhost" default may resolve to ::1
+          # which curl probes IPv4 first.
+          # Start the server in a NEW process group (`setsid`) so we can
+          # signal the entire group on cleanup — covers any child the
+          # server might fork that holds the port open. PR #1083 R1 BLOCKING:
+          # plain `kill` against a PID can leak children and leave the
+          # listener up across job retries within the same runner.
+          setsid bun dist/minsky.js mcp start --http --host=127.0.0.1 --port=$PORT \
+            > /tmp/bundle-boot.log 2>&1 &
+          BOOT_PID=$!
+          echo "Boot PID: $BOOT_PID"
+
+          # Cleanup: TERM the process group, wait briefly, KILL if still
+          # alive. `wait` reaps the PID without re-raising the signal.
+          cleanup() {
+            local exit_code=$?
+            # `-PID` addresses the process group; `2>/dev/null || true`
+            # tolerates the case where the process already exited.
+            kill -TERM "-$BOOT_PID" 2>/dev/null || true
+            # Give the server up to 2s to flush logs and exit cleanly.
+            for _ in 1 2 3 4; do
+              if ! kill -0 "$BOOT_PID" 2>/dev/null; then break; fi
+              sleep 0.5
+            done
+            kill -KILL "-$BOOT_PID" 2>/dev/null || true
+            wait "$BOOT_PID" 2>/dev/null || true
+            return $exit_code
+          }
+          trap cleanup EXIT
+
+          # Poll /health for up to 30s.
+          DEADLINE=$(( $(date +%s) + 30 ))
+          while [ "$(date +%s)" -lt $DEADLINE ]; do
+            if curl -fsS "http://127.0.0.1:$PORT/health" > /tmp/health.json 2>/dev/null; then
+              echo "/health responded within deadline:"
+              cat /tmp/health.json
+              echo
+              # `trap cleanup EXIT` handles teardown; exit cleanly so the
+              # signal escalation runs even on the happy path.
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          echo "/health did not respond 200 within 30s"
+          echo "--- boot log tail ---"
+          tail -50 /tmp/bundle-boot.log || true
+          exit 1
