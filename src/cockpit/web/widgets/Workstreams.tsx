@@ -169,9 +169,9 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
 
       {isOpen && (
         <CardContent className="pt-0">
-          <div className="space-y-1">
+          <div>
             {card.children.map((child) => (
-              <div key={child.id} className="flex items-center gap-2 py-1">
+              <div key={child.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
                 <StatusBadge status={child.status} />
                 <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
                   {child.id}
@@ -194,10 +194,10 @@ export function Workstreams({ data }: Props) {
   if (data.state === "degraded") {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Workstreams</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Workstreams</CardTitle>
         </CardHeader>
-        <CardContent className="text-muted-foreground">
+        <CardContent className="text-sm text-muted-foreground">
           <p>{data.reason}</p>
         </CardContent>
       </Card>
@@ -212,8 +212,8 @@ export function Workstreams({ data }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">
           Workstreams
           {workstreams.length > 0 && (
             <span className="text-sm font-normal text-muted-foreground ml-2">
