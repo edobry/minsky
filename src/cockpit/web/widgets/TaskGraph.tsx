@@ -354,10 +354,10 @@ export function TaskGraph({ data }: Props) {
   if (data.state === "degraded") {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Task Graph</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Task Graph</CardTitle>
         </CardHeader>
-        <CardContent className="text-muted-foreground">
+        <CardContent className="text-sm text-muted-foreground">
           <p>{data.reason}</p>
         </CardContent>
       </Card>
@@ -369,8 +369,8 @@ export function TaskGraph({ data }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">
           Task Graph
           {nodeCount > 0 && (
             <span className="text-sm font-normal text-muted-foreground ml-2">
