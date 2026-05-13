@@ -129,6 +129,42 @@ The bar to flip the default (from buy to build) requires all four:
 - 2026-05-12 R1 (recommendation-time): recommended "build narrow on Postgres" for context-economics measurement (mt#1776) across three turns despite mature community OSS+SaaS options. See `feedback_build_vs_buy_default_for_non_core`.
 - 2026-05-12 R2 (action-execution-time): even after the R1 fix landed in this rule, executed on "do it now" by skipping the user-sequenced platform-evaluation step and reverting to in-house data extraction. See `feedback_build_path_as_research_at_action_time`.
 
+### Spec-amendment-time premise check (R4, 2026-05-13)
+
+A third action surface where the build-vs-buy default can be confabulated is **spec
+amendment** — applying a categorization label to an existing artifact in a way that
+determines its substrate/policy treatment.
+
+The R4 incident (mt#1306, 2026-05-13): agent labeled mt#1306 "source-of-truth state" to
+justify keeping it on in-house Postgres, applied that framing across three spec amendments,
+then on user challenge discovered the label didn't fit the actual definition in `§Datastores`.
+The corpus rule (`§Build vs buy`) and the R1 memory (`feedback_confabulated_strategic_frame_to_justify_tactical_preference`)
+both existed at the time; neither prevented the failure because both fire at recommendation-time
+or action-execution-time, not at spec-amendment-time.
+
+**Structural enforcement:** `/plan-task` gate (j) — Premise label verification (mt#1820).
+Fires when a spec amendment contains a categorization label that determines policy treatment,
+requires the four-step citation-and-mapping protocol before the label can be applied.
+
+**At self-trigger time** (when about to write a categorization label into a spec amendment),
+the agent runs the protocol manually until gate (j) ships:
+
+1. Cite the rule that defines the label
+2. Quote the definition verbatim
+3. Map the artifact's properties to the criteria
+4. State the verdict (met / not met / ambiguous)
+
+If the mapping fails, do not apply the label. Surface the gap.
+
+**Cross-references:**
+
+- mt#1820 — gate (j) implementation task
+- `feedback_premise_label_verification_required` — bridge memory until gate (j) ships
+- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — R1 originating
+  pattern + R4 sub-pattern documented
+- `/declare-framework` (mt#1789) — sibling skill addressing framework selection (distinct
+  from label application)
+
 ## Multi-step direction execution
 
 When the user provides multi-step direction (e.g., "X first, then Y, then Z" or "before doing W, do V") AND a later prompt contains action-now language (e.g., "do it now," "proceed," "go," "why not do it now?"): the agent MUST, before any tool call that would advance the plan:
