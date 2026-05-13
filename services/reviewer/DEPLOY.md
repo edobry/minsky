@@ -100,6 +100,27 @@ service start. If you see `merge_state_sweeper.missing_credentials` or
 `merge_state_sweeper.disabled` instead, the recovery layer is NOT active and
 bypass-merge PRs will not auto-sync.
 
+#### Reliability budget (mt#1810)
+
+The recovery layer carries a measurable reliability target so the next drift instance
+surfaces via threshold-exceeded escalation, not anecdotal recurrence:
+
+> **At-merge auto-sync must hit DONE within ≤5 min for ≥9 of the last 10 bypass-merged
+> Minsky PRs.** If 2+ misses in a 10-PR rolling window are observed (i.e., < 80%),
+> escalate by filing a new task tracking **option (e)** — extend the mt#1787 bundle-boot
+> smoke check to fail when `MINSKY_MCP_URL` / `MINSKY_MCP_AUTH_TOKEN` are unset on a
+> reviewer deploy target. The rolling window is measured from the
+> `merge_state_sweeper.cycle_end` log stream and the `tasks` DB.
+
+A miss is defined as: `tasks_status_get` does not return `DONE` within 5 minutes of a
+`gh api PUT /merge` 200 response on a Minsky-tracked PR (head branch matches `task/mt-N`
+or PR body links a task ID). The 80% / 10-PR threshold is grounded in Minsky's observed
+~1–3 bypass-merges per day cadence per CLAUDE.md `§Thresholds: ground in observed cadence`
+— a 10-PR window covers 3–10 days of merges. Full rationale, measurement sources, and
+calibration anchors live in memory entry
+`Recovery-layer reliability budget for at-merge auto-sync (mt#1810)`
+(id `94258ba7-aa0d-41e3-a72b-868f3bbfac90`).
+
 After setting variables, trigger a redeploy:
 
 ```bash
