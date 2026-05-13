@@ -403,11 +403,16 @@ describe("InProcessOAuthProvider integration", () => {
     if (!codeRow) throw new Error("Code row not found");
     expect(codeRow.consumedAt).not.toBeNull();
 
-    // validateToken should return the principal
+    // validateToken should return the principal. mt#1764: sub and agentId
+    // are hardcoded to the single-tenant "operator" identity regardless of
+    // what's stored in `oauthAccessTokensTable.sub`. The stored sub reflects
+    // whatever devInteractions captured, but the token-issued principal is
+    // always "operator". The clientId and scopes still come from the row.
     const result = await provider.validateToken(rawToken);
     expect(result.valid).toBe(true);
     if (result.valid) {
-      expect(result.principal.sub).toBe("user-456");
+      expect(result.principal.sub).toBe("operator");
+      expect(result.principal.agentId).toBe("oauth:claude-ai:user-operator");
       expect(result.principal.clientId).toBe(client.client_id);
       expect(result.scopes).toContain("mcp");
     }
