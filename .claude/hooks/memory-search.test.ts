@@ -1,18 +1,23 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   AFFIRMATIVE_WORDS,
   buildInjection,
+  DEFAULT_K,
+  DEFAULT_TOKEN_BUDGET,
+  deriveVariantTag,
+  emitBraintrust,
   estimateTokens,
   HOOK_VERSION,
   isTrivialPrompt,
+  MIN_PROMPT_LENGTH,
   parseSearchOutput,
+  readBraintrustConfig,
   renderResult,
   rotateLogIfNeeded,
   TRUNCATION_MARKER,
   writeLog,
   type LogFsDeps,
   type MemorySearchResultLite,
-  DEFAULT_TOKEN_BUDGET,
 } from "./memory-search";
 
 const TRUNCATION_MARKER_TEXT = TRUNCATION_MARKER.trim();
@@ -576,5 +581,134 @@ describe("writeLog", () => {
         failingFs
       );
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Braintrust integration (mt#1813 — Phase 1a)
+// ---------------------------------------------------------------------------
+
+describe("deriveVariantTag", () => {
+  it("encodes the three knobs as a single comma-separated string", () => {
+    expect(deriveVariantTag(5, 2000, 20)).toBe("K=5,B=2000,MIN=20");
+    expect(deriveVariantTag(3, 800, 50)).toBe("K=3,B=800,MIN=50");
+  });
+
+  it("uses the source-level defaults when called with no arguments", () => {
+    // The default-derived variant must match the source constants exactly;
+    // this asserts the function is wired to the live constants so changes to
+    // K/budget/MIN automatically reflect in the emitted tag without code edits.
+    const expected = `K=${DEFAULT_K},B=${DEFAULT_TOKEN_BUDGET},MIN=${MIN_PROMPT_LENGTH}`;
+    expect(deriveVariantTag()).toBe(expected);
+  });
+});
+
+describe("readBraintrustConfig", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    // Clear all the Braintrust env vars before each test so we test in isolation
+    delete process.env.BRAINTRUST_API_KEY;
+    delete process.env.BRAINTRUST_PROJECT_NAME;
+    delete process.env.BRAINTRUST_API_URL;
+  });
+
+  afterEach(() => {
+    // Restore original env so tests don't leak state
+    process.env = { ...originalEnv };
+  });
+
+  it("reads apiKey from BRAINTRUST_API_KEY env var", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test-from-env";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.apiKey).toBe("sk-test-from-env");
+  });
+
+  it("uses default projectName=minsky when not set in env", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.projectName).toBe("minsky");
+  });
+
+  it("uses default appUrl when not set in env", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.appUrl).toBe("https://api.braintrust.dev");
+  });
+
+  it("env vars override config-file values for projectName + appUrl", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    process.env.BRAINTRUST_PROJECT_NAME = "override-project";
+    process.env.BRAINTRUST_API_URL = "https://override.example.com";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.projectName).toBe("override-project");
+    expect(cfg?.appUrl).toBe("https://override.example.com");
+  });
+
+  it("returns null when no apiKey is available anywhere", async () => {
+    // HOME pointed at a temp dir without a Minsky config file
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-12345";
+    const cfg = await readBraintrustConfig();
+    expect(cfg).toBeNull();
+    process.env.HOME = originalHome;
+  });
+});
+
+describe("emitBraintrust", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.BRAINTRUST_API_KEY;
+    delete process.env.BRAINTRUST_PROJECT_NAME;
+    delete process.env.BRAINTRUST_API_URL;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("does not throw when no Braintrust config is available", async () => {
+    // No env var, HOME pointed at a path with no minsky config.
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-67890";
+
+    // Call should be a silent no-op; the absence of crash here verifies the
+    // graceful-degradation contract: the hook is on the critical path of every
+    // prompt and instrumentation must never propagate failures.
+    await expect(
+      emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId: "test-session",
+        promptPrefix: "test prompt",
+        promptLength: 100,
+        skipped: false,
+        injectedTokens: 500,
+        injectedCount: 3,
+        backend: "embeddings",
+        latencyMs: 1234,
+      })
+    ).resolves.toBeUndefined();
+
+    process.env.HOME = originalHome;
+  });
+
+  it("does not throw on malformed entry (only required fields)", async () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-99999";
+
+    // Minimum-viable LogEntry shape — no optional fields. Should not crash.
+    await expect(
+      emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId: "test",
+        promptPrefix: "x",
+        promptLength: 1,
+        skipped: true,
+        skipReason: "trivial",
+      })
+    ).resolves.toBeUndefined();
+
+    process.env.HOME = originalHome;
   });
 });
