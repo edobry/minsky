@@ -226,29 +226,37 @@ export function parseSearchOutput(stdout: string): MemorySearchResponseLite | nu
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    // Some CLI surfaces may prepend non-JSON text (e.g., warnings on stderr
-    // that bleed into stdout, or progress logs). Fall back to scanning lines
-    // from the bottom for the first line that starts with `{`, then parsing
-    // the joined remainder. lastIndexOf("{") would catch a nested brace and
-    // produce unparseable output.
+    // Fallback: stdout has non-JSON garbage before the real response. Two
+    // observed classes — plain warning lines (`[memory.search] ...`) and, more
+    // troubling, Postgres NOTICE objects emitted by drizzle migration init that
+    // print to stdout in JS-object-literal format (unquoted keys, trailing
+    // commas — NOT valid JSON). The original walk-bottom-up-while-{ logic broke
+    // on multi-line indented JSON because interior lines (`  "results": [`,
+    // `    {`, etc.) don't all start with `{`, so it anchored on a nested brace
+    // and produced "unparseable output". Replacement: scan top-down for lines
+    // whose first character is `{` (top-level opening brace, no leading
+    // indent — interior braces are at indent >= 2 in the response shape). Try
+    // candidates last-to-first since the real response follows any noise.
     const lines = trimmed.split("\n");
-    let startLine = -1;
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].trimStart().startsWith("{")) {
-        startLine = i;
-      } else if (startLine !== -1 && lines[i].trim() !== "") {
-        // Hit a non-JSON line above the start — stop walking up
-        break;
+    const candidateStarts: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i][0] === "{") {
+        candidateStarts.push(i);
       }
     }
-    if (startLine < 0) {
+    let fallbackParsed: unknown = null;
+    for (let i = candidateStarts.length - 1; i >= 0; i--) {
+      try {
+        fallbackParsed = JSON.parse(lines.slice(candidateStarts[i]).join("\n"));
+        break;
+      } catch {
+        // Try the next-earlier candidate
+      }
+    }
+    if (fallbackParsed === null) {
       return null;
     }
-    try {
-      parsed = JSON.parse(lines.slice(startLine).join("\n"));
-    } catch {
-      return null;
-    }
+    parsed = fallbackParsed;
   }
 
   if (!parsed || typeof parsed !== "object") {
