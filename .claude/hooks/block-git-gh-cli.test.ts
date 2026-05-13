@@ -1103,6 +1103,27 @@ describe("extractGitAddPaths", () => {
   it("returns null when `.` is provided (glob-all)", () => {
     expect(extractGitAddPaths(["add", "."])).toBeNull();
   });
+
+  // -- pathspec-separator cases (mt#1806 R1 — `git add -- <path>` should be carved out)
+  it("returns paths after the `--` pathspec separator", () => {
+    expect(extractGitAddPaths(["add", "--", "file.ts"])).toEqual(["file.ts"]);
+  });
+
+  it("returns multiple paths after the `--` separator", () => {
+    expect(extractGitAddPaths(["add", "--", "a.ts", "b.ts"])).toEqual(["a.ts", "b.ts"]);
+  });
+
+  it("returns paths both before and after the `--` separator", () => {
+    expect(extractGitAddPaths(["add", "foo.ts", "--", "bar.ts"])).toEqual(["foo.ts", "bar.ts"]);
+  });
+
+  it("returns null when a flag appears BEFORE the `--` separator", () => {
+    expect(extractGitAddPaths(["add", "-A", "--", "file.ts"])).toBeNull();
+  });
+
+  it("returns null when `.` appears AFTER the `--` separator (still glob-all)", () => {
+    expect(extractGitAddPaths(["add", "--", "."])).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1128,6 +1149,17 @@ describe("getUnmergedPaths", () => {
   it("returns null (fail-closed) when git fails", () => {
     const result = getUnmergedPaths(fakeRunGitError());
     expect(result).toBeNull();
+  });
+
+  // CRLF cross-platform robustness (mt#1806 R1 — Windows git output may emit \r\n)
+  it("parses CRLF output without leaving \\r artifacts in paths", () => {
+    const runGit = () => "src/foo.ts\r\nsrc/bar.ts\r\n";
+    const result = getUnmergedPaths(runGit);
+    expect(result).not.toBeNull();
+    expect(result?.has("src/foo.ts")).toBe(true);
+    expect(result?.has("src/bar.ts")).toBe(true);
+    expect(result?.has("src/foo.ts\r")).toBe(false);
+    expect(result?.has("src/bar.ts\r")).toBe(false);
   });
 });
 
@@ -1168,6 +1200,11 @@ describe("isConflictResolutionAdd", () => {
 
   it("returns false (fail-closed) when git is unavailable", () => {
     expect(isConflictResolutionAdd(["add", "foo.ts"], fakeRunGitError())).toBe(false);
+  });
+
+  it("returns true for the `--` form when path is in unmerged set", () => {
+    const runGit = fakeRunGitWithUnmerged(["src/conflict.ts"]);
+    expect(isConflictResolutionAdd(["add", "--", "src/conflict.ts"], runGit)).toBe(true);
   });
 });
 

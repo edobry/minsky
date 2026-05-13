@@ -92,7 +92,27 @@ export function extractGitAddPaths(args: string[]): string[] | null {
   const pathArgs = args.slice(1);
   // No path args — broad staging intent
   if (pathArgs.length === 0) return null;
-  // Any flag arg → broad staging
+
+  // Handle pathspec separator: `git add -- <path>...` means everything after
+  // `--` is a literal pathspec (even if it would otherwise look like a flag).
+  // Before `--`, any flag means broad-staging intent.
+  const sepIndex = pathArgs.indexOf("--");
+  if (sepIndex !== -1) {
+    // Anything BEFORE `--` that's a flag → broad-staging intent → reject
+    const beforeSep = pathArgs.slice(0, sepIndex);
+    if (beforeSep.some((a) => a.startsWith("-"))) return null;
+    if (beforeSep.includes(".")) return null;
+    // Paths are after `--` (plus any non-flag args before it, which is the
+    // mixed `git add foo.ts -- bar.ts` form; treat both as paths)
+    const afterSep = pathArgs.slice(sepIndex + 1);
+    if (afterSep.length === 0 && beforeSep.length === 0) return null;
+    const paths = [...beforeSep, ...afterSep];
+    // `.` after `--` is still a broad-staging glob
+    if (paths.includes(".")) return null;
+    return paths.length > 0 ? paths : null;
+  }
+
+  // No `--` separator: any flag arg → broad staging
   if (pathArgs.some((a) => a.startsWith("-"))) return null;
   // `.` is equivalent to adding everything — treat as broad
   if (pathArgs.includes(".")) return null;
@@ -116,8 +136,9 @@ export function getUnmergedPaths(
 ): Set<string> | null {
   try {
     const output = runGit("git diff --name-only --diff-filter=U");
+    // Split on either LF or CRLF for cross-platform robustness; filter empties.
     const paths = output
-      .split("\n")
+      .split(/\r?\n/)
       .map((l) => l.trim())
       .filter((l) => l.length > 0);
     return new Set(paths);
@@ -585,7 +606,7 @@ export function checkDenial(
         if (isConflictResolutionAdd(parsed.args, runGit)) {
           const paths = extractGitAddPaths(parsed.args) ?? [];
           process.stderr.write(
-            `[block-git-gh-cli] git-add carve-out for conflict resolution: ${paths.join(", ")}\n`
+            `[block-git-gh-cli] git-add carve-out for conflict resolution: ${JSON.stringify(paths)}\n`
           );
           return null;
         }

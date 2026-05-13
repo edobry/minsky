@@ -47,14 +47,18 @@ export function defaultReadFile(filePath: string): string {
  * indicating a stash-pop or merge conflict that the agent is resolving.
  * Requires all three marker forms to be present.
  *
+ * Standard git conflict markers are 7 chevrons (`<<<<<<<`, `=======`, `>>>>>>>`)
+ * optionally followed by a description (HEAD, branch name, etc.). The check
+ * uses substring matching on the 7-chevron form WITHOUT requiring a trailing
+ * space — `<<<<<<< HEAD`, `<<<<<<< Updated upstream`, and the bare `<<<<<<<`
+ * all match.
+ *
  * This is a pure string check — callers pass the file content.
  * Fail-closed: exceptions from the upstream readFile call should be handled
  * by the caller.
  */
 export function contentHasConflictMarkers(content: string): boolean {
-  return (
-    content.includes("<<<<<<< ") && content.includes("=======") && content.includes(">>>>>>> ")
-  );
+  return content.includes("<<<<<<<") && content.includes("=======") && content.includes(">>>>>>>");
 }
 
 /**
