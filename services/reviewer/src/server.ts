@@ -20,6 +20,7 @@ import {
   startAsksReconcileScheduler,
 } from "./asks-reconcile-scheduler";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { callMcp } from "./mcp-client";
 import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-state-sweeper";
 import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
@@ -131,9 +132,14 @@ export function createApp(
   const inflight: Set<Promise<unknown>> = new Set();
 
   /**
-   * Minimal MCP tool caller for server.ts internal use.
-   * Same pattern as pr-watch-scheduler.ts callPrWatchRun.
-   * Returns the concatenated text content from the result, or null on error.
+   * MCP tool caller for the at-merge webhook handler.
+   *
+   * Thin adapter over the shared {@link callMcp} helper (mt#1821) — preserves
+   * the legacy `string | null` return shape so the at-merge handler callsites
+   * don't change. The shared helper performs the MCP initialize handshake
+   * and caches the session id; without it the server rejected every
+   * `tools/call` with `-32600 "first request must be initialize"` and the
+   * at-merge state-sync silently no-op'd.
    */
   async function callMcpToolLocal(
     mcpUrl: string,
@@ -141,91 +147,13 @@ export function createApp(
     toolName: string,
     args: Record<string, unknown>
   ): Promise<string | null> {
-    // 15s timeout matches the sweeper pattern in merge-state-sweeper.ts.
-    // PR #1010 R1: without this, a hung MCP call kept the detached promise
-    // in `inflight` indefinitely, leaking memory and blocking graceful shutdown.
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
-    try {
-      let response: Response;
-      try {
-        response = await fetch(mcpUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${mcpToken}`,
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: `at-merge-handler-${Date.now()}`,
-            method: "tools/call",
-            params: { name: toolName, arguments: args },
-          }),
-          signal: controller.signal,
-        });
-      } catch (fetchErr) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        const aborted = controller.signal.aborted;
-        console.warn(
-          JSON.stringify({
-            event: "at_merge_handler.mcp_fetch_error",
-            tool: toolName,
-            error: msg,
-            timed_out: aborted,
-          })
-        );
-        return null;
-      }
-
-      if (!response.ok) {
-        await response.text().catch(() => undefined);
-        return null;
-      }
-
-      const raw = await response.text().catch(() => null);
-      if (!raw) return null;
-
-      const trimmed = raw.trim();
-      let jsonText: string | null = null;
-      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-        jsonText = trimmed;
-      } else {
-        let last: string | null = null;
-        for (const line of trimmed.split("\n")) {
-          const stripped = line.trim();
-          if (stripped.startsWith("data:")) {
-            const payload = stripped.slice("data:".length).trim();
-            if (payload.startsWith("{") || payload.startsWith("[")) {
-              last = payload;
-            }
-          }
-        }
-        jsonText = last;
-      }
-
-      if (!jsonText) return null;
-
-      const parsed = JSON.parse(jsonText) as {
-        result?: { content?: Array<{ type?: string; text?: string }> };
-        error?: { message?: string };
-      };
-
-      if (parsed.error) return null;
-
-      const chunks = (parsed.result?.content ?? [])
-        .filter(
-          (c): c is { type: string; text: string } =>
-            c?.type === "text" && typeof c.text === "string"
-        )
-        .map((c) => c.text);
-
-      return chunks.length > 0 ? chunks.join("") : null;
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const result = await callMcp(
+      toolName,
+      args,
+      { mcpUrl, mcpToken },
+      { logPrefix: "at_merge_handler.mcp" }
+    );
+    return result.ok ? result.contentText : null;
   }
 
   /**

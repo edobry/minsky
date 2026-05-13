@@ -121,10 +121,13 @@ let mcpCalls: McpCall[] = [];
 let mcpHandler: McpHandler | null = null;
 let originalFetch: typeof globalThis.fetch;
 
-beforeEach(() => {
+beforeEach(async () => {
   originalFetch = globalThis.fetch;
   mcpCalls = [];
   mcpHandler = null;
+  // mt#1821: reset cached MCP session ids so each test gets a fresh initialize.
+  const { resetMcpClientSessions } = await import("./mcp-client");
+  resetMcpClientSessions();
 
   // Wrap fetch: MCP calls go to the handler; all others go to the real fetch.
   // Cast assigns to typeof globalThis.fetch to satisfy Bun's fetch type
@@ -138,12 +141,37 @@ beforeEach(() => {
           : (input as { url: string }).url;
 
     if (url.startsWith(MCP_URL)) {
-      // Intercept MCP call
+      // Intercept MCP call. The mt#1821 fix introduced an initialize handshake
+      // and a notifications/initialized notification before each tools/call,
+      // so we dispatch by JSON-RPC method here: handshake phases return their
+      // canned responses; tools/call delegates to the per-test mcpHandler.
       const body = JSON.parse(init?.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
+        method?: string;
+        params?: { name?: string; arguments?: Record<string, unknown> };
       };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
+
+      if (body.method === "initialize") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { protocolVersion: "2025-03-26", capabilities: {} },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": CONTENT_TYPE_JSON,
+              "Mcp-Session-Id": "test-session-id",
+            },
+          }
+        );
+      }
+      if (body.method === "notifications/initialized") {
+        return new Response(null, { status: 202 });
+      }
+
+      const toolName = body.params?.name ?? "";
+      const args = body.params?.arguments ?? {};
       mcpCalls.push({ toolName, args });
 
       if (mcpHandler) {
