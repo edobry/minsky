@@ -41,7 +41,6 @@ export function registerSessionFileTools(
 ): void {
   const pathResolver = createPathResolver(container);
 
-  // Session read file tool with line range support
   // Session move file tool
   commandMapper.addCommand({
     name: "session.move_file",

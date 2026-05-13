@@ -79,9 +79,15 @@ describe("registerSessionWorkspaceTools — lazy DI (mt#1799)", () => {
     const handler = handlers.get("session.read_file");
     if (!handler) throw new Error("session.read_file handler not registered");
 
+    // Handlers in session-workspace.ts wrap their bodies in try/catch and
+    // return error response objects rather than throwing, so we need to
+    // inspect BOTH possible failure surfaces: a thrown exception (rare) AND
+    // the returned object's error field (typical). PR #1088 R1 caught that
+    // looking at only the throw path can give a false-green pass.
     let caught: Error | undefined;
+    let result: Record<string, unknown> | undefined;
     try {
-      await handler({
+      result = await handler({
         sessionId: "any-session-id",
         path: "package.json",
         should_read_entire_file: true,
@@ -91,10 +97,13 @@ describe("registerSessionWorkspaceTools — lazy DI (mt#1799)", () => {
     }
 
     // The handler may still fail because we have no real session storage,
-    // but it MUST NOT throw the SessionPathResolver-requires-a-sessionProvider
-    // error — that's the bug we fixed.
-    const handlerOutput = caught?.message ?? "";
-    expect(handlerOutput).not.toContain("SessionPathResolver requires a sessionProvider");
+    // but it MUST NOT surface the SessionPathResolver-requires-a-sessionProvider
+    // error on EITHER path — that's the eager-DI bug we fixed.
+    const haystack = JSON.stringify({
+      thrown: caught?.message ?? "",
+      returned: result ?? {},
+    });
+    expect(haystack).not.toContain("SessionPathResolver requires a sessionProvider");
   });
 
   test("the eager-DI bug pattern would have failed (sanity check on the test setup)", async () => {

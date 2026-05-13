@@ -259,9 +259,13 @@ export class SessionPathResolver {
     if (!provider) {
       // Distinguish between "constructor was called with undefined" vs
       // "constructor was called with a thunk that returns undefined" so the
-      // operator can pinpoint which DI site is at fault (mt#1799).
+      // operator can pinpoint which DI site is at fault (mt#1799). The thunk
+      // case has multiple sub-causes (no container passed, or container
+      // present but provider not yet bound); name both rather than asserting
+      // which one fired (PR #1088 R1 — the original wording mis-attributed
+      // the no-container case to a has()-was-false case).
       const cause = isProviderThunk(this.sessionProvider)
-        ? "stored provider thunk returned undefined — container.has('sessionProvider') was false at dispatch time"
+        ? "stored provider thunk returned undefined at dispatch time — either no DI container was passed to the registration site, or the container was present but did not have 'sessionProvider' bound when the handler ran"
         : "stored provider is undefined — constructor was called without a provider";
       throw new Error(
         `SessionPathResolver requires a sessionProvider. Pass it to the ` +

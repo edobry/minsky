@@ -185,7 +185,12 @@ describe("SessionPathResolver Domain Logic", () => {
       // distinguishes the two DI failure modes so an operator can pinpoint
       // which call site is at fault.
       expect(thunkError?.message).toContain("stored provider thunk returned undefined");
-      expect(thunkError?.message).toContain("container.has('sessionProvider') was false");
+      // Both sub-causes are named in the thunk-case wording so the operator
+      // doesn't have to guess which DI site is at fault. The wording was
+      // softened in PR #1088 R1 — the prior text asserted has()===false even
+      // when the container itself was missing.
+      expect(thunkError?.message).toContain("no DI container was passed");
+      expect(thunkError?.message).toContain("did not have 'sessionProvider' bound");
       expect(constructorError?.message).toContain("constructor was called without a provider");
     });
 
