@@ -313,6 +313,34 @@ describe("PostgresPersistenceProvider", () => {
     }
     expect((p as unknown as { isInitialized: boolean }).isInitialized).toBe(true);
   });
+
+  test("initialize() wires onnotice handler to suppress Postgres NOTICE stdout pollution (mt#1827)", async () => {
+    // mt#1827: drizzle's `CREATE SCHEMA IF NOT EXISTS drizzle` + `CREATE TABLE
+    // IF NOT EXISTS __drizzle_migrations` emit Postgres NOTICE codes 42P06 +
+    // 42P07 on every cold start. Without an `onnotice` handler, postgres-js's
+    // default routes NOTICEs to stdout, breaking any CLI consumer that
+    // JSON-parses the output (the memory-search bridge hook was silently
+    // failing on every non-trivial turn). This test guards the wiring so a
+    // future refactor doesn't drop the handler.
+    const { factory: pgFactory, getCapturedArgs } = makeMockPostgresFactory();
+    const config: PersistenceConfig = {
+      backend: "postgres",
+      postgres: { connectionString: TEST_CONNECTION_STRING },
+    };
+    const p = new PostgresPersistenceProvider(config);
+
+    await p.initialize({ postgresFactory: pgFactory as any });
+
+    const capturedArgs = getCapturedArgs();
+    expect(capturedArgs).not.toBeNull();
+    if (capturedArgs) {
+      const [, opts] = capturedArgs;
+      const onnotice = (opts as { onnotice?: (notice: unknown) => unknown }).onnotice;
+      expect(typeof onnotice).toBe("function");
+      // No-op: invoking it should not throw and should not return anything.
+      expect(onnotice?.({ severity: "NOTICE", code: "42P06" })).toBeUndefined();
+    }
+  });
 });
 
 describe("PostgresVectorPersistenceProvider", () => {

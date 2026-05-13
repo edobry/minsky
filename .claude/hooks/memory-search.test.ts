@@ -240,6 +240,124 @@ describe("parseSearchOutput", () => {
     expect(parsed?.backend).toBe("lexical");
   });
 
+  it("recovers from leading Postgres NOTICE blocks on stdout (drizzle migration init)", () => {
+    // Real-world repro (mt#1827): `minsky memory search` invokes the postgres
+    // client which (pre-mt#1827) emits NOTICE objects to stdout in JS-object-
+    // literal format (unquoted keys, trailing commas — NOT valid JSON) before
+    // the actual JSON response. The original walk-bottom-up-while-{ parser
+    // anchored on the inner `{` from `results[0]` and JSON.parse failed.
+    const drizzleNoticePrefix = `{
+  severity_local: "NOTICE",
+  severity: "NOTICE",
+  code: "42P06",
+  message: "schema \\"drizzle\\" already exists, skipping",
+  file: "schemacmds.c",
+  line: "132",
+  routine: "CreateSchemaCommand",
+}
+{
+  severity_local: "NOTICE",
+  severity: "NOTICE",
+  code: "42P07",
+  message: "relation \\"__drizzle_migrations\\" already exists, skipping",
+  file: "parse_utilcmd.c",
+  line: "207",
+  routine: "transformCreateStmt",
+}
+`;
+    // Use indented multi-line JSON (the real CLI output shape, not a single-
+    // line `JSON.stringify`), since the original bug only triggered on the
+    // indented form.
+    const responseJson = `{
+  "results": [
+    {
+      "record": {
+        "id": "${VALID_RECORD.id}",
+        "type": "${VALID_RECORD.type}",
+        "name": "${VALID_RECORD.name}",
+        "description": "${VALID_RECORD.description}",
+        "content": "${VALID_RECORD.content}"
+      },
+      "score": 0.42
+    }
+  ],
+  "backend": "embeddings",
+  "degraded": false
+}`;
+    const parsed = parseSearchOutput(drizzleNoticePrefix + responseJson);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.42);
+    expect(parsed?.results[0].record.id).toBe(VALID_RECORD.id);
+    expect(parsed?.backend).toBe("embeddings");
+    expect(parsed?.degraded).toBe(false);
+  });
+
+  it("recovers when the top-level response itself starts with leading whitespace (PR #1108 R1 NB#2)", () => {
+    // Defensive: if a future CLI formatter or wrapper script prepends spaces
+    // before the response's opening brace (e.g., `  {\n    "results": ...`),
+    // the parser should still find it. The original `lines[i][0] === "{"`
+    // predicate would have missed an indented top-level brace; trimStart()
+    // doesn't.
+    const indentedTopLevelResponse = `  {
+    "results": [
+      {
+        "record": {
+          "id": "${VALID_RECORD.id}",
+          "type": "${VALID_RECORD.type}",
+          "name": "${VALID_RECORD.name}",
+          "description": "${VALID_RECORD.description}",
+          "content": "${VALID_RECORD.content}"
+        },
+        "score": 0.55
+      }
+    ],
+    "backend": "embeddings",
+    "degraded": false
+  }`;
+    // Add a non-JSON prefix line to force the fallback path (without it,
+    // JSON.parse on the trimmed input would succeed via the happy path —
+    // trim() strips the leading whitespace and the brace lands at the start).
+    const stdout = `[memory.search] Search succeeded\n${indentedTopLevelResponse}`;
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.55);
+    expect(parsed?.backend).toBe("embeddings");
+  });
+
+  it("parses indented multi-line JSON response (regression: bottom-up walk would anchor on inner brace)", () => {
+    // The original parser's fallback walked lines from the bottom up while the
+    // line started with `{`, stopping at the first non-`{` line. For indented
+    // multi-line response shape (real CLI output), interior lines like
+    // `  "results": [` don't start with `{`, so the walk anchored on `    {`
+    // from `results[0]` and JSON.parse of the suffix failed. This test guards
+    // against that regression independently of the NOTICE-prefix case.
+    const indentedJson = `{
+  "results": [
+    {
+      "record": {
+        "id": "${VALID_RECORD.id}",
+        "type": "${VALID_RECORD.type}",
+        "name": "${VALID_RECORD.name}",
+        "description": "${VALID_RECORD.description}",
+        "content": "${VALID_RECORD.content}"
+      },
+      "score": 0.9
+    }
+  ],
+  "backend": "embeddings",
+  "degraded": false
+}`;
+    // Add prefix garbage to force the fallback path (otherwise JSON.parse on
+    // the trimmed input would succeed and the fallback wouldn't be exercised).
+    const stdout = `[memory.search] Search succeeded\n${indentedJson}`;
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.9);
+  });
+
   it("drops malformed result entries (missing fields) but keeps valid ones", () => {
     const stdout = JSON.stringify({
       results: [
