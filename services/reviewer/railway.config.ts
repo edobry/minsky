@@ -60,6 +60,27 @@ export default defineRailwayConfig({
     // the rename eliminated the prior MINSKY_MCP_TOKEN ↔ MINSKY_MCP_AUTH_TOKEN
     // dual-naming footgun. railway-secrets.json holds a single
     // MINSKY_MCP_AUTH_TOKEN entry resolved by both sides' secret() calls.
+    //
+    // ┌─────────────────────────────────────────────────────────────────┐
+    // │ MIGRATION-IN-PROGRESS (mt#1825) — coordination required          │
+    // ├─────────────────────────────────────────────────────────────────┤
+    // │ The deployed `minsky-reviewer-webhook` Railway service may       │
+    // │ still hold the legacy `MINSKY_MCP_TOKEN` env var until the       │
+    // │ operational apply step has run:                                  │
+    // │                                                                  │
+    // │   1. `bun scripts/railway/apply.ts services/reviewer` (dry-run)  │
+    // │      expected: + ADD MINSKY_MCP_AUTH_TOKEN; WOULD-PRUNE legacy   │
+    // │   2. `bun scripts/railway/apply.ts services/reviewer \           │
+    // │        --execute --reseal-secrets` (dual-write phase)            │
+    // │   3. `bun scripts/railway/apply.ts services/reviewer \           │
+    // │        --prune --execute` (remove legacy var)                    │
+    // │   4. Verify `merge_state_sweeper.cycle_end` still firing         │
+    // │                                                                  │
+    // │ Until step 3 completes, do NOT remove the legacy-name fallback   │
+    // │ from src/* reads (process.env["MINSKY_MCP_TOKEN"]) — the         │
+    // │ deployed service still reads it during the dual-write window.   │
+    // │ Fallback removal is a follow-up commit per mt#1825 Step 5.       │
+    // └─────────────────────────────────────────────────────────────────┘
     // -------------------------------------------------------------------
     MINSKY_MCP_URL: "https://minsky-mcp-production.up.railway.app/mcp",
     MINSKY_MCP_AUTH_TOKEN: secret("MINSKY_MCP_AUTH_TOKEN"),

@@ -166,6 +166,9 @@ async function testMcpPrWatchRun(): Promise<{ pass: boolean; detail: string } | 
   const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
 
   if (!mcpUrl || !mcpToken) {
+    console.log(
+      "SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping MCP pr_watch_run test."
+    );
     return null; // Skip — MCP not configured
   }
 

@@ -94,6 +94,9 @@ async function testAsksReconcileMcpCall(): Promise<{ pass: boolean; detail: stri
   const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
 
   if (!mcpUrl || !mcpToken) {
+    console.log(
+      "SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping MCP asks_reconcile test."
+    );
     return null; // Skip — MCP not configured
   }
 
