@@ -72,9 +72,10 @@ describe("ConfigWriter", () => {
         string,
       ];
       expect(src).toBe(mockConfigFile);
-      expect(dest).toMatch(/config\.yaml\.backup\./);
+      // mt#1802: rolling backup — fixed `.backup` suffix, no timestamp.
+      expect(dest).toBe(`${mockConfigFile}.backup`);
       expect(result.success).toBe(true);
-      expect(result.backupPath).toMatch(/backup/);
+      expect(result.backupPath).toBe(`${mockConfigFile}.backup`);
     });
 
     test("should handle nested key paths correctly", async () => {
@@ -326,8 +327,10 @@ describe("ConfigWriter", () => {
   });
 
   describe("backup functionality", () => {
-    test("should include timestamp in backup filename", async () => {
-      // Test requirement: Backup files should have timestamps as specified in requirements
+    test("uses a fixed `<file>.backup` path (no timestamp — rolling backup, mt#1802)", async () => {
+      // mt#1802 retired the timestamped `<file>.backup.<ISO>` pattern in
+      // favor of a single rolling backup. Earlier wording of this test
+      // asserted the timestamped shape and is now inverted.
       mockFs = createMockFs({ [mockConfigFile]: "{}" });
       writer = createConfigWriter(
         { createBackup: true, format: "yaml", validate: false, configDir: mockConfigDir },
@@ -337,7 +340,9 @@ describe("ConfigWriter", () => {
       const result = await writer.setConfigValue("key", "value");
 
       expect(result.success).toBe(true);
-      expect(result.backupPath).toMatch(/\.backup\.\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}/);
+      expect(result.backupPath).toBe(`${mockConfigFile}.backup`);
+      // Explicitly assert no timestamp in the backup path.
+      expect(result.backupPath).not.toMatch(/\.backup\.\d{4}/);
     });
 
     test("should skip backup when noBackup option is set", async () => {
@@ -359,6 +364,96 @@ describe("ConfigWriter", () => {
       expect(result.success).toBe(true);
       expect(result.backupPath).toBeUndefined();
       expect(mockFs.copyFile).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("rolling backup (mt#1802)", () => {
+    test("AT1: repeated writes produce exactly ONE backup file, not N", async () => {
+      mockFs = createMockFs({ [mockConfigFile]: "foo: v1\n" });
+      writer = createConfigWriter(
+        { createBackup: true, format: "yaml", validate: false, configDir: mockConfigDir },
+        { fs: mockFs, getUserConfigDir: () => mockConfigDir, userConfigFiles: ["config.yaml"] }
+      );
+
+      const r1 = await writer.setConfigValue("foo", "v2");
+      const r2 = await writer.setConfigValue("foo", "v3");
+      const r3 = await writer.setConfigValue("foo", "v4");
+
+      expect(r1.success).toBe(true);
+      expect(r2.success).toBe(true);
+      expect(r3.success).toBe(true);
+
+      // All three writes report the same backupPath.
+      expect(r1.backupPath).toBe(`${mockConfigFile}.backup`);
+      expect(r2.backupPath).toBe(`${mockConfigFile}.backup`);
+      expect(r3.backupPath).toBe(`${mockConfigFile}.backup`);
+
+      // And exactly one .backup file exists in the mock fs.
+      const files = Object.fromEntries(mockFs.files);
+      const backupFiles = Object.keys(files).filter((p) => p.includes(".backup"));
+      expect(backupFiles).toEqual([`${mockConfigFile}.backup`]);
+    });
+
+    test("AT2: .backup contents track the most-recent pre-write state", async () => {
+      mockFs = createMockFs({ [mockConfigFile]: "foo: v1\n" });
+      writer = createConfigWriter(
+        { createBackup: true, format: "yaml", validate: false, configDir: mockConfigDir },
+        { fs: mockFs, getUserConfigDir: () => mockConfigDir, userConfigFiles: ["config.yaml"] }
+      );
+
+      // After first write, the backup should be v1 (pre-write content)
+      await writer.setConfigValue("foo", "v2");
+      expect(mockFs.files.get(`${mockConfigFile}.backup`)).toContain("v1");
+
+      // After second write, the backup should be v2 (the new pre-write content), not v1
+      await writer.setConfigValue("foo", "v3");
+      const backupAfterSecond = mockFs.files.get(`${mockConfigFile}.backup`) ?? "";
+      expect(backupAfterSecond).toContain("v2");
+      expect(backupAfterSecond).not.toContain("v1");
+
+      // After third write, the backup should be v3, not v2 or v1
+      await writer.setConfigValue("foo", "v4");
+      const backupAfterThird = mockFs.files.get(`${mockConfigFile}.backup`) ?? "";
+      expect(backupAfterThird).toContain("v3");
+      expect(backupAfterThird).not.toContain("v2");
+    });
+
+    test("legacy timestamped backups: existing .backup.<ISO> files are NOT auto-deleted", async () => {
+      // Seed with a legacy backup left by the prior implementation.
+      const legacyBackup = `${mockConfigFile}.backup.2026-05-01T00-00-00-000Z`;
+      mockFs = createMockFs({
+        [mockConfigFile]: "foo: v1\n",
+        [legacyBackup]: "foo: legacy\n",
+      });
+      writer = createConfigWriter(
+        { createBackup: true, format: "yaml", validate: false, configDir: mockConfigDir },
+        { fs: mockFs, getUserConfigDir: () => mockConfigDir, userConfigFiles: ["config.yaml"] }
+      );
+
+      await writer.setConfigValue("foo", "v2");
+
+      // The new rolling backup exists at the fixed path.
+      const files = Object.fromEntries(mockFs.files);
+      expect(Object.keys(files)).toContain(`${mockConfigFile}.backup`);
+      // And the legacy backup is still present — we don't auto-clean.
+      expect(Object.keys(files)).toContain(legacyBackup);
+      expect(mockFs.files.get(legacyBackup)).toBe("foo: legacy\n");
+    });
+
+    test("AT4: createBackup: false still skips backup entirely", async () => {
+      mockFs = createMockFs({ [mockConfigFile]: "foo: v1\n" });
+      writer = createConfigWriter(
+        { createBackup: false, format: "yaml", validate: false, configDir: mockConfigDir },
+        { fs: mockFs, getUserConfigDir: () => mockConfigDir, userConfigFiles: ["config.yaml"] }
+      );
+      mockFs.copyFile = mock(async (_src: string, _dest: string) => {});
+
+      await writer.setConfigValue("foo", "v2");
+
+      expect(mockFs.copyFile).not.toHaveBeenCalled();
+      const files = Object.fromEntries(mockFs.files);
+      const backupFiles = Object.keys(files).filter((p) => p.includes(".backup"));
+      expect(backupFiles).toEqual([]);
     });
   });
 });
