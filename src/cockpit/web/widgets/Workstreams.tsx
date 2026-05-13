@@ -158,7 +158,7 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
             {/* Expand/collapse button */}
             <button
               onClick={() => setIsOpen((prev) => !prev)}
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+              className="text-muted-foreground hover:text-foreground p-1 rounded"
               aria-label={isOpen ? "Collapse workstream" : "Expand workstream"}
             >
               <Chevron open={isOpen} />
@@ -169,17 +169,15 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
 
       {isOpen && (
         <CardContent className="pt-0">
-          <div>
-            {card.children.map((child) => (
-              <div key={child.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
-                <StatusBadge status={child.status} />
-                <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
-                  {child.id}
-                </span>
-                <span className="text-sm truncate">{child.title}</span>
-              </div>
-            ))}
-          </div>
+          {card.children.map((child) => (
+            <div key={child.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
+              <StatusBadge status={child.status} />
+              <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
+                {child.id}
+              </span>
+              <span className="text-sm truncate">{child.title}</span>
+            </div>
+          ))}
         </CardContent>
       )}
     </Card>
