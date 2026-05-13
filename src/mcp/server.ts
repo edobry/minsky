@@ -501,14 +501,19 @@ export class MinskyMCPServer {
         res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
       }
     } catch (error) {
-      // mt#1831: surface `.cause` chain on the HTTP transport error path too,
-      // so DrizzleQueryError-shaped failures don't reach HTTP clients as the
-      // generic "Failed query:" string with no underlying signal.
-      const wireMessage = getErrorMessageWithCause(error);
-      log.error("Error handling HTTP request", { error: wireMessage });
+      // mt#1831 PR #1113 R1: keep the cause-chain enrichment inside the MCP
+      // tool-response path (CallToolRequestSchema catch) where the consumer is
+      // an MCP agent / operator. The outer HTTP transport's 500 handler fires
+      // for transport-level errors (body-parser, malformed JSON-RPC, express
+      // middleware crashes) whose audience includes arbitrary HTTP clients;
+      // exposing the full `.cause` chain there widens the leak surface to
+      // include driver messages and connection state beyond the spec's scope
+      // (operator-facing MCP wire path). Log the enriched chain for operator
+      // diagnostics but return only the shallow message to the wire.
+      log.error("Error handling HTTP request", { error: getErrorMessageWithCause(error) });
       res.status(500).json({
         error: "Internal server error",
-        message: wireMessage,
+        message: getErrorMessage(error),
       });
     }
   }

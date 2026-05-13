@@ -165,11 +165,17 @@ describe("getErrorMessageWithCause", () => {
     expect(getErrorMessageWithCause(err)).toBe(getErrorMessage(err));
   });
 
-  test("handles non-Error top-level values", () => {
+  test("handles non-Error top-level values (aligned with getErrorMessage semantics)", () => {
+    // mt#1831 PR #1113 R1: when the chain is empty (undefined/null), fall
+    // back to getErrorMessage's String() coercion so call sites previously
+    // logging "undefined" / "null" don't suddenly surface blank lines.
     expect(getErrorMessageWithCause("string error")).toBe("string error");
     expect(getErrorMessageWithCause(42)).toBe("42");
-    expect(getErrorMessageWithCause(undefined)).toBe("");
-    expect(getErrorMessageWithCause(null)).toBe("");
+    expect(getErrorMessageWithCause(undefined)).toBe(getErrorMessage(undefined));
+    expect(getErrorMessageWithCause(null)).toBe(getErrorMessage(null));
+    // Belt-and-suspenders: explicit string values (current `String()` output).
+    expect(getErrorMessageWithCause(undefined)).toBe("undefined");
+    expect(getErrorMessageWithCause(null)).toBe("null");
   });
 
   test("joins all chain levels with the configured separator", () => {

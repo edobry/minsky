@@ -196,10 +196,17 @@ export function getCauseChain(error: unknown): string[] {
  * to reconnect speculatively.
  *
  * When the error has no `.cause`, the output is identical to `getErrorMessage`.
+ * For non-Error top-level values (`undefined`, `null`, primitives, plain
+ * objects without `.message`), falls back to `getErrorMessage`'s semantics —
+ * `String(undefined)` / `String(null)` rather than an empty string — so
+ * call sites that previously logged `"undefined"` / `"null"` don't suddenly
+ * surface blank lines (mt#1831 PR #1113 R1 alignment).
+ *
  * Cycles and depth >MAX_CAUSE_DEPTH terminate the walk gracefully.
  */
 export function getErrorMessageWithCause(error: unknown): string {
   const chain = getCauseChain(error);
+  if (chain.length === 0) return getErrorMessage(error);
   return chain.join(" — caused by: ");
 }
 
