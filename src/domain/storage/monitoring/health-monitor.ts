@@ -7,6 +7,7 @@
 
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
+import { logPostgresNotice } from "../../persistence/postgres-notice-handler";
 import {
   getEffectivePersistenceConfig,
   type EffectivePersistenceConfig,
@@ -287,7 +288,10 @@ export class PersistenceHealthMonitor {
         status.warnings?.push("PostgreSQL connection string is not configured");
         return;
       }
-      const sql = postgres(config.connectionString, { max: 1 });
+      const sql = postgres(config.connectionString, {
+        max: 1,
+        onnotice: logPostgresNotice,
+      });
 
       try {
         // Check server version

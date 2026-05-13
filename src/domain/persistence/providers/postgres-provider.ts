@@ -20,6 +20,7 @@ import {
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
+import { logPostgresNotice } from "../postgres-notice-handler";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
 import {
@@ -202,13 +203,11 @@ export class PostgresPersistenceProvider
       const pgFactory = deps?.postgresFactory ?? postgres;
 
       // Create PostgreSQL connection (use injected client or create new one).
-      // `onnotice` is wired to a no-op so Postgres NOTICE messages (drizzle's
-      // `CREATE SCHEMA IF NOT EXISTS drizzle` + `CREATE TABLE IF NOT EXISTS
-      // __drizzle_migrations` emit codes 42P06 / 42P07 on every cold start)
-      // don't print to stdout. The CLI's stdout is a data channel — e.g., the
-      // memory-search bridge hook (.claude/hooks/memory-search.ts) JSON-parses
-      // it — and any leakage breaks the consumer. Matches the existing
-      // suppression at postgres-migration-operations.ts:121,284,432 (mt#1827).
+      // `onnotice` routes NOTICEs through `log.debug` (via the shared handler at
+      // postgres-notice-handler.ts). Pre-mt#1828 this site dropped silently with
+      // `() => {}` to keep stdout clean (mt#1827); the helper preserves the
+      // stdout-clean property AND captures the operational signal at debug
+      // level. Six postgres-js sites in total go through this helper.
       const sql =
         deps?.sqlClient ??
         pgFactory(pgConfig.connectionString, {
@@ -216,7 +215,7 @@ export class PostgresPersistenceProvider
           connect_timeout: pgConfig.connectTimeout || 10,
           idle_timeout: pgConfig.idleTimeout || 60,
           prepare: pgConfig.prepareStatements ?? false,
-          onnotice: () => {},
+          onnotice: logPostgresNotice,
         });
 
       // Track only connections we created, so we can clean up on failure without
