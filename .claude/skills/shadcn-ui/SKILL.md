@@ -132,7 +132,7 @@ These rules are **always enforced**. Each links to a file with Incorrect/Correct
 
 ## Workflow
 
-1. **Get project context** — run `npx shadcn@latest info` to refresh.
+1. **Get project context** — run `npx shadcn@latest info` to refresh (add `--json` for machine-readable output).
 2. **Check installed components first** — before running `add`, always check the `components` list from project context or list the `resolvedPaths.ui` directory. Don't import components that haven't been added, and don't re-add ones already installed.
 3. **Find components** — `npx shadcn@latest search`.
 4. **Get docs and examples** — run `npx shadcn@latest docs <component>` to get URLs, then fetch them.
