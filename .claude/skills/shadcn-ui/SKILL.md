@@ -12,7 +12,7 @@ A framework for building ui, components and design systems. Components are added
 
 ## Getting Project Context
 
-To refresh project config and installed-component status when working with shadcn, run `npx shadcn@latest info --json`. Use `npx shadcn@latest docs <component>` to get documentation and example URLs for any component.
+To refresh project config and installed-component status when working with shadcn, run `npx shadcn@latest info` (add `--json` for machine-readable output). Use `npx shadcn@latest docs <component>` to get documentation and example URLs for any component.
 
 ## Principles
 
