@@ -106,12 +106,38 @@ export const environmentMappings = {
  * Keep in sync with `.claude/hooks/*.ts` as new hook-only `MINSKY_*` env
  * vars are introduced.
  */
-const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+// Exported so the lint rule `eslint-rules/no-unregistered-minsky-env-var.js`
+// (mt#1788) can grep this file for the canonical allowlist. The rule does
+// AST-based extraction (since ESLint runs under Node and can't import .ts),
+// so the export is a parallel signal — the const stays here regardless.
+// eslint-disable-next-line custom/no-domain-singleton
+export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
   "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
   "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
   "MINSKY_SKIP_BUNDLE_SMOKE", // .claude/hooks/require-review-before-merge.ts (mt#1787)
+  // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
+  // Many of these arguably belong in environmentMappings with a proper config
+  // path; that promotion is a follow-up. The immediate goal is making the
+  // env-var-to-config parser SKIP them so Railway env-var sets don't crash
+  // the loader. Each entry is annotated with a representative read site.
+  "MINSKY_NON_INTERACTIVE", // src/cli.ts, src/utils/interactive.ts (UX flag)
+  "MINSKY_VERBOSE", // src/adapters/cli/utils/error-handler.ts (debug flag)
+  "MINSKY_SHOW_SQL", // (debug flag — promote to logger.* if it grows)
+  "MINSKY_STATE_DIR", // src/mcp/disconnect-tracker.ts (process-local path override)
+  "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
+  "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
+  "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
+  "MINSKY_MCP_AUTH_TOKEN", // src/mcp (auth — promote to mcp.auth.token)
+  "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
+  "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
+  "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
+  "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
+  "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
+  "MINSKY_MCP_MEMORY_ENRICHMENT", // src/mcp (feature flag)
+  "MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS", // src/mcp (feature config)
+  "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
 ]);
 
 /**
