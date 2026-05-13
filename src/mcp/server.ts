@@ -14,7 +14,7 @@ import {
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getErrorMessageWithCause } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
@@ -501,7 +501,16 @@ export class MinskyMCPServer {
         res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
       }
     } catch (error) {
-      log.error("Error handling HTTP request", { error: getErrorMessage(error) });
+      // mt#1831 PR #1113 R1: keep the cause-chain enrichment inside the MCP
+      // tool-response path (CallToolRequestSchema catch) where the consumer is
+      // an MCP agent / operator. The outer HTTP transport's 500 handler fires
+      // for transport-level errors (body-parser, malformed JSON-RPC, express
+      // middleware crashes) whose audience includes arbitrary HTTP clients;
+      // exposing the full `.cause` chain there widens the leak surface to
+      // include driver messages and connection state beyond the spec's scope
+      // (operator-facing MCP wire path). Log the enriched chain for operator
+      // diagnostics but return only the shallow message to the wire.
+      log.error("Error handling HTTP request", { error: getErrorMessageWithCause(error) });
       res.status(500).json({
         error: "Internal server error",
         message: getErrorMessage(error),
@@ -966,9 +975,15 @@ export class MinskyMCPServer {
             ],
           };
         } catch (error) {
+          // mt#1831: surface the underlying `.cause` chain so operators can
+          // discriminate stale-connection failures (ECONNRESET, Connection
+          // terminated) from real DB errors (schema mismatch, constraint
+          // violation). DrizzleQueryError stashes the driver error on
+          // `.cause` but only surfaces "Failed query: <SQL>" via `.message`.
+          const wireMessage = getErrorMessageWithCause(error);
           log.error("Tool execution failed", {
             tool: request.params.name,
-            error: getErrorMessage(error),
+            error: wireMessage,
           });
 
           // Check for staleness on error path too — trigger fires notification
@@ -980,11 +995,15 @@ export class MinskyMCPServer {
 
           // Preserve structured McpError instances (e.g. StructuredMcpError with
           // machine-readable data payload) so the SDK propagates `code` and `data`
-          // to the caller intact. Plain Error objects are wrapped as before.
+          // to the caller intact. Plain Error objects are wrapped as before, but
+          // mt#1831 PR #1113 R1 NON-BLOCKING: preserve the original error via the
+          // ES2022 `cause` option so downstream handlers can still inspect machine-
+          // readable fields (driver code, sub-error chain) even though the
+          // user-facing message is the flattened wireMessage string.
           if (error instanceof McpError) {
             throw error;
           }
-          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+          throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
       } finally {
         this.inFlightRequests.delete(trackingId);

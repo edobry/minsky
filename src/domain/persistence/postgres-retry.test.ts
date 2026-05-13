@@ -1,9 +1,19 @@
 import { describe, test, expect } from "bun:test";
-import { isPgPoolExhaustionError, withPgPoolRetry } from "./postgres-retry";
+import {
+  isPgPoolExhaustionError,
+  isPgRetryableConnectionError,
+  isPgStaleConnectionError,
+  withPgPoolRetry,
+} from "./postgres-retry";
 
 // Supavisor's saturation message — duplicated in real error paths, so tests
 // centralize it here rather than repeating the literal string per case.
 const SUPAVISOR_SATURATION_MESSAGE = "max clients reached";
+
+// Stale-connection literals — mt#1831. Centralized to satisfy the
+// no-magic-string-duplication lint rule and keep all references in one place.
+const CONNECTION_TERMINATED_MESSAGE = "Connection terminated unexpectedly";
+const CONNECTION_CLOSED_CODE = "CONNECTION_CLOSED";
 
 describe("isPgPoolExhaustionError", () => {
   test("matches PG SQLSTATE 53300", () => {
@@ -120,6 +130,113 @@ describe("isPgPoolExhaustionError", () => {
   });
 });
 
+describe("isPgStaleConnectionError (mt#1831)", () => {
+  test("matches ECONNRESET code", () => {
+    expect(isPgStaleConnectionError({ code: "ECONNRESET", message: "socket hang up" })).toBe(true);
+  });
+
+  test("matches CONNECTION_CLOSED code", () => {
+    expect(
+      isPgStaleConnectionError({ code: CONNECTION_CLOSED_CODE, message: "write after end" })
+    ).toBe(true);
+  });
+
+  test("matches CONNECTION_ENDED code", () => {
+    expect(
+      isPgStaleConnectionError({ code: "CONNECTION_ENDED", message: "Connection ended" })
+    ).toBe(true);
+  });
+
+  test("matches 'Connection terminated' message with postgres-js pre-send shape (query: undefined own-property)", () => {
+    // PR #1113 R1 BLOCKING: message-only matches require positive pre-send
+    // evidence (query own-property === undefined). Wrappers that drop query
+    // entirely are ambiguous and rejected.
+    expect(
+      isPgStaleConnectionError(
+        Object.assign(new Error(CONNECTION_TERMINATED_MESSAGE), { query: undefined })
+      )
+    ).toBe(true);
+  });
+
+  test("matches 'socket hang up' message with postgres-js pre-send shape", () => {
+    expect(
+      isPgStaleConnectionError(Object.assign(new Error("socket hang up"), { query: undefined }))
+    ).toBe(true);
+  });
+
+  test("rejects message-only matches when `query` is absent entirely (PR #1113 R1 BLOCKING)", () => {
+    // A plain Error with no `query` own-property could be a post-send error
+    // from a wrapper that dropped properties. Without positive pre-send
+    // evidence, message-only matching is unsafe — retrying could
+    // double-apply a mutation. Strong code-based signals remain accepted.
+    expect(isPgStaleConnectionError(new Error(CONNECTION_TERMINATED_MESSAGE))).toBe(false);
+    expect(isPgStaleConnectionError(new Error("socket hang up"))).toBe(false);
+  });
+
+  test("matches EPIPE (broken pipe on writes to dead socket) — strong code path", () => {
+    expect(isPgStaleConnectionError({ code: "EPIPE", message: "write EPIPE" })).toBe(true);
+  });
+
+  test("strong code path is accepted even without `query` own-property", () => {
+    // PR #1113 R1: codes in PG_RETRYABLE_CONNECTION_CODES are emitted only
+    // on transport-layer failures before the query reaches the server, so
+    // they're safe to retry whether or not `query` is set.
+    expect(isPgStaleConnectionError({ code: "ECONNRESET", message: "socket hang up" })).toBe(true);
+    expect(isPgStaleConnectionError({ code: CONNECTION_CLOSED_CODE })).toBe(true);
+  });
+
+  test("rejects unrelated errors (non-connection failure classes)", () => {
+    expect(isPgStaleConnectionError(new Error("syntax error"))).toBe(false);
+    expect(isPgStaleConnectionError({ code: "42601" })).toBe(false);
+    expect(isPgStaleConnectionError(null)).toBe(false);
+    expect(isPgStaleConnectionError(undefined)).toBe(false);
+    expect(isPgStaleConnectionError("string error")).toBe(false);
+  });
+
+  test("rejects post-send errors via the shared query-shape guard (query is a SQL string)", () => {
+    // Same protection as isPgPoolExhaustionError: if `query` is a SQL string,
+    // the query reached the server; retrying could double-apply mutations.
+    expect(
+      isPgStaleConnectionError({
+        code: "ECONNRESET",
+        message: "socket hang up",
+        query: "UPDATE memories SET ...",
+      })
+    ).toBe(false);
+  });
+
+  test("accepts pre-send shape (query: undefined own-property) with code", () => {
+    // postgres-js attaches `query: undefined` to connection-acquisition
+    // failures. Both strong code AND pre-send shape are present — accepted.
+    expect(
+      isPgStaleConnectionError({
+        code: "ECONNRESET",
+        message: "socket hang up",
+        query: undefined,
+      })
+    ).toBe(true);
+  });
+});
+
+describe("isPgRetryableConnectionError (union)", () => {
+  test("fires on pool-exhaustion shapes", () => {
+    expect(isPgRetryableConnectionError({ code: "53300", message: "too_many_connections" })).toBe(
+      true
+    );
+  });
+
+  test("fires on stale-connection shapes", () => {
+    expect(isPgRetryableConnectionError({ code: "ECONNRESET", message: "socket hang up" })).toBe(
+      true
+    );
+  });
+
+  test("rejects errors that are neither pool-exhaustion nor stale-connection", () => {
+    expect(isPgRetryableConnectionError(new Error("syntax error"))).toBe(false);
+    expect(isPgRetryableConnectionError(null)).toBe(false);
+  });
+});
+
 describe("withPgPoolRetry", () => {
   test("returns result on first success without retrying", async () => {
     let calls = 0;
@@ -177,6 +294,47 @@ describe("withPgPoolRetry", () => {
         { maxAttempts: 2, initialDelayMs: 1 }
       )
     ).rejects.toThrow(SUPAVISOR_SATURATION_MESSAGE);
+    expect(calls).toBe(2);
+  });
+
+  test("retries stale-connection errors then succeeds (mt#1831)", async () => {
+    // End-to-end: a stale postgres-js client surfaces as ECONNRESET on first
+    // use. The retry loop must absorb the transient — the second attempt
+    // gets a fresh client and succeeds.
+    let calls = 0;
+    const result = await withPgPoolRetry(
+      async () => {
+        calls += 1;
+        if (calls < 2) {
+          throw Object.assign(new Error("socket hang up"), { code: "ECONNRESET" });
+        }
+        return "ok";
+      },
+      "test.mt1831-stale-connection-retry",
+      { initialDelayMs: 1, maxDelayMs: 4 }
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(2);
+  });
+
+  test("retries 'Connection terminated' errors (postgres-js shape, mt#1831)", async () => {
+    // The exact shape observed in the mt#1831 originating incident.
+    let calls = 0;
+    const result = await withPgPoolRetry(
+      async () => {
+        calls += 1;
+        if (calls < 2) {
+          throw Object.assign(new Error(CONNECTION_TERMINATED_MESSAGE), {
+            code: CONNECTION_CLOSED_CODE,
+            query: undefined, // postgres-js pre-send shape
+          });
+        }
+        return "ok";
+      },
+      "test.mt1831-connection-terminated",
+      { initialDelayMs: 1, maxDelayMs: 4 }
+    );
+    expect(result).toBe("ok");
     expect(calls).toBe(2);
   });
 
