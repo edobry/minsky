@@ -24,8 +24,8 @@ export function BasicHealth({ data }: Props) {
       <CardHeader className="pb-2">
         <CardTitle className="text-base font-semibold">System Health</CardTitle>
       </CardHeader>
-      <CardContent>
-        {data.state === "ok" ? (
+      {data.state === "ok" ? (
+        <CardContent>
           <dl>
             <div className="flex items-center justify-between py-1.5 border-b border-border last:border-0 text-sm">
               <dt className="text-muted-foreground">Uptime</dt>
@@ -40,10 +40,12 @@ export function BasicHealth({ data }: Props) {
               <dd className="tabular-nums">{(data.payload as HealthPayload).loadedWidgetCount}</dd>
             </div>
           </dl>
-        ) : (
-          <p className="text-sm text-muted-foreground">{data.reason}</p>
-        )}
-      </CardContent>
+        </CardContent>
+      ) : (
+        <CardContent className="text-sm text-muted-foreground">
+          <p>{data.reason}</p>
+        </CardContent>
+      )}
     </Card>
   );
 }
