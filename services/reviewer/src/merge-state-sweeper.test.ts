@@ -429,12 +429,12 @@ describe("runMergeStateSweep — error handling", () => {
 // ---------------------------------------------------------------------------
 
 describe("loadMergeStateSweeperConfig", () => {
-  it("defaults to enabled=false when env var not set", () => {
+  it("defaults to enabled=true when env var not set (mt#1811)", () => {
     const saved = process.env[ENV_SWEEPER_ENABLED];
     delete process.env[ENV_SWEEPER_ENABLED];
     try {
       const cfg = loadMergeStateSweeperConfig();
-      expect(cfg.enabled).toBe(false);
+      expect(cfg.enabled).toBe(true);
     } finally {
       if (saved !== undefined) process.env[ENV_SWEEPER_ENABLED] = saved;
     }
@@ -446,6 +446,21 @@ describe("loadMergeStateSweeperConfig", () => {
     try {
       const cfg = loadMergeStateSweeperConfig();
       expect(cfg.enabled).toBe(true);
+    } finally {
+      if (saved !== undefined) {
+        process.env[ENV_SWEEPER_ENABLED] = saved;
+      } else {
+        delete process.env[ENV_SWEEPER_ENABLED];
+      }
+    }
+  });
+
+  it("enabled=false when MERGE_STATE_SWEEPER_ENABLED=false (explicit opt-out)", () => {
+    const saved = process.env[ENV_SWEEPER_ENABLED];
+    process.env[ENV_SWEEPER_ENABLED] = "false";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.enabled).toBe(false);
     } finally {
       if (saved !== undefined) {
         process.env[ENV_SWEEPER_ENABLED] = saved;

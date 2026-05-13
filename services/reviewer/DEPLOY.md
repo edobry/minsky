@@ -61,6 +61,42 @@ railway variable set MINSKY_SESSIONDB_POSTGRES_URL=<your-supabase-postgres-url>
 railway variable set MINSKY_REVIEWER_TIER2_ENABLED=false
 ```
 
+### Recovery layer activation (mt#1614 + mt#1811)
+
+The reviewer service hosts mt#1614's post-merge state-sync recovery layer: a
+`pull_request.closed && merged=true` webhook handler plus a 10-minute sweeper
+backstop. Both paths invoke `apply_post_merge_state_sync` on the Minsky MCP
+server to transition merged PRs from IN-REVIEW → DONE (and apply the full
+session state-sync). Without these env vars the recovery layer is silently
+no-op (originating incident: mt#1811 — four PRs bypass-merged 2026-05-12 did
+not auto-sync because MCP credentials and/or the sweeper toggle were unset on
+the deployed service).
+
+```bash
+# REQUIRED for the recovery layer to function. Both must be set together.
+# - MINSKY_MCP_URL: HTTPS endpoint of the Minsky MCP server (hosted form).
+# - MINSKY_MCP_TOKEN: bearer token issued by the Minsky MCP server.
+# Without these, the webhook handler logs "at_merge_handler.mcp_not_configured"
+# and skips (silent no-op); the sweeper logs "merge_state_sweeper.missing_credentials"
+# and refuses to start. The PR will be left stranded at IN-REVIEW until manual sync.
+railway variable set MINSKY_MCP_URL=<https://your-minsky-mcp-host/mcp>
+railway variable set MINSKY_MCP_TOKEN=<bearer-token-from-minsky-mcp>
+
+# OPTIONAL — sweeper is enabled by default (mt#1811). Set to "false" only if
+# you want to disable the 10-minute backstop sweep entirely.
+# railway variable set MERGE_STATE_SWEEPER_ENABLED=false
+
+# OPTIONAL — sweeper cadence. Default 600000 (10 min). Smaller values increase
+# how quickly the backstop catches a webhook-missed merge.
+# railway variable set MERGE_STATE_SWEEPER_INTERVAL_MS=600000
+```
+
+Verify activation after deploy: tail `railway logs --service minsky-reviewer-webhook`
+and confirm you see `{"event":"merge_state_sweeper.started", ...}` shortly after
+service start. If you see `merge_state_sweeper.missing_credentials` or
+`merge_state_sweeper.disabled` instead, the recovery layer is NOT active and
+bypass-merge PRs will not auto-sync.
+
 After setting variables, trigger a redeploy:
 
 ```bash
@@ -253,3 +289,5 @@ If no new deployment appears within ~60s of the merge, check:
 **Reviewer identity matches PR author:** you've configured the reviewer App ID to be the same as the implementer App. They must be distinct Apps.
 
 **Review posts but uses Claude:** you've left `REVIEWER_PROVIDER=anthropic` which is the fallback path; switch to `openai` or `google` for real model diversity.
+
+**Merged PRs not auto-syncing to DONE (mt#1614 recovery layer silent):** if PRs merge cleanly on GitHub but their Minsky tasks stay at IN-REVIEW, the recovery layer is not active. Tail `railway logs` for `at_merge_handler.mcp_not_configured` or `merge_state_sweeper.missing_credentials`/`merge_state_sweeper.disabled` — both indicate missing env vars. Fix by setting `MINSKY_MCP_URL` and `MINSKY_MCP_TOKEN` per "Recovery layer activation" above. Originating incident: mt#1811.

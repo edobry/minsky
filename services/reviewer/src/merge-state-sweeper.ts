@@ -47,6 +47,11 @@
  *   Owner: infrastructure monitoring (mt#1310).
  * - GitHub API being unreachable (sweeper can't check PR state).
  *   Owner: infrastructure monitoring.
+ * - **Deploys where MINSKY_MCP_URL or MINSKY_MCP_TOKEN is unset** (mt#1811). The
+ *   sweeper defaults to enabled but cannot start without MCP credentials —
+ *   startup emits "merge_state_sweeper.missing_credentials" and returns null.
+ *   Operators must set both env vars on the deployed service. See
+ *   services/reviewer/DEPLOY.md § Recovery layer activation.
  */
 
 import type { ReviewerConfig } from "./config";
@@ -59,7 +64,13 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 export interface MergeStateSweeperConfig {
   /** Sweep interval in milliseconds. Default: 600_000 (10 min). */
   intervalMs: number;
-  /** Whether the sweeper is enabled. Default: false. */
+  /**
+   * Whether the sweeper is enabled. Default: true (flipped from false on mt#1811).
+   *
+   * The sweeper is mt#1614's load-bearing recovery mechanism for bypass-merge state-sync
+   * drift. Defaulting to disabled silently strands sessions whose webhook delivery missed.
+   * Operators can still explicitly opt out via MERGE_STATE_SWEEPER_ENABLED=false.
+   */
   enabled: boolean;
   /** Minsky MCP endpoint URL. */
   mcpUrl: string;
@@ -71,7 +82,10 @@ export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
   return {
     // 10-minute default: see cadence rationale in module docstring.
     intervalMs: parseInt(process.env["MERGE_STATE_SWEEPER_INTERVAL_MS"] ?? "600000", 10),
-    enabled: (process.env["MERGE_STATE_SWEEPER_ENABLED"] ?? "false") === "true",
+    // Default to enabled (mt#1811). If MCP creds are absent, startMergeStateSweeper
+    // emits "missing_credentials" and refuses to start — no behavior regression for
+    // deploys without the credentials, but a clear log signal instead of silent disable.
+    enabled: (process.env["MERGE_STATE_SWEEPER_ENABLED"] ?? "true") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
     mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
   };

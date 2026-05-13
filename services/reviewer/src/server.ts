@@ -862,8 +862,10 @@ if (import.meta.main) {
   // Catches sessions stuck in PR_OPEN with closed-merged PRs — the safety net
   // for when the pull_request.closed webhook handler misses an event.
   // Configurable via MERGE_STATE_SWEEPER_ENABLED, MERGE_STATE_SWEEPER_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
-  // Opt-in: disabled by default; set MERGE_STATE_SWEEPER_ENABLED=true to activate.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set on the deployed service.
+  // **Enabled by default (mt#1811)**: set MERGE_STATE_SWEEPER_ENABLED=false to opt out.
+  // If MCP credentials are absent the sweeper logs "missing_credentials" and refuses
+  // to start — operators see a clear log line instead of a silent disable.
   startMergeStateSweeper(config, loadMergeStateSweeperConfig());
 
   // Start the adoption sweeper (mt#1630).
