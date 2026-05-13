@@ -93,12 +93,40 @@ describe("pickLatestReviewPerReviewer", () => {
     expect(result[0]).toEqual(dismissed);
   });
 
-  test("COMMENTED state participates in latest-wins reduction", () => {
+  test("COMMENTED does NOT supersede CHANGES_REQUESTED (non-decision-bearing)", () => {
+    // GitHub's review_decision semantics: COMMENTED is informational, not a
+    // verdict. A later COMMENTED from the same reviewer leaves the prior
+    // CHANGES_REQUESTED in effect.
     const changes = review("bot", STATE_CHANGES_REQUESTED, "2026-05-13T10:00:00Z");
     const commented = review("bot", STATE_COMMENTED, "2026-05-13T11:00:00Z");
     const result = pickLatestReviewPerReviewer([changes, commented]);
     expect(result).toHaveLength(1);
-    expect(result[0]).toEqual(commented);
+    expect(result[0]).toEqual(changes);
+  });
+
+  test("COMMENTED does NOT supersede APPROVED (non-decision-bearing)", () => {
+    const approved = review("bot", STATE_APPROVED, "2026-05-13T10:00:00Z");
+    const commented = review("bot", STATE_COMMENTED, "2026-05-13T11:00:00Z");
+    const result = pickLatestReviewPerReviewer([approved, commented]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(approved);
+  });
+
+  test("PENDING does NOT supersede a decision (non-decision-bearing)", () => {
+    const changes = review("bot", STATE_CHANGES_REQUESTED, "2026-05-13T10:00:00Z");
+    const pending = review("bot", "PENDING", "2026-05-13T11:00:00Z");
+    const result = pickLatestReviewPerReviewer([changes, pending]);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(changes);
+  });
+
+  test("only COMMENTED reviews from a reviewer produce no entry", () => {
+    // If a reviewer has only non-decision-bearing reviews, they don't appear
+    // in the output at all. The downstream isApproved counts are unaffected.
+    const c1 = review("bot", STATE_COMMENTED, "2026-05-13T10:00:00Z");
+    const c2 = review("bot", STATE_COMMENTED, "2026-05-13T11:00:00Z");
+    const result = pickLatestReviewPerReviewer([c1, c2]);
+    expect(result).toEqual([]);
   });
 
   test("AT6: real-world PR #1110 timeline collapses to single APPROVED", () => {
@@ -169,6 +197,11 @@ describe("pickLatestReviewPerReviewer", () => {
  */
 describe("isApproved predicate composition (mt#1830 AT1-AT6)", () => {
   function computeIsApproved(reviews: MinimalReview[], requiredApprovals: number): boolean {
+    // Mirrors the production path: the reducer itself filters to
+    // decision-bearing states (APPROVED, CHANGES_REQUESTED, DISMISSED) — see
+    // DECISION_BEARING_STATES in github-pr-approval.ts. COMMENTED and PENDING
+    // are non-decisions per GitHub's `review_decision` semantics and are
+    // dropped inside the reducer.
     const latestPerReviewer = pickLatestReviewPerReviewer(reviews);
     const effectiveApprovals = latestPerReviewer.filter((r) => r.state === STATE_APPROVED);
     const effectiveRejections = latestPerReviewer.filter(
@@ -248,5 +281,47 @@ describe("isApproved predicate composition (mt#1830 AT1-AT6)", () => {
     ];
     expect(computeIsApproved(reviews, 2)).toBe(false);
     expect(computeIsApproved(reviews, 1)).toBe(true);
+  });
+
+  // PR #1112 R1 reviewer-bot non-blocking finding: COMMENTED is a
+  // non-decision state in GitHub's review_decision semantics. A reviewer
+  // who posted CHANGES_REQUESTED then later COMMENTED still has effective
+  // state CHANGES_REQUESTED, NOT "resolved by comment."
+  test("GitHub semantics: COMMENTED does NOT supersede CHANGES_REQUESTED", () => {
+    const reviews = [
+      review("bot", STATE_CHANGES_REQUESTED, "2026-05-13T10:00:00Z"),
+      review("bot", STATE_COMMENTED, "2026-05-13T11:00:00Z"),
+    ];
+    expect(computeIsApproved(reviews, 0)).toBe(false);
+  });
+
+  test("GitHub semantics: COMMENTED does NOT supersede APPROVED either", () => {
+    // Same reviewer's APPROVED stays in force when they later COMMENT.
+    const reviews = [
+      review("bot", STATE_APPROVED, "2026-05-13T10:00:00Z"),
+      review("bot", STATE_COMMENTED, "2026-05-13T11:00:00Z"),
+    ];
+    expect(computeIsApproved(reviews, 0)).toBe(true);
+  });
+
+  test("GitHub semantics: DISMISSED is filtered out, prior CHANGES_REQUESTED clears", () => {
+    // If the latest action is DISMISSED, neither approval nor rejection
+    // counts. With requiredApprovals=0 and no remaining rejections, the
+    // PR is approved.
+    const reviews = [review("bot", STATE_CHANGES_REQUESTED, "2026-05-13T10:00:00Z")];
+    // First confirm the baseline blocks.
+    expect(computeIsApproved(reviews, 0)).toBe(false);
+    // Then add a later DISMISSED — should clear the rejection.
+    const reviewsWithDismissal = [
+      ...reviews,
+      review("bot", STATE_DISMISSED, "2026-05-13T11:00:00Z"),
+    ];
+    expect(computeIsApproved(reviewsWithDismissal, 0)).toBe(true);
+  });
+
+  test("GitHub semantics: only-COMMENT review has no effect on approval status", () => {
+    const reviews = [review("bot", STATE_COMMENTED, "2026-05-13T10:00:00Z")];
+    expect(computeIsApproved(reviews, 0)).toBe(true);
+    expect(computeIsApproved(reviews, 1)).toBe(false); // requires real APPROVE
   });
 });

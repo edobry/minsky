@@ -30,14 +30,30 @@ export interface MinimalReview {
 }
 
 /**
- * Reduce a review list to the latest review per reviewer (by `submitted_at`).
+ * The set of review states GitHub treats as "decision-bearing" for its own
+ * `review_decision` field. Only these states participate in the per-reviewer
+ * latest-wins reduction. COMMENTED and PENDING are informational, NOT
+ * decisions: an APPROVED review followed by a COMMENTED review from the same
+ * reviewer is still APPROVED, and a CHANGES_REQUESTED followed by a COMMENTED
+ * is still CHANGES_REQUESTED. Per GitHub docs (and verified against the
+ * `review_decision` GraphQL field), only APPROVED / CHANGES_REQUESTED /
+ * DISMISSED carry a decision.
+ */
+const DECISION_BEARING_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]);
+
+/**
+ * Reduce a review list to the latest decision-bearing review per reviewer
+ * (by `submitted_at`).
  *
- * GitHub's own `review_decision` semantics: a reviewer's most recent review
- * supersedes their earlier ones. So `[CHANGES_REQUESTED then APPROVED]` from
- * the same reviewer collapses to APPROVED (resolved); `[APPROVED then
- * CHANGES_REQUESTED]` collapses to CHANGES_REQUESTED (re-rejected).
+ * GitHub's own `review_decision` semantics: a reviewer's most recent
+ * DECISION-BEARING review supersedes their earlier ones. So
+ * `[CHANGES_REQUESTED then APPROVED]` from the same reviewer collapses to
+ * APPROVED (resolved); `[APPROVED then CHANGES_REQUESTED]` collapses to
+ * CHANGES_REQUESTED (re-rejected). A COMMENTED review interleaved between
+ * decisions does NOT supersede the prior decision (COMMENTED is
+ * informational, not a verdict).
  *
- * This function preserves that semantics for downstream code that computes
+ * This function preserves those semantics for downstream code that computes
  * `isApproved`. The previous implementation counted every CHANGES_REQUESTED
  * review regardless of whether the same reviewer later approved, producing
  * a false-blocking merge state for the common reviewer-bot cycle (request
@@ -45,6 +61,9 @@ export interface MinimalReview {
  * (mt#1824 / PR #1110 R1 → R2).
  *
  * Behavior:
+ *   - Non-decision-bearing states (COMMENTED, PENDING, anything not in
+ *     DECISION_BEARING_STATES) are filtered out BEFORE the reduction.
+ *     They do not appear in the output and do not supersede prior decisions.
  *   - Reviews without a `user.login` are dropped (cannot key by reviewer).
  *   - `submitted_at` is compared as an ISO-8601 lexicographic string
  *     (matches temporal ordering for valid ISO timestamps). Reviews with
@@ -59,6 +78,7 @@ export interface MinimalReview {
 export function pickLatestReviewPerReviewer<R extends MinimalReview>(reviews: R[]): R[] {
   const byReviewer = new Map<string, R>();
   for (const r of reviews) {
+    if (!DECISION_BEARING_STATES.has(r.state)) continue;
     const login = r.user?.login;
     if (!login) continue;
     const prev = byReviewer.get(login);
@@ -256,6 +276,11 @@ export async function getPullRequestApprovalStatus(
     // return value's `approvals: ApprovalInfo[]` field (consumer contract
     // preserved); only the isApproved predicate uses the per-reviewer
     // reduction. See mt#1830 for the originating incident.
+    //
+    // The reducer itself filters input to decision-bearing states
+    // (APPROVED, CHANGES_REQUESTED, DISMISSED) — see DECISION_BEARING_STATES
+    // and pickLatestReviewPerReviewer above. COMMENTED and PENDING are
+    // informational and do not supersede prior decisions.
     // Cast to MinimalReview[]: Octokit's review type carries many fields
     // (author_association, _links, etc.) that don't structurally widen to
     // MinimalReview's tighter user shape. The runtime fields the helper
