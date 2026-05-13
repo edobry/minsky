@@ -541,16 +541,19 @@ export interface BraintrustConfig {
  * config file can't be read.
  */
 export async function readBraintrustConfig(): Promise<BraintrustConfig | null> {
-  // Env vars take precedence (matches the `environmentMappings` table)
+  // Env vars take precedence over YAML values for the same fields (matches the
+  // `environmentMappings` table in src/domain/configuration/sources/environment.ts).
+  // The one exception: the `enabled` flag is YAML-only — there's no env-var
+  // mapping for it, so we always consult YAML to determine enabled-ness,
+  // regardless of whether apiKey came from env or YAML.
   let apiKey: string | undefined = process.env.BRAINTRUST_API_KEY;
   let projectName: string | undefined = process.env.BRAINTRUST_PROJECT_NAME;
   let appUrl: string | undefined = process.env.BRAINTRUST_API_URL;
   let enabled = true;
 
-  if (!apiKey) {
-    try {
-      const home = process.env.HOME ?? process.env.USERPROFILE;
-      if (!home) return null;
+  try {
+    const home = process.env.HOME ?? process.env.USERPROFILE;
+    if (home) {
       const configPath = `${home}/.config/minsky/config.yaml`;
       const yaml = await import("yaml");
       const content = await Bun.file(configPath).text();
@@ -562,14 +565,18 @@ export async function readBraintrustConfig(): Promise<BraintrustConfig | null> {
         | { apiKey?: string; projectName?: string; apiUrl?: string; enabled?: boolean }
         | undefined;
       if (bt) {
-        apiKey = bt.apiKey ?? apiKey;
+        // YAML values fill in only where env vars haven't already set them.
+        apiKey = apiKey ?? bt.apiKey;
         projectName = projectName ?? bt.projectName;
         appUrl = appUrl ?? bt.apiUrl;
+        // `enabled` is always YAML-driven (no env-var mapping); explicit
+        // `enabled: false` disables emission even when an apiKey is set via env.
         enabled = bt.enabled !== false;
       }
-    } catch {
-      return null;
     }
+  } catch {
+    // YAML read/parse failure: fall through with whatever env vars provided.
+    // If apiKey is still unset after env+YAML, the next check returns null.
   }
 
   if (!apiKey || !enabled) return null;
@@ -623,6 +630,7 @@ export async function emitBraintrust(entry: LogEntry): Promise<void> {
           injectedTokens: entry.injectedTokens,
           injectedCount: entry.injectedCount,
           backend: entry.backend,
+          latencyMs: entry.latencyMs,
         };
 
     await logger.log({

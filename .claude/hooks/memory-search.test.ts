@@ -2,10 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   AFFIRMATIVE_WORDS,
   buildInjection,
+  DEFAULT_K,
+  DEFAULT_TOKEN_BUDGET,
   deriveVariantTag,
+  emitBraintrust,
   estimateTokens,
   HOOK_VERSION,
   isTrivialPrompt,
+  MIN_PROMPT_LENGTH,
   parseSearchOutput,
   readBraintrustConfig,
   renderResult,
@@ -14,7 +18,6 @@ import {
   writeLog,
   type LogFsDeps,
   type MemorySearchResultLite,
-  DEFAULT_TOKEN_BUDGET,
 } from "./memory-search";
 
 const TRUNCATION_MARKER_TEXT = TRUNCATION_MARKER.trim();
@@ -592,11 +595,11 @@ describe("deriveVariantTag", () => {
   });
 
   it("uses the source-level defaults when called with no arguments", () => {
-    // The default-derived variant must match the same shape; specific values
-    // are whatever the source constants currently encode, which is the point —
-    // the tag auto-updates when constants change in source.
-    const tag = deriveVariantTag();
-    expect(tag).toMatch(/^K=\d+,B=\d+,MIN=\d+$/);
+    // The default-derived variant must match the source constants exactly;
+    // this asserts the function is wired to the live constants so changes to
+    // K/budget/MIN automatically reflect in the emitted tag without code edits.
+    const expected = `K=${DEFAULT_K},B=${DEFAULT_TOKEN_BUDGET},MIN=${MIN_PROMPT_LENGTH}`;
+    expect(deriveVariantTag()).toBe(expected);
   });
 });
 
@@ -648,6 +651,64 @@ describe("readBraintrustConfig", () => {
     process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-12345";
     const cfg = await readBraintrustConfig();
     expect(cfg).toBeNull();
+    process.env.HOME = originalHome;
+  });
+});
+
+describe("emitBraintrust", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.BRAINTRUST_API_KEY;
+    delete process.env.BRAINTRUST_PROJECT_NAME;
+    delete process.env.BRAINTRUST_API_URL;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("does not throw when no Braintrust config is available", async () => {
+    // No env var, HOME pointed at a path with no minsky config.
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-67890";
+
+    // Call should be a silent no-op; the absence of crash here verifies the
+    // graceful-degradation contract: the hook is on the critical path of every
+    // prompt and instrumentation must never propagate failures.
+    await expect(
+      emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId: "test-session",
+        promptPrefix: "test prompt",
+        promptLength: 100,
+        skipped: false,
+        injectedTokens: 500,
+        injectedCount: 3,
+        backend: "embeddings",
+        latencyMs: 1234,
+      })
+    ).resolves.toBeUndefined();
+
+    process.env.HOME = originalHome;
+  });
+
+  it("does not throw on malformed entry (only required fields)", async () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-99999";
+
+    // Minimum-viable LogEntry shape — no optional fields. Should not crash.
+    await expect(
+      emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId: "test",
+        promptPrefix: "x",
+        promptLength: 1,
+        skipped: true,
+        skipReason: "trivial",
+      })
+    ).resolves.toBeUndefined();
+
     process.env.HOME = originalHome;
   });
 });
