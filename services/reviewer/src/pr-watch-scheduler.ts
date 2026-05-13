@@ -42,7 +42,7 @@
 
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { callMcp } from "./mcp-client";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -82,91 +82,62 @@ interface McpCallResult {
 }
 
 /**
- * Call the Minsky MCP `pr.watch.run` tool via HTTP.
+ * Call the Minsky MCP `pr_watch_run` tool via HTTP.
  *
- * The Minsky MCP server exposes tools over a JSON-RPC-over-HTTP interface.
- * This helper sends a minimal `tools/call` request and parses the outcome.
+ * Delegates to the shared {@link callMcp} helper (mt#1821) for the MCP
+ * initialize handshake and session-id caching. Before mt#1821 this helper
+ * POSTed `tools/call` without first sending `initialize`; the server
+ * rejected every request with `-32600 "first request must be initialize"`
+ * and the pr-watch scheduler silently no-op'd every cycle.
  *
- * Errors from the MCP call are caught and returned as `{ success: false }` —
- * the scheduler is a best-effort background task; a single failed call must
- * not crash the reviewer service.
+ * Errors from the MCP call are caught and returned as `{ success: false }`
+ * — the scheduler is a best-effort background task; a single failed call
+ * must not crash the reviewer service.
  */
 async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCallResult> {
-  try {
-    const response = await fetch(`${mcpUrl}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${mcpToken}`,
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: `pr-watch-scheduler-${Date.now()}`,
-        method: "tools/call",
-        params: {
-          name: "pr_watch_run",
-          arguments: {},
-        },
-      }),
-    });
+  // Timeout: 15s, matching the sweeper convention; passed explicitly so any
+  // future change to the helper's default does not silently regress scheduler
+  // behavior.
+  //
+  // Observability: `callMcp` emits structured `console.warn` events with the
+  // `pr_watch_scheduler.mcp` prefix; the legacy
+  // `pr_watch_scheduler.mcp_{http_error,rpc_error}` events are preserved at
+  // the same prefix. The legacy `pr_watch_scheduler.call_failed` event
+  // (emitted only when fetch itself threw, e.g. ECONNREFUSED) is renamed to
+  // `pr_watch_scheduler.mcp_init_fetch_error` or
+  // `pr_watch_scheduler.mcp_fetch_error` depending on which phase failed —
+  // same data, different name. Update any dashboards keying on
+  // `call_failed` to also match the new event names.
+  const result = await callMcp(
+    "pr_watch_run",
+    {},
+    { mcpUrl, mcpToken },
+    { logPrefix: "pr_watch_scheduler.mcp", timeoutMs: 15_000 }
+  );
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "(unreadable)");
-      console.warn(
-        JSON.stringify({
-          event: "pr_watch_scheduler.mcp_http_error",
-          status: response.status,
-          body: safeTruncate(text, 200, "head"),
-        })
-      );
-      return { success: false, error: `HTTP ${response.status}` };
-    }
-
-    const data = (await response.json()) as {
-      result?: { content?: Array<{ text?: string }> };
-      error?: { message?: string };
-    };
-
-    if (data.error) {
-      console.warn(
-        JSON.stringify({
-          event: "pr_watch_scheduler.mcp_rpc_error",
-          error: data.error.message,
-        })
-      );
-      return { success: false, error: data.error.message ?? "rpc error" };
-    }
-
-    // Parse the text content from the MCP tool response.
-    const textContent = data.result?.content?.[0]?.text;
-    if (textContent) {
-      try {
-        const parsed = JSON.parse(textContent) as {
-          inspected?: number;
-          fired?: number;
-        };
-        return {
-          success: true,
-          inspected: parsed.inspected,
-          fired: parsed.fired,
-        };
-      } catch {
-        // Non-JSON text content — still a success
-        return { success: true };
-      }
-    }
-
-    return { success: true };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      JSON.stringify({
-        event: "pr_watch_scheduler.call_failed",
-        error: message,
-      })
-    );
-    return { success: false, error: message };
+  if (!result.ok) {
+    return { success: false, error: result.message };
   }
+
+  // Parse the text content from the MCP tool response.
+  if (result.contentText) {
+    try {
+      const parsed = JSON.parse(result.contentText) as {
+        inspected?: number;
+        fired?: number;
+      };
+      return {
+        success: true,
+        inspected: parsed.inspected,
+        fired: parsed.fired,
+      };
+    } catch {
+      // Non-JSON text content — still a success.
+      return { success: true };
+    }
+  }
+
+  return { success: true };
 }
 
 // ---------------------------------------------------------------------------

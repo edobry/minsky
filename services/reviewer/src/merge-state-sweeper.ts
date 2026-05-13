@@ -56,7 +56,7 @@
 
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { callMcp } from "./mcp-client";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -131,9 +131,31 @@ interface SessionListItem {
 }
 
 /**
- * Call a Minsky MCP tool via HTTP (same pattern as pr-watch-scheduler.ts).
+ * Call a Minsky MCP tool via HTTP.
  *
- * Returns the parsed result.content[0].text value, or null on error.
+ * Thin adapter over the shared {@link callMcp} helper (mt#1821) — preserves
+ * the legacy `string | null` return shape so the sweeper callsites don't
+ * change. The shared helper handles the initialize handshake and session-id
+ * caching, which prior to mt#1821 was missing here and caused every sweep
+ * cycle to fail with `-32600 "first request must be initialize"`.
+ *
+ * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+ * implementation. Passed explicitly (not relying on the helper's default)
+ * so any future change to the helper's default does not silently regress
+ * the sweeper's prior behavior.
+ *
+ * Observability: `callMcp` emits structured `console.warn` events with the
+ * `merge_state_sweeper.mcp` prefix. The event name suffixes are
+ * `_init_fetch_error`, `_init_http_error`, `_init_no_session_id`,
+ * `_init_notif_failed`, `_session_expired_retrying`, `_fetch_error`,
+ * `_http_error`, `_body_read_error`, `_parse_error`, `_rpc_error`, and
+ * `_tool_error`. The original
+ * `merge_state_sweeper.mcp_{http_error,rpc_error,fetch_error}` events are
+ * preserved at the same prefix; additional more-granular handshake events
+ * are added.
+ *
+ * Returns the concatenated text content from the tool result, or null on
+ * any error (transport / RPC / tool-level).
  */
 async function callMcpTool(
   mcpUrl: string,
@@ -141,103 +163,13 @@ async function callMcpTool(
   toolName: string,
   args: Record<string, unknown>
 ): Promise<string | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
-  try {
-    let response: Response;
-    try {
-      response = await fetch(mcpUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${mcpToken}`,
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: `merge-state-sweeper-${Date.now()}`,
-          method: "tools/call",
-          params: { name: toolName, arguments: args },
-        }),
-        signal: controller.signal,
-      });
-    } catch (fetchErr) {
-      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.mcp_fetch_error",
-          tool: toolName,
-          error: msg,
-        })
-      );
-      return null;
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "(unreadable)");
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.mcp_http_error",
-          tool: toolName,
-          status: response.status,
-          body: safeTruncate(text, 200, "head"),
-        })
-      );
-      return null;
-    }
-
-    const raw = await response.text().catch(() => null);
-    if (!raw) return null;
-
-    // Handle SSE (text/event-stream) or plain JSON responses.
-    const trimmed = raw.trim();
-    let jsonText: string | null = null;
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      jsonText = trimmed;
-    } else {
-      // SSE: extract last data: line
-      let last: string | null = null;
-      for (const line of trimmed.split("\n")) {
-        const stripped = line.trim();
-        if (stripped.startsWith("data:")) {
-          const payload = stripped.slice("data:".length).trim();
-          if (payload.startsWith("{") || payload.startsWith("[")) {
-            last = payload;
-          }
-        }
-      }
-      jsonText = last;
-    }
-
-    if (!jsonText) return null;
-
-    const parsed = JSON.parse(jsonText) as {
-      result?: { content?: Array<{ type?: string; text?: string }> };
-      error?: { message?: string };
-    };
-
-    if (parsed.error) {
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.mcp_rpc_error",
-          tool: toolName,
-          error: parsed.error.message,
-        })
-      );
-      return null;
-    }
-
-    // Concatenate all text chunks (handles multi-chunk responses).
-    const chunks = (parsed.result?.content ?? [])
-      .filter(
-        (c): c is { type: string; text: string } => c?.type === "text" && typeof c.text === "string"
-      )
-      .map((c) => c.text);
-
-    return chunks.length > 0 ? chunks.join("") : null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const result = await callMcp(
+    toolName,
+    args,
+    { mcpUrl, mcpToken },
+    { logPrefix: "merge_state_sweeper.mcp", timeoutMs: 15_000 }
+  );
+  return result.ok ? result.contentText : null;
 }
 
 // ---------------------------------------------------------------------------
