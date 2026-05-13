@@ -69,8 +69,7 @@ export function loadAsksReconcileSchedulerConfig(): AsksReconcileSchedulerConfig
     intervalMs: parsePositiveIntEnv("ASKS_RECONCILE_POLL_INTERVAL_MS", 30_000),
     enabled: (process.env["ASKS_RECONCILE_ENABLED"] ?? "false") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
-    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
 }
 

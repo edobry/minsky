@@ -120,8 +120,7 @@ export function loadAdoptionSweeperConfig(): AdoptionSweeperConfig {
     // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
     intervalMs: parsePositiveIntEnv("ADOPTION_SWEEPER_INTERVAL_MS", 86_400_000),
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
-    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
     lookbackDays: parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14),
   };
 }

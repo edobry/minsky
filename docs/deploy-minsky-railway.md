@@ -328,11 +328,7 @@ MINSKY_MCP_URL=https://<railway-domain>/mcp
 MINSKY_MCP_AUTH_TOKEN=<bearer-token-from-server>
 ```
 
-Per mt#1825 the client and server both use the name `MINSKY_MCP_AUTH_TOKEN` —
-the prior `MINSKY_MCP_TOKEN` dual-naming on the reviewer side has been retired.
-A transitional fallback to `MINSKY_MCP_TOKEN` remains in client code through
-the Railway rename migration; it will be removed once deploys confirm the
-canonical name is being read.
+The client and server both use the name `MINSKY_MCP_AUTH_TOKEN`.
 
 ## Troubleshooting
 

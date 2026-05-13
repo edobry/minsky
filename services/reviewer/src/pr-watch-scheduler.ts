@@ -66,8 +66,7 @@ export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
     intervalMs: parsePositiveIntEnv("PR_WATCH_POLL_INTERVAL_MS", 60_000),
     enabled: (process.env["PR_WATCH_ENABLED"] ?? "false") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
-    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
 }
 

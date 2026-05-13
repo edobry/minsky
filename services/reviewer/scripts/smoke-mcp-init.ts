@@ -29,8 +29,7 @@
 import { callMcp } from "../src/mcp-client";
 
 const mcpUrl = process.env["MINSKY_MCP_URL"];
-// mt#1825: prefer canonical name; fall back to legacy during rename migration.
-const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"];
+const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"];
 
 if (!mcpUrl || !mcpToken) {
   console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping live smoke test.");

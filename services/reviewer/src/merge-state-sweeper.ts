@@ -93,8 +93,7 @@ export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
     // deploys without the credentials, but a clear log signal instead of silent disable.
     enabled: (process.env["MERGE_STATE_SWEEPER_ENABLED"] ?? "true") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    // mt#1825: prefer canonical name; fall back to legacy during rename migration.
-    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? process.env["MINSKY_MCP_TOKEN"] ?? "",
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
 }
 
