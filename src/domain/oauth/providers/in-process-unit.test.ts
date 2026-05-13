@@ -28,7 +28,12 @@
 
 import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { InProcessOAuthProvider } from "./in-process";
+import {
+  InProcessOAuthProvider,
+  OPERATOR_AGENT_ID,
+  OPERATOR_SUB,
+  composeOperatorAccount,
+} from "./in-process";
 
 // ---------------------------------------------------------------------------
 // Minimal stub DB — satisfies the PostgresJsDatabase type at the boundaries
@@ -243,5 +248,54 @@ describe("InProcessOAuthProvider.registerClient — DCR token_endpoint_auth_meth
     const message = thrownError instanceof Error ? thrownError.message : String(thrownError);
     expect(message).toContain("none");
     expect(message).toContain("client_secret_post");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// composeOperatorAccount — mt#1764
+// ---------------------------------------------------------------------------
+//
+// Two-axis behavior of single-tenant findAccount:
+//   1. Echo input id into accountId (oidc-provider's contract — accountId
+//      mismatch with the Session-stored value throws at token-exchange).
+//   2. Hardcode sub: "operator" in claims (security — devInteractions
+//      input must NOT propagate into authorization decisions).
+//
+// These tests assert both axes independently for any input id, including
+// edge cases (operator-typed-as-input, empty string, arbitrary user value).
+
+describe("composeOperatorAccount (mt#1764)", () => {
+  test("accountId echoes the input id for an arbitrary user-typed value", () => {
+    const account = composeOperatorAccount("alice");
+    expect(account.accountId).toBe("alice");
+  });
+
+  test("accountId echoes the input id for the operator-typed value", () => {
+    const account = composeOperatorAccount("operator");
+    expect(account.accountId).toBe("operator");
+  });
+
+  test("accountId echoes the input id even for the empty string", () => {
+    // oidc-provider may pass an empty/undefined id in some flows; the contract
+    // is to echo whatever was given, not to substitute a default.
+    const account = composeOperatorAccount("");
+    expect(account.accountId).toBe("");
+  });
+
+  test("claims() returns the hardcoded operator sub regardless of input id", async () => {
+    for (const input of ["alice", "operator", "", "EVE-malicious-attempt"]) {
+      const account = composeOperatorAccount(input);
+      const claims = await account.claims();
+      expect(claims.sub).toBe(OPERATOR_SUB);
+      expect(claims.sub).toBe("operator");
+    }
+  });
+
+  test("OPERATOR_AGENT_ID has the ADR-006 Decision B shape oauth:claude-ai:user-operator", () => {
+    // The agentId is what reaches /mcp's principal context. It must always be
+    // the operator's, even if a stored token row's `sub` column says otherwise
+    // (which it might if devInteractions captured arbitrary user input).
+    expect(OPERATOR_AGENT_ID).toBe("oauth:claude-ai:user-operator");
+    expect(OPERATOR_AGENT_ID).toMatch(/^oauth:claude-ai:user-/);
   });
 });

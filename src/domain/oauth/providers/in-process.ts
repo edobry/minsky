@@ -137,6 +137,33 @@ function resolveSigningKey(signingKey: string | undefined): JwkKeyPair {
 // Config shape accepted by InProcessOAuthProvider
 // ---------------------------------------------------------------------------
 
+// mt#1764: single-tenant identity constants. The `sub` claim and the derived
+// agentId are hardcoded to "operator" for every issued token, regardless of
+// what devInteractions captured in the Session. Exported so the unit test
+// can pin both the contract behavior (findAccount echoes id) and the security
+// behavior (claims/principal always say "operator") without spinning up a DB.
+export const OPERATOR_SUB = "operator";
+export const OPERATOR_AGENT_ID = "oauth:claude-ai:user-operator";
+
+/**
+ * Compose the Account object oidc-provider's `findAccount(_ctx, id)` is
+ * required to return: `accountId` echoes the input `id` (or the token-exchange
+ * step throws "accountId mismatch"), `claims()` always returns the hardcoded
+ * operator `sub`. Pure function — exported for unit test (mt#1764 success
+ * criterion 4).
+ */
+export function composeOperatorAccount(id: string): {
+  accountId: string;
+  claims: () => Promise<{ sub: string }>;
+} {
+  return {
+    accountId: id,
+    async claims() {
+      return { sub: OPERATOR_SUB };
+    },
+  };
+}
+
 export interface InProcessOAuthProviderConfig {
   /** Postgres Drizzle database instance for token storage. */
   db: PostgresJsDatabase;
@@ -310,31 +337,43 @@ export class InProcessOAuthProvider implements OAuthIdentityProvider {
         keys: ["ephemeral-cookie-secret"],
       },
 
-      // mt#1754: minimal findAccount for single-tenant Minsky v1.
-      // SECURITY: returns a FIXED operator identity regardless of what input
-      // the user typed in devInteractions. The username field in the dev UI is
-      // theatre — entered text is discarded. The sub claim is always "operator",
-      // which means any token issued by this server represents the same single
-      // operator principal. This is the correct posture for single-tenant Minsky
-      // MCP, where there is no user-account model.
+      // mt#1754 + mt#1764: minimal findAccount for single-tenant Minsky v1.
       //
-      // Why not echo the devInteractions input (PR #1055 R1 BLOCKING): with DCR
-      // enabled and devInteractions enabled, ANY reachable client could
-      // self-assert an arbitrary `sub` by typing it in the login form, and that
-      // value would propagate into `agentId` and authorization decisions. The
-      // hardcode neutralizes that surface — there is exactly one identity that
-      // can be issued.
+      // Two separate concerns, separated to satisfy oidc-provider's contract
+      // AND preserve the single-tenant security posture:
+      //
+      // 1. CONTRACT: oidc-provider's `findAccount(_ctx, id)` requires the
+      //    returned `accountId` to equal the input `id`. The Session stores
+      //    whatever accountId devInteractions assigned (often the username
+      //    typed in the form). When the token-exchange step looks up the
+      //    Account again, it compares stored vs returned accountIds and
+      //    throws `Error: accountId mismatch` if they don't match. Echoing
+      //    `id` satisfies this contract. (mt#1764 — mt#1754 hardcoded
+      //    `accountId: "operator"`, which broke whenever Sessions stored a
+      //    non-"operator" accountId.)
+      //
+      // 2. SECURITY: returns a FIXED `sub: "operator"` claim regardless of
+      //    what the devInteractions login form accepted. The username field
+      //    in the dev UI is theatre — entered text is discarded at the
+      //    claims layer. validateToken() below also hardcodes the `sub` and
+      //    `agentId` of the issued bearer token to "operator", so even if
+      //    the Session's stored accountId is something else, the eventual
+      //    token always identifies the operator.
+      //
+      // Why not echo the devInteractions input INTO claims (PR #1055 R1
+      // BLOCKING): with DCR enabled and devInteractions enabled, ANY
+      // reachable client could self-assert an arbitrary `sub` by typing it
+      // in the login form, and that value would propagate into `agentId`
+      // and authorization decisions. Hardcoding the `sub` claim (and the
+      // validateToken principal) neutralizes that surface — there is
+      // exactly one identity that can be issued.
       //
       // mt#1683 will replace devInteractions with token-gated consent UI
       // (operator presents MINSKY_MCP_AUTH_TOKEN), at which point this
-      // placeholder either disappears or stays as the same fixed identity but
-      // the consent step actually authenticates the operator.
-      findAccount: async (_ctx: unknown, _id: string) => ({
-        accountId: "operator",
-        async claims() {
-          return { sub: "operator" };
-        },
-      }),
+      // placeholder either disappears or stays as the same fixed identity
+      // but the consent step actually authenticates the operator. mt#1683
+      // makes mt#1764 obsolete.
+      findAccount: async (_ctx: unknown, id: string) => composeOperatorAccount(id),
 
       // mt#1757: override oidc-provider's default renderError so internal
       // exceptions get logged at error-level (with stack trace) AND surfaced
@@ -664,12 +703,21 @@ exception:         ${escapeHtml(errAsError?.constructor?.name ?? "Error")}: ${es
     return {
       valid: true,
       principal: {
-        sub: row.sub,
+        // mt#1764: hardcode `sub` and `agentId` to OPERATOR_* for single-tenant
+        // posture, regardless of what was stored in `oauthAccessTokensTable.sub`.
+        // The stored value reflects whatever accountId devInteractions captured
+        // (which mt#1764 echoes via findAccount to satisfy oidc-provider's
+        // accountId-mismatch contract — see findAccount above). Tokens issued
+        // by this server always identify the same single operator principal.
+        // mt#1683 will retire devInteractions and replace this with
+        // token-gated consent; until then, this hardcode is the security
+        // mechanism that makes the username field theatre.
+        sub: OPERATOR_SUB,
         clientId: row.clientId,
-        // ADR-006 Decision B format: oauth:claude-ai:user-<sub>
+        // ADR-006 Decision B format: oauth:claude-ai:user-<sub>.
         // conv-<convId> suffix is omitted in v1 — conversation propagation
         // is not yet wired through the HTTP layer. See mt#1666.
-        agentId: `oauth:claude-ai:user-${row.sub}`,
+        agentId: OPERATOR_AGENT_ID,
       },
       scopes,
       audience: row.audience ?? null,
