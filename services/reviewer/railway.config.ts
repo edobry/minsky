@@ -1,3 +1,20 @@
+// Synthesizer source for the `minsky-reviewer-webhook` Railway service.
+// Canonical apply path:
+//   bun scripts/railway/apply.ts services/reviewer            # dry-run
+//   bun scripts/railway/apply.ts services/reviewer --execute  # apply
+//
+// Hardcoded resource identifiers below (projectId / environmentId /
+// serviceId / MINSKY_MCP_URL) are intentional: they are the public Railway
+// resource IDs for the `minsky-reviewer` project in workspace
+// `Eugene Dobry's Projects`. The synthesizer fails fast if any of these
+// are wrong (the GraphQL `variables` query rejects unknown IDs), so a
+// typo is loud, not silent. If the service is ever recreated, update all
+// four values together.
+//
+// Secret-class values resolve via `secret("KEY")` from
+// `~/.config/minsky/railway-secrets.json` (or `process.env.KEY`). The
+// `secret()` argument MUST match a key in the secrets file — see
+// `scripts/railway/lib.ts:resolveSecret`. Mismatches throw at apply time.
 import { defineRailwayConfig, secret } from "../../scripts/railway/lib";
 
 export default defineRailwayConfig({
@@ -38,15 +55,17 @@ export default defineRailwayConfig({
     // (webhook handler + 10-min sweeper backstop). Both paths invoke
     // apply_post_merge_state_sync on the Minsky MCP server.
     //
-    // MINSKY_MCP_TOKEN is the bearer token the reviewer presents to the
-    // hosted MCP server. The deployed-env-var name is MINSKY_MCP_TOKEN
-    // (client side); the server-side counterpart is MINSKY_MCP_AUTH_TOKEN.
-    // Per mt#1811 outcome, both vars carry the same value, so we resolve
-    // from the shared MINSKY_MCP_AUTH_TOKEN entry in railway-secrets.json
-    // rather than maintaining a duplicate key.
+    // The deployed env-var name is MINSKY_MCP_TOKEN (client side); the
+    // matching server-side env var on minsky-mcp is MINSKY_MCP_AUTH_TOKEN.
+    // Per mt#1811 outcome these carry the same value, but they are stored
+    // under separate keys in railway-secrets.json (MINSKY_MCP_TOKEN and
+    // MINSKY_MCP_AUTH_TOKEN respectively) so each config file's secret()
+    // argument matches its deployed env-var name. The duplication is
+    // intentional — the alternative (one shared key, mismatched secret()
+    // argument on one side) was flagged as a footgun in mt#1818 review.
     // -------------------------------------------------------------------
     MINSKY_MCP_URL: "https://minsky-mcp-production.up.railway.app/mcp",
-    MINSKY_MCP_TOKEN: secret("MINSKY_MCP_AUTH_TOKEN"),
+    MINSKY_MCP_TOKEN: secret("MINSKY_MCP_TOKEN"),
 
     // -------------------------------------------------------------------
     // Postgres connection for the reviewer service's convergence-metrics
