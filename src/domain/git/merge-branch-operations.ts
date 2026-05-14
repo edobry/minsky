@@ -18,19 +18,19 @@ export async function mergeBranchImpl(
   deps: MergeBranchDependencies
 ): Promise<MergeResult> {
   log.debug("mergeBranch called", { workdir, branch });
+  const qWorkdir = safeShellQuote(workdir);
 
   try {
     // Get current commit hash
-    const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+    const { stdout: beforeHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
     log.debug("Before merge commit hash", { beforeHash: beforeHash.trim() });
 
     // Try to merge the branch
     try {
       // mt#1829: branch is PR/operator-controlled; wrap with safeShellQuote.
-      // workdir is Risky-but-typed (session path) — bulk quoting deferred.
       const qBranch = safeShellQuote(branch);
-      log.debug("Attempting merge", { command: `git -C ${workdir} merge ${qBranch}` });
-      await deps.execAsync(`git -C ${workdir} merge ${qBranch}`);
+      log.debug("Attempting merge", { command: `git -C ${qWorkdir} merge ${qBranch}` });
+      await deps.execAsync(`git -C ${qWorkdir} merge ${qBranch}`);
       log.debug("Merge completed successfully");
     } catch (err) {
       log.debug("Merge command failed, checking for conflicts", {
@@ -38,7 +38,7 @@ export async function mergeBranchImpl(
       });
 
       // Check if there are merge conflicts
-      const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: status } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain`);
       log.debug("Git status after failed merge", { status });
 
       const hasConflicts = status.includes("UU") || status.includes("AA") || status.includes("DD");
@@ -63,7 +63,7 @@ export async function mergeBranchImpl(
     }
 
     // Get new commit hash
-    const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+    const { stdout: afterHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
     log.debug("After merge commit hash", { afterHash: afterHash.trim() });
 
     // Return whether any changes were merged
