@@ -1,13 +1,5 @@
 ---
 name: principal-context
-description: "REQUIRED context for all strategic recommendations: names the principal (Eugene), the product (Minsky as a commercial AI product), and what frameworks apply by default. Read this BEFORE applying any evaluation framework to a strategic recommendation; check that the framework matches the principal''''s position."
-tags:
-  - minsky
-  - principles
-  - principal-context
----
----
-name: principal-context
 description: REQUIRED context for all strategic recommendations — names the principal (Eugene), the product (Minsky as a commercial AI product), and what frameworks apply by default. Read this BEFORE applying any evaluation framework to a strategic recommendation; check that the framework matches the principal's position.
 alwaysApply: true
 tags:
