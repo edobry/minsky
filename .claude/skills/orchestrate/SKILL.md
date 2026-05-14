@@ -43,6 +43,19 @@ If no task IDs are given, the skill works from context provided by the user.
 
 ## Coordination concerns
 
+### 0. Restate plan check (pre-action, mandatory)
+
+**Before any tool call that advances the coordination plan**, check whether the user has previously given multi-step direction AND the current prompt contains action-now language. If both trigger conditions hold, invoke `/restate-plan` before proceeding.
+
+Trigger conditions (both must hold):
+
+- **Sequencing direction in prior turn(s):** the user has used `first`, `before`, `after`, `then`, numbered steps, `prerequisite`, `wait until`, or multi-clause direction (`X, then Y`).
+- **Action-now in current turn:** the current prompt contains `do it now`, `proceed`, `go`, `start`, `why not do it now`, `do it`, `go ahead`.
+
+When both fire, invoke `/restate-plan` (or walk its 3-step process inline) BEFORE the first tool call that advances the plan. The 3 steps: (1) restate the plan one line per step in user-facing output, (2) identify the next step explicitly, (3) flag any skipped step — STOP and confirm if skipping a user-named prerequisite.
+
+This guards against the action-bias-driven step-compression failure mode (PR #1073 / mt#1783 originating incident; `decision-defaults.mdc §Multi-step direction execution` corpus rule). See `.claude/skills/restate-plan/SKILL.md` for the full skill text. Skip the check when there's only a single-step direction or when the prior turn had no sequencing keywords — see the skill's "When NOT to invoke" section for exclusions.
+
 ### A. Pre-decomposition: sweep for parallel work
 
 **Before creating any subtasks or sibling tasks**, check whether parallel work already exists.

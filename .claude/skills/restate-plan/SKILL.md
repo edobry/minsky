@@ -26,6 +26,8 @@ Both conditions must hold:
 
 When both fire, walk the 3-step process before any tool call that advances the plan.
 
+**Matching is case-insensitive and includes paraphrases.** The keyword lists above are not exhaustive — match high-frequency variants like `begin`, `right away`, `let's start`, `continue` (when used to drive forward, not after step completion), `kick off`, `now`, numerals without periods (`1)`, `2)`), hyphenated or capitalized sequencing words (`Step 1`, `Prereq`), and punctuation variants (`go!`, `start now`). The trigger fires on signal-pattern recognition, not literal-string matching.
+
 ## When NOT to invoke
 
 - **Single-step direction + action-now.** If the prior direction was a single step ("fix X" → "go"), no restatement needed; just do it.
@@ -70,6 +72,38 @@ Template:
 If no step is being skipped, write: `**Skipped step:** none.`
 
 **Hard rule.** If the cheapest immediate action skips a more expensive prerequisite step the user named, this is the signal to STOP and confirm — not to "be efficient" by doing the cheap step first.
+
+## Worked example
+
+User turn N-2:
+
+> "Implement the observability tool first, then use the hook tuning as its first test case."
+
+User turn N-1 (intervening agent response, optional):
+
+> "Got it — observability platform selection, then hook tune."
+
+User turn N (current):
+
+> "Do it now."
+
+**Triggers fire:** N-2 had `first`, `then` (sequencing); N has `do it now` (action-now). Both conditions hold.
+
+Agent's correct response BEFORE any tool call:
+
+> **Restating plan:**
+>
+> - Step 1 (user-named): Evaluate observability platforms (Langfuse / Phoenix / PostHog / Braintrust) and select one.
+> - Step 2 (user-named): Tune the memory-search hook constants, using the chosen platform as the measurement substrate (this becomes mt#1783's first test case).
+>
+> **Next step:** Step 1, because it's the user-named prerequisite for Step 2.
+> **Skipped step:** none.
+>
+> Step 1 requires picking a platform. The candidates are: ... [proceeds with platform-evaluation framework declaration per /declare-framework]
+
+Only AFTER posting that restatement does the agent invoke its first advancing tool call (e.g., `mcp__minsky__tasks_search` for prior platform-evaluation tasks, or `WebFetch` on a candidate's docs). Failing to post the restatement BEFORE the first tool call is the failure mode this skill prevents.
+
+**What this protects against (the incident this skill exists for):** In the originating PR #1073 / mt#1783 incident, the agent skipped the restatement and went directly to `session_start mt#1783`, then opened a PR for Step 2 (the hook tune). Step 1 (observability platform selection) was silently skipped — not because the agent decided to skip it, but because action-bias defaulted to the cheaper Step 2 without ever surfacing the question.
 
 ## Failure mode this prevents
 
