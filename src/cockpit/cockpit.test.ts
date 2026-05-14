@@ -13,6 +13,9 @@ import type { Server } from "http";
 import { createCockpitServer } from "./server";
 import type { WidgetModule, WidgetData, WidgetContext } from "./types";
 import { createAgentsWidget } from "./widgets/agents";
+import { createAttentionWidget } from "./widgets/attention";
+import type { AttentionPayload, AttentionAsk } from "./widgets/attention";
+import { FakeAskRepository } from "../domain/ask/repository";
 import type { AgentRow } from "./widgets/agents";
 import { createTaskGraphWidget } from "./widgets/task-graph";
 import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
@@ -879,5 +882,355 @@ describe("Cockpit server", () => {
     expect(body.state).toBe("ok");
     expect(Array.isArray(body.payload.workstreams)).toBe(true);
     expect(body.payload.workstreams.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Attention widget tests (mt#1147)
+  // ---------------------------------------------------------------------------
+
+  // Shared test constants — avoids magic-string duplication across cases
+  const KIND_DIRECTION = "direction.decide" as const;
+  const KIND_AUTH = "authorization.approve" as const;
+  const REQ_TASK1 = "minsky.native-subagent:task:mt#1" as const;
+  const REQ_TASK2 = "minsky.native-subagent:task:mt#2" as const;
+
+  /**
+   * Build a FakeAskRepository seeded with the given Asks.
+   * Uses _seedAtState to insert pre-built Asks at specific states.
+   */
+  function makeFakeRepo(
+    asks: Array<{
+      id: string;
+      kind: AttentionAsk["kind"];
+      state: "suspended" | "routed";
+      title: string;
+      question: string;
+      requestor: string;
+      routingTarget?: string;
+      parentTaskId?: string;
+      serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+      windowKey?: string;
+      windowMissedCount?: number;
+      options?: Array<{ label: string; value: unknown; description?: string }>;
+      deadline?: string;
+      metadata?: Record<string, unknown>;
+    }>
+  ): FakeAskRepository {
+    const repo = new FakeAskRepository();
+    const now = new Date().toISOString();
+    for (const a of asks) {
+      repo._seedAtState({
+        id: a.id,
+        kind: a.kind,
+        state: a.state,
+        classifierVersion: "v1",
+        title: a.title,
+        question: a.question,
+        requestor: a.requestor,
+        routingTarget: a.routingTarget,
+        parentTaskId: a.parentTaskId,
+        parentSessionId: undefined,
+        options: a.options,
+        contextRefs: undefined,
+        deadline: a.deadline,
+        serviceStrategy: a.serviceStrategy,
+        windowKey: a.windowKey,
+        windowMissedCount: a.windowMissedCount ?? 0,
+        forceImmediate: false,
+        metadata: a.metadata ?? {},
+        createdAt: now,
+      });
+    }
+    return repo;
+  }
+
+  // 12a. Attention widget present in /api/widgets when enabled
+  test("attention widget present in /api/widgets when enabled", async () => {
+    const repo = makeFakeRepo([]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    expect(body.map((w) => w.id)).toContain("attention");
+  });
+
+  // 12b. Empty state — no pending asks → ok payload with cohort: [], totalPending: 0
+  test("attention widget returns ok payload with empty cohort when no asks exist", async () => {
+    const repo = makeFakeRepo([]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    expect(Array.isArray(body.payload.cohort)).toBe(true);
+    expect(body.payload.cohort.length).toBe(0);
+    expect(body.payload.totalPending).toBe(0);
+    expect(body.payload.activeWindow).toBeNull();
+  });
+
+  // 12c. direction.decide Ask routed to operator appears in cohort
+  test("attention widget returns direction.decide ask in cohort when operator-routed", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-1",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Choose approach",
+        question: "Which architectural approach to take?",
+        requestor: "minsky.native-subagent:task:mt#1147",
+        routingTarget: "operator",
+        parentTaskId: "mt#1147",
+        options: [
+          { label: "Option A", value: "a", description: "Fast approach" },
+          { label: "Option B", value: "b", description: "Thorough approach" },
+        ],
+      },
+    ]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    expect(body.payload.cohort.length).toBe(1);
+    expect(body.payload.totalPending).toBe(1);
+
+    const ask = body.payload.cohort[0];
+    if (!ask) throw new Error("expected one ask in cohort");
+    expect(ask.id).toBe("ask-1");
+    expect(ask.kind).toBe(KIND_DIRECTION);
+    expect(ask.options).toHaveLength(2);
+    expect(ask.parentTaskId).toBe("mt#1147");
+  });
+
+  // 12d. Policy-resolved asks (routingTarget==="policy" or state==="closed") never appear
+  test("attention widget never surfaces policy-resolved or closed asks", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-good",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Visible ask",
+        question: "What to do?",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        parentTaskId: "mt#1",
+      },
+    ]);
+    // Also seed a closed ask directly
+    repo._seedAtState({
+      id: "ask-closed",
+      kind: KIND_AUTH,
+      state: "closed",
+      classifierVersion: "v1",
+      title: "Closed ask",
+      question: "Approve?",
+      requestor: REQ_TASK2,
+      routingTarget: "policy",
+      parentTaskId: "mt#2",
+      parentSessionId: undefined,
+      options: undefined,
+      contextRefs: undefined,
+      deadline: undefined,
+      serviceStrategy: undefined,
+      windowKey: undefined,
+      windowMissedCount: 0,
+      forceImmediate: false,
+      metadata: {},
+      createdAt: new Date().toISOString(),
+      closedAt: new Date().toISOString(),
+    });
+
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    // Only the visible ask appears — closed/policy asks filtered
+    const ids = body.payload.cohort.map((a) => a.id);
+    expect(ids).toContain("ask-good");
+    expect(ids).not.toContain("ask-closed");
+  });
+
+  // 12e. Multiple kind asks — priority ordering: stuck.unblock > authorization.approve > direction.decide
+  test("attention widget returns asks in priority order across kinds", async () => {
+    const baseTime = new Date().toISOString();
+    const repo = makeFakeRepo([
+      {
+        id: "ask-direction",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Direction ask",
+        question: "Which way?",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        parentTaskId: "mt#1",
+      },
+      {
+        id: "ask-stuck",
+        kind: "stuck.unblock",
+        state: "suspended",
+        title: "Stuck ask",
+        question: "I am stuck",
+        requestor: REQ_TASK2,
+        routingTarget: "operator",
+        parentTaskId: "mt#2",
+      },
+      {
+        id: "ask-auth",
+        kind: KIND_AUTH,
+        state: "suspended",
+        title: "Auth ask",
+        question: "Can I proceed?",
+        requestor: "minsky.native-subagent:task:mt#3",
+        routingTarget: "operator",
+        parentTaskId: "mt#3",
+      },
+    ]);
+    void baseTime; // suppress unused-var
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    expect(body.payload.cohort.length).toBe(3);
+
+    const kinds = body.payload.cohort.map((a) => a.kind);
+    expect(kinds[0]).toBe("stuck.unblock");
+    expect(kinds[1]).toBe(KIND_AUTH);
+    expect(kinds[2]).toBe(KIND_DIRECTION);
+  });
+
+  // 12f. Resolve endpoint — POST /api/asks/:id/resolve transitions Ask to closed
+  test("POST /api/asks/:id/resolve marks ask as closed via FakeAskRepository", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-to-resolve",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Resolve me",
+        question: "Pick one",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    ]);
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/ask-to-resolve/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        responder: "operator",
+        payload: { chosen: "yes" },
+        attentionCost: { transport: "inbox", resolvedIn: "inbox" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; id: string; state: string };
+    expect(body.ok).toBe(true);
+    expect(body.id).toBe("ask-to-resolve");
+    expect(body.state).toBe("closed");
+
+    // Verify state changed in repo
+    const updated = await repo.getById("ask-to-resolve");
+    expect(updated?.state).toBe("closed");
+  });
+
+  // 12g. Resolve endpoint — 404 for unknown ask id
+  test("POST /api/asks/:id/resolve returns 404 for unknown ask", async () => {
+    const repo = makeFakeRepo([]);
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/nonexistent/resolve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ responder: "operator", payload: {} }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  // 12h. Degraded state — deps factory throws → degraded with "attention error" reason
+  test("attention widget returns degraded when deps factory throws", async () => {
+    const widget = createAttentionWidget(async () => {
+      throw new Error("DB unavailable");
+    });
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; reason: string };
+    expect(body.state).toBe("degraded");
+    expect(body.reason).toMatch(/attention error/i);
+    expect(body.reason).toMatch(/DB unavailable/i);
+  });
+
+  // 12i. Window-cohort mode — asks scheduled for "ask-hours" window appear when activeWindowKey is set
+  test("attention widget loads scheduled-window cohort when activeWindowKey provided", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-windowed",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Window ask",
+        question: "Decide now",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        serviceStrategy: "scheduled",
+        windowKey: "ask-hours",
+      },
+      {
+        id: "ask-other-window",
+        kind: "quality.review",
+        state: "suspended",
+        title: "Other window ask",
+        question: "Review this",
+        requestor: REQ_TASK2,
+        routingTarget: "operator",
+        serviceStrategy: "scheduled",
+        windowKey: "weekly-review",
+      },
+    ]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: "ask-hours" }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+
+    // Active window info present
+    expect(body.payload.activeWindow).not.toBeNull();
+    expect(body.payload.activeWindow?.windowKey).toBe("ask-hours");
+
+    // Only the ask-hours window ask appears in cohort
+    const ids = body.payload.cohort.map((a) => a.id);
+    expect(ids).toContain("ask-windowed");
+    expect(ids).not.toContain("ask-other-window");
   });
 });

@@ -5,6 +5,7 @@
  *   GET /api/health           — health + version + uptime
  *   GET /api/widgets          — enabled widget metadata list
  *   GET /api/widget/:id/data  — fetch a single widget's data
+ *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
  */
@@ -30,6 +31,12 @@ export interface CockpitServerOptions {
   overrideConfig?: CockpitConfig;
   /** Additional widgets to register alongside builtins (used in tests) */
   overrideRegistry?: WidgetRegistry;
+  /**
+   * Override the AskRepository used by the resolve endpoint (used in tests).
+   * When absent, the server lazily initialises a DrizzleAskRepository from
+   * the default PersistenceService (same pattern as attention.ts).
+   */
+  overrideAskRepository?: import("../domain/ask/repository").AskRepository;
 }
 
 const serverStartTime = Date.now();
@@ -39,6 +46,41 @@ const serverStartTime = Date.now();
  *
  * Call `app.listen(port)` on the returned app to start the server.
  */
+// ---------------------------------------------------------------------------
+// AskRepository lazy init — shared across requests (same singleton pattern
+// as agents.ts defaultProviderFactory).
+// ---------------------------------------------------------------------------
+
+let _cachedServerAskRepo: import("../domain/ask/repository").AskRepository | null = null;
+
+async function getServerAskRepository(): Promise<
+  import("../domain/ask/repository").AskRepository | null
+> {
+  if (_cachedServerAskRepo) return _cachedServerAskRepo;
+  try {
+    const { PersistenceService } = await import("../domain/persistence/service");
+    const { DrizzleAskRepository } = await import("../domain/ask/repository");
+    const svc = new PersistenceService();
+    await svc.initialize();
+    const provider = svc.getProvider();
+    if (
+      !("getDatabaseConnection" in provider) ||
+      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+    ) {
+      return null;
+    }
+    const sqlProvider = provider as {
+      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
+    };
+    const db = await sqlProvider.getDatabaseConnection();
+    if (!db) return null;
+    _cachedServerAskRepo = new DrizzleAskRepository(db);
+    return _cachedServerAskRepo;
+  } catch {
+    return null;
+  }
+}
+
 export function createCockpitServer(opts: CockpitServerOptions = {}): express.Express {
   // Resolve effective config and registry
   const config = opts.overrideConfig ?? loadCockpitConfig();
@@ -46,6 +88,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     ...WIDGET_REGISTRY,
     ...(opts.overrideRegistry ?? {}),
   };
+
+  // AskRepository override for tests
+  const askRepoOverride = opts.overrideAskRepository ?? null;
 
   // Build the enabled widget set
   const enabledWidgets = new Map<string, WidgetModule>();
@@ -104,6 +149,69 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.json({ state: "degraded", reason: `Widget crashed: ${message}` });
+    }
+  });
+
+  /**
+   * POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
+   *
+   * Body: { responder: "operator", payload: unknown, attentionCost?: {...} }
+   *
+   * Uses the AskRepository.respondAndClose() atomic operation to transition
+   * the Ask from "suspended" to "closed" in a single write.
+   *
+   * Returns 200 on success, 404 if Ask not found, 409 on concurrent transition,
+   * 503 if the Ask repository is unavailable.
+   */
+  app.post("/api/asks/:id/resolve", async (req, res) => {
+    const askId = req.params.id;
+    if (!askId) {
+      res.status(400).json({ error: "Ask ID required" });
+      return;
+    }
+
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({
+          error: "Ask repository unavailable — persistence provider does not support SQL",
+        });
+        return;
+      }
+
+      const body = req.body as {
+        responder?: string;
+        payload?: unknown;
+        attentionCost?: unknown;
+      };
+
+      const responsePayload = {
+        responder: (body.responder ?? "operator") as "operator",
+        payload: (body.payload ?? {}) as Record<string, unknown>,
+        attentionCost: body.attentionCost as
+          | import("../domain/ask/types").AttentionCost
+          | undefined,
+      };
+
+      const ask = await repo.respondAndClose(
+        askId,
+        { response: responsePayload },
+        { response: responsePayload }
+      );
+
+      res.json({ ok: true, id: ask.id, state: ask.state });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not found")) {
+        res.status(404).json({ error: message });
+      } else if (
+        message.includes("Concurrent transition") ||
+        message.includes("ConcurrentTransitionError")
+      ) {
+        res.status(409).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
     }
   });
 
