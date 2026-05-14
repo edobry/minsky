@@ -69,9 +69,14 @@ describe("isTrivialPrompt", () => {
     expect(isTrivialPrompt("   \n\t ")).toBe(true);
   });
 
-  it("returns true for short prompts under 20 chars", () => {
+  it("returns true for short prompts under 50 chars", () => {
     expect(isTrivialPrompt("hello there")).toBe(true);
     expect(isTrivialPrompt("what?")).toBe(true);
+  });
+
+  it("treats 49 chars as trivial and 50 chars as non-trivial (MIN_PROMPT_LENGTH boundary)", () => {
+    expect(isTrivialPrompt("a".repeat(49))).toBe(true);
+    expect(isTrivialPrompt("a".repeat(50))).toBe(false);
   });
 
   it("returns true for single-word affirmatives", () => {

@@ -8,11 +8,11 @@
 // closes the gap on Claude Code specifically; mt#1588 generalizes to all harnesses.
 //
 // Behaviour:
-//   - Skips trivial prompts (length < 20 chars, or single-word affirmatives).
-//   - Invokes `minsky memory search "<prompt>" --limit K` (K=5 default).
+//   - Skips trivial prompts (length < 50 chars, or single-word affirmatives).
+//   - Invokes `minsky memory search "<prompt>" --limit K` (K=3 default).
 //   - Skips silently when the CLI returns degraded results, empty results, or fails.
 //   - Token-budgets injection: rank results by score desc, accumulate greedily up
-//     to ~2000 tokens, stop on overflow. Single oversized hit gets truncated with
+//     to ~800 tokens, stop on overflow. Single oversized hit gets truncated with
 //     a marker. (See `buildInjection` for full algorithm + what it does NOT do.)
 //   - Wraps results in a <system-reminder> block injected via additionalContext.
 //   - Logs every invocation to a rotated debug file so we can observe load-bearingness.
@@ -149,7 +149,7 @@ const LOG_ROTATE_BYTES = 1_000_000;
  * load-bearingness budget signal in the spec) to the correct hook version.
  * Pure cosmetic for log readers — runtime behavior is unaffected.
  */
-export const HOOK_VERSION = "1";
+export const HOOK_VERSION = "2";
 
 // ---------------------------------------------------------------------------
 // Trivial-prompt heuristic
@@ -159,7 +159,7 @@ export const HOOK_VERSION = "1";
  * Decide whether a prompt is too trivial to warrant a memory search.
  *
  * Two criteria (either fires):
- *   1. Prompt length below `minLength` (default 20 chars, ignoring whitespace).
+ *   1. Prompt length below `minLength` (default 50 chars, ignoring whitespace).
  *   2. Single-word affirmative — strips trailing punctuation and matches against
  *      `AFFIRMATIVE_WORDS`.
  *
