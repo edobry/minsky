@@ -4,7 +4,7 @@
  * Operations for analyzing conflict files, regions, and resolution strategies.
  * Extracted from ConflictDetectionService to improve modularity.
  */
-import { execAsync } from "../../utils/exec";
+import { execAsync, safeShellQuote } from "../../utils/exec";
 import { execGitWithTimeout } from "../../utils/git-exec";
 import { readFile } from "fs/promises";
 import { join } from "path";
@@ -219,7 +219,9 @@ export async function autoResolveDeleteConflicts(
       }
 
       // Commit the resolution
-      await execAsync(`git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`);
+      await execAsync(
+        `git -C ${safeShellQuote(repoPath)} commit -m "resolve conflicts: accept file deletions"`
+      );
       log.debug("Committed auto-resolved delete conflicts", {
         count: deleteConflicts.length,
       });
