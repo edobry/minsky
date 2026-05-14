@@ -9,6 +9,8 @@
 
 import { execAsync } from "../utils/exec";
 import { execGitWithTimeout } from "../utils/git-exec";
+import { stat } from "fs/promises";
+import { join } from "path";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
 import {
@@ -768,11 +770,30 @@ export class PreCommitHook {
 
       const nonExecutable: string[] = [];
       for (const file of hookFiles) {
-        const stat = await execAsync(`test -x "${file}" && echo ok || echo no`, {
-          cwd: this.projectRoot,
-          timeout: 2000,
-        });
-        if (stat.stdout.toString().trim() !== "ok") {
+        // Use fs.stat programmatically instead of `execAsync("test -x \"${file}\" ...")`
+        // (mt#1829): file paths from `git diff --cached --name-only` are
+        // git-controlled and may contain shell metacharacters. Programmatic
+        // stat avoids /bin/sh entirely. mode & 0o100 checks the owner-execute
+        // bit, which matches `test -x` for files the developer owns.
+        //
+        // PR #1122 R1: paths from `git diff` are repository-relative, so resolve
+        // them against projectRoot before stat. The prior execAsync call used
+        // `cwd: this.projectRoot` which made the shell resolve relative paths;
+        // fs.stat resolves against process.cwd() so we must join explicitly.
+        let mode: number | undefined;
+        try {
+          const st = await stat(join(this.projectRoot, file));
+          mode = st.mode;
+        } catch (err) {
+          // ENOENT = file staged-then-deleted in the working tree between
+          // diff and stat. Treat as "no check needed"; the git index will
+          // commit whatever permission is recorded there.
+          if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+            continue;
+          }
+          throw err;
+        }
+        if ((mode & 0o100) === 0) {
           nonExecutable.push(file);
         }
       }
@@ -915,6 +936,11 @@ export class PreCommitHook {
 
     for (const target of targetsToCheck) {
       try {
+        // mt#1829: `target` is from the locally-built `targetsToCheck` array
+        // which contains only the hardcoded values "claude.md", "agents.md",
+        // and "cursor-rules" (set earlier in this function from
+        // existsSync/readdir checks). Bounded enum, no shell metacharacters
+        // possible — no safeShellQuote needed.
         await execAsync(`bun run src/cli.ts rules compile --check --target ${target}`, {
           cwd: this.projectRoot,
           timeout: 30000,

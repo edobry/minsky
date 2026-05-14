@@ -6,7 +6,7 @@
  */
 
 import { writeFileSync } from "fs";
-import { execAsync } from "../../../../utils/exec";
+import { execAsync, safeShellQuote } from "../../../../utils/exec";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
@@ -298,7 +298,11 @@ export async function renderGraphvizFormat(
               : process.platform === "win32"
                 ? "start"
                 : "xdg-open";
-          await execAsync(`${openCommand} "${finalOutputPath}"`);
+          // mt#1829: finalOutputPath is operator-supplied (CLI --out flag);
+          // wrap with safeShellQuote so shell metacharacters in path don't
+          // activate. openCommand is a platform-bound literal ("open" /
+          // "start" / "xdg-open"), no quoting needed.
+          await execAsync(`${openCommand} ${safeShellQuote(finalOutputPath)}`);
           return {
             message: `✅ Rendered task dependency graph to: ${finalOutputPath} (opened in default application)`,
             filePath: finalOutputPath,

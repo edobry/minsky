@@ -140,7 +140,8 @@ export async function mergeBranchWithDepsImpl(
     const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
 
     try {
-      await deps.execAsync(`git -C ${workdir} merge ${branch}`);
+      // mt#1829: branch is PR/operator-controlled; quote it.
+      await deps.execAsync(`git -C ${workdir} merge ${safeShellQuote(branch)}`);
     } catch (err) {
       if (
         err instanceof Error &&
@@ -221,7 +222,8 @@ export async function branchWithDepsImpl(
 
   const workdir = deps.getSessionWorkdir(options.session);
 
-  await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+  // mt#1829: options.branch is operator-controlled; quote it.
+  await deps.execAsync(`git -C ${workdir} checkout -b ${safeShellQuote(options.branch)}`);
   return {
     workdir,
     branch: options.branch,
