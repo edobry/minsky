@@ -303,16 +303,15 @@ export class ConflictDetectionService {
 
       // Step 2: Perform actual merge if not dry run
       if (!options?.dryRun) {
-        const beforeHashResult = await this.deps.execAsync(`git -C ${repoPath} rev-parse HEAD`);
+        const qRepoPath = safeShellQuote(repoPath);
+        const beforeHashResult = await this.deps.execAsync(`git -C ${qRepoPath} rev-parse HEAD`);
         const beforeHash = beforeHashResult?.stdout?.toString().trim() || "";
 
         try {
           // mt#1829: sourceBranch is operator/PR-controlled; quote it.
-          // repoPath here is Risky-but-typed (session path) — bulk
-          // workdir-quoting deferred to follow-up.
-          await this.deps.execAsync(`git -C ${repoPath} merge ${safeShellQuote(sourceBranch)}`);
+          await this.deps.execAsync(`git -C ${qRepoPath} merge ${safeShellQuote(sourceBranch)}`);
 
-          const afterHashResult = await this.deps.execAsync(`git -C ${repoPath} rev-parse HEAD`);
+          const afterHashResult = await this.deps.execAsync(`git -C ${qRepoPath} rev-parse HEAD`);
           const afterHash = afterHashResult?.stdout?.toString().trim() || "";
           const merged = beforeHash.toString().trim() !== afterHash.toString().trim();
 
@@ -327,7 +326,7 @@ export class ConflictDetectionService {
           // porcelain v1 can quote paths with spaces (surrounding double-quotes)
           // and uses "old -> new" notation for renames. We strip quotes and take
           // the destination path for renames so callers get a clean file list.
-          const statusResult = await this.deps.execAsync(`git -C ${repoPath} status --porcelain`);
+          const statusResult = await this.deps.execAsync(`git -C ${qRepoPath} status --porcelain`);
           const status = String(statusResult?.stdout || "");
 
           // Collect the list of conflicted file paths from git status output.
