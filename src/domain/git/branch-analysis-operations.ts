@@ -4,7 +4,7 @@
  * Operations for analyzing branch divergence and branch switching conflicts.
  * Extracted from ConflictDetectionService for focused responsibility.
  */
-import { execAsync as defaultExecAsync } from "../../utils/exec";
+import { execAsync as defaultExecAsync, safeShellQuote } from "../../utils/exec";
 import { log as defaultLog } from "../../utils/logger";
 import {
   checkSessionChangesInBase,
@@ -156,7 +156,9 @@ export async function checkBranchSwitchConflictsImpl(
       };
     }
 
-    const statusOutputResult = await deps.execAsync(`git -C ${repoPath} status --porcelain`);
+    const statusOutputResult = await deps.execAsync(
+      `git -C ${safeShellQuote(repoPath)} status --porcelain`
+    );
     const statusOutput = statusOutputResult?.stdout || "";
     const uncommittedChanges = statusOutput.toString().trim().split("\n").filter(Boolean);
 
