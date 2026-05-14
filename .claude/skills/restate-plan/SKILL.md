@@ -1,0 +1,106 @@
+---
+name: restate-plan
+description: >-
+  When the user has given multi-step direction ("X first, then Y, then Z") and
+  follows with action-now language ("do it now," "proceed," "go"), restate the
+  plan, identify the next step explicitly, and flag any skipped step BEFORE
+  the first tool call. Use when prior user direction contained sequencing
+  keywords and the current prompt contains action-now keywords.
+user-invocable: true
+---
+
+# Restate Plan
+
+Catch the action-bias-driven step-compression pattern at action-execution time. When the user has given multi-step direction and then says "do it now," the agent's default action-bias systematically favors the cheapest immediate step — collapsing the plan and dropping the more expensive prerequisite the user explicitly named. This skill is the structural enforcement of `decision-defaults.mdc §Multi-step direction execution`.
+
+## Arguments
+
+Optional: a one-phrase description of what's about to be executed (e.g., `/restate-plan hook tune`, `/restate-plan observability platform selection`).
+
+## When to invoke
+
+Both conditions must hold:
+
+1. **Sequencing direction in prior turn(s).** The user has, in the recent conversation, used sequencing keywords: `first`, `before`, `after`, `then`, numbered steps (`1.` / `2.` / etc.), `prerequisite`, `wait until`, or multi-clause direction (`X, then Y`).
+2. **Action-now in current turn.** The current user prompt contains action-now keywords: `do it now`, `proceed`, `go`, `start`, `why not do it now`, `do it`, `go ahead`.
+
+When both fire, walk the 3-step process before any tool call that advances the plan.
+
+## When NOT to invoke
+
+- **Single-step direction + action-now.** If the prior direction was a single step ("fix X" → "go"), no restatement needed; just do it.
+- **Multi-step direction WITHOUT action-now.** Restatement is informational at most — the user has not signaled they expect immediate action.
+- **Action-now after completing the last step.** If you just finished step N and the plan had N steps, "proceed" means "next thing on the agenda" — different signal.
+- **Mechanical chain-walking inside a skill.** `/plan-task` → `/implement-task` hand-offs are governed by the auto-mode-chain memory (`4b83ff51-…`); this skill is for cross-skill multi-step plans, not skill-internal lifecycle transitions.
+
+## Process
+
+### Step 1: Restate the plan
+
+In the user-facing message (not internally), reproduce the plan one line per step. Use the user's own framing words where possible — the user's verbal frame is the disambiguating signal.
+
+Template:
+
+> **Restating plan:**
+>
+> - Step 1 (user-named): `<restated, e.g., "evaluate observability platforms — Langfuse / Phoenix / PostHog / Braintrust">`
+> - Step 2 (user-named): `<restated, e.g., "tune memory-search hook constants, with the chosen platform as the measurement substrate">`
+> - Step N (user-named): `<restated>`
+
+If you can't cleanly restate a step — the direction was ambiguous — stop and ask before acting.
+
+### Step 2: Identify the next step explicitly
+
+In the same user-facing message, name which step is up and why this step and not another.
+
+Template:
+
+> **Next step:** Step `<N>`, because `<reasoning grounded in the plan's order, not in convenience>`.
+
+The reasoning must reference the plan's stated order, not the cheapness of the step. "Because Step N is the user-named first prerequisite" is valid; "Because Step N is the quickest thing I can do" is the action-bias failure mode.
+
+### Step 3: Flag any skipped step
+
+If proceeding with a step that is NOT the user-named "next" (e.g., because step 1 is blocked, you're waiting on the user, or there's a real reason to do step 2 first), explicitly name what's being skipped and why.
+
+Template:
+
+> **Skipped step (if any):** Step `<M>` (`<one-line reason>`). [If this would skip a user-named prerequisite the user hasn't explicitly deferred, STOP and confirm before proceeding.]
+
+If no step is being skipped, write: `**Skipped step:** none.`
+
+**Hard rule.** If the cheapest immediate action skips a more expensive prerequisite step the user named, this is the signal to STOP and confirm — not to "be efficient" by doing the cheap step first.
+
+## Failure mode this prevents
+
+The originating incident (PR #1073 / mt#1783, 2026-05-12):
+
+- User direction: "implement observability tool FIRST, use the hook tuning as its first test case."
+- User action-now: "do it now."
+- What the agent did: executed the hook tune (cheap, immediate, no user input needed), skipped the observability tool evaluation (expensive, required user to create an account).
+- What the agent should have done: invoke this skill, restate ("Step 1: observability platform; Step 2: hook tune"), identify next ("Step 1"), recognize the cheaper Step 2 was about to skip an explicit Step 1 prerequisite, STOP and confirm.
+
+The structural failure was action-bias: "do it now" triggered a default that systematically favored the agent-doable step over the user-input-required step. The user-named order was inverted because Step 2 was cheaper than Step 1.
+
+This skill makes that inversion impossible to land silently — the restatement + skipped-step flagging surface the inversion in the user-facing output before any tool call.
+
+## Anti-patterns
+
+1. **"I'll do step 2 now and circle back to step 1 later."** The user said step 1 first for a reason. The order is information. If step 1 is genuinely blocked, name what's blocking it and ask whether to proceed with step 2.
+
+2. **Internal-only restatement.** Restating the plan in your own thinking but not in the user-facing message defeats the purpose. The user has to SEE the restatement to spot any misframing.
+
+3. **Skipping the skill on "obvious" plans.** Even when the plan feels obvious, the skill's job is to make the order legible. If you're tempted to skip "because it's clear," that's exactly when the failure mode fires (the plan WAS clear; the agent's action-bias inverted it).
+
+4. **Counting the user's silence as approval.** "The user didn't restate the plan, so I'll just proceed with my order." Silence is not consent to re-order; "do it now" is permission to ACT, not permission to compress.
+
+## Cross-references
+
+- `decision-defaults.mdc §Multi-step direction execution` — the corpus rule this skill operationalizes
+- `feedback_multi_step_direction_compression` — bridge memory this skill retires
+- `feedback_build_path_as_research_at_action_time` — sibling action-bias pattern at action-execution time
+- `feedback_auto_mode_chains_skills_at_affirmative_tokens` — sibling memory for skill-chain-internal "proceed" handling (distinct: that one is about chain-walking, this one is about cross-skill multi-step plans)
+- `feedback_disambiguate_multi_next_step_chain_walk` — sibling memory for multi-next-step task-graph disambiguation (mt#1842 is the structural fix for that one)
+- `humility.mdc` — design principle this skill enforces (the user, not the agent, decides plan order)
+- mt#1784 — originating task
+- 2026-05-12 PR #1073 / mt#1783 — originating incident
