@@ -31,6 +31,7 @@ Optional: task ID (e.g., `/implement-task mt#123`). If omitted, uses the current
 
 Step 0: Entry gate: check task status
 Step 0a: Late parallel-work spot-check
+Step 0b: Restate-plan check (when prior multi-step direction + action-now triggers)
 Step 1: Retrieve relevant memory context
 Step 2: Read and verify the task spec
 Step 3: Start a session (READY → IN-PROGRESS)
@@ -83,6 +84,19 @@ with explicit acknowledgment).
 
 This is the last-line enforcement of `feedback_check_parallel_work_before_decomposing`.
 The full gate ran at PLANNING; this is the spot-check before the session is created.
+
+### 0b. Restate-plan check (when prior multi-step direction + action-now triggers)
+
+**Mandatory** when both of the following hold:
+
+1. The user has, in the prior conversation, given multi-step direction containing sequencing keywords (`first`, `before`, `after`, `then`, numbered steps, `prerequisite`, `wait until`, or multi-clause direction like `X, then Y`).
+2. The current prompt (the one that triggered `/implement-task`) contains action-now keywords (`do it now`, `proceed`, `go`, `start`, `why not do it now`, `do it`, `go ahead`).
+
+When both conditions hold, invoke `/restate-plan` (or walk its 3-step process inline) BEFORE `session_start`. The 3 steps: (1) restate the multi-step plan one line per step in user-facing output, (2) identify the next step explicitly, (3) flag any skipped step — STOP and confirm if skipping a user-named prerequisite.
+
+If only one condition holds (single-step direction, or multi-step without action-now), skip this step. See `.claude/skills/restate-plan/SKILL.md` "When NOT to invoke" section for exclusions including action-now after completing the last step and mechanical chain-walking inside a skill.
+
+This guards against the action-bias-driven step-compression failure mode where "do it now" triggers a default that systematically favors the cheapest immediate step over a user-named prerequisite. Originating incident: PR #1073 / mt#1783. Corpus rule: `decision-defaults.mdc §Multi-step direction execution`.
 
 ### 1. Retrieve relevant memory context
 

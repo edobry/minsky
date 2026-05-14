@@ -1473,7 +1473,7 @@ Action-now language is permission to act, NOT permission to compress steps. Comp
 
 **Originating incident:** 2026-05-12 R2. User said "implement observability tool first, use the hook tuning as its first test case" then "do it now." I executed the hook tune (cheap, immediate) and skipped the observability tool selection (expensive, requires user account creation). The multi-step plan compressed to the cheapest step in flight.
 
-**Structural escalation target:** filed as separate task — a skill-step in `/orchestrate` or `/implement-task` that fires when prior-turn user direction includes sequencing keywords AND current-turn includes action-now keywords. Until that ships, the rule is checklist-driven discipline.
+**Structural enforcement.** The `/restate-plan` skill (mt#1784, IMPLEMENTED 2026-05-14) operationalizes the three steps above as numbered process steps with required user-facing output. Invoke it explicitly when both trigger conditions hold (sequencing keywords in prior turn + action-now keywords in current turn), or self-trigger via the cues in the skill. See `.claude/skills/restate-plan/SKILL.md`. The skill is agent-invoked discipline, not harness-fired.
 
 ## How this is enforced
 
@@ -1493,6 +1493,7 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy` R1
 - `feedback_build_path_as_research_at_action_time` — originating memory for R2 (action-execution-time slice)
 - `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
+- `.claude/skills/restate-plan/SKILL.md` — structural enforcement of `§Multi-step direction execution` (mt#1784)
 - `feedback_agent_todos_vs_minsky_tasks` — originating memory for `§Agent todos vs. Minsky tasks`
 - Notion position paper *Position: Agent todos vs. Minsky tasks — the durable/ephemeral boundary* (35e937f0-3cb4-812e-9734-f0c0f9a8b26c)
 - mt#1316 — Asks ↔ MCP elicitation: the structurally equivalent first-instance of this shape (informs `§Agent todos vs. Minsky tasks`)
