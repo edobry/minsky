@@ -81,7 +81,12 @@ describe("drive-pr-to-convergence hook (mt#1793)", () => {
 
   describe("DRIVE_TO_CONVERGENCE_REMINDER content", () => {
     test("references the corpus rule for traceability", () => {
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("User does not review PRs in the loop");
+      // The reminder references the corpus rule by section-name shorthand
+      // (§User-does-not-review-PRs) and by source file (decision-defaults.mdc).
+      // Match both substrings — the exact phrasing of the §-shorthand can
+      // change without breaking the rule-citation contract.
+      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("§User-does-not-review-PRs");
+      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("decision-defaults.mdc");
     });
 
     test("names the required next action explicitly", () => {

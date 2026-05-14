@@ -52,8 +52,8 @@ import type { ToolHookInput, HookOutput } from "./types";
  *      next turn if context budget allows.
  */
 export const DRIVE_TO_CONVERGENCE_REMINDER = [
-  "PR created successfully. Drive it to convergence per `decision-defaults.mdc",
-  "§User does not review PRs in the loop` — the user is NOT the next actor.",
+  "PR created successfully. Drive it to convergence per the §User-does-not-review-PRs",
+  "rule in `decision-defaults.mdc` — the user is NOT the next actor.",
   "",
   "**Required next action (do not end the turn here):**",
   "- Call `mcp__minsky__session_pr_wait-for-review` to block until",
