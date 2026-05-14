@@ -332,6 +332,85 @@ describe("pull_request.closed webhook — merged=true, task/mt-N branch", () => 
       server.stop(true);
     }
   });
+
+  // mt#1841 spec SC#6: regression test simulating updateSession throwing once
+  // then succeeding, asserting the session-update eventually lands via the
+  // webhook handler's retry path (PR #1121 R1 BLOCKING #1). Returns
+  // sessionUpdateError on call #1 to apply_post_merge_state_sync, success on
+  // call #2. The handler should retry after the 1s delay and emit sync_complete.
+  test("retries apply_post_merge_state_sync on partialFailure and converges to success (mt#1841 SC#6)", async () => {
+    const SESSION_ID = "session-for-mt-1841";
+    let applyCallCountForOurSession = 0;
+
+    mcpHandler = async (toolName, args) => {
+      if (toolName === "session.get") {
+        // session.get is called with task ID, return our session only for mt#1841.
+        if (args["task"] === "mt#1841") {
+          return mcpResponse({ session: { sessionId: SESSION_ID } });
+        }
+        return mcpResponse({});
+      }
+      if (toolName === "session.apply_post_merge_state_sync") {
+        // Only count calls targeted at our session; prior tests with detached
+        // webhook handlers may still be sending sync requests for their own
+        // sessions to the shared mcpHandler.
+        if (args["sessionId"] !== SESSION_ID) {
+          return mcpResponse({ success: true });
+        }
+        applyCallCountForOurSession++;
+        if (applyCallCountForOurSession === 1) {
+          return mcpResponse({
+            success: false,
+            sessionId: SESSION_ID,
+            taskStatusUpdated: true,
+            sessionStatusUpdated: false,
+            pullRequestRecordUpdated: false,
+            sessionUpdateError: "Simulated transient DB failure",
+            partialFailure: true,
+          });
+        }
+        return mcpResponse({
+          success: true,
+          sessionId: SESSION_ID,
+          taskStatusUpdated: false,
+          sessionStatusUpdated: true,
+          pullRequestRecordUpdated: true,
+          partialFailure: false,
+        });
+      }
+      return mcpResponse({ success: true });
+    };
+
+    const { server } = createApp(BASE_CONFIG, async () => ({
+      status: "reviewed",
+      reason: "stub",
+      tier: 3,
+    }));
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      const body = buildClosedPayload({
+        merged: true,
+        headRef: "task/mt-1841",
+        mergeCommitSha: MERGE_SHA,
+        mergedAt: MERGED_AT,
+      });
+
+      const res = await sendWebhook(baseUrl, body);
+      expect(res.status).toBe(200);
+
+      // Wait long enough for the first retry: handler delays 1000ms after
+      // detecting partialFailure on call #1, then issues call #2. Allow
+      // generous slack for MCP roundtrip + assertion timing.
+      await new Promise<void>((r) => setTimeout(r, 1_800));
+
+      // The handler must have retried — exactly 2 calls to the apply tool
+      // for OUR session (1st: partial failure, 2nd: success after 1s retry).
+      expect(applyCallCountForOurSession).toBe(2);
+    } finally {
+      server.stop(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
