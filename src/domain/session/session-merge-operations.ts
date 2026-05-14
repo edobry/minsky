@@ -86,7 +86,20 @@ export interface PostMergeStateSyncDeps {
 export interface PostMergeStateSyncResult {
   sessionId: string;
   taskId?: string;
-  /** Indicates whether each effect was applied this invocation (false = already in target state). */
+  /**
+   * Indicates whether the effect was actually written to the DB on this
+   * invocation. Three-way semantics (mt#1841):
+   *
+   * - `true` + no error: this invocation wrote the effect.
+   * - `false` + no corresponding error: no-op success (the value was already
+   *   in the target state — e.g., session already MERGED, task already DONE).
+   * - `false` + corresponding error: the write was attempted but failed (the
+   *   error field carries the underlying message).
+   *
+   * Callers that need to know "did the effect land?" should consult
+   * `partialFailure` (true iff any error field is populated), not the flag
+   * alone. See PR #1121 R1 BLOCKING #3.
+   */
   taskStatusUpdated: boolean;
   sessionStatusUpdated: boolean;
   pullRequestRecordUpdated: boolean;
@@ -110,6 +123,14 @@ export interface PostMergeStateSyncResult {
    * callers.
    */
   sessionUpdateError?: string;
+  /**
+   * True iff `taskUpdateError` OR `sessionUpdateError` is populated — the
+   * single boolean a caller can read to decide whether to retry/escalate
+   * without needing to disambiguate flag semantics. Computed by the function
+   * before returning, so callers don't have to derive it themselves
+   * (PR #1121 R1 BLOCKING #3).
+   */
+  partialFailure: boolean;
   sessionCleanup?: {
     performed: boolean;
     directoriesRemoved: string[];
@@ -172,6 +193,7 @@ export async function applyPostMergeStateSync(
     taskStatusUpdated: false,
     sessionStatusUpdated: false,
     pullRequestRecordUpdated: false,
+    partialFailure: false,
   };
 
   // (a) Task status: IN-REVIEW → DONE
@@ -315,6 +337,13 @@ export async function applyPostMergeStateSync(
     pullRequestRecordUpdated: result.pullRequestRecordUpdated,
     trigger,
   });
+
+  // PR #1121 R1 BLOCKING #3: derive partialFailure so callers don't have to
+  // disambiguate "no-op success" (flags=false + no error) from "write attempted
+  // and failed" (flags=false + error set). This is the single boolean that
+  // unambiguously means "an effect declared but did not land."
+  result.partialFailure =
+    result.taskUpdateError !== undefined || result.sessionUpdateError !== undefined;
 
   return result;
 }

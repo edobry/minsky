@@ -424,6 +424,10 @@ describe("applyPostMergeStateSync — partial-failure surfacing (mt#1841)", () =
 
     // task-side error field stays undefined (only session side failed).
     expect(result.taskUpdateError).toBeUndefined();
+
+    // PR #1121 R1 BLOCKING #3: partialFailure is the single boolean callers
+    // should check. True iff any error field is populated.
+    expect(result.partialFailure).toBe(true);
   });
 
   it("session-update success: sessionUpdateError stays undefined and flags=true", async () => {
@@ -447,6 +451,8 @@ describe("applyPostMergeStateSync — partial-failure surfacing (mt#1841)", () =
     expect(result.pullRequestRecordUpdated).toBe(true);
     expect(result.sessionUpdateError).toBeUndefined();
     expect(result.taskUpdateError).toBeUndefined();
+    // PR #1121 R1 BLOCKING #3: write-success path has partialFailure=false.
+    expect(result.partialFailure).toBe(false);
   });
 
   it("task-update failure surfaces taskUpdateError without affecting session side", async () => {
@@ -481,6 +487,52 @@ describe("applyPostMergeStateSync — partial-failure surfacing (mt#1841)", () =
     // Session side still runs and lands.
     expect(result.sessionStatusUpdated).toBe(true);
     expect(result.sessionUpdateError).toBeUndefined();
+
+    // PR #1121 R1 BLOCKING #3: any error field populated → partialFailure=true.
+    expect(result.partialFailure).toBe(true);
+  });
+
+  // PR #1121 R1 BLOCKING #3: explicit no-op success — distinguishable from
+  // write failure via the partialFailure field. Session-side no-op is the
+  // core case (task-side no-op is covered by the idempotent SC#2 tests).
+  it("no-op success path: session already MERGED → sessionStatusUpdated=false but partialFailure=false", async () => {
+    // Build a session record already in the MERGED target state.
+    const baseRecord = makeSessionRecord();
+    const alreadyMerged = makeSessionRecord({
+      status: SessionStatus.MERGED,
+      pullRequest:
+        baseRecord.pullRequest === undefined
+          ? undefined
+          : {
+              ...baseRecord.pullRequest,
+              state: "closed",
+              mergedAt: MERGED_AT,
+            },
+    });
+    const sessionDB = new FakeSessionProvider({ initialSessions: [alreadyMerged] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergeSha: "deadbeef",
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    // Session-side: status update is a no-op because already in target state.
+    // sessionStatusUpdated stays false (we didn't write), with no error.
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.sessionUpdateError).toBeUndefined();
+
+    // The disambiguator: no errors anywhere → no partial failure, despite
+    // sessionStatusUpdated being false. This is the contract PR #1121 R1
+    // BLOCKING #3 codifies: false + !error = no-op success.
+    expect(result.partialFailure).toBe(false);
   });
 });
 
