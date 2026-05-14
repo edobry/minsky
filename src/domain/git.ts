@@ -2,7 +2,7 @@ import { injectable } from "tsyringe";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { normalizeRepoName } from "./repo-utils";
-import { execAsync } from "../utils/exec";
+import { execAsync, safeShellQuote } from "../utils/exec";
 import { type SessionProviderInterface, type SessionRecord } from "./session";
 
 import { log } from "../utils/logger";
@@ -180,7 +180,13 @@ export class GitService implements GitServiceInterface {
     const workdir = this.getSessionWorkdir(options.session);
     log.debug("Branch: calculated workdir", { workdir });
 
-    await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+    // mt#1829: options.branch is operator/PR-controlled; wrap with
+    // safeShellQuote. workdir is a session path (UUID under
+    // ~/.local/state/minsky/sessions/) — quoting defensively matches the
+    // mt#1742 codebase pattern.
+    await execAsync(
+      `git -C ${safeShellQuote(workdir)} checkout -b ${safeShellQuote(options.branch)}`
+    );
     return { workdir, branch: options.branch };
   }
 
@@ -191,7 +197,10 @@ export class GitService implements GitServiceInterface {
   }): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(options.session);
-    await execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+    // mt#1829: same rationale as branch() above.
+    await execAsync(
+      `git -C ${safeShellQuote(workdir)} checkout -b ${safeShellQuote(options.branch)}`
+    );
     return { workdir, branch: options.branch };
   }
 

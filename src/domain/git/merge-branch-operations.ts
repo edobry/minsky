@@ -1,5 +1,6 @@
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { safeShellQuote } from "../../utils/exec";
 
 export interface MergeResult {
   workdir: string;
@@ -25,8 +26,11 @@ export async function mergeBranchImpl(
 
     // Try to merge the branch
     try {
-      log.debug("Attempting merge", { command: `git -C ${workdir} merge ${branch}` });
-      await deps.execAsync(`git -C ${workdir} merge ${branch}`);
+      // mt#1829: branch is PR/operator-controlled; wrap with safeShellQuote.
+      // workdir is Risky-but-typed (session path) — bulk quoting deferred.
+      const qBranch = safeShellQuote(branch);
+      log.debug("Attempting merge", { command: `git -C ${workdir} merge ${qBranch}` });
+      await deps.execAsync(`git -C ${workdir} merge ${qBranch}`);
       log.debug("Merge completed successfully");
     } catch (err) {
       log.debug("Merge command failed, checking for conflicts", {

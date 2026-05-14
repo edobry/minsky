@@ -146,7 +146,8 @@ export async function fetchLatestImpl(
 ): Promise<PullResult> {
   try {
     const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
-    await execAsync(`git -C ${workdir} fetch ${remote}`);
+    // mt#1829: remote defaults to "origin" but is operator-overridable; quote it.
+    await execAsync(`git -C ${workdir} fetch ${safeShellQuote(remote)}`);
     const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
     return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
   } catch (err) {
