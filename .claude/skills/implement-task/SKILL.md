@@ -177,13 +177,28 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
 2. **Portable defaults.** No defaults bind to a specific user, machine, or host. No `homedir()`-derived absolutes baked into defaults; no user-specific paths embedded as constants. Mental model: "would this work on a fresh machine for a new user?"
 
+3. **Probe-before-defer (mt#1819).** Scan the draft PR body, the spec's `## Outcome` section (if you've added one this session), and any "Live verification" / "Operator follow-up" subsections you're about to ship for the trigger phrases below. If any phrase appears, run the canonical tooling probe BEFORE the PR is created — don't post a deferral you haven't probed.
+
+   **Trigger phrases:** "deferred to operator", "deferred to user", "requires `<X>` access", "user must do this", "operator follow-up", "outside agent context", "not available from agent context".
+
+   **Canonical probe sequence:**
+
+   - CLI probe — `which <cli> && <cli> whoami` for the relevant tool (~5 sec).
+   - Skill probe — search the available-skills system-reminder for `<service>:*` (e.g., `railway:use-railway`, `cloudflare:wrangler`).
+   - Repo probe — check `scripts/<service>/`, `services/<service>/<service>.config.ts`, or similar.
+   - Memory probe — `mcp__minsky__memory_search` for the service keyword.
+
+   **If any probe succeeds**, do the work and remove the deferral text from the artifact. **If all probes fail**, replace the bare deferral with one that names the probe results inline (e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."`). A bare deferral without inline probe results fails this check.
+
+   Origin: mt#1811 (2026-05-13) — PR #1100 body and the mt#1811 spec's `## Outcome` section both declared "deferred — requires Railway access" while the `railway` CLI was on PATH, the `railway:use-railway` skill was loaded, and the relevant memory was injected mid-session. User pushback ("Are you sure you need me for that?") triggered the probe; total fix time was <5 minutes. This step is the implement-task-pipeline enforcement of the broader `User Preferences §Probe before deferring` rule.
+
 **Reactive phase (when iterating on reviewer findings):**
 
-3. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+4. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
 
-4. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+5. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
 
-Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds). See `feedback_cascade_defense_in_implementer_prompt.md` for the pattern history.
+Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds), plus mt#1811 (PR #1100 deferred-without-probing) for the probe-before-defer step. See `feedback_cascade_defense_in_implementer_prompt.md` and `feedback_probe_before_defer_at_action_time` for the pattern history.
 
 ### 7a. Ship verification artifact for structural changes (when in scope)
 
