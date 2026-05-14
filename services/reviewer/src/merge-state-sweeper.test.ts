@@ -1,16 +1,19 @@
 /**
- * Unit tests for the merge-state sweeper (mt#1614).
+ * Unit tests for the merge-state sweeper (mt#1614, mt#1752).
  *
  * Verifies:
  *   - runMergeStateSweep returns sessionsScanned=N when N sessions are listed.
- *   - Sessions with closed-merged PRs trigger apply_post_merge_state_sync.
- *   - Sessions with open PRs do NOT trigger sync.
+ *   - Sessions whose PRs are merged on GitHub (live state via Octokit, not
+ *     stored session.pullRequest.state) trigger apply_post_merge_state_sync.
+ *   - Sessions whose PRs are open on GitHub do NOT trigger sync, regardless
+ *     of stored state — mt#1752.
  *   - Sessions without a pullRequest.number are skipped gracefully.
  *   - loadMergeStateSweeperConfig reads from env vars correctly.
  *   - startMergeStateSweeper returns null when disabled or credentials absent.
  *
- * All external I/O (fetch) is replaced with a synchronous fake via globalThis.fetch.
- * Tests restore the original fetch after each test.
+ * fetch is mocked for MCP calls (session.list, session.apply_post_merge_state_sync).
+ * Octokit is passed as a fake object directly to runMergeStateSweep (mt#1752
+ * threaded it as a parameter).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
@@ -21,6 +24,7 @@ import {
 } from "./merge-state-sweeper";
 import { resetMcpClientSessions } from "./mcp-client";
 import type { ReviewerConfig } from "./config";
+import type { Octokit } from "@octokit/rest";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -28,8 +32,14 @@ import type { ReviewerConfig } from "./config";
 
 const MCP_URL = "http://localhost:9999/mcp";
 const MCP_TOKEN = "test-token";
+const OWNER = "edobry";
+const REPO = "minsky";
+const GITHUB_TIMEOUT_MS = 30_000;
 const ENV_SWEEPER_ENABLED = "MERGE_STATE_SWEEPER_ENABLED";
 const ENV_SWEEPER_INTERVAL_MS = "MERGE_STATE_SWEEPER_INTERVAL_MS";
+const ENV_SWEEPER_REPO_OWNER = "SWEEPER_REPO_OWNER";
+const ENV_SWEEPER_REPO_NAME = "SWEEPER_REPO_NAME";
+const ENV_GITHUB_TIMEOUT_MS = "MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS";
 
 const BASE_REVIEWER_CONFIG: ReviewerConfig = {
   appId: 1,
@@ -171,19 +181,47 @@ function sessionListResponse(sessions: FakeSession[]): Response {
   return mcpResponse({ sessions });
 }
 
-interface FakePrState {
-  state?: string;
-  merged?: boolean;
-  mergedAt?: string;
-  mergeSha?: string;
-}
-
-function prGetResponse(pr: FakePrState): Response {
-  return mcpResponse({ pullRequest: pr });
-}
-
 function applySyncResponse(sessionId: string): Response {
   return mcpResponse({ success: true, sessionId, taskStatusUpdated: true });
+}
+
+// ---------------------------------------------------------------------------
+// Fake Octokit (mt#1752)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a fake Octokit instance with a per-pr_number `pulls.get` responder.
+ * The responder shape matches Octokit's `pulls.get` response: `{ data: PullRequest }`
+ * where PullRequest has `merged`, `merged_at`, and `merge_commit_sha`.
+ *
+ * Pass `throwForPrNumber` to make a specific PR's lookup throw (simulates 4xx/5xx).
+ */
+function makeFakeOctokit(opts: {
+  prResponses: Record<
+    number,
+    { merged: boolean; merged_at?: string | null; merge_commit_sha?: string | null }
+  >;
+  throwForPrNumber?: number;
+  onCall?: (pr_number: number) => void;
+}): Octokit {
+  const fake = {
+    rest: {
+      pulls: {
+        get: async (args: { owner: string; repo: string; pull_number: number }) => {
+          opts.onCall?.(args.pull_number);
+          if (opts.throwForPrNumber === args.pull_number) {
+            throw new Error(`fake octokit: pulls.get failed for #${args.pull_number}`);
+          }
+          const data = opts.prResponses[args.pull_number];
+          if (!data) {
+            throw new Error(`fake octokit: no fixture for PR #${args.pull_number}`);
+          }
+          return { data };
+        },
+      },
+    },
+  };
+  return fake as unknown as Octokit;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +238,15 @@ describe("runMergeStateSweep — no sessions", () => {
       throw new Error(`Unexpected tool call: ${body.params.name}`);
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({ prResponses: {} });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(0);
     expect(result.missedSyncs).toBe(0);
@@ -210,43 +256,81 @@ describe("runMergeStateSweep — no sessions", () => {
 });
 
 describe("runMergeStateSweep — open PRs not synced", () => {
-  it("skips a session whose PR is still open", async () => {
+  it("skips a session whose PR is still open on GitHub", async () => {
     const sessions: FakeSession[] = [
       { sessionId: "s1", taskId: "mt#100", status: "PR_OPEN", pullRequest: { number: 10 } },
     ];
 
     fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
-      };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
-
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.pr.get") {
-        const sessionId = args["sessionId"] as string;
-        if (sessionId === "s1") {
-          return prGetResponse({ state: "open", merged: false });
-        }
-      }
-      throw new Error(`Unexpected tool call: ${toolName}`);
+      const body = JSON.parse(init.body as string) as { params: { name: string } };
+      if (body.params.name === "session.list") return sessionListResponse(sessions);
+      throw new Error(`Unexpected tool call: ${body.params.name}`);
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({
+      prResponses: { 10: { merged: false } },
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(1);
+    expect(result.missedSyncs).toBe(0);
+    expect(result.syncsTriggered).toBe(0);
+  });
+
+  it("skips a session whose PR is closed but unmerged on GitHub (mt#1752: trust live state)", async () => {
+    // Regression guard for mt#1752: even if some other source said the PR was merged,
+    // if GitHub says `merged: false` (e.g., the PR was closed without merge), do nothing.
+    const sessions: FakeSession[] = [
+      // Stored state claims merged, but live GitHub state is the source of truth.
+      {
+        sessionId: "s1b",
+        taskId: "mt#100b",
+        status: "PR_OPEN",
+        pullRequest: {
+          number: 11,
+          state: "closed",
+          mergedAt: "stale-stored-value",
+        },
+      },
+    ];
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as { params: { name: string } };
+      if (body.params.name === "session.list") return sessionListResponse(sessions);
+      throw new Error(`Unexpected tool call: ${body.params.name}`);
+    };
+
+    const octokit = makeFakeOctokit({
+      prResponses: { 11: { merged: false, merged_at: null, merge_commit_sha: null } },
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
+
     expect(result.missedSyncs).toBe(0);
     expect(result.syncsTriggered).toBe(0);
   });
 });
 
 describe("runMergeStateSweep — merged PR triggers sync", () => {
-  it("detects a closed-merged PR and calls apply_post_merge_state_sync", async () => {
+  it("detects a merged PR on GitHub and calls apply_post_merge_state_sync", async () => {
     const sessions: FakeSession[] = [
       { sessionId: "s2", taskId: "mt#200", status: "PR_OPEN", pullRequest: { number: 20 } },
     ];
 
-    const syncCalledFor: string[] = [];
+    const syncCalledFor: { sessionId: string; mergeSha?: string; mergedAt?: string }[] = [];
 
     fetchHandler = async (_url, init) => {
       const body = JSON.parse(init.body as string) as {
@@ -256,65 +340,190 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
       const args = body.params.arguments;
 
       if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.pr.get") {
-        return prGetResponse({
-          state: "closed",
-          merged: true,
-          mergedAt: "2026-05-06T10:00:00.000Z",
-          mergeSha: "deadbeef",
-        });
-      }
       if (toolName === "session.apply_post_merge_state_sync") {
-        const sessionId = args["sessionId"] as string;
-        syncCalledFor.push(sessionId);
-        return applySyncResponse(sessionId);
-      }
-      throw new Error(`Unexpected tool call: ${toolName}`);
-    };
-
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
-
-    expect(result.sessionsScanned).toBe(1);
-    expect(result.missedSyncs).toBe(1);
-    expect(result.syncsTriggered).toBe(1);
-    expect(result.errors).toHaveLength(0);
-    expect(syncCalledFor).toContain("s2");
-  });
-
-  it("detects merge via state=closed + mergedAt (no merged=true field)", async () => {
-    const sessions: FakeSession[] = [
-      { sessionId: "s3", taskId: "mt#300", status: "PR_OPEN", pullRequest: { number: 30 } },
-    ];
-
-    const syncCalledFor: string[] = [];
-
-    fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
-      };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
-
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.pr.get") {
-        // state=closed + mergedAt set, no explicit merged=true
-        return prGetResponse({
-          state: "closed",
-          mergedAt: "2026-05-06T10:00:00.000Z",
+        syncCalledFor.push({
+          sessionId: args["sessionId"] as string,
+          mergeSha: args["mergeSha"] as string | undefined,
+          mergedAt: args["mergedAt"] as string | undefined,
         });
-      }
-      if (toolName === "session.apply_post_merge_state_sync") {
-        syncCalledFor.push(args["sessionId"] as string);
         return applySyncResponse(args["sessionId"] as string);
       }
       throw new Error(`Unexpected tool call: ${toolName}`);
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({
+      prResponses: {
+        20: {
+          merged: true,
+          merged_at: "2026-05-06T10:00:00.000Z",
+          merge_commit_sha: "deadbeef",
+        },
+      },
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
+    expect(result.sessionsScanned).toBe(1);
     expect(result.missedSyncs).toBe(1);
     expect(result.syncsTriggered).toBe(1);
-    expect(syncCalledFor).toContain("s3");
+    expect(result.errors).toHaveLength(0);
+    expect(syncCalledFor).toEqual([
+      {
+        sessionId: "s2",
+        mergeSha: "deadbeef",
+        mergedAt: "2026-05-06T10:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("mt#1752 regression: detects merge from LIVE GitHub state even when stored state says open", async () => {
+    // This is the central mt#1752 regression: the sweeper must detect merge via
+    // Octokit's live `pulls.get`, NOT via the stored session.pullRequest.state.
+    // Six historical drift incidents (mt#1772, mt#1773, mt#1774, mt#1777,
+    // mt#1742, mt#1787) had session.pullRequest.state="open" stored despite
+    // their PRs being merged on GitHub for hours. The sweeper would miss them
+    // under the prior `session.pr.get`-based predicate.
+    const sessions: FakeSession[] = [
+      {
+        sessionId: "s_stale_open",
+        taskId: "mt#1787",
+        status: "PR_OPEN",
+        pullRequest: { number: 1083, state: "open" }, // stored state is stale
+      },
+    ];
+
+    let prGetCallCount = 0;
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as {
+        params: { name: string; arguments: Record<string, unknown> };
+      };
+      const toolName = body.params.name;
+      // Critical: the sweeper must NOT call session.pr.get anymore.
+      if (toolName === "session.pr.get") {
+        prGetCallCount++;
+        throw new Error("regression: sweeper should NOT call session.pr.get (mt#1752)");
+      }
+      if (toolName === "session.list") return sessionListResponse(sessions);
+      if (toolName === "session.apply_post_merge_state_sync") {
+        return applySyncResponse(body.params.arguments["sessionId"] as string);
+      }
+      throw new Error(`Unexpected tool call: ${toolName}`);
+    };
+
+    const octokit = makeFakeOctokit({
+      prResponses: {
+        1083: {
+          merged: true,
+          merged_at: "2026-05-13T00:29:35Z",
+          merge_commit_sha: "6c53e872c",
+        },
+      },
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
+
+    expect(prGetCallCount).toBe(0);
+    expect(result.missedSyncs).toBe(1);
+    expect(result.syncsTriggered).toBe(1);
+  });
+
+  it("forwards owner/repo and pull_number to Octokit correctly", async () => {
+    const sessions: FakeSession[] = [
+      { sessionId: "s_pr_42", status: "PR_OPEN", pullRequest: { number: 42 } },
+    ];
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as { params: { name: string } };
+      if (body.params.name === "session.list") return sessionListResponse(sessions);
+      if (body.params.name === "session.apply_post_merge_state_sync") {
+        return applySyncResponse("s_pr_42");
+      }
+      throw new Error(`Unexpected tool call: ${body.params.name}`);
+    };
+
+    const calledPrNumbers: number[] = [];
+    const octokit = makeFakeOctokit({
+      prResponses: { 42: { merged: true, merged_at: "2026-05-14T00:00:00Z" } },
+      onCall: (n) => {
+        calledPrNumbers.push(n);
+      },
+    });
+    await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN, GITHUB_TIMEOUT_MS);
+
+    expect(calledPrNumbers).toEqual([42]);
+  });
+
+  // PR #1116 R1 BLOCKING #1 regression test: a hanging octokit.pulls.get must
+  // abort under the timeout, record an error, and NOT block the parent
+  // Promise.all chunk indefinitely (which would leave isRunning=true and
+  // cause skip_reentrant on subsequent ticks).
+  it("aborts on octokit hang via withTimeout (PR #1116 R1 BLOCKING #1)", async () => {
+    const sessions: FakeSession[] = [
+      { sessionId: "s_hang", status: "PR_OPEN", pullRequest: { number: 99 } },
+    ];
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as { params: { name: string } };
+      if (body.params.name === "session.list") return sessionListResponse(sessions);
+      throw new Error(`Unexpected: ${body.params.name}`);
+    };
+
+    // Build a fake Octokit whose pulls.get hangs forever unless aborted.
+    const hangingOctokit = {
+      rest: {
+        pulls: {
+          get: async (args: {
+            owner: string;
+            repo: string;
+            pull_number: number;
+            request?: { signal?: AbortSignal };
+          }) => {
+            return new Promise((_resolve, reject) => {
+              const signal = args.request?.signal;
+              if (signal) {
+                signal.addEventListener("abort", () => reject(new Error("aborted")));
+              }
+              // Never resolve otherwise.
+            });
+          },
+        },
+      },
+    } as unknown as Parameters<typeof runMergeStateSweep>[0];
+
+    const SHORT_TIMEOUT_MS = 50;
+    const start = performance.now();
+    const result = await runMergeStateSweep(
+      hangingOctokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      SHORT_TIMEOUT_MS
+    );
+    const elapsed = performance.now() - start;
+
+    // Timeout must fire well within a couple multiples of the configured budget.
+    expect(elapsed).toBeLessThan(SHORT_TIMEOUT_MS * 20);
+    // The hung session is recorded as an error rather than silently dropped or
+    // hanging the cycle. The parent Promise.all releases and the function
+    // returns normally — this IS the regression assertion: function-returns =
+    // isRunning would be released on the parent caller side.
+    expect(result.sessionsScanned).toBe(1);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.missedSyncs).toBe(0);
+    expect(result.syncsTriggered).toBe(0);
   });
 });
 
@@ -327,27 +536,32 @@ describe("runMergeStateSweep — skips sessions without PR number", () => {
       { sessionId: "s5", taskId: "mt#500", status: "PR_OPEN", pullRequest: {} },
     ];
 
-    let prGetCalled = false;
+    let octokitCalls = 0;
 
     fetchHandler = async (_url, init) => {
-      const body = JSON.parse(init.body as string) as {
-        params: { name: string };
-      };
-      const toolName = body.params.name;
-
-      if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.pr.get") {
-        prGetCalled = true;
-        return prGetResponse({ state: "open" });
-      }
-      throw new Error(`Unexpected tool call: ${toolName}`);
+      const body = JSON.parse(init.body as string) as { params: { name: string } };
+      if (body.params.name === "session.list") return sessionListResponse(sessions);
+      throw new Error(`Unexpected tool call: ${body.params.name}`);
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({
+      prResponses: {},
+      onCall: () => {
+        octokitCalls++;
+      },
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(2);
     expect(result.missedSyncs).toBe(0);
-    expect(prGetCalled).toBe(false); // should never call pr.get for these
+    expect(octokitCalls).toBe(0); // never call Octokit when PR number is missing
   });
 });
 
@@ -369,14 +583,6 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
       const args = body.params.arguments;
 
       if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.pr.get") {
-        const sessionId = args["sessionId"] as string;
-        // sa and sc are merged; sb is still open
-        if (sessionId === "sa" || sessionId === "sc") {
-          return prGetResponse({ state: "closed", merged: true, mergedAt: "2026-05-06T10:00:00Z" });
-        }
-        return prGetResponse({ state: "open", merged: false });
-      }
       if (toolName === "session.apply_post_merge_state_sync") {
         syncCalledFor.push(args["sessionId"] as string);
         return applySyncResponse(args["sessionId"] as string);
@@ -384,7 +590,21 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
       throw new Error(`Unexpected tool call: ${toolName}`);
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({
+      prResponses: {
+        1: { merged: true, merged_at: "2026-05-06T10:00:00Z", merge_commit_sha: "aaa" },
+        2: { merged: false },
+        3: { merged: true, merged_at: "2026-05-06T11:00:00Z", merge_commit_sha: "ccc" },
+      },
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(3);
     expect(result.missedSyncs).toBe(2);
@@ -408,14 +628,22 @@ describe("runMergeStateSweep — error handling", () => {
       throw new Error("Unexpected tool call");
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({ prResponses: {} });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     // Should surface the error gracefully
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.sessionsScanned).toBe(0);
   });
 
-  it("continues sweep even when a single session's pr.get fails", async () => {
+  it("continues sweep even when a single session's Octokit lookup fails", async () => {
     const sessions: FakeSession[] = [
       { sessionId: "se1", status: "PR_OPEN", pullRequest: { number: 1 } },
       { sessionId: "se2", status: "PR_OPEN", pullRequest: { number: 2 } },
@@ -431,15 +659,6 @@ describe("runMergeStateSweep — error handling", () => {
       const args = body.params.arguments;
 
       if (toolName === "session.list") return sessionListResponse(sessions);
-      if (toolName === "session.pr.get") {
-        const sessionId = args["sessionId"] as string;
-        if (sessionId === "se1") {
-          // se1's pr.get fails
-          return jsonResponse({}, 500);
-        }
-        // se2 is merged
-        return prGetResponse({ state: "closed", merged: true, mergedAt: "2026-05-06T10:00:00Z" });
-      }
       if (toolName === "session.apply_post_merge_state_sync") {
         syncCalledFor.push(args["sessionId"] as string);
         return applySyncResponse(args["sessionId"] as string);
@@ -447,9 +666,22 @@ describe("runMergeStateSweep — error handling", () => {
       throw new Error(`Unexpected: ${toolName}`);
     };
 
-    const result = await runMergeStateSweep(MCP_URL, MCP_TOKEN);
+    const octokit = makeFakeOctokit({
+      // se1's Octokit lookup throws; se2 is merged.
+      prResponses: { 2: { merged: true, merged_at: "2026-05-06T10:00:00Z" } },
+      throwForPrNumber: 1,
+    });
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
-    // se1 failed, se2 still synced
+    // se1 failed (recorded as error), se2 still synced
+    expect(result.errors.length).toBeGreaterThan(0);
     expect(result.missedSyncs).toBe(1);
     expect(result.syncsTriggered).toBe(1);
     expect(syncCalledFor).toContain("se2");
@@ -472,32 +704,70 @@ describe("loadMergeStateSweeperConfig", () => {
     }
   });
 
-  it("enabled=true when MERGE_STATE_SWEEPER_ENABLED=true", () => {
-    const saved = process.env[ENV_SWEEPER_ENABLED];
-    process.env[ENV_SWEEPER_ENABLED] = "true";
+  // PR #1116 R1 BLOCKING #2: surface defaulted-coords risk.
+  it("flags ownerDefaulted=true when SWEEPER_REPO_OWNER not set (PR #1116 R1)", () => {
+    const saved = process.env[ENV_SWEEPER_REPO_OWNER];
+    delete process.env[ENV_SWEEPER_REPO_OWNER];
     try {
       const cfg = loadMergeStateSweeperConfig();
-      expect(cfg.enabled).toBe(true);
+      expect(cfg.ownerDefaulted).toBe(true);
+      expect(cfg.owner).toBe("edobry");
+    } finally {
+      if (saved !== undefined) process.env[ENV_SWEEPER_REPO_OWNER] = saved;
+    }
+  });
+
+  it("flags ownerDefaulted=false when SWEEPER_REPO_OWNER explicitly set (PR #1116 R1)", () => {
+    const saved = process.env[ENV_SWEEPER_REPO_OWNER];
+    process.env[ENV_SWEEPER_REPO_OWNER] = "someorg";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.ownerDefaulted).toBe(false);
+      expect(cfg.owner).toBe("someorg");
     } finally {
       if (saved !== undefined) {
-        process.env[ENV_SWEEPER_ENABLED] = saved;
+        process.env[ENV_SWEEPER_REPO_OWNER] = saved;
       } else {
-        delete process.env[ENV_SWEEPER_ENABLED];
+        delete process.env[ENV_SWEEPER_REPO_OWNER];
       }
     }
   });
 
-  it("enabled=false when MERGE_STATE_SWEEPER_ENABLED=false (explicit opt-out)", () => {
-    const saved = process.env[ENV_SWEEPER_ENABLED];
-    process.env[ENV_SWEEPER_ENABLED] = "false";
+  it("flags repoDefaulted accordingly (PR #1116 R1)", () => {
+    const savedRepo = process.env[ENV_SWEEPER_REPO_NAME];
+    delete process.env[ENV_SWEEPER_REPO_NAME];
     try {
       const cfg = loadMergeStateSweeperConfig();
-      expect(cfg.enabled).toBe(false);
+      expect(cfg.repoDefaulted).toBe(true);
+      expect(cfg.repo).toBe("minsky");
+    } finally {
+      if (savedRepo !== undefined) process.env[ENV_SWEEPER_REPO_NAME] = savedRepo;
+    }
+  });
+
+  it("defaults githubTimeoutMs to 30_000 when env var not set (PR #1116 R1)", () => {
+    const saved = process.env[ENV_GITHUB_TIMEOUT_MS];
+    delete process.env[ENV_GITHUB_TIMEOUT_MS];
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.githubTimeoutMs).toBe(30_000);
+    } finally {
+      if (saved !== undefined) process.env[ENV_GITHUB_TIMEOUT_MS] = saved;
+    }
+  });
+
+  it("throws on non-numeric MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS (PR #1116 R1)", () => {
+    const saved = process.env[ENV_GITHUB_TIMEOUT_MS];
+    process.env[ENV_GITHUB_TIMEOUT_MS] = "not_a_number";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS must be a positive integer/
+      );
     } finally {
       if (saved !== undefined) {
-        process.env[ENV_SWEEPER_ENABLED] = saved;
+        process.env[ENV_GITHUB_TIMEOUT_MS] = saved;
       } else {
-        delete process.env[ENV_SWEEPER_ENABLED];
+        delete process.env[ENV_GITHUB_TIMEOUT_MS];
       }
     }
   });
@@ -588,6 +858,11 @@ describe("startMergeStateSweeper", () => {
       intervalMs: 600_000,
       mcpUrl: MCP_URL,
       mcpToken: MCP_TOKEN,
+      owner: OWNER,
+      repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).toBeNull();
   });
@@ -598,6 +873,11 @@ describe("startMergeStateSweeper", () => {
       intervalMs: 600_000,
       mcpUrl: "", // Empty
       mcpToken: MCP_TOKEN,
+      owner: OWNER,
+      repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).toBeNull();
   });
@@ -608,6 +888,11 @@ describe("startMergeStateSweeper", () => {
       intervalMs: 600_000,
       mcpUrl: MCP_URL,
       mcpToken: "", // Empty
+      owner: OWNER,
+      repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).toBeNull();
   });
@@ -618,6 +903,11 @@ describe("startMergeStateSweeper", () => {
       intervalMs: 600_000,
       mcpUrl: MCP_URL,
       mcpToken: MCP_TOKEN,
+      owner: OWNER,
+      repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).not.toBeNull();
     // Clean up the interval so the test process can exit cleanly.

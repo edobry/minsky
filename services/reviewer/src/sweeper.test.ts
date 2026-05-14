@@ -53,6 +53,8 @@ const SWEEPER_CONFIG: SweeperConfig = {
   repo: "minsky",
   intervalMs: 600000,
   enabled: true,
+  ownerDefaulted: false,
+  repoDefaulted: false,
 };
 
 const BOT_LOGIN = "minsky-reviewer[bot]";
