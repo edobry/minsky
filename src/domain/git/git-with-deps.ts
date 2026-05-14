@@ -243,7 +243,7 @@ export async function fetchDefaultBranchWithDepsImpl(
 ): Promise<string> {
   try {
     const { stdout } = await deps.execAsync(
-      `git -C ${repoPath} symbolic-ref refs/remotes/origin/HEAD --short`
+      `git -C ${safeShellQuote(repoPath)} symbolic-ref refs/remotes/origin/HEAD --short`
     );
     const result = stdout.trim().replace(/^origin\//, "");
     return result;

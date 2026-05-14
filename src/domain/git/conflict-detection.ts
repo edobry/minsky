@@ -451,7 +451,7 @@ export class ConflictDetectionService {
         // mt#1829: remoteBranch is operator-controlled (e.g., "origin/main"
         // but can be operator-passed); quote per mt#1742 pattern.
         await this.deps.execAsync(
-          `git -C ${repoPath} merge --ff-only ${safeShellQuote(remoteBranch)}`
+          `git -C ${safeShellQuote(repoPath)} merge --ff-only ${safeShellQuote(remoteBranch)}`
         );
 
         return {

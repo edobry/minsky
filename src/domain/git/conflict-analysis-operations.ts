@@ -168,10 +168,11 @@ export async function checkSessionChangesInBase(
   baseBranch: string,
   exec: typeof execAsync = execAsync
 ): Promise<boolean> {
+  const qRepoPath = safeShellQuote(repoPath);
   try {
     // Get session commits not in base
     const { stdout: sessionCommits } = await exec(
-      `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
+      `git -C ${qRepoPath} rev-list ${baseBranch}..${sessionBranch}`
     );
 
     if (!sessionCommits.toString().trim()) {
@@ -180,10 +181,10 @@ export async function checkSessionChangesInBase(
 
     // Check if the content changes are already in base by comparing trees
     const { stdout: sessionTree } = await exec(
-      `git -C ${repoPath} rev-parse ${sessionBranch}^{tree}`
+      `git -C ${qRepoPath} rev-parse ${sessionBranch}^{tree}`
     );
 
-    const { stdout: baseTree } = await exec(`git -C ${repoPath} rev-parse ${baseBranch}^{tree}`);
+    const { stdout: baseTree } = await exec(`git -C ${qRepoPath} rev-parse ${baseBranch}^{tree}`);
 
     return sessionTree.toString().trim() === baseTree.toString().trim();
   } catch (error) {

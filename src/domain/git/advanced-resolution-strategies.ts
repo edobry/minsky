@@ -4,7 +4,7 @@
  * Provides advanced conflict resolution strategy generation extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
-import { execAsync } from "../../utils/exec";
+import { execAsync, safeShellQuote } from "../../utils/exec";
 import { log } from "../../utils/logger";
 import type { AdvancedResolutionStrategy, ConflictFile } from "./conflict-detection-types";
 import { FileConflictStatus } from "./conflict-detection-types";
@@ -17,6 +17,7 @@ export async function identifyFormattingOnlyConflicts(
   conflictFiles: ConflictFile[]
 ): Promise<ConflictFile[]> {
   const formattingOnlyFiles: ConflictFile[] = [];
+  const qRepoPath = safeShellQuote(repoPath);
 
   for (const file of conflictFiles) {
     // Skip files that aren't content conflicts
@@ -27,13 +28,13 @@ export async function identifyFormattingOnlyConflicts(
     try {
       // Get the conflict markers content
       const { stdout: fileContent } = await execAsync(
-        `git -C ${repoPath} show :1:${file.path} | tr -d '\\r\\n\\t '`
+        `git -C ${qRepoPath} show :1:${file.path} | tr -d '\\r\\n\\t '`
       );
       const { stdout: ourContent } = await execAsync(
-        `git -C ${repoPath} show :2:${file.path} | tr -d '\\r\\n\\t '`
+        `git -C ${qRepoPath} show :2:${file.path} | tr -d '\\r\\n\\t '`
       );
       const { stdout: theirContent } = await execAsync(
-        `git -C ${repoPath} show :3:${file.path} | tr -d '\\r\\n\\t '`
+        `git -C ${qRepoPath} show :3:${file.path} | tr -d '\\r\\n\\t '`
       );
 
       // If the content is the same when whitespace is removed, it's a formatting-only conflict
@@ -146,7 +147,7 @@ export function createFormattingOnlyStrategy(files: ConflictFile[]): AdvancedRes
             file.path.endsWith(".tsx") ||
             file.path.endsWith(".jsx")
         )
-        .map((file) => `npx prettier --write ${file.path}`),
+        .map((file) => `bunx prettier --write ${file.path}`),
       "# Add the resolved files:",
       ...files.map((file) => `git add ${file.path}`),
       'git commit -m "Resolve formatting-only conflicts"',

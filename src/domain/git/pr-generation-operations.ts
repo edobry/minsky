@@ -447,7 +447,7 @@ async function getCommitsOnBranch(
 ): Promise<string> {
   try {
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} log --oneline ${mergeBase}..${branch}`,
+      `git -C ${safeShellQuote(workdir)} log --oneline ${mergeBase}..${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
     return stdout;
@@ -468,18 +468,19 @@ async function getModifiedFiles(
 ): Promise<{ modifiedFiles: string; diffNameStatus: string }> {
   let modifiedFiles = "";
   let diffNameStatus = "";
+  const qWorkdir = safeShellQuote(workdir);
 
   try {
     // Get modified files in name-status format for processing
     const { stdout: nameStatus } = await deps.execAsync(
-      `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`,
+      `git -C ${qWorkdir} diff --name-status ${mergeBase} ${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
     diffNameStatus = nameStatus;
 
     // Get name-only format for display
     const { stdout: nameOnly } = await deps.execAsync(
-      `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`,
+      `git -C ${qWorkdir} diff --name-only ${mergeBase}..${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
     modifiedFiles = nameOnly;
@@ -499,15 +500,13 @@ async function getWorkingDirectoryChanges(
 ): Promise<{ uncommittedChanges: string; untrackedFiles: string }> {
   let uncommittedChanges = "";
   let untrackedFiles = "";
+  const qWorkdir = safeShellQuote(workdir);
 
   try {
     // Get uncommitted changes
-    const { stdout } = await deps.execAsync(
-      `git -C ${safeShellQuote(workdir)} diff --name-status`,
-      {
-        maxBuffer: 1024 * 1024,
-      }
-    );
+    const { stdout } = await deps.execAsync(`git -C ${qWorkdir} diff --name-status`, {
+      maxBuffer: 1024 * 1024,
+    });
     uncommittedChanges = stdout;
   } catch (err) {
     // Ignore errors for uncommitted changes
@@ -516,7 +515,7 @@ async function getWorkingDirectoryChanges(
   try {
     // Get untracked files
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} ls-files --others --exclude-standard`,
+      `git -C ${qWorkdir} ls-files --others --exclude-standard`,
       { maxBuffer: 1024 * 1024 }
     );
     untrackedFiles = stdout;
@@ -543,7 +542,7 @@ async function getChangeStats(
   try {
     // Try to get diff stats from git
     const { stdout: statOutput } = await deps.execAsync(
-      `git -C ${workdir} diff --stat ${mergeBase}..${branch}`,
+      `git -C ${safeShellQuote(workdir)} diff --stat ${mergeBase}..${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
 
