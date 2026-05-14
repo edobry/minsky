@@ -46,14 +46,17 @@ async function startTestServer(opts?: Parameters<typeof createCockpitServer>[0])
 }
 
 // ---------------------------------------------------------------------------
-// Default registry: both placeholder widgets enabled
+// Default registry: real attention widget + basic-health
+// (attention-stub was retired in mt#1147 / PR #1125)
 // ---------------------------------------------------------------------------
 const DEFAULT_CONFIG = {
   widgets: [
-    { id: "attention-stub", enabled: true },
+    { id: "attention", enabled: true },
     { id: "basic-health", enabled: true },
   ],
 };
+
+const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 // ---------------------------------------------------------------------------
 // Test servers — started lazily and closed per-test
@@ -88,7 +91,7 @@ describe("Cockpit server", () => {
     expect(body.uptime).toBeUndefined();
   });
 
-  // 2. GET /api/widgets → array containing both placeholder widgets
+  // 2. GET /api/widgets → array containing both enabled widgets
   test("GET /api/widgets returns both enabled widgets", async () => {
     const url = await server({ overrideConfig: DEFAULT_CONFIG });
     const res = await fetch(`${url}/api/widgets`);
@@ -96,19 +99,13 @@ describe("Cockpit server", () => {
     const body = (await res.json()) as Array<{ id: string }>;
     expect(Array.isArray(body)).toBe(true);
     const ids = body.map((w) => w.id);
-    expect(ids).toContain("attention-stub");
+    expect(ids).toContain("attention");
     expect(ids).toContain("basic-health");
   });
 
-  // 3. GET /api/widget/attention-stub/data → {state:"degraded", reason matching /pending mt#1034/i}
-  test("GET /api/widget/attention-stub/data returns degraded with pending reason", async () => {
-    const url = await server({ overrideConfig: DEFAULT_CONFIG });
-    const res = await fetch(`${url}/api/widget/attention-stub/data`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { state: string; reason: string };
-    expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/pending mt#1034/i);
-  });
+  // 3. attention-stub-specific degraded test was retired in mt#1147 / PR #1125 R1
+  // alongside the stub widget itself. The real attention widget's degraded path
+  // is covered by test 12h (deps factory throws → degraded with attention error).
 
   // 4. GET /api/widget/basic-health/data → {state:"ok", payload:{uptimeSec:number, version:string, loadedWidgetCount:2}}
   test("GET /api/widget/basic-health/data returns ok with health payload", async () => {
@@ -148,12 +145,12 @@ describe("Cockpit server", () => {
     expect(body.reason).toMatch(/widget crashed/i);
   });
 
-  // 6. overrideConfig disabling attention-stub → only basic-health in /api/widgets
-  test("Disabling attention-stub via overrideConfig excludes it from /api/widgets", async () => {
+  // 6. overrideConfig disabling attention → only basic-health in /api/widgets
+  test("Disabling attention via overrideConfig excludes it from /api/widgets", async () => {
     const url = await server({
       overrideConfig: {
         widgets: [
-          { id: "attention-stub", enabled: false },
+          { id: "attention", enabled: false },
           { id: "basic-health", enabled: true },
         ],
       },
@@ -162,7 +159,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
     const ids = body.map((w) => w.id);
-    expect(ids).not.toContain("attention-stub");
+    expect(ids).not.toContain("attention");
     expect(ids).toContain("basic-health");
   });
 
@@ -197,7 +194,7 @@ describe("Cockpit server", () => {
     const url = await server({
       overrideConfig: {
         widgets: [
-          { id: "attention-stub", enabled: true },
+          { id: "attention", enabled: true },
           { id: "basic-health", enabled: true },
           { id: "extra-stub", enabled: true },
         ],
@@ -1138,7 +1135,7 @@ describe("Cockpit server", () => {
     });
     const res = await fetch(`${url}/api/asks/ask-to-resolve/resolve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({
         responder: "operator",
         payload: { chosen: "yes" },
@@ -1166,7 +1163,7 @@ describe("Cockpit server", () => {
     });
     const res = await fetch(`${url}/api/asks/nonexistent/resolve`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({ responder: "operator", payload: {} }),
     });
     expect(res.status).toBe(404);
@@ -1232,5 +1229,55 @@ describe("Cockpit server", () => {
     const ids = body.payload.cohort.map((a) => a.id);
     expect(ids).toContain("ask-windowed");
     expect(ids).not.toContain("ask-other-window");
+  });
+
+  // 12j. Resolve endpoint enforces algedonic selection — non-operator-routed
+  // asks return 403 and do NOT transition to closed. PR #1125 R1 BLOCKING.
+  test("POST /api/asks/:id/resolve returns 403 for non-operator-routed asks", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-policy-routed",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Policy routed",
+        question: "Should never reach operator",
+        requestor: REQ_TASK1,
+        routingTarget: "policy",
+      },
+      {
+        id: "ask-peer-routed",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Peer routed",
+        question: "Routed to a peer agent",
+        requestor: REQ_TASK1,
+        routingTarget: "agent:peer-1",
+      },
+    ]);
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+
+    const policyRes = await fetch(`${url}/api/asks/ask-policy-routed/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: {} }),
+    });
+    expect(policyRes.status).toBe(403);
+
+    const peerRes = await fetch(`${url}/api/asks/ask-peer-routed/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: {} }),
+    });
+    expect(peerRes.status).toBe(403);
+
+    // Neither should have transitioned
+    const policyAsk = await repo.getById("ask-policy-routed");
+    const peerAsk = await repo.getById("ask-peer-routed");
+    expect(policyAsk?.state).toBe("suspended");
+    expect(peerAsk?.state).toBe("suspended");
   });
 });

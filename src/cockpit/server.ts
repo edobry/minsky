@@ -179,6 +179,22 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
 
+      // Algedonic selection (mt#1147): only operator-routed asks may be resolved
+      // via this endpoint. Asks resolved by policy / peers / reviewer subagents
+      // must not be short-circuited through the operator's resolution surface.
+      // PR #1125 R1 BLOCKING finding.
+      const existing = await repo.getById(askId);
+      if (!existing) {
+        res.status(404).json({ error: `Ask ${askId} not found` });
+        return;
+      }
+      if (existing.routingTarget !== "operator") {
+        res.status(403).json({
+          error: `Ask ${askId} is not operator-routed (routingTarget=${existing.routingTarget}); refusing to resolve`,
+        });
+        return;
+      }
+
       const body = req.body as {
         responder?: string;
         payload?: unknown;

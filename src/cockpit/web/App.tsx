@@ -4,7 +4,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
 import { fetchWidgets, fetchWidgetData, type WidgetMeta, type WidgetData } from "./lib/widget-client";
 import { Agents } from "./widgets/Agents";
-import { AttentionStub } from "./widgets/AttentionStub";
+import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { TaskGraph } from "./widgets/TaskGraph";
 import { Workstreams } from "./widgets/Workstreams";
@@ -12,11 +12,11 @@ import { Workstreams } from "./widgets/Workstreams";
 // Widgets that are self-fetching (use TanStack Query internally; receive no data prop)
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   agents: Agents,
+  attention: Attention,
 };
 
 // Widgets that receive data from App-level polling
 const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
-  "attention-stub": AttentionStub,
   "basic-health": BasicHealth,
   "task-graph": TaskGraph,
   workstreams: Workstreams,
