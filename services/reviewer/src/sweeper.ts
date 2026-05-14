@@ -51,17 +51,35 @@ export interface SweeperConfig {
   intervalMs: number;
   /** Whether the sweeper is enabled. */
   enabled: boolean;
+  /**
+   * True when `owner` was not explicitly set in the env and the default was used.
+   * Surfaced in the `sweeper.started` log so operators can audit silent mis-targeting
+   * risk in non-Minsky deployments. PR #1116 R1 cascade-defense (mirrors
+   * merge-state-sweeper.ts).
+   */
+  ownerDefaulted: boolean;
+  /**
+   * True when `repo` was not explicitly set in the env and the default was used.
+   * PR #1116 R1 cascade-defense.
+   */
+  repoDefaulted: boolean;
 }
 
 export function loadSweeperConfig(): SweeperConfig {
+  const ownerEnv = process.env["SWEEPER_REPO_OWNER"];
+  const repoEnv = process.env["SWEEPER_REPO_NAME"];
   return {
-    owner: process.env["SWEEPER_REPO_OWNER"] ?? "edobry",
-    repo: process.env["SWEEPER_REPO_NAME"] ?? "minsky",
+    owner: ownerEnv ?? "edobry",
+    repo: repoEnv ?? "minsky",
     // Strict-positive parse (mt#1811 cascade-defense): malformed values
     // would feed NaN to setInterval. parsePositiveIntEnv throws at boot
     // time on any non-positive-integer value.
     intervalMs: parsePositiveIntEnv("SWEEPER_INTERVAL_MS", 600_000),
     enabled: (process.env["SWEEPER_ENABLED"] ?? "false") === "true",
+    // PR #1116 R1 cascade-defense: surface when defaults are in effect so silent
+    // mis-targeting in non-Minsky deployments produces an operator-visible signal.
+    ownerDefaulted: ownerEnv === undefined,
+    repoDefaulted: repoEnv === undefined,
   };
 }
 
@@ -454,8 +472,30 @@ export function startSweeper(
       intervalMs: sweeperConfig.intervalMs,
       owner: sweeperConfig.owner,
       repo: sweeperConfig.repo,
+      ownerDefaulted: sweeperConfig.ownerDefaulted,
+      repoDefaulted: sweeperConfig.repoDefaulted,
     })
   );
+
+  // PR #1116 R1 cascade-defense: when owner/repo were silently defaulted,
+  // emit a structured warning at boot. In non-Minsky deployments this would
+  // otherwise silently target edobry/minsky and never produce a high-signal
+  // log line. Mirrors merge-state-sweeper.ts.
+  if (sweeperConfig.ownerDefaulted || sweeperConfig.repoDefaulted) {
+    console.warn(
+      JSON.stringify({
+        event: "sweeper.using_default_repo_coordinates",
+        owner: sweeperConfig.owner,
+        repo: sweeperConfig.repo,
+        ownerDefaulted: sweeperConfig.ownerDefaulted,
+        repoDefaulted: sweeperConfig.repoDefaulted,
+        message:
+          "missed-review sweeper is using default repo coordinates. " +
+          "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
+          "to avoid silently sweeping the wrong repository.",
+      })
+    );
+  }
 
   let isSweeping = false;
 

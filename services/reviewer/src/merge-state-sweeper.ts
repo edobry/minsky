@@ -71,6 +71,7 @@ import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { callMcp } from "./mcp-client";
 import { createOctokit } from "./github-client";
+import { withTimeout, TimeoutError } from "./with-timeout";
 import type { Octokit } from "@octokit/rest";
 
 // ---------------------------------------------------------------------------
@@ -103,9 +104,31 @@ export interface MergeStateSweeperConfig {
    * sibling `sweeper.ts`; defaults to `"minsky"`. mt#1752.
    */
   repo: string;
+  /**
+   * True when `owner` was not explicitly set in the env and the default was used.
+   * Surfaced in the `merge_state_sweeper.started` log so operators can audit silent
+   * mis-targeting risk in non-Minsky deployments. PR #1116 R1 BLOCKING.
+   */
+  ownerDefaulted: boolean;
+  /**
+   * True when `repo` was not explicitly set in the env and the default was used.
+   * Surfaced in the `merge_state_sweeper.started` log. PR #1116 R1 BLOCKING.
+   */
+  repoDefaulted: boolean;
+  /**
+   * Per-call timeout for `octokit.rest.pulls.get` in milliseconds. A hung GitHub
+   * request would otherwise block the entire `Promise.all` chunk and leave
+   * `isRunning=true`, causing subsequent cycles to be skipped as `skip_reentrant`
+   * — effectively disabling the backstop until the request resolves. PR #1116 R1
+   * BLOCKING. Reads `MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS`; defaults to 30s
+   * (same baseline as `REVIEWER_GITHUB_TIMEOUT_MS` in `github-client.ts`).
+   */
+  githubTimeoutMs: number;
 }
 
 export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
+  const ownerEnv = process.env["SWEEPER_REPO_OWNER"];
+  const repoEnv = process.env["SWEEPER_REPO_NAME"];
   return {
     // 10-minute default: see cadence rationale in module docstring.
     // Strict-positive parse (mt#1811 R1 BLOCKING fix): now that the sweeper
@@ -122,8 +145,16 @@ export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
     mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
     // Reuse the sibling sweeper's env vars — both sweepers run against the same repo.
     // mt#1752.
-    owner: process.env["SWEEPER_REPO_OWNER"] ?? "edobry",
-    repo: process.env["SWEEPER_REPO_NAME"] ?? "minsky",
+    owner: ownerEnv ?? "edobry",
+    repo: repoEnv ?? "minsky",
+    // PR #1116 R1 BLOCKING: surface when defaults are in effect so silent mis-targeting
+    // in non-Minsky deployments produces an operator-visible signal at boot.
+    ownerDefaulted: ownerEnv === undefined,
+    repoDefaulted: repoEnv === undefined,
+    // PR #1116 R1 BLOCKING: bounded timeout for octokit.rest.pulls.get. Strict-positive
+    // parse so misconfiguration produces a clear boot-time error rather than NaN/Infinity
+    // flowing into the AbortController.
+    githubTimeoutMs: parsePositiveIntEnv("MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS", 30_000),
   };
 }
 
@@ -214,6 +245,8 @@ async function callMcpTool(
  *    `octokit.rest.pulls.get` to fetch LIVE GitHub PR state (mt#1752 —
  *    previously used `session.pr.get` which returns stored, never-refreshed
  *    state and made this sweeper structurally blind to merged PRs).
+ *    The call is wrapped in `withTimeout` + `AbortSignal` (PR #1116 R1) so a
+ *    hung GitHub request cannot deadlock the cycle and block subsequent ticks.
  * 3. If PR is merged on GitHub, call session.apply_post_merge_state_sync.
  *
  * NOTE: session.apply_post_merge_state_sync is an MCP tool added by this
@@ -225,7 +258,8 @@ export async function runMergeStateSweep(
   owner: string,
   repo: string,
   mcpUrl: string,
-  mcpToken: string
+  mcpToken: string,
+  githubTimeoutMs: number
 ): Promise<MergeStateSweepResult> {
   const startedAt = new Date().toISOString();
   const result: MergeStateSweepResult = {
@@ -312,11 +346,26 @@ export async function runMergeStateSweep(
           // made the sweeper a passive observer of stored state rather than
           // an active recovery layer. GitHub is the authoritative source for
           // PR merge state; query it directly.
-          const { data: livePr } = await octokit.rest.pulls.get({
-            owner,
-            repo,
-            pull_number: session.pullRequest.number,
-          });
+          //
+          // Wrapped in withTimeout + AbortSignal (PR #1116 R1 BLOCKING): a
+          // hung GitHub request would otherwise block this Promise.all chunk
+          // and leave isRunning=true on the parent interval, causing
+          // subsequent ticks to log skip_reentrant — effectively disabling
+          // the backstop until the request resolves. The signal is
+          // propagated into Octokit via `request: { signal }` so the
+          // underlying fetch is cooperatively cancelled.
+          const pullNumber = session.pullRequest.number;
+          const { data: livePr } = await withTimeout(
+            "github.pulls.get",
+            githubTimeoutMs,
+            (signal) =>
+              octokit.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pullNumber,
+                request: { signal },
+              })
+          );
 
           if (!livePr.merged) {
             // PR is not merged on GitHub (still open or closed without merge). Skip.
@@ -375,10 +424,16 @@ export async function runMergeStateSweep(
           }
         } catch (sessionErr) {
           const msg = sessionErr instanceof Error ? sessionErr.message : String(sessionErr);
+          // Surface timeout errors with a dedicated event so operators can
+          // distinguish slow-GitHub from other failures. PR #1116 R1.
+          const eventName =
+            sessionErr instanceof TimeoutError
+              ? "merge_state_sweeper.session_timeout"
+              : "merge_state_sweeper.session_error";
           result.errors.push(`Error processing session ${sessionId}: ${msg}`);
           console.warn(
             JSON.stringify({
-              event: "merge_state_sweeper.session_error",
+              event: eventName,
               sessionId,
               error: msg,
             })
@@ -461,8 +516,30 @@ export function startMergeStateSweeper(
       mcpUrl: sweeperConfig.mcpUrl,
       owner: sweeperConfig.owner,
       repo: sweeperConfig.repo,
+      ownerDefaulted: sweeperConfig.ownerDefaulted,
+      repoDefaulted: sweeperConfig.repoDefaulted,
+      githubTimeoutMs: sweeperConfig.githubTimeoutMs,
     })
   );
+
+  // PR #1116 R1 BLOCKING: when owner/repo were silently defaulted, emit a
+  // structured warning at boot. In non-Minsky deployments this would otherwise
+  // silently target edobry/minsky and never produce a high-signal log line.
+  if (sweeperConfig.ownerDefaulted || sweeperConfig.repoDefaulted) {
+    console.warn(
+      JSON.stringify({
+        event: "merge_state_sweeper.using_default_repo_coordinates",
+        owner: sweeperConfig.owner,
+        repo: sweeperConfig.repo,
+        ownerDefaulted: sweeperConfig.ownerDefaulted,
+        repoDefaulted: sweeperConfig.repoDefaulted,
+        message:
+          "merge-state sweeper is using default repo coordinates. " +
+          "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
+          "to avoid silently sweeping the wrong repository.",
+      })
+    );
+  }
 
   let isRunning = false;
   // Lazy Octokit creation — first cycle pays the auth-handshake cost;
@@ -493,7 +570,8 @@ export function startMergeStateSweeper(
         sweeperConfig.owner,
         sweeperConfig.repo,
         sweeperConfig.mcpUrl,
-        sweeperConfig.mcpToken
+        sweeperConfig.mcpToken,
+        sweeperConfig.githubTimeoutMs
       );
     })()
       .catch((err: unknown) => {

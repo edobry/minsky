@@ -34,8 +34,12 @@ const MCP_URL = "http://localhost:9999/mcp";
 const MCP_TOKEN = "test-token";
 const OWNER = "edobry";
 const REPO = "minsky";
+const GITHUB_TIMEOUT_MS = 30_000;
 const ENV_SWEEPER_ENABLED = "MERGE_STATE_SWEEPER_ENABLED";
 const ENV_SWEEPER_INTERVAL_MS = "MERGE_STATE_SWEEPER_INTERVAL_MS";
+const ENV_SWEEPER_REPO_OWNER = "SWEEPER_REPO_OWNER";
+const ENV_SWEEPER_REPO_NAME = "SWEEPER_REPO_NAME";
+const ENV_GITHUB_TIMEOUT_MS = "MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS";
 
 const BASE_REVIEWER_CONFIG: ReviewerConfig = {
   appId: 1,
@@ -235,7 +239,14 @@ describe("runMergeStateSweep — no sessions", () => {
     };
 
     const octokit = makeFakeOctokit({ prResponses: {} });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(0);
     expect(result.missedSyncs).toBe(0);
@@ -259,7 +270,14 @@ describe("runMergeStateSweep — open PRs not synced", () => {
     const octokit = makeFakeOctokit({
       prResponses: { 10: { merged: false } },
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(1);
     expect(result.missedSyncs).toBe(0);
@@ -292,7 +310,14 @@ describe("runMergeStateSweep — open PRs not synced", () => {
     const octokit = makeFakeOctokit({
       prResponses: { 11: { merged: false, merged_at: null, merge_commit_sha: null } },
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.missedSyncs).toBe(0);
     expect(result.syncsTriggered).toBe(0);
@@ -335,7 +360,14 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         },
       },
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(1);
     expect(result.missedSyncs).toBe(1);
@@ -393,7 +425,14 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         },
       },
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(prGetCallCount).toBe(0);
     expect(result.missedSyncs).toBe(1);
@@ -421,9 +460,70 @@ describe("runMergeStateSweep — merged PR triggers sync", () => {
         calledPrNumbers.push(n);
       },
     });
-    await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN, GITHUB_TIMEOUT_MS);
 
     expect(calledPrNumbers).toEqual([42]);
+  });
+
+  // PR #1116 R1 BLOCKING #1 regression test: a hanging octokit.pulls.get must
+  // abort under the timeout, record an error, and NOT block the parent
+  // Promise.all chunk indefinitely (which would leave isRunning=true and
+  // cause skip_reentrant on subsequent ticks).
+  it("aborts on octokit hang via withTimeout (PR #1116 R1 BLOCKING #1)", async () => {
+    const sessions: FakeSession[] = [
+      { sessionId: "s_hang", status: "PR_OPEN", pullRequest: { number: 99 } },
+    ];
+
+    fetchHandler = async (_url, init) => {
+      const body = JSON.parse(init.body as string) as { params: { name: string } };
+      if (body.params.name === "session.list") return sessionListResponse(sessions);
+      throw new Error(`Unexpected: ${body.params.name}`);
+    };
+
+    // Build a fake Octokit whose pulls.get hangs forever unless aborted.
+    const hangingOctokit = {
+      rest: {
+        pulls: {
+          get: async (args: {
+            owner: string;
+            repo: string;
+            pull_number: number;
+            request?: { signal?: AbortSignal };
+          }) => {
+            return new Promise((_resolve, reject) => {
+              const signal = args.request?.signal;
+              if (signal) {
+                signal.addEventListener("abort", () => reject(new Error("aborted")));
+              }
+              // Never resolve otherwise.
+            });
+          },
+        },
+      },
+    } as unknown as Parameters<typeof runMergeStateSweep>[0];
+
+    const SHORT_TIMEOUT_MS = 50;
+    const start = performance.now();
+    const result = await runMergeStateSweep(
+      hangingOctokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      SHORT_TIMEOUT_MS
+    );
+    const elapsed = performance.now() - start;
+
+    // Timeout must fire well within a couple multiples of the configured budget.
+    expect(elapsed).toBeLessThan(SHORT_TIMEOUT_MS * 20);
+    // The hung session is recorded as an error rather than silently dropped or
+    // hanging the cycle. The parent Promise.all releases and the function
+    // returns normally — this IS the regression assertion: function-returns =
+    // isRunning would be released on the parent caller side.
+    expect(result.sessionsScanned).toBe(1);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.missedSyncs).toBe(0);
+    expect(result.syncsTriggered).toBe(0);
   });
 });
 
@@ -450,7 +550,14 @@ describe("runMergeStateSweep — skips sessions without PR number", () => {
         octokitCalls++;
       },
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(2);
     expect(result.missedSyncs).toBe(0);
@@ -490,7 +597,14 @@ describe("runMergeStateSweep — handles multiple sessions", () => {
         3: { merged: true, merged_at: "2026-05-06T11:00:00Z", merge_commit_sha: "ccc" },
       },
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     expect(result.sessionsScanned).toBe(3);
     expect(result.missedSyncs).toBe(2);
@@ -515,7 +629,14 @@ describe("runMergeStateSweep — error handling", () => {
     };
 
     const octokit = makeFakeOctokit({ prResponses: {} });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     // Should surface the error gracefully
     expect(result.errors.length).toBeGreaterThan(0);
@@ -550,7 +671,14 @@ describe("runMergeStateSweep — error handling", () => {
       prResponses: { 2: { merged: true, merged_at: "2026-05-06T10:00:00Z" } },
       throwForPrNumber: 1,
     });
-    const result = await runMergeStateSweep(octokit, OWNER, REPO, MCP_URL, MCP_TOKEN);
+    const result = await runMergeStateSweep(
+      octokit,
+      OWNER,
+      REPO,
+      MCP_URL,
+      MCP_TOKEN,
+      GITHUB_TIMEOUT_MS
+    );
 
     // se1 failed (recorded as error), se2 still synced
     expect(result.errors.length).toBeGreaterThan(0);
@@ -576,32 +704,70 @@ describe("loadMergeStateSweeperConfig", () => {
     }
   });
 
-  it("enabled=true when MERGE_STATE_SWEEPER_ENABLED=true", () => {
-    const saved = process.env[ENV_SWEEPER_ENABLED];
-    process.env[ENV_SWEEPER_ENABLED] = "true";
+  // PR #1116 R1 BLOCKING #2: surface defaulted-coords risk.
+  it("flags ownerDefaulted=true when SWEEPER_REPO_OWNER not set (PR #1116 R1)", () => {
+    const saved = process.env[ENV_SWEEPER_REPO_OWNER];
+    delete process.env[ENV_SWEEPER_REPO_OWNER];
     try {
       const cfg = loadMergeStateSweeperConfig();
-      expect(cfg.enabled).toBe(true);
+      expect(cfg.ownerDefaulted).toBe(true);
+      expect(cfg.owner).toBe("edobry");
+    } finally {
+      if (saved !== undefined) process.env[ENV_SWEEPER_REPO_OWNER] = saved;
+    }
+  });
+
+  it("flags ownerDefaulted=false when SWEEPER_REPO_OWNER explicitly set (PR #1116 R1)", () => {
+    const saved = process.env[ENV_SWEEPER_REPO_OWNER];
+    process.env[ENV_SWEEPER_REPO_OWNER] = "someorg";
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.ownerDefaulted).toBe(false);
+      expect(cfg.owner).toBe("someorg");
     } finally {
       if (saved !== undefined) {
-        process.env[ENV_SWEEPER_ENABLED] = saved;
+        process.env[ENV_SWEEPER_REPO_OWNER] = saved;
       } else {
-        delete process.env[ENV_SWEEPER_ENABLED];
+        delete process.env[ENV_SWEEPER_REPO_OWNER];
       }
     }
   });
 
-  it("enabled=false when MERGE_STATE_SWEEPER_ENABLED=false (explicit opt-out)", () => {
-    const saved = process.env[ENV_SWEEPER_ENABLED];
-    process.env[ENV_SWEEPER_ENABLED] = "false";
+  it("flags repoDefaulted accordingly (PR #1116 R1)", () => {
+    const savedRepo = process.env[ENV_SWEEPER_REPO_NAME];
+    delete process.env[ENV_SWEEPER_REPO_NAME];
     try {
       const cfg = loadMergeStateSweeperConfig();
-      expect(cfg.enabled).toBe(false);
+      expect(cfg.repoDefaulted).toBe(true);
+      expect(cfg.repo).toBe("minsky");
+    } finally {
+      if (savedRepo !== undefined) process.env[ENV_SWEEPER_REPO_NAME] = savedRepo;
+    }
+  });
+
+  it("defaults githubTimeoutMs to 30_000 when env var not set (PR #1116 R1)", () => {
+    const saved = process.env[ENV_GITHUB_TIMEOUT_MS];
+    delete process.env[ENV_GITHUB_TIMEOUT_MS];
+    try {
+      const cfg = loadMergeStateSweeperConfig();
+      expect(cfg.githubTimeoutMs).toBe(30_000);
+    } finally {
+      if (saved !== undefined) process.env[ENV_GITHUB_TIMEOUT_MS] = saved;
+    }
+  });
+
+  it("throws on non-numeric MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS (PR #1116 R1)", () => {
+    const saved = process.env[ENV_GITHUB_TIMEOUT_MS];
+    process.env[ENV_GITHUB_TIMEOUT_MS] = "not_a_number";
+    try {
+      expect(() => loadMergeStateSweeperConfig()).toThrow(
+        /MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS must be a positive integer/
+      );
     } finally {
       if (saved !== undefined) {
-        process.env[ENV_SWEEPER_ENABLED] = saved;
+        process.env[ENV_GITHUB_TIMEOUT_MS] = saved;
       } else {
-        delete process.env[ENV_SWEEPER_ENABLED];
+        delete process.env[ENV_GITHUB_TIMEOUT_MS];
       }
     }
   });
@@ -694,6 +860,9 @@ describe("startMergeStateSweeper", () => {
       mcpToken: MCP_TOKEN,
       owner: OWNER,
       repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).toBeNull();
   });
@@ -706,6 +875,9 @@ describe("startMergeStateSweeper", () => {
       mcpToken: MCP_TOKEN,
       owner: OWNER,
       repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).toBeNull();
   });
@@ -718,6 +890,9 @@ describe("startMergeStateSweeper", () => {
       mcpToken: "", // Empty
       owner: OWNER,
       repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).toBeNull();
   });
@@ -730,6 +905,9 @@ describe("startMergeStateSweeper", () => {
       mcpToken: MCP_TOKEN,
       owner: OWNER,
       repo: REPO,
+      ownerDefaulted: false,
+      repoDefaulted: false,
+      githubTimeoutMs: GITHUB_TIMEOUT_MS,
     });
     expect(handle).not.toBeNull();
     // Clean up the interval so the test process can exit cleanly.
