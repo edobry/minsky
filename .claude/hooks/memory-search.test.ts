@@ -74,9 +74,14 @@ describe("isTrivialPrompt", () => {
     expect(isTrivialPrompt("   \n\t ")).toBe(true);
   });
 
-  it("returns true for short prompts under 20 chars", () => {
+  it("returns true for short prompts under 50 chars", () => {
     expect(isTrivialPrompt("hello there")).toBe(true);
     expect(isTrivialPrompt("what?")).toBe(true);
+  });
+
+  it("treats 49 chars as trivial and 50 chars as non-trivial (MIN_PROMPT_LENGTH boundary)", () => {
+    expect(isTrivialPrompt("a".repeat(49))).toBe(true);
+    expect(isTrivialPrompt("a".repeat(50))).toBe(false);
   });
 
   it("returns true for single-word affirmatives", () => {
@@ -149,9 +154,9 @@ describe("isTrivialPrompt", () => {
     }
   });
 
-  it("returns false for prompts at or over the 20-char threshold that aren't affirmatives", () => {
-    // exactly 20 chars
-    expect(isTrivialPrompt("twenty char prompts!")).toBe(false);
+  it("returns false for prompts at or over the 50-char threshold that aren't affirmatives", () => {
+    // exactly 50 chars
+    expect(isTrivialPrompt("fifty character test prompt for the threshold limt")).toBe(false);
     expect(isTrivialPrompt("what does the user prefer for testing in this project?")).toBe(false);
     expect(isTrivialPrompt("how do I run validation across all source files in this repo")).toBe(
       false
@@ -159,9 +164,9 @@ describe("isTrivialPrompt", () => {
   });
 
   it("returns false for multi-word prompts even if they start with an affirmative", () => {
-    // multi-word "yes please continue" — long enough and the affirmative-skip
+    // multi-word — long enough to clear 50-char floor and the affirmative-skip
     // only fires for single-word prompts
-    expect(isTrivialPrompt("yes please continue with the implementation")).toBe(false);
+    expect(isTrivialPrompt("yes please continue with the implementation we discussed")).toBe(false);
   });
 
   it("respects custom minLength", () => {
@@ -170,10 +175,12 @@ describe("isTrivialPrompt", () => {
   });
 
   it("respects custom affirmatives set", () => {
-    // Use single-word prompts long enough to clear the length floor so the
+    // Use prompts long enough to clear the default length floor so the
     // affirmatives-set membership is what's actually being tested.
     expect(
-      isTrivialPrompt("longwordnotinanydefaultset", { affirmatives: new Set(["customword"]) })
+      isTrivialPrompt("longwordnotinanydefaultset that exceeds fifty chars threshold here", {
+        affirmatives: new Set(["customword"]),
+      })
     ).toBe(false);
     expect(
       isTrivialPrompt("customword", { affirmatives: new Set(["customword"]), minLength: 1 })
