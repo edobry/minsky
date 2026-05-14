@@ -372,6 +372,119 @@ describe("applyPostMergeStateSync — graceful degradation (SC#7)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// mt#1841 — partial-failure surfacing
+// ---------------------------------------------------------------------------
+//
+// Regression guard: when sessionDB.updateSession throws, the function must
+// (a) NOT optimistically set sessionStatusUpdated / pullRequestRecordUpdated
+//     to true (the prior bug: flags were set before the await), and
+// (b) populate sessionUpdateError with the underlying error message so the
+//     webhook handler can detect partial failure.
+//
+// Originating incident: mt#1813 (PR #1101, bypass-merged 2026-05-13T14:54Z)
+// had task=DONE within minutes but session.status stayed at PR_OPEN until
+// manually synced ~21h later. The catch block at session-merge-operations.ts
+// :204-210 logged the error but the result reported success because the
+// flags were set optimistically BEFORE the await.
+// ---------------------------------------------------------------------------
+
+describe("applyPostMergeStateSync — partial-failure surfacing (mt#1841)", () => {
+  it("sessionUpdateError populated and flags=false when updateSession throws", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    // Override updateSession to throw, simulating the silent-failure mode that
+    // produced the mt#1813 drift.
+    sessionDB.updateSession = (async () => {
+      throw new Error("Simulated DB failure during session-record update");
+    }) as typeof sessionDB.updateSession;
+
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergeSha: "deadbeef",
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    // task effect succeeded (its own try/catch is independent).
+    expect(result.taskStatusUpdated).toBe(true);
+
+    // session effect failed: flags must NOT be optimistically true.
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.pullRequestRecordUpdated).toBe(false);
+
+    // The error must be surfaced in the result so the caller can act on it.
+    expect(result.sessionUpdateError).toContain("Simulated DB failure");
+
+    // task-side error field stays undefined (only session side failed).
+    expect(result.taskUpdateError).toBeUndefined();
+  });
+
+  it("session-update success: sessionUpdateError stays undefined and flags=true", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergeSha: "deadbeef",
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    expect(result.sessionStatusUpdated).toBe(true);
+    expect(result.pullRequestRecordUpdated).toBe(true);
+    expect(result.sessionUpdateError).toBeUndefined();
+    expect(result.taskUpdateError).toBeUndefined();
+  });
+
+  it("task-update failure surfaces taskUpdateError without affecting session side", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+
+    const throwingTaskService = {
+      getTaskStatus: async () => {
+        throw new Error("Simulated task-DB failure");
+      },
+      setTaskStatus: async () => undefined,
+    } as any;
+
+    const deps: PostMergeStateSyncDeps = {
+      sessionDB,
+      taskService: throwingTaskService,
+    };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.taskUpdateError).toContain("Simulated task-DB failure");
+
+    // Session side still runs and lands.
+    expect(result.sessionStatusUpdated).toBe(true);
+    expect(result.sessionUpdateError).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // SC#4 — mergeSessionPr calls applyPostMergeStateSync (regression guard)
 // ---------------------------------------------------------------------------
 //

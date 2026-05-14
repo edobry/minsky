@@ -383,16 +383,55 @@ export function createApp(
     );
 
     if (syncText) {
-      console.log(
-        JSON.stringify({
-          event: "at_merge_handler.sync_complete",
-          delivery_id: deliveryId,
-          taskId,
-          sessionId,
-          mergeSha,
-          mergedAt,
-        })
-      );
+      // mt#1841: parse the response and check for partial-failure errors.
+      // The MCP tool's result wraps applyPostMergeStateSync's return value;
+      // when (a) succeeded but (b)/(c)/(d) silently failed, taskUpdateError or
+      // sessionUpdateError will be populated. Emit a distinct event so the
+      // failure is operator-visible in Railway logs. The merge-state sweeper
+      // (mt#1752) backstops the missed effects on its next 10-min cycle.
+      let parsedSync: Record<string, unknown> = {};
+      try {
+        parsedSync = JSON.parse(syncText) as Record<string, unknown>;
+      } catch {
+        // Non-JSON response (shouldn't happen for our MCP tool but be defensive).
+        parsedSync = {};
+      }
+
+      const sessionUpdateError =
+        typeof parsedSync.sessionUpdateError === "string"
+          ? parsedSync.sessionUpdateError
+          : undefined;
+      const taskUpdateError =
+        typeof parsedSync.taskUpdateError === "string" ? parsedSync.taskUpdateError : undefined;
+
+      if (sessionUpdateError || taskUpdateError) {
+        console.warn(
+          JSON.stringify({
+            event: "at_merge_handler.sync_partial_failure",
+            delivery_id: deliveryId,
+            taskId,
+            sessionId,
+            mergeSha,
+            mergedAt,
+            sessionUpdateError,
+            taskUpdateError,
+            message:
+              "apply_post_merge_state_sync reported partial failure. " +
+              "The merge-state sweeper will backstop on its next cycle (mt#1752).",
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            event: "at_merge_handler.sync_complete",
+            delivery_id: deliveryId,
+            taskId,
+            sessionId,
+            mergeSha,
+            mergedAt,
+          })
+        );
+      }
     } else {
       console.warn(
         JSON.stringify({

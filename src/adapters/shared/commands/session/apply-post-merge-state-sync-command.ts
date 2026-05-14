@@ -150,6 +150,10 @@ export function createApplyPostMergeStateSyncCommand(getDeps: LazySessionDeps): 
           taskStatusUpdated: result.taskStatusUpdated,
           sessionStatusUpdated: result.sessionStatusUpdated,
           pullRequestRecordUpdated: result.pullRequestRecordUpdated,
+          // mt#1841: propagate partial-failure error fields so the webhook handler
+          // (and other MCP callers) can detect when (a) or (b/c/d) silently failed.
+          taskUpdateError: result.taskUpdateError,
+          sessionUpdateError: result.sessionUpdateError,
           sessionCleanup: result.sessionCleanup,
         };
       }
