@@ -10,6 +10,7 @@
 import { execAsync } from "../utils/exec";
 import { execGitWithTimeout } from "../utils/git-exec";
 import { stat } from "fs/promises";
+import { join } from "path";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
 import {
@@ -774,9 +775,14 @@ export class PreCommitHook {
         // git-controlled and may contain shell metacharacters. Programmatic
         // stat avoids /bin/sh entirely. mode & 0o100 checks the owner-execute
         // bit, which matches `test -x` for files the developer owns.
+        //
+        // PR #1122 R1: paths from `git diff` are repository-relative, so resolve
+        // them against projectRoot before stat. The prior execAsync call used
+        // `cwd: this.projectRoot` which made the shell resolve relative paths;
+        // fs.stat resolves against process.cwd() so we must join explicitly.
         let mode: number | undefined;
         try {
-          const st = await stat(file);
+          const st = await stat(join(this.projectRoot, file));
           mode = st.mode;
         } catch (err) {
           // ENOENT = file staged-then-deleted in the working tree between
