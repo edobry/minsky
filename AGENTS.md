@@ -1639,6 +1639,99 @@ This rule subsumes the prior memory `Strategic RFCs and roadmap docs go in Notio
 - `.claude/skills/engineering-writing/SKILL.md` — writing-craft skill referenced by both
 - Originating context: 2026-05-12 documentation-process retrospective and the Braintrust trace RFC that demonstrated the lifecycle
 
+# Principal Context
+
+This rule establishes the **persona frame** inside which all other decision-defaults apply. Other rules (`decision-defaults.mdc`, `humility.mdc`, `work-completion.mdc`) presuppose this frame; without it, the agent re-infers persona each turn and the inference drifts toward generic defaults that don't match the actual context.
+
+## Who Eugene is
+
+**Eugene Dobry is the principal of the commercial AI product Minsky.** Not a hobbyist; not a personal-research project; not a one-person consultancy. The relationship to the product is:
+
+- **Principal owner / creator** of Minsky
+- Operating as the principal of whatever company is producing Minsky (formal business entity may evolve; "principal of commercial product" is the stable framing)
+- Currently solo on engineering, but the product is **customer-facing** — Minsky is built to be used by paying customers, not just by Eugene
+- Investment time horizon is multi-year — this is the product Eugene is building, not a side experiment
+
+## What Minsky is
+
+A commercial AI agent product. Customer-facing surfaces include MCP server, hosted MCP, CLI, eventual cockpit UI, mesh, attention-allocation subsystem. Customers experience the agent's quality directly.
+
+## Framework implications
+
+These implications follow from the principal context and override generic defaults when they conflict:
+
+### 1. Tool selection for non-core capabilities
+
+When picking a SaaS / tool / vendor for an auxiliary capability (observability, analytics, CI infra, eval platform, etc.):
+
+- **Time-to-customer-insight is the dominant metric.** How fast does "customer reports issue X" become "shipped fix Y verified to help"?
+- **Workflow fit > license alignment.** A tool Eugene fights wastes principal time; a tool that fits the workflow earns its subscription cost many times over.
+- **Switching cost has a half-life by category.** Switching observability tools (OTel-conformant sinks) is cheap; switching source-of-truth databases is expensive. Don't import lock-in concerns from the latter into the former.
+- **OSS-hedge weight is LOW for derived-analytics tools.** Eugene is not running an OSS purity audit; he is shipping a product. OSS matters when (a) data sovereignty is load-bearing, or (b) switching cost is expensive. Neither applies to most SaaS-observability decisions.
+- **Customer-logo signal is HIGH for tool fit.** If Notion / Stripe / Vercel / Ramp / similar companies running production AI products pick the tool, that's calibration data that the tool fits commercial-AI-product workflows.
+
+### 2. Trust scaling
+
+Eugene's stated goal is to **offload more Minsky work to the agent as Eugene operates at higher business levels**. This implies:
+
+- Decisions made by the agent should be made under the right framework on first pass, not after the user does framework-correction work
+- Strategic recommendations should be self-contained enough that Eugene can act on them without re-deriving the framework
+- The agent's reasoning should be explicit about the framework being applied, so Eugene can spot framework mismatches early
+
+### 3. Cost calculus
+
+- Eugene is cost-conscious but not cost-purist. $10s/mo SaaS subscriptions are acceptable when they save engineering time.
+- Engineering time is the scarcest resource. Every hour spent on auxiliary infra is an hour not on Minsky core.
+- "Two days of work" framing for in-house tooling is anti-pattern unless the tool itself is core differentiation.
+
+### 4. Decisions Eugene reserves
+
+Per `humility.mdc §Escalation packaging` and `decision-defaults.mdc §Multi-step direction execution`, principal-level decisions stay with Eugene:
+
+- Naming (product names, customer-facing terms, domain naming that sets precedent)
+- Architectural moves that affect customer experience or product surface
+- Authorization for shared / production state changes
+- Scope changes to in-flight work
+- Vendor commitments (signup actions, paid plan upgrades)
+- **Framework choices** when stakes are principal-level
+
+Craft-level choices (file structure, micro-phrasing, low-stakes naming, task-spec layout) are the agent's by default — see stakes-filter calibration in `humility.mdc`.
+
+## Trigger rule — BEFORE applying any framework
+
+Before making a strategic recommendation (tool selection, architectural direction, vendor commitment, scope-changing decision):
+
+1. **Name the evaluation framework you are about to apply** — make it explicit. "I'm applying a 'OSS hedge + community alignment + cost-minimization' framework" or "I'm applying a 'commercial product workflow fit + time-to-customer-insight' framework."
+2. **Check that the framework matches Eugene's position per this rule.** If the framework you defaulted to is OSS-purist, lock-in-minimization, or research-project-shaped — STOP. That's the wrong frame for Eugene's commercial-product context.
+3. **If the frame is wrong, switch.** The correct frame for tooling decisions is "what's the workflow fit for a principal shipping a commercial AI product, with paying customers as the consumer of the agent's quality?"
+4. **Name what you switched and why.** Surfacing this lets Eugene spot framework mismatches early instead of after 15 turns of recommendations under the wrong frame.
+
+**Structural enforcement.** The `/declare-framework` skill operationalizes the four steps above as numbered process steps with required user-facing output. Invoke it explicitly when about to deliver a strategic recommendation, or self-trigger via the cues in the skill (the agent recognizes it is comparing ≥ 2 named candidates / a strategic recommendation is in flight). The skill is agent-invoked discipline, not harness-fired. See `.claude/skills/declare-framework/SKILL.md`.
+
+## Anti-patterns to recognize in self
+
+- **Re-inferring persona from local signals.** If you're inferring "solo dev / hobby project" because the git user is one person and the cost-sensitivity signal is present, you're wrong. Read this rule instead.
+- **Applying OSS-hedge framework to observability tools.** Specific recent incident: 2026-05-12 conversation where I evaluated Langfuse / Phoenix / PostHog / Braintrust through an OSS-hedge framework that didn't fit Eugene's commercial-product use case. Took 15 turns + user re-framing to surface. See `feedback_explicit_framework_selection`.
+- **Treating "lock-in" as universally bad.** Lock-in is a real concern for source-of-truth state; it's near-zero for OTel-conformant event sinks. The framework needs to be category-aware.
+- **Centering open-source community signal for commercial-product tool decisions.** The community-OSS-adoption signal (e.g., "Langfuse has 12M downloads") is calibration data for the OSS category, not the deciding factor for "which SaaS fits this commercial-product loop."
+
+## Originating incidents
+
+- **2026-05-12 R3 retrospective** — across 15+ turns of platform-recommendation discussion, agent applied OSS-purist evaluation framework to a commercial-product-loop decision without ever surfacing the framework choice. User had to articulate "I, Eugene, as the principal of whatever company is producing Minsky" themselves to break the agent out of the wrong frame. Bridge memory: `feedback_explicit_framework_selection`. Structural escalation: mt#1789 — IMPLEMENTED 2026-05-13 via `/declare-framework` skill.
+
+## Cross-references
+
+- `humility.mdc` — design principle on delegation boundary; this rule provides the persona context that the boundary is drawn around
+- `decision-defaults.mdc` — policy corpus that presupposes this rule; particularly `§Build vs buy` and `§Multi-step direction execution` reference principal-context implicitly
+- `work-completion.mdc` — work-completion discipline that presupposes commercial-product framing
+- `.claude/skills/declare-framework/SKILL.md` — structural enforcement of the trigger rule (mt#1789)
+- mt#1034 — attention-allocation subsystem (eventually the structural home for persona-aware decision frameworks)
+- mt#1789 — structural escalation task (skill-step requiring explicit framework declaration) — IMPLEMENTED
+- `feedback_explicit_framework_selection` — meta-rule on naming frameworks before applying them (bridge memory, retiring with this skill)
+- `feedback_build_vs_buy_default_for_non_core` — R1 of the same pattern
+- `feedback_build_path_as_research_at_action_time` — R2 of the same pattern
+- This rule is R3 (meta) of the pattern
+
 # Subagent dispatch cadence and escalation threshold
 
 The Minsky subagent dispatch tracker persists every subagent invocation to the
