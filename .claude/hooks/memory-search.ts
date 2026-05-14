@@ -181,7 +181,7 @@ export function isTrivialPrompt(
   }
 
   // Length-based skip: trimmed.length strictly less than `minLength` (default
-  // 20) is trivial; `minLength` and longer is non-trivial. Even short prompts
+  // 50) is trivial; `minLength` and longer is non-trivial. Even short prompts
   // can be questions ("why?"), but the spec calls for a simple length floor;
   // keep it simple per "iterate later if too aggressive".
   if (trimmed.length < minLength) {
