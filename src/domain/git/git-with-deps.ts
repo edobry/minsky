@@ -227,7 +227,9 @@ export async function branchWithDepsImpl(
   const workdir = deps.getSessionWorkdir(options.session);
 
   // mt#1829: options.branch is operator-controlled; quote it.
-  await deps.execAsync(`git -C ${workdir} checkout -b ${safeShellQuote(options.branch)}`);
+  await deps.execAsync(
+    `git -C ${safeShellQuote(workdir)} checkout -b ${safeShellQuote(options.branch)}`
+  );
   return {
     workdir,
     branch: options.branch,
