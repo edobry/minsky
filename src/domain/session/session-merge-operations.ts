@@ -86,10 +86,51 @@ export interface PostMergeStateSyncDeps {
 export interface PostMergeStateSyncResult {
   sessionId: string;
   taskId?: string;
-  /** Indicates whether each effect was applied this invocation (false = already in target state). */
+  /**
+   * Indicates whether the effect was actually written to the DB on this
+   * invocation. Three-way semantics (mt#1841):
+   *
+   * - `true` + no error: this invocation wrote the effect.
+   * - `false` + no corresponding error: no-op success (the value was already
+   *   in the target state — e.g., session already MERGED, task already DONE).
+   * - `false` + corresponding error: the write was attempted but failed (the
+   *   error field carries the underlying message).
+   *
+   * Callers that need to know "did the effect land?" should consult
+   * `partialFailure` (true iff any error field is populated), not the flag
+   * alone. See PR #1121 R1 BLOCKING #3.
+   */
   taskStatusUpdated: boolean;
   sessionStatusUpdated: boolean;
   pullRequestRecordUpdated: boolean;
+  /**
+   * Populated when effect (a) (task status update) failed at the DB layer. mt#1841.
+   * Undefined when the update succeeded OR the function decided no update was needed.
+   * Callers (webhook handler, sweeper) should check this to detect partial failure;
+   * the sweeper backstop will catch the missed effects on its next cycle (mt#1752).
+   */
+  taskUpdateError?: string;
+  /**
+   * Populated when effects (b)/(c)/(d) (session.status, lastActivityAt, pullRequest
+   * record) failed at the DB layer. mt#1841. Undefined when the update succeeded OR
+   * the function decided no update was needed.
+   *
+   * Originating incident: mt#1813 (PR #1101, bypass-merged 2026-05-13T14:54Z) had
+   * task=DONE within minutes but session.status stayed at PR_OPEN until manually
+   * synced ~21h later. The catch block at session-merge-operations.ts:204-210 logged
+   * the error but the result reported success because the flags were set
+   * optimistically BEFORE the await. This field makes partial failure visible to
+   * callers.
+   */
+  sessionUpdateError?: string;
+  /**
+   * True iff `taskUpdateError` OR `sessionUpdateError` is populated — the
+   * single boolean a caller can read to decide whether to retry/escalate
+   * without needing to disambiguate flag semantics. Computed by the function
+   * before returning, so callers don't have to derive it themselves
+   * (PR #1121 R1 BLOCKING #3).
+   */
+  partialFailure: boolean;
   sessionCleanup?: {
     performed: boolean;
     directoriesRemoved: string[];
@@ -152,6 +193,7 @@ export async function applyPostMergeStateSync(
     taskStatusUpdated: false,
     sessionStatusUpdated: false,
     pullRequestRecordUpdated: false,
+    partialFailure: false,
   };
 
   // (a) Task status: IN-REVIEW → DONE
@@ -168,22 +210,38 @@ export async function applyPostMergeStateSync(
       }
     } catch (error) {
       // Non-fatal: log and continue so remaining effects still apply.
-      log.error(`applyPostMergeStateSync: failed to update task status for ${taskId}`, {
-        error: getErrorMessage(error),
+      // mt#1841: surface the error to the caller via result.taskUpdateError so
+      // partial failure is detectable; emit a structured log event for
+      // Railway log searchability so operators can grep for the event name.
+      const errMsg = getErrorMessage(error);
+      result.taskUpdateError = errMsg;
+      log.error("apply_post_merge_state_sync.task_update_failed", {
+        event: "apply_post_merge_state_sync.task_update_failed",
+        sessionId,
+        taskId,
         trigger,
+        error: errMsg,
       });
     }
   }
 
   // (b) + (c) Session.status → MERGED, Session.lastActivityAt → mergedAt
   // (d) Session.pullRequest record: reflect closed/merged state
+  //
+  // mt#1841: track update-intent separately from did-update result. The previous
+  // implementation set result.sessionStatusUpdated = true BEFORE the await, so if
+  // updateSession threw, the catch swallowed the error and the result still
+  // reported success — the webhook handler had no way to detect partial failure.
+  // The intent/result split moves the flag-write to AFTER the await succeeds.
+  let intendSessionStatusUpdate = false;
+  let intendPullRequestRecordUpdate = false;
   try {
     const sessionUpdates: Partial<Omit<typeof sessionRecord, "sessionId">> = {};
 
     if (sessionRecord.status !== SessionStatus.MERGED) {
       sessionUpdates.status = SessionStatus.MERGED;
       sessionUpdates.lastActivityAt = mergedAt;
-      result.sessionStatusUpdated = true;
+      intendSessionStatusUpdate = true;
     }
 
     // (d) Update pullRequest record to reflect merged state.
@@ -211,17 +269,30 @@ export async function applyPostMergeStateSync(
             `merge_commit_sha=${mergeSha}, trigger=${trigger}`
         );
       }
-      result.pullRequestRecordUpdated = true;
+      intendPullRequestRecordUpdate = true;
     }
 
     if (Object.keys(sessionUpdates).length > 0) {
       await sessionDB.updateSession(sessionId, sessionUpdates);
+      // mt#1841: flag-write moved here, AFTER the await. The result now reports
+      // ACTUAL update state, not intent.
+      result.sessionStatusUpdated = intendSessionStatusUpdate;
+      result.pullRequestRecordUpdated = intendPullRequestRecordUpdate;
     }
   } catch (e) {
-    log.error("applyPostMergeStateSync: failed to update session state", {
+    // mt#1841: surface the error to the caller via result.sessionUpdateError.
+    // The flags remain false (never written past the await) so the result
+    // accurately reflects that the session-side effects did NOT land.
+    const errMsg = getErrorMessage(e);
+    result.sessionUpdateError = errMsg;
+    log.error("apply_post_merge_state_sync.session_update_failed", {
+      event: "apply_post_merge_state_sync.session_update_failed",
       sessionId,
-      error: getErrorMessage(e),
+      taskId,
       trigger,
+      error: errMsg,
+      intendSessionStatusUpdate,
+      intendPullRequestRecordUpdate,
     });
   }
 
@@ -266,6 +337,13 @@ export async function applyPostMergeStateSync(
     pullRequestRecordUpdated: result.pullRequestRecordUpdated,
     trigger,
   });
+
+  // PR #1121 R1 BLOCKING #3: derive partialFailure so callers don't have to
+  // disambiguate "no-op success" (flags=false + no error) from "write attempted
+  // and failed" (flags=false + error set). This is the single boolean that
+  // unambiguously means "an effect declared but did not land."
+  result.partialFailure =
+    result.taskUpdateError !== undefined || result.sessionUpdateError !== undefined;
 
   return result;
 }

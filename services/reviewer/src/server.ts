@@ -375,36 +375,147 @@ export function createApp(
     if (mergeSha) syncArgs["mergeSha"] = mergeSha;
     if (mergedAt) syncArgs["mergedAt"] = mergedAt;
 
-    const syncText = await callMcpToolLocal(
-      mcpUrl,
-      mcpToken,
-      "session.apply_post_merge_state_sync",
-      syncArgs
-    );
+    // PR #1121 R1 BLOCKING #1: spec requires fix-or-retry, not observability
+    // alone. Retry the apply_post_merge_state_sync MCP call with bounded
+    // backoff when it reports partial failure. The function is idempotent, so
+    // retries are safe; success-path semantics are unchanged (no retry when
+    // the first call succeeds). Max wall-clock ~13s (1+3+9), well under
+    // Railway's webhook-response budget.
+    //
+    // The sweeper (mt#1752) still backstops within 10 min if all retries are
+    // exhausted; the in-band retry covers the immediate window so the missed
+    // sync doesn't accumulate operator-visible drift.
+    const RETRY_DELAYS_MS = [1_000, 3_000, 9_000];
+    const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 
-    if (syncText) {
-      console.log(
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const syncText = await callMcpToolLocal(
+        mcpUrl,
+        mcpToken,
+        "session.apply_post_merge_state_sync",
+        syncArgs
+      );
+
+      if (!syncText) {
+        // Tool unavailable on every attempt would be the same outcome; no
+        // point retrying. The sweeper picks this up.
+        console.warn(
+          JSON.stringify({
+            event: "at_merge_handler.sync_tool_unavailable",
+            delivery_id: deliveryId,
+            taskId,
+            sessionId,
+            attempt,
+            message:
+              "session.apply_post_merge_state_sync returned no content. " +
+              "The merge-state sweeper will catch this.",
+          })
+        );
+        return;
+      }
+
+      // PR #1121 R1 BLOCKING #2: treat JSON parse failure as indeterminate, NOT
+      // success. The handler's decision gate is sensitive to strict JSON; a
+      // non-JSON response (or unexpected shape) must not silently emit
+      // sync_complete.
+      let parsedSync: Record<string, unknown> | null = null;
+      try {
+        parsedSync = JSON.parse(syncText) as Record<string, unknown>;
+      } catch (parseErr) {
+        const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        console.warn(
+          JSON.stringify({
+            event: "at_merge_handler.sync_parse_error",
+            delivery_id: deliveryId,
+            taskId,
+            sessionId,
+            attempt,
+            error: errMsg,
+            message:
+              "apply_post_merge_state_sync returned non-JSON or malformed response. " +
+              "Treating as indeterminate (not success). The merge-state sweeper will backstop.",
+          })
+        );
+        return;
+      }
+
+      // Extract partial-failure signals. Prefer the top-level `partialFailure`
+      // boolean (PR #1121); fall back to the individual error fields when
+      // older MCP responses don't yet include the boolean.
+      const sessionUpdateError =
+        typeof parsedSync.sessionUpdateError === "string"
+          ? parsedSync.sessionUpdateError
+          : undefined;
+      const taskUpdateError =
+        typeof parsedSync.taskUpdateError === "string" ? parsedSync.taskUpdateError : undefined;
+      const partialFailure =
+        parsedSync.partialFailure === true ||
+        sessionUpdateError !== undefined ||
+        taskUpdateError !== undefined;
+
+      // Also require an affirmative `success: true` for sync_complete — if the
+      // response lacks the field entirely (e.g., a schema-drift response shape),
+      // treat as indeterminate rather than implicit success.
+      const success = parsedSync.success === true;
+
+      if (!partialFailure && success) {
+        console.log(
+          JSON.stringify({
+            event: "at_merge_handler.sync_complete",
+            delivery_id: deliveryId,
+            taskId,
+            sessionId,
+            mergeSha,
+            mergedAt,
+            attempt,
+          })
+        );
+        return;
+      }
+
+      // Partial failure or missing success affirmation. Retry if attempts remain.
+      const attemptsRemaining = MAX_ATTEMPTS - 1 - attempt;
+      if (attemptsRemaining > 0) {
+        const delayMs = RETRY_DELAYS_MS[attempt] ?? 0;
+        console.warn(
+          JSON.stringify({
+            event: "at_merge_handler.sync_partial_failure_retry",
+            delivery_id: deliveryId,
+            taskId,
+            sessionId,
+            mergeSha,
+            mergedAt,
+            attempt,
+            attemptsRemaining,
+            delayMs,
+            sessionUpdateError,
+            taskUpdateError,
+            missingSuccess: !success,
+          })
+        );
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // All attempts exhausted. The sweeper (mt#1752) still backstops.
+      console.error(
         JSON.stringify({
-          event: "at_merge_handler.sync_complete",
+          event: "at_merge_handler.sync_retry_exhausted",
           delivery_id: deliveryId,
           taskId,
           sessionId,
           mergeSha,
           mergedAt,
-        })
-      );
-    } else {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.sync_tool_unavailable",
-          delivery_id: deliveryId,
-          taskId,
-          sessionId,
+          attempts: MAX_ATTEMPTS,
+          sessionUpdateError,
+          taskUpdateError,
+          missingSuccess: !success,
           message:
-            "session.apply_post_merge_state_sync returned no content. " +
-            "The merge-state sweeper will catch this.",
+            "apply_post_merge_state_sync reported partial failure on every retry. " +
+            "The merge-state sweeper will backstop on its next cycle (mt#1752).",
         })
       );
+      return;
     }
   }
 
