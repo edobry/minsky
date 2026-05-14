@@ -11,9 +11,9 @@ tags:
 
 - **Probe before deferring (mt#1819).** Before writing any of the phrases below in a PR body, spec `## Outcome` section, ask, status update, or chat — run a **tooling probe** to verify you actually lack the access you're about to claim is missing. Cost of a probe: ~30 seconds. Cost of a wrong deferral: 5–30 minutes of user attention plus a re-engagement cycle.
 
-  **Trigger phrases** (any of these fires the probe requirement):
+  **Trigger-phrase patterns** (match as patterns, not literal strings — any of these fires the probe requirement):
   - "deferred to operator" / "deferred to user"
-  - "requires `<X>` access" (for a CLI, hosted service, account, secret store, etc.)
+  - "requires X access" — where X is any tool, service, account, or secret-store name (e.g., "requires Railway access", "requires GitHub access", "requires admin token", "requires production access")
   - "user must do this" / "operator follow-up"
   - "outside agent context" / "not available from agent context"
 
@@ -23,9 +23,9 @@ tags:
   3. **Repo probe** — check `scripts/<service>/`, `services/<service>/<service>.config.ts`, or similar declarative-config sources.
   4. **Memory probe** — `mcp__minsky__memory_search` for the service keyword. Relevant memories may name the canonical path (e.g., `feedback_railway_config_dot_path_fails_silently` names `scripts/railway/apply.ts` as the synthesizer entrypoint).
 
-  **If any probe returns "tooling is available"**, do the work instead of writing the deferral.
+  **If a probe returns "tooling is available"**, proceed with the action ONLY when it's in-scope under the current task's acceptance criteria AND safe (no destructive side-effects the spec hasn't authorized, no scope-expansion beyond what was planned). The probe just unblocks the assumption-of-unavailability; it doesn't override scope/safety gates.
 
-  **If all probes fail**, state the probe results inline so the deferral has visible justification: e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."` Without those results stated, the deferral is unjustified.
+  **If all probes fail OR the action is out-of-scope/unsafe even with tooling available**, state both the probe results AND the scope/safety basis inline so the deferral has visible justification: e.g., `"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."` OR `"Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."` A bare deferral without inline probe results AND scope/safety basis is unjustified.
 
   Originating incident: mt#1811 (2026-05-13). Wrote "Operator follow-up — requires Railway access" in PR #1100 body and spec outcome despite `railway` CLI being on PATH, `railway:use-railway` in the available-skills list, and `feedback_railway_config_dot_path_fails_silently` in injected memory. Time-from-pushback-to-verified-in-production: <5 minutes. Time-to-probe-before-writing-the-deferral: would have been <30 seconds.
 
