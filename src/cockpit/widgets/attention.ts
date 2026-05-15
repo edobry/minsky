@@ -182,16 +182,18 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
 // pattern as agents.ts. The cockpit is a standalone Express server with no
 // tsyringe container.
 //
-// Window state: the in-process OpenWindowRegistry singleton lives in the CLI
-// entry point (src/adapters/shared/commands/window/index.ts). The cockpit
-// server runs in a different process, so it cannot read that registry
-// directly. v0: no active window key — surfacing all operator-routed suspended
-// asks as the fallback cohort. v1 (post-mt#1148): the cockpit server will
-// subscribe to Postgres NOTIFY `minsky.attention_window_opened` and maintain
-// its own window-key state.
+// Window state: read from the SSE broker's ring buffer via latestForChannel().
+// The broker subscribes to `minsky.attention_window_opened` and buffers the
+// most recent event, so the active window key reflects the last Postgres NOTIFY
+// received since cockpit-server startup (mt#1853). Falls back to null when no
+// broker is available (non-Postgres provider, offline mode).
 // ---------------------------------------------------------------------------
 
 let _cachedRepo: AskRepository | null = null;
+let _cachedBroker: import("../sse-broker").SseBroker | null = null;
+
+const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
+const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
 async function defaultDepsFactory(): Promise<AttentionDeps> {
   if (!_cachedRepo) {
@@ -220,7 +222,50 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
     _cachedRepo = new DrizzleAskRepository(db);
   }
 
-  return { repo: _cachedRepo, activeWindowKey: null };
+  // Lazy-load the shared SSE broker to read the current active window key.
+  // The broker is initialised eagerly at server startup (initServerSseBroker);
+  // if that hasn't happened yet (e.g. widget fetch called before server init),
+  // fall back to null and retry on the next fetch().
+  if (!_cachedBroker) {
+    try {
+      const { getServerSseBrokerForWidget } = await import("../server");
+      _cachedBroker = (await getServerSseBrokerForWidget()) ?? null;
+    } catch {
+      // Broker unavailable — will retry on next fetch()
+    }
+  }
+
+  let activeWindowKey: string | null = null;
+  if (_cachedBroker) {
+    const latestOpenEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_OPENED);
+    if (latestOpenEvent) {
+      const openPayload = latestOpenEvent.payload as { windowKey?: string } | undefined;
+      const openWindowKey = openPayload?.windowKey ?? null;
+
+      if (openWindowKey) {
+        // Check whether a subsequent CLOSE event has cancelled THIS specific
+        // window. PR #1138 R3 NON-BLOCKING fix: a close event for a DIFFERENT
+        // window (some sequential or concurrent open/close session) does NOT
+        // cancel an unrelated still-open window. Cancellation requires both:
+        //   (a) the close event targets the SAME windowKey as the latest open, AND
+        //   (b) the close event is newer than the open event by numeric event ID.
+        // This way: open(A) → close(B) does NOT clear A's active state.
+        const latestCloseEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_CLOSED);
+        let windowStillOpen = true;
+        if (latestCloseEvent) {
+          const closePayload = latestCloseEvent.payload as { windowKey?: string } | undefined;
+          const closeWindowKey = closePayload?.windowKey ?? null;
+          const closeIsNewer = parseInt(latestCloseEvent.id, 10) > parseInt(latestOpenEvent.id, 10);
+          if (closeWindowKey === openWindowKey && closeIsNewer) {
+            windowStillOpen = false;
+          }
+        }
+        activeWindowKey = windowStillOpen ? openWindowKey : null;
+      }
+    }
+  }
+
+  return { repo: _cachedRepo, activeWindowKey };
 }
 
 /** Default attention widget — ready to drop into WIDGET_REGISTRY */
