@@ -36,7 +36,7 @@ The substrate is partially in place. The attention-window primitive
 (`minsky.attention_window_opened`, `minsky.attention_window_closed`) via
 `createPostgresWindowNotifier` (`src/domain/ask/attention-windows/notify.ts`).
 The MCP HTTP server already handles SSE GET streams for tool-call responses
-(`src/mcp/server.ts:722`). The persistence layer exposes
+(the `handleHttpGet` path in `src/mcp/server.ts`). The persistence layer exposes
 `getRawSqlConnection()` on `SqlCapablePersistenceProvider` as the supported
 path for raw-SQL operations including `pg_notify`. Identity is unified by
 mt#1078's `agent_id` reverse-domain format (`{kind}:{scope}:{id}`).
@@ -49,8 +49,8 @@ re-architecting the substrate.
 ### Alternatives considered
 
 - **WebSocket broker.** Adds a second store and a connection-state ownership
-  problem. Postgres LISTEN/NOTIFY (default per `decision-defaults.mdc
-§Datastores`) covers the same workload without introducing a new
+  problem. Postgres LISTEN/NOTIFY (default per the `§Datastores` policy in
+  `decision-defaults.mdc`) covers the same workload without introducing a new
   infrastructure layer.
 - **AG-UI protocol** (mt#697 evaluation, DONE). Survey concluded AG-UI is
   agent-to-UI 1:1 streaming; the mesh needs pub/sub across concurrent
@@ -92,12 +92,18 @@ The mechanism, in three parts:
 
 ### 1. Intra-host: Postgres LISTEN/NOTIFY
 
-- **Emit side** continues through the pooled connection via
-  `getRawSqlConnection().unsafe('SELECT pg_notify($1, $2)', [channel,
-payloadJson])`. The existing `createPostgresWindowNotifier` is the
-  canonical pattern; new event classes ship their own thin notifier
-  following the same shape (injectable interface + Postgres
-  implementation + no-op + recording variants for tests).
+- **Emit side** continues through the pooled connection via the pattern:
+
+  ```ts
+  const sql = await provider.getRawSqlConnection();
+  await sql.unsafe(`SELECT pg_notify($1, $2)`, [channel, payloadJson]);
+  ```
+
+  The existing `createPostgresWindowNotifier` is the canonical pattern; new
+  event classes ship their own thin notifier following the same shape
+  (injectable interface + Postgres implementation + no-op + recording
+  variants for tests).
+
 - **Subscribe side** uses a dedicated direct Postgres connection per
   subscriber process. A library helper (filed as a follow-up below) manages
   connection lifecycle, automatic reconnect, and channel multiplexing.
