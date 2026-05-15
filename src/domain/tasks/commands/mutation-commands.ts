@@ -24,7 +24,11 @@ import {
   type TaskDeleteParams,
 } from "../../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
-import { validateStatusTransition } from "../status-transitions";
+import {
+  validateStatusTransition,
+  hasCloseoutEvidence,
+  READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
+} from "../status-transitions";
 import { TaskStatus } from "../taskConstants";
 import type { BasePersistenceProvider } from "../../persistence/types";
 
@@ -113,6 +117,24 @@ export async function setTaskStatusFromParams(
         undefined
       );
     }
+
+    // READY → DONE requires a ## Closeout evidence section with non-empty content.
+    // This path is for external-deliverable tasks that complete without a PR merge.
+    // See docs/task-lifecycle-external-deliverable for the convention.
+    if (task.status === TaskStatus.READY && validParams.status === TaskStatus.DONE) {
+      let specContent = "";
+      try {
+        const specResult = await taskService.getTaskSpecContent(validParams.taskId);
+        specContent = specResult.content ?? "";
+      } catch {
+        // If spec cannot be read, treat as missing — the check will fail below.
+        specContent = "";
+      }
+      if (!hasCloseoutEvidence(specContent)) {
+        throw new ValidationError(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE, undefined, undefined);
+      }
+    }
+
     // Pass task.kind so the gate dispatches to the right per-kind workflow (mt#1812).
     // task.kind defaults to "implementation" when unset (backward-compat).
     validateStatusTransition(
