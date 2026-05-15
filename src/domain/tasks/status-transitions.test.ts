@@ -1,6 +1,12 @@
 import { describe, test, expect } from "bun:test";
 import { TaskStatus } from "./taskConstants";
-import { validateStatusTransition, VALID_TRANSITIONS } from "./status-transitions";
+import {
+  validateStatusTransition,
+  VALID_TRANSITIONS,
+  hasCloseoutEvidence,
+  CLOSEOUT_EVIDENCE_HEADING,
+  READY_TO_DONE_MISSING_EVIDENCE_MESSAGE,
+} from "./status-transitions";
 
 describe("status-transitions", () => {
   describe("VALID_TRANSITIONS map (implementation kind backward-compat)", () => {
@@ -19,6 +25,10 @@ describe("status-transitions", () => {
         if (status === TaskStatus.CLOSED || status === TaskStatus.COMPLETED) continue;
         expect(VALID_TRANSITIONS[status]).toContain(TaskStatus.CLOSED);
       }
+    });
+
+    test("READY → DONE is listed in VALID_TRANSITIONS (guarded by spec check in setTaskStatusFromParams)", () => {
+      expect(VALID_TRANSITIONS[TaskStatus.READY]).toContain(TaskStatus.DONE);
     });
   });
 
@@ -164,6 +174,12 @@ describe("status-transitions", () => {
         validateStatusTransition(TaskStatus.TODO, TaskStatus.DONE, "implementation")
       ).toThrow(/Cannot transition from TODO to DONE/);
     });
+
+    test("READY → DONE is valid at the transition-gate level (spec check is upstream)", () => {
+      // The workflow allows READY → DONE; the spec content guard lives in
+      // setTaskStatusFromParams, not in validateStatusTransition itself.
+      expect(() => validateStatusTransition(TaskStatus.READY, TaskStatus.DONE)).not.toThrow();
+    });
   });
 
   describe("validateStatusTransition — umbrella kind", () => {
@@ -259,6 +275,102 @@ describe("status-transitions", () => {
       expect(() =>
         validateStatusTransition(TaskStatus.TODO, TaskStatus.PLANNING, undefined)
       ).not.toThrow();
+    });
+  });
+
+  describe("hasCloseoutEvidence", () => {
+    // --- Positive cases ---
+
+    test("returns true when section has content", () => {
+      const spec = `## Summary\nSome summary.\n\n## Closeout evidence\nhttps://notion.so/page-123 — Published 2026-05-11.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("returns true with minimal content after heading", () => {
+      const spec = `## Closeout evidence\nDone.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("returns true when section is at end of spec with content", () => {
+      const spec = `## Summary\n...\n\n## Closeout evidence\nArtifact: https://example.com/artifact`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    // --- Case-insensitive heading ---
+
+    test("is case-insensitive: ## CLOSEOUT EVIDENCE", () => {
+      const spec = `## CLOSEOUT EVIDENCE\nhttps://example.com/artifact\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("is case-insensitive: ## closeout evidence", () => {
+      const spec = `## closeout evidence\nhttps://example.com/artifact\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("is case-insensitive: ## Closeout Evidence", () => {
+      const spec = `## Closeout Evidence\nhttps://example.com/artifact\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    test("matches heading with trailing colon", () => {
+      const spec = `## Closeout evidence:\nhttps://example.com/artifact\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(true);
+    });
+
+    // --- Negative cases ---
+
+    test("returns false when spec is empty string", () => {
+      expect(hasCloseoutEvidence("")).toBe(false);
+    });
+
+    test("returns false when section is absent", () => {
+      const spec = `## Summary\nSome summary.\n\n## Scope\nIn scope: foo\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(false);
+    });
+
+    test("returns false when heading is present but no content follows", () => {
+      const spec = `## Summary\n\n## Closeout evidence\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(false);
+    });
+
+    test("returns false when heading is present but only blank lines follow", () => {
+      const spec = `## Closeout evidence\n\n\n   \n`;
+      expect(hasCloseoutEvidence(spec)).toBe(false);
+    });
+
+    test("returns false when heading is present but section ends at next ## heading with no content", () => {
+      const spec = `## Closeout evidence\n\n## Another section\nContent here.\n`;
+      expect(hasCloseoutEvidence(spec)).toBe(false);
+    });
+
+    test("returns false when spec is a null-ish empty value", () => {
+      expect(hasCloseoutEvidence("")).toBe(false);
+    });
+
+    // --- READY_TO_DONE_MISSING_EVIDENCE_MESSAGE presence check ---
+
+    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE mentions Closeout evidence", () => {
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("Closeout evidence");
+    });
+
+    test("READY_TO_DONE_MISSING_EVIDENCE_MESSAGE mentions READY and DONE", () => {
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("READY");
+      expect(READY_TO_DONE_MISSING_EVIDENCE_MESSAGE).toContain("DONE");
+    });
+
+    // --- CLOSEOUT_EVIDENCE_HEADING regex ---
+
+    test("CLOSEOUT_EVIDENCE_HEADING matches canonical form", () => {
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Closeout evidence")).toBe(true);
+    });
+
+    test("CLOSEOUT_EVIDENCE_HEADING is case-insensitive", () => {
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## CLOSEOUT EVIDENCE")).toBe(true);
+    });
+
+    test("CLOSEOUT_EVIDENCE_HEADING does not match ## without the words", () => {
+      expect(CLOSEOUT_EVIDENCE_HEADING.test("## Summary")).toBe(false);
     });
   });
 });
