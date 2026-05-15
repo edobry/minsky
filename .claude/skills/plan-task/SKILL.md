@@ -54,6 +54,7 @@ a status transition; everything else is investigation and gate-check.
   - (h) Contract-propagation enumeration
   - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
     with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
+  - (k) Third-party tool/dependency verification
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -398,6 +399,83 @@ Cross-reference: `feedback_premise_label_verification_required` (id `b8bcebec`) 
 bridge memory until this gate ships; once shipped, that memory's job becomes historical
 record + pointer here. Sibling skill: `/declare-framework` (mt#1789, framework selection).
 
+#### Gate criterion (k) — Third-party tool/dependency verification
+
+When the spec recommends adopting, installing, or relying on a third-party tool, library,
+or service — by GitHub repo URL, package name, CLI tool name, or similar reference — the
+agent must run four cheap verification checks BEFORE the spec can proceed to READY. A spec
+that references a third-party dependency without running these checks is incomplete.
+
+Rationale: mt#1714 / 2026-05-11 incident — the spec recommended `data-goblin/claude-code-mcp-reload`
+("mcp-hot-reload") as a staleness-exit absorption proxy. The recommendation was inherited
+from mt#1713's "Research findings" section, also written without verification. All four
+checks would have surfaced blocking gaps in under a minute:
+
+- **License**: `PROPRIETARY` — "Commercial use of any kind is STRICTLY PROHIBITED … You may
+  not modify, reverse engineer, decompile, or disassemble." Minsky is commercial.
+- **Maintenance**: 7 stars, 0 issues, 0 PRs, `created==pushed` on 2025-07-10 (single-day
+  project, no commits since).
+- **Install path**: spec said `pip install mcp-hot-reload`; package not on PyPI (404).
+  Actual install is `git clone && pip install -e .`.
+- **Canonical URL**: spec linked `data-goblin/claude-code-mcp-reload`. The upstream README's
+  own clone URL points to `claude-code-mcp-reload/claude-code-mcp-reload` — a non-existent
+  org (404).
+
+This is the third-party-tool slice of the contract-propagation pattern that Gate (h)
+addresses for first-party contracts: a claim crystallizes upstream and downstream consumers
+inherit it as a settled premise. Recurrence record: 9+ prior cases (mt#1208 ×2, mt#1224,
+mt#1262, mt#1682 ×4) plus mt#1713→mt#1714 (×2). Prior fix tier was a memory entry plus
+mt#1541's policy-coverage detector in calibration mode. Memory-only + calibration-mode
+detector is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
+is the right tier.
+
+**Trigger condition.** This criterion fires when the spec contains any of:
+
+- A GitHub repo URL (e.g., `github.com/owner/repo`, `owner/repo` shorthand)
+- A package-manager install command (`pip install <name>`, `npm install <name>`,
+  `cargo add <name>`, `brew install <name>`, etc.)
+- An explicit recommendation to use any named external tool, library, or service
+  introduced by this task
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(k) No third-party tool recommendation found — criterion passes."
+
+**Required verification table (when triggered).** For each identified third-party dependency:
+
+| Check         | How to verify                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Block condition                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| License       | `gh api repos/<owner>/<repo>` → `.license.spdx_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Block on SPDX identifiers (case-sensitive, as returned by `gh api`): `Proprietary`, `NOASSERTION`, `Other`, and any `GPL-*` (including `GPL-2.0-only`, `GPL-2.0-or-later`, `GPL-3.0-only`, `GPL-3.0-or-later`, `AGPL-3.0-only`, `AGPL-3.0-or-later`). `LGPL-*` and `MPL-2.0` ARE on the allowlist (weak-copyleft, commercial-compatible per project policy). Block until explicit acknowledgment from user. |
+| Maintenance   | Same API response: check `archived`, `created_at`, `pushed_at`, `stargazers_count`, `forks_count`, `open_issues_count`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `archived==true` OR (`created_at == pushed_at` AND `stargazers_count < 10`) — block; single-day abandoned project heuristic                                                                                                                                                                                                                                                                                 |
+| Install path  | Probe registry: `pip index versions <name>` for Python; `npm view <name> version` for Node; `cargo search <name>` for Rust                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 404 / no result — block unless spec provides the correct alternative install path (e.g., `git clone && pip install -e .`)                                                                                                                                                                                                                                                                                   |
+| Canonical URL | HTTP 2xx or 3xx (following redirects) on the spec's stated URL AND on any HTTP(S) URL found inside the upstream's own README. Treat 401/403 as inconclusive (proceed but flag for manual review); block only on 4xx (other than auth) or 5xx. The HTTP status check applies to HTTP/S URLs only. SSH clone URLs (e.g., `git@github.com:owner/repo.git`) and `git://` URLs are excluded from this check; their presence in the README is fine. If the only canonical URL inside the README is a non-HTTP(S) URL, manually verify the repo exists by other means before applying this gate's verdict. | Disagreement between spec URL and upstream README URL, OR non-auth 4xx/5xx inside upstream README — block                                                                                                                                                                                                                                                                                                   |
+
+**Check steps:**
+
+1. Read the spec and identify any third-party tool, library, or service recommendation
+   (GitHub URL, package-manager install command, named external tool). If none, record
+   "(k) passes — no third-party tool recommendation."
+2. For each identified dependency, run the four checks in the table above. Use
+   `mcp__minsky__session_exec` (or equivalent shell access) for the registry probes and
+   HTTP checks.
+3. Record findings per check. License: state the `spdx_id`. Maintenance: state whether
+   `archived`, and the `created_at`/`pushed_at` equality check result. Install path: state
+   the registry probe result (HTTP status or package version). Canonical URL: state whether
+   the spec URL and upstream README URL agree.
+4. Any check that hits a block condition is a blocking gap. Summarize each blocking gap
+   with the check name and the specific finding (e.g., "License: PROPRIETARY").
+5. Evidence lives in the spec text under `## Context` as `Third-party dependency: <name>` —
+   include license, maintenance signal, install path, and canonical URL findings.
+
+A spec that says "use <tool>" or links a repo without running these four checks does not
+satisfy this criterion. The claim must be grounded in an actual verification, not an
+assumption inherited from upstream research or prior agent turns.
+
+Cross-reference: bridge memory `e296b3ee-324e-4186-9313-926dd3f9ee5b`
+(`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
+at spec-authoring time`) is the precedent memory this gate formalizes; once this gate ships,
+that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
+(Surface 1 policy-coverage detector, graduating to enforcing mode).
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -487,6 +565,35 @@ without producing the citation-and-mapping protocol:
    Ask to confirm whether a different label fits.
 
 To re-run the gate after fixes: `/plan-task <task-id>`
+```
+
+**Example (k) failure.** For a task that recommends adopting `acme-corp/auto-summarizer`
+(a hypothetical proprietary-licensed GitHub project) as a summarization backend without
+running any verification checks:
+
+```
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (k) Third-party tool/dependency verification: spec recommends `acme-corp/auto-summarizer`
+  but no verification checks were run. License check via `gh api repos/acme-corp/auto-summarizer`
+  returns `spdx_id: null, license: {name: "Proprietary"}`. Minsky is commercial; this license
+  is incompatible. Maintenance check: `archived: false`, but `created_at == pushed_at`
+  (2024-11-03) and `stargazers_count: 2` — single-day abandoned project heuristic fires.
+  Install path: `pip install auto-summarizer` returns HTTP 404 from PyPI — package does not
+  exist in the registry. Canonical URL: spec links `github.com/acme-corp/auto-summarizer`;
+  upstream README references `acme-corp/summarizer-v2` which returns 404 — URL mismatch.
+  All four sub-checks block.
+
+### Required actions before READY
+1. Abandon `acme-corp/auto-summarizer` as a dependency recommendation — license is
+   Proprietary (incompatible with Minsky's commercial use) and the project appears abandoned.
+2. Research an alternative with a permissive license (MIT, Apache-2.0, BSD-*, ISC) AND
+   active maintenance history. Run all four (k) checks before re-submitting.
+3. Add `Third-party dependency: <name>` evidence block to `## Context` with the verified
+   license, maintenance signal, install path, and canonical URL for the chosen replacement.
+
+To re-run the gate after fixes: `/plan-task mt#XXXX`
 ```
 
 ## State transition map
