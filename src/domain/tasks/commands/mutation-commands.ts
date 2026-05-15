@@ -120,7 +120,7 @@ export async function setTaskStatusFromParams(
 
     // READY → DONE requires a ## Closeout evidence section with non-empty content.
     // This path is for external-deliverable tasks that complete without a PR merge.
-    // See docs/task-lifecycle-external-deliverable for the convention.
+    // See .minsky/rules/task-lifecycle-external-deliverable.mdc (or the compiled CLAUDE.md section) for the convention.
     if (task.status === TaskStatus.READY && validParams.status === TaskStatus.DONE) {
       let specContent = "";
       try {

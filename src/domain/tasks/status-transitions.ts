@@ -30,11 +30,17 @@ import { getWorkflow, DEFAULT_KIND } from "./workflows";
  *
  * Note: READY → DONE is listed here for external-deliverable tasks. The structural
  * guard (hasCloseoutEvidence check) is enforced in setTaskStatusFromParams before
- * validateStatusTransition is called. See docs/task-lifecycle-external-deliverable.
+ * validateStatusTransition is called. See .minsky/rules/task-lifecycle-external-deliverable.mdc
+ * (or the compiled CLAUDE.md section).
  */
 export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.TODO]: [TaskStatus.PLANNING, TaskStatus.CLOSED],
   [TaskStatus.PLANNING]: [TaskStatus.READY, TaskStatus.TODO, TaskStatus.BLOCKED, TaskStatus.CLOSED],
+  // IMPORTANT: The READY → DONE entry below is a state-machine rule only. The actual gate
+  // (spec must contain a non-empty `## Closeout evidence` section) is enforced in
+  // setTaskStatusFromParams (mutation-commands.ts). Any new high-level entry point that calls
+  // validateStatusTransition for a READY → DONE transition MUST replicate the
+  // hasCloseoutEvidence check before doing so, or the gate will be bypassed.
   [TaskStatus.READY]: [TaskStatus.PLANNING, TaskStatus.BLOCKED, TaskStatus.CLOSED, TaskStatus.DONE],
   [TaskStatus.IN_PROGRESS]: [
     TaskStatus.IN_REVIEW,
@@ -125,7 +131,8 @@ export const CLOSEOUT_EVIDENCE_HEADING = /^##\s+closeout\s+evidence\s*[:.]?\s*$/
  */
 export const READY_TO_DONE_MISSING_EVIDENCE_MESSAGE =
   "READY → DONE requires a '## Closeout evidence' section in the spec with non-empty content. " +
-  "See docs/task-lifecycle-external-deliverable convention for details.";
+  "See the External-deliverable closeout rule in .minsky/rules/task-lifecycle-external-deliverable.mdc " +
+  "(or the compiled CLAUDE.md section) for details.";
 
 /**
  * Check whether a task spec contains a populated `## Closeout evidence` section.

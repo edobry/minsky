@@ -145,7 +145,7 @@ export const WORKFLOWS: Record<TaskKind, Workflow> = {
       // DONE is allowed here for external-deliverable tasks that close without a PR.
       // The spec-content gate (hasCloseoutEvidence) is enforced in
       // setTaskStatusFromParams before validateStatusTransition is called.
-      // See docs/task-lifecycle-external-deliverable for the convention.
+      // See .minsky/rules/task-lifecycle-external-deliverable.mdc (or the compiled CLAUDE.md section) for the convention.
       READY: ["PLANNING", "BLOCKED", "CLOSED", "DONE"],
       "IN-PROGRESS": ["IN-REVIEW", "BLOCKED", "PLANNING", "CLOSED"],
       "IN-REVIEW": ["IN-PROGRESS", "DONE", "BLOCKED", "CLOSED"],
