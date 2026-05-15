@@ -77,32 +77,113 @@ import { webhookEventsTable, type WebhookOutcome } from "./db/schemas/webhook-ev
  *   - `column_name`     (on column-bound errors)
  *   - `schema_name`     (on relation-bound errors)
  *
- * Without this helper, catch blocks that log only `err.message` produce
- * unactionable lines like `"Failed query: insert into..."` with no error
- * code — making bugs like mt#1849 (silent webhook-event-record failures)
- * invisible for days.
+ * **Phase 2 (mt#1851):** the helper now also handles two cases Phase 1 missed:
+ *   1. **Postgres fields directly on err itself** (no wrapping) — when the
+ *      thrown error IS the postgres-js `PostgresError`, fields are at the
+ *      top level. The helper now checks both `err.cause` AND `err` directly.
+ *   2. **Cause exists but lacks standard fields** — when no standard fields
+ *      are recognized (this happens when the cause's shape diverges from
+ *      `postgres-js PostgresError`), the helper surfaces `error_cause_keys`
+ *      (sorted Object.keys) and `error_cause_json` (JSON.stringify, capped at
+ *      500 chars) so production observability is never a dead-end. PR #1130's
+ *      webhook (delivery `fc841420-...`) revealed this case in production —
+ *      cause IS present, just not with the expected shape.
  *
  * Returns a context object suitable for spreading into the log payload.
  * Backward-compatible: errors without `.cause` (or non-Error throws) still
  * produce the original `error: message` field; structured fields are
- * undefined and omitted by JSON serialization.
+ * undefined and omitted by JSON serialization. The fallback fields
+ * (`error_cause_keys` / `error_cause_json`) only fire when standard fields
+ * weren't recognized — avoiding double-emission noise on well-behaved errors.
  */
+const ERROR_CAUSE_JSON_MAX = 500;
+
+/**
+ * Walk a candidate postgres-error-shaped object and extract the standard
+ * fields into ctx. Returns the number of fields recognized so the caller
+ * can decide whether to invoke the fallback (keys+JSON) path.
+ */
+function extractStandardPgFields(
+  source: Record<string, unknown>,
+  ctx: Record<string, unknown>
+): number {
+  let recognized = 0;
+  if (typeof source["code"] === "string") {
+    ctx["error_code"] = source["code"];
+    recognized++;
+  }
+  if (typeof source["severity"] === "string") {
+    ctx["error_severity"] = source["severity"];
+    recognized++;
+  }
+  if (typeof source["message"] === "string") {
+    ctx["error_detail"] = source["message"];
+    recognized++;
+  }
+  if (typeof source["constraint_name"] === "string") {
+    ctx["error_constraint"] = source["constraint_name"];
+    recognized++;
+  }
+  if (typeof source["table_name"] === "string") {
+    ctx["error_table"] = source["table_name"];
+    recognized++;
+  }
+  if (typeof source["column_name"] === "string") {
+    ctx["error_column"] = source["column_name"];
+    recognized++;
+  }
+  if (typeof source["schema_name"] === "string") {
+    ctx["error_schema"] = source["schema_name"];
+    recognized++;
+  }
+  return recognized;
+}
+
 export function extractPgErrorContext(err: unknown): Record<string, unknown> {
   const message = err instanceof Error ? err.message : String(err);
   const ctx: Record<string, unknown> = { error: message };
 
   if (!(err instanceof Error)) return ctx;
+
+  // (1) Check top-level fields on err itself — handles the "postgres-js
+  // PostgresError thrown directly without drizzle wrapping" case (mt#1851).
+  // GUARD: only treat err as a postgres error if it has a string `code`. Every
+  // Error has `.message` as a string, so without this guard we'd extract
+  // `error_detail` from regular Errors and break backward-compat AND prevent
+  // the cause-fallback path from firing.
+  // The cast is safe: err is already narrowed to Error, and we treat it as a
+  // generic record only to read possible postgres-js fields.
+  const errAsRecord = err as Error & Record<string, unknown>;
+  let topRecognized = 0;
+  if (typeof errAsRecord["code"] === "string") {
+    topRecognized = extractStandardPgFields(errAsRecord, ctx);
+  }
+
+  // (2) Check err.cause — drizzle's DrizzleQueryError sets this for query
+  // errors. The cause is typically the underlying postgres-js error.
   const cause = (err as Error & { cause?: unknown }).cause;
   if (!cause || typeof cause !== "object") return ctx;
 
   const c = cause as Record<string, unknown>;
-  if (typeof c["code"] === "string") ctx["error_code"] = c["code"];
-  if (typeof c["severity"] === "string") ctx["error_severity"] = c["severity"];
-  if (typeof c["message"] === "string") ctx["error_detail"] = c["message"];
-  if (typeof c["constraint_name"] === "string") ctx["error_constraint"] = c["constraint_name"];
-  if (typeof c["table_name"] === "string") ctx["error_table"] = c["table_name"];
-  if (typeof c["column_name"] === "string") ctx["error_column"] = c["column_name"];
-  if (typeof c["schema_name"] === "string") ctx["error_schema"] = c["schema_name"];
+  const causeRecognized = extractStandardPgFields(c, ctx);
+
+  // (3) Fallback: if NEITHER top-level NOR cause produced any recognized
+  // fields, surface diagnostic info so production observability isn't a
+  // dead-end. This was the gap mt#1851 closed — PR #1130's webhook had a
+  // cause but no fields the helper recognized.
+  if (topRecognized === 0 && causeRecognized === 0) {
+    const keys = Object.keys(c).sort();
+    ctx["error_cause_keys"] = keys;
+    let json: string;
+    try {
+      json = JSON.stringify(c);
+    } catch {
+      // Cause has circular references or unserializable values
+      json = `[unserializable: ${keys.join(",")}]`;
+    }
+    ctx["error_cause_json"] =
+      json.length > ERROR_CAUSE_JSON_MAX ? `${json.slice(0, ERROR_CAUSE_JSON_MAX - 3)}...` : json;
+  }
 
   return ctx;
 }
