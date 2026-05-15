@@ -37,6 +37,7 @@ const OUTCOME_REVIEW_SUBMITTED = "review_submitted";
 // Magic-string constants extracted to satisfy custom/no-magic-string-duplication
 const TABLE_NAME_REVIEWER_WEBHOOK_EVENTS = "reviewer_webhook_events";
 const ERR_CONNECTION_REFUSED = "connection refused";
+const ERR_FAILED_QUERY_INSERT = "Failed query: insert into ...";
 
 // ---------------------------------------------------------------------------
 // Stub DB factory
@@ -531,7 +532,7 @@ describe("extractPgErrorContext", () => {
         table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
       }
     );
-    const drizzleErr = new Error("Failed query: insert into ...");
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
     Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
 
     const ctx = extractPgErrorContext(drizzleErr);
@@ -550,7 +551,7 @@ describe("extractPgErrorContext", () => {
         table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
       }
     );
-    const drizzleErr = new Error("Failed query: insert into ...");
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
     Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
 
     const ctx = extractPgErrorContext(drizzleErr);
@@ -559,5 +560,78 @@ describe("extractPgErrorContext", () => {
     expect(ctx["error_detail"]).toBe(
       `permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`
     );
+  });
+
+  test("cause exists but lacks standard fields — keys + truncated JSON surface (mt#1851)", () => {
+    // Phase 2: when the helper doesn't recognize the cause's shape (no .code as
+    // string), surface diagnostic info so production observability isn't a
+    // dead-end. PR #1130's webhook (delivery fc841420-...) revealed this case
+    // in production — cause IS present (drizzle wraps), just not with the
+    // postgres-js fields the Phase 1 check expected.
+    const opaqueCause = { random_field: "x", another: 42, nested: { deep: true } };
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
+    Object.defineProperty(drizzleErr, "cause", { value: opaqueCause, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    // Keys array sorted for stable test output
+    expect(ctx["error_cause_keys"]).toEqual(["another", "nested", "random_field"]);
+    // JSON preview present and contains the data
+    expect(typeof ctx["error_cause_json"]).toBe("string");
+    expect(ctx["error_cause_json"] as string).toContain("random_field");
+    expect(ctx["error_cause_json"] as string).toContain("42");
+    // Length cap honored
+    expect((ctx["error_cause_json"] as string).length).toBeLessThanOrEqual(500);
+  });
+
+  test("postgres-like fields directly on err itself (no .cause wrapping) — surface them (mt#1851)", () => {
+    // When the thrown error IS the postgres-js PostgresError (not wrapped by
+    // drizzle), fields are at the top level. Phase 1 only walked .cause; this
+    // case was a hole.
+    const directPgError = Object.assign(new Error("connection terminated unexpectedly"), {
+      code: "57P01",
+      severity: "FATAL",
+      table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+    });
+
+    const ctx = extractPgErrorContext(directPgError);
+
+    expect(ctx["error_code"]).toBe("57P01");
+    expect(ctx["error_severity"]).toBe("FATAL");
+    expect(ctx["error_table"]).toBe(TABLE_NAME_REVIEWER_WEBHOOK_EVENTS);
+  });
+
+  test("standard-cause-fields case does NOT also emit error_cause_keys (avoid double-emission noise)", () => {
+    // Backward-compat: when standard fields ARE recognized on cause, the new
+    // fallback (error_cause_keys / error_cause_json) MUST NOT also fire — that
+    // would double the log payload size for every well-behaved postgres error.
+    const pgError = Object.assign(new Error("relation does not exist"), {
+      code: "42P01",
+      severity: "ERROR",
+      table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+    });
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error_code"]).toBe("42P01");
+    // Fallback fields MUST be absent when standard fields fired
+    expect(ctx["error_cause_keys"]).toBeUndefined();
+    expect(ctx["error_cause_json"]).toBeUndefined();
+  });
+
+  test("error_cause_json is truncated to <=500 chars even when cause is enormous", () => {
+    // Belt-and-suspenders for the length cap: if cause is huge (e.g., a webhook
+    // payload accidentally got attached as cause), don't blow up the log line.
+    const huge: Record<string, string> = {};
+    for (let i = 0; i < 100; i++) huge[`field_${i}`] = `value_${i}_${"x".repeat(50)}`;
+    const drizzleErr = new Error("Failed query: ...");
+    Object.defineProperty(drizzleErr, "cause", { value: huge, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(typeof ctx["error_cause_json"]).toBe("string");
+    expect((ctx["error_cause_json"] as string).length).toBeLessThanOrEqual(500);
   });
 });
