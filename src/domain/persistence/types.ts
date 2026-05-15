@@ -87,8 +87,14 @@ export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
    * The session-mode URL comes from `persistence.postgres.sessionConnectionString`
    * config (env: MINSKY_POSTGRES_SESSION_URL); falls back to a Supavisor port-swap
    * auto-derive (:6543 → :5432) from the transaction-pool URL when unset.
+   *
+   * Contract: returns a non-null Sql instance on success; throws when the provider
+   * is not initialized or the underlying connection cannot be created. Never
+   * returns null (unlike the pre-existing `getDatabaseConnection`/`getRawSqlConnection`
+   * whose `| null` declarations are out of mt#1852's scope but never returned null
+   * in practice — alignment tracked separately as mt#1858).
    */
-  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
+  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")>>;
 }
 
 /**
@@ -117,7 +123,7 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
   /** Session-mode-capable connection for LISTEN/NOTIFY (mt#1852). */
-  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
+  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")>>;
   /** Routes to the correct embeddings table per domain */
   getVectorStorageForDomain?(domain: VectorDomain, dimension: number): VectorStorage;
 }

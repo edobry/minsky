@@ -177,6 +177,40 @@ describe("PostgresChannelListener — subscribe / dispatch / unsubscribe", () =>
     await listener.close();
   });
 
+  test("concurrent subscribe() calls on the same channel issue only ONE postgres-js LISTEN (PR #1135 R1 BLOCKING)", async () => {
+    // Race regression: previously both concurrent subscribe() calls would pass
+    // the `if (state.unlisten)` check and both call listenWithRetry(),
+    // resulting in two LISTEN registrations and a leaked handle. The
+    // in-flight-promise guard added in PR #1135 fixes this.
+    const sql = createStubSql();
+    const listener = new PostgresChannelListener(asSql(sql));
+    const recvA: unknown[] = [];
+    const recvB: unknown[] = [];
+
+    // Issue both subscribes WITHOUT awaiting individually — concurrent dispatch.
+    const [resA, resB] = await Promise.all([
+      listener.subscribe("racy", (_c, p) => {
+        recvA.push(p);
+      }),
+      listener.subscribe("racy", (_c, p) => {
+        recvB.push(p);
+      }),
+    ]);
+
+    expect(resA).toBeUndefined();
+    expect(resB).toBeUndefined();
+    // Critical invariant: exactly ONE LISTEN registration despite two
+    // concurrent subscribers.
+    expect(sql.__listens.length).toBe(1);
+
+    // Both subscribers receive the payload through the multiplexed dispatch.
+    sql.__deliver("racy", JSON.stringify({ v: 99 }));
+    expect(recvA).toEqual([{ v: 99 }]);
+    expect(recvB).toEqual([{ v: 99 }]);
+
+    await listener.close();
+  });
+
   test("multi-listener multiplexing on one channel — only ONE postgres-js LISTEN, both fire", async () => {
     const sql = createStubSql();
     const listener = new PostgresChannelListener(asSql(sql));

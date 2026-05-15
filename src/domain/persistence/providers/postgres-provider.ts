@@ -137,17 +137,31 @@ function resolveMaxConnections(configured: number | undefined): number {
 
 /**
  * Derive a session-mode-pooler URL from a Supavisor transaction-pooler URL by
- * swapping :6543 → :5432. Returns the input URL unchanged if it doesn't match
- * the Supavisor transaction-pooler port shape (so non-Supavisor hosts work too —
- * the URL is assumed to already be session-mode-capable).
+ * swapping the URL's port from 6543 → 5432. Returns the input unchanged if the
+ * URL is not on port 6543 (so non-Supavisor hosts pass through — the URL is
+ * assumed to already be session-mode-capable).
  *
  * Supavisor exposes the same logical pooler on two ports with different semantics:
  *   - :6543 — transaction mode (pool connections between transactions; LISTEN-incompatible)
  *   - :5432 — session mode (one backend connection per client; LISTEN-compatible)
+ *
+ * Uses URL parsing (handles IPv6 literals, credentials, query strings correctly)
+ * with a regex fallback for non-URL-shaped strings (e.g. libpq key=value format
+ * — rare but supported by postgres-js). PR #1135 R1 NON-BLOCKING refinement.
  */
 export function swapSupavisorPort(connectionString: string): string {
-  // Match `:6543` followed by `/` or end-of-string (port boundary).
-  return connectionString.replace(/:6543(?=\/|$)/, ":5432");
+  try {
+    const url = new URL(connectionString);
+    if (url.port === "6543") {
+      url.port = "5432";
+      return url.toString();
+    }
+    return connectionString;
+  } catch {
+    // Not URL-shaped (e.g. libpq key=value DSN). Fall back to a bounded regex
+    // that only touches the authority's port segment between `@` and `/`.
+    return connectionString.replace(/(@[^/?]*):6543(?=\/|$|\?)/, "$1:5432");
+  }
 }
 
 /**

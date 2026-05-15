@@ -75,6 +75,12 @@ interface ChannelState {
   subscriptions: Subscription[];
   /** postgres-js listen handle; present once `sql.listen()` resolved. */
   unlisten?: () => Promise<void>;
+  /**
+   * In-flight `sql.listen()` promise. Set by the first concurrent subscriber;
+   * subsequent concurrent subscribers `await` it instead of calling
+   * `sql.listen()` themselves. Cleared when the promise settles.
+   */
+  inFlight?: Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -138,26 +144,72 @@ export class PostgresChannelListener implements ChannelListener {
 
     state.subscriptions.push(subscription);
 
-    // Only register one postgres-js LISTEN per channel; the handler multiplexes
-    // to all subscriptions in `state.subscriptions`. If this is not the first
-    // subscriber, there's nothing more to do.
+    // LISTEN already established — multiplex onto it.
     if (state.unlisten) {
       return;
     }
 
-    // First subscriber for this channel — establish the postgres-js LISTEN
-    // with retry-on-initial-failure. postgres-js auto-reconnects on connection
-    // loss and re-establishes the LISTEN itself, so this retry covers only
-    // the startup-time path.
+    // LISTEN being established by an earlier concurrent caller — await the
+    // same in-flight promise instead of issuing a duplicate `sql.listen()`.
+    // This enforces the single-LISTEN-per-channel invariant under concurrent
+    // subscribe() calls (PR #1135 R1 BLOCKING — fix per reviewer-bot).
+    if (state.inFlight) {
+      try {
+        await state.inFlight;
+      } catch (err) {
+        this.removeSubscription(channel, subscription);
+        throw err;
+      }
+      return;
+    }
+
+    // First subscriber for this channel — establish the postgres-js LISTEN.
+    // Set the in-flight marker BEFORE awaiting so concurrent subscribe() calls
+    // see it and wait. postgres-js auto-reconnects on connection loss and
+    // re-establishes the LISTEN; this retry path covers startup-time failures.
+    const promise = this.establishListen(channel).finally(() => {
+      const s = this.channels.get(channel);
+      if (s) {
+        s.inFlight = undefined;
+      }
+    });
+    state.inFlight = promise;
+
     try {
-      const handle = await this.listenWithRetry(channel);
-      state.unlisten = handle.unlisten;
+      await promise;
     } catch (err) {
-      // All retries exhausted; remove the subscription so we don't leak a
-      // zombie state.subscriptions[] entry without a backing LISTEN.
       this.removeSubscription(channel, subscription);
       throw err;
     }
+  }
+
+  /**
+   * Establish the postgres-js LISTEN for a channel and store the unlisten
+   * handle on the channel state. Handles three races at handle-receipt time:
+   *   - `close()` was called during the await → unlisten immediately.
+   *   - All subscribers unsubscribed during the await → unlisten immediately.
+   *   - Channel state was removed → unlisten immediately.
+   * Otherwise, the handle is stored on the channel state for future teardown.
+   */
+  private async establishListen(channel: string): Promise<void> {
+    const handle = await this.listenWithRetry(channel);
+    const state = this.channels.get(channel);
+    if (this.closed || !state || state.subscriptions.length === 0) {
+      try {
+        await handle.unlisten();
+      } catch (err) {
+        log.warn(
+          `PostgresChannelListener: post-establish unlisten on ${channel} failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        );
+      }
+      if (state && state.subscriptions.length === 0) {
+        this.channels.delete(channel);
+      }
+      return;
+    }
+    state.unlisten = handle.unlisten;
   }
 
   async unsubscribe(channel: string, listener: ChannelListenerFn<unknown>): Promise<void> {
