@@ -47,6 +47,9 @@ export const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.DONE]: [TaskStatus.CLOSED],
   [TaskStatus.BLOCKED]: [TaskStatus.TODO, TaskStatus.PLANNING, TaskStatus.READY, TaskStatus.CLOSED],
   [TaskStatus.CLOSED]: [TaskStatus.TODO],
+  // COMPLETED is the umbrella-kind success terminal (mt#1812). No outgoing implementation
+  // transitions — the gate dispatches on kind so this entry only exists for type completeness.
+  [TaskStatus.COMPLETED]: [],
 };
 
 /**

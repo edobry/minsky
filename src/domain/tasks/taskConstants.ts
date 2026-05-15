@@ -18,6 +18,8 @@ export enum TaskStatus {
   DONE = "DONE",
   BLOCKED = "BLOCKED",
   CLOSED = "CLOSED",
+  // Per-kind terminal states (mt#1812)
+  COMPLETED = "COMPLETED", // Umbrella kind success terminal (analogous to DONE for implementation)
 }
 
 /**
@@ -43,6 +45,7 @@ export const TASK_STATUS_CHECKBOX: Record<TaskStatus, string> = {
   [TASK_STATUS.DONE]: "x",
   [TASK_STATUS.BLOCKED]: "~",
   [TASK_STATUS.CLOSED]: "!",
+  [TASK_STATUS.COMPLETED]: "c", // Umbrella kind success terminal (mt#1812)
 };
 
 /**
