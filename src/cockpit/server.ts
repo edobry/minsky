@@ -160,9 +160,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * Uses the AskRepository.respondAndClose() atomic operation to transition
    * the Ask from "suspended" to "closed" in a single write.
    *
-   * Returns 200 on success, 403 if Ask is not operator-routed (algedonic
-   * selection — see mt#1147 PR #1125 R1), 404 if Ask not found, 409 on
-   * concurrent transition, 503 if the Ask repository is unavailable.
+   * Returns 200 on success, 400 if askId is missing, 403 if Ask is not
+   * operator-routed (algedonic selection — see mt#1147 PR #1125 R1), 404 if
+   * Ask not found, 409 on concurrent transition, 500 on unexpected errors,
+   * 503 if the Ask repository is unavailable.
    */
   app.post("/api/asks/:id/resolve", async (req, res) => {
     const askId = req.params.id;
