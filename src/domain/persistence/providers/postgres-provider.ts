@@ -29,10 +29,13 @@ import {
 } from "../../storage/schemas/embeddings-schema-factory";
 
 // Per-process default pool size. Intentionally small: Minsky shares a single
-// Supabase/Supavisor session-mode pooler across multiple consumers (laptop
+// Supabase/Supavisor transaction-mode pooler across multiple consumers (laptop
 // MCP, Railway MCP, ad-hoc scripts). A high per-process max saturates the
 // pooler's global ceiling. Override via persistence.postgres.maxConnections
 // in config or MINSKY_POSTGRES_MAX_CONNECTIONS env var (mt#1193).
+// Note: the transaction-mode pooler is the primary connection used for all
+// normal queries. For LISTEN/NOTIFY, a separate session-mode connection is
+// maintained via `getListenCapableSqlConnection()` (mt#1852).
 const DEFAULT_POSTGRES_MAX_CONNECTIONS = 3;
 // Upper bound matching the config schema's .max(100). Applied to env-var
 // overrides too so a misconfigured value can't re-saturate the pooler.
@@ -133,6 +136,21 @@ function resolveMaxConnections(configured: number | undefined): number {
 }
 
 /**
+ * Derive a session-mode-pooler URL from a Supavisor transaction-pooler URL by
+ * swapping :6543 → :5432. Returns the input URL unchanged if it doesn't match
+ * the Supavisor transaction-pooler port shape (so non-Supavisor hosts work too —
+ * the URL is assumed to already be session-mode-capable).
+ *
+ * Supavisor exposes the same logical pooler on two ports with different semantics:
+ *   - :6543 — transaction mode (pool connections between transactions; LISTEN-incompatible)
+ *   - :5432 — session mode (one backend connection per client; LISTEN-compatible)
+ */
+export function swapSupavisorPort(connectionString: string): string {
+  // Match `:6543` followed by `/` or end-of-string (port boundary).
+  return connectionString.replace(/:6543(?=\/|$)/, ":5432");
+}
+
+/**
  * Base PostgreSQL persistence provider (without vector storage)
  */
 export class PostgresPersistenceProvider
@@ -141,6 +159,8 @@ export class PostgresPersistenceProvider
 {
   protected db: PostgresJsDatabase | null = null;
   protected sql: ReturnType<typeof postgres> | null = null;
+  /** Dedicated session-mode connection for LISTEN/NOTIFY (mt#1852). Created lazily. */
+  protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
   private cachedStorage: SessionStorage | null = null;
@@ -340,6 +360,59 @@ export class PostgresPersistenceProvider
   }
 
   /**
+   * Get a session-mode-capable Sql instance for LISTEN/NOTIFY (mt#1852).
+   *
+   * The transaction-mode pooler (:6543) is incompatible with LISTEN — the pooler
+   * may route each command to a different backend connection, breaking per-connection
+   * LISTEN registrations. This method returns a connection over the session-mode pooler
+   * (:5432 on Supabase/Supavisor), which preserves backend connections for the life of
+   * the client session.
+   *
+   * The connection is created lazily on first call and cached for the lifetime of this
+   * provider instance. It uses max:1 and idle_timeout:0 so the LISTEN state persists
+   * without expiration.
+   *
+   * The underlying Sql instance is NOT closed by this method — lifecycle is owned by
+   * the caller (typically a `PostgresChannelListener`). `close()` on this provider
+   * closes the listen connection as part of full teardown.
+   */
+  async getListenCapableSqlConnection(): Promise<ReturnType<typeof postgres>> {
+    if (!this.isInitialized) {
+      throw new Error("PostgresPersistenceProvider not initialized");
+    }
+
+    if (this.listenSql) {
+      return this.listenSql;
+    }
+
+    const sessionUrl = this.resolveSessionConnectionString();
+    this.listenSql = postgres(sessionUrl, {
+      max: 1, // listener needs one connection; LISTEN state is per-connection
+      connect_timeout: this.pgConfig.connectTimeout ?? 10,
+      idle_timeout: 0, // never idle out — LISTEN must persist
+      prepare: false,
+      onnotice: logPostgresNotice,
+    });
+
+    return this.listenSql;
+  }
+
+  /**
+   * Resolve the session-mode connection string for LISTEN/NOTIFY.
+   * Uses the explicit sessionConnectionString config when set;
+   * otherwise auto-derives by swapping :6543 → :5432 (Supavisor port-swap).
+   */
+  private resolveSessionConnectionString(): string {
+    if (this.pgConfig.sessionConnectionString) {
+      return this.pgConfig.sessionConnectionString;
+    }
+    // Supavisor port-swap auto-derive: transaction pooler is on :6543, session
+    // pooler is on :5432, same host. For non-Supavisor hosts the URL is returned
+    // unchanged (assumed already session-mode-capable).
+    return swapSupavisorPort(this.pgConfig.connectionString);
+  }
+
+  /**
    * Run database migrations
    */
   async runMigrations(migrationsFolder: string): Promise<void> {
@@ -365,6 +438,17 @@ export class PostgresPersistenceProvider
    */
   async close(): Promise<void> {
     try {
+      // Close the session-mode listen connection first (if created)
+      if (this.listenSql) {
+        try {
+          await this.listenSql.end();
+        } catch (listenErr) {
+          log.warn(
+            `Error closing listen SQL connection: ${listenErr instanceof Error ? listenErr.message : String(listenErr)}`
+          );
+        }
+        this.listenSql = null;
+      }
       if (this.sql) {
         await this.sql.end();
         this.sql = null;
