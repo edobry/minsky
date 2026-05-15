@@ -56,7 +56,10 @@ export function App() {
       onEvent: (event) => {
         const keys = queryKeysForChannel(event.channel);
         for (const queryKey of keys) {
-          void queryClient.invalidateQueries({ queryKey: queryKey as string[] });
+          // `queryKey` is `ReadonlyArray<string | number>`; TanStack Query's
+          // `QueryKey` type is `readonly unknown[]`, which `ReadonlyArray<string | number>`
+          // is assignable to. No cast needed (PR #1139 R1 NON-BLOCKING fix).
+          void queryClient.invalidateQueries({ queryKey });
         }
       },
     });

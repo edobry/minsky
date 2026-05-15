@@ -117,6 +117,14 @@ export function createCockpitSseClient(options: SseClientOptions): SseClient {
   let _connected = false;
 
   function buildUrl(): string {
+    // `encodeURIComponent` per ECMAScript spec does NOT encode the "unreserved
+    // marks" set: A-Z a-z 0-9 - _ . ! ~ * ' ( ). So `*` passes through raw,
+    // `,` is encoded to `%2C`. Result for default topics=["*"] is `topics=*`;
+    // for ["attention.*","session.*"] is `topics=attention.*%2Csession.*`.
+    // The cockpit-server's `parseTopics` decodes both shapes correctly via
+    // the URL query parser. (PR #1139 R1 defensive comment — reviewer-bot
+    // misread `encodeURIComponent("*")` as `%2A`; verified empirically with
+    // `node -e 'console.log(encodeURIComponent("*"))'` → `"*"`.)
     const topicsParam = encodeURIComponent(topics.join(","));
     return `${url}?topics=${topicsParam}`;
   }
