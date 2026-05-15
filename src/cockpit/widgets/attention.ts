@@ -182,16 +182,17 @@ export function createAttentionWidget(getDeps: () => Promise<AttentionDeps>): Wi
 // pattern as agents.ts. The cockpit is a standalone Express server with no
 // tsyringe container.
 //
-// Window state: the in-process OpenWindowRegistry singleton lives in the CLI
-// entry point (src/adapters/shared/commands/window/index.ts). The cockpit
-// server runs in a different process, so it cannot read that registry
-// directly. v0: no active window key — surfacing all operator-routed suspended
-// asks as the fallback cohort. v1 (post-mt#1148): the cockpit server will
-// subscribe to Postgres NOTIFY `minsky.attention_window_opened` and maintain
-// its own window-key state.
+// Window state: read from the SSE broker's ring buffer via latestForChannel().
+// The broker subscribes to `minsky.attention_window_opened` and buffers the
+// most recent event, so the active window key reflects the last Postgres NOTIFY
+// received since cockpit-server startup (mt#1853). Falls back to null when no
+// broker is available (non-Postgres provider, offline mode).
 // ---------------------------------------------------------------------------
 
 let _cachedRepo: AskRepository | null = null;
+let _cachedBroker: import("../sse-broker").SseBroker | null = null;
+
+const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
 
 async function defaultDepsFactory(): Promise<AttentionDeps> {
   if (!_cachedRepo) {
@@ -220,7 +221,28 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
     _cachedRepo = new DrizzleAskRepository(db);
   }
 
-  return { repo: _cachedRepo, activeWindowKey: null };
+  // Lazy-load the shared SSE broker to read the current active window key.
+  // The broker is initialised by the cockpit server on first request to
+  // /api/events; if the server hasn't initialised it yet, fall back to null.
+  if (!_cachedBroker) {
+    try {
+      const { getServerSseBrokerForWidget } = await import("../server");
+      _cachedBroker = (await getServerSseBrokerForWidget()) ?? null;
+    } catch {
+      // Broker unavailable — will retry on next fetch()
+    }
+  }
+
+  let activeWindowKey: string | null = null;
+  if (_cachedBroker) {
+    const latestEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_OPENED);
+    if (latestEvent) {
+      const payload = latestEvent.payload as { windowKey?: string } | undefined;
+      activeWindowKey = payload?.windowKey ?? null;
+    }
+  }
+
+  return { repo: _cachedRepo, activeWindowKey };
 }
 
 /** Default attention widget — ready to drop into WIDGET_REGISTRY */

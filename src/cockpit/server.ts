@@ -5,6 +5,7 @@
  *   GET /api/health           — health + version + uptime
  *   GET /api/widgets          — enabled widget metadata list
  *   GET /api/widget/:id/data  — fetch a single widget's data
+ *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
@@ -13,11 +14,18 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { randomUUID } from "crypto";
 import { loadCockpitConfig } from "./config";
 import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
 import type { WidgetModule, CockpitConfig } from "./types";
+import { SseBroker } from "./sse-broker";
+import type { SseClient, SseEvent } from "./sse-broker";
+import {
+  PostgresChannelListener,
+  createNoopChannelListener,
+} from "../domain/mesh/postgres-channel-listener";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +45,12 @@ export interface CockpitServerOptions {
    * the default PersistenceService (same pattern as attention.ts).
    */
   overrideAskRepository?: import("../domain/ask/repository").AskRepository;
+  /**
+   * Override the SseBroker used by the /api/events endpoint (used in tests).
+   * When absent, the server lazily initialises a real broker backed by a
+   * PostgresChannelListener from the default PersistenceService.
+   */
+  overrideSseBroker?: SseBroker;
 }
 
 const serverStartTime = Date.now();
@@ -81,6 +95,90 @@ async function getServerAskRepository(): Promise<
   }
 }
 
+// ---------------------------------------------------------------------------
+// Attention-window channel names — must match notify.ts emit side
+// ---------------------------------------------------------------------------
+
+const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
+const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
+
+// ---------------------------------------------------------------------------
+// SSE broker lazy init — one shared broker per cockpit-server process
+// ---------------------------------------------------------------------------
+
+let _cachedSseBroker: SseBroker | null = null;
+
+/**
+ * Exported accessor for the shared SSE broker — used by the attention widget's
+ * `defaultDepsFactory` to read the active window key from the ring buffer.
+ * Returns null when the broker hasn't been initialised yet or is unavailable.
+ */
+export async function getServerSseBrokerForWidget(): Promise<SseBroker | null> {
+  return getServerSseBroker();
+}
+
+async function getServerSseBroker(): Promise<SseBroker | null> {
+  if (_cachedSseBroker) return _cachedSseBroker;
+
+  try {
+    const { PersistenceService } = await import("../domain/persistence/service");
+    const svc = new PersistenceService();
+    await svc.initialize();
+    const provider = svc.getProvider();
+
+    // Require getListenCapableSqlConnection — only the Postgres provider has it
+    if (
+      !("getListenCapableSqlConnection" in provider) ||
+      typeof (provider as { getListenCapableSqlConnection?: unknown })
+        .getListenCapableSqlConnection !== "function"
+    ) {
+      // Non-Postgres provider (SQLite, offline) — use a no-op listener so the
+      // broker exists but never receives any events.
+      const noopListener = createNoopChannelListener();
+      const broker = new SseBroker(noopListener);
+      _cachedSseBroker = broker;
+      return broker;
+    }
+
+    const sqlProvider = provider as {
+      getListenCapableSqlConnection: () => Promise<ReturnType<typeof import("postgres")>>;
+    };
+    const sql = await sqlProvider.getListenCapableSqlConnection();
+
+    const listener = new PostgresChannelListener(sql);
+    const broker = new SseBroker(listener);
+
+    // Pre-subscribe to the attention-window channels
+    await broker.ensureChannel(CHANNEL_ATTENTION_OPENED);
+    await broker.ensureChannel(CHANNEL_ATTENTION_CLOSED);
+
+    _cachedSseBroker = broker;
+    return broker;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SSE formatting helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Write a single SSE event to the Express response.
+ *
+ * SSE format:
+ *   id: <id>\n
+ *   data: <json>\n
+ *   \n
+ */
+function writeSseEvent(res: express.Response, event: SseEvent): void {
+  res.write(`id: ${event.id}\n`);
+  res.write(
+    `data: ${JSON.stringify({ channel: event.channel, payload: event.payload, at: event.at })}\n`
+  );
+  res.write("\n");
+}
+
 export function createCockpitServer(opts: CockpitServerOptions = {}): express.Express {
   // Resolve effective config and registry
   const config = opts.overrideConfig ?? loadCockpitConfig();
@@ -91,6 +189,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
 
   // AskRepository override for tests
   const askRepoOverride = opts.overrideAskRepository ?? null;
+
+  // SseBroker override for tests
+  const sseBrokerOverride = opts.overrideSseBroker ?? null;
 
   // Build the enabled widget set
   const enabledWidgets = new Map<string, WidgetModule>();
@@ -150,6 +251,122 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const message = err instanceof Error ? err.message : String(err);
       res.json({ state: "degraded", reason: `Widget crashed: ${message}` });
     }
+  });
+
+  /**
+   * GET /api/events — SSE stream of Postgres NOTIFY events (mt#1853)
+   *
+   * Query params:
+   *   ?topics=<comma-separated patterns>   — topic filter (e.g. "attention.*,session.*")
+   *     Glob prefix syntax: "attention.*" matches any channel containing "attention"
+   *     as a dotted segment. Bare "*" matches everything. Exact match also supported.
+   *     Omitting topics (or empty string) defaults to subscribing to all channels ("*").
+   *
+   * Request headers:
+   *   Last-Event-ID: <id>   — resume from a prior event (replays buffered events after it)
+   *
+   * Response:
+   *   Content-Type: text/event-stream
+   *   Each event: "id: <id>\ndata: <json>\n\n"
+   *   Heartbeat: ": keep-alive\n\n" every 30 seconds to prevent proxy timeouts
+   *
+   * Returns 400 if topics param is malformed. Returns 503 if the SSE broker
+   * is unavailable (no Postgres connection).
+   */
+  app.get("/api/events", async (req, res) => {
+    // Resolve broker (override in tests, or lazy-init the real one)
+    const broker = sseBrokerOverride ?? (await getServerSseBroker());
+    if (!broker) {
+      res.status(503).json({
+        error: "SSE broker unavailable — persistence provider does not support LISTEN/NOTIFY",
+      });
+      return;
+    }
+
+    // Parse ?topics= query param with trust-boundary guard
+    let topicPatterns: string[];
+    try {
+      const topicsParam = req.query["topics"];
+      if (!topicsParam || topicsParam === "") {
+        topicPatterns = ["*"]; // default: all channels
+      } else if (typeof topicsParam !== "string") {
+        res.status(400).json({ error: "topics must be a comma-separated string" });
+        return;
+      } else {
+        topicPatterns = topicsParam
+          .split(",")
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0);
+        if (topicPatterns.length === 0) {
+          topicPatterns = ["*"];
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(400).json({ error: `Invalid topics parameter: ${message}` });
+      return;
+    }
+
+    // Parse Last-Event-ID header with trust-boundary guard
+    let lastEventId: string | undefined;
+    try {
+      const rawLastId = req.headers["last-event-id"];
+      if (typeof rawLastId === "string" && rawLastId.length > 0) {
+        lastEventId = rawLastId;
+      }
+    } catch {
+      // Ignore malformed header — treat as no last-event-id
+    }
+
+    // Write SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no", // Disable nginx buffering for SSE
+    });
+    res.flushHeaders();
+
+    // Create and attach a client stub
+    const clientId = randomUUID();
+    let closed = false;
+
+    const client: SseClient = {
+      id: clientId,
+      topics: topicPatterns,
+      get closed() {
+        return closed;
+      },
+      send(event: SseEvent): void {
+        if (closed) return;
+        writeSseEvent(res, event);
+      },
+      close(): void {
+        closed = true;
+      },
+    };
+
+    // Replay buffered events after lastEventId (if provided)
+    const replayEvents = broker.attachClient(client, lastEventId);
+    for (const ev of replayEvents) {
+      writeSseEvent(res, ev);
+    }
+
+    // Heartbeat to prevent proxy timeout
+    const heartbeat = setInterval(() => {
+      if (closed) {
+        clearInterval(heartbeat);
+        return;
+      }
+      res.write(": keep-alive\n\n");
+    }, 30_000);
+
+    // Cleanup on client disconnect
+    req.on("close", () => {
+      closed = true;
+      clearInterval(heartbeat);
+      broker.detachClient(clientId);
+    });
   });
 
   /**
