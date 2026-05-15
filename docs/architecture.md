@@ -708,6 +708,7 @@ account auth. At least one auth method must be set.
 
 Additional architectural context:
 
+- `docs/architecture/cockpit.md` — cockpit subsystem architecture: Locus distinction, VSM placement, widget contract, subsystem map
 - `docs/architecture/interface-agnostic-commands.md` — CLI/MCP command unification design
 - `docs/architecture/multi-backend-task-system-design.md` — task backend routing design
 - `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling
