@@ -102,19 +102,48 @@ async function getServerAskRepository(): Promise<
 const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
 const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
+// Future channels per ADR-010 §3 — added to the pre-subscribe list so SSE
+// clients requesting `session.*` or `task.*` topics deliver events as soon as
+// mt#1854 wires the emit sites. Pre-subscribing to a channel with no current
+// producer is a no-op cost (one open Postgres LISTEN registration per channel
+// over a single connection); the SSE client side filters dynamically via
+// `matchesTopic` so spurious events are impossible.
+const CHANNEL_SESSION_STARTED = "minsky.session.started";
+const CHANNEL_SESSION_SCOPE_CHANGED = "minsky.session.scope_changed";
+const CHANNEL_TASK_STATUS_CHANGED = "minsky.task.status_changed";
+const CHANNEL_TASK_BLOCKING = "minsky.task.blocking";
+
 /**
  * Canonical list of all Postgres NOTIFY channels this cockpit-server process
- * pre-subscribes to at broker init time.
+ * pre-subscribes to at broker init time. Comprehensive coverage of the
+ * ADR-010 channel taxonomy — clients requesting any `attention.*`,
+ * `session.*`, or `task.*` topic filter receive events the moment any
+ * producer fires on a matching channel.
  *
  * IMPORTANT: postgres-js `sql.listen()` does NOT support wildcard channel
  * names. Clients may subscribe with patterns like `attention.*`, but the
- * broker must enumerate and pre-subscribe concrete channel names here. When
- * mt#1854 adds new channels, add them to this list so they are active before
- * any client connects.
+ * broker must enumerate concrete channel names here. The set is comprehensive
+ * (covers all ADR-010 §3 canonical channels) so dynamic client-requested
+ * topics across the spec's namespace are satisfied without ever needing
+ * runtime channel registration. When ADR-010 grows a new channel-class, add
+ * it here.
+ *
+ * Status today:
+ *   - `minsky.attention_window_opened` / `..._closed` — producer live (mt#1411)
+ *   - `minsky.session.started` / `..._scope_changed` — producer pending mt#1854
+ *   - `minsky.task.status_changed` / `..._blocking` — producer pending mt#1854
+ *
+ * Pre-subscribing channels with no current producer is harmless: postgres-js
+ * holds one LISTEN per channel name over the listener's single connection;
+ * a NOTIFY-less channel costs nothing.
  */
 export const COCKPIT_SSE_CHANNELS: readonly string[] = [
   CHANNEL_ATTENTION_OPENED,
   CHANNEL_ATTENTION_CLOSED,
+  CHANNEL_SESSION_STARTED,
+  CHANNEL_SESSION_SCOPE_CHANGED,
+  CHANNEL_TASK_STATUS_CHANGED,
+  CHANNEL_TASK_BLOCKING,
 ] as const;
 
 // ---------------------------------------------------------------------------
