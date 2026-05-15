@@ -711,4 +711,5 @@ Additional architectural context:
 - `docs/architecture/cockpit.md` — cockpit subsystem architecture: Locus distinction, VSM placement, widget contract, subsystem map
 - `docs/architecture/interface-agnostic-commands.md` — CLI/MCP command unification design
 - `docs/architecture/multi-backend-task-system-design.md` — task backend routing design
+- `docs/architecture/stdio-proxy.md` — Minsky stdio respawn proxy (supervisor-below pattern): opt-in via `minsky mcp proxy`; transparently absorbs the inner server's staleness-exit (mt#1322) and respawns the child without Claude Code observing a disconnect
 - `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling
