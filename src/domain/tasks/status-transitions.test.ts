@@ -10,9 +10,13 @@ describe("status-transitions", () => {
       }
     });
 
-    test("CLOSED is reachable from every non-CLOSED status", () => {
+    test("CLOSED is reachable from every non-CLOSED status (implementation kind)", () => {
       for (const status of Object.values(TaskStatus)) {
-        if (status === TaskStatus.CLOSED) continue;
+        // Skip CLOSED (the terminal) and COMPLETED (umbrella-kind terminal — has its
+        // own per-kind workflow in WORKFLOWS.umbrella; the implementation-kind
+        // VALID_TRANSITIONS table only lists it for type exhaustivity with an
+        // empty outgoing array per mt#1812).
+        if (status === TaskStatus.CLOSED || status === TaskStatus.COMPLETED) continue;
         expect(VALID_TRANSITIONS[status]).toContain(TaskStatus.CLOSED);
       }
     });

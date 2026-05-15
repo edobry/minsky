@@ -52,12 +52,15 @@ describe("Backend CLOSED task filtering regression test", () => {
   function simulateBackendFiltering(tasks: Task[], options?: TaskListOptions): Task[] {
     let filtered = tasks;
 
-    // Apply status filtering (includes default exclusion of DONE/CLOSED)
+    // Apply status filtering (includes default exclusion of terminal statuses).
+    // Mirrors task-filters.ts TASK_STATUSES_HIDDEN_BY_DEFAULT (DONE / CLOSED / COMPLETED).
     if (options?.status && options.status !== "all") {
       filtered = filtered.filter((task) => task.status === options.status);
     } else if (!options?.all) {
-      // Default: exclude DONE and CLOSED tasks unless --all is specified
-      filtered = filtered.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
+      // Default: exclude terminal statuses unless --all is specified (mt#1812 added COMPLETED)
+      filtered = filtered.filter(
+        (task) => task.status !== "DONE" && task.status !== "CLOSED" && task.status !== "COMPLETED"
+      );
     }
 
     return filtered;

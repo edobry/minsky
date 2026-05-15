@@ -61,6 +61,8 @@ export const CHECKBOX_TO_STATUS: Record<string, TaskStatus> = {
   X: TASK_STATUS.DONE, // Accept both cases for DONE
   "~": TASK_STATUS.BLOCKED,
   "!": TASK_STATUS.CLOSED,
+  c: TASK_STATUS.COMPLETED, // Umbrella kind success terminal (mt#1812)
+  C: TASK_STATUS.COMPLETED, // Accept both cases for COMPLETED
 };
 
 /**

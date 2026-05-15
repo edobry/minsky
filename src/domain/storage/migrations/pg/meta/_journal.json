@@ -260,6 +260,13 @@
       "when": 1779415200000,
       "tag": "0036_add_task_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1779417000000,
+      "tag": "0037_add_completed_status",
+      "breakpoints": true
     }
   ]
 }
