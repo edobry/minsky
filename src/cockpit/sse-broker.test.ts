@@ -403,3 +403,120 @@ describe("SseBroker — disconnect + reconnect replay", () => {
     expect((replay[1]?.payload as { windowKey: string } | undefined)?.windowKey).toBe("w3");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Integration: NOTIFY → SSE-formatted delivery (spec acceptance test §1)
+//
+// Verifies the full pipeline:
+//   pg_notify(channel, payload) → broker dispatch → client.send() call
+//
+// Uses createRecordingChannelListener as the listener so no Postgres
+// connection is required. This is a pure-unit test: all assertions are
+// synchronous (the recording variant dispatches synchronously).
+// ---------------------------------------------------------------------------
+
+describe("SseBroker — NOTIFY → SSE delivery integration", () => {
+  test("pg_notify on attention channel reaches attached client within same tick", async () => {
+    const listener = createRecordingChannelListener();
+    const broker = new SseBroker(listener, { ringBufferSize: 10 });
+
+    // Pre-subscribe to the attention channel (mirrors server startup behaviour)
+    await broker.ensureChannel(CH_ATTENTION_OPENED);
+
+    // Attach a client subscribed to attention.*
+    const client = createStubClient("sse-client-1", ["attention.*"]);
+    broker.attachClient(client);
+
+    // Simulate pg_notify — recording listener dispatches synchronously
+    const notifyPayload = JSON.stringify({
+      windowKey: "w-notify-test",
+      openedAt: "2026-01-01T00:00:00.000Z",
+    });
+    listener.emit(CH_ATTENTION_OPENED, notifyPayload);
+
+    // The client must have received the event within the same tick (no async gap)
+    expect(client.events).toHaveLength(1);
+    const received = client.events[0];
+    expect(received).toBeDefined();
+    expect(received?.channel).toBe(CH_ATTENTION_OPENED);
+    const payload = received?.payload as { windowKey: string; openedAt: string } | undefined;
+    expect(payload?.windowKey).toBe("w-notify-test");
+    expect(payload?.openedAt).toBe("2026-01-01T00:00:00.000Z");
+    // Event ID must be a positive integer string
+    const id = parseInt(received?.id ?? "0", 10);
+    expect(id).toBeGreaterThan(0);
+    // Timestamp must be an ISO-8601 string
+    expect(received?.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("client not subscribed to channel does not receive the event", async () => {
+    const listener = createRecordingChannelListener();
+    const broker = new SseBroker(listener, { ringBufferSize: 10 });
+    await broker.ensureChannel(CH_ATTENTION_OPENED);
+
+    // Client is subscribed to session.* but the event is on attention channel
+    const client = createStubClient("sse-client-session", ["session.*"]);
+    broker.attachClient(client);
+
+    listener.emit(CH_ATTENTION_OPENED, JSON.stringify({ windowKey: "w1" }));
+
+    expect(client.events).toHaveLength(0);
+  });
+
+  test("two channels subscribed: each client receives only its matching channel", async () => {
+    const listener = createRecordingChannelListener();
+    const broker = new SseBroker(listener, { ringBufferSize: 10 });
+    await broker.ensureChannel(CH_ATTENTION_OPENED);
+    await broker.ensureChannel(CH_ATTENTION_CLOSED);
+
+    const openClient = createStubClient("open-client", ["attention.*"]);
+    broker.attachClient(openClient);
+
+    // Emit an open event — openClient receives it
+    listener.emit(CH_ATTENTION_OPENED, JSON.stringify({ windowKey: "w1" }));
+    // Emit a close event — openClient also matches attention.* so receives it too
+    listener.emit(CH_ATTENTION_CLOSED, JSON.stringify({ windowKey: "w1" }));
+
+    expect(openClient.events).toHaveLength(2);
+    expect(openClient.events[0]?.channel).toBe(CH_ATTENTION_OPENED);
+    expect(openClient.events[1]?.channel).toBe(CH_ATTENTION_CLOSED);
+  });
+
+  test("Last-Event-ID reconnect: client receives events missed during disconnect", async () => {
+    const listener = createRecordingChannelListener();
+    const broker = new SseBroker(listener, { ringBufferSize: 10 });
+    await broker.ensureChannel(CH_ATTENTION_OPENED);
+
+    // Initial client connects and receives first event
+    const client1 = createStubClient("c1", ["attention.*"]);
+    broker.attachClient(client1);
+
+    listener.emit(CH_ATTENTION_OPENED, JSON.stringify({ windowKey: "before-disconnect" }));
+    expect(client1.events).toHaveLength(1);
+    const lastSeenId = client1.events[0]?.id ?? "";
+    expect(lastSeenId).toBeTruthy();
+
+    // Client disconnects
+    broker.detachClient("c1");
+
+    // Events arrive while client is disconnected
+    listener.emit(CH_ATTENTION_OPENED, JSON.stringify({ windowKey: "missed-1" }));
+    listener.emit(CH_ATTENTION_OPENED, JSON.stringify({ windowKey: "missed-2" }));
+
+    // Client reconnects with Last-Event-ID set to the last seen event
+    const client2 = createStubClient("c2", ["attention.*"]);
+    const replay = broker.attachClient(client2, lastSeenId);
+
+    // Replay must contain both missed events in order
+    expect(replay).toHaveLength(2);
+    expect((replay[0]?.payload as { windowKey: string } | undefined)?.windowKey).toBe("missed-1");
+    expect((replay[1]?.payload as { windowKey: string } | undefined)?.windowKey).toBe("missed-2");
+
+    // After reconnect, new events are delivered live
+    listener.emit(CH_ATTENTION_OPENED, JSON.stringify({ windowKey: "after-reconnect" }));
+    expect(client2.events).toHaveLength(1);
+    expect((client2.events[0]?.payload as { windowKey: string } | undefined)?.windowKey).toBe(
+      "after-reconnect"
+    );
+  });
+});

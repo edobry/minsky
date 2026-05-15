@@ -102,8 +102,26 @@ async function getServerAskRepository(): Promise<
 const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
 const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
+/**
+ * Canonical list of all Postgres NOTIFY channels this cockpit-server process
+ * pre-subscribes to at broker init time.
+ *
+ * IMPORTANT: postgres-js `sql.listen()` does NOT support wildcard channel
+ * names. Clients may subscribe with patterns like `attention.*`, but the
+ * broker must enumerate and pre-subscribe concrete channel names here. When
+ * mt#1854 adds new channels, add them to this list so they are active before
+ * any client connects.
+ */
+export const COCKPIT_SSE_CHANNELS: readonly string[] = [
+  CHANNEL_ATTENTION_OPENED,
+  CHANNEL_ATTENTION_CLOSED,
+] as const;
+
 // ---------------------------------------------------------------------------
-// SSE broker lazy init — one shared broker per cockpit-server process
+// SSE broker — one shared broker per cockpit-server process.
+// Initialised eagerly at server startup (not lazily on first request) to
+// avoid a race where the first /api/events connection triggers init and misses
+// events that fire during the init window.
 // ---------------------------------------------------------------------------
 
 let _cachedSseBroker: SseBroker | null = null;
@@ -111,12 +129,27 @@ let _cachedSseBroker: SseBroker | null = null;
 /**
  * Exported accessor for the shared SSE broker — used by the attention widget's
  * `defaultDepsFactory` to read the active window key from the ring buffer.
- * Returns null when the broker hasn't been initialised yet or is unavailable.
+ * Returns null when the broker is unavailable (init not yet called or failed).
  */
 export async function getServerSseBrokerForWidget(): Promise<SseBroker | null> {
   return getServerSseBroker();
 }
 
+/**
+ * Initialise the SSE broker and pre-subscribe to all canonical channels in
+ * `COCKPIT_SSE_CHANNELS`.
+ *
+ * When the persistence provider is not Postgres (e.g. SQLite, offline mode),
+ * the broker is wired with a no-op listener. Clients that connect to
+ * `/api/events` will receive an open SSE stream but no events — the endpoint
+ * returns 200 (not 503), because the broker IS available; it just has no
+ * Postgres backend to deliver events from. This is the documented behaviour
+ * for non-Postgres deployments: the stream is open but silent.
+ *
+ * Returns null only when the entire init path throws unexpectedly (e.g. a
+ * Postgres provider that fails to connect). In that case `/api/events` returns
+ * 503.
+ */
 async function getServerSseBroker(): Promise<SseBroker | null> {
   if (_cachedSseBroker) return _cachedSseBroker;
 
@@ -133,7 +166,10 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
         .getListenCapableSqlConnection !== "function"
     ) {
       // Non-Postgres provider (SQLite, offline) — use a no-op listener so the
-      // broker exists but never receives any events.
+      // broker exists but the stream is open-but-silent. The /api/events
+      // endpoint returns 200 (not 503) and streams no events. This is correct
+      // for non-Postgres backends: clients connect successfully but never
+      // receive events because there is no Postgres NOTIFY source wired.
       const noopListener = createNoopChannelListener();
       const broker = new SseBroker(noopListener);
       _cachedSseBroker = broker;
@@ -148,15 +184,35 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
     const listener = new PostgresChannelListener(sql);
     const broker = new SseBroker(listener);
 
-    // Pre-subscribe to the attention-window channels
-    await broker.ensureChannel(CHANNEL_ATTENTION_OPENED);
-    await broker.ensureChannel(CHANNEL_ATTENTION_CLOSED);
+    // Pre-subscribe to ALL canonical channels at init time.
+    // postgres-js does not support wildcard channel names — each channel must
+    // be explicitly subscribed. Clients may connect with patterns like
+    // `attention.*` but the broker must have already called sql.listen() on
+    // the matching concrete channels for those events to arrive.
+    for (const channel of COCKPIT_SSE_CHANNELS) {
+      await broker.ensureChannel(channel);
+    }
 
     _cachedSseBroker = broker;
     return broker;
   } catch {
     return null;
   }
+}
+
+/**
+ * Eagerly initialise the SSE broker at server startup.
+ *
+ * Called by the cockpit server entry-point before any HTTP requests are
+ * served. Ensures channels are pre-subscribed before the first client
+ * connects, avoiding the race condition where a client subscribes to
+ * `attention.*` while the broker is still initialising.
+ *
+ * Safe to call multiple times — subsequent calls are no-ops once the broker
+ * is cached.
+ */
+export async function initServerSseBroker(): Promise<void> {
+  await getServerSseBroker();
 }
 
 // ---------------------------------------------------------------------------

@@ -193,6 +193,7 @@ let _cachedRepo: AskRepository | null = null;
 let _cachedBroker: import("../sse-broker").SseBroker | null = null;
 
 const CHANNEL_ATTENTION_OPENED = "minsky.attention_window_opened";
+const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
 async function defaultDepsFactory(): Promise<AttentionDeps> {
   if (!_cachedRepo) {
@@ -222,8 +223,9 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
   }
 
   // Lazy-load the shared SSE broker to read the current active window key.
-  // The broker is initialised by the cockpit server on first request to
-  // /api/events; if the server hasn't initialised it yet, fall back to null.
+  // The broker is initialised eagerly at server startup (initServerSseBroker);
+  // if that hasn't happened yet (e.g. widget fetch called before server init),
+  // fall back to null and retry on the next fetch().
   if (!_cachedBroker) {
     try {
       const { getServerSseBrokerForWidget } = await import("../server");
@@ -235,10 +237,32 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
 
   let activeWindowKey: string | null = null;
   if (_cachedBroker) {
-    const latestEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_OPENED);
-    if (latestEvent) {
-      const payload = latestEvent.payload as { windowKey?: string } | undefined;
-      activeWindowKey = payload?.windowKey ?? null;
+    const latestOpenEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_OPENED);
+    if (latestOpenEvent) {
+      const openPayload = latestOpenEvent.payload as { windowKey?: string } | undefined;
+      const openWindowKey = openPayload?.windowKey ?? null;
+
+      if (openWindowKey) {
+        // Check whether a subsequent CLOSE event has cancelled this window.
+        // If the close event is newer than the open event (by numeric event ID
+        // comparison) OR references the same windowKey, the window is no longer
+        // active.
+        const latestCloseEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_CLOSED);
+        let windowStillOpen = true;
+        if (latestCloseEvent) {
+          const closePayload = latestCloseEvent.payload as { windowKey?: string } | undefined;
+          const closeWindowKey = closePayload?.windowKey ?? null;
+          // The close event wins if:
+          //   (a) it targets the same windowKey as the open event, OR
+          //   (b) it has a higher numeric event ID than the open event
+          //       (meaning it arrived more recently, regardless of key).
+          const closeIsNewer = parseInt(latestCloseEvent.id, 10) > parseInt(latestOpenEvent.id, 10);
+          if (closeWindowKey === openWindowKey || closeIsNewer) {
+            windowStillOpen = false;
+          }
+        }
+        activeWindowKey = windowStillOpen ? openWindowKey : null;
+      }
     }
   }
 

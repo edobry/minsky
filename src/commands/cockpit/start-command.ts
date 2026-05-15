@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Command } from "commander";
-import { createCockpitServer } from "../../cockpit/server";
+import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
 
 const DEFAULT_PORT = 3737;
 
@@ -38,6 +38,11 @@ export function createStartCommand(): Command {
       }
 
       const app = createCockpitServer();
+
+      // Eagerly initialise the SSE broker so all canonical channels are
+      // pre-subscribed before the first /api/events client connects.
+      // initServerSseBroker() is idempotent — subsequent calls are no-ops.
+      await initServerSseBroker();
 
       // Bind-or-fail: race the 'listening' event against 'error' so a failed
       // bind (e.g., EADDRINUSE) exits with a clear message instead of hanging

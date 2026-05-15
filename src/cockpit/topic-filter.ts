@@ -5,24 +5,37 @@
  * `?topics=...` filter list. Supports:
  *
  *   - Exact match:          `minsky.attention_window_opened`
- *   - Glob prefix match:    `attention.*`  matches `minsky.attention_window_opened`
- *     and `minsky.attention_window_closed` (the `*` matches any suffix within the
- *     dotted name after the glob prefix)
- *   - Single-star wildcard: `*` matches everything
- *   - Multi-pattern OR:     any pattern matching returns true
- *   - Empty patterns list:  returns false (client opted out)
+ *   - Dotted-segment glob:  `attention.*` matches any channel that contains
+ *     `.attention` at a dot boundary (see rule 3 below), which includes
+ *     `minsky.attention_window_opened` and `minsky.attention_window_closed`.
+ *   - Direct namespace:     `minsky.*` matches all channels that start with
+ *     `minsky.` (rule 2), e.g. `minsky.attention_window_opened`.
+ *   - Single-star wildcard: `*` matches everything (rule 0).
+ *   - Multi-pattern OR:     any pattern matching returns true.
+ *   - Empty patterns list:  returns false (client opted out).
  *
- * Glob semantics: a pattern ending with `.*` is treated as a prefix glob.
- * The prefix is everything before the trailing `.*`. The channel matches if:
- *   1. It equals the prefix exactly (no trailing segment), OR
- *   2. It starts with `<prefix>.` (dotted namespace child), OR
- *   3. It contains `.<prefix>` at some dotted boundary (sub-namespace segment
- *      match) — this is how `attention.*` matches `minsky.attention_window_opened`
- *      since the channel contains `attention` as a contiguous prefix of a
- *      dotted segment.
+ * Glob matching semantics for a `<prefix>.*` pattern (prefix = text before
+ * the trailing `.*`):
+ *
+ *   Rule 0 — bare `*`:                channel === anything → true
+ *   Rule 1 — exact prefix match:      channel === prefix → true
+ *             (e.g. `minsky.*` and channel `minsky` → true)
+ *   Rule 2 — direct namespace child:  channel.startsWith(`${prefix}.`) → true
+ *             (e.g. `minsky.*` and channel `minsky.foo` → true)
+ *   Rule 3 — dotted boundary match:   channel.includes(`.${prefix}`) → true
+ *             (e.g. `attention.*` and channel `minsky.attention_window_opened` →
+ *             true, because the channel contains `.attention`)
+ *
+ * Rule 3 is the "cross-namespace" match: it lets clients subscribe to a
+ * logical subsystem name (e.g. `attention`) without knowing which top-level
+ * namespace (e.g. `minsky`) channels live under.
+ *
+ * NOTE: rule 3 is a strict dotted-boundary check (`.prefix`), NOT a plain
+ * substring match. A channel `minsky.noattention` does NOT match `attention.*`
+ * because the boundary character `.` must immediately precede `attention`.
  *
  * Only trailing-star globs (`prefix.*` or bare `*`) are supported. A pattern
- * like `a.*.b` is treated as a literal exact-match string.
+ * like `a.*.b` is treated as a literal exact-match string (no glob).
  */
 
 /**
@@ -71,9 +84,11 @@ function matchesPattern(channel: string, pattern: string): boolean {
     return true;
   }
 
-  // 3. Channel contains ".prefix" at a dotted boundary — sub-namespace match.
+  // 3. Channel contains ".prefix" at a dotted boundary — cross-namespace match.
   //    E.g., prefix="attention" matches "minsky.attention_window_opened"
-  //    because the channel contains ".attention" (dot then prefix).
+  //    because the channel contains ".attention" (dot immediately before the
+  //    prefix token). This is a strict dotted-boundary check, NOT a plain
+  //    substring match: "minsky.noattention" does NOT match "attention.*".
   if (channel.includes(`.${prefix}`)) {
     return true;
   }
