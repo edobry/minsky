@@ -406,6 +406,34 @@ describe("pruneOldRows", () => {
     expect(count).toBe(-1);
   });
 
+  test("returns -1 when DB delete throws a postgres-like error with .cause (mt#1850)", async () => {
+    // Regression test for mt#1850: pruneOldRows catch block now uses
+    // extractPgErrorContext to surface postgres error code/cause in the log
+    // payload (same shape as recordWebhookReceipt and updateOutcome). This test
+    // exercises the cause-bearing-error code path to confirm the catch block
+    // doesn't break when err.cause is present. The structured-field surfacing
+    // itself is independently covered by the extractPgErrorContext describe
+    // block at the bottom of this file.
+    const pgError = Object.assign(
+      new Error(`permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`),
+      {
+        code: "42501",
+        severity: "ERROR",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const wrapped = new Error(
+      `Failed query: delete from "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" ...`
+    );
+    Object.defineProperty(wrapped, "cause", { value: pgError, enumerable: false });
+
+    const db = buildStubDb({ deleteThrow: wrapped });
+
+    const count = await pruneOldRows(db as unknown as Parameters<typeof pruneOldRows>[0], 90);
+
+    expect(count).toBe(-1);
+  });
+
   test("returns 0 when no rows are deleted", async () => {
     const db = buildStubDb({ deleteRows: [] });
 

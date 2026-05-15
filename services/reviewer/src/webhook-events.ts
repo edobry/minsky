@@ -276,11 +276,10 @@ export async function pruneOldRows(db: ReviewerDb, retentionDays: number = 90): 
     });
     return count;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error("webhook_events_prune_failed", {
       event: "webhook_events_prune_failed",
       retention_days: retentionDays,
-      error: message,
+      ...extractPgErrorContext(err),
     });
     return -1;
   }
