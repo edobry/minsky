@@ -18,6 +18,13 @@ Also: BLOCKED (from PLANNING, READY, or IN-PROGRESS), CLOSED (from any state)
 
 Transitions are enforced in the domain layer. `session_start` blocks from TODO/PLANNING — task must be READY first. See `/orchestrate` skill for full workflow details.
 
+The state machine above applies to the **default kind** (`implementation`). Minsky supports multiple per-kind workflows via the task `kind` field (mt#1812):
+
+- `kind: "implementation"` (default) — the state machine above, for tasks that ship via PR.
+- `kind: "umbrella"` — `TODO → PLANNING → IN-PROGRESS → COMPLETED | CLOSED`, for epic/metadata tasks with no associated PR. `COMPLETED` is the success terminal state (distinct from `DONE`, which means "PR merged").
+
+See `docs/task-kinds.md` for the full workflow definitions, tool-mapping tables, and the pattern for adding new kinds.
+
 ## Verification surfaces
 
 The reviewer subagent (`.claude/agents/reviewer.md` Mode 2, dispatched by `/review-pr` and auto-firing as `minsky-reviewer[bot]`) is the canonical verification surface. It runs at review time against the PR branch and covers spec verification, adoption sweep, and a smoke test exercising the changed code path. This is the load-bearing gate; merges are blocked until its findings are addressed.

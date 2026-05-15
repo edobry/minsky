@@ -253,6 +253,20 @@
       "when": 1779328900000,
       "tag": "0035_oauth_payload_jsonb",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1779415200000,
+      "tag": "0036_add_task_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1779417000000,
+      "tag": "0037_add_completed_status",
+      "breakpoints": true
     }
   ]
 }

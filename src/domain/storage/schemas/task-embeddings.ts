@@ -23,6 +23,7 @@ export const tasksTable = pgTable(
     status: taskStatusEnum("status"),
     title: text("title"),
     tags: text("tags").default("[]"), // JSON-serialized string[]
+    kind: text("kind").default("implementation").notNull(), // Task workflow kind: "implementation" | "umbrella"
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),

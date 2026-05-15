@@ -57,9 +57,13 @@ export class MinskyTaskBackend implements TaskBackend {
     if (options?.status && options.status !== "all") {
       conditions.push(eq(tasksTable.status, options.status));
     } else if (!options?.all) {
-      // Default: exclude DONE and CLOSED tasks unless --all is specified
+      // Default: exclude terminal statuses unless --all is specified.
+      // Terminal set = DONE (implementation success) + CLOSED (both kinds) +
+      // COMPLETED (umbrella success, mt#1812). Kept in sync with
+      // TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
       conditions.push(not(eq(tasksTable.status, "DONE")));
       conditions.push(not(eq(tasksTable.status, "CLOSED")));
+      conditions.push(not(eq(tasksTable.status, "COMPLETED")));
     }
 
     // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
@@ -128,7 +132,8 @@ export class MinskyTaskBackend implements TaskBackend {
       const inserted = await this.tryInsertTask(id, title, spec, options);
       if (inserted) {
         const tags = options?.tags || [];
-        return { id, title, status: "TODO", backend: this.name, tags };
+        const kind = options?.kind || "implementation";
+        return { id, title, status: "TODO", kind, backend: this.name, tags };
       }
       // id collision — another writer took this id; loop and re-generate
     }
@@ -162,6 +167,7 @@ export class MinskyTaskBackend implements TaskBackend {
         status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
         title,
         tags: JSON.stringify(tags),
+        kind: options?.kind || "implementation",
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -210,6 +216,7 @@ export class MinskyTaskBackend implements TaskBackend {
         status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
         title,
         tags: JSON.stringify(tags),
+        kind: options?.kind || "implementation",
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -233,7 +240,8 @@ export class MinskyTaskBackend implements TaskBackend {
       })
       .onConflictDoNothing();
 
-    return { id, title, status: "TODO", backend: this.name, tags };
+    const kind = options?.kind || "implementation";
+    return { id, title, status: "TODO", kind, backend: this.name, tags };
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -298,6 +306,16 @@ export class MinskyTaskBackend implements TaskBackend {
       .where(eq(tasksTable.id, id));
   }
 
+  async setTaskKind(id: string, kind: string): Promise<void> {
+    await this.db
+      .update(tasksTable)
+      .set({
+        kind,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasksTable.id, id));
+  }
+
   async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
     // Update task metadata
     await this.db
@@ -355,6 +373,7 @@ export class MinskyTaskBackend implements TaskBackend {
     title: string | null;
     status: string | null;
     tags?: string | null;
+    kind?: string | null;
   }): Task {
     let tags: string[] = [];
     if (row.tags) {
@@ -368,6 +387,7 @@ export class MinskyTaskBackend implements TaskBackend {
       id: row.id,
       title: row.title ?? "",
       status: row.status ?? "TODO",
+      kind: row.kind ?? "implementation",
       backend: this.name,
       tags,
     };

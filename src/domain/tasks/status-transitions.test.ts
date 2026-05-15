@@ -3,22 +3,26 @@ import { TaskStatus } from "./taskConstants";
 import { validateStatusTransition, VALID_TRANSITIONS } from "./status-transitions";
 
 describe("status-transitions", () => {
-  describe("VALID_TRANSITIONS map", () => {
+  describe("VALID_TRANSITIONS map (implementation kind backward-compat)", () => {
     test("every TaskStatus has a transitions entry", () => {
       for (const status of Object.values(TaskStatus)) {
         expect(VALID_TRANSITIONS).toHaveProperty(status);
       }
     });
 
-    test("CLOSED is reachable from every non-CLOSED status", () => {
+    test("CLOSED is reachable from every non-CLOSED status (implementation kind)", () => {
       for (const status of Object.values(TaskStatus)) {
-        if (status === TaskStatus.CLOSED) continue;
+        // Skip CLOSED (the terminal) and COMPLETED (umbrella-kind terminal — has its
+        // own per-kind workflow in WORKFLOWS.umbrella; the implementation-kind
+        // VALID_TRANSITIONS table only lists it for type exhaustivity with an
+        // empty outgoing array per mt#1812).
+        if (status === TaskStatus.CLOSED || status === TaskStatus.COMPLETED) continue;
         expect(VALID_TRANSITIONS[status]).toContain(TaskStatus.CLOSED);
       }
     });
   });
 
-  describe("validateStatusTransition", () => {
+  describe("validateStatusTransition — implementation kind (default)", () => {
     // Valid transitions
     test("TODO → PLANNING is valid", () => {
       expect(() => validateStatusTransition(TaskStatus.TODO, TaskStatus.PLANNING)).not.toThrow();
@@ -149,6 +153,112 @@ describe("status-transitions", () => {
         expect(message).toContain("PLANNING");
         expect(message).toContain("CLOSED");
       }
+    });
+
+    // Explicit "implementation" kind behaves identically to default
+    test("explicit kind=implementation uses same transitions as default", () => {
+      expect(() =>
+        validateStatusTransition(TaskStatus.TODO, TaskStatus.PLANNING, "implementation")
+      ).not.toThrow();
+      expect(() =>
+        validateStatusTransition(TaskStatus.TODO, TaskStatus.DONE, "implementation")
+      ).toThrow(/Cannot transition from TODO to DONE/);
+    });
+  });
+
+  describe("validateStatusTransition — umbrella kind", () => {
+    test("TODO → PLANNING is valid for umbrella", () => {
+      expect(() => validateStatusTransition("TODO", "PLANNING", "umbrella")).not.toThrow();
+    });
+
+    test("TODO → CLOSED is valid for umbrella", () => {
+      expect(() => validateStatusTransition("TODO", "CLOSED", "umbrella")).not.toThrow();
+    });
+
+    test("PLANNING → IN-PROGRESS is valid for umbrella (no READY gate)", () => {
+      expect(() => validateStatusTransition("PLANNING", "IN-PROGRESS", "umbrella")).not.toThrow();
+    });
+
+    test("IN-PROGRESS → COMPLETED is valid for umbrella", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "COMPLETED", "umbrella")).not.toThrow();
+    });
+
+    test("COMPLETED → CLOSED is valid for umbrella", () => {
+      expect(() => validateStatusTransition("COMPLETED", "CLOSED", "umbrella")).not.toThrow();
+    });
+
+    test("CLOSED → TODO is valid for umbrella (reopen)", () => {
+      expect(() => validateStatusTransition("CLOSED", "TODO", "umbrella")).not.toThrow();
+    });
+
+    // Umbrella does not have DONE state
+    test("IN-PROGRESS → DONE is invalid for umbrella (use COMPLETED)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "DONE", "umbrella")).toThrow(
+        /Cannot transition from IN-PROGRESS to DONE/
+      );
+    });
+
+    // Umbrella does not have IN-REVIEW state
+    test("IN-PROGRESS → IN-REVIEW is invalid for umbrella (no review phase)", () => {
+      expect(() => validateStatusTransition("IN-PROGRESS", "IN-REVIEW", "umbrella")).toThrow(
+        /Cannot transition from IN-PROGRESS to IN-REVIEW/
+      );
+    });
+
+    // Umbrella does not have READY state in transitions
+    test("TODO → READY is invalid for umbrella (no planning gate)", () => {
+      expect(() => validateStatusTransition("TODO", "READY", "umbrella")).toThrow(
+        /Cannot transition from TODO to READY/
+      );
+    });
+
+    // Error messages include kind label for non-implementation kinds
+    test("error message includes kind label for umbrella transitions", () => {
+      try {
+        validateStatusTransition("IN-PROGRESS", "DONE", "umbrella");
+        expect(true).toBe(false); // Should not reach here
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).toContain("kind: umbrella");
+      }
+    });
+
+    // PLANNING → IN-PROGRESS special case does NOT apply to umbrella
+    test("PLANNING → IN-PROGRESS via status_set is allowed for umbrella (no session_start restriction)", () => {
+      expect(() => validateStatusTransition("PLANNING", "IN-PROGRESS", "umbrella")).not.toThrow();
+    });
+
+    // READY → IN-PROGRESS special case does NOT apply to umbrella
+    test("READY → IN-PROGRESS restriction is implementation-kind-only", () => {
+      // "READY" is not in the umbrella workflow states, so this is an invalid
+      // transition for a different reason (no READY state in umbrella workflow)
+      expect(() => validateStatusTransition("READY", "IN-PROGRESS", "umbrella")).toThrow();
+      // But the error should NOT mention "session_start"
+      try {
+        validateStatusTransition("READY", "IN-PROGRESS", "umbrella");
+      } catch (error) {
+        const message = (error as Error).message;
+        expect(message).not.toContain("session_start");
+      }
+    });
+  });
+
+  describe("validateStatusTransition — unknown kind falls back to implementation", () => {
+    test("unknown kind uses implementation workflow", () => {
+      // TODO → PLANNING valid in implementation → should work
+      expect(() => validateStatusTransition("TODO", "PLANNING", "some-unknown-kind")).not.toThrow();
+    });
+
+    test("null kind uses implementation workflow", () => {
+      expect(() =>
+        validateStatusTransition(TaskStatus.TODO, TaskStatus.PLANNING, null)
+      ).not.toThrow();
+    });
+
+    test("undefined kind uses implementation workflow", () => {
+      expect(() =>
+        validateStatusTransition(TaskStatus.TODO, TaskStatus.PLANNING, undefined)
+      ).not.toThrow();
     });
   });
 });
