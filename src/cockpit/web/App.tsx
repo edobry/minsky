@@ -1,8 +1,11 @@
 import { useEffect, useState, type ComponentType } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
 import { fetchWidgets, fetchWidgetData, type WidgetMeta, type WidgetData } from "./lib/widget-client";
+import { createCockpitSseClient } from "./lib/sse-client";
+import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Agents } from "./widgets/Agents";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
@@ -29,6 +32,41 @@ interface WidgetState {
 
 export function App() {
   const [widgets, setWidgets] = useState<WidgetState[]>([]);
+  const queryClient = useQueryClient();
+
+  // ---------------------------------------------------------------------------
+  // SSE adapter — invalidates TanStack Query cache on push events (mt#1148).
+  //
+  // When an SSE event fires for a channel we recognise, `queryKeysForChannel`
+  // returns the list of cache keys to invalidate; TanStack Query then triggers
+  // a refetch for every widget subscribed to that key.
+  //
+  // Opt-out: append `?disableSSE=1` to the page URL to fall back to
+  // polling-only mode (useful for debugging or when the broker is unavailable).
+  //
+  // Failure handling: if SSE drops, `onDisconnect` fires and the page shows a
+  // warning; widgets remain functional via their existing `refetchInterval`.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("disableSSE")) {
+      return;
+    }
+
+    const client = createCockpitSseClient({
+      onEvent: (event) => {
+        const keys = queryKeysForChannel(event.channel);
+        for (const queryKey of keys) {
+          // `queryKey` is `ReadonlyArray<string | number>`; TanStack Query's
+          // `QueryKey` type is `readonly unknown[]`, which `ReadonlyArray<string | number>`
+          // is assignable to. No cast needed (PR #1139 R1 NON-BLOCKING fix).
+          void queryClient.invalidateQueries({ queryKey });
+        }
+      },
+    });
+
+    client.connect();
+    return () => client.disconnect();
+  }, [queryClient]);
 
   useEffect(() => {
     let cancelled = false;
