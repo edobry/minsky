@@ -60,6 +60,54 @@ import type { ReviewerDb } from "./db/client";
 import { webhookEventsTable, type WebhookOutcome } from "./db/schemas/webhook-events-schema";
 
 // ---------------------------------------------------------------------------
+// extractPgErrorContext (mt#1849)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract structured postgres-error context from a drizzle-wrapped error.
+ *
+ * Drizzle's `postgres-js` driver throws an Error whose `.message` is the
+ * wrapped query SQL ("Failed query: insert into ..."), and whose `.cause`
+ * carries the underlying postgres-js error with structured fields:
+ *   - `code`            (e.g. "42P01" for relation-does-not-exist)
+ *   - `severity`        (e.g. "ERROR")
+ *   - `message`         (the actual postgres-side message)
+ *   - `constraint_name` (on constraint violations)
+ *   - `table_name`      (on relation-bound errors)
+ *   - `column_name`     (on column-bound errors)
+ *   - `schema_name`     (on relation-bound errors)
+ *
+ * Without this helper, catch blocks that log only `err.message` produce
+ * unactionable lines like `"Failed query: insert into..."` with no error
+ * code — making bugs like mt#1849 (silent webhook-event-record failures)
+ * invisible for days.
+ *
+ * Returns a context object suitable for spreading into the log payload.
+ * Backward-compatible: errors without `.cause` (or non-Error throws) still
+ * produce the original `error: message` field; structured fields are
+ * undefined and omitted by JSON serialization.
+ */
+export function extractPgErrorContext(err: unknown): Record<string, unknown> {
+  const message = err instanceof Error ? err.message : String(err);
+  const ctx: Record<string, unknown> = { error: message };
+
+  if (!(err instanceof Error)) return ctx;
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") return ctx;
+
+  const c = cause as Record<string, unknown>;
+  if (typeof c["code"] === "string") ctx["error_code"] = c["code"];
+  if (typeof c["severity"] === "string") ctx["error_severity"] = c["severity"];
+  if (typeof c["message"] === "string") ctx["error_detail"] = c["message"];
+  if (typeof c["constraint_name"] === "string") ctx["error_constraint"] = c["constraint_name"];
+  if (typeof c["table_name"] === "string") ctx["error_table"] = c["table_name"];
+  if (typeof c["column_name"] === "string") ctx["error_column"] = c["column_name"];
+  if (typeof c["schema_name"] === "string") ctx["error_schema"] = c["schema_name"];
+
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -143,11 +191,10 @@ export async function recordWebhookReceipt(
       event_type: eventType,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error("webhook_event_record_failed", {
       event: "webhook_event_record_failed",
       delivery_id: deliveryId,
-      error: message,
+      ...extractPgErrorContext(err),
     });
     // Do NOT re-throw — persistence must not crash the webhook handler.
   }
@@ -191,12 +238,11 @@ export async function updateOutcome(
       terminal: isTerminal,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error("webhook_outcome_update_failed", {
       event: "webhook_outcome_update_failed",
       delivery_id: deliveryId,
       outcome,
-      error: message,
+      ...extractPgErrorContext(err),
     });
     // Do NOT re-throw — persistence must not crash the webhook handler.
   }

@@ -17,6 +17,7 @@ import {
   updateOutcome,
   pruneOldRows,
   extractPersistedHeaders,
+  extractPgErrorContext,
 } from "./webhook-events";
 import type { PersistedHeaders } from "./webhook-events";
 
@@ -32,6 +33,10 @@ const HDR_USER_AGENT = "user-agent";
 
 // Outcome constant used in multiple tests
 const OUTCOME_REVIEW_SUBMITTED = "review_submitted";
+
+// Magic-string constants extracted to satisfy custom/no-magic-string-duplication
+const TABLE_NAME_REVIEWER_WEBHOOK_EVENTS = "reviewer_webhook_events";
+const ERR_CONNECTION_REFUSED = "connection refused";
 
 // ---------------------------------------------------------------------------
 // Stub DB factory
@@ -209,7 +214,7 @@ describe("recordWebhookReceipt", () => {
   });
 
   test("does not throw when DB insert fails", async () => {
-    const db = buildStubDb({ insertThrow: new Error("connection refused") });
+    const db = buildStubDb({ insertThrow: new Error(ERR_CONNECTION_REFUSED) });
 
     // Must not throw — persistence errors are swallowed
     await expect(
@@ -415,6 +420,116 @@ describe("pruneOldRows", () => {
     // Should not throw
     await expect(pruneOldRows(db as unknown as Parameters<typeof pruneOldRows>[0])).resolves.toBe(
       0
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractPgErrorContext (mt#1849 — diagnostic instrumentation)
+// ---------------------------------------------------------------------------
+//
+// Bug mt#1849: webhook_event_record_failed and webhook_outcome_update_failed
+// log only the wrapped drizzle error message ("Failed query: insert into ...").
+// The underlying postgres error (with .code, .severity, .detail, .constraint,
+// .table, .column, .schema fields) is silently dropped because the catch
+// blocks call `err.message` directly and ignore `err.cause`.
+//
+// This made it impossible to diagnose 6+ days of silent webhook-event-record
+// failures in production — the actual postgres error code (e.g., 42P01
+// "relation does not exist", or 42501 "permission denied") never reached the
+// logs. extractPgErrorContext is the pure helper that walks `err.cause` and
+// surfaces the structured fields.
+
+describe("extractPgErrorContext", () => {
+  test("postgres-like error with .cause containing code/severity/message produces structured fields", () => {
+    // Simulates what drizzle wraps around a postgres-js error. postgres-js
+    // raises an Error subclass with code/severity/message at the top level;
+    // drizzle wraps it as `cause` on its own Error instance.
+    const pgError = Object.assign(
+      new Error(`relation "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" does not exist`),
+      {
+        code: "42P01",
+        severity: "ERROR",
+        schema_name: "public",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const drizzleErr = new Error(
+      `Failed query: insert into "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" ...`
+    );
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error"]).toBe(
+      `Failed query: insert into "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" ...`
+    );
+    expect(ctx["error_code"]).toBe("42P01");
+    expect(ctx["error_severity"]).toBe("ERROR");
+    expect(ctx["error_detail"]).toBe(
+      `relation "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" does not exist`
+    );
+    expect(ctx["error_table"]).toBe(TABLE_NAME_REVIEWER_WEBHOOK_EVENTS);
+    expect(ctx["error_schema"]).toBe("public");
+  });
+
+  test("error without .cause still produces the original `error` field (backward compat)", () => {
+    const plainErr = new Error(ERR_CONNECTION_REFUSED);
+
+    const ctx = extractPgErrorContext(plainErr);
+
+    expect(ctx["error"]).toBe(ERR_CONNECTION_REFUSED);
+    expect(ctx["error_code"]).toBeUndefined();
+    expect(ctx["error_severity"]).toBeUndefined();
+    expect(ctx["error_detail"]).toBeUndefined();
+  });
+
+  test("non-Error thrown value (string) still produces a sensible payload", () => {
+    const ctx = extractPgErrorContext("plain string error");
+
+    expect(ctx["error"]).toBe("plain string error");
+    expect(ctx["error_code"]).toBeUndefined();
+  });
+
+  test("constraint-violation error surfaces constraint and column names", () => {
+    const pgError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "reviewer_webhook_events_delivery_id_unique"'
+      ),
+      {
+        code: "23505",
+        severity: "ERROR",
+        constraint_name: "reviewer_webhook_events_delivery_id_unique",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const drizzleErr = new Error("Failed query: insert into ...");
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error_code"]).toBe("23505");
+    expect(ctx["error_constraint"]).toBe("reviewer_webhook_events_delivery_id_unique");
+    expect(ctx["error_table"]).toBe(TABLE_NAME_REVIEWER_WEBHOOK_EVENTS);
+  });
+
+  test("permission-denied error (42501) surfaces code so it's distinguishable from missing-table", () => {
+    const pgError = Object.assign(
+      new Error(`permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`),
+      {
+        code: "42501",
+        severity: "ERROR",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const drizzleErr = new Error("Failed query: insert into ...");
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error_code"]).toBe("42501");
+    expect(ctx["error_detail"]).toBe(
+      `permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`
     );
   });
 });
