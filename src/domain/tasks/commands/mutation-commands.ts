@@ -113,7 +113,13 @@ export async function setTaskStatusFromParams(
         undefined
       );
     }
-    validateStatusTransition(task.status as TaskStatus, validParams.status as TaskStatus);
+    // Pass task.kind so the gate dispatches to the right per-kind workflow (mt#1812).
+    // task.kind defaults to "implementation" when unset (backward-compat).
+    validateStatusTransition(
+      task.status as TaskStatus,
+      validParams.status as TaskStatus,
+      task.kind
+    );
 
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
