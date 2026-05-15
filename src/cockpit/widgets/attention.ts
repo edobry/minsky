@@ -243,21 +243,20 @@ async function defaultDepsFactory(): Promise<AttentionDeps> {
       const openWindowKey = openPayload?.windowKey ?? null;
 
       if (openWindowKey) {
-        // Check whether a subsequent CLOSE event has cancelled this window.
-        // If the close event is newer than the open event (by numeric event ID
-        // comparison) OR references the same windowKey, the window is no longer
-        // active.
+        // Check whether a subsequent CLOSE event has cancelled THIS specific
+        // window. PR #1138 R3 NON-BLOCKING fix: a close event for a DIFFERENT
+        // window (some sequential or concurrent open/close session) does NOT
+        // cancel an unrelated still-open window. Cancellation requires both:
+        //   (a) the close event targets the SAME windowKey as the latest open, AND
+        //   (b) the close event is newer than the open event by numeric event ID.
+        // This way: open(A) → close(B) does NOT clear A's active state.
         const latestCloseEvent = _cachedBroker.latestForChannel(CHANNEL_ATTENTION_CLOSED);
         let windowStillOpen = true;
         if (latestCloseEvent) {
           const closePayload = latestCloseEvent.payload as { windowKey?: string } | undefined;
           const closeWindowKey = closePayload?.windowKey ?? null;
-          // The close event wins if:
-          //   (a) it targets the same windowKey as the open event, OR
-          //   (b) it has a higher numeric event ID than the open event
-          //       (meaning it arrived more recently, regardless of key).
           const closeIsNewer = parseInt(latestCloseEvent.id, 10) > parseInt(latestOpenEvent.id, 10);
-          if (closeWindowKey === openWindowKey || closeIsNewer) {
+          if (closeWindowKey === openWindowKey && closeIsNewer) {
             windowStillOpen = false;
           }
         }
