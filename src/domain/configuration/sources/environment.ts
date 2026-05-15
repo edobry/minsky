@@ -68,6 +68,12 @@ export const environmentMappings = {
   // "persistence.postgres.connectionString".
   MINSKY_POSTGRES_URL: "persistence.postgres.connectionString",
 
+  // Session-mode connection string for LISTEN/NOTIFY operations (mt#1852).
+  // Supavisor transaction pooler (:6543) is LISTEN-incompatible; session mode
+  // (:5432) keeps backend connections alive across commands. When unset, the
+  // provider auto-derives by swapping :6543 → :5432 from connectionString.
+  MINSKY_POSTGRES_SESSION_URL: "persistence.postgres.sessionConnectionString",
+
   // Supabase Management API credentials (developer-local; consumed by
   // `just supabase-usage`). Distinct from the Postgres connection string,
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.

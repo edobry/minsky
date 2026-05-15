@@ -30,6 +30,11 @@ export interface PersistenceConfig {
   backend: "postgres" | "sqlite";
   postgres?: {
     connectionString: string;
+    /**
+     * Optional session-mode connection string for LISTEN/NOTIFY operations (mt#1852).
+     * When unset, auto-derived by swapping :6543 → :5432 (Supavisor port-swap).
+     */
+    sessionConnectionString?: string;
     maxConnections?: number;
     connectTimeout?: number;
     idleTimeout?: number;
@@ -71,6 +76,25 @@ export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
   capabilities: PersistenceCapabilities & { sql: true };
   getDatabaseConnection(): Promise<PostgresJsDatabase | null>;
   getRawSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
+  /**
+   * Returns a session-mode-capable Sql instance, suitable for LISTEN/NOTIFY (mt#1852).
+   *
+   * Distinct from `getRawSqlConnection()` which returns the pooled transaction-mode
+   * connection used for normal queries — Supavisor's transaction pooler (:6543)
+   * does not support LISTEN because LISTEN state is per-connection and the pooler
+   * may route each command to a different backend.
+   *
+   * The session-mode URL comes from `persistence.postgres.sessionConnectionString`
+   * config (env: MINSKY_POSTGRES_SESSION_URL); falls back to a Supavisor port-swap
+   * auto-derive (:6543 → :5432) from the transaction-pool URL when unset.
+   *
+   * Contract: returns a non-null Sql instance on success; throws when the provider
+   * is not initialized or the underlying connection cannot be created. Never
+   * returns null (unlike the pre-existing `getDatabaseConnection`/`getRawSqlConnection`
+   * whose `| null` declarations are out of mt#1852's scope but never returned null
+   * in practice — alignment tracked separately as mt#1858).
+   */
+  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")>>;
 }
 
 /**
@@ -98,6 +122,8 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   // callers that need typed connections should narrow via SqlCapablePersistenceProvider.
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
+  /** Session-mode-capable connection for LISTEN/NOTIFY (mt#1852). */
+  getListenCapableSqlConnection?(): Promise<ReturnType<typeof import("postgres")>>;
   /** Routes to the correct embeddings table per domain */
   getVectorStorageForDomain?(domain: VectorDomain, dimension: number): VectorStorage;
 }
