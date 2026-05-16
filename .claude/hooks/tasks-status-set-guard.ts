@@ -2,8 +2,16 @@
 // PreToolUse hook on mcp__minsky__tasks_status_set: validate transitions against the
 // canonical state machine in src/domain/tasks/status-transitions.ts.
 //
-// Reads the current task status (via the minsky CLI), then calls validateStatusTransition
-// against the requested status. Denies the tool call if validation throws.
+// Reads the current task status AND kind (via the minsky CLI), then calls
+// validateStatusTransition against the requested status. Denies the tool call if
+// validation throws.
+//
+// Kind-aware dispatch (mt#1862): the validator's signature is
+// `validateStatusTransition(from, to, kind?)` and dispatches on `kind` to select
+// the per-kind workflow (implementation vs. umbrella; see workflows.ts, mt#1812).
+// This hook reads `kind` from the same CLI surface as `status` and forwards it.
+// When the kind read fails (timeout, malformed JSON, etc.), the kind argument
+// is omitted and the validator falls back to "implementation" — the safer default.
 //
 // Origin: mt#1504. The domain layer at mutation-commands.ts:97-110 already validates, but
 // (a) the `if (task.status)` short-circuit (now removed as a ride-along in this PR) silently
@@ -27,6 +35,10 @@ export interface CheckResult {
 
 export interface CheckDeps {
   readCurrentStatus: (taskId: string) => string | null;
+  // Optional: when omitted, kind is treated as undefined and the validator
+  // falls back to DEFAULT_KIND ("implementation"). Making this optional
+  // preserves backward compat for tests that only need to inject a status reader.
+  readCurrentKind?: (taskId: string) => string | null;
 }
 
 // Live read via the minsky CLI. Returns null on any failure so the hook fails open
@@ -40,6 +52,25 @@ export function readCurrentStatusViaCLI(taskId: string): string | null {
   try {
     const parsed = JSON.parse(result.stdout) as { status?: unknown };
     return typeof parsed.status === "string" ? parsed.status : null;
+  } catch {
+    return null;
+  }
+}
+
+// Live read of the task's `kind` field via `minsky tasks get --json`. Returns null
+// on any failure so the kind argument is omitted from the validator call, which
+// then falls back to "implementation" — the safer default that matches pre-mt#1812
+// behavior. Domain-layer validation in mutation-commands.ts is the second line of
+// defense.
+export function readCurrentKindViaCLI(taskId: string): string | null {
+  const result = execWithPath(["minsky", "tasks", "get", taskId, "--json"], {
+    timeout: 8000,
+  });
+  if (result.exitCode !== 0) return null;
+  try {
+    const parsed = JSON.parse(result.stdout) as { task?: { kind?: unknown } };
+    const kind = parsed.task?.kind;
+    return typeof kind === "string" ? kind : null;
   } catch {
     return null;
   }
@@ -77,8 +108,13 @@ export function checkTransition(
     return { decision: "allow" };
   }
 
+  // Read kind so the validator can dispatch to the right per-kind workflow (mt#1812).
+  // When the read returns null (CLI error, malformed JSON, kind field absent), the
+  // kind argument is omitted and the validator defaults to "implementation".
+  const kind = deps.readCurrentKind?.(taskId) ?? undefined;
+
   try {
-    validateStatusTransition(current as TaskStatus, requested as TaskStatus);
+    validateStatusTransition(current as TaskStatus, requested as TaskStatus, kind);
     return { decision: "allow" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -96,6 +132,7 @@ if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
   const result = checkTransition(input.tool_name, input.tool_input ?? {}, {
     readCurrentStatus: readCurrentStatusViaCLI,
+    readCurrentKind: readCurrentKindViaCLI,
   });
   if (result.decision === "deny") {
     writeOutput({

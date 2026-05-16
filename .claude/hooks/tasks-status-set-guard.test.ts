@@ -193,3 +193,87 @@ describe("checkTransition — disallowed transitions", () => {
     expect(r.reason).toContain("reconcile");
   });
 });
+
+describe("checkTransition — kind-aware dispatch (mt#1862)", () => {
+  const withKind = (status: string | null, kind: string | null): CheckDeps => ({
+    readCurrentStatus: () => status,
+    readCurrentKind: () => kind,
+  });
+
+  it("allows PLANNING -> IN-PROGRESS for kind=umbrella", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1862", status: "IN-PROGRESS" },
+      withKind("PLANNING", "umbrella")
+    );
+    expect(r.decision).toBe("allow");
+  });
+
+  it("denies PLANNING -> IN-PROGRESS for kind=implementation (special-case message)", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "IN-PROGRESS" },
+      withKind("PLANNING", "implementation")
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("PLANNING");
+    expect(r.reason).toContain("IN-PROGRESS");
+    expect(r.reason).toContain("session_start");
+  });
+
+  it("allows IN-PROGRESS -> COMPLETED for kind=umbrella", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1862", status: "COMPLETED" },
+      withKind("IN-PROGRESS", "umbrella")
+    );
+    expect(r.decision).toBe("allow");
+  });
+
+  it("denies IN-PROGRESS -> COMPLETED for kind=implementation", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "COMPLETED" },
+      withKind("IN-PROGRESS", "implementation")
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("IN-PROGRESS");
+    expect(r.reason).toContain("COMPLETED");
+  });
+
+  it("allows PLANNING -> READY for kind=implementation (mirror of existing impl path)", () => {
+    // Sanity check that adding kind doesn't break the existing implementation paths.
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "READY" },
+      withKind("PLANNING", "implementation")
+    );
+    expect(r.decision).toBe("allow");
+  });
+
+  it("fail-open: kind reader returns null → validator defaults to implementation", () => {
+    // When the kind read fails, the validator's DEFAULT_KIND ("implementation")
+    // applies. The transition is then judged under implementation rules. For
+    // PLANNING -> IN-PROGRESS this means deny (session_start-only).
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "IN-PROGRESS" },
+      withKind("PLANNING", null)
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("session_start");
+  });
+
+  it("fail-open: omitting readCurrentKind entirely behaves identically to null-returning reader", () => {
+    // Backward-compat path: existing tests pass `{ readCurrentStatus }` only.
+    // The hook should still validate against the implementation default.
+    const depsNoKind: CheckDeps = { readCurrentStatus: () => "PLANNING" };
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "IN-PROGRESS" },
+      depsNoKind
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("session_start");
+  });
+});
