@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { checkTransition, type CheckDeps } from "./tasks-status-set-guard";
 
-const fixedReader = (status: string | null): CheckDeps => ({
-  readCurrentStatus: () => status,
+const fixedReader = (status: string | null, kind: string | null = null): CheckDeps => ({
+  readCurrentTask: () => (status === null ? null : { status, kind }),
 });
 
 const TARGET = "mcp__minsky__tasks_status_set";
@@ -62,7 +62,7 @@ describe("checkTransition — invalid requested status", () => {
 });
 
 describe("checkTransition — read-failure fail-open", () => {
-  it("allows when readCurrentStatus returns null", () => {
+  it("allows when readCurrentTask returns null", () => {
     const r = checkTransition(TARGET, { taskId: "mt#1", status: "DONE" }, fixedReader(null));
     expect(r.decision).toBe("allow");
   });
@@ -191,5 +191,91 @@ describe("checkTransition — disallowed transitions", () => {
     );
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("reconcile");
+  });
+});
+
+describe("checkTransition — kind-aware dispatch (mt#1862)", () => {
+  const withKind = (status: string | null, kind: string | null): CheckDeps => ({
+    readCurrentTask: () => (status === null ? null : { status, kind }),
+  });
+
+  it("allows PLANNING -> IN-PROGRESS for kind=umbrella", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1862", status: "IN-PROGRESS" },
+      withKind("PLANNING", "umbrella")
+    );
+    expect(r.decision).toBe("allow");
+  });
+
+  it("denies PLANNING -> IN-PROGRESS for kind=implementation (special-case message)", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "IN-PROGRESS" },
+      withKind("PLANNING", "implementation")
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("PLANNING");
+    expect(r.reason).toContain("IN-PROGRESS");
+    expect(r.reason).toContain("session_start");
+  });
+
+  it("allows IN-PROGRESS -> COMPLETED for kind=umbrella", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1862", status: "COMPLETED" },
+      withKind("IN-PROGRESS", "umbrella")
+    );
+    expect(r.decision).toBe("allow");
+  });
+
+  it("denies IN-PROGRESS -> COMPLETED for kind=implementation", () => {
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "COMPLETED" },
+      withKind("IN-PROGRESS", "implementation")
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("IN-PROGRESS");
+    expect(r.reason).toContain("COMPLETED");
+  });
+
+  it("allows PLANNING -> READY for kind=implementation (mirror of existing impl path)", () => {
+    // Sanity check that adding kind doesn't break the existing implementation paths.
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "READY" },
+      withKind("PLANNING", "implementation")
+    );
+    expect(r.decision).toBe("allow");
+  });
+
+  it("fail-open: kind reader returns null → validator defaults to implementation", () => {
+    // When the kind read fails, the validator's DEFAULT_KIND ("implementation")
+    // applies. The transition is then judged under implementation rules. For
+    // PLANNING -> IN-PROGRESS this means deny (session_start-only).
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "IN-PROGRESS" },
+      withKind("PLANNING", null)
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("session_start");
+  });
+
+  it("kind field present but null in the dep result → validator defaults to implementation", () => {
+    // When the CLI returns a task without a `kind` field (legacy shape, etc.),
+    // the dep returns `{ status, kind: null }`. The hook treats kind=null as
+    // undefined and the validator's DEFAULT_KIND ("implementation") applies.
+    const depsKindNull: CheckDeps = {
+      readCurrentTask: () => ({ status: "PLANNING", kind: null }),
+    };
+    const r = checkTransition(
+      TARGET,
+      { taskId: "mt#1", status: "IN-PROGRESS" },
+      depsKindNull
+    );
+    expect(r.decision).toBe("deny");
+    expect(r.reason).toContain("session_start");
   });
 });
