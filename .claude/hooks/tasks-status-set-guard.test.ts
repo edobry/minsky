@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { checkTransition, type CheckDeps } from "./tasks-status-set-guard";
 
-const fixedReader = (status: string | null): CheckDeps => ({
-  readCurrentStatus: () => status,
+const fixedReader = (status: string | null, kind: string | null = null): CheckDeps => ({
+  readCurrentTask: () => (status === null ? null : { status, kind }),
 });
 
 const TARGET = "mcp__minsky__tasks_status_set";
@@ -62,7 +62,7 @@ describe("checkTransition — invalid requested status", () => {
 });
 
 describe("checkTransition — read-failure fail-open", () => {
-  it("allows when readCurrentStatus returns null", () => {
+  it("allows when readCurrentTask returns null", () => {
     const r = checkTransition(TARGET, { taskId: "mt#1", status: "DONE" }, fixedReader(null));
     expect(r.decision).toBe("allow");
   });
@@ -196,8 +196,7 @@ describe("checkTransition — disallowed transitions", () => {
 
 describe("checkTransition — kind-aware dispatch (mt#1862)", () => {
   const withKind = (status: string | null, kind: string | null): CheckDeps => ({
-    readCurrentStatus: () => status,
-    readCurrentKind: () => kind,
+    readCurrentTask: () => (status === null ? null : { status, kind }),
   });
 
   it("allows PLANNING -> IN-PROGRESS for kind=umbrella", () => {
@@ -264,14 +263,17 @@ describe("checkTransition — kind-aware dispatch (mt#1862)", () => {
     expect(r.reason).toContain("session_start");
   });
 
-  it("fail-open: omitting readCurrentKind entirely behaves identically to null-returning reader", () => {
-    // Backward-compat path: existing tests pass `{ readCurrentStatus }` only.
-    // The hook should still validate against the implementation default.
-    const depsNoKind: CheckDeps = { readCurrentStatus: () => "PLANNING" };
+  it("kind field present but null in the dep result → validator defaults to implementation", () => {
+    // When the CLI returns a task without a `kind` field (legacy shape, etc.),
+    // the dep returns `{ status, kind: null }`. The hook treats kind=null as
+    // undefined and the validator's DEFAULT_KIND ("implementation") applies.
+    const depsKindNull: CheckDeps = {
+      readCurrentTask: () => ({ status: "PLANNING", kind: null }),
+    };
     const r = checkTransition(
       TARGET,
       { taskId: "mt#1", status: "IN-PROGRESS" },
-      depsNoKind
+      depsKindNull
     );
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("session_start");
