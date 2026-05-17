@@ -37,6 +37,10 @@ const CHANNEL_SESSION_SCOPE_CHANGED = "minsky.session.scope_changed";
 const CHANNEL_TASK_STATUS_CHANGED = "minsky.task.status_changed";
 const CHANNEL_TASK_BLOCKING = "minsky.task.blocking";
 
+/** Credential-invalidation channel — mt#1426. Producer:
+ *  `notifyCredentialInvalidated` in src/domain/credentials/invalidations.ts. */
+const CHANNEL_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
+
 // ---------------------------------------------------------------------------
 // Channel → query-key map
 // ---------------------------------------------------------------------------
@@ -70,6 +74,9 @@ export const CHANNEL_TO_QUERY_KEYS: Readonly<
   //     §Ask kinds), so a new blocking event should trigger an attention refetch.
   [CHANNEL_TASK_STATUS_CHANGED]: [],
   [CHANNEL_TASK_BLOCKING]: [["attention"]],
+
+  // Credential invalidation — trigger refetch of the credentials widget.
+  [CHANNEL_CREDENTIAL_INVALIDATED]: [["credentials"]],
 } as const;
 
 // ---------------------------------------------------------------------------

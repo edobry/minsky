@@ -72,7 +72,22 @@ async function writeAtomic(file: InvalidationsFile): Promise<void> {
 }
 
 /**
+ * Canonical NOTIFY channel name for credential invalidation events.
+ * Mirrored in `src/cockpit/server.ts` (broker pre-subscribe list) and
+ * `src/cockpit/web/lib/sse-invalidation.ts` (TanStack Query-key mapping).
+ */
+export const CHANNEL_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
+
+/**
  * Record that a stored credential has been observed returning 401.
+ *
+ * Two side-channels fire:
+ *   1. Sentinel file write — consumed on the next CLI command by
+ *      `consumeAndReportInvalidationNotice()` to print the stderr notice.
+ *   2. Postgres `pg_notify` on `minsky.credential.invalidated` — consumed by
+ *      cockpit SSE clients to live-refresh the credentials widget. Best-effort:
+ *      missing/offline persistence layer is swallowed without throwing.
+ *
  * Idempotent: re-invalidating the same provider replaces the prior entry
  * and re-arms the `noticePending` flag.
  */
@@ -92,6 +107,40 @@ export async function notifyCredentialInvalidated(provider: string, reason: stri
     file.invalidations.push(entry);
   }
   await writeAtomic(file);
+  await emitPgNotify(provider, observedAt, reason);
+}
+
+/**
+ * Emit `pg_notify('minsky.credential.invalidated', payload)` if a Postgres
+ * SQL connection is available. Best-effort — failures (no DB, no
+ * pg_notify support, network) are logged-and-swallowed.
+ *
+ * Cockpit SSE clients subscribed to `credential.*` or `minsky.*` receive
+ * the event and invalidate their `["credentials"]` query cache, triggering
+ * a refetch of `GET /api/credentials`.
+ */
+async function emitPgNotify(provider: string, observedAt: string, reason: string): Promise<void> {
+  try {
+    const { PersistenceService } = await import("../persistence/service");
+    const svc = new PersistenceService();
+    await svc.initialize();
+    const persistence = svc.getProvider();
+    if (
+      !("getRawSqlConnection" in persistence) ||
+      typeof (persistence as { getRawSqlConnection?: unknown }).getRawSqlConnection !== "function"
+    ) {
+      return;
+    }
+    const sqlProvider = persistence as { getRawSqlConnection: () => Promise<unknown> };
+    const sql = await sqlProvider.getRawSqlConnection();
+    if (!sql) return;
+    const pgSql = sql as import("postgres").Sql;
+    const payload = JSON.stringify({ provider, observedAt, reason });
+    await pgSql.unsafe("SELECT pg_notify($1, $2)", [CHANNEL_CREDENTIAL_INVALIDATED, payload]);
+  } catch {
+    // Best-effort; cockpit clients fall back to polling via the credentials widget's
+    // existing useQuery refetch behavior. The sentinel file remains authoritative.
+  }
 }
 
 /**

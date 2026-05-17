@@ -138,6 +138,11 @@ const CHANNEL_SESSION_SCOPE_CHANGED = "minsky.session.scope_changed";
 const CHANNEL_TASK_STATUS_CHANGED = "minsky.task.status_changed";
 const CHANNEL_TASK_BLOCKING = "minsky.task.blocking";
 
+// Credential invalidation events (mt#1426). Producer:
+// `notifyCredentialInvalidated` in src/domain/credentials/invalidations.ts.
+// Mirror constant: `CHANNEL_CREDENTIAL_INVALIDATED` in that file.
+const CHANNEL_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
+
 /**
  * Canonical list of all Postgres NOTIFY channels this cockpit-server process
  * pre-subscribes to at broker init time. Comprehensive coverage of the
@@ -169,6 +174,7 @@ export const COCKPIT_SSE_CHANNELS: readonly string[] = [
   CHANNEL_SESSION_SCOPE_CHANGED,
   CHANNEL_TASK_STATUS_CHANGED,
   CHANNEL_TASK_BLOCKING,
+  CHANNEL_CREDENTIAL_INVALIDATED,
 ] as const;
 
 // ---------------------------------------------------------------------------
