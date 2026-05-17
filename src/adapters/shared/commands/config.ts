@@ -19,6 +19,11 @@ import {
   configValidateRegistration,
   configDoctorRegistration,
 } from "./config/validate-doctor-commands";
+import {
+  configCredentialsAddRegistration,
+  configCredentialsListRegistration,
+  configCredentialsRemoveRegistration,
+} from "./config/credentials-commands";
 
 /**
  * Register all config commands
@@ -31,4 +36,7 @@ export function registerConfigCommands() {
   sharedCommandRegistry.registerCommand(configUnsetRegistration);
   sharedCommandRegistry.registerCommand(configValidateRegistration);
   sharedCommandRegistry.registerCommand(configDoctorRegistration);
+  sharedCommandRegistry.registerCommand(configCredentialsAddRegistration);
+  sharedCommandRegistry.registerCommand(configCredentialsListRegistration);
+  sharedCommandRegistry.registerCommand(configCredentialsRemoveRegistration);
 }
