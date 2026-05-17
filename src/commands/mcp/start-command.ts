@@ -39,6 +39,10 @@ import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
 import type { AppContainerInterface } from "../../composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
+import {
+  isInstructionsBundleEnabled,
+  composeMemoryBundle,
+} from "../../mcp/middleware/memory-bundle";
 // mt#1719 Intervention 2: `resolveOAuthProvider` top-level import deferred —
 // pulls in `oidc-provider` + Koa middleware closure (~30-50ms estimated).
 // Sole call site is inside `if (transportType === "http" && container)`
@@ -1166,6 +1170,31 @@ export function createStartCommand(
               log.cliError(`Failed to start MCP Inspector: ${inspectorResult.error}`);
               exit(1);
             }
+          }
+        }
+
+        // mt#1625 spike: compose the static memory bundle for `instructions`
+        // injection at MCP `initialize`. Unlike the mt#1588 middleware (which
+        // is fire-and-forget), this MUST be awaited before server.start() so
+        // the bundle is in place when the first `initialize` handshake arrives.
+        // No embedding call is needed (list by accessCount, not semantic search),
+        // so this adds ~10-50ms to cold start rather than ~835ms.
+        if (container && isInstructionsBundleEnabled()) {
+          try {
+            const memSvcForBundle = await buildMemoryServiceForSpike(container);
+            if (memSvcForBundle) {
+              const bundle = await composeMemoryBundle(memSvcForBundle);
+              if (bundle) {
+                server.setInstructionsBundle(bundle);
+                log.debug("[mt#1625] Instructions bundle wired", {
+                  bundleChars: bundle.length,
+                });
+              }
+            }
+          } catch (err) {
+            log.debug("[mt#1625] Instructions bundle composition failed; proceeding without it", {
+              error: getErrorMessage(err),
+            });
           }
         }
 

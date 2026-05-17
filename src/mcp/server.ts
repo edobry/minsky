@@ -220,6 +220,16 @@ export class MinskyMCPServer {
    */
   private memoryService: MemoryServiceSurface | undefined;
   /**
+   * mt#1625 spike: static memory bundle for MCP `instructions` injection.
+   * When set, this text is appended to the `instructions` field passed to
+   * every SDK `Server` constructor created by `createConfiguredServer`.
+   * Set via `setInstructionsBundle` from the MCP start command after the
+   * bundle is composed at server-start. For stdio mode, must be set before
+   * `start()` is called (before `server.connect(transport)`). For HTTP mode,
+   * it is set before any client session creates a Server instance.
+   */
+  private instructionsBundle: string | null = null;
+  /**
    * Wake-pending service for the mt#1661 v0 wake-enrichment middleware. Optional —
    * when absent, the middleware is a no-op. Set via `setWakeService` from the
    * MCP start command after the persistence provider resolves.
@@ -445,6 +455,16 @@ export class MinskyMCPServer {
    * session's disconnect reads its own counter).
    */
   private createConfiguredServer(sessionKey: string): Server {
+    // mt#1625 spike: compose the `instructions` field from the static
+    // reconnect note plus the optional memory bundle (when set). The bundle
+    // is appended after the operational note so the agent sees the reconnect
+    // guidance first, then the memory context.
+    const baseInstructions =
+      "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.";
+    const instructions = this.instructionsBundle
+      ? `${baseInstructions}\n\n${this.instructionsBundle}`
+      : baseInstructions;
+
     const server = new Server(
       {
         name: this.options.name,
@@ -457,8 +477,7 @@ export class MinskyMCPServer {
           prompts: {},
           logging: {},
         },
-        instructions:
-          "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.",
+        instructions,
       }
     );
     this.diag.captureInit(server);
@@ -1110,6 +1129,33 @@ export class MinskyMCPServer {
    */
   setMemoryService(service: MemoryServiceSurface): void {
     this.memoryService = service;
+  }
+
+  /**
+   * mt#1625 spike: set the static memory bundle text for `instructions`
+   * injection at `initialize`. Must be called before `start()` in stdio mode
+   * (before `server.connect(transport)`) so the SDK includes the bundle in
+   * the first `initialize` response. For HTTP mode, it is called before any
+   * client session creates a Server instance via `createConfiguredServer`, so
+   * all per-session Server objects pick up the bundle automatically.
+   *
+   * Spike note: for stdio mode, since `createConfiguredServer` was already
+   * called in the constructor (before the bundle is available), this method
+   * also patches the existing `this.server` instance's `_instructions` field
+   * directly. This is spike-quality code — a production implementation would
+   * defer server creation until after the bundle is available.
+   */
+  setInstructionsBundle(bundle: string): void {
+    this.instructionsBundle = bundle;
+    // Patch the already-created stdio Server instance so it includes the bundle
+    // when the client sends `initialize`. The SDK stores instructions as a
+    // private `_instructions` field set once in the constructor. Direct field
+    // access is intentional spike behavior — see method JSDoc above.
+    const baseInstructions =
+      "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.";
+    const composed = `${baseInstructions}\n\n${bundle}`;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this.server as any)["_instructions"] = composed;
   }
 
   /**
