@@ -15,6 +15,17 @@ export {
   addCredential,
   listCredentials,
   removeCredential,
+  recheckCredential,
+  recheckAllCredentials,
   type AddCredentialResult,
   type CredentialListing,
+  type RecheckResult,
 } from "./lifecycle";
+export {
+  notifyCredentialInvalidated,
+  consumeInvalidationNotice,
+  consumeAndReportInvalidationNotice,
+  listInvalidations,
+  clearInvalidation,
+  type InvalidationListing,
+} from "./invalidations";

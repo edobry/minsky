@@ -24,7 +24,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { parse as parseYaml } from "yaml";
 
-import { addCredential, listCredentials, removeCredential } from "./lifecycle";
+import { addCredential, listCredentials, recheckCredential, removeCredential } from "./lifecycle";
+import { listInvalidations } from "./invalidations";
 
 let tempHome: string;
 let originalHome: string | undefined;
@@ -201,5 +202,89 @@ describe("removeCredential", () => {
     const after = await listCredentials();
     expect(after.find((c) => c.provider === "supabase")?.configured).toBe(false);
     expect(after.find((c) => c.provider === "supabase")?.lastValidatedAt).toBeUndefined();
+  });
+});
+
+describe("recheckCredential", () => {
+  it("returns configured=false when no credential is stored", async () => {
+    const result = await recheckCredential("supabase");
+    expect(result.configured).toBe(false);
+    expect(result.test).toBeUndefined();
+  });
+
+  it("records invalidation when the stored token now returns 401", async () => {
+    // First add a credential successfully.
+    setFetchSequence([
+      { status: 200, body: [{ id: "p1" }] },
+      { status: 200, body: [{ id: "p1" }] },
+    ]);
+    await addCredential("supabase", "sbp_test");
+
+    // Now the token has been revoked: recheck hits 401.
+    setFetchSequence([{ status: 401, statusText: "Unauthorized" }]);
+    const result = await recheckCredential("supabase");
+
+    expect(result.configured).toBe(true);
+    expect(result.invalidated).toBe(true);
+    expect(result.test?.unauthorized).toBe(true);
+
+    const invalidations = await listInvalidations();
+    expect(invalidations).toHaveLength(1);
+    expect(invalidations[0]?.provider).toBe("supabase");
+  });
+
+  it("clears prior invalidation on successful recheck", async () => {
+    setFetchSequence([
+      { status: 200, body: [{ id: "p1" }] },
+      { status: 200, body: [{ id: "p1" }] },
+    ]);
+    await addCredential("supabase", "sbp_test");
+
+    // Force a prior invalidation entry.
+    setFetchSequence([{ status: 401, statusText: "Unauthorized" }]);
+    await recheckCredential("supabase");
+    expect((await listInvalidations()).length).toBe(1);
+
+    // Now the token works again — recheck should clear the invalidation.
+    setFetchSequence([{ status: 200, body: [{ id: "p1" }] }]);
+    const result = await recheckCredential("supabase");
+    expect(result.test?.ok).toBe(true);
+    expect((await listInvalidations()).length).toBe(0);
+  });
+
+  it("addCredential clears any prior invalidation when validate+test succeed", async () => {
+    setFetchSequence([
+      { status: 200, body: [{ id: "p1" }] },
+      { status: 200, body: [{ id: "p1" }] },
+    ]);
+    await addCredential("supabase", "sbp_test");
+
+    // Manually trigger an invalidation.
+    setFetchSequence([{ status: 401, statusText: "Unauthorized" }]);
+    await recheckCredential("supabase");
+    expect((await listInvalidations()).length).toBe(1);
+
+    // Re-add (operator pasted a fresh token).
+    setFetchSequence([
+      { status: 200, body: [{ id: "p1" }] },
+      { status: 200, body: [{ id: "p1" }] },
+    ]);
+    await addCredential("supabase", "sbp_new_token");
+
+    expect((await listInvalidations()).length).toBe(0);
+  });
+
+  it("removeCredential also clears the invalidation entry", async () => {
+    setFetchSequence([
+      { status: 200, body: [{ id: "p1" }] },
+      { status: 200, body: [{ id: "p1" }] },
+    ]);
+    await addCredential("supabase", "sbp_test");
+    setFetchSequence([{ status: 401, statusText: "Unauthorized" }]);
+    await recheckCredential("supabase");
+    expect((await listInvalidations()).length).toBe(1);
+
+    await removeCredential("supabase");
+    expect((await listInvalidations()).length).toBe(0);
   });
 });

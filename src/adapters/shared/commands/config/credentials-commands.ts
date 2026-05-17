@@ -23,6 +23,8 @@ import {
   getCredentialProvider,
   listCredentials,
   removeCredential,
+  recheckCredential,
+  recheckAllCredentials,
 } from "../../../../domain/credentials";
 import { CredentialEntryAbortedError, promptMaskedLine } from "../../../../utils/masked-prompt";
 
@@ -170,6 +172,45 @@ export const configCredentialsRemoveRegistration = defineCommand({
       json: params.json || false,
       provider: params.provider,
       removed: result.removed,
+    };
+  },
+});
+
+/**
+ * config.credentials.recheck [provider]
+ *
+ * Re-runs the smoke test on a stored credential. On 401, emits a
+ * `credential.invalidated` event (via the sentinel file consumed by
+ * CredentialResolver + the cockpit). With no provider, rechecks all
+ * configured providers.
+ */
+export const configCredentialsRecheckRegistration = defineCommand({
+  id: "config.credentials.recheck",
+  category: CommandCategory.CONFIG,
+  name: "credentials.recheck",
+  description: "Re-test a stored credential and surface 401 invalidations",
+  requiresSetup: false,
+  parameters: composeParams(sharedParams, {
+    provider: {
+      schema: providerSchema.optional(),
+      description: `Credential provider id (${KNOWN_PROVIDER_IDS.join(" | ")}). Omit to recheck all configured providers.`,
+      required: false as const,
+    },
+  }),
+  execute: async (params, _ctx) => {
+    if (params.provider) {
+      const result = await recheckCredential(params.provider);
+      return {
+        success: true,
+        json: params.json || false,
+        results: [result],
+      };
+    }
+    const results = await recheckAllCredentials();
+    return {
+      success: true,
+      json: params.json || false,
+      results,
     };
   },
 });

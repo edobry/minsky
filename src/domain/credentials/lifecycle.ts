@@ -19,6 +19,7 @@ import { createConfigWriter } from "../configuration/config-writer";
 import { getUserConfigDir } from "../configuration/sources/user";
 import { getCredentialProvider, listCredentialProviders } from "./providers";
 import type { CredentialCheckResult } from "./types";
+import { clearInvalidation, notifyCredentialInvalidated } from "./invalidations";
 
 /**
  * Where operational metadata for credentials lives. Co-located with
@@ -143,6 +144,8 @@ export async function addCredential(
       lastValidatedAt: new Date().toISOString(),
       lastValidationDetail: test.detail,
     });
+    // Successful re-add clears any prior invalidation for this provider.
+    await clearInvalidation(provider.id);
   }
 
   return {
@@ -229,7 +232,74 @@ export async function removeCredential(providerId: string): Promise<{ removed: b
   const writer = createConfigWriter({ createBackup: true, format: "yaml", validate: true });
   const result = await writer.unsetConfigValue(provider.configPath);
   await removeMeta(provider.id);
+  // Clear any pending invalidation — the credential no longer exists.
+  await clearInvalidation(provider.id);
   return { removed: result.success };
+}
+
+/** Outcome of `recheckCredential` — never includes the token. */
+export interface RecheckResult {
+  provider: string;
+  /** True if a credential was found in config.yaml. */
+  configured: boolean;
+  /** Test outcome — present when configured. */
+  test?: CredentialCheckResult;
+  /** True when the recheck observed a 401 and emitted an invalidation. */
+  invalidated?: boolean;
+}
+
+/**
+ * Re-run the smoke test on a stored credential to detect 401-since-store.
+ * On 401 → calls notifyCredentialInvalidated and the next CLI consumer
+ * sees a stderr notice (via consumeInvalidationNotice).
+ * On success → updates lastValidatedAt and clears any prior invalidation.
+ */
+export async function recheckCredential(providerId: string): Promise<RecheckResult> {
+  const provider = getCredentialProvider(providerId);
+  if (!provider) {
+    throw new Error(`Unknown credential provider: ${providerId}`);
+  }
+  const token = await readStoredToken(provider.configPath);
+  if (!token) {
+    return { provider: provider.id, configured: false };
+  }
+  const test = await provider.test(token);
+  if (test.unauthorized) {
+    await notifyCredentialInvalidated(provider.id, test.detail);
+    return { provider: provider.id, configured: true, test, invalidated: true };
+  }
+  if (test.ok || test.scopeGap) {
+    await upsertMeta({
+      provider: provider.id,
+      lastValidatedAt: new Date().toISOString(),
+      lastValidationDetail: test.detail,
+    });
+    await clearInvalidation(provider.id);
+  }
+  return { provider: provider.id, configured: true, test };
+}
+
+/** Recheck every configured credential. */
+export async function recheckAllCredentials(): Promise<RecheckResult[]> {
+  const providers = listCredentialProviders();
+  const results: RecheckResult[] = [];
+  for (const provider of providers) {
+    results.push(await recheckCredential(provider.id));
+  }
+  return results;
+}
+
+async function readStoredToken(configPath: string): Promise<string | null> {
+  const userConfig = await readUserConfigFile();
+  const parts = configPath.split(".");
+  let current: unknown = userConfig;
+  for (const part of parts) {
+    if (current === null || typeof current !== "object") return null;
+    const record = current as Record<string, unknown>;
+    if (!(part in record)) return null;
+    current = record[part];
+  }
+  return typeof current === "string" && current.length > 0 ? current : null;
 }
 
 async function ensureConfigMode600(filePath: string): Promise<void> {
