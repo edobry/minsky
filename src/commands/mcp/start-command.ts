@@ -930,6 +930,43 @@ export function createStartCommand(
           container.set("clientCapabilityRegistry", clientCapabilityRegistry);
         }
 
+        // mt#1625 spike: compose the static memory bundle BEFORE the
+        // MinskyMCPServer constructor so the SDK Server receives the bundle
+        // natively via its `instructions` constructor option. No embedding
+        // call is needed (list by accessCount, not semantic search), so this
+        // adds ~10-50ms to cold start rather than ~835ms. R1 BLOCKING #2 fix
+        // — replaces the previous post-construction private-field mutation.
+        let instructionsBundle: string | undefined;
+        if (isInstructionsBundleEnabled()) {
+          if (container) {
+            try {
+              const memSvcForBundle = await buildMemoryServiceForSpike(container);
+              if (memSvcForBundle) {
+                const bundle = await composeMemoryBundle(memSvcForBundle);
+                if (bundle) {
+                  instructionsBundle = bundle;
+                  log.debug("[mt#1625] Instructions bundle composed", {
+                    bundleChars: bundle.length,
+                  });
+                }
+              }
+            } catch (err) {
+              log.debug("[mt#1625] Instructions bundle composition failed; proceeding without it", {
+                error: getErrorMessage(err),
+              });
+            }
+          } else {
+            // R1 NON-BLOCKING #2: explicit diagnostic for the
+            // flag-set-but-container-absent case (some test/CLI paths invoke
+            // mcp start without a DI container). Previously this was silently
+            // skipped, leaving operators puzzled about why the env var had no
+            // effect.
+            log.cli(
+              "[mt#1625] MINSKY_MCP_INSTRUCTIONS_BUNDLE is set but no DI container is available — bundle composition skipped. This flag requires a persistence-backed container."
+            );
+          }
+        }
+
         // Prepare server configuration
         const serverConfig = {
           name: "Minsky MCP Server",
@@ -937,6 +974,7 @@ export function createStartCommand(
           projectContext,
           transportType: transportType as "stdio" | "http",
           clientCapabilityRegistry,
+          ...(instructionsBundle && { instructions: instructionsBundle }),
           ...(transportType === "http" && {
             httpConfig: {
               port: parseInt(options.port, 10),
@@ -1179,24 +1217,8 @@ export function createStartCommand(
         // the bundle is in place when the first `initialize` handshake arrives.
         // No embedding call is needed (list by accessCount, not semantic search),
         // so this adds ~10-50ms to cold start rather than ~835ms.
-        if (container && isInstructionsBundleEnabled()) {
-          try {
-            const memSvcForBundle = await buildMemoryServiceForSpike(container);
-            if (memSvcForBundle) {
-              const bundle = await composeMemoryBundle(memSvcForBundle);
-              if (bundle) {
-                server.setInstructionsBundle(bundle);
-                log.debug("[mt#1625] Instructions bundle wired", {
-                  bundleChars: bundle.length,
-                });
-              }
-            }
-          } catch (err) {
-            log.debug("[mt#1625] Instructions bundle composition failed; proceeding without it", {
-              error: getErrorMessage(err),
-            });
-          }
-        }
+        // R1 BLOCKING #2 fix: bundle is now composed BEFORE server construction
+        // and passed via `serverConfig.instructions`. See the block above.
 
         // Start the server
         if (transportType === "http") {

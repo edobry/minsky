@@ -112,9 +112,13 @@ function formatMemoryEntry(record: MemoryRecord): string {
   const desc = record.description ? `  ${record.description}` : "";
   const content = record.content ?? "";
   const available = Math.max(0, PER_MEMORY_CHAR_BUDGET - meta.length - desc.length - 8);
+  // mt#1625 R1 NON-BLOCKING #3: "tail" mode keeps the beginning of the
+  // content (title / opening sentences carry the most signal for memory
+  // entries) and drops the end. Previous "head" mode preserved the tail
+  // which is the wrong direction for this use case.
   const snippet =
     content.length > available
-      ? `${safeTruncate(content, Math.max(0, available - 1), "head")}…`
+      ? `${safeTruncate(content, Math.max(0, available - 1), "tail")}…`
       : content;
   const parts = [meta, desc, snippet ? `  ${snippet}` : ""].filter(Boolean);
   return parts.join("\n");
@@ -127,9 +131,16 @@ function formatMemoryEntry(record: MemoryRecord): string {
 export function buildBundleText(records: MemoryRecord[]): string {
   if (records.length === 0) return "";
 
-  const header = `<memory-bundle count="${records.length}" source="minsky-db">\n`;
+  // mt#1625 R1 BLOCKING #1: emit `count` reflecting actual entries included
+  // after the character-budget loop, not the input length. Assemble entries
+  // first, then build the header with `entries.length` so the metadata
+  // contract holds even when records are dropped due to budget capping.
+  // The header/footer sizes are stable regardless of `count`'s digits in
+  // typical operation (max ~3 digits for our K cap), so we use a fixed-size
+  // reservation for the budget calculation.
+  const headerTemplate = `<memory-bundle count="000" source="minsky-db">\n`;
   const footer = `\n</memory-bundle>`;
-  let bodyBudget = MAX_BUNDLE_CHARS - header.length - footer.length;
+  let bodyBudget = MAX_BUNDLE_CHARS - headerTemplate.length - footer.length;
 
   const entries: string[] = [];
   for (const record of records) {
@@ -141,6 +152,7 @@ export function buildBundleText(records: MemoryRecord[]): string {
   }
 
   if (entries.length === 0) return "";
+  const header = `<memory-bundle count="${entries.length}" source="minsky-db">\n`;
   return `${header}${entries.join("\n")}${footer}`;
 }
 

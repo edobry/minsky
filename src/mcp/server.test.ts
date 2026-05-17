@@ -1436,27 +1436,27 @@ describe("MinskyMCPServer.addTool — Claude Desktop alias dual-registration (mt
 });
 
 // ---------------------------------------------------------------------------
-// mt#1625 spike: setInstructionsBundle() — instructions field patching
+// mt#1625 spike: `instructions` option — constructor-time bundle injection
 // ---------------------------------------------------------------------------
 
-describe("MinskyMCPServer.setInstructionsBundle — mt#1625 spike", () => {
+describe("MinskyMCPServer instructions option — mt#1625 spike", () => {
   beforeEach(() => {
     setupTestMocks();
   });
 
-  test("setInstructionsBundle patches the sdk Server._instructions field", async () => {
+  test("instructions option appends bundle to stdio Server's instructions field at construction time", async () => {
     const { MinskyMCPServer } = await import("./server");
+    const bundle =
+      '<memory-bundle count="1" source="minsky-db">\n[feedback/user] Test\n  A test\n  Content\n---\n</memory-bundle>';
     const server = new MinskyMCPServer({
       transportType: "stdio",
       projectContext: { repositoryPath: "/mock/test-repo" },
+      instructions: bundle,
     });
 
-    const bundle =
-      '<memory-bundle count="1" source="minsky-db">\n[feedback/user] Test\n  A test\n  Content\n---\n</memory-bundle>';
-    server.setInstructionsBundle(bundle);
-
-    // The SDK Server's _instructions field should be updated to include the bundle.
-    // We access it via the internal SDK server instance.
+    // The SDK Server should have been constructed with the composed
+    // instructions (baseInstructions + bundle). We read it via the SDK's
+    // public getter pattern (here through internal field for test purposes).
     const sdkServer = (server as unknown as { server: SdkServer }).server;
     const instructions = (sdkServer as unknown as { _instructions?: string })["_instructions"];
 
@@ -1467,17 +1467,15 @@ describe("MinskyMCPServer.setInstructionsBundle — mt#1625 spike", () => {
     await server.close();
   });
 
-  test("createConfiguredServer uses instructionsBundle when set before HTTP session", async () => {
+  test("HTTP per-session createConfiguredServer picks up the instructions bundle", async () => {
     const { MinskyMCPServer } = await import("./server");
+    const bundle = '<memory-bundle count="1" source="minsky-db">\nTest bundle</memory-bundle>';
     const server = new MinskyMCPServer({
       transportType: "http",
       projectContext: { repositoryPath: "/mock/test-repo" },
       httpConfig: { port: 0, host: "127.0.0.1" },
+      instructions: bundle,
     });
-
-    // Set the bundle BEFORE any HTTP session creates a server
-    const bundle = '<memory-bundle count="1" source="minsky-db">\nTest bundle</memory-bundle>';
-    server.setInstructionsBundle(bundle);
 
     // Create a configured server (simulates HTTP session creation)
     const sdkServerForSession = (

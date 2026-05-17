@@ -103,6 +103,16 @@ export interface MinskyMCPServerOptions {
    * code paths.
    */
   clientCapabilityRegistry?: MCPClientCapabilityRegistry;
+
+  /**
+   * Optional static memory bundle to include in the SDK Server's `instructions`
+   * field at construction time. Composed by the MCP start command from the
+   * memory store BEFORE this constructor runs (so the bundle is present at
+   * every `initialize` handshake without any post-construction mutation).
+   *
+   * @see mt#1625 — server-side memory injection via MCP `instructions`
+   */
+  instructions?: string;
 }
 
 // Tool definitions for MCP server
@@ -223,12 +233,12 @@ export class MinskyMCPServer {
    * mt#1625 spike: static memory bundle for MCP `instructions` injection.
    * When set, this text is appended to the `instructions` field passed to
    * every SDK `Server` constructor created by `createConfiguredServer`.
-   * Set via `setInstructionsBundle` from the MCP start command after the
-   * bundle is composed at server-start. For stdio mode, must be set before
-   * `start()` is called (before `server.connect(transport)`). For HTTP mode,
-   * it is set before any client session creates a Server instance.
+   * Passed via the `instructions` constructor option (composed by the MCP
+   * start command from the memory store BEFORE this class is instantiated).
+   * Stdio mode receives it at constructor time; HTTP per-session Servers
+   * read it on each `createConfiguredServer` call.
    */
-  private instructionsBundle: string | null = null;
+  private instructionsBundle: string | null | undefined = null;
   /**
    * Wake-pending service for the mt#1661 v0 wake-enrichment middleware. Optional —
    * when absent, the middleware is a no-op. Set via `setWakeService` from the
@@ -337,6 +347,11 @@ export class MinskyMCPServer {
     // mt#1457: capability registry for the Ask router. When provided, each
     // Server created via createConfiguredServer is registered.
     this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+
+    // mt#1625: optional static memory bundle for the `instructions` field.
+    // Must be set BEFORE createConfiguredServer is called below so the
+    // eager-constructed stdio Server picks it up via the SDK constructor.
+    this.instructionsBundle = options.instructions;
 
     // Parse session cap from env var. Non-positive or non-numeric values → no cap.
     const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
@@ -1129,33 +1144,6 @@ export class MinskyMCPServer {
    */
   setMemoryService(service: MemoryServiceSurface): void {
     this.memoryService = service;
-  }
-
-  /**
-   * mt#1625 spike: set the static memory bundle text for `instructions`
-   * injection at `initialize`. Must be called before `start()` in stdio mode
-   * (before `server.connect(transport)`) so the SDK includes the bundle in
-   * the first `initialize` response. For HTTP mode, it is called before any
-   * client session creates a Server instance via `createConfiguredServer`, so
-   * all per-session Server objects pick up the bundle automatically.
-   *
-   * Spike note: for stdio mode, since `createConfiguredServer` was already
-   * called in the constructor (before the bundle is available), this method
-   * also patches the existing `this.server` instance's `_instructions` field
-   * directly. This is spike-quality code — a production implementation would
-   * defer server creation until after the bundle is available.
-   */
-  setInstructionsBundle(bundle: string): void {
-    this.instructionsBundle = bundle;
-    // Patch the already-created stdio Server instance so it includes the bundle
-    // when the client sends `initialize`. The SDK stores instructions as a
-    // private `_instructions` field set once in the constructor. Direct field
-    // access is intentional spike behavior — see method JSDoc above.
-    const baseInstructions =
-      "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.";
-    const composed = `${baseInstructions}\n\n${bundle}`;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (this.server as any)["_instructions"] = composed;
   }
 
   /**
