@@ -26,6 +26,7 @@ import {
   PostgresChannelListener,
   createNoopChannelListener,
 } from "../domain/mesh/postgres-channel-listener";
+import { log } from "../utils/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -34,6 +35,25 @@ const WEB_DIST_DIR = path.join(__dirname, "web", "dist");
 const INDEX_HTML = path.join(WEB_DIST_DIR, "index.html");
 
 /** Options accepted by createCockpitServer */
+/**
+ * Minimal interface for the credential module surface used by the server's
+ * credential endpoints. Defined here so tests can inject doubles without
+ * needing to import the real domain module (which writes to the filesystem).
+ */
+export interface CredentialModuleOverride {
+  getCredentialProvider: (id: string) =>
+    | {
+        validate: (token: string) => Promise<import("../domain/credentials").CredentialCheckResult>;
+      }
+    | undefined;
+  addCredential: (
+    provider: string,
+    token: string
+  ) => Promise<import("../domain/credentials").AddCredentialResult>;
+  listCredentials: () => Promise<import("../domain/credentials").CredentialListing[]>;
+  removeCredential: (provider: string) => Promise<{ removed: boolean }>;
+}
+
 export interface CockpitServerOptions {
   /** Override the cockpit.json config (used in tests) */
   overrideConfig?: CockpitConfig;
@@ -51,6 +71,12 @@ export interface CockpitServerOptions {
    * PostgresChannelListener from the default PersistenceService.
    */
   overrideSseBroker?: SseBroker;
+  /**
+   * Override the credential module used by the /api/credentials/* endpoints
+   * (used in tests). When absent, the server dynamically imports the real
+   * domain credentials module which writes to ~/.config/minsky/.
+   */
+  overrideCredentialModule?: CredentialModuleOverride;
 }
 
 const serverStartTime = Date.now();
@@ -113,6 +139,11 @@ const CHANNEL_SESSION_SCOPE_CHANGED = "minsky.session.scope_changed";
 const CHANNEL_TASK_STATUS_CHANGED = "minsky.task.status_changed";
 const CHANNEL_TASK_BLOCKING = "minsky.task.blocking";
 
+// Credential invalidation events (mt#1426). Producer:
+// `notifyCredentialInvalidated` in src/domain/credentials/invalidations.ts.
+// Mirror constant: `CHANNEL_CREDENTIAL_INVALIDATED` in that file.
+const CHANNEL_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
+
 /**
  * Canonical list of all Postgres NOTIFY channels this cockpit-server process
  * pre-subscribes to at broker init time. Comprehensive coverage of the
@@ -144,6 +175,7 @@ export const COCKPIT_SSE_CHANNELS: readonly string[] = [
   CHANNEL_SESSION_SCOPE_CHANGED,
   CHANNEL_TASK_STATUS_CHANGED,
   CHANNEL_TASK_BLOCKING,
+  CHANNEL_CREDENTIAL_INVALIDATED,
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -277,6 +309,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
 
   // SseBroker override for tests
   const sseBrokerOverride = opts.overrideSseBroker ?? null;
+
+  // Credential module override for tests
+  const credModuleOverride = opts.overrideCredentialModule ?? null;
 
   // Build the enabled widget set
   const enabledWidgets = new Map<string, WidgetModule>();
@@ -532,6 +567,231 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       } else {
         res.status(500).json({ error: message });
       }
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Credential endpoints (mt#1426) — cockpit surface for the credential lifecycle.
+  //
+  // Trust-boundary policy:
+  //   - The token value is consumed in-process only. It MUST NOT appear in any
+  //     response body, error message, or log line (across all four endpoints).
+  //   - Body reads are guarded with try/catch; `req.body.token` may not be a string.
+  //   - 400 on unknown provider or missing/invalid token; 200 on success.
+  // ---------------------------------------------------------------------------
+
+  // Normalized error response helper (mt#1426 PR #1142 R1).
+  //
+  // Returns errors as `{ error: { code, message } }` with stable user-safe
+  // `code` values and user-safe `message` strings. Raw exception text is
+  // logged server-side via `log.error` but NEVER returned to the client —
+  // closes the "raw err.message coupled to UI" reviewer finding.
+  //
+  // Stable codes:
+  //   - `invalid_body`        — request body shape unparseable
+  //   - `missing_field`       — required field absent or wrong type
+  //   - `unknown_provider`    — provider id not in registry
+  //   - `validation_failed`   — provider.validate(token) returned !ok
+  //                             (response also carries the structured
+  //                             `validate: { ok, detail, unauthorized?, scopeGap? }`
+  //                             so the UI can render specific failure states)
+  //   - `internal`            — unexpected exception (raw message NOT returned)
+  type CredentialErrorCode =
+    | "invalid_body"
+    | "missing_field"
+    | "unknown_provider"
+    | "validation_failed"
+    | "internal";
+
+  function credentialError(
+    res: express.Response,
+    status: number,
+    code: CredentialErrorCode,
+    message: string,
+    extras?: Record<string, unknown>
+  ): void {
+    res.status(status).json({ error: { code, message }, ...(extras ?? {}) });
+  }
+
+  function logCredentialInternal(route: string, err: unknown): void {
+    // Internal errors are logged server-side for operator debugging, but the
+    // user-facing response carries only `{ code: "internal", message: "..." }` —
+    // never the raw exception text. Keeps internal details out of the UI per
+    // PR #1142 R1.
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    log.error(`[credentials] ${route} — internal error: ${detail}`);
+  }
+
+  /**
+   * POST /api/credentials/validate
+   *
+   * Body: { provider: string; token: string }
+   * Returns: { ok: boolean; detail: string; unauthorized?: boolean; scopeGap?: boolean }
+   *
+   * Calls provider.validate(token) — read-only, never persists.
+   * The token is consumed in memory and never echoed back.
+   * Errors: `{ error: { code, message } }` with codes above.
+   */
+  app.post("/api/credentials/validate", async (req, res) => {
+    let provider: string | undefined;
+    let token: string | undefined;
+    try {
+      const body = req.body as { provider?: unknown; token?: unknown };
+      provider = typeof body.provider === "string" ? body.provider : undefined;
+      token = typeof body.token === "string" ? body.token : undefined;
+    } catch {
+      credentialError(res, 400, "invalid_body", "Request body could not be parsed.");
+      return;
+    }
+
+    if (!provider) {
+      credentialError(res, 400, "missing_field", "`provider` is required.");
+      return;
+    }
+    if (!token) {
+      credentialError(res, 400, "missing_field", "`token` is required.");
+      return;
+    }
+
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentialProvider = credMod.getCredentialProvider(provider);
+      if (!credentialProvider) {
+        credentialError(res, 400, "unknown_provider", `Unknown credential provider: ${provider}.`);
+        return;
+      }
+      const result = await credentialProvider.validate(token);
+      res.json({
+        ok: result.ok,
+        detail: result.detail,
+        ...(result.unauthorized !== undefined ? { unauthorized: result.unauthorized } : {}),
+        ...(result.scopeGap !== undefined ? { scopeGap: result.scopeGap } : {}),
+      });
+    } catch (err) {
+      logCredentialInternal("POST /api/credentials/validate", err);
+      credentialError(res, 500, "internal", "An internal error occurred during validation.");
+    }
+  });
+
+  /**
+   * POST /api/credentials/add
+   *
+   * Body: { provider: string; token: string }
+   * Returns: { provider, validate, stored?, test? } — never includes the token.
+   *
+   * Calls addCredential(provider, token). Returns 400 with code "validation_failed"
+   * and the structured `validate` result when the provider rejects the token.
+   */
+  app.post("/api/credentials/add", async (req, res) => {
+    let provider: string | undefined;
+    let token: string | undefined;
+    try {
+      const body = req.body as { provider?: unknown; token?: unknown };
+      provider = typeof body.provider === "string" ? body.provider : undefined;
+      token = typeof body.token === "string" ? body.token : undefined;
+    } catch {
+      credentialError(res, 400, "invalid_body", "Request body could not be parsed.");
+      return;
+    }
+
+    if (!provider) {
+      credentialError(res, 400, "missing_field", "`provider` is required.");
+      return;
+    }
+    if (!token) {
+      credentialError(res, 400, "missing_field", "`token` is required.");
+      return;
+    }
+
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentialProvider = credMod.getCredentialProvider(provider);
+      if (!credentialProvider) {
+        credentialError(res, 400, "unknown_provider", `Unknown credential provider: ${provider}.`);
+        return;
+      }
+      const result = await credMod.addCredential(provider, token);
+      if (!result.validate.ok) {
+        // Preserve the structured validate result so the UI can render
+        // specific states (unauthorized / scopeGap) without parsing text.
+        credentialError(
+          res,
+          400,
+          "validation_failed",
+          "Credential validation failed. See `validate` for details.",
+          { validate: result.validate }
+        );
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      logCredentialInternal("POST /api/credentials/add", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while adding the credential."
+      );
+    }
+  });
+
+  /**
+   * GET /api/credentials
+   *
+   * Returns: { credentials: CredentialListing[] }
+   * One entry per known provider — never includes token values.
+   */
+  app.get("/api/credentials", async (_req, res) => {
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentials = await credMod.listCredentials();
+      res.json({ credentials });
+    } catch (err) {
+      logCredentialInternal("GET /api/credentials", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while listing credentials."
+      );
+    }
+  });
+
+  /**
+   * DELETE /api/credentials/:provider
+   *
+   * Returns: { removed: boolean }
+   * 400 with code "unknown_provider" on unknown provider; 200 on success.
+   */
+  app.delete("/api/credentials/:provider", async (req, res) => {
+    const providerId = req.params.provider;
+    if (!providerId) {
+      credentialError(res, 400, "missing_field", "`provider` is required.");
+      return;
+    }
+
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentialProvider = credMod.getCredentialProvider(providerId);
+      if (!credentialProvider) {
+        credentialError(
+          res,
+          400,
+          "unknown_provider",
+          `Unknown credential provider: ${providerId}.`
+        );
+        return;
+      }
+      const result = await credMod.removeCredential(providerId);
+      res.json(result);
+    } catch (err) {
+      logCredentialInternal("DELETE /api/credentials/:provider", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while removing the credential."
+      );
     }
   });
 
