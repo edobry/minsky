@@ -16,7 +16,7 @@
  *
  * This spike uses shape B: top-K by "always relevant" signal — specifically,
  * feedback + user memories ordered by `accessCount DESC` (most-consulted first).
- * Rationale in the spike report (docs/spikes/mt1625-instructions-memory-injection.md):
+ * Rationale in the spike report (docs/mt1625-instructions-memory-injection-spike.md):
  * - Feedback memories are operationally load-bearing (they encode behavioral
  *   corrections that affect every turn in the session).
  * - Sorting by `accessCount` surfaces what the agent has actually acted on
@@ -112,13 +112,14 @@ function formatMemoryEntry(record: MemoryRecord): string {
   const desc = record.description ? `  ${record.description}` : "";
   const content = record.content ?? "";
   const available = Math.max(0, PER_MEMORY_CHAR_BUDGET - meta.length - desc.length - 8);
-  // mt#1625 R1 NON-BLOCKING #3: "tail" mode keeps the beginning of the
-  // content (title / opening sentences carry the most signal for memory
-  // entries) and drops the end. Previous "head" mode preserved the tail
-  // which is the wrong direction for this use case.
+  // "head" mode keeps the beginning of the content via str.slice(0, end) —
+  // see packages/shared/src/safe-truncate.ts. For memory entries the title
+  // and opening sentences carry the most signal; we want to preserve them
+  // and drop the tail of long content. (Naming gotcha: "head" / "tail" name
+  // which END is KEPT, not which is removed.)
   const snippet =
     content.length > available
-      ? `${safeTruncate(content, Math.max(0, available - 1), "tail")}…`
+      ? `${safeTruncate(content, Math.max(0, available - 1), "head")}…`
       : content;
   const parts = [meta, desc, snippet ? `  ${snippet}` : ""].filter(Boolean);
   return parts.join("\n");

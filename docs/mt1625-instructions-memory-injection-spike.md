@@ -15,10 +15,14 @@ This spike implements and evaluates "path 3" from the mt#1588 reframe: deliverin
 ### What was built
 
 - `src/mcp/middleware/memory-bundle.ts` — bundle compositor. Selects feedback + user memories ordered by `accessCount DESC`, wraps in `<memory-bundle>` XML, caps at ~14,000 characters (~3,500 tokens).
-- `src/mcp/server.ts` — `setInstructionsBundle()` method + `createConfiguredServer()` updated to compose `instructions` from the static reconnect note + optional bundle.
-- `src/commands/mcp/start-command.ts` — wiring: `await composeMemoryBundle()` before `server.start()` (not fire-and-forget — must complete before the MCP `initialize` handshake).
+- `src/mcp/server.ts` — added `instructions` to `MinskyMCPServerOptions`; the SDK Server is constructed with the composed `instructions` (static reconnect note + optional bundle) natively via its constructor — no post-construction patching.
+- `src/commands/mcp/start-command.ts` — wiring: bundle is composed BEFORE `new MinskyMCPServer(...)` and passed via `serverConfig.instructions`. Awaited (not fire-and-forget) so the bundle is in place at construction time.
 - `src/domain/configuration/sources/environment.ts` — `MINSKY_MCP_INSTRUCTIONS_BUNDLE` registered in `HOOK_ONLY_ENV_VARS`.
 - `src/mcp/middleware/memory-bundle.test.ts` — 18 unit tests covering opt-in gate, bundle shape, budget cap, sort order, error path.
+- R1 review-round fixes (this iteration):
+  - `buildBundleText` now emits `count` reflecting actual included entries after budget capping (was: input length)
+  - Constructor-time injection via `MinskyMCPServerOptions.instructions` replaces the brittle post-construction private-field mutation
+  - Explicit diagnostic when `MINSKY_MCP_INSTRUCTIONS_BUNDLE=1` but no DI container is available
 
 ### Opt-in guard
 
@@ -191,9 +195,8 @@ In testing with a real memory store (~150 memories of mixed types):
 - Per-client variation: different clients may benefit from different bundle sizes. Currently hardcoded K=20.
 - Bundle composition tuning: the accessCount sort is a proxy. A production implementation could use explicit memory tags (e.g., `always-on: true`) for more precise curation.
 - Mid-session bundle update for long-lived HTTP connections.
-- The `_instructions` field patching in `setInstructionsBundle()` is spike-quality (direct SDK private field access). Production implementation should defer `createConfiguredServer` until after bundle composition, or use an SDK-provided setter if one exists.
 
-**Follow-on task scope:** Promote path 3 to production-grade with: (1) remove the `_instructions` private field access in favor of deferred server construction, (2) add bundle TTL/refresh mechanism, (3) wire with telemetry to measure cache hit rate in production sessions.
+**Follow-on task scope:** Promote path 3 to production-grade with: (1) bundle TTL/refresh mechanism, (2) per-client bundle variation, (3) explicit memory-tag curation, (4) wire with telemetry to measure cache hit rate in production sessions, (5) mid-session bundle update for long-lived HTTP connections.
 
 ---
 
@@ -215,9 +218,9 @@ The agent should be able to reproduce the bundle content from its initial contex
 
 ### Architecture notes
 
-- For **stdio mode**: `setInstructionsBundle()` patches the already-created `Server._instructions` field directly (spike-quality). This works because `initialize` is sent by the client AFTER `server.connect(transport)` — there is a brief window where the bundle can be set before the first `initialize` arrives.
+- For **stdio mode**: the bundle is composed in the MCP start command BEFORE `new MinskyMCPServer(...)` and passed via the `instructions` constructor option. The SDK Server is then constructed with the bundle already baked into its `instructions` field — no post-construction patching required.
 - For **HTTP mode**: `createConfiguredServer()` reads `this.instructionsBundle` at session-creation time, so all sessions see the bundle automatically.
-- The bundle composition (`await composeMemoryBundle()`) is **awaited** before `server.start()` — not fire-and-forget like the mt#1588 middleware. This is required to ensure the bundle is in place before the first `initialize` handshake.
+- The bundle composition (`await composeMemoryBundle()`) is **awaited** before `new MinskyMCPServer(...)` — not fire-and-forget like the mt#1588 middleware. This is required to ensure the bundle is in place at constructor time so the first `initialize` handshake includes it.
 
 ### Token counting methodology
 
@@ -230,7 +233,7 @@ Bundle token estimate uses the ~4 chars/token heuristic (conservative for ASCII 
 - `src/mcp/middleware/memory-bundle.ts` — bundle compositor implementation
 - `src/mcp/middleware/memory-enrichment.ts` — mt#1588 spike (per-dispatch middleware, rejected)
 - `src/commands/mcp/start-command.ts` — wiring at lines with `[mt#1625]` comments
-- `src/mcp/server.ts` — `setInstructionsBundle()` and `createConfiguredServer()` changes
+- `src/mcp/server.ts` — `instructions` constructor option + `createConfiguredServer()` composition; passed natively via SDK Server constructor
 - mt#1588 — per-dispatch middleware spike (DONE, iterate decision)
 - mt#1589 — per-prompt-submit hook (DONE, in production, complement to this spike)
 - mt#1314 — added `instructions` option to the MCP Server constructor (established the precedent)
