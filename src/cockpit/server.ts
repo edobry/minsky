@@ -34,6 +34,25 @@ const WEB_DIST_DIR = path.join(__dirname, "web", "dist");
 const INDEX_HTML = path.join(WEB_DIST_DIR, "index.html");
 
 /** Options accepted by createCockpitServer */
+/**
+ * Minimal interface for the credential module surface used by the server's
+ * credential endpoints. Defined here so tests can inject doubles without
+ * needing to import the real domain module (which writes to the filesystem).
+ */
+export interface CredentialModuleOverride {
+  getCredentialProvider: (id: string) =>
+    | {
+        validate: (token: string) => Promise<import("../domain/credentials").CredentialCheckResult>;
+      }
+    | undefined;
+  addCredential: (
+    provider: string,
+    token: string
+  ) => Promise<import("../domain/credentials").AddCredentialResult>;
+  listCredentials: () => Promise<import("../domain/credentials").CredentialListing[]>;
+  removeCredential: (provider: string) => Promise<{ removed: boolean }>;
+}
+
 export interface CockpitServerOptions {
   /** Override the cockpit.json config (used in tests) */
   overrideConfig?: CockpitConfig;
@@ -51,6 +70,12 @@ export interface CockpitServerOptions {
    * PostgresChannelListener from the default PersistenceService.
    */
   overrideSseBroker?: SseBroker;
+  /**
+   * Override the credential module used by the /api/credentials/* endpoints
+   * (used in tests). When absent, the server dynamically imports the real
+   * domain credentials module which writes to ~/.config/minsky/.
+   */
+  overrideCredentialModule?: CredentialModuleOverride;
 }
 
 const serverStartTime = Date.now();
@@ -277,6 +302,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
 
   // SseBroker override for tests
   const sseBrokerOverride = opts.overrideSseBroker ?? null;
+
+  // Credential module override for tests
+  const credModuleOverride = opts.overrideCredentialModule ?? null;
 
   // Build the enabled widget set
   const enabledWidgets = new Map<string, WidgetModule>();
@@ -532,6 +560,164 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       } else {
         res.status(500).json({ error: message });
       }
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Credential endpoints (mt#1426) — cockpit surface for the credential lifecycle.
+  //
+  // Trust-boundary policy:
+  //   - The token value is consumed in-process only. It MUST NOT appear in any
+  //     response body, error message, or log line (across all four endpoints).
+  //   - Body reads are guarded with try/catch; `req.body.token` may not be a string.
+  //   - 400 on unknown provider or missing/invalid token; 200 on success.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * POST /api/credentials/validate
+   *
+   * Body: { provider: string; token: string }
+   * Returns: { ok: boolean; detail: string; unauthorized?: boolean; scopeGap?: boolean }
+   *
+   * Calls provider.validate(token) — read-only, never persists.
+   * The token is consumed in memory and never echoed back.
+   */
+  app.post("/api/credentials/validate", async (req, res) => {
+    let provider: string | undefined;
+    let token: string | undefined;
+    try {
+      const body = req.body as { provider?: unknown; token?: unknown };
+      provider = typeof body.provider === "string" ? body.provider : undefined;
+      token = typeof body.token === "string" ? body.token : undefined;
+    } catch {
+      res.status(400).json({ error: "Invalid request body" });
+      return;
+    }
+
+    if (!provider) {
+      res.status(400).json({ error: "provider is required" });
+      return;
+    }
+    if (!token) {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentialProvider = credMod.getCredentialProvider(provider);
+      if (!credentialProvider) {
+        res.status(400).json({ error: `Unknown credential provider: ${provider}` });
+        return;
+      }
+      const result = await credentialProvider.validate(token);
+      // Never echo the token — only return the validation outcome
+      res.json({
+        ok: result.ok,
+        detail: result.detail,
+        ...(result.unauthorized !== undefined ? { unauthorized: result.unauthorized } : {}),
+        ...(result.scopeGap !== undefined ? { scopeGap: result.scopeGap } : {}),
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/credentials/add
+   *
+   * Body: { provider: string; token: string }
+   * Returns: { provider, validate, stored?, test? } — never includes the token.
+   *
+   * Calls addCredential(provider, token). Returns 400 on validation failure.
+   */
+  app.post("/api/credentials/add", async (req, res) => {
+    let provider: string | undefined;
+    let token: string | undefined;
+    try {
+      const body = req.body as { provider?: unknown; token?: unknown };
+      provider = typeof body.provider === "string" ? body.provider : undefined;
+      token = typeof body.token === "string" ? body.token : undefined;
+    } catch {
+      res.status(400).json({ error: "Invalid request body" });
+      return;
+    }
+
+    if (!provider) {
+      res.status(400).json({ error: "provider is required" });
+      return;
+    }
+    if (!token) {
+      res.status(400).json({ error: "token is required" });
+      return;
+    }
+
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentialProvider = credMod.getCredentialProvider(provider);
+      if (!credentialProvider) {
+        res.status(400).json({ error: `Unknown credential provider: ${provider}` });
+        return;
+      }
+      const result = await credMod.addCredential(provider, token);
+      // Never echo the token — only return what addCredential returns (no token field)
+      if (!result.validate.ok) {
+        res.status(400).json({
+          error: "Credential validation failed",
+          validate: result.validate,
+        });
+        return;
+      }
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * GET /api/credentials
+   *
+   * Returns: { credentials: CredentialListing[] }
+   * One entry per known provider — never includes token values.
+   */
+  app.get("/api/credentials", async (_req, res) => {
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentials = await credMod.listCredentials();
+      res.json({ credentials });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * DELETE /api/credentials/:provider
+   *
+   * Returns: { removed: boolean }
+   * 400 on unknown provider; 200 with { removed } on success.
+   */
+  app.delete("/api/credentials/:provider", async (req, res) => {
+    const providerId = req.params.provider;
+    if (!providerId) {
+      res.status(400).json({ error: "provider is required" });
+      return;
+    }
+
+    try {
+      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credentialProvider = credMod.getCredentialProvider(providerId);
+      if (!credentialProvider) {
+        res.status(400).json({ error: `Unknown credential provider: ${providerId}` });
+        return;
+      }
+      const result = await credMod.removeCredential(providerId);
+      res.json(result);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
     }
   });
 
