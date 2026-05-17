@@ -34,7 +34,9 @@ export interface MaskedPromptOptions {
 
 const KEY_RETURN = "\r";
 const KEY_NEWLINE = "\n";
-const KEY_BACKSPACE = "";
+// Both DEL (0x7F) and BS (0x08) treated as backspace — terminals differ. PR #1142 R1.
+const KEY_DEL = "\x7F";
+const KEY_BS = "\b";
 const KEY_CTRL_C = "";
 const KEY_ESC = "";
 
@@ -84,7 +86,7 @@ export async function promptMaskedLine(options: MaskedPromptOptions): Promise<st
           reject(new CredentialEntryAbortedError());
           return;
         }
-        if (ch === KEY_BACKSPACE) {
+        if (ch === KEY_DEL || ch === KEY_BS) {
           if (buffer.length > 0) {
             buffer = buffer.slice(0, -1);
             if (maskChar) {

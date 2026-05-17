@@ -90,9 +90,81 @@ const PROVIDER_META: ProviderMeta[] = [
 // API fetch helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Normalized API error shape per PR #1142 R1 (mt#1426).
+ *
+ * The server always returns `{ error: { code, message } }` for failures, with
+ * stable `code` values that the UI can map deterministically. The optional
+ * `validate` extra rides along on `code: "validation_failed"` so the form can
+ * render structured `unauthorized` / `scopeGap` states without parsing prose.
+ */
+type CredentialApiErrorCode =
+  | "invalid_body"
+  | "missing_field"
+  | "unknown_provider"
+  | "validation_failed"
+  | "internal";
+
+interface CredentialApiErrorBody {
+  error?: { code?: CredentialApiErrorCode; message?: string };
+  validate?: CredentialCheckResult;
+}
+
+/** Error thrown by the fetch helpers carrying the normalized API shape. */
+export class CredentialApiError extends Error {
+  readonly code: CredentialApiErrorCode | "unknown";
+  readonly validate?: CredentialCheckResult;
+  constructor(code: CredentialApiErrorCode | "unknown", message: string, validate?: CredentialCheckResult) {
+    super(message);
+    this.name = "CredentialApiError";
+    this.code = code;
+    this.validate = validate;
+  }
+}
+
+/**
+ * Map a stable API error code to a user-safe display string. The server's
+ * `message` field is already user-safe, but we keep this mapping as the
+ * canonical source of UI copy so the server can evolve its phrasing without
+ * affecting what the user sees.
+ */
+function userSafeMessage(
+  code: CredentialApiErrorCode | "unknown",
+  fallback: string
+): string {
+  switch (code) {
+    case "invalid_body":
+      return "The request could not be processed. Try again.";
+    case "missing_field":
+      return "Required information is missing. Re-check the form and try again.";
+    case "unknown_provider":
+      return "Unknown credential provider.";
+    case "validation_failed":
+      return "Credential validation failed.";
+    case "internal":
+      return "Something went wrong. Try again, or check the cockpit logs.";
+    default:
+      return fallback;
+  }
+}
+
+async function parseApiError(res: Response, fallback: string): Promise<CredentialApiError> {
+  let body: CredentialApiErrorBody = {};
+  try {
+    body = (await res.json()) as CredentialApiErrorBody;
+  } catch {
+    // Body wasn't JSON — fall through to the fallback message
+  }
+  const code = body.error?.code ?? "unknown";
+  const message = userSafeMessage(code, fallback);
+  return new CredentialApiError(code, message, body.validate);
+}
+
 async function fetchCredentials(): Promise<CredentialListing[]> {
   const res = await fetch("/api/credentials");
-  if (!res.ok) throw new Error(`Failed to fetch credentials: ${res.statusText}`);
+  if (!res.ok) {
+    throw await parseApiError(res, "Failed to load credentials.");
+  }
   const data = (await res.json()) as { credentials: CredentialListing[] };
   return data.credentials;
 }
@@ -107,8 +179,7 @@ async function validateCredential(
     body: JSON.stringify({ provider, token }),
   });
   if (!res.ok) {
-    const errBody = (await res.json()) as { error?: string };
-    throw new Error(errBody.error ?? `Validation failed: ${res.statusText}`);
+    throw await parseApiError(res, "Validation failed.");
   }
   return res.json() as Promise<CredentialCheckResult>;
 }
@@ -123,8 +194,7 @@ async function addCredential(
     body: JSON.stringify({ provider, token }),
   });
   if (!res.ok) {
-    const errBody = (await res.json()) as { error?: string; validate?: CredentialCheckResult };
-    throw new Error(errBody.error ?? `Add failed: ${res.statusText}`);
+    throw await parseApiError(res, "Could not add credential.");
   }
   return res.json() as Promise<AddCredentialResult>;
 }
@@ -134,8 +204,7 @@ async function removeCredential(provider: string): Promise<{ removed: boolean }>
     method: "DELETE",
   });
   if (!res.ok) {
-    const errBody = (await res.json()) as { error?: string };
-    throw new Error(errBody.error ?? `Remove failed: ${res.statusText}`);
+    throw await parseApiError(res, "Could not remove credential.");
   }
   return res.json() as Promise<{ removed: boolean }>;
 }
@@ -214,6 +283,8 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
       setValidateError(null);
     },
     onError: (err) => {
+      // `CredentialApiError.message` is the user-safe copy from `userSafeMessage`,
+      // not the raw server error. We never display the raw exception text.
       setValidateResult(null);
       setValidateError(err.message);
     },
@@ -230,7 +301,17 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
       onAdded();
     },
     onError: (err) => {
-      setValidateError(err.message);
+      // When the server's `code: "validation_failed"` carries a structured
+      // `validate` payload (unauthorized / scopeGap / detail), surface those
+      // fields via the inline ValidationResult component rather than the
+      // generic error banner — preserves the structured states the reviewer
+      // (PR #1142 R1) flagged as previously lost.
+      if (err instanceof CredentialApiError && err.code === "validation_failed" && err.validate) {
+        setValidateResult(err.validate);
+        setValidateError(null);
+      } else {
+        setValidateError(err.message);
+      }
     },
   });
 

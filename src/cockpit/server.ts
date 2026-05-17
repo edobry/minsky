@@ -26,6 +26,7 @@ import {
   PostgresChannelListener,
   createNoopChannelListener,
 } from "../domain/mesh/postgres-channel-listener";
+import { log } from "../utils/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -579,6 +580,48 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   //   - 400 on unknown provider or missing/invalid token; 200 on success.
   // ---------------------------------------------------------------------------
 
+  // Normalized error response helper (mt#1426 PR #1142 R1).
+  //
+  // Returns errors as `{ error: { code, message } }` with stable user-safe
+  // `code` values and user-safe `message` strings. Raw exception text is
+  // logged server-side via `log.error` but NEVER returned to the client —
+  // closes the "raw err.message coupled to UI" reviewer finding.
+  //
+  // Stable codes:
+  //   - `invalid_body`        — request body shape unparseable
+  //   - `missing_field`       — required field absent or wrong type
+  //   - `unknown_provider`    — provider id not in registry
+  //   - `validation_failed`   — provider.validate(token) returned !ok
+  //                             (response also carries the structured
+  //                             `validate: { ok, detail, unauthorized?, scopeGap? }`
+  //                             so the UI can render specific failure states)
+  //   - `internal`            — unexpected exception (raw message NOT returned)
+  type CredentialErrorCode =
+    | "invalid_body"
+    | "missing_field"
+    | "unknown_provider"
+    | "validation_failed"
+    | "internal";
+
+  function credentialError(
+    res: express.Response,
+    status: number,
+    code: CredentialErrorCode,
+    message: string,
+    extras?: Record<string, unknown>
+  ): void {
+    res.status(status).json({ error: { code, message }, ...(extras ?? {}) });
+  }
+
+  function logCredentialInternal(route: string, err: unknown): void {
+    // Internal errors are logged server-side for operator debugging, but the
+    // user-facing response carries only `{ code: "internal", message: "..." }` —
+    // never the raw exception text. Keeps internal details out of the UI per
+    // PR #1142 R1.
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    log.error(`[credentials] ${route} — internal error: ${detail}`);
+  }
+
   /**
    * POST /api/credentials/validate
    *
@@ -587,6 +630,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    *
    * Calls provider.validate(token) — read-only, never persists.
    * The token is consumed in memory and never echoed back.
+   * Errors: `{ error: { code, message } }` with codes above.
    */
   app.post("/api/credentials/validate", async (req, res) => {
     let provider: string | undefined;
@@ -596,16 +640,16 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       provider = typeof body.provider === "string" ? body.provider : undefined;
       token = typeof body.token === "string" ? body.token : undefined;
     } catch {
-      res.status(400).json({ error: "Invalid request body" });
+      credentialError(res, 400, "invalid_body", "Request body could not be parsed.");
       return;
     }
 
     if (!provider) {
-      res.status(400).json({ error: "provider is required" });
+      credentialError(res, 400, "missing_field", "`provider` is required.");
       return;
     }
     if (!token) {
-      res.status(400).json({ error: "token is required" });
+      credentialError(res, 400, "missing_field", "`token` is required.");
       return;
     }
 
@@ -613,11 +657,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const credMod = credModuleOverride ?? (await import("../domain/credentials"));
       const credentialProvider = credMod.getCredentialProvider(provider);
       if (!credentialProvider) {
-        res.status(400).json({ error: `Unknown credential provider: ${provider}` });
+        credentialError(res, 400, "unknown_provider", `Unknown credential provider: ${provider}.`);
         return;
       }
       const result = await credentialProvider.validate(token);
-      // Never echo the token — only return the validation outcome
       res.json({
         ok: result.ok,
         detail: result.detail,
@@ -625,8 +668,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         ...(result.scopeGap !== undefined ? { scopeGap: result.scopeGap } : {}),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
+      logCredentialInternal("POST /api/credentials/validate", err);
+      credentialError(res, 500, "internal", "An internal error occurred during validation.");
     }
   });
 
@@ -636,7 +679,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * Body: { provider: string; token: string }
    * Returns: { provider, validate, stored?, test? } — never includes the token.
    *
-   * Calls addCredential(provider, token). Returns 400 on validation failure.
+   * Calls addCredential(provider, token). Returns 400 with code "validation_failed"
+   * and the structured `validate` result when the provider rejects the token.
    */
   app.post("/api/credentials/add", async (req, res) => {
     let provider: string | undefined;
@@ -646,16 +690,16 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       provider = typeof body.provider === "string" ? body.provider : undefined;
       token = typeof body.token === "string" ? body.token : undefined;
     } catch {
-      res.status(400).json({ error: "Invalid request body" });
+      credentialError(res, 400, "invalid_body", "Request body could not be parsed.");
       return;
     }
 
     if (!provider) {
-      res.status(400).json({ error: "provider is required" });
+      credentialError(res, 400, "missing_field", "`provider` is required.");
       return;
     }
     if (!token) {
-      res.status(400).json({ error: "token is required" });
+      credentialError(res, 400, "missing_field", "`token` is required.");
       return;
     }
 
@@ -663,22 +707,31 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const credMod = credModuleOverride ?? (await import("../domain/credentials"));
       const credentialProvider = credMod.getCredentialProvider(provider);
       if (!credentialProvider) {
-        res.status(400).json({ error: `Unknown credential provider: ${provider}` });
+        credentialError(res, 400, "unknown_provider", `Unknown credential provider: ${provider}.`);
         return;
       }
       const result = await credMod.addCredential(provider, token);
-      // Never echo the token — only return what addCredential returns (no token field)
       if (!result.validate.ok) {
-        res.status(400).json({
-          error: "Credential validation failed",
-          validate: result.validate,
-        });
+        // Preserve the structured validate result so the UI can render
+        // specific states (unauthorized / scopeGap) without parsing text.
+        credentialError(
+          res,
+          400,
+          "validation_failed",
+          "Credential validation failed. See `validate` for details.",
+          { validate: result.validate }
+        );
         return;
       }
       res.json(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
+      logCredentialInternal("POST /api/credentials/add", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while adding the credential."
+      );
     }
   });
 
@@ -694,8 +747,13 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const credentials = await credMod.listCredentials();
       res.json({ credentials });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
+      logCredentialInternal("GET /api/credentials", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while listing credentials."
+      );
     }
   });
 
@@ -703,12 +761,12 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * DELETE /api/credentials/:provider
    *
    * Returns: { removed: boolean }
-   * 400 on unknown provider; 200 with { removed } on success.
+   * 400 with code "unknown_provider" on unknown provider; 200 on success.
    */
   app.delete("/api/credentials/:provider", async (req, res) => {
     const providerId = req.params.provider;
     if (!providerId) {
-      res.status(400).json({ error: "provider is required" });
+      credentialError(res, 400, "missing_field", "`provider` is required.");
       return;
     }
 
@@ -716,14 +774,24 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const credMod = credModuleOverride ?? (await import("../domain/credentials"));
       const credentialProvider = credMod.getCredentialProvider(providerId);
       if (!credentialProvider) {
-        res.status(400).json({ error: `Unknown credential provider: ${providerId}` });
+        credentialError(
+          res,
+          400,
+          "unknown_provider",
+          `Unknown credential provider: ${providerId}.`
+        );
         return;
       }
       const result = await credMod.removeCredential(providerId);
       res.json(result);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      res.status(500).json({ error: message });
+      logCredentialInternal("DELETE /api/credentials/:provider", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while removing the credential."
+      );
     }
   });
 

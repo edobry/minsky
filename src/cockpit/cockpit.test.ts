@@ -59,6 +59,13 @@ const DEFAULT_CONFIG = {
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
+// Credential error codes — keep in sync with `CredentialErrorCode` in
+// src/cockpit/server.ts and `CredentialApiErrorCode` in
+// src/cockpit/web/widgets/Credentials.tsx (mt#1426 PR #1142 R1).
+const CRED_ERR_UNKNOWN_PROVIDER = "unknown_provider";
+const CRED_ERR_MISSING_FIELD = "missing_field";
+const CRED_ERR_VALIDATION_FAILED = "validation_failed";
+
 // ---------------------------------------------------------------------------
 // Test servers — started lazily and closed per-test
 // ---------------------------------------------------------------------------
@@ -1468,8 +1475,10 @@ describe("Cockpit server", () => {
       body: JSON.stringify({ provider: "nonexistent", token: "tok" }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/unknown credential provider/i);
+    // Normalized error shape per PR #1142 R1: { error: { code, message } }
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
     expect(JSON.stringify(body)).not.toContain("tok");
   });
 
@@ -1486,8 +1495,9 @@ describe("Cockpit server", () => {
       body: JSON.stringify({ provider: "github" }), // no token field
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/token is required/i);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_MISSING_FIELD);
+    expect(body.error.message).toMatch(/token/i);
   });
 
   // 13g. POST /api/credentials/add → 200 + result shape; never echoes token
@@ -1532,7 +1542,11 @@ describe("Cockpit server", () => {
     });
     expect(res.status).toBe(400);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body.error).toMatch(/validation failed/i);
+    const err = body.error as { code: string; message: string };
+    expect(err.code).toBe(CRED_ERR_VALIDATION_FAILED);
+    expect(err.message).toMatch(/validation failed/i);
+    // Structured validate result rides along per PR #1142 R1
+    expect((body.validate as Record<string, unknown>).ok).toBe(false);
     // Trust-boundary: token value must not appear anywhere in the error response
     expect(JSON.stringify(body)).not.toContain("invalid-secret");
   });
@@ -1550,8 +1564,9 @@ describe("Cockpit server", () => {
       body: JSON.stringify({ provider: "nonexistent", token: "tok" }),
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/unknown credential provider/i);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
   });
 
   // 13j. DELETE /api/credentials/:provider → 200 + { removed: true }
@@ -1580,8 +1595,9 @@ describe("Cockpit server", () => {
       method: "DELETE",
     });
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/unknown credential provider/i);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
   });
 
   // 13l. credentials widget present in /api/widgets when enabled
