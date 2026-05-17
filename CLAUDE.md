@@ -1648,7 +1648,12 @@ Both criteria were present in injected context at the time of recommendation. Ne
 
 **Why this rule extends `§Build vs buy → R4 (spec-amendment-time premise check)`:** R4 fires when a categorization label is being written into a spec; gate (j) in `/plan-task` enforces it. R5's slip occurred during a live recommendation in a research/planning turn outside any skill chain — neither R4's corpus rule nor gate (j) cover this surface. R5 is the recommendation-time / subsystem-assignment-time slice of the same family.
 
-**Structural enforcement:** the broader gate that catches recommendation-time slips is tracked in mt#1868 (R5 escalation task). Until that lands, this section + the bridge memory `feedback_premise_label_verification_required` are the discipline.
+**Structural enforcement (Phase 1 / Phase 2 split, mt#1868):**
+
+- **Phase 1 (this corpus rule):** the four-step protocol above is the immediate discipline upgrade. It's in injected context at every session start and consulted at recommendation time per `§How this is enforced` below. Same shape as `§Build vs buy` R1's corpus rule preceding mt#1789's `/declare-framework` skill. Walked against the R5 incident, this protocol blocks the original "migrate rules to memory store" recommendation at the citation step.
+- **Phase 2 (mt#1868 remaining scope):** coverage analysis of recommendation surfaces NOT covered by gate (j) or `/declare-framework`, enforcement decision among Options A–E (extend gate j / new `/verify-destination` skill / text-pattern hook / combination), implementation, and retrospective acceptance walkthrough against R1–R5. Phase 2 is mt#1868's substantive content; Phase 1 is the bridge that lands first.
+
+PR #1141 (this PR) ships Phase 1 only. mt#1868 stays open after merge until Phase 2 lands.
 
 **Cross-references:**
 
