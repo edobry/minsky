@@ -69,7 +69,10 @@ export interface ConvergenceDetectionResult {
   reason: string;
   /**
    * Per-finding evidence verdicts for the current round's BLOCKINGs.
-   * Present only when downgradeApplied=true; empty otherwise.
+   * Populated whenever the activation threshold is met and there are BLOCKINGs
+   * to assess (regardless of whether downgradeApplied is true or false).
+   * Empty when threshold is not met, there are no BLOCKINGs, or there is no
+   * prior-round data.
    */
   evidenceVerdicts: FindingEvidenceVerdict[];
   /**
