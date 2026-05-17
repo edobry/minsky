@@ -196,16 +196,29 @@ export async function applyPostMergeStateSync(
     partialFailure: false,
   };
 
-  // (a) Task status: IN-REVIEW → DONE
+  // (a) Task status: post-merge terminal-state transition. Kind-aware (mt#1872):
+  //   - implementation kind → DONE (existing behavior; PR merged is the completion signal)
+  //   - umbrella kind → COMPLETED (umbrella workflow has no DONE; its terminal is COMPLETED)
+  // Defensive: umbrella tasks normally don't reach the merge path because they don't
+  // ship PRs, but nothing structurally prevents an operator from associating one with a
+  // PR. Without kind dispatch, setTaskStatus(...,DONE) for an umbrella would throw via
+  // the workflow registry's validateStatusTransition (DONE isn't a valid umbrella state)
+  // and the surrounding catch would log + swallow, leaving the task stuck in IN-PROGRESS.
   if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
     try {
       const currentStatus = await taskService.getTaskStatus(taskId);
-      if (currentStatus !== TASK_STATUS.DONE) {
-        log.debug(`applyPostMergeStateSync: setting task ${taskId} → DONE`, {
+      const task = await taskService.getTask?.(taskId);
+      const taskKind = (task as { kind?: string } | null | undefined)?.kind || "implementation";
+      const targetStatus = taskKind === "umbrella" ? TASK_STATUS.COMPLETED : TASK_STATUS.DONE;
+
+      if (currentStatus !== targetStatus) {
+        log.debug(`applyPostMergeStateSync: setting task ${taskId} → ${targetStatus}`, {
           currentStatus,
+          targetStatus,
+          taskKind,
           trigger,
         });
-        await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+        await taskService.setTaskStatus(taskId, targetStatus);
         result.taskStatusUpdated = true;
       }
     } catch (error) {
