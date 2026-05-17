@@ -191,9 +191,9 @@ Both criteria were present in injected context at the time of recommendation. Ne
 **Structural enforcement (Phase 1 / Phase 2 split, mt#1868):**
 
 - **Phase 1 (this corpus rule):** the four-step protocol above is the immediate discipline upgrade. It's in injected context at every session start and consulted at recommendation time per `§How this is enforced` below. Same shape as `§Build vs buy` R1's corpus rule preceding mt#1789's `/declare-framework` skill. Walked against the R5 incident, this protocol blocks the original "migrate rules to memory store" recommendation at the citation step.
-- **Phase 2 (mt#1868 remaining scope):** coverage analysis of recommendation surfaces NOT covered by gate (j) or `/declare-framework`, enforcement decision among Options A–E (extend gate j / new `/verify-destination` skill / text-pattern hook / combination), implementation, and retrospective acceptance walkthrough against R1–R5. Phase 2 is mt#1868's substantive content; Phase 1 is the bridge that lands first.
+- **Phase 2 (mt#1873, followup to mt#1868):** coverage analysis of recommendation surfaces NOT covered by gate (j) or `/declare-framework`, enforcement decision among Options A–E (extend gate j / new `/verify-destination` skill / text-pattern hook / combination), implementation, and retrospective acceptance walkthrough against R1–R5.
 
-PR #1141 (this PR) ships Phase 1 only. mt#1868 stays open after merge until Phase 2 lands.
+PR #1141 (this PR) ships Phase 1, closing mt#1868. Phase 2 is tracked in mt#1873.
 
 **Cross-references:**
 
@@ -201,7 +201,8 @@ PR #1141 (this PR) ships Phase 1 only. mt#1868 stays open after merge until Phas
 - `feedback_premise_label_verification_required` — bridge memory; updated with R5 sub-pattern
 - mt#1820 — shipped gate (j) for the spec-amendment surface
 - mt#1789 — shipped `/declare-framework` for the strategic-recommendation surface (framework selection, not destination categorization)
-- mt#1868 — R5 escalation task (this incident's structural fix)
+- mt#1868 — Phase 1 corpus-rule bridge (this rule); DONE on PR #1141 merge
+- mt#1873 — Phase 2 broader structural enforcement (followup)
 
 ## Multi-step direction execution
 
