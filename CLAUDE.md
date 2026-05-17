@@ -1626,6 +1626,44 @@ If the mapping fails, do not apply the label. Surface the gap.
 - `/declare-framework` (mt#1789) — sibling skill addressing framework selection (distinct
   from label application)
 
+## Subsystem-assignment verification
+
+When recommending that content move FROM one subsystem TO another — rules ↔ memory, memory ↔ skill, skill ↔ rule, doc-type → doc-type, code-module ↔ code-module — apply the same four-step protocol as `§Build vs buy → Spec-amendment-time premise check (R4)`, but at recommendation-time, not spec-amendment-time:
+
+1. **Cite** the destination subsystem's defining rule, memory, or doc (the source of truth on what the subsystem is FOR).
+2. **Quote** its inclusion/exclusion criteria verbatim.
+3. **Map** the source content's properties to the criteria — explicitly list what the criteria say and what the content actually has.
+4. **State the verdict:** criteria met / criteria not met / criteria ambiguous (in which case file an Ask).
+
+If verdict is NOT MET, the migration is the wrong move regardless of how attractive the destination's name sounds. Names like "memory store," "skill," "rule," "doc" are evocative; their actual purpose is narrower than the name suggests and is encoded in the subsystem's defining rule.
+
+**Generic-SE override:** "X is for durable knowledge → durable Y belongs in X." Subsystems are defined by their inclusion/exclusion criteria, not by their names. The agent's pattern-matching on names without citation is the failure mode this rule prevents.
+
+**Originating incident:** 2026-05-17 (R5 of the premise-verification family). Agent recommended "migrate durable rules out of CLAUDE.md into the memory store" without checking that:
+
+- CLAUDE.md is a compiled output of `rules_compile` from `.minsky/rules/*.mdc` (banner on line 1 names the pipeline)
+- The memory store's defining rule (CLAUDE.md `§Memory Usage`) explicitly excludes rules from its scope: "something durable that's **not derivable from code, git history, specs, or rules**"
+
+Both criteria were present in injected context at the time of recommendation. Neither was cited. User caught the category error.
+
+**Why this rule extends `§Build vs buy → R4 (spec-amendment-time premise check)`:** R4 fires when a categorization label is being written into a spec; gate (j) in `/plan-task` enforces it. R5's slip occurred during a live recommendation in a research/planning turn outside any skill chain — neither R4's corpus rule nor gate (j) cover this surface. R5 is the recommendation-time / subsystem-assignment-time slice of the same family.
+
+**Structural enforcement (Phase 1 / Phase 2 split, mt#1868):**
+
+- **Phase 1 (this corpus rule):** the four-step protocol above is the immediate discipline upgrade. It's in injected context at every session start and consulted at recommendation time per `§How this is enforced` below. Same shape as `§Build vs buy` R1's corpus rule preceding mt#1789's `/declare-framework` skill. Walked against the R5 incident, this protocol blocks the original "migrate rules to memory store" recommendation at the citation step.
+- **Phase 2 (mt#1873, followup to mt#1868):** coverage analysis of recommendation surfaces NOT covered by gate (j) or `/declare-framework`, enforcement decision among Options A–E (extend gate j / new `/verify-destination` skill / text-pattern hook / combination), implementation, and retrospective acceptance walkthrough against R1–R5.
+
+PR #1141 (this PR) ships Phase 1, closing mt#1868. Phase 2 is tracked in mt#1873.
+
+**Cross-references:**
+
+- `§Build vs buy → R4` — sibling premise-check at spec-amendment-time
+- `feedback_premise_label_verification_required` — bridge memory; updated with R5 sub-pattern
+- mt#1820 — shipped gate (j) for the spec-amendment surface
+- mt#1789 — shipped `/declare-framework` for the strategic-recommendation surface (framework selection, not destination categorization)
+- mt#1868 — Phase 1 corpus-rule bridge (this rule); DONE on PR #1141 merge
+- mt#1873 — Phase 2 broader structural enforcement (followup)
+
 ## Multi-step direction execution
 
 When the user provides multi-step direction (e.g., "X first, then Y, then Z" or "before doing W, do V") AND a later prompt contains action-now language (e.g., "do it now," "proceed," "go," "why not do it now?"): the agent MUST, before any tool call that would advance the plan:
@@ -1662,10 +1700,12 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
 - `.claude/skills/restate-plan/SKILL.md` — structural enforcement of `§Multi-step direction execution` (mt#1784)
 - `feedback_agent_todos_vs_minsky_tasks` — originating memory for `§Agent todos vs. Minsky tasks`
+- `feedback_premise_label_verification_required` — bridge memory for `§Subsystem-assignment verification` (R5); updated 2026-05-17 with subsystem-assignment sub-pattern
 - Notion position paper *Position: Agent todos vs. Minsky tasks — the durable/ephemeral boundary* (35e937f0-3cb4-812e-9734-f0c0f9a8b26c)
 - mt#1316 — Asks ↔ MCP elicitation: the structurally equivalent first-instance of this shape (informs `§Agent todos vs. Minsky tasks`)
 - mt#1796 — this rule's implementation task
 - mt#1797 — deferred Shape C tracking task (harness-agnostic working-notes surface)
+- mt#1868 — R5 escalation task (recommendation-time / subsystem-assignment-time enforcement)
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
 
 # Memory Usage
