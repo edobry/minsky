@@ -177,20 +177,28 @@ export function isStrictlyDecreasing(history: BlockingCountByRound): boolean {
 
 /**
  * Check whether any BLOCKING finding in the current round has new evidence
- * not present in any prior round's findings.
+ * not present in any prior round's NON-BLOCKING or PRE-EXISTING findings.
  *
  * "New evidence" means: a BLOCKING finding in currentFindings has a `file:line`
- * (or `file:line-lineEnd`) that does NOT appear in ANY prior finding (regardless
- * of prior severity). The comparison is:
+ * (or `file:line-lineEnd`) that does NOT appear in ANY prior NON-BLOCKING or
+ * PRE-EXISTING finding. The comparison is:
  *   - File must match exactly (normalized: lowercase, forward-slash).
  *   - Line must match: same line number OR the line falls within an existing
  *     finding's lineEnd range.
  *   - If a current finding has no line number, it is treated as having new
  *     evidence (conservative: can't tell without a line reference).
  *
+ * **Important:** Only NON-BLOCKING and PRE-EXISTING prior findings are
+ * consulted. A prior BLOCKING at the same locus does NOT negate novelty —
+ * a persistent BLOCKING that the implementer has not addressed is legitimately
+ * ongoing and should NOT be stagnation-downgraded merely because the file:line
+ * appeared in a prior round. The stagnation signal is specifically about
+ * re-escalating previously accepted-as-NON-BLOCKING items (the mt#1496 class),
+ * not about persistent genuine blockers.
+ *
  * Returns true if ANY BLOCKING finding in currentFindings has new evidence.
- * Returns false if ALL BLOCKINGs in currentFindings match a prior finding
- * or if there are no BLOCKINGs in currentFindings.
+ * Returns false if ALL BLOCKINGs in currentFindings match a prior NON-BLOCKING/
+ * PRE-EXISTING finding, or if there are no BLOCKINGs in currentFindings.
  *
  * The semantic is: "does at least one BLOCKING have new evidence?" A single
  * genuinely new finding is enough to preserve BLOCKINGs for the round.
@@ -207,12 +215,16 @@ export function hasNewEvidence(
   const currentBlockings = currentFindings.filter((f) => f.severity === "BLOCKING");
   if (currentBlockings.length === 0) return false;
 
-  // Build a set of prior file paths for quick existence check.
-  // We need to check line overlap, so we keep the full prior list.
-  const normalizedPriors = priorFindings.map((f) => ({
-    ...f,
-    normalizedFile: normalizePath(f.file),
-  }));
+  // Only match against NON-BLOCKING and PRE-EXISTING prior findings.
+  // Prior BLOCKING findings are excluded: a persistent genuine blocker at the
+  // same locus is NOT evidence of stagnation re-escalation. The stagnation
+  // downgrade targets re-escalation of accepted-NON-BLOCKING/PRE-EXISTING items.
+  const normalizedPriors = priorFindings
+    .filter((f) => f.severity === "NON-BLOCKING" || f.severity === "PRE-EXISTING")
+    .map((f) => ({
+      ...f,
+      normalizedFile: normalizePath(f.file),
+    }));
 
   for (const finding of currentBlockings) {
     const currentFile = normalizePath(finding.file);
@@ -224,7 +236,7 @@ export function hasNewEvidence(
     const currentLine = finding.line;
     const currentLineEnd = finding.lineEnd ?? finding.line;
 
-    // Check whether this BLOCKING overlaps with any prior finding (any severity).
+    // Check whether this BLOCKING overlaps with any prior NON-BLOCKING/PRE-EXISTING.
     const hasMatchingPrior = normalizedPriors.some((prior) => {
       if (prior.normalizedFile !== currentFile) return false;
       // Prior finding with no line matches any line in that file.
@@ -236,12 +248,12 @@ export function hasNewEvidence(
     });
 
     if (!hasMatchingPrior) {
-      // This BLOCKING has no matching prior — it's new evidence.
+      // This BLOCKING has no matching prior NON-BLOCKING/PRE-EXISTING — it's new evidence.
       return true;
     }
   }
 
-  // All BLOCKINGs matched prior findings — no new evidence.
+  // All BLOCKINGs matched prior NON-BLOCKING/PRE-EXISTING findings — no new evidence.
   return false;
 }
 
@@ -313,11 +325,15 @@ export function detectConvergence(
   const newEvidence = hasNewEvidence(currentBlockings, priorFindings);
 
   // Build evidence verdicts for the current BLOCKINGs.
+  // Mirror hasNewEvidence: only NON-BLOCKING and PRE-EXISTING prior findings
+  // are consulted, for the same reason (persistent BLOCKINGs are not stagnation).
   const normalizePath = (p: string): string => p.replace(/\\/g, "/").toLowerCase();
-  const normalizedPriors = priorFindings.map((f) => ({
-    ...f,
-    normalizedFile: normalizePath(f.file),
-  }));
+  const normalizedPriors = priorFindings
+    .filter((f) => f.severity === "NON-BLOCKING" || f.severity === "PRE-EXISTING")
+    .map((f) => ({
+      ...f,
+      normalizedFile: normalizePath(f.file),
+    }));
 
   const evidenceVerdicts: FindingEvidenceVerdict[] = currentBlockings
     .filter((f) => f.severity === "BLOCKING")

@@ -242,25 +242,39 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
   );
 
   // 3. Build per-round results
+  //
+  // Index conventions (important — normalise here to avoid off-by-one bugs):
+  //   DB iteration_index: 1-based (first review = iteration_index=1, written as
+  //     priorReviewIngestion.iterationCount + 1 in review-worker.ts).
+  //   botReviews array: 0-based (botReviews[0] = first review, oldest-first).
+  //   Detector iterationIndex: 1-based (same convention as DB).
+  //
+  // To convert DB iterationIndex → botReviews array index: subtract 1.
+  //   DB row iterationIndex=1 → botReviews[0] (first review body)
+  //   DB row iterationIndex=3 → botReviews[2] (third review body)
+  //   Prior reviews for DB row iterationIndex=3 → botReviews.slice(0, 2) (first two)
   const roundResults: RoundReplayResult[] = [];
 
   for (const row of dbRows) {
     const { iterationIndex, newBlockerCount } = row;
+    // iterationIndex is 1-based; convert to 0-based for botReviews array lookups.
+    const botReviewArrayIdx = iterationIndex - 1;
 
     // Prior BLOCKING counts = new_blocker_count of all rows with lower iteration_index
     const priorDbRows = dbRows.filter((r) => r.iterationIndex < iterationIndex);
     const priorBlockingCounts: BlockingCountByRound = priorDbRows.map((r) => r.newBlockerCount);
 
-    // Prior review bodies from GitHub: reviews BEFORE this iteration (0-based index)
-    // GitHub reviews are 0-indexed oldest-first; iterationIndex=0 → no prior reviews
-    const priorReviewBodies = botReviews.slice(0, iterationIndex).map((r) => r.body);
+    // Prior review bodies from GitHub: reviews at array indices [0, botReviewArrayIdx).
+    // botReviewArrayIdx = iterationIndex - 1, so this is botReviews.slice(0, iterationIndex - 1).
+    const priorReviewBodies = botReviews.slice(0, botReviewArrayIdx).map((r) => r.body);
 
     const priorFindings = extractPriorFindingsForDetection(
       priorReviewBodies,
       parseBodyAsDetectionFindings
     );
 
-    const activationThresholdMet = iterationIndex + 1 >= CONVERGENCE_ACTIVATION_THRESHOLD;
+    // Activation threshold uses the 1-based iterationIndex directly (no +1 needed).
+    const activationThresholdMet = iterationIndex >= CONVERGENCE_ACTIVATION_THRESHOLD;
 
     let downgradeApplied: boolean | null = null;
     let downgradeReason: string | null = null;
@@ -274,7 +288,8 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
       // findings, which are only available if the review body is present.
       //
       // Use the corresponding GitHub review body if available.
-      const currentReviewBody = botReviews[iterationIndex]?.body;
+      // botReviews[botReviewArrayIdx] is the review at 0-based index = iterationIndex - 1.
+      const currentReviewBody = botReviews[botReviewArrayIdx]?.body;
       const currentFindings: FindingForDetection[] = currentReviewBody
         ? (parseBodyAsDetectionFindings(currentReviewBody) as FindingForDetection[]).filter(
             (f) => f.severity === "BLOCKING"
@@ -303,7 +318,7 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
         syntheticToolCalls,
         priorFindings,
         priorBlockingCounts,
-        iterationIndex + 1 // spec uses 1-based round numbers
+        iterationIndex // already 1-based; detector expects 1-based
       );
 
       downgradeApplied = result.downgradeApplied;
@@ -316,7 +331,7 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
         "No BLOCKING findings — convergence detection skipped (nothing to downgrade).";
     } else {
       downgradeApplied = null;
-      downgradeReason = `Below activation threshold (R${iterationIndex + 1} < R${CONVERGENCE_ACTIVATION_THRESHOLD}).`;
+      downgradeReason = `Below activation threshold (R${iterationIndex} < R${CONVERGENCE_ACTIVATION_THRESHOLD}).`;
     }
 
     roundResults.push({

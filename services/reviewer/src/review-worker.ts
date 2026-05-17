@@ -56,7 +56,9 @@ import {
   type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
+import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
+import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
 import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
@@ -639,6 +641,57 @@ export function buildConvergenceMetricLog(
 }
 
 /**
+ * Read prior-round BLOCKING counts from the mt#1306 substrate
+ * (reviewer_convergence_metrics table).
+ *
+ * Returns an array of new_blocker_count values, one per prior review row,
+ * ordered oldest-first (ascending iteration_index). Excludes the current
+ * round's row (rows with iteration_index >= currentIterationIndex).
+ *
+ * This is the authoritative source for the convergence detection path per
+ * the mt#1867 spec ("reads prior-round convergence metrics from the mt#1306
+ * substrate"). The fallback (parsed from GitHub review bodies) is used only
+ * when the DB is unavailable.
+ *
+ * Errors are swallowed — the caller falls back to the review-body-parsed
+ * counts. This mirrors the metrics-write swallow-on-error pattern.
+ *
+ * @param db                    Drizzle DB instance.
+ * @param owner                 GitHub repository owner.
+ * @param repo                  GitHub repository name.
+ * @param prNumber              Pull request number.
+ * @param currentIterationIndex 1-based index of the current review round.
+ *                              Only rows with iteration_index < currentIterationIndex
+ *                              are returned.
+ */
+export async function fetchPriorBlockingCountsFromDb(
+  db: ReviewerDb,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  currentIterationIndex: number
+): Promise<number[]> {
+  try {
+    const rows = await db
+      .select({ newBlockerCount: convergenceMetricsTable.newBlockerCount })
+      .from(convergenceMetricsTable)
+      .where(
+        and(
+          eq(convergenceMetricsTable.prOwner, owner),
+          eq(convergenceMetricsTable.prRepo, repo),
+          eq(convergenceMetricsTable.prNumber, prNumber),
+          lt(convergenceMetricsTable.iterationIndex, currentIterationIndex)
+        )
+      )
+      .orderBy(asc(convergenceMetricsTable.iterationIndex));
+    return rows.map((r) => r.newBlockerCount);
+  } catch {
+    // Swallow — caller falls back to review-body-parsed counts.
+    return [];
+  }
+}
+
+/**
  * Optional injectable dependencies for runReview. All fields are optional;
  * defaults to real production implementations when absent.
  */
@@ -989,15 +1042,52 @@ export async function runReview(
     // so iterationIndex = iterationCount + 1.
     const currentIterationIndex = priorReviewIngestion.iterationCount + 1;
 
-    // Collect prior review bodies for the convergence evidence pass.
-    // We need the raw bodies (before flat-finding extraction) to feed the
-    // evidence-novelty check in the convergence detector. Re-use the rawPriorReviews
-    // captured in the prior-review-ingestion block above, but that variable is in
-    // a nested try/catch scope. Instead, derive the bodies from priorFlatFindings
-    // being already populated — but actually we need the bodies for the convergence
-    // pass. The bodies were captured in the try/catch below. We use the
-    // priorReviewIngestion.priorBlockingCounts as the source for the history,
-    // and priorFlatFindings as the source for evidence novelty (already parsed).
+    // mt#1867: read prior BLOCKING counts from the mt#1306 DB substrate when the
+    // DB is available. This is the spec-required source for convergence detection
+    // ("reads prior-round convergence metrics from the mt#1306 substrate").
+    //
+    // Fallback: if DB is unavailable or returns empty (e.g., for PRs predating
+    // mt#1306), fall back to counts parsed from GitHub review bodies
+    // (priorReviewIngestion.priorBlockingCounts). The fallback is only used when
+    // the DB read returns an empty array, ensuring the detector still has prior
+    // context when DB rows are not yet populated.
+    let priorBlockingCountsForConvergence: ReadonlyArray<number> =
+      priorReviewIngestion.priorBlockingCounts;
+    if (compositionConvergenceEnabled && deps.db !== undefined) {
+      const dbCounts = await fetchPriorBlockingCountsFromDb(
+        deps.db,
+        owner,
+        repo,
+        prNumber,
+        currentIterationIndex
+      );
+      if (dbCounts.length > 0) {
+        priorBlockingCountsForConvergence = dbCounts;
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_counts_source",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            source: "db_substrate",
+            count: dbCounts.length,
+            iterationIndex: currentIterationIndex,
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_counts_source",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            source: "review_body_fallback",
+            reason:
+              "DB returned no rows (PR may predate mt#1306 substrate or first review); using parsed review body counts",
+            count: priorReviewIngestion.priorBlockingCounts.length,
+            iterationIndex: currentIterationIndex,
+          })
+        );
+      }
+    }
 
     // Delegate the recovery + reconciliation + convergence + composition to the
     // pure helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
@@ -1016,7 +1106,7 @@ export async function runReview(
         recoveryEnabled: monotonicityRecoveryEnabled,
         convergenceEnabled: compositionConvergenceEnabled,
         priorFindingsForConvergence: priorFlatFindings,
-        priorBlockingCounts: priorReviewIngestion.priorBlockingCounts,
+        priorBlockingCounts: priorBlockingCountsForConvergence,
         iterationIndex: currentIterationIndex,
       }
     );

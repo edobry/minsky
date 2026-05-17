@@ -98,14 +98,17 @@ describe("hasNewEvidence", () => {
     expect(hasNewEvidence(currentFindings, priorFindings)).toBe(true);
   });
 
-  test("BLOCKING matching prior BLOCKING at same line → false (no new evidence)", () => {
+  test("BLOCKING matching prior BLOCKING at same line → true (persistent blocker, not stagnation)", () => {
+    // A persistent BLOCKING at the same locus is a genuine ongoing blocker,
+    // not a stagnation re-escalation of an accepted-NON-BLOCKING item.
+    // Prior BLOCKINGs do NOT negate novelty — only NON-BLOCKING/PRE-EXISTING do.
     const currentFindings: FindingForDetection[] = [
       { file: "src/foo.ts", severity: "BLOCKING", line: 5 },
     ];
     const priorFindings: FindingForDetection[] = [
       { file: "src/foo.ts", severity: "BLOCKING", line: 5 },
     ];
-    expect(hasNewEvidence(currentFindings, priorFindings)).toBe(false);
+    expect(hasNewEvidence(currentFindings, priorFindings)).toBe(true);
   });
 
   test("no BLOCKINGs in current → false (nothing to check)", () => {
@@ -327,19 +330,38 @@ describe("detectConvergence", () => {
   });
 
   test("evidence verdicts are populated when downgrade fires", () => {
+    // Both current BLOCKINGs match prior NON-BLOCKING/PRE-EXISTING findings.
+    // Prior BLOCKING entries are excluded from the novelty match so src/b.ts:20
+    // does NOT suppress novelty here; we use NON-BLOCKING for that locus instead.
     const priorFindings: FindingForDetection[] = [
       { file: "src/a.ts", severity: "NON-BLOCKING", line: 10 },
-      { file: "src/b.ts", severity: "BLOCKING", line: 20 },
+      { file: "src/b.ts", severity: "NON-BLOCKING", line: 20 }, // NON-BLOCKING, not BLOCKING
     ];
     const currentFindings: FindingForDetection[] = [
       { file: "src/a.ts", severity: "BLOCKING", line: 10 }, // matches prior NON-BLOCKING
-      { file: "src/b.ts", severity: "BLOCKING", line: 20 }, // matches prior BLOCKING
+      { file: "src/b.ts", severity: "BLOCKING", line: 20 }, // matches prior NON-BLOCKING
     ];
     const result = detectConvergence(currentFindings, priorFindings, [3, 2, 2], 4);
-    // Both BLOCKINGs have prior matches → no new evidence → fires
+    // Both BLOCKINGs match prior NON-BLOCKING → no new evidence → fires
     expect(result.downgradeApplied).toBe(true);
     expect(result.evidenceVerdicts).toHaveLength(2);
     expect(result.evidenceVerdicts.every((v) => !v.hasNewEvidence)).toBe(true);
+  });
+
+  test("persistent BLOCKING at same locus as prior BLOCKING → downgrade does NOT fire (new evidence)", () => {
+    // A BLOCKING whose file:line matches a prior BLOCKING is a persistent genuine
+    // blocker. It should NOT be downgraded — prior BLOCKINGs do not negate novelty.
+    const priorFindings: FindingForDetection[] = [
+      { file: "src/auth.ts", severity: "BLOCKING", line: 42 },
+    ];
+    const currentFindings: FindingForDetection[] = [
+      { file: "src/auth.ts", severity: "BLOCKING", line: 42 }, // same as prior BLOCKING
+    ];
+    const result = detectConvergence(currentFindings, priorFindings, [1, 1, 1], 4);
+    // Count not strictly decreasing (1→1), but src/auth.ts:42 matches only a prior
+    // BLOCKING — which is excluded from the novelty check → hasNewEvidence=true → no downgrade.
+    expect(result.downgradeApplied).toBe(false);
+    expect(result.hasAnyNewEvidence).toBe(true);
   });
 });
 
@@ -546,22 +568,10 @@ describe("applyCompositionConvergenceDowngrade", () => {
       4
     );
 
-    // Count not decreasing (3→2→2→1 — wait, currentBlockingCount = 1, history=[3,2,2,1])
-    // 2→1 is strictly decreasing — so downgrade does NOT fire here
-    // Let me adjust so stagnation fires: use priorBlockingCounts=[2,2,2] and current=1
-    // [2,2,2,1] — last two: 2→1 is strictly decreasing — still not stagnation
-    // For stagnation, we need last two to be equal or increasing AND no new evidence.
-    // With priorBlockingCounts=[3, 2, 2] and currentBlockingCount=1:
-    // history=[3, 2, 2, 1] — last two: 2→1 — strictly decreasing — not stagnation
-
-    // Actually this case won't fire stagnation. Let me use a case where current=2
-    // and prior last=2:
-    // Need currentBlockingCount=2, so 2 BLOCKINGs. Use priorBlockingCounts=[3,2,2].
-    // [3,2,2,2] — 2→2 not decreasing. And if both BLOCKINGs match prior → fire.
-    // This test is a good structural check, but the downgrade won't fire with
-    // current setup. The test is valid for verifying passthrough behavior on
-    // the non-downgrade path.
-    expect(result.downgradeApplied).toBe(false); // Strictly decreasing (2→1)
+    // currentBlockingCount=1, priorBlockingCounts=[3,2,2].
+    // fullHistory=[3,2,2,1] — last two: 2→1, strictly decreasing → downgrade does NOT fire.
+    // This test verifies non-finding tool calls pass through on the no-downgrade path.
+    expect(result.downgradeApplied).toBe(false);
     // Non-finding calls are still in the output
     expect(result.toolCalls.some((tc) => tc.name === SUBMIT_INLINE_COMMENT)).toBe(true);
     expect(result.toolCalls.some((tc) => tc.name === "submit_spec_verification")).toBe(true);
