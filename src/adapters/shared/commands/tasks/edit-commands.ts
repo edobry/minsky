@@ -19,6 +19,7 @@ import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
 import { autoIndexTaskEmbedding } from "./auto-index-embedding";
+import { isKnownKind, WORKFLOWS } from "../../../../domain/tasks/workflows";
 
 /**
  * Parameters for tasks edit command
@@ -30,6 +31,7 @@ interface TasksEditParams extends BaseTaskParams {
   specFile?: string;
   specContent?: string;
   tag?: string | string[];
+  kind?: string;
   execute?: boolean;
 }
 
@@ -66,8 +68,16 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
     const hasTagOperation = params.tag !== undefined;
+    const hasKindOperation = params.kind !== undefined;
 
-    if (!params.title && !hasSpecOperation && !hasTagOperation) {
+    // Validate kind against the workflow registry up front; mirrors create-time validation
+    // so a typo can't slip through to a backend write that silently succeeds.
+    if (hasKindOperation && !isKnownKind(params.kind as string)) {
+      const known = Object.keys(WORKFLOWS).join(", ");
+      throw new ValidationError(`Unknown task kind: "${params.kind}". Valid kinds: ${known}.`);
+    }
+
+    if (!params.title && !hasSpecOperation && !hasTagOperation && !hasKindOperation) {
       throw new ValidationError(
         `${
           chalk.red("❌ At least one edit operation must be specified:\n") +
@@ -130,7 +140,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     this.debug("Task found, preparing updates");
 
     // Prepare the updates object
-    const updates: { title?: string; spec?: string; tags?: string[] } = {};
+    const updates: { title?: string; spec?: string; tags?: string[]; kind?: string } = {};
 
     // Handle title update
     if (params.title) {
@@ -181,8 +191,14 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       this.debug(`Tags update: ${JSON.stringify(newTags)}`);
     }
 
+    // Handle kind update (reclassification across workflow registry)
+    if (hasKindOperation) {
+      updates.kind = params.kind;
+      this.debug(`Kind update: ${params.kind}`);
+    }
+
     // Show preview if not executing
-    if (!params.execute && (updates.title || updates.spec || updates.tags)) {
+    if (!params.execute && (updates.title || updates.spec || updates.tags || updates.kind)) {
       return this.formatResult(
         this.createSuccessResult(
           validatedTaskId,
@@ -208,9 +224,11 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       // Access internal multi-backend methods via a typed extension interface
       type ServiceWithBackendAccess = typeof service & {
         parsePrefixFromId(taskId: string): string | null;
-        getBackendByPrefix(
-          prefix: string | null
-        ): { name: string; setTaskMetadata?: (...args: unknown[]) => Promise<void> } | null;
+        getBackendByPrefix(prefix: string | null): {
+          name: string;
+          setTaskMetadata?: (...args: unknown[]) => Promise<void>;
+          setTaskKind?: (id: string, kind: string) => Promise<void>;
+        } | null;
       };
       const serviceWithAccess = service as ServiceWithBackendAccess;
 
@@ -251,6 +269,19 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       if (updates.tags !== undefined) {
         await service.updateTask?.(validatedTaskId, { tags: updates.tags });
         this.debug("Updated task tags");
+      }
+
+      // Apply kind reclassification separately. The backend's setTaskKind is optional —
+      // backends that do not support reclassification (e.g. github-issues currently)
+      // surface a clear error rather than silently no-op.
+      if (updates.kind !== undefined) {
+        if (!backend.setTaskKind) {
+          throw new ValidationError(
+            `Backend "${backend.name}" does not support kind reclassification`
+          );
+        }
+        await backend.setTaskKind(validatedTaskId, updates.kind);
+        this.debug(`Updated task kind to ${updates.kind}`);
       }
 
       // Fire-and-forget embedding re-index if content that affects embeddings changed
@@ -406,7 +437,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
    * Build a descriptive update message
    */
   private buildUpdateMessage(
-    updates: { title?: string; spec?: string; tags?: string[] },
+    updates: { title?: string; spec?: string; tags?: string[]; kind?: string },
     taskId: string
   ): string {
     const parts: string[] = [];
@@ -420,6 +451,9 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
     if (updates.tags !== undefined) {
       parts.push("tags");
     }
+    if (updates.kind !== undefined) {
+      parts.push("kind");
+    }
 
     return `Task ${taskId} ${parts.join(" and ")} updated successfully`;
   }
@@ -429,7 +463,7 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
    */
   private buildPreviewMessage(
     currentTask: Task,
-    updates: { title?: string; spec?: string; tags?: string[] },
+    updates: { title?: string; spec?: string; tags?: string[]; kind?: string },
     taskId: string
   ): string {
     let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
@@ -470,6 +504,13 @@ export class TasksEditCommand extends BaseTaskCommand<TasksEditParams> {
       const currentTags = currentTask.tags || [];
       message += `  ${chalk.red("- ")}${currentTags.length > 0 ? currentTags.join(", ") : "(none)"}\n`;
       message += `  ${chalk.green("+ ")}${updates.tags.length > 0 ? updates.tags.join(", ") : "(none)"}\n\n`;
+    }
+
+    if (updates.kind !== undefined) {
+      message += `${chalk.bold("Kind change:")}\n`;
+      const currentKind = (currentTask as { kind?: string }).kind || "implementation";
+      message += `  ${chalk.red("- ")}${currentKind}\n`;
+      message += `  ${chalk.green("+ ")}${updates.kind}\n\n`;
     }
 
     message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;

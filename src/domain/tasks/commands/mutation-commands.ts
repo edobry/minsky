@@ -24,6 +24,7 @@ import {
   type TaskDeleteParams,
 } from "../../../schemas/tasks";
 import { resolveRepoPath, normalizeTaskIdInput } from "./shared-helpers";
+import { isKnownKind, WORKFLOWS } from "../workflows";
 import {
   validateStatusTransition,
   hasCloseoutEvidence,
@@ -277,11 +278,20 @@ export async function createTaskFromParams(
           });
     }
 
+    // Validate kind against the workflow registry when provided. Invalid kinds are
+    // rejected up front rather than allowed to silently default at the backend layer
+    // (which would mask a typo as a successful default-to-implementation create).
+    if (validParams.kind !== undefined && !isKnownKind(validParams.kind)) {
+      const known = Object.keys(WORKFLOWS).join(", ");
+      throw new ValidationError(`Unknown task kind: "${validParams.kind}". Valid kinds: ${known}.`);
+    }
+
     // Create the task from title and spec content
     const specContent = validParams.spec || validParams.description || "";
     const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
       force: validParams.force,
       tags: validParams.tags,
+      kind: validParams.kind,
     });
 
     // Auto-commit functionality was removed - no backend-specific handling needed
@@ -337,11 +347,21 @@ export async function createTaskFromTitleAndSpec(
         });
   }
 
+  // Validate kind against the workflow registry when provided.
+  if (validParams.kind !== undefined && !isKnownKind(validParams.kind)) {
+    const known = Object.keys(WORKFLOWS).join(", ");
+    throw new ValidationError(`Unknown task kind: "${validParams.kind}". Valid kinds: ${known}.`);
+  }
+
   // Handle spec content - from spec string only
   const specContent = validParams.spec || "";
 
   // Create the task from title and spec
-  const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent);
+  const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent, {
+    force: validParams.force,
+    tags: validParams.tags,
+    kind: validParams.kind,
+  });
 
   return task;
 }
