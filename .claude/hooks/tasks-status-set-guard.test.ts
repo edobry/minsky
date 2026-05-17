@@ -270,11 +270,7 @@ describe("checkTransition — kind-aware dispatch (mt#1862)", () => {
     const depsKindNull: CheckDeps = {
       readCurrentTask: () => ({ status: "PLANNING", kind: null }),
     };
-    const r = checkTransition(
-      TARGET,
-      { taskId: "mt#1", status: "IN-PROGRESS" },
-      depsKindNull
-    );
+    const r = checkTransition(TARGET, { taskId: "mt#1", status: "IN-PROGRESS" }, depsKindNull);
     expect(r.decision).toBe("deny");
     expect(r.reason).toContain("session_start");
   });
