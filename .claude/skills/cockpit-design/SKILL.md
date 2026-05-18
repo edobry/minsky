@@ -37,8 +37,8 @@ The dev chromium is launched by `minsky cockpit` (mt#1904) with `--remote-debugg
 
 1. **Resolve the cockpit URL for THIS session's workspace.** Read the lifecycle state file:
 
-   - Compute the workspace key: if the current working directory is under `~/.local/state/minsky/sessions/<sessionId>/`, the key is `<sessionId>`. Otherwise it is `"main"`.
-   - Read `~/.local/state/minsky/cockpit/<workspace-key>.json`. The `url` field is the cockpit URL (e.g. `http://localhost:3737`).
+   - Compute the workspace key: if the current working directory is under the Minsky **sessions dir** (resolved by `getSessionsDir()` from `src/utils/paths.ts` — defaults to `~/.local/state/minsky/sessions/` but respects `XDG_STATE_HOME` and varies by OS), the key is the first path segment after that dir (the session ID). Otherwise it is `"main"`.
+   - Read the **state dir's** `cockpit/<workspace-key>.json` file (state dir defaults to `~/.local/state/minsky/` but respects `MINSKY_STATE_DIR` and `XDG_STATE_HOME`). The `url` field is the cockpit URL (e.g. `http://localhost:3737`).
    - If the file is missing, the cockpit is not running for this workspace. Ask the operator to run `minsky cockpit start` in this workspace, or do not proceed with steps that need the live surface.
 
 2. **Find or open the tab.** Call `mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages` to see what's already open. If a tab matches the URL from step 1, select it with `select_page`. Otherwise open it with `new_page` (passing the URL as the navigation target).

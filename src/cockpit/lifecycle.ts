@@ -93,21 +93,64 @@ export function getCockpitStateFilePath(workspaceKey: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Atomic JSON write (cross-platform)
+//
+// POSIX `rename(2)` overwrites the destination atomically. Windows
+// `renameSync` does NOT — it can throw EPERM/EEXIST if the destination is
+// in use or already exists. The fallback path removes the destination and
+// retries the rename. Temp files are cleaned up on any failure path so we
+// don't leak `.tmp.<pid>` siblings.
+//
+// Shared between cockpit lifecycle state and dev-chromium state — both files
+// have the same write semantics and the same Windows-portability concern.
+// ---------------------------------------------------------------------------
+
+export function atomicWriteJSON(filePath: string, data: unknown): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const tmp = `${filePath}.tmp.${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data), "utf-8");
+    try {
+      fs.renameSync(tmp, filePath);
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException;
+      // Windows path: rename may not overwrite an existing destination.
+      // Remove destination and retry. Other error codes propagate.
+      if (e.code === "EPERM" || e.code === "EEXIST" || e.code === "EACCES") {
+        try {
+          fs.rmSync(filePath, { force: true });
+        } catch {
+          // best-effort
+        }
+        fs.renameSync(tmp, filePath);
+      } else {
+        throw err;
+      }
+    }
+  } catch (err) {
+    // Clean up tmp on any failure (write error, rename error after retry).
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // best-effort
+    }
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Read / write / remove
 // ---------------------------------------------------------------------------
 
 /**
- * Write the cockpit state file atomically (temp-then-rename).
+ * Write the cockpit state file atomically. Cross-platform safe via the
+ * shared `atomicWriteJSON` helper above.
  */
 export function writeCockpitState(state: CockpitState): void {
-  const statePath = getCockpitStateFilePath(state.workspaceId);
-  const stateDir = path.dirname(statePath);
-  if (!fs.existsSync(stateDir)) {
-    fs.mkdirSync(stateDir, { recursive: true });
-  }
-  const tmp = `${statePath}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(state), "utf-8");
-  fs.renameSync(tmp, statePath);
+  atomicWriteJSON(getCockpitStateFilePath(state.workspaceId), state);
 }
 
 /**

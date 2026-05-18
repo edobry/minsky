@@ -22,7 +22,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { spawn, type ChildProcess } from "child_process";
-import { getStateDir } from "./lifecycle";
+import { atomicWriteJSON, getStateDir } from "./lifecycle";
 import { log } from "../utils/logger";
 
 // ---------------------------------------------------------------------------
@@ -60,14 +60,7 @@ export function getDevChromiumStateFilePath(): string {
 }
 
 export function writeDevChromiumState(state: DevChromiumState): void {
-  const statePath = getDevChromiumStateFilePath();
-  const stateDir = path.dirname(statePath);
-  if (!fs.existsSync(stateDir)) {
-    fs.mkdirSync(stateDir, { recursive: true });
-  }
-  const tmp = `${statePath}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(state), "utf-8");
-  fs.renameSync(tmp, statePath);
+  atomicWriteJSON(getDevChromiumStateFilePath(), state);
 }
 
 export function removeDevChromiumState(): void {
@@ -139,39 +132,79 @@ const CHROME_WIN32_PATHS = [
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
 ];
 
+// PATH-fallback basenames searched after the fixed candidates fail. Covers
+// NixOS, non-standard Homebrew, per-user installs, and any setup where the
+// binary is on PATH but not at a hardcoded absolute path.
+const CHROME_DARWIN_BASENAMES = ["google-chrome", "google-chrome-stable", "chromium", "chrome"];
+const CHROME_LINUX_BASENAMES = [
+  "google-chrome",
+  "google-chrome-stable",
+  "chromium",
+  "chromium-browser",
+  "chrome",
+];
+const CHROME_WIN32_BASENAMES = ["chrome", "chrome.exe", "chromium", "chromium.exe"];
+
 export interface DetectChromeOptions {
   /** Override fs.existsSync (test seam). */
   existsFn?: (p: string) => boolean;
   /** Override platform detection (test seam). */
   platform?: NodeJS.Platform;
+  /** Override `process.env.PATH` (test seam). */
+  pathEnv?: string;
+}
+
+function findOnPath(
+  basenames: readonly string[],
+  pathEnv: string,
+  delimiter: string,
+  exists: (p: string) => boolean
+): string | null {
+  const dirs = pathEnv.split(delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const basename of basenames) {
+      const candidate = path.join(dir, basename);
+      if (exists(candidate)) return candidate;
+    }
+  }
+  return null;
 }
 
 export function detectChromeExecutable(opts: DetectChromeOptions = {}): string | null {
   const exists = opts.existsFn ?? ((p: string) => fs.existsSync(p));
   const platform = opts.platform ?? process.platform;
+  const pathEnv = opts.pathEnv ?? process.env["PATH"] ?? "";
 
   const override = process.env["MINSKY_DEV_CHROMIUM_EXECUTABLE"];
   if (override && exists(override)) return override;
 
-  let candidates: string[];
+  let candidates: readonly string[];
+  let basenames: readonly string[];
   switch (platform) {
     case "darwin":
       candidates = CHROME_DARWIN_PATHS;
+      basenames = CHROME_DARWIN_BASENAMES;
       break;
     case "linux":
       candidates = CHROME_LINUX_PATHS;
+      basenames = CHROME_LINUX_BASENAMES;
       break;
     case "win32":
       candidates = CHROME_WIN32_PATHS;
+      basenames = CHROME_WIN32_BASENAMES;
       break;
     default:
       return null;
   }
 
+  // 1. Try the fixed candidates first (most common installs).
   for (const p of candidates) {
     if (exists(p)) return p;
   }
-  return null;
+
+  // 2. PATH fallback: covers NixOS, non-standard Homebrew, per-user installs.
+  const delimiter = platform === "win32" ? ";" : ":";
+  return findOnPath(basenames, pathEnv, delimiter, exists);
 }
 
 // ---------------------------------------------------------------------------
@@ -179,10 +212,17 @@ export function detectChromeExecutable(opts: DetectChromeOptions = {}): string |
 // ---------------------------------------------------------------------------
 
 /**
- * Probe the debugging port for a live chromium. Returns true iff
- * `GET http://127.0.0.1:<port>/json/version` responds 2xx within
- * `PROBE_TIMEOUT_MS`. Connection refused, timeout, and non-2xx responses
- * all return false.
+ * Probe the debugging port for a live chromium. Returns true iff:
+ *   - `GET http://127.0.0.1:<port>/json/version` responds within `PROBE_TIMEOUT_MS`
+ *   - status is exactly 200 (not just any 2xx — Chrome's `/json/version`
+ *     always returns 200 on success; tightening rules out misrouting through
+ *     an unrelated 2xx-emitting proxy)
+ *   - response body parses as JSON AND contains a `Browser` string field
+ *     (DevTools protocol's `/json/version` contract — rules out a stranger
+ *     service that happens to live on the port)
+ *
+ * Connection refused, timeout, non-200 responses, non-JSON bodies, and
+ * missing `Browser` field all return false.
  */
 export async function isDevChromiumRunning(
   port: number = DEFAULT_DEBUGGING_PORT
@@ -194,7 +234,16 @@ export async function isDevChromiumRunning(
       const res = await fetch(`http://127.0.0.1:${port}/json/version`, {
         signal: controller.signal,
       });
-      return res.ok;
+      if (res.status !== 200) return false;
+      let body: unknown;
+      try {
+        body = await res.json();
+      } catch {
+        return false;
+      }
+      if (!body || typeof body !== "object") return false;
+      const browser = (body as Record<string, unknown>)["Browser"];
+      return typeof browser === "string" && browser.length > 0;
     } finally {
       clearTimeout(timer);
     }

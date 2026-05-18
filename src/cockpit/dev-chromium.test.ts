@@ -38,6 +38,7 @@ import {
 const STATE_DIR_ENV = "MINSKY_STATE_DIR";
 const EXECUTABLE_ENV = "MINSKY_DEV_CHROMIUM_EXECUTABLE";
 const USER_DATA_DIR_ENV = "MINSKY_DEV_CHROMIUM_USER_DATA_DIR";
+const CONTENT_TYPE_JSON = "application/json";
 
 let tmpStateDir: string;
 let priorStateDir: string | undefined;
@@ -129,6 +130,60 @@ describe("detectChromeExecutable", () => {
     expect(
       detectChromeExecutable({
         platform: "darwin",
+        existsFn: () => false,
+        pathEnv: "",
+      })
+    ).toBeNull();
+  });
+
+  test("falls back to PATH when no hardcoded candidate exists (linux)", () => {
+    const pathDir = "/opt/local/bin";
+    const found = path.join(pathDir, "chromium");
+    const result = detectChromeExecutable({
+      platform: "linux",
+      pathEnv: pathDir,
+      existsFn: (p) => p === found,
+    });
+    expect(result).toBe(found);
+  });
+
+  test("PATH fallback honours basename order: google-chrome wins over chromium", () => {
+    const pathDir = "/usr/local/bin";
+    const result = detectChromeExecutable({
+      platform: "linux",
+      pathEnv: pathDir,
+      existsFn: (p) =>
+        p === path.join(pathDir, "google-chrome") || p === path.join(pathDir, "chromium"),
+    });
+    expect(result).toBe(path.join(pathDir, "google-chrome"));
+  });
+
+  test("PATH fallback iterates multiple dirs in PATH order", () => {
+    const first = "/first/bin";
+    const second = "/second/bin";
+    const result = detectChromeExecutable({
+      platform: "linux",
+      pathEnv: `${first}:${second}`,
+      existsFn: (p) => p === path.join(second, "chromium-browser"),
+    });
+    expect(result).toBe(path.join(second, "chromium-browser"));
+  });
+
+  test("PATH fallback uses ';' delimiter on windows", () => {
+    const dir = "C:\\\\custom\\\\bin";
+    const result = detectChromeExecutable({
+      platform: "win32",
+      pathEnv: `C:\\\\other\\\\bin;${dir}`,
+      existsFn: (p) => p === path.join(dir, "chrome.exe"),
+    });
+    expect(result).toBe(path.join(dir, "chrome.exe"));
+  });
+
+  test("PATH fallback returns null when PATH is empty and no fixed candidates exist", () => {
+    expect(
+      detectChromeExecutable({
+        platform: "linux",
+        pathEnv: "",
         existsFn: () => false,
       })
     ).toBeNull();
@@ -243,11 +298,11 @@ describe("isDevChromiumRunning", () => {
     expect(await isDevChromiumRunning(port)).toBe(false);
   });
 
-  test("returns true against a 200 /json/version response", async () => {
+  test("returns true against a 200 /json/version response with Browser field", async () => {
     const { server, port } = await bindHttpServer((req, res) => {
       if (req.url === "/json/version") {
         res.statusCode = 200;
-        res.setHeader("Content-Type", "application/json");
+        res.setHeader("Content-Type", CONTENT_TYPE_JSON);
         res.end(JSON.stringify({ Browser: "Chrome/146.0.0.0" }));
       } else {
         res.statusCode = 404;
@@ -265,6 +320,58 @@ describe("isDevChromiumRunning", () => {
     const { server, port } = await bindHttpServer((_req, res) => {
       res.statusCode = 404;
       res.end();
+    });
+    try {
+      expect(await isDevChromiumRunning(port)).toBe(false);
+    } finally {
+      await closeHttpServer(server);
+    }
+  });
+
+  test("returns false against a non-200 2xx response (e.g. 201)", async () => {
+    const { server, port } = await bindHttpServer((_req, res) => {
+      res.statusCode = 201;
+      res.setHeader("Content-Type", CONTENT_TYPE_JSON);
+      res.end(JSON.stringify({ Browser: "Chrome/146" }));
+    });
+    try {
+      expect(await isDevChromiumRunning(port)).toBe(false);
+    } finally {
+      await closeHttpServer(server);
+    }
+  });
+
+  test("returns false when 200 body is not JSON (rules out unrelated services)", async () => {
+    const { server, port } = await bindHttpServer((_req, res) => {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "text/plain");
+      res.end("not json");
+    });
+    try {
+      expect(await isDevChromiumRunning(port)).toBe(false);
+    } finally {
+      await closeHttpServer(server);
+    }
+  });
+
+  test("returns false when 200 JSON body lacks a Browser field", async () => {
+    const { server, port } = await bindHttpServer((_req, res) => {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", CONTENT_TYPE_JSON);
+      res.end(JSON.stringify({ SomeOtherField: "value" }));
+    });
+    try {
+      expect(await isDevChromiumRunning(port)).toBe(false);
+    } finally {
+      await closeHttpServer(server);
+    }
+  });
+
+  test("returns false when 200 JSON body Browser field is empty", async () => {
+    const { server, port } = await bindHttpServer((_req, res) => {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", CONTENT_TYPE_JSON);
+      res.end(JSON.stringify({ Browser: "" }));
     });
     try {
       expect(await isDevChromiumRunning(port)).toBe(false);

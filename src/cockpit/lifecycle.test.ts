@@ -21,6 +21,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import {
+  atomicWriteJSON,
   getCockpitStateDir,
   getCockpitStateFilePath,
   getStateDir,
@@ -216,6 +217,44 @@ describe("state-file lifecycle", () => {
     writeCockpitState(sampleState());
     const read = readCockpitState("main");
     expect(read?.devChromiumPid).toBeUndefined();
+  });
+
+  test("write overwrites an existing state file (cross-platform atomic-replace)", () => {
+    writeCockpitState(sampleState({ port: 3001 }));
+    writeCockpitState(sampleState({ port: 3002 }));
+    expect(readCockpitState("main")?.port).toBe(3002);
+    // No tmp leftover after the overwrite.
+    const tmpFiles = fs
+      .readdirSync(getCockpitStateDir())
+      .filter((f) => f.startsWith("main.json.tmp."));
+    expect(tmpFiles).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// atomicWriteJSON (shared helper)
+// ---------------------------------------------------------------------------
+
+describe("atomicWriteJSON", () => {
+  test("creates parent directories if missing", () => {
+    const target = path.join(tmpStateDir, "nested", "deep", "data.json");
+    atomicWriteJSON(target, { hello: "world" });
+    expect(fs.existsSync(target)).toBe(true);
+    expect(JSON.parse(String(fs.readFileSync(target, "utf-8")))).toEqual({ hello: "world" });
+  });
+
+  test("overwrites an existing file (rename-with-existing-dest)", () => {
+    const target = path.join(tmpStateDir, "data.json");
+    atomicWriteJSON(target, { v: 1 });
+    atomicWriteJSON(target, { v: 2 });
+    expect(JSON.parse(String(fs.readFileSync(target, "utf-8")))).toEqual({ v: 2 });
+  });
+
+  test("leaves no .tmp.* file on success", () => {
+    const target = path.join(tmpStateDir, "data.json");
+    atomicWriteJSON(target, { ok: true });
+    const tmpFiles = fs.readdirSync(tmpStateDir).filter((f) => f.includes(".tmp."));
+    expect(tmpFiles).toEqual([]);
   });
 });
 
