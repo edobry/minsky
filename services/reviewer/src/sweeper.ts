@@ -55,6 +55,8 @@ import { createOctokit, getAppIdentity } from "./github-client";
 import { runReview } from "./review-worker";
 import { decideRouting, extractTierFromPRBody } from "./tier-routing";
 import type { Octokit } from "@octokit/rest";
+import type { ReviewerDb } from "./db/client";
+import { pruneStaleMarkers, listActiveMarkersForPRs, markerKey } from "./inflight-marker";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -303,16 +305,27 @@ export interface SweeperDeps {
   botLogin: string;
   /** Optional runReview override for tests. Defaults to the real runReview. */
   runReviewFn?: RunReviewFn;
+  /**
+   * Optional DB instance for in-flight marker integration (mt#1907).
+   * When absent, marker lookup is skipped (graceful degradation for tests
+   * that don't need it).
+   */
+  db?: ReviewerDb;
 }
 
 /**
  * Build the real SweeperDeps from config (used in production).
  * Exported so server.ts can call it and tests can bypass it.
+ *
+ * Accepts an optional db parameter (mt#1907) for in-flight marker integration.
  */
-export async function buildSweeperDeps(config: ReviewerConfig): Promise<SweeperDeps> {
+export async function buildSweeperDeps(
+  config: ReviewerConfig,
+  db?: ReviewerDb
+): Promise<SweeperDeps> {
   const octokit = await createOctokit(config);
   const botIdentity = await getAppIdentity(config);
-  return { octokit, botLogin: botIdentity.login };
+  return { octokit, botLogin: botIdentity.login, db };
 }
 
 /**
@@ -364,7 +377,7 @@ export async function runSweep(
   const startedAt = new Date().toISOString();
   const { owner, repo } = sweeperConfig;
 
-  const { octokit, botLogin, runReviewFn } = depsOverride ?? (await buildSweeperDeps(config));
+  const { octokit, botLogin, runReviewFn, db } = depsOverride ?? (await buildSweeperDeps(config));
 
   console.log(
     JSON.stringify({
@@ -375,6 +388,31 @@ export async function runSweep(
       botLogin,
     })
   );
+
+  // 0. Prune stale inflight markers (mt#1907 defense in depth).
+  // Clears markers left by crashed runReview calls that never released.
+  // When db is absent (tests or DB-less environments), skip gracefully.
+  if (db !== undefined) {
+    try {
+      const pruned = await pruneStaleMarkers(db);
+      if (pruned > 0) {
+        console.log(
+          JSON.stringify({
+            event: "sweeper.pruned_stale_markers",
+            count: pruned,
+          })
+        );
+      }
+    } catch (pruneErr: unknown) {
+      const message = pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
+      console.warn(
+        JSON.stringify({
+          event: "sweeper.prune_stale_markers_failed",
+          error: message,
+        })
+      );
+    }
+  }
 
   // 1. List all open PRs.
   const openPRs = await listOpenPRs(octokit, owner, repo);
@@ -432,20 +470,63 @@ export async function runSweep(
     }
   }
 
-  if (missing.length > 0) {
+  // 2b. Filter out PRs whose inflight marker is fresh (mt#1907).
+  // A fresh marker means runReview is currently in flight from a webhook —
+  // retriggering would produce a duplicate review. Skip them; they'll be
+  // cleaned up by the next sweep cycle after the webhook completes.
+  let filteredMissing = missing;
+  if (db !== undefined && missing.length > 0) {
+    try {
+      const markerLookup = await listActiveMarkersForPRs(
+        db,
+        missing.map((m) => ({ owner, repo, prNumber: m.number, headSha: m.headSha }))
+      );
+
+      filteredMissing = missing.filter((m) => {
+        const key = markerKey(owner, repo, m.number, m.headSha);
+        const marker = markerLookup.get(key);
+        if (marker !== undefined) {
+          console.log(
+            JSON.stringify({
+              event: "sweeper.skipped_inflight",
+              pr: m.number,
+              headSha: m.headSha,
+              acquired_by: marker.acquiredBy,
+              delivery_id: marker.deliveryId,
+              expires_at: marker.expiresAt.toISOString(),
+            })
+          );
+          return false;
+        }
+        return true;
+      });
+    } catch (lookupErr: unknown) {
+      const message = lookupErr instanceof Error ? lookupErr.message : String(lookupErr);
+      console.warn(
+        JSON.stringify({
+          event: "sweeper.marker_lookup_failed_proceeding",
+          error: message,
+          missing_count: missing.length,
+        })
+      );
+      // Fail-open: proceed with all missing PRs if lookup fails.
+    }
+  }
+
+  if (filteredMissing.length > 0) {
     console.warn(
       JSON.stringify({
         event: "sweeper.primary_webhook_failing",
-        message: `${missing.length} PR(s) are missing a minsky-reviewer review — the primary webhook path may be failing.`,
-        missingPrNumbers: missing.map((m) => m.number),
+        message: `${filteredMissing.length} PR(s) are missing a minsky-reviewer review — the primary webhook path may be failing.`,
+        missingPrNumbers: filteredMissing.map((m) => m.number),
       })
     );
   }
 
   // 3. Retrigger missing reviews via in-process runReview, capped at SWEEP_CONCURRENCY.
   let retriggeredCount = 0;
-  for (let i = 0; i < missing.length; i += SWEEP_CONCURRENCY) {
-    const batch = missing.slice(i, i + SWEEP_CONCURRENCY);
+  for (let i = 0; i < filteredMissing.length; i += SWEEP_CONCURRENCY) {
+    const batch = filteredMissing.slice(i, i + SWEEP_CONCURRENCY);
     // Schedule each in the batch. retriggerViaRunReview never throws (it
     // catch-logs internally), so we can safely await all in parallel.
     await Promise.all(
@@ -457,7 +538,7 @@ export async function runSweep(
   const result: SweepResult = {
     startedAt,
     prsScanned,
-    missing,
+    missing: filteredMissing,
     retriggeredCount,
   };
 
@@ -465,7 +546,7 @@ export async function runSweep(
     JSON.stringify({
       event: "sweeper.cycle_end",
       ...result,
-      missingCount: missing.length,
+      missingCount: filteredMissing.length,
     })
   );
 
@@ -494,7 +575,8 @@ export async function runSweep(
  */
 export function startSweeper(
   config: ReviewerConfig,
-  sweeperConfig: SweeperConfig
+  sweeperConfig: SweeperConfig,
+  db?: ReviewerDb
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
     console.log(
@@ -564,6 +646,10 @@ export function startSweeper(
 
   let isSweeping = false;
 
+  // Cache a deps promise so we build octokit + botLogin once and reuse across
+  // sweep cycles. The db is forwarded so runSweep can use the inflight marker.
+  let cachedDeps: Promise<SweeperDeps> | null = null;
+
   const handle = setInterval(() => {
     if (isSweeping) {
       console.warn(
@@ -575,7 +661,12 @@ export function startSweeper(
       return;
     }
     isSweeping = true;
-    runSweep(config, sweeperConfig)
+    // Lazily build deps on first cycle; reuse on subsequent cycles.
+    if (cachedDeps === null) {
+      cachedDeps = buildSweeperDeps(config, db);
+    }
+    cachedDeps
+      .then((deps) => runSweep(config, sweeperConfig, deps))
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
@@ -584,6 +675,8 @@ export function startSweeper(
             error: message,
           })
         );
+        // Clear cached deps on error so next cycle retries building them.
+        cachedDeps = null;
       })
       .finally(() => {
         isSweeping = false;
