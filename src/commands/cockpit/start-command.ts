@@ -4,13 +4,8 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
-import {
-  classifyPortHolder,
-  killZombie,
-  openInBrowser,
-  removeCockpitPidFile,
-  writeCockpitPidFile,
-} from "../../cockpit/port-recovery";
+import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
+import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
 
 const DEFAULT_PORT = 3737;
 
@@ -138,24 +133,29 @@ export function createStartCommand(): Command {
       const server = attempt.server;
 
       try {
-        writeCockpitPidFile(port);
+        writeCurrentCockpitState({
+          pid: process.pid,
+          port,
+          url: `http://localhost:${port}`,
+        });
       } catch (err) {
         const e = err as Error;
-        console.warn(`Warning: could not write cockpit PID file: ${e.message}`);
+        console.warn(`Warning: could not write cockpit state file: ${e.message}`);
       }
 
       // Cleanup on shutdown. Idempotent against double-fire across multiple
       // signal sources AND the process-exit path. Per PR #1151 R1 (mt#1887)
-      // BLOCKING #2 — signal-only cleanup left stale PID files on non-signal
+      // BLOCKING #2 — signal-only cleanup left stale state files on non-signal
       // shutdown paths (process.exit() called elsewhere, uncaughtException,
       // unhandledRejection, normal event-loop drain). All paths now route
-      // through `cleanupSync` which removes the PID file unconditionally
-      // before exit.
+      // through `cleanupSync` which removes the state file unconditionally
+      // before exit. State file moved from a single-global path to the
+      // per-workspace lifecycle module in mt#1904.
       let shuttingDown = false;
       const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
-        removeCockpitPidFile();
+        removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
         cleanupSync();
