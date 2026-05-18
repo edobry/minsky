@@ -667,9 +667,15 @@ export const sessionPrWaitForReviewCommandParams = {
   reviewer: {
     schema: z.string(),
     description:
-      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot] " +
-      "or the bare minsky-reviewer form). Case-insensitive; a trailing [bot] " +
-      "suffix is optional on both sides of the comparison. Defaults to any reviewer.",
+      "Only match reviews from this reviewer. Accepts either: " +
+      '(1) a TokenRole identifier ("reviewer" or "implementer", ' +
+      "case-insensitive) — resolved at call setup against the configured GitHub " +
+      "App identity; throws a typed error if the role's service account is not " +
+      "configured. (2) a literal GitHub login (e.g., minsky-reviewer[bot] or " +
+      "the bare minsky-reviewer form, or any human reviewer's login) — " +
+      "case-insensitive with optional trailing [bot] suffix on either side. " +
+      "Role identifiers shadow literal logins of the same name; pass the " +
+      "[bot]-suffixed form to disambiguate. Defaults to any reviewer.",
     required: false,
   },
   since: {

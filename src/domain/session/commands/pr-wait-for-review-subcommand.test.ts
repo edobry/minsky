@@ -8,15 +8,19 @@
 import { describe, expect, test } from "bun:test";
 import {
   findMatchingReview,
+  resolveReviewerFilter,
   sessionPrWaitForReview,
   type SessionPrWaitForReviewDependencies,
 } from "./pr-wait-for-review-subcommand";
 import type { ReviewListEntry, RepositoryBackend } from "../../repository/index";
 import type { SessionProviderInterface, SessionRecord } from "../types";
-import { ResourceNotFoundError, ValidationError } from "../../../errors/index";
+import type { TokenProvider, TokenRole } from "../../auth/token-provider";
+import { MinskyError, ResourceNotFoundError, ValidationError } from "../../../errors/index";
 
 /** Reviewer login used by test fixtures and filter-match assertions. */
 const REVIEWER_BOT = "minsky-reviewer[bot]";
+/** Implementer App login used by mt#1911 role-resolution test fixtures. */
+const IMPLEMENTER_BOT = "minsky-ai[bot]";
 
 describe("findMatchingReview", () => {
   function mkReview(overrides: Partial<ReviewListEntry>): ReviewListEntry {
@@ -159,6 +163,125 @@ describe("findMatchingReview", () => {
       undefined
     );
     expect(r?.reviewId).toBe(2);
+  });
+});
+
+describe("resolveReviewerFilter", () => {
+  // mt#1911: TokenRole-aligned role identifiers as alternative to literal logins.
+  // Reuses top-level REVIEWER_BOT / IMPLEMENTER_BOT constants for the App identities.
+
+  function makeTokenProvider(opts: {
+    rolesConfigured: TokenRole[];
+    identities?: Partial<Record<TokenRole, { login: string; type: "app" | "user" } | null>>;
+  }): TokenProvider {
+    return {
+      getToken: async () => "stub-token",
+      getServiceToken: async () => "stub-token",
+      getUserToken: async () => "stub-user-token",
+      getServiceIdentity: async (role?: TokenRole) => {
+        const resolved = role ?? "implementer";
+        if (opts.identities && resolved in opts.identities) {
+          return opts.identities[resolved] ?? null;
+        }
+        if (resolved === "reviewer") return { login: REVIEWER_BOT, type: "app" };
+        return { login: IMPLEMENTER_BOT, type: "app" };
+      },
+      isServiceAccountConfigured: () => opts.rolesConfigured.includes("implementer"),
+      isRoleConfigured: (role: TokenRole) => opts.rolesConfigured.includes(role),
+    };
+  }
+
+  test("returns undefined when reviewer is undefined (no filter)", async () => {
+    const tp = makeTokenProvider({ rolesConfigured: ["implementer", "reviewer"] });
+    const resolved = await resolveReviewerFilter(undefined, async () => tp);
+    expect(resolved).toBeUndefined();
+  });
+
+  test("passes literal logins through unchanged (no TokenProvider lookup)", async () => {
+    // The TokenProvider must NOT be consulted for literal-login filters.
+    // Use a provider that throws if called to assert this.
+    const callCounter = { n: 0 };
+    const getTp = async (): Promise<TokenProvider> => {
+      callCounter.n += 1;
+      throw new Error("getTokenProvider should not be called for literal logins");
+    };
+    expect(await resolveReviewerFilter("minsky-reviewer", getTp)).toBe("minsky-reviewer");
+    expect(await resolveReviewerFilter(REVIEWER_BOT, getTp)).toBe(REVIEWER_BOT);
+    expect(await resolveReviewerFilter("some-human-login", getTp)).toBe("some-human-login");
+    expect(callCounter.n).toBe(0);
+  });
+
+  test("resolves reviewer role to App login when configured", async () => {
+    const tp = makeTokenProvider({ rolesConfigured: ["implementer", "reviewer"] });
+    const resolved = await resolveReviewerFilter("reviewer", async () => tp);
+    expect(resolved).toBe(REVIEWER_BOT);
+  });
+
+  test("resolves implementer role to App login when configured", async () => {
+    const tp = makeTokenProvider({ rolesConfigured: ["implementer"] });
+    const resolved = await resolveReviewerFilter("implementer", async () => tp);
+    expect(resolved).toBe(IMPLEMENTER_BOT);
+  });
+
+  test("role identifier match is case-insensitive", async () => {
+    const tp = makeTokenProvider({ rolesConfigured: ["implementer", "reviewer"] });
+    expect(await resolveReviewerFilter("Reviewer", async () => tp)).toBe(REVIEWER_BOT);
+    expect(await resolveReviewerFilter("REVIEWER", async () => tp)).toBe(REVIEWER_BOT);
+    expect(await resolveReviewerFilter("Implementer", async () => tp)).toBe(IMPLEMENTER_BOT);
+  });
+
+  test("throws typed MinskyError naming config key when reviewer role unconfigured", async () => {
+    const tp = makeTokenProvider({ rolesConfigured: ["implementer"] }); // reviewer absent
+    let err: unknown;
+    try {
+      await resolveReviewerFilter("reviewer", async () => tp);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MinskyError);
+    expect((err as MinskyError).message).toContain("github.reviewer.serviceAccount");
+    expect((err as MinskyError).message).toContain("not configured");
+  });
+
+  test("throws typed MinskyError naming config key when implementer role unconfigured", async () => {
+    const tp = makeTokenProvider({ rolesConfigured: [] }); // neither configured
+    let err: unknown;
+    try {
+      await resolveReviewerFilter("implementer", async () => tp);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MinskyError);
+    expect((err as MinskyError).message).toContain("github.serviceAccount");
+  });
+
+  test("throws when TokenProvider returns null identity despite role configured (defensive)", async () => {
+    // Inconsistency check: isRoleConfigured says yes but getServiceIdentity returns null.
+    const tp = makeTokenProvider({
+      rolesConfigured: ["implementer", "reviewer"],
+      identities: { reviewer: null },
+    });
+    let err: unknown;
+    try {
+      await resolveReviewerFilter("reviewer", async () => tp);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MinskyError);
+    expect((err as MinskyError).message).toContain("inconsistency");
+  });
+
+  test("literal login that resembles a role but isn't exact passes through", async () => {
+    // "reviewer-bot" is NOT the literal role identifier "reviewer" (case-insensitive
+    // strict match). Treat as a literal login.
+    const callCounter = { n: 0 };
+    const getTp = async (): Promise<TokenProvider> => {
+      callCounter.n += 1;
+      throw new Error("should not be called");
+    };
+    expect(await resolveReviewerFilter("reviewer-bot", getTp)).toBe("reviewer-bot");
+    expect(await resolveReviewerFilter("some-reviewer", getTp)).toBe("some-reviewer");
+    expect(callCounter.n).toBe(0);
   });
 });
 
@@ -394,6 +517,49 @@ describe("sessionPrWaitForReview", () => {
     if (!result.matched) {
       expect(result.pollCount).toBe(2);
     }
+  });
+
+  // mt#1911: role-resolution wires through the polling loop end-to-end.
+  test("reviewer role identifier resolves and matches at filter time", async () => {
+    const tp: TokenProvider = {
+      getToken: async () => "stub",
+      getServiceToken: async () => "stub",
+      getUserToken: async () => "stub",
+      getServiceIdentity: async () => ({ login: REVIEWER_BOT, type: "app" }),
+      isServiceAccountConfigured: () => true,
+      isRoleConfigured: () => true,
+    };
+    const deps = makeDeps([[match]]);
+    deps.getTokenProvider = async () => tp;
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 30, intervalSeconds: 5, reviewer: "reviewer" },
+      deps
+    );
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewerLogin).toBe(REVIEWER_BOT);
+    }
+  });
+
+  test("reviewer role identifier with unconfigured role throws before polling", async () => {
+    const tp: TokenProvider = {
+      getToken: async () => "stub",
+      getServiceToken: async () => "stub",
+      getUserToken: async () => "stub",
+      getServiceIdentity: async () => null,
+      isServiceAccountConfigured: () => false,
+      isRoleConfigured: () => false,
+    };
+    const deps = makeDeps([[match]]);
+    deps.getTokenProvider = async () => tp;
+    await expect(
+      sessionPrWaitForReview(
+        { sessionId, timeoutSeconds: 30, intervalSeconds: 5, reviewer: "reviewer" },
+        deps
+      )
+    ).rejects.toThrow(/github\.reviewer\.serviceAccount/);
+    // Critical: no polls occurred — the throw is at filter setup, before backend.review.listReviews.
+    expect(deps.listCalls).toBe(0);
   });
 
   test("handles a large (paginated-equivalent) review list without losing the match", async () => {
