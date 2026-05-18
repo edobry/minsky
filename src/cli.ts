@@ -196,14 +196,23 @@ async function main(): Promise<void> {
   exit(0);
 }
 
-// Run the CLI
-main().catch((err) => {
-  const validatedError = validateError(err);
-  log.systemDebug(`Error caught in main: ${err}`);
-  log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);
-  log.error(`Unhandled error in CLI: ${validatedError.message}`);
-  if (validatedError.stack) log.debug(validatedError.stack);
-  exit(1);
-});
+// Run the CLI.
+//
+// MINSKY_SKIP_CLI_AUTORUN gate (mt#1892): build scripts that need to import
+// `createCli` (e.g., scripts/build-completion-manifest.ts) set this env var
+// so importing this module does NOT auto-run the CLI. Without the gate, the
+// import alone would trigger parseAsync() and exit the build script. The
+// env var is registered in HOOK_ONLY_ENV_VARS per the custom ESLint rule
+// (mt#1788) so the config-loader skips it.
+if (!process.env.MINSKY_SKIP_CLI_AUTORUN) {
+  main().catch((err) => {
+    const validatedError = validateError(err);
+    log.systemDebug(`Error caught in main: ${err}`);
+    log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);
+    log.error(`Unhandled error in CLI: ${validatedError.message}`);
+    if (validatedError.stack) log.debug(validatedError.stack);
+    exit(1);
+  });
+}
 
 export default cli;

@@ -1,0 +1,5015 @@
+{
+  "_generated": "by scripts/build-completion-manifest.ts — do not edit directly",
+  "name": "minsky",
+  "description": "Minsky development workflow tool",
+  "subcommands": [
+    {
+      "name": "git",
+      "description": "GIT commands",
+      "subcommands": [
+        {
+          "name": "commit",
+          "description": "Commit changes to the repository",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--all"],
+              "description": "Stage all changes including deletions"
+            },
+            {
+              "flags": ["--amend"],
+              "description": "Amend the previous commit"
+            },
+            {
+              "flags": ["--no-stage"],
+              "description": "Skip staging changes"
+            },
+            {
+              "flags": ["--files"],
+              "description": "Specific file paths to stage before committing. Prefer omitting this: work should happen in a session dedicated to a single task, where all dirty files belong to that task and `all: true` is the right default. Selective commits on main indicate a workflow deviation — the correct fix is usually to move the work into a session. Use this parameter only for genuine exceptions (e.g., small harness/config tweaks on main that can't reasonably be sessionized)."
+            }
+          ]
+        },
+        {
+          "name": "push",
+          "description": "Push changes to the remote repository",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force the operation"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            },
+            {
+              "flags": ["--remote"],
+              "description": "Git remote name"
+            }
+          ]
+        },
+        {
+          "name": "clone",
+          "description": "Clone a Git repository",
+          "options": [
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--branch"],
+              "description": "Git branch name"
+            },
+            {
+              "flags": ["--destination"],
+              "description": "Target directory for the clone"
+            }
+          ]
+        },
+        {
+          "name": "branch",
+          "description": "Create a new branch",
+          "options": [
+            {
+              "flags": ["--preview"],
+              "description": "Preview potential conflicts"
+            },
+            {
+              "flags": ["--auto-resolve"],
+              "description": "Enable automatic conflict resolution"
+            },
+            {
+              "flags": ["--name"],
+              "description": "Name of the branch to create"
+            }
+          ]
+        },
+        {
+          "name": "merge",
+          "description": "Merge a branch with conflict detection",
+          "options": [
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--preview"],
+              "description": "Preview potential conflicts"
+            },
+            {
+              "flags": ["--auto-resolve"],
+              "description": "Enable automatic conflict resolution"
+            },
+            {
+              "flags": ["--conflict-strategy"],
+              "description": "Choose conflict resolution strategy"
+            }
+          ]
+        },
+        {
+          "name": "checkout",
+          "description": "Checkout a branch with conflict detection",
+          "options": [
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force the operation"
+            },
+            {
+              "flags": ["--preview"],
+              "description": "Preview potential conflicts"
+            },
+            {
+              "flags": ["--auto-stash"],
+              "description": "Automatically stash uncommitted changes before checkout"
+            }
+          ]
+        },
+        {
+          "name": "rebase",
+          "description": "Rebase with conflict detection",
+          "options": [
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--preview"],
+              "description": "Preview potential conflicts"
+            },
+            {
+              "flags": ["--auto-resolve"],
+              "description": "Enable automatic conflict resolution"
+            },
+            {
+              "flags": ["--conflict-strategy"],
+              "description": "Choose conflict resolution strategy"
+            }
+          ]
+        },
+        {
+          "name": "conflicts",
+          "description": "Detect and report merge conflicts in structured format",
+          "options": [
+            {
+              "flags": ["--format"],
+              "description": "Output format for conflict results"
+            },
+            {
+              "flags": ["--context"],
+              "description": "Number of context lines to include around conflicts"
+            },
+            {
+              "flags": ["--files"],
+              "description": "File pattern to limit conflict scanning (e.g. '*.ts')"
+            }
+          ]
+        },
+        {
+          "name": "log",
+          "description": "View commit history with optional filtering",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of commits to show"
+            },
+            {
+              "flags": ["--author"],
+              "description": "Filter commits by author name or email"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')"
+            },
+            {
+              "flags": ["--until"],
+              "description": "Show commits older than a specific date"
+            },
+            {
+              "flags": ["--path"],
+              "description": "Filter commits that affect the specified file path"
+            },
+            {
+              "flags": ["--grep"],
+              "description": "Filter commits by message text"
+            },
+            {
+              "flags": ["--format"],
+              "description": "Output format: oneline, short, medium, or full"
+            },
+            {
+              "flags": ["--ref"],
+              "description": "Branch, tag, or ref to start log from"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search repository content, commits, or diffs",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--type"],
+              "description": "Search type: content (git grep), commits (git log -S pickaxe), or diff (git log -p with grep)"
+            },
+            {
+              "flags": ["--path"],
+              "description": "Restrict search to a specific file path or directory"
+            },
+            {
+              "flags": ["--ref"],
+              "description": "Search at a specific ref (default HEAD for content search)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return"
+            },
+            {
+              "flags": ["--ignore-case"],
+              "description": "Perform case-insensitive search"
+            }
+          ]
+        },
+        {
+          "name": "diff",
+          "description": "Show diff between refs, or unstaged changes",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--from"],
+              "description": "Starting ref (commit, branch, tag). If omitted, shows unstaged changes"
+            },
+            {
+              "flags": ["--to"],
+              "description": "Ending ref. If omitted with from, diffs from against working tree"
+            },
+            {
+              "flags": ["--path"],
+              "description": "Restrict diff to a specific file or directory"
+            },
+            {
+              "flags": ["--stat"],
+              "description": "Show diffstat summary only (--stat)"
+            },
+            {
+              "flags": ["--name-only"],
+              "description": "Show only changed file names (--name-only)"
+            }
+          ]
+        },
+        {
+          "name": "blame",
+          "description": "Show what revision and author last modified each line of a file",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--ref"],
+              "description": "Blame at specific ref (default HEAD)"
+            },
+            {
+              "flags": ["--start-line"],
+              "description": "Start of line range"
+            },
+            {
+              "flags": ["--end-line"],
+              "description": "End of line range"
+            }
+          ]
+        },
+        {
+          "name": "pull",
+          "description": "Pull latest changes from remote using --ff-only. Returns structured error naming conflicting files when local changes block the merge.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--remote"],
+              "description": "Remote name (default: origin)"
+            },
+            {
+              "flags": ["--branch"],
+              "description": "Branch to pull (default: main)"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "description": "Get structured working-tree status (branch, ahead/behind, staged/unstaged/untracked/conflicted files).",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            }
+          ]
+        },
+        {
+          "name": "stash",
+          "description": "Stash working-tree changes. Returns stashRef or null when nothing to stash.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--message"],
+              "description": "Optional message for the stash entry"
+            },
+            {
+              "flags": ["--paths"],
+              "description": "Optional list of paths to stash selectively"
+            }
+          ]
+        },
+        {
+          "name": "stash_pop",
+          "description": "Pop (apply + drop) a stash entry. Returns any conflict paths.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--ref"],
+              "description": "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent."
+            }
+          ]
+        },
+        {
+          "name": "stash_list",
+          "description": "List all stash entries with structured metadata (ref, message, branch, timestamp).",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            }
+          ]
+        },
+        {
+          "name": "stash_drop",
+          "description": "Drop a specific stash entry. Requires confirmDrop: true (irreversible destructive operation).",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--confirm-drop"],
+              "description": "Must be set to `true` to confirm this destructive operation. The stash entry cannot be recovered once dropped."
+            }
+          ]
+        },
+        {
+          "name": "restore",
+          "description": "Discard unstaged working-tree changes for specific paths (git restore). Less destructive than reset --hard.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            }
+          ]
+        },
+        {
+          "name": "reset",
+          "description": "Run git reset with explicit mode (soft/mixed/hard). mode=hard requires confirmHard: true.",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--target"],
+              "description": "Target ref to reset to (default: HEAD)."
+            },
+            {
+              "flags": ["--confirm-hard"],
+              "description": "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "repo",
+      "description": "REPO commands",
+      "subcommands": [
+        {
+          "name": "read_file",
+          "description": "Read a file from the workspace, with optional line range slicing",
+          "options": [
+            {
+              "flags": ["--offset"],
+              "description": "Line offset to start reading from (0-based)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of lines to return"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search repository content using git grep",
+          "options": [
+            {
+              "flags": ["--path"],
+              "description": "Restrict search to this path (relative to workspace root)"
+            },
+            {
+              "flags": ["--ignore-case"],
+              "description": "Perform case-insensitive search"
+            }
+          ]
+        },
+        {
+          "name": "list_directory",
+          "description": "List files and directories in a workspace directory",
+          "options": [
+            {
+              "flags": ["--path"],
+              "description": "Directory path relative to workspace root (default: \".\")"
+            }
+          ]
+        },
+        {
+          "name": "changeset",
+          "description": "changeset commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List changesets (PRs/MRs/changes) across all VCS platforms",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--status"]
+                },
+                {
+                  "flags": ["--author"]
+                },
+                {
+                  "flags": ["--target-branch"]
+                },
+                {
+                  "flags": ["--limit"]
+                },
+                {
+                  "flags": ["--include-closed"]
+                }
+              ]
+            },
+            {
+              "name": "search",
+              "description": "Search changesets by query across all VCS platforms",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--status"]
+                },
+                {
+                  "flags": ["--author"]
+                },
+                {
+                  "flags": ["--limit"]
+                },
+                {
+                  "flags": ["--search-title"]
+                },
+                {
+                  "flags": ["--search-description"]
+                },
+                {
+                  "flags": ["--search-comments"]
+                },
+                {
+                  "flags": ["--search-commits"]
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "description": "Get details for a specific changeset (VCS agnostic)",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--details"]
+                }
+              ]
+            },
+            {
+              "name": "info",
+              "description": "Show changeset platform information and capabilities",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tasks",
+      "description": "TASKS commands",
+      "subcommands": [
+        {
+          "name": "status",
+          "description": "status commands",
+          "subcommands": [
+            {
+              "name": "get",
+              "description": "Get the status of a task",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path"
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier"
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Backend type (available: github, minsky)"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            },
+            {
+              "name": "set",
+              "description": "Set the status of a task",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path"
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier"
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Backend type (available: github, minsky)"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "spec",
+          "description": "spec commands",
+          "subcommands": [
+            {
+              "name": "get",
+              "description": "Get task specification content",
+              "options": [
+                {
+                  "flags": ["--section"],
+                  "description": "Specific section of the specification to retrieve"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace path"
+                },
+                {
+                  "flags": ["--session"],
+                  "description": "Session identifier"
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Backend type (available: github, minsky)"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "description": "List tasks with optional filtering",
+          "options": [
+            {
+              "flags": ["--all"],
+              "description": "Include completed tasks"
+            },
+            {
+              "flags": ["--status"],
+              "description": "Task status"
+            },
+            {
+              "flags": ["-s", "--filter"],
+              "description": "Filter by task status"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of tasks to return"
+            },
+            {
+              "flags": ["--tag"],
+              "description": "Filter by tag (can be repeated for multiple tags, e.g., --tag di-cleanup --tag test-quality)"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Only include tasks updated on/after this time (YYYY-MM-DD or 7d/24h/30m)"
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include tasks updated on/before this time (YYYY-MM-DD or 7d/24h/30m)"
+            },
+            {
+              "flags": ["--hierarchical"],
+              "description": "Group subtasks under their parent tasks in a tree view"
+            },
+            {
+              "flags": ["--show-deps"],
+              "description": "Show dependency status (READY/BLOCKED) for each task"
+            },
+            {
+              "flags": ["--show-attention"],
+              "description": "Include per-task attention cost rollup in the output (ADR-008 §Attention accounting)"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Get details of a specific task",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--include-spec"],
+              "description": "Include task specification content in the response"
+            },
+            {
+              "flags": ["--include-subtasks"],
+              "description": "Include subtask summary in the response"
+            },
+            {
+              "flags": ["--include-session"],
+              "description": "Include associated session info (status, liveness) in the response"
+            }
+          ]
+        },
+        {
+          "name": "create",
+          "description": "Create a new task",
+          "options": [
+            {
+              "flags": ["--title"],
+              "description": "Title for the task"
+            },
+            {
+              "flags": ["--spec"],
+              "description": "Task specification content"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force the operation"
+            },
+            {
+              "flags": ["--github-repo"],
+              "description": "GitHub repository override in 'owner/repo' format (only for github-issues backend)"
+            },
+            {
+              "flags": ["--depends-on"],
+              "description": "Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])"
+            },
+            {
+              "flags": ["--parent"],
+              "description": "Parent task ID — makes this a subtask (e.g., 'mt#237')"
+            },
+            {
+              "flags": ["--tag"],
+              "description": "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "edit",
+          "description": "Edit task title and/or specification content (dry-run by default, use --execute to apply)",
+          "options": [
+            {
+              "flags": ["--title"],
+              "description": "New title for the task"
+            },
+            {
+              "flags": ["--spec"],
+              "description": "Edit task specification content interactively"
+            },
+            {
+              "flags": ["--spec-file"],
+              "description": "Path to file containing new task specification content"
+            },
+            {
+              "flags": ["--spec-content"],
+              "description": "New specification content (completely replaces existing)"
+            },
+            {
+              "flags": ["--tag"],
+              "description": "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)"
+            },
+            {
+              "flags": ["--execute"],
+              "description": "Execute the changes (default is dry-run preview)"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "description": "Delete a task",
+          "options": [
+            {
+              "flags": ["--force"],
+              "description": "Force deletion without confirmation"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "similar",
+          "description": "Find tasks similar to the given task using embeddings",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Max number of results"
+            },
+            {
+              "flags": ["--threshold"],
+              "description": "Optional distance threshold (lower is closer)"
+            },
+            {
+              "flags": ["--details"],
+              "description": "Show detailed output including scores and diagnostics"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search for tasks similar to a natural language query",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Max number of results"
+            },
+            {
+              "flags": ["--threshold"],
+              "description": "Optional distance threshold (lower is closer)"
+            },
+            {
+              "flags": ["--details"],
+              "description": "Show human-friendly diagnostic details (embedding model, length, ANN rows)"
+            },
+            {
+              "flags": ["--all"],
+              "description": "Include all tasks regardless of status"
+            },
+            {
+              "flags": ["--status"],
+              "description": "Task status"
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress output"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "index-embeddings",
+          "description": "Generate and store embeddings for tasks",
+          "options": [
+            {
+              "flags": ["--task"],
+              "description": "Task identifier"
+            },
+            {
+              "flags": ["--reindex"],
+              "description": "Force re-embedding even if up-to-date"
+            },
+            {
+              "flags": ["--concurrency"],
+              "description": "Number of tasks to index in parallel"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Max number of tasks to index (to avoid heavy costs)"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Session identifier"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Backend type (available: github, minsky)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "embeddings-status",
+          "description": "Show embedding index coverage and health statistics",
+          "options": [
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "embeddings-repair",
+          "description": "Remove orphaned embeddings and report stale entries",
+          "options": [
+            {
+              "flags": ["--dry-run"],
+              "description": "Only report what would be done without making changes"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "migrate-backend",
+          "description": "Migrate tasks between different backends (minsky, github)",
+          "options": [
+            {
+              "flags": ["--from"],
+              "description": "Source backend (auto-detect if not provided)"
+            },
+            {
+              "flags": ["--execute"],
+              "description": "Apply changes (defaults to dry-run without this flag)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Limit number of tasks to migrate"
+            },
+            {
+              "flags": ["--filter-status"],
+              "description": "Filter tasks by status (e.g., TODO, IN-PROGRESS)"
+            },
+            {
+              "flags": ["--update-ids"],
+              "description": "Update task IDs to match target backend prefix (default: true)"
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress output"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "deps",
+          "description": "deps commands",
+          "subcommands": [
+            {
+              "name": "add",
+              "description": "Add a dependency edge (task depends on prerequisite)",
+              "options": [
+                {
+                  "flags": ["--depends-on"],
+                  "description": "Task that is the dependency"
+                }
+              ]
+            },
+            {
+              "name": "rm",
+              "description": "Remove a dependency edge",
+              "options": [
+                {
+                  "flags": ["--depends-on"],
+                  "description": "Task that is the dependency"
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "description": "List dependencies for a task",
+              "options": [
+                {
+                  "flags": ["--verbose"],
+                  "description": "Use more detailed output format"
+                }
+              ]
+            },
+            {
+              "name": "tree",
+              "description": "Show dependency tree for a specific task",
+              "options": [
+                {
+                  "flags": ["--max-depth"],
+                  "description": "Maximum depth to show in the tree"
+                }
+              ]
+            },
+            {
+              "name": "graph",
+              "description": "Show ASCII graph of all task dependencies",
+              "options": [
+                {
+                  "flags": ["--limit"],
+                  "description": "Maximum number of tasks to include"
+                },
+                {
+                  "flags": ["--status"],
+                  "description": "Filter tasks by status"
+                },
+                {
+                  "flags": ["--format"],
+                  "description": "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)"
+                },
+                {
+                  "flags": ["--output"],
+                  "description": "Output file path (auto-generated if not specified for rendered formats)"
+                },
+                {
+                  "flags": ["--layout"],
+                  "description": "Layout engine (dot, neato, fdp, circo, twopi)"
+                },
+                {
+                  "flags": ["--direction"],
+                  "description": "Direction (TB, BT) - vertical layouts only"
+                },
+                {
+                  "flags": ["--spacing"],
+                  "description": "Spacing (compact, normal, wide)"
+                },
+                {
+                  "flags": ["--style"],
+                  "description": "Visual style (default, tech-tree, kanban, mobile, compact)"
+                },
+                {
+                  "flags": ["--open"],
+                  "description": "Automatically open the rendered file in the default application"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "children",
+          "description": "List subtasks (children) of a parent task"
+        },
+        {
+          "name": "parent",
+          "description": "Show the parent task of a subtask"
+        },
+        {
+          "name": "reparent",
+          "description": "Move a task to a new parent, or remove its parent (orphan it)",
+          "options": [
+            {
+              "flags": ["--parent"],
+              "description": "New parent task ID (e.g. mt#456), or omit with --no-parent to orphan"
+            }
+          ]
+        },
+        {
+          "name": "available",
+          "description": "Show tasks currently available to work on (unblocked by dependencies)",
+          "options": [
+            {
+              "flags": ["--status"],
+              "description": "Filter by task status (default: TODO,IN-PROGRESS)"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Filter by specific backend (mt, md, gh, etc.)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of tasks to show"
+            },
+            {
+              "flags": ["--show-effort"],
+              "description": "Include effort estimates if available"
+            },
+            {
+              "flags": ["--show-priority"],
+              "description": "Include priority information if available"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--min-readiness"],
+              "description": "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks"
+            }
+          ]
+        },
+        {
+          "name": "route",
+          "description": "Generate implementation route to target task",
+          "options": [
+            {
+              "flags": ["--strategy"],
+              "description": "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)"
+            },
+            {
+              "flags": ["--parallel"],
+              "description": "Show parallel execution opportunities"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "dispatch",
+          "description": "Create a subtask, start a session, and generate a subagent prompt — all in one call",
+          "options": [
+            {
+              "flags": ["--instructions"],
+              "description": "Work instructions for the subagent"
+            },
+            {
+              "flags": ["--parent-task-id"],
+              "description": "Parent task ID — creates a subtask. Omit for a root task."
+            },
+            {
+              "flags": ["--type"],
+              "description": "Prompt type for the subagent"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "Comma-separated file paths to constrain the subagent to"
+            },
+            {
+              "flags": ["--description"],
+              "description": "Task description/spec content"
+            }
+          ]
+        },
+        {
+          "name": "orchestrate",
+          "description": "Find unblocked subtasks of a parent task, ready for dispatch via tasks_dispatch",
+          "options": [
+            {
+              "flags": ["--status"],
+              "description": "Subtask statuses to include (comma-separated, default: TODO)"
+            }
+          ]
+        },
+        {
+          "name": "decompose",
+          "description": "Gather task context and generate a decomposition prompt for creating subtasks",
+          "options": [
+            {
+              "flags": ["--similar-limit"],
+              "description": "Maximum number of similar tasks to include"
+            }
+          ]
+        },
+        {
+          "name": "estimate",
+          "description": "Gather task context and generate an estimation prompt for complexity/effort",
+          "options": [
+            {
+              "flags": ["--similar-limit"],
+              "description": "Maximum number of similar tasks to include"
+            }
+          ]
+        },
+        {
+          "name": "analyze",
+          "description": "Gather task context and generate an analysis prompt for spec completeness and readiness",
+          "options": [
+            {
+              "flags": ["--similar-limit"],
+              "description": "Maximum number of similar tasks to include"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "session",
+      "description": "SESSION commands",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "List all sessions",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Filter sessions by task ID (e.g. 'mt#283' or '283')"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Only include sessions created on/after this time (YYYY-MM-DD or 7d/24h/30m)"
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of sessions to return (default: 20)"
+            },
+            {
+              "flags": ["--offset"],
+              "description": "Number of sessions to skip for pagination (default: 0)"
+            },
+            {
+              "flags": ["-v", "--verbose"],
+              "description": "Show detailed session information"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Get details of a specific session",
+          "options": [
+            {
+              "flags": ["-t", "--task"],
+              "description": "Task ID associated with the session"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Only match if session created on/after this time (YYYY-MM-DD or 7d/24h/30m)"
+            },
+            {
+              "flags": ["--until"],
+              "description": "Only match if session created on/before this time (YYYY-MM-DD or 7d/24h/30m)"
+            }
+          ]
+        },
+        {
+          "name": "start",
+          "description": "Start a new session",
+          "options": [
+            {
+              "flags": ["-t", "--task"],
+              "description": "Task ID to associate with the session (required if --description not provided)"
+            },
+            {
+              "flags": ["-d", "--description"],
+              "description": "Description for auto-created task (required if --task not provided)"
+            },
+            {
+              "flags": ["--branch"],
+              "description": "Git branch to use"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress output"
+            },
+            {
+              "flags": ["--no-status-update"],
+              "description": "Skip updating task status"
+            },
+            {
+              "flags": ["--skip-install"],
+              "description": "⚠️ DEPRECATED — DO NOT USE. Skips dependency installation, creating a workspace that cannot pass typecheck hooks or run tests. Will be removed in a future release."
+            },
+            {
+              "flags": ["--package-manager"],
+              "description": "Package manager to use"
+            },
+            {
+              "flags": ["--recover"],
+              "description": "Recover abandoned session: if existing session for this task is stale/orphaned, delete it and create a fresh one"
+            }
+          ]
+        },
+        {
+          "name": "dir",
+          "description": "Get the directory of a session",
+          "options": [
+            {
+              "flags": ["-t", "--task"],
+              "description": "Task ID associated with the session"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search sessions by query string across multiple fields",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return"
+            }
+          ]
+        },
+        {
+          "name": "exec",
+          "description": "Execute a shell command in a session's working directory",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--timeout"],
+              "description": "Timeout in milliseconds (default: 30000, max: 120000)"
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "description": "Delete a session",
+          "options": [
+            {
+              "flags": ["-t", "--task"],
+              "description": "Task ID associated with the session"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force the operation"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "description": "Update a session",
+          "options": [
+            {
+              "flags": ["-t", "--task"],
+              "description": "Task ID associated with the session"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--branch"],
+              "description": "Branch to update from"
+            },
+            {
+              "flags": ["--no-stash"],
+              "description": "Skip stashing changes"
+            },
+            {
+              "flags": ["--no-push"],
+              "description": "Skip pushing changes"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force the operation"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--skip-conflict-check"],
+              "description": "Skip conflict detection"
+            },
+            {
+              "flags": ["--auto-resolve-delete-conflicts"],
+              "description": "Automatically resolve delete conflicts"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Preview changes without applying"
+            },
+            {
+              "flags": ["--skip-if-already-merged"],
+              "description": "Skip if changes already merged"
+            }
+          ]
+        },
+        {
+          "name": "migrate-backend",
+          "description": "Migrate a session's repository backend to GitHub by following origin remote",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Preview changes without updating the session DB"
+            },
+            {
+              "flags": ["--to"],
+              "description": "Target backend to migrate to (default: github)"
+            },
+            {
+              "flags": ["--update-remote"],
+              "description": "Also update the session workspace git remotes (default: true)"
+            }
+          ]
+        },
+        {
+          "name": "cleanup",
+          "description": "Identify and remove stale/orphaned sessions (dry-run by default; pass --no-dry-run --yes to delete)",
+          "options": [
+            {
+              "flags": ["--stale"],
+              "description": "Include stale sessions (>2h inactive)"
+            },
+            {
+              "flags": ["--orphaned"],
+              "description": "Include orphaned sessions (no local dir AND no remote branch)"
+            },
+            {
+              "flags": ["--older-than"],
+              "description": "Include sessions with no activity older than this duration (e.g., '7d', '24h', '30m')"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Preview what would be deleted without actually deleting (default: true)"
+            },
+            {
+              "flags": ["--yes"],
+              "description": "Skip confirmation prompt"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output as JSON"
+            }
+          ]
+        },
+        {
+          "name": "commit",
+          "description": "Commit and push changes within a session workspace",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session identifier (ID or task ID)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--all"],
+              "description": "Stage all changes including deletions"
+            },
+            {
+              "flags": ["--amend"],
+              "description": "Amend the previous commit"
+            },
+            {
+              "flags": ["--no-stage"],
+              "description": "Skip staging changes"
+            },
+            {
+              "flags": ["--oneline"],
+              "description": "Print a single-line summary"
+            },
+            {
+              "flags": ["--no-files"],
+              "description": "Allow committing without staged file changes (uses --allow-empty when tree is clean) — used to wake webhooks or produce audit-trail commits"
+            }
+          ]
+        },
+        {
+          "name": "inspect",
+          "description": "Inspect the current session (auto-detected from workspace)",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "review",
+          "description": "Review a session PR by gathering and displaying relevant information",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--output"],
+              "description": "Output format (json, text)"
+            },
+            {
+              "flags": ["--pr-branch"],
+              "description": "PR branch name (defaults to pr/<session-id>)"
+            },
+            {
+              "flags": ["--ai"],
+              "description": "Enable AI-powered code review analysis"
+            },
+            {
+              "flags": ["--model"],
+              "description": "AI model to use (gpt-4o, claude-3.5, etc.)"
+            },
+            {
+              "flags": ["--provider"],
+              "description": "AI provider (openai, anthropic, google, cohere, mistral)"
+            },
+            {
+              "flags": ["--focus"],
+              "description": "Focus area for AI review"
+            },
+            {
+              "flags": ["--detailed"],
+              "description": "Enable detailed file-level AI analysis"
+            },
+            {
+              "flags": ["--auto-approve"],
+              "description": "Auto-approve if AI score is above threshold"
+            },
+            {
+              "flags": ["--auto-comment"],
+              "description": "Auto-add AI review as changeset comment"
+            },
+            {
+              "flags": ["--include-task-spec"],
+              "description": "Include task specification in AI context"
+            },
+            {
+              "flags": ["--include-history"],
+              "description": "Include git history in AI context"
+            },
+            {
+              "flags": ["--temperature"],
+              "description": "AI creativity vs consistency (0.0-1.0)"
+            },
+            {
+              "flags": ["--max-tokens"],
+              "description": "Maximum tokens for AI response"
+            }
+          ]
+        },
+        {
+          "name": "pr",
+          "description": "pr commands",
+          "subcommands": [
+            {
+              "name": "create",
+              "description": "Create a pull request for a session",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "Title for the PR (auto-generated if not provided)"
+                },
+                {
+                  "flags": ["--type"],
+                  "description": "Conventional commit type to generate title prefix"
+                },
+                {
+                  "flags": ["--body"],
+                  "description": "Body text for the PR"
+                },
+                {
+                  "flags": ["--body-path"],
+                  "description": "Path to file containing PR body text"
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID (auto-detected from workspace if not provided)"
+                },
+                {
+                  "flags": ["-t", "--task"],
+                  "description": "Task ID associated with the session (auto-detected if not provided)"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--no-status-update"],
+                  "description": "Skip updating task status (use with --advanced)"
+                },
+                {
+                  "flags": ["--debug"],
+                  "description": "Enable debug output (use with --advanced)"
+                },
+                {
+                  "flags": ["--auto-resolve-delete-conflicts"],
+                  "description": "Auto-resolve delete/modify conflicts (use with --advanced)"
+                },
+                {
+                  "flags": ["--skip-conflict-check"],
+                  "description": "Skip proactive conflict detection (use with --advanced)"
+                },
+                {
+                  "flags": ["--draft"],
+                  "description": "Create draft PR (GitHub only, skips session update)"
+                }
+              ]
+            },
+            {
+              "name": "edit",
+              "description": "Update an existing pull request for a session",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title"
+                },
+                {
+                  "flags": ["--type"],
+                  "description": "Conventional commit type to generate prefix when editing (optional)"
+                },
+                {
+                  "flags": ["--body"],
+                  "description": "PR body content (to update)"
+                },
+                {
+                  "flags": ["--body-path"],
+                  "description": "Path to file containing PR body (to update)"
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--debug"],
+                  "description": "Enable debug output"
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "description": "List all pull requests associated with sessions",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Filter PRs by specific session ID"
+                },
+                {
+                  "flags": ["-t", "--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--status"],
+                  "description": "Filter by PR status. Valid options: open, closed, merged, draft, created, unknown, not_found, all (or comma-separated combinations)"
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Filter by repository backend type"
+                },
+                {
+                  "flags": ["--since"],
+                  "description": "Only include PRs updated on/after this time (YYYY-MM-DD or relative like 7d, 24h)"
+                },
+                {
+                  "flags": ["--until"],
+                  "description": "Only include PRs updated on/before this time (YYYY-MM-DD or relative like 7d, 24h)"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--verbose"],
+                  "description": "Show detailed PR information"
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "description": "Get detailed information about a session pull request",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID to look up PR for (positional)"
+                },
+                {
+                  "flags": ["-t", "--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--backend"],
+                  "description": "Restrict to a specific repository backend type"
+                },
+                {
+                  "flags": ["--status"],
+                  "description": "Optional state constraint for the matched PR: open, closed, merged, draft, created, all (or comma-separated combinations)"
+                },
+                {
+                  "flags": ["--since"],
+                  "description": "Only match if PR was updated on/after this time (YYYY-MM-DD or 7d/24h)"
+                },
+                {
+                  "flags": ["--until"],
+                  "description": "Only match if PR was updated on/before this time (YYYY-MM-DD or 7d/24h)"
+                },
+                {
+                  "flags": ["--content"],
+                  "description": "Include PR description and diff content"
+                }
+              ]
+            },
+            {
+              "name": "open",
+              "description": "Open the pull request in the default web browser",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                }
+              ]
+            },
+            {
+              "name": "approve",
+              "description": "Approve a session pull request (does not merge)",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            },
+            {
+              "name": "merge",
+              "description": "Merge an approved session pull request",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--skip-cleanup"],
+                  "description": "Skip session cleanup after merge (preserves session files)"
+                },
+                {
+                  "flags": ["--accept-stale-reviewer-silence"],
+                  "description": "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; (2) at least one COMMENTED review from the same identity as the PR author must exist; (3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); (4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; (5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. Emits an audit log entry at INFO level when the waiver is applied. Default: false."
+                }
+              ]
+            },
+            {
+              "name": "checks",
+              "description": "Get CI check status for a session pull request",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--wait"],
+                  "description": "Wait for all checks to complete before returning"
+                },
+                {
+                  "flags": ["--timeout-seconds"],
+                  "description": "Maximum seconds to wait when --wait is enabled (default: 600)"
+                },
+                {
+                  "flags": ["--interval-seconds"],
+                  "description": "Polling interval in seconds when --wait is enabled (default: 30)"
+                }
+              ]
+            },
+            {
+              "name": "wait-for-review",
+              "description": "Block until a review appears on the session's pull request, or the timeout elapses. Polls the forge and returns the first review matching the given filters. Read-only.",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID (positional)"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--timeout-seconds"],
+                  "description": "Maximum seconds to wait for a matching review (default: 600, max: 1800 / 30 min)"
+                },
+                {
+                  "flags": ["--interval-seconds"],
+                  "description": "Polling interval in seconds (default: 15, min: 5, max: 60)"
+                },
+                {
+                  "flags": ["--reviewer"],
+                  "description": "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). Case-insensitive. Defaults to any reviewer."
+                },
+                {
+                  "flags": ["--since"],
+                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the call's start time."
+                }
+              ]
+            },
+            {
+              "name": "review_context",
+              "description": "Get all PR review data in a single call: metadata, CI checks, diff (raw + parsedDiff with structured hunks for line-anchored comment selection), and task spec",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID (positional)"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID to resolve session from"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                }
+              ]
+            },
+            {
+              "name": "review",
+              "description": "review commands",
+              "subcommands": [
+                {
+                  "name": "submit",
+                  "description": "submit commands",
+                  "subcommands": [
+                    {
+                      "name": "review-submit",
+                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity",
+                      "options": [
+                        {
+                          "flags": ["--session-id"],
+                          "description": "Session ID"
+                        },
+                        {
+                          "flags": ["--task"],
+                          "description": "Task ID"
+                        },
+                        {
+                          "flags": ["--repo"],
+                          "description": "Repository path"
+                        },
+                        {
+                          "flags": ["--event"],
+                          "description": "Review event type: APPROVE, COMMENT, or REQUEST_CHANGES"
+                        },
+                        {
+                          "flags": ["--comments"],
+                          "description": "Optional inline line-level comments"
+                        },
+                        {
+                          "flags": ["--identity"],
+                          "description": "Bot identity to post the review under. Defaults: COMMENT → implementer (minsky-ai); APPROVE / REQUEST_CHANGES → reviewer (minsky-reviewer). APPROVE and REQUEST_CHANGES require `github.reviewer.serviceAccount` to be configured. Override only when you need to force a specific identity. Supersedes mt#1065."
+                        },
+                        {
+                          "flags": ["--json"],
+                          "description": "Output in JSON format"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "dismiss",
+                  "description": "dismiss commands",
+                  "subcommands": [
+                    {
+                      "name": "review-dismiss",
+                      "description": "Dismiss a GitHub PR review (typically a stale adversarial review after the blocker has been addressed) through Minsky using the configured bot identity",
+                      "options": [
+                        {
+                          "flags": ["--session-id"],
+                          "description": "Session ID"
+                        },
+                        {
+                          "flags": ["--task"],
+                          "description": "Task ID"
+                        },
+                        {
+                          "flags": ["--repo"],
+                          "description": "Repository path"
+                        },
+                        {
+                          "flags": ["--message"],
+                          "description": "Dismissal reason / message — required by the GitHub API and shown on the dismissed review. Include why the review is stale (e.g. 'covers commit <sha>; blocker addressed in <sha>')."
+                        },
+                        {
+                          "flags": ["--json"],
+                          "description": "Output in JSON format"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "name": "thread",
+                  "description": "thread commands",
+                  "subcommands": [
+                    {
+                      "name": "resolve",
+                      "description": "resolve commands",
+                      "subcommands": [
+                        {
+                          "name": "review-thread-resolve",
+                          "description": "Resolve or unresolve a GitHub PR review thread (GraphQL-only) through Minsky using the configured bot identity. Use action='resolve' to mark a thread as done after addressing the finding; use action='unresolve' to reopen it.",
+                          "options": [
+                            {
+                              "flags": ["--session-id"],
+                              "description": "Session ID"
+                            },
+                            {
+                              "flags": ["--task"],
+                              "description": "Task ID"
+                            },
+                            {
+                              "flags": ["--repo"],
+                              "description": "Repository path"
+                            },
+                            {
+                              "flags": ["--action"],
+                              "description": "Action to perform: \"resolve\" marks the thread as done; \"unresolve\" reopens it."
+                            },
+                            {
+                              "flags": ["--json"],
+                              "description": "Output in JSON format"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "check_run",
+              "description": "check_run commands",
+              "subcommands": [
+                {
+                  "name": "submit",
+                  "description": "submit commands",
+                  "subcommands": [
+                    {
+                      "name": "check-run-submit",
+                      "description": "Submit a GitHub Check Run for a session's PR, compiling reviewer findings into check-run annotations (machine-shaped, branch-protection-eligible surface). Severity mapping: BLOCKING → failure, NON-BLOCKING → warning, other → notice. Conclusion: failure if any BLOCKING; neutral if only NON-BLOCKING; success if empty.",
+                      "options": [
+                        {
+                          "flags": ["--session-id"],
+                          "description": "Session ID"
+                        },
+                        {
+                          "flags": ["--task"],
+                          "description": "Task ID"
+                        },
+                        {
+                          "flags": ["--repo"],
+                          "description": "Repository path"
+                        },
+                        {
+                          "flags": ["--check-run-name"],
+                          "description": "Override the check run name (default: 'minsky-reviewer/findings'). Must be stable across runs for branch-protection integration."
+                        },
+                        {
+                          "flags": ["--json"],
+                          "description": "Output in JSON format"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "migrate",
+          "description": "Migrate legacy session IDs to UUID format",
+          "options": [
+            {
+              "flags": ["--dry-run"],
+              "description": "Preview changes without modifying anything"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "conflicts",
+          "description": "Detect and report merge conflicts in session workspace",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID to identify session"
+            },
+            {
+              "flags": ["--format"],
+              "description": "Output format for conflict results"
+            },
+            {
+              "flags": ["--context"],
+              "description": "Number of context lines to include around conflicts"
+            },
+            {
+              "flags": ["--files"],
+              "description": "File pattern to limit conflict scanning (e.g. '*.ts')"
+            }
+          ]
+        },
+        {
+          "name": "repair",
+          "description": "Repair session state issues (PR state, backend sync, etc.)",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Preview repairs without applying changes"
+            },
+            {
+              "flags": ["--auto"],
+              "description": "Automatically apply safe repairs without confirmation"
+            },
+            {
+              "flags": ["--interactive"],
+              "description": "Interactive repair mode with confirmations"
+            },
+            {
+              "flags": ["--pr-state"],
+              "description": "Focus on PR state issues (branch format, stale state)"
+            },
+            {
+              "flags": ["--backend-sync"],
+              "description": "Sync session record with actual repository backend"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force the operation"
+            }
+          ]
+        },
+        {
+          "name": "generate_prompt",
+          "description": "Generate a complete subagent prompt for session work",
+          "options": [
+            {
+              "flags": ["--type"],
+              "description": "Prompt type: implementation, refactor, review, cleanup, or audit"
+            },
+            {
+              "flags": ["--instructions"],
+              "description": "Specific work instructions for the subagent"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "Comma-separated list of file paths to constrain to"
+            },
+            {
+              "flags": ["--omit-operating-envelope"],
+              "description": "Suppress the Operating Envelope block (budget awareness, graceful exit, handoff-note convention). Default: envelope is included."
+            }
+          ]
+        },
+        {
+          "name": "apply_post_merge_state_sync",
+          "description": "Apply all post-merge state changes to a Minsky session: task IN-REVIEW → DONE, session status PR_OPEN → MERGED, lastActivityAt update, pullRequest record sync, and optional workspace cleanup. Idempotent — safe to call multiple times for the same merge event.",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID to sync (resolved from task if omitted)"
+            },
+            {
+              "flags": ["--task"],
+              "description": "Task ID whose session should be synced (e.g. 'mt#123'). Used when sessionId is unknown."
+            },
+            {
+              "flags": ["--merge-sha"],
+              "description": "Merge commit SHA for audit log and PR record sync"
+            },
+            {
+              "flags": ["--merged-at"],
+              "description": "ISO-8601 timestamp of the merge event (defaults to now)"
+            },
+            {
+              "flags": ["--cleanup-session"],
+              "description": "Whether to run workspace cleanup after state update (default: true). Pass false to preserve session files (e.g. for debugging)."
+            },
+            {
+              "flags": ["--trigger"],
+              "description": "Audit attribution string — which path triggered this sync. One of: 'session_pr_merge' | 'webhook' | 'sweeper' | 'repair_pass'. Defaults to 'unknown'."
+            }
+          ]
+        },
+        {
+          "name": "edit-file",
+          "description": "Edit a file within a session workspace using AI-powered pattern application",
+          "options": [
+            {
+              "flags": ["--session-id"],
+              "description": "Session ID"
+            },
+            {
+              "flags": ["--path"],
+              "description": "Path to the file within the session workspace"
+            },
+            {
+              "flags": ["-i", "--instruction"],
+              "description": "Instructions describing the edit to make"
+            },
+            {
+              "flags": ["-f", "--pattern-file"],
+              "description": "Path to file containing edit pattern (alternative to stdin)"
+            },
+            {
+              "flags": ["-n", "--dry-run"],
+              "description": "Preview changes without writing to disk"
+            },
+            {
+              "flags": ["--create-dirs"],
+              "description": "Create parent directories if they don't exist"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "changeset",
+          "description": "changeset commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List changesets for current session (alias for session pr list)",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--status"]
+                },
+                {
+                  "flags": ["--limit"]
+                },
+                {
+                  "flags": ["--all"]
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "description": "Get current session's changeset details (alias for session pr)",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--id"]
+                },
+                {
+                  "flags": ["--details"]
+                }
+              ]
+            },
+            {
+              "name": "create",
+              "description": "Create a changeset for current session (alias for session pr create)",
+              "options": [
+                {
+                  "flags": ["--type"],
+                  "description": "Conventional commit type to generate title prefix"
+                },
+                {
+                  "flags": ["--body"],
+                  "description": "PR body content"
+                },
+                {
+                  "flags": ["--body-path"],
+                  "description": "Path to file containing PR body"
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--no-status-update"],
+                  "description": "Skip updating task status"
+                },
+                {
+                  "flags": ["--debug"],
+                  "description": "Enable debug output"
+                },
+                {
+                  "flags": ["--auto-resolve-delete-conflicts"],
+                  "description": "Automatically resolve delete conflicts"
+                },
+                {
+                  "flags": ["--skip-conflict-check"],
+                  "description": "Skip conflict detection"
+                },
+                {
+                  "flags": ["--draft"],
+                  "description": "Create draft PR (GitHub only, skips session update)"
+                }
+              ]
+            },
+            {
+              "name": "approve",
+              "description": "Approve current session's changeset (alias for session pr approve)",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            },
+            {
+              "name": "merge",
+              "description": "Merge current session's changeset (alias for session pr merge)",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            },
+            {
+              "name": "edit",
+              "description": "Edit current session's changeset (alias for session pr edit)",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title"
+                },
+                {
+                  "flags": ["--type"],
+                  "description": "Conventional commit type to generate prefix when editing (optional)"
+                },
+                {
+                  "flags": ["--body"],
+                  "description": "PR body content (to update)"
+                },
+                {
+                  "flags": ["--body-path"],
+                  "description": "Path to file containing PR body (to update)"
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--debug"],
+                  "description": "Enable debug output"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "cs",
+          "description": "cs commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List changesets for current session (short alias)",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--status"]
+                },
+                {
+                  "flags": ["--limit"]
+                },
+                {
+                  "flags": ["--all"]
+                }
+              ]
+            },
+            {
+              "name": "get",
+              "description": "Get current session's changeset details (short alias)",
+              "options": [
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--id"]
+                },
+                {
+                  "flags": ["--details"]
+                }
+              ]
+            },
+            {
+              "name": "create",
+              "description": "Create changeset for current session (short alias)",
+              "options": [
+                {
+                  "flags": ["--type"],
+                  "description": "Conventional commit type to generate title prefix"
+                },
+                {
+                  "flags": ["--body"],
+                  "description": "PR body content"
+                },
+                {
+                  "flags": ["--body-path"],
+                  "description": "Path to file containing PR body"
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--no-status-update"],
+                  "description": "Skip updating task status"
+                },
+                {
+                  "flags": ["--debug"],
+                  "description": "Enable debug output"
+                },
+                {
+                  "flags": ["--auto-resolve-delete-conflicts"],
+                  "description": "Automatically resolve delete conflicts"
+                },
+                {
+                  "flags": ["--skip-conflict-check"],
+                  "description": "Skip conflict detection"
+                },
+                {
+                  "flags": ["--draft"],
+                  "description": "Create draft PR (GitHub only, skips session update)"
+                }
+              ]
+            },
+            {
+              "name": "approve",
+              "description": "Approve current session's changeset (short alias)",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            },
+            {
+              "name": "merge",
+              "description": "Merge current session's changeset (short alias)",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID"
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID"
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "rules",
+      "description": "RULES commands",
+      "subcommands": [
+        {
+          "name": "index-embeddings",
+          "description": "Generate and store embeddings for rules (rules_embeddings)",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Limit number of rules to index (for debugging)"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force reindex even if content hash matches"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "list",
+          "description": "List all rules in the workspace",
+          "options": [
+            {
+              "flags": ["--format"],
+              "description": "Rule format (cursor or generic)"
+            },
+            {
+              "flags": ["--tag"],
+              "description": "Rule tag for filtering"
+            },
+            {
+              "flags": ["--since"],
+              "description": "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps."
+            },
+            {
+              "flags": ["--until"],
+              "description": "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps."
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search for rules by content or metadata",
+          "options": [
+            {
+              "flags": ["--query"],
+              "description": "Search query for rules"
+            },
+            {
+              "flags": ["--format"],
+              "description": "Rule format (cursor or generic)"
+            },
+            {
+              "flags": ["--tag"],
+              "description": "Rule tag for filtering"
+            },
+            {
+              "flags": ["--limit"]
+            },
+            {
+              "flags": ["--threshold"]
+            },
+            {
+              "flags": ["--details"]
+            },
+            {
+              "flags": ["--quiet"],
+              "description": "Suppress output"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Get a specific rule by ID",
+          "options": [
+            {
+              "flags": ["--format"],
+              "description": "Rule format (cursor or generic)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "generate",
+          "description": "Generate new rules from templates",
+          "options": [
+            {
+              "flags": ["--interface"],
+              "description": "Interface preference for generated rules (cli, mcp, or hybrid)"
+            },
+            {
+              "flags": ["--rules"],
+              "description": "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)"
+            },
+            {
+              "flags": ["--output-dir"],
+              "description": "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Show what would be generated without actually creating files"
+            },
+            {
+              "flags": ["--overwrite"],
+              "description": "Overwrite existing resources if they exist"
+            },
+            {
+              "flags": ["--format"],
+              "description": "Rule format for file system organization (cursor or generic)"
+            },
+            {
+              "flags": ["--prefer-mcp"],
+              "description": "In hybrid mode, prefer MCP commands over CLI commands"
+            },
+            {
+              "flags": ["--mcp-transport"],
+              "description": "MCP transport method (only relevant when interface is mcp or hybrid)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "create",
+          "description": "Create a new rule",
+          "options": [
+            {
+              "flags": ["--content"],
+              "description": "Rule content (markdown or text)"
+            },
+            {
+              "flags": ["--description"],
+              "description": "Description of the rule"
+            },
+            {
+              "flags": ["--name"],
+              "description": "Display name of the rule (defaults to ID)"
+            },
+            {
+              "flags": ["--globs"],
+              "description": "Comma-separated list or JSON array of glob patterns"
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Comma-separated rule tags"
+            },
+            {
+              "flags": ["--format"],
+              "description": "Rule format (cursor or generic)"
+            },
+            {
+              "flags": ["--overwrite"],
+              "description": "Overwrite existing resources"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "description": "Update an existing rule",
+          "options": [
+            {
+              "flags": ["--content"],
+              "description": "Content of the rule (or path to file containing _content)"
+            },
+            {
+              "flags": ["--description"],
+              "description": "Description of the rule"
+            },
+            {
+              "flags": ["--name"],
+              "description": "Display name of the rule (defaults to ID)"
+            },
+            {
+              "flags": ["--globs"],
+              "description": "Comma-separated list or JSON array of glob patterns"
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Comma-separated rule tags"
+            },
+            {
+              "flags": ["--format"],
+              "description": "Rule format (cursor or generic)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "compile",
+          "description": "Compile rules into a monolithic file (e.g., AGENTS.md or CLAUDE.md)",
+          "options": [
+            {
+              "flags": ["--target"],
+              "description": "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md."
+            },
+            {
+              "flags": ["--output"],
+              "description": "Output file path (defaults to the target's default output path)"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Print compiled content to output without writing to file"
+            },
+            {
+              "flags": ["--check"],
+              "description": "Check if the output file is up-to-date (staleness detection). Exits non-zero if stale."
+            }
+          ]
+        },
+        {
+          "name": "migrate",
+          "description": "Migrate rules from .cursor/rules/ to .minsky/rules/",
+          "options": [
+            {
+              "flags": ["--dry-run"],
+              "description": "Show what would be migrated without doing it"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Overwrite existing files in destination"
+            }
+          ]
+        },
+        {
+          "name": "enable",
+          "description": "Add a rule ID to the enabled list in the project config"
+        },
+        {
+          "name": "disable",
+          "description": "Add a rule ID to the disabled list in the project config"
+        },
+        {
+          "name": "config",
+          "description": "Show current rule selection state (presets, enabled, disabled)"
+        },
+        {
+          "name": "presets",
+          "description": "List available rule presets with their rule counts"
+        }
+      ]
+    },
+    {
+      "name": "config",
+      "description": "CONFIG commands",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "Show all configuration from all sources",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--show-secrets"],
+              "description": "Show actual credential values (SECURITY RISK: use with caution)"
+            }
+          ]
+        },
+        {
+          "name": "show",
+          "description": "Show the final resolved configuration",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--show-secrets"],
+              "description": "Show actual credential values (SECURITY RISK: use with caution)"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Get a configuration value by key path",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            }
+          ]
+        },
+        {
+          "name": "set",
+          "description": "Set a configuration value",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--no-backup"],
+              "description": "Skip creating backup before modification"
+            },
+            {
+              "flags": ["--format"],
+              "description": "File format to use"
+            }
+          ]
+        },
+        {
+          "name": "unset",
+          "description": "Remove a configuration value",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--no-backup"],
+              "description": "Skip creating backup before modification"
+            },
+            {
+              "flags": ["--format"],
+              "description": "File format to use"
+            }
+          ]
+        },
+        {
+          "name": "validate",
+          "description": "Validate configuration against schemas",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--verbose"],
+              "description": "Show detailed validation results"
+            }
+          ]
+        },
+        {
+          "name": "doctor",
+          "description": "Diagnose common configuration problems",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--sources"],
+              "description": "Show configuration sources and precedence"
+            },
+            {
+              "flags": ["--verbose"],
+              "description": "Show detailed diagnostic results"
+            }
+          ]
+        },
+        {
+          "name": "credentials",
+          "description": "credentials commands",
+          "subcommands": [
+            {
+              "name": "add",
+              "description": "add commands",
+              "subcommands": [
+                {
+                  "name": "credentials.add",
+                  "description": "Add a credential (Supabase PAT / GitHub PAT / Anthropic key) via interactive masked-paste flow",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    },
+                    {
+                      "flags": ["--token"],
+                      "description": "Token value (MCP / scripted path). Omit on CLI to get a masked interactive prompt."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "description": "list commands",
+              "subcommands": [
+                {
+                  "name": "credentials.list",
+                  "description": "List configured credentials (values never displayed)",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "remove",
+              "description": "remove commands",
+              "subcommands": [
+                {
+                  "name": "credentials.remove",
+                  "description": "Remove a configured credential",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "recheck",
+              "description": "recheck commands",
+              "subcommands": [
+                {
+                  "name": "credentials.recheck",
+                  "description": "Re-test a stored credential and surface 401 invalidations",
+                  "options": [
+                    {
+                      "flags": ["--json"],
+                      "description": "Output in JSON format"
+                    },
+                    {
+                      "flags": ["--provider"],
+                      "description": "Credential provider id (supabase | github | anthropic). Omit to recheck all configured providers."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "debug",
+      "description": "DEBUG commands",
+      "subcommands": [
+        {
+          "name": "listMethods",
+          "description": "List all registered methods for debugging"
+        },
+        {
+          "name": "echo",
+          "description": "Echo back the provided parameters (for testing communication)",
+          "options": [
+            {
+              "flags": ["--message"],
+              "description": "Message to echo back"
+            }
+          ]
+        },
+        {
+          "name": "systemInfo",
+          "description": "Get system information for diagnostics"
+        }
+      ]
+    },
+    {
+      "name": "persistence",
+      "description": "PERSISTENCE commands",
+      "subcommands": [
+        {
+          "name": "migrate",
+          "description": "Migrate session database between backends, or run schema migrations when no target is provided",
+          "options": [
+            {
+              "flags": ["--from"],
+              "description": "Source backend (auto-detect if not specified)"
+            },
+            {
+              "flags": ["--sqlite-path"],
+              "description": "SQLite database file path"
+            },
+            {
+              "flags": ["--backup"],
+              "description": "Create backup in specified directory"
+            },
+            {
+              "flags": ["--execute"],
+              "description": "Actually perform the migration (default is preview mode)"
+            },
+            {
+              "flags": ["--set-default"],
+              "description": "Update configuration to use migrated backend as default"
+            },
+            {
+              "flags": ["-n", "--dry-run"],
+              "description": "Simulate migration without making changes"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug mode for detailed output"
+            }
+          ]
+        },
+        {
+          "name": "check",
+          "description": "Check database integrity and detect issues",
+          "options": [
+            {
+              "flags": ["--file"],
+              "description": "Path to database file to check (SQLite only)"
+            },
+            {
+              "flags": ["--backend"],
+              "description": "Force specific backend validation"
+            },
+            {
+              "flags": ["--fix"],
+              "description": "Automatically fix issues when possible"
+            },
+            {
+              "flags": ["--report"],
+              "description": "Show detailed integrity report"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ai",
+      "description": "AI commands",
+      "subcommands": [
+        {
+          "name": "complete",
+          "description": "Generate AI completion for a prompt",
+          "options": [
+            {
+              "flags": ["--model"],
+              "description": "AI model to use"
+            },
+            {
+              "flags": ["--provider"],
+              "description": "AI provider to use"
+            },
+            {
+              "flags": ["--temperature"],
+              "description": "Completion temperature (0-1)"
+            },
+            {
+              "flags": ["--max-tokens"],
+              "description": "Maximum tokens to generate"
+            },
+            {
+              "flags": ["--stream"],
+              "description": "Stream the response"
+            },
+            {
+              "flags": ["--system"],
+              "description": "System prompt"
+            }
+          ]
+        },
+        {
+          "name": "fast-apply",
+          "description": "Apply fast edits to a file using fast-apply models (supports both instruction and Cursor edit pattern modes)",
+          "options": [
+            {
+              "flags": ["--instructions"],
+              "description": "Description of what changes to make"
+            },
+            {
+              "flags": ["--code-edit"],
+              "description": "New code with '// ... existing code ...' markers (Cursor format)"
+            },
+            {
+              "flags": ["--provider"],
+              "description": "Fast-apply provider to use (defaults to auto-detect)"
+            },
+            {
+              "flags": ["--model"],
+              "description": "Model to use for fast-apply"
+            },
+            {
+              "flags": ["--dry-run"],
+              "description": "Show the proposed changes without applying them"
+            }
+          ]
+        },
+        {
+          "name": "chat",
+          "description": "Start an interactive AI chat session",
+          "options": [
+            {
+              "flags": ["--model"],
+              "description": "AI model to use"
+            },
+            {
+              "flags": ["--provider"],
+              "description": "AI provider to use"
+            },
+            {
+              "flags": ["--system"],
+              "description": "System prompt"
+            }
+          ]
+        },
+        {
+          "name": "models",
+          "description": "models commands",
+          "subcommands": [
+            {
+              "name": "available",
+              "description": "List available AI models from providers",
+              "options": [
+                {
+                  "flags": ["--provider"],
+                  "description": "Filter by provider"
+                },
+                {
+                  "flags": ["--format"],
+                  "description": "Output format (table|json)"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            },
+            {
+              "name": "refresh",
+              "description": "Refresh cached model data from provider APIs",
+              "options": [
+                {
+                  "flags": ["--provider"],
+                  "description": "Specific provider to refresh (optional)"
+                },
+                {
+                  "flags": ["--force"],
+                  "description": "Force refresh even if cache is fresh"
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "description": "List cached AI models with detailed information",
+              "options": [
+                {
+                  "flags": ["--provider"],
+                  "description": "Filter by provider"
+                },
+                {
+                  "flags": ["--format"],
+                  "description": "Output format (table|json|yaml)"
+                },
+                {
+                  "flags": ["--show-cache"],
+                  "description": "Show cache metadata"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "cache",
+          "description": "cache commands",
+          "subcommands": [
+            {
+              "name": "clear",
+              "description": "Clear cached model data",
+              "options": [
+                {
+                  "flags": ["--provider"],
+                  "description": "Specific provider to clear (optional)"
+                },
+                {
+                  "flags": ["--confirm"],
+                  "description": "Skip confirmation prompt"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "validate",
+          "description": "Validate AI configuration and test connectivity",
+          "options": [
+            {
+              "flags": ["--provider"],
+              "description": "Validate specific provider only"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output validation results in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "providers",
+          "description": "providers commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List configured AI providers and their cache status",
+              "options": [
+                {
+                  "flags": ["--format"],
+                  "description": "Output format (table|json)"
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tools",
+      "description": "TOOLS commands",
+      "subcommands": [
+        {
+          "name": "index-embeddings",
+          "description": "Generate and store embeddings for tools (tool_embeddings)",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Limit number of tools to index (for debugging)"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force reindex even if content hash matches"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["--debug"],
+              "description": "Enable debug output"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search for tools using natural language queries",
+          "options": [
+            {
+              "flags": ["--limit"]
+            },
+            {
+              "flags": ["--threshold"]
+            },
+            {
+              "flags": ["--category"]
+            },
+            {
+              "flags": ["--details"]
+            },
+            {
+              "flags": ["--quiet"]
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "similar",
+          "description": "Find tools similar to the given tool using embeddings",
+          "options": [
+            {
+              "flags": ["--limit"]
+            },
+            {
+              "flags": ["--threshold"]
+            },
+            {
+              "flags": ["--details"]
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "asks",
+          "description": "asks commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List Asks with optional state and kind filters",
+              "options": [
+                {
+                  "flags": ["--state"],
+                  "description": "Filter by Ask state (detected | classified | routed | ...)"
+                },
+                {
+                  "flags": ["--kind"],
+                  "description": "Filter by Ask kind (quality.review | direction.decide | ...)"
+                },
+                {
+                  "flags": ["--limit"],
+                  "description": "Maximum number of results"
+                }
+              ]
+            },
+            {
+              "name": "reconcile",
+              "description": "Run one reconcile pass over open quality.review Asks (polls GitHub for reviews and notifies the operator)"
+            },
+            {
+              "name": "respond",
+              "description": "Respond to any suspended Ask (mt#1458, ADR-008). v1 accepts ANY suspended Ask regardless of routingTarget — see mt#454-impl follow-up. Pre-suspended (detected/classified/routed) and terminal (closed/cancelled/expired) states are rejected with a clear error.",
+              "options": [
+                {
+                  "flags": ["--message"],
+                  "description": "Operator response message — becomes response.payload.message"
+                },
+                {
+                  "flags": ["--responder"],
+                  "description": "AgentId or 'operator' identifier; defaults to 'operator'"
+                }
+              ]
+            },
+            {
+              "name": "create",
+              "description": "Create an Ask and route it via the policy-first router (ADR-008)",
+              "options": [
+                {
+                  "flags": ["--title"],
+                  "description": "Short summary line used for list rendering and notifications"
+                },
+                {
+                  "flags": ["--question"],
+                  "description": "Full ask body — what the requestor needs resolved"
+                },
+                {
+                  "flags": ["--options"],
+                  "description": "Decision frame: array of {label, value, description?}; for decision-like kinds"
+                },
+                {
+                  "flags": ["--context-refs"],
+                  "description": "Pointers to artifacts the responder may need"
+                },
+                {
+                  "flags": ["--parent-task-id"],
+                  "description": "Parent task ID (e.g. mt#123)"
+                },
+                {
+                  "flags": ["--parent-session-id"],
+                  "description": "Parent session UUID when the Ask originates in an active session"
+                },
+                {
+                  "flags": ["--deadline"],
+                  "description": "ISO-8601 soft deadline; when exceeded the Ask transitions to expired"
+                },
+                {
+                  "flags": ["--metadata"],
+                  "description": "Arbitrary metadata for transport adapters and future extensions"
+                },
+                {
+                  "flags": ["--classifier-version"],
+                  "description": "Classifier version (caller-provided; v1 is agent self-declaration)"
+                },
+                {
+                  "flags": ["--requestor"],
+                  "description": "AgentId of the requestor; defaults to a session-unknown marker"
+                },
+                {
+                  "flags": ["--service-strategy"],
+                  "description": "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. When absent, per-kind defaults apply."
+                },
+                {
+                  "flags": ["--window-key"],
+                  "description": "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'."
+                },
+                {
+                  "flags": ["--force-immediate"],
+                  "description": "When true, bypass the window check and route immediately. Use only for critical-path unblocking."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "pr",
+          "description": "pr commands",
+          "subcommands": [
+            {
+              "name": "watch",
+              "description": "watch commands",
+              "subcommands": [
+                {
+                  "name": "create",
+                  "description": "Register a watch on a GitHub PR. Fires a notification when the event occurs.",
+                  "options": [
+                    {
+                      "flags": ["--repo"],
+                      "description": "GitHub repository name"
+                    },
+                    {
+                      "flags": ["--number"],
+                      "description": "Pull request number"
+                    },
+                    {
+                      "flags": ["--event"],
+                      "description": "Which PR event to watch for: merged | review-posted | check-status-changed (default: merged)"
+                    },
+                    {
+                      "flags": ["--keep"],
+                      "description": "If true, the watch persists after firing (re-fires on subsequent events). Default: false (one-shot)"
+                    },
+                    {
+                      "flags": ["--watcher-id"],
+                      "description": "Watcher identity in {kind}:{scope}:{id} format. Defaults to operator:local:default"
+                    },
+                    {
+                      "flags": ["--session"],
+                      "description": "Minsky session UUID of the registering agent. When provided, the wake signal is routed to this session via enrichWakeResponse on the next allowlisted MCP tool call (mt#1725)."
+                    },
+                    {
+                      "flags": ["--session-id"],
+                      "description": "Alias for session. The first non-empty value of session/sessionId is used."
+                    }
+                  ]
+                },
+                {
+                  "name": "list",
+                  "description": "List all active PR watches, optionally filtered by registering session",
+                  "options": [
+                    {
+                      "flags": ["--session"],
+                      "description": "Filter watches by registering session's parentSessionId. When provided, only watches registered by this session are returned, AND the wake-enrichment middleware can route pending wakes to the calling session on this tool call (mt#1755)."
+                    },
+                    {
+                      "flags": ["--session-id"],
+                      "description": "Alias for session. The first non-empty value of session/sessionId is used."
+                    }
+                  ]
+                },
+                {
+                  "name": "cancel",
+                  "description": "Cancel (delete) a PR watch by ID"
+                },
+                {
+                  "name": "run",
+                  "description": "Run one watcher pass: poll GitHub for all active watches and fire notifications on matches."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "reviewer",
+          "description": "reviewer commands",
+          "subcommands": [
+            {
+              "name": "watch",
+              "description": "watch commands",
+              "subcommands": [
+                {
+                  "name": "run",
+                  "description": "Run one reviewer-watch pass: scan open PRs, detect missing minsky-reviewer reviews, fire OperatorNotify if above threshold. One-shot (no dedup across invocations); use `reviewer.watch.start` for the daemon.",
+                  "options": [
+                    {
+                      "flags": ["--owner"],
+                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')"
+                    },
+                    {
+                      "flags": ["--repo"],
+                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')"
+                    },
+                    {
+                      "flags": ["--bot-login"],
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')"
+                    },
+                    {
+                      "flags": ["--threshold"],
+                      "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)"
+                    }
+                  ]
+                },
+                {
+                  "name": "start",
+                  "description": "Start the reviewer-watch daemon: polls every intervalMs, fires OperatorNotify on missed-review onsets. In-memory dedup persists across cycles. Runs until SIGINT.",
+                  "options": [
+                    {
+                      "flags": ["--owner"],
+                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')"
+                    },
+                    {
+                      "flags": ["--repo"],
+                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')"
+                    },
+                    {
+                      "flags": ["--bot-login"],
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')"
+                    },
+                    {
+                      "flags": ["--threshold"],
+                      "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)"
+                    },
+                    {
+                      "flags": ["--interval-ms"],
+                      "description": "Poll interval in ms (default: $MINSKY_REVIEWER_WATCH_INTERVAL_MS or 600000 = 10 min)"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "validate",
+          "description": "validate commands",
+          "subcommands": [
+            {
+              "name": "lint",
+              "description": "Run ESLint and return structured results",
+              "options": [
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace directory to run validation in (defaults to current working directory)"
+                }
+              ]
+            },
+            {
+              "name": "typecheck",
+              "description": "Run TypeScript type checker and return structured results",
+              "options": [
+                {
+                  "flags": ["--workspace"],
+                  "description": "Workspace directory to run validation in (defaults to current working directory)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "attention",
+          "description": "attention commands",
+          "subcommands": [
+            {
+              "name": "report",
+              "description": "Attention-cost report — per-task or per-kind rollup of Ask accounting data (ADR-008)",
+              "options": [
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID to report on (e.g., mt#123). Mutually exclusive with --kind."
+                },
+                {
+                  "flags": ["--kind"],
+                  "description": "Ask kind to report on. Returns top 10 most expensive tasks for this kind."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "window",
+          "description": "window commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List all configured attention windows with their state (open/closed) and next scheduled open time"
+            },
+            {
+              "name": "open",
+              "description": "Explicitly open a named attention window. Emits a Postgres NOTIFY event."
+            },
+            {
+              "name": "close",
+              "description": "Explicitly close a named attention window. Emits a Postgres NOTIFY event."
+            },
+            {
+              "name": "status",
+              "description": "Show currently-open attention windows with one-line summary per window"
+            },
+            {
+              "name": "service",
+              "description": "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "knowledge",
+      "description": "KNOWLEDGE commands",
+      "subcommands": [
+        {
+          "name": "search",
+          "description": "Semantic search across indexed knowledge bases. Returns ranked results with excerpts.",
+          "options": [
+            {
+              "flags": ["--sources"],
+              "description": "Optional list of source names to restrict the search"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 5)"
+            }
+          ]
+        },
+        {
+          "name": "fetch",
+          "description": "Live-fetch a single document from a configured knowledge source by ID.",
+          "options": [
+            {
+              "flags": ["--document-id"],
+              "description": "ID of the document to fetch"
+            }
+          ]
+        },
+        {
+          "name": "sources",
+          "description": "List configured knowledge sources with their sync status."
+        },
+        {
+          "name": "sync",
+          "description": "Sync one or all configured knowledge sources into the vector index.",
+          "options": [
+            {
+              "flags": ["--source"],
+              "description": "Name of the knowledge source to sync (omit to sync all)"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force re-index even if content is unchanged"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "memory",
+      "description": "MEMORY commands",
+      "subcommands": [
+        {
+          "name": "search",
+          "description": "Semantic search over memory records. Returns ranked results with similarity scores.",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 10)"
+            },
+            {
+              "flags": ["--type"],
+              "description": "Filter by memory type"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "Filter by memory scope"
+            },
+            {
+              "flags": ["--project-id"],
+              "description": "Filter by project identifier"
+            },
+            {
+              "flags": ["--exclude-superseded"],
+              "description": "When true, exclude superseded memories from results"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Fetch a single memory record by its identifier."
+        },
+        {
+          "name": "list",
+          "description": "Browse memory records with optional type/scope/project filters.",
+          "options": [
+            {
+              "flags": ["--type"],
+              "description": "Filter by memory type"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "Filter by memory scope"
+            },
+            {
+              "flags": ["--project-id"],
+              "description": "Filter by project identifier"
+            },
+            {
+              "flags": ["--exclude-superseded"],
+              "description": "When true, exclude superseded memories"
+            },
+            {
+              "flags": ["--stale"],
+              "description": "When true, filter to memories never accessed or older than the staleness threshold"
+            },
+            {
+              "flags": ["--staleness-days"],
+              "description": "Threshold (in days) for the --stale filter; defaults to 90"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return"
+            }
+          ]
+        },
+        {
+          "name": "create",
+          "description": "Create a new memory record. Validates content against the derivation-discipline rubric (mt#960) — use force=true to bypass.",
+          "options": [
+            {
+              "flags": ["--name"],
+              "description": "Short name / title for the memory"
+            },
+            {
+              "flags": ["--description"],
+              "description": "Longer description of the memory"
+            },
+            {
+              "flags": ["--content"],
+              "description": "Full content of the memory"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "Scope of the memory (project | user | cross_project)"
+            },
+            {
+              "flags": ["--project-id"],
+              "description": "Project identifier (required when scope=project)"
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Optional tags for categorisation"
+            },
+            {
+              "flags": ["--source-agent-id"],
+              "description": "Agent that produced this memory"
+            },
+            {
+              "flags": ["--source-session-id"],
+              "description": "Session that produced this memory"
+            },
+            {
+              "flags": ["--confidence"],
+              "description": "Confidence score (0–1), reserved for Phase 3"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Bypass the derivation-discipline validator"
+            }
+          ]
+        },
+        {
+          "name": "update",
+          "description": "Update fields on an existing memory record.",
+          "options": [
+            {
+              "flags": ["--type"],
+              "description": "New memory type"
+            },
+            {
+              "flags": ["--name"],
+              "description": "New name / title"
+            },
+            {
+              "flags": ["--description"],
+              "description": "New description"
+            },
+            {
+              "flags": ["--content"],
+              "description": "New content"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "New scope"
+            },
+            {
+              "flags": ["--project-id"],
+              "description": "New project identifier"
+            },
+            {
+              "flags": ["--tags"],
+              "description": "New tags"
+            },
+            {
+              "flags": ["--source-agent-id"],
+              "description": "New source agent identifier"
+            },
+            {
+              "flags": ["--source-session-id"],
+              "description": "New source session identifier"
+            },
+            {
+              "flags": ["--confidence"],
+              "description": "New confidence score"
+            }
+          ]
+        },
+        {
+          "name": "delete",
+          "description": "Delete a memory record by its identifier."
+        },
+        {
+          "name": "similar",
+          "description": "Find memory records semantically similar to an existing one. Excludes the source memory from results.",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of similar memories to return (default 10)"
+            },
+            {
+              "flags": ["--threshold"],
+              "description": "Minimum similarity score threshold"
+            }
+          ]
+        },
+        {
+          "name": "supersede",
+          "description": "Atomically replace an existing memory with a new one. The old memory is retained but marked superseded.",
+          "options": [
+            {
+              "flags": ["--type"],
+              "description": "Memory type for the replacement"
+            },
+            {
+              "flags": ["--name"],
+              "description": "Name for the replacement memory"
+            },
+            {
+              "flags": ["--description"],
+              "description": "Description for the replacement memory"
+            },
+            {
+              "flags": ["--content"],
+              "description": "Content for the replacement memory"
+            },
+            {
+              "flags": ["--scope"],
+              "description": "Scope for the replacement memory"
+            },
+            {
+              "flags": ["--project-id"],
+              "description": "Project identifier for the replacement"
+            },
+            {
+              "flags": ["--tags"],
+              "description": "Tags for the replacement memory"
+            },
+            {
+              "flags": ["--source-agent-id"],
+              "description": "Source agent for the replacement"
+            },
+            {
+              "flags": ["--source-session-id"],
+              "description": "Source session for the replacement"
+            },
+            {
+              "flags": ["--confidence"],
+              "description": "Confidence score for the replacement"
+            },
+            {
+              "flags": ["--reason"],
+              "description": "Reason the old memory is being superseded"
+            }
+          ]
+        },
+        {
+          "name": "lineage",
+          "description": "Trace the supersession chain for a memory, from oldest ancestor to newest descendant. Each step carries the supersession_reason in its metadata."
+        }
+      ]
+    },
+    {
+      "name": "provenance",
+      "description": "PROVENANCE commands",
+      "subcommands": [
+        {
+          "name": "get",
+          "description": "Look up the provenance record for a specific artifact by ID and type.",
+          "options": [
+            {
+              "flags": ["--artifact-type"],
+              "description": "Type of artifact. One of: commit, pr, review, issue_comment"
+            }
+          ]
+        },
+        {
+          "name": "recompute",
+          "description": "[DEPRECATED] Use `authorship.recompute` instead. Retroactively recompute authorship tiers for all historical provenance records using the current judging policy.",
+          "options": [
+            {
+              "flags": ["--dry-run"],
+              "description": "Show what would change without applying updates (default: false)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "authorship",
+      "description": "AUTHORSHIP commands",
+      "subcommands": [
+        {
+          "name": "get",
+          "description": "Look up the authorship verdict for a specific artifact. Returns a narrow projection ({ tier, rationale?, policyVersion?, judgingModel? }) — does NOT expose the full provenance record fields such as transcriptId, participants, substantiveHumanInput, or trajectoryChanges.",
+          "options": [
+            {
+              "flags": ["--artifact-type"],
+              "description": "Type of artifact. One of: commit, pr, review, issue_comment"
+            }
+          ]
+        },
+        {
+          "name": "recompute",
+          "description": "Retroactively recompute authorship tiers for all historical provenance records using the current judging policy.",
+          "options": [
+            {
+              "flags": ["--dry-run"],
+              "description": "Show what would change without applying updates (default: false)"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "workspace",
+      "description": "WORKSPACE commands",
+      "subcommands": [
+        {
+          "name": "info",
+          "description": "Returns information about the current workspace context (main vs session, paths, active backends). Call this first to inform subsequent tool calls.",
+          "options": [
+            {
+              "flags": ["--cwd"],
+              "description": "Directory to inspect. Defaults to the server's process.cwd(). Pass an explicit path when calling from a different working directory."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "transcripts",
+      "description": "TRANSCRIPTS commands",
+      "subcommands": [
+        {
+          "name": "ingest",
+          "description": "Ingest agent session transcripts into the agent_transcripts table. Pass --all to sweep every discoverable session, or --session=<uuid> to target one. Incremental by timestamp: re-runs are no-ops when the JSONL is unchanged.",
+          "options": [
+            {
+              "flags": ["--all"],
+              "description": "Sweep and ingest all discoverable sessions"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Ingest a single session by its agent session UUID"
+            },
+            {
+              "flags": ["--harness"],
+              "description": "Source harness label (default: claude_code)"
+            }
+          ]
+        },
+        {
+          "name": "index-embeddings",
+          "description": "Generate and store per-turn embeddings and session-level summary + summary embedding for agent transcripts. Pass --all to sweep every ingested session, or --session=<uuid> to target one. Both pipelines are idempotent.",
+          "options": [
+            {
+              "flags": ["--all"],
+              "description": "Sweep and re-index all ingested sessions"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Index a single session by its agent session UUID"
+            },
+            {
+              "flags": ["--force"],
+              "description": "Force re-generation of summaries even for already-summarized rows"
+            }
+          ]
+        },
+        {
+          "name": "search",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID.",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 10)"
+            },
+            {
+              "flags": ["--role"],
+              "description": "Filter to turns by role: 'user' or 'assistant'"
+            },
+            {
+              "flags": ["--from"],
+              "description": "ISO date string — include only turns from sessions started after this date"
+            },
+            {
+              "flags": ["--to"],
+              "description": "ISO date string — include only turns from sessions started before this date"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Restrict results to a single agent session by its UUID"
+            }
+          ]
+        },
+        {
+          "name": "similar",
+          "description": "Find transcript turns or sessions similar to a known seed. Pass --turnId=<agentSessionId>:<turnIndex> to find similar turns, or --sessionId=<uuid> to find similar sessions by summary embedding. Exactly one of turnId or sessionId must be provided.",
+          "options": [
+            {
+              "flags": ["--turn-id"],
+              "description": "Composite turn key \"<agentSessionId>:<turnIndex>\" — find turns similar to this seed turn"
+            },
+            {
+              "flags": ["--session-id"],
+              "description": "Agent session UUID — find sessions similar to this seed session"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 10)"
+            }
+          ]
+        },
+        {
+          "name": "spawns-extract",
+          "description": "Extract agent spawn relationships from transcript turns where is_spawn_boundary=true and upsert into agent_spawns. Pass --all to sweep every ingested session, or --session=<uuid> to target one parent session. Idempotent.",
+          "options": [
+            {
+              "flags": ["--all"],
+              "description": "Sweep and extract spawns for all ingested sessions"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Extract spawns for a single parent session by its agent session UUID"
+            }
+          ]
+        },
+        {
+          "name": "search-text",
+          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID.",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 10)"
+            },
+            {
+              "flags": ["--role"],
+              "description": "Filter to turns by role: 'user' or 'assistant'"
+            },
+            {
+              "flags": ["--from"],
+              "description": "ISO date string — include only turns from sessions started after this date"
+            },
+            {
+              "flags": ["--to"],
+              "description": "ISO date string — include only turns from sessions started before this date"
+            },
+            {
+              "flags": ["--session"],
+              "description": "Restrict results to a single agent session by its UUID"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Return all turns for an agent session in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the session is not found.",
+          "options": [
+            {
+              "flags": ["--turn-range"],
+              "description": "Inclusive turn index range in 'start-end' format (e.g. '10-20'). Returns only turns with turn_index between start and end (inclusive)."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "detectors",
+      "description": "DETECTORS commands",
+      "subcommands": [
+        {
+          "name": "unasked-direction",
+          "description": "unasked-direction commands",
+          "subcommands": [
+            {
+              "name": "list",
+              "description": "List unasked-direction findings produced by the post-merge analyzer. By default shows pending findings only; pass --all to include reviewed.",
+              "options": [
+                {
+                  "flags": ["--all"],
+                  "description": "Include findings already verdict-applied (default: false)"
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Restrict to a single session (default: walk all sessions in the findings directory)"
+                }
+              ]
+            },
+            {
+              "name": "mark-real",
+              "description": "Mark a finding as a real unasked direction — applies the verdict and promotes the finding's suggested signature to the per-session seed file for Surface 2 (mt#TBD) consumption.",
+              "options": [
+                {
+                  "flags": ["--finding-index"],
+                  "description": "0-based index of the finding within the session record"
+                },
+                {
+                  "flags": ["--note"],
+                  "description": "Optional operator note attached to the verdict"
+                }
+              ]
+            },
+            {
+              "name": "mark-false-positive",
+              "description": "Mark a finding as a false positive — applies the verdict; does NOT produce a signature seed.",
+              "options": [
+                {
+                  "flags": ["--finding-index"],
+                  "description": "0-based index of the finding within the session record"
+                },
+                {
+                  "flags": ["--note"],
+                  "description": "Optional operator note attached to the verdict"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "epic-decomposition",
+          "description": "epic-decomposition commands",
+          "subcommands": [
+            {
+              "name": "audit",
+              "description": "Audit an epic's children for Sprint-A-superseded staleness. Surfaces TODO/PLANNING children whose scope overlaps a recently-DONE sibling — likely candidates for closure as CLOSED-superseded after operator review (mt#1710).",
+              "options": [
+                {
+                  "flags": ["--recency-days"],
+                  "description": "Delivery-recency window in days (default: 30). DONE siblings updated within this window are considered."
+                },
+                {
+                  "flags": ["--min-overlap-signals"],
+                  "description": "Minimum signal types that must overlap (1-3, default 1: any of file/identifier/keyword)"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "observability",
+      "description": "OBSERVABILITY commands",
+      "subcommands": [
+        {
+          "name": "smoke-test",
+          "description": "Send a single test event to the configured Braintrust project to validate auth and ingestion",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output as JSON"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "mcp",
+      "description": "Model Context Protocol (MCP) server commands",
+      "subcommands": [
+        {
+          "name": "start",
+          "description": "Start the MCP server",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path for operations that require repository context (default: current directory)"
+            },
+            {
+              "flags": ["--with-inspector"],
+              "description": "Launch MCP inspector alongside the server"
+            },
+            {
+              "flags": ["--inspector-port"],
+              "description": "Port for the MCP inspector"
+            },
+            {
+              "flags": ["--http"],
+              "description": "Use HTTP transport for remote connections (default: stdio)"
+            },
+            {
+              "flags": ["--port"],
+              "description": "HTTP port (required for http transport, default: 3000)"
+            },
+            {
+              "flags": ["--host"],
+              "description": "HTTP host (default: localhost)"
+            },
+            {
+              "flags": ["--endpoint"],
+              "description": "HTTP endpoint path (default: /mcp)"
+            },
+            {
+              "flags": ["--require-auth"],
+              "description": "Require bearer-token auth on the HTTP MCP endpoint (token from MINSKY_MCP_AUTH_TOKEN env)"
+            }
+          ]
+        },
+        {
+          "name": "tools",
+          "description": "List all available MCP tools on the server",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path for operations that require repository context (default: current directory)"
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output full JSON response instead of just tool names"
+            }
+          ]
+        },
+        {
+          "name": "call",
+          "description": "Call a specific MCP tool",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path for operations that require repository context (default: current directory)"
+            },
+            {
+              "flags": ["--arg"],
+              "description": "Tool arguments in key=value format (can be used multiple times)"
+            },
+            {
+              "flags": ["--timeout"],
+              "description": "Timeout in seconds (default: 10s for most tools, 60s for session operations)"
+            },
+            {
+              "flags": ["--inspector"],
+              "description": "Use MCP inspector CLI (legacy, slower)"
+            }
+          ]
+        },
+        {
+          "name": "inspect",
+          "description": "Run MCP inspector CLI with custom method and arguments",
+          "options": [
+            {
+              "flags": ["--repo"],
+              "description": "Repository path for operations that require repository context (default: current directory)"
+            },
+            {
+              "flags": ["--method"],
+              "description": "MCP method to call (e.g., tools/list, resources/list, prompts/list)"
+            },
+            {
+              "flags": ["--arg"],
+              "description": "Method arguments in key=value format (can be used multiple times)"
+            },
+            {
+              "flags": ["--tool-name"],
+              "description": "Tool name for tools/call method"
+            },
+            {
+              "flags": ["--tool-arg"],
+              "description": "Tool arguments in key=value format (can be used multiple times)"
+            }
+          ]
+        },
+        {
+          "name": "register",
+          "description": "Register Minsky as an MCP server with a supported client",
+          "options": [
+            {
+              "flags": ["--client"],
+              "description": "The MCP client to register with (e.g., cursor)"
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Repository path"
+            },
+            {
+              "flags": ["--workspace-path"],
+              "description": "Workspace path"
+            },
+            {
+              "flags": ["--overwrite"],
+              "description": "Overwrite existing config"
+            }
+          ]
+        },
+        {
+          "name": "proxy",
+          "description": "Start the Minsky stdio respawn proxy. Transparently supervises the inner MCP server, absorbing clean exits from the staleness mechanism (mt#1322) and respawning without Claude Code disconnecting. Opt-in alternative to 'minsky mcp start' for stable long-running sessions.",
+          "options": [
+            {
+              "flags": ["--child-command"],
+              "description": "Command to run as the inner MCP server (default: minsky)"
+            },
+            {
+              "flags": ["--child-args"],
+              "description": "Arguments for the inner MCP server as a JSON array (preferred) or comma-separated string (deprecated). JSON form: --child-args '[\"mcp\",\"start\"]'. Default when --child-command is provided: [\"mcp\",\"start\"]."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "github",
+      "description": "GitHub integration commands",
+      "subcommands": [
+        {
+          "name": "test",
+          "description": "Test GitHub API connectivity and authentication",
+          "options": [
+            {
+              "flags": ["--verbose"],
+              "description": "Show detailed connection information"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "description": "Show GitHub backend configuration and status",
+          "options": [
+            {
+              "flags": ["--verbose"],
+              "description": "Show detailed configuration information"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "context",
+      "description": "Context management commands for AI collaboration",
+      "subcommands": [
+        {
+          "name": "suggest-rules",
+          "description": "Get AI-powered rule suggestions for your current task",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output results in JSON format"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of suggestions to return"
+            },
+            {
+              "flags": ["--threshold"],
+              "description": "Maximum vector distance threshold (optional)"
+            },
+            {
+              "flags": ["--no-embeddings"],
+              "description": "Disable embeddings search and use keyword fallback only"
+            },
+            {
+              "flags": ["--details"],
+              "description": "Show diagnostic details (top results, raw distances)"
+            },
+            {
+              "flags": ["--workspace-path"],
+              "description": "Workspace path for context"
+            }
+          ]
+        },
+        {
+          "name": "generate",
+          "description": "Generate AI context using modular components",
+          "options": [
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            },
+            {
+              "flags": ["-c", "--components"],
+              "description": "Comma-separated list of component IDs to include"
+            },
+            {
+              "flags": ["-o", "--output"],
+              "description": "Output file path (defaults to stdout)"
+            },
+            {
+              "flags": ["-t", "--template"],
+              "description": "Use specific template for generation"
+            },
+            {
+              "flags": ["-m", "--model"],
+              "description": "Target AI model for context generation"
+            },
+            {
+              "flags": ["-p", "--prompt"],
+              "description": "User prompt to customize context generation"
+            },
+            {
+              "flags": ["-i", "--interface"],
+              "description": "Interface mode for tool schemas (cli|mcp|hybrid)"
+            },
+            {
+              "flags": ["--analyze"],
+              "description": "Analyze the generated context for token usage and optimization"
+            },
+            {
+              "flags": ["--analyze-only"],
+              "description": "Only show analysis without the full context content"
+            },
+            {
+              "flags": ["--compare-models"],
+              "description": "Comma-separated list of models to compare"
+            },
+            {
+              "flags": ["--show-breakdown"],
+              "description": "Show detailed component breakdown in analysis"
+            },
+            {
+              "flags": ["--visualize"],
+              "description": "Generate visual charts of token distribution"
+            },
+            {
+              "flags": ["--visualize-only"],
+              "description": "Only show visualization without context or analysis"
+            },
+            {
+              "flags": ["--chart-type"],
+              "description": "Chart type: bar, pie, tree"
+            },
+            {
+              "flags": ["--max-width"],
+              "description": "Maximum chart width in characters"
+            },
+            {
+              "flags": ["--show-details"],
+              "description": "Show detailed breakdown of largest components"
+            },
+            {
+              "flags": ["--csv"],
+              "description": "Output results in CSV format"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lint",
+      "description": "Run linter and show structured results with quality gates (runtime-independent)",
+      "options": [
+        {
+          "flags": ["--json"],
+          "description": "Output results in JSON format"
+        },
+        {
+          "flags": ["--summary"],
+          "description": "Show only summary counts"
+        },
+        {
+          "flags": ["-q", "--quiet"],
+          "description": "Minimal output (summary only)"
+        },
+        {
+          "flags": ["--threshold"],
+          "description": "Warning threshold (default: 100)"
+        },
+        {
+          "flags": ["--detect"],
+          "description": "Show detected configuration and exit"
+        },
+        {
+          "flags": ["--config"],
+          "description": "Override project root path for configuration detection"
+        }
+      ]
+    },
+    {
+      "name": "init",
+      "description": "Initialize a project for Minsky",
+      "options": [
+        {
+          "flags": ["--repo"],
+          "description": "Repository path to initialize"
+        },
+        {
+          "flags": ["--backend"],
+          "description": "Backend type (available: github, minsky)"
+        },
+        {
+          "flags": ["--overwrite"],
+          "description": "Overwrite existing resources"
+        },
+        {
+          "flags": ["--workspace-path"],
+          "description": "Workspace path"
+        },
+        {
+          "flags": ["--github-owner"],
+          "description": "GitHub repository owner"
+        },
+        {
+          "flags": ["--github-repo"],
+          "description": "GitHub repository name"
+        },
+        {
+          "flags": ["--rule-format"],
+          "description": "Rule format (cursor or generic)"
+        },
+        {
+          "flags": ["--mcp"],
+          "description": "Enable/disable MCP configuration"
+        },
+        {
+          "flags": ["--mcp-transport"],
+          "description": "MCP transport type (stdio, sse, httpStream)"
+        },
+        {
+          "flags": ["--mcp-port"],
+          "description": "Port for MCP network transports"
+        },
+        {
+          "flags": ["--mcp-host"],
+          "description": "Host for MCP network transports"
+        }
+      ]
+    },
+    {
+      "name": "setup",
+      "description": "Set up developer-local configuration for Minsky",
+      "options": [
+        {
+          "flags": ["--client"],
+          "description": "MCP client to register with (e.g. cursor)"
+        },
+        {
+          "flags": ["--overwrite"],
+          "description": "Overwrite existing config"
+        },
+        {
+          "flags": ["--repo"],
+          "description": "Repository path"
+        },
+        {
+          "flags": ["--workspace-path"],
+          "description": "Workspace path"
+        }
+      ]
+    },
+    {
+      "name": "compile",
+      "description": "Compile TypeScript definition modules into harness-specific output files.",
+      "options": [
+        {
+          "flags": ["--target"],
+          "description": "Compile target to run (e.g. \"claude-skills\"). Defaults to \"claude-skills\"."
+        },
+        {
+          "flags": ["--output"],
+          "description": "Override the default output directory for the target."
+        },
+        {
+          "flags": ["--dry-run"],
+          "description": "Print compiled content without writing files."
+        },
+        {
+          "flags": ["--check"],
+          "description": "Check whether output files are up-to-date. Exits non-zero when stale."
+        }
+      ]
+    },
+    {
+      "name": "cockpit",
+      "description": "Cockpit dashboard server commands",
+      "subcommands": [
+        {
+          "name": "start",
+          "description": "Start the Cockpit dashboard server",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to listen on (default: 3737)"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "options": [
+    {
+      "flags": ["-V", "--version"],
+      "description": "output the version number"
+    },
+    {
+      "flags": ["--non-interactive"],
+      "description": "Disable interactive prompts, error on missing required parameters"
+    }
+  ]
+}
