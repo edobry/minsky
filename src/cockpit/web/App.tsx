@@ -54,16 +54,13 @@ interface HomePageProps {
 function HomePage({ widgets }: HomePageProps) {
   return (
     <div className="p-4 flex flex-col gap-6 max-w-5xl mx-auto w-full">
-      {/* Entry tiles for promoted pages */}
-      <PromotedPageTiles />
-
-      {/* Small cards: BasicHealth, Attention, Credentials */}
+      {/* System section — always first: "is anything wrong?" scan */}
       {widgets.length > 0 && (
-        <section aria-label="System overview">
-          <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
-            System overview
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <section aria-label="System status">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
+            System
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {widgets.map(({ meta, data }) => {
               const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
               const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
@@ -99,6 +96,9 @@ function HomePage({ widgets }: HomePageProps) {
           </div>
         </section>
       )}
+
+      {/* Navigate section — below status: where am I going? */}
+      <PromotedPageTiles />
     </div>
   );
 }
