@@ -250,7 +250,11 @@ function defaultSpawnFn(cmd: string, args: string[], options: SpawnOptions): Spa
 
 export function openInBrowser(url: string, opts: OpenInBrowserOptions = {}): void {
   const platform = opts.platform ?? process.platform;
-  const warn = opts.warn ?? ((m: string) => log.warn(m));
+  // Default to log.cliWarn (CLI-visible via programLogger → stderr) rather than
+  // log.warn (suppressed in HUMAN mode unless ENABLE_AGENT_LOGS is set). The
+  // --open opener is invoked from a CLI command; opener failures must reach
+  // the user. Per PR #1151 R1 (mt#1887) — BLOCKING #1.
+  const warn = opts.warn ?? ((m: string) => log.cliWarn(m));
   const spawnFn = opts.spawnFn ?? defaultSpawnFn;
 
   let cmd: string;

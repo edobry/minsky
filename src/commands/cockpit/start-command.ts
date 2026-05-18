@@ -144,26 +144,59 @@ export function createStartCommand(): Command {
         console.warn(`Warning: could not write cockpit PID file: ${e.message}`);
       }
 
-      // Cleanup on graceful shutdown. Idempotent against double-fire across
-      // multiple signal sources.
+      // Cleanup on shutdown. Idempotent against double-fire across multiple
+      // signal sources AND the process-exit path. Per PR #1151 R1 (mt#1887)
+      // BLOCKING #2 — signal-only cleanup left stale PID files on non-signal
+      // shutdown paths (process.exit() called elsewhere, uncaughtException,
+      // unhandledRejection, normal event-loop drain). All paths now route
+      // through `cleanupSync` which removes the PID file unconditionally
+      // before exit.
       let shuttingDown = false;
-      const cleanup = (signal: NodeJS.Signals) => {
+      const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
         removeCockpitPidFile();
+      };
+      const cleanupAndExit = () => {
+        cleanupSync();
         server.close(() => process.exit(0));
         // Force-exit if server.close() hangs on long-lived SSE clients.
         setTimeout(() => process.exit(0), 1000).unref();
       };
+
       // The project's narrowed `process` type omits EventEmitter methods.
       // Cast to a Node-shaped surface for `on` — mirrors `src/mcp/server.ts:1340-1345`.
       // eslint-disable-next-line custom/no-excessive-as-unknown
       const proc = process as unknown as {
-        on(event: NodeJS.Signals, listener: () => void): void;
+        on(
+          event: NodeJS.Signals | "exit" | "uncaughtException" | "unhandledRejection",
+          listener: (...args: unknown[]) => void
+        ): void;
       };
-      proc.on("SIGINT", () => cleanup("SIGINT"));
-      proc.on("SIGTERM", () => cleanup("SIGTERM"));
-      proc.on("SIGHUP", () => cleanup("SIGHUP"));
+      proc.on("SIGINT", cleanupAndExit);
+      proc.on("SIGTERM", cleanupAndExit);
+      proc.on("SIGHUP", cleanupAndExit);
+
+      // Synchronous-only path: fires on any non-signal exit (normal exit,
+      // process.exit() called elsewhere, event-loop drain). `cleanupSync` uses
+      // fs.unlinkSync inside removeCockpitPidFile, which is safe here.
+      proc.on("exit", cleanupSync);
+
+      // Uncaught error paths: clean up best-effort, then exit non-zero so the
+      // failure isn't silently swallowed. The `exit` listener above fires
+      // after process.exit(1) and is the second line of defence.
+      proc.on("uncaughtException", (err: unknown) => {
+        cleanupSync();
+        const e = err instanceof Error ? err : new Error(String(err));
+        console.error(`Cockpit: uncaught exception: ${e.message}`);
+        process.exit(1);
+      });
+      proc.on("unhandledRejection", (reason: unknown) => {
+        cleanupSync();
+        const r = reason instanceof Error ? reason.message : String(reason);
+        console.error(`Cockpit: unhandled rejection: ${r}`);
+        process.exit(1);
+      });
 
       console.log(`Cockpit running at http://localhost:${port}`);
       console.log("Press Ctrl+C to stop");
