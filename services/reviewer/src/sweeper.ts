@@ -255,7 +255,8 @@ export async function retriggerViaRunReview(
   owner: string,
   repo: string,
   pr: MissingReviewPR,
-  runReviewFn: RunReviewFn = runReview
+  runReviewFn: RunReviewFn = runReview,
+  db?: ReviewerDb
 ): Promise<void> {
   const deliveryId = `sweeper-${Date.now()}`;
   console.log(
@@ -270,7 +271,16 @@ export async function retriggerViaRunReview(
   );
 
   try {
-    const result = await runReviewFn(config, owner, repo, pr.number, pr.authorLogin);
+    const result = await runReviewFn(
+      config,
+      owner,
+      repo,
+      pr.number,
+      pr.authorLogin,
+      deliveryId,
+      pr.headSha,
+      db !== undefined ? { db } : undefined
+    );
     console.log(
       JSON.stringify({
         event: "sweeper.retrigger_success",
@@ -530,7 +540,7 @@ export async function runSweep(
     // Schedule each in the batch. retriggerViaRunReview never throws (it
     // catch-logs internally), so we can safely await all in parallel.
     await Promise.all(
-      batch.map((pr) => retriggerViaRunReview(config, owner, repo, pr, runReviewFn))
+      batch.map((pr) => retriggerViaRunReview(config, owner, repo, pr, runReviewFn, db))
     );
     retriggeredCount += batch.length;
   }

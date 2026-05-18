@@ -14,7 +14,7 @@
  * sweep cycle so a crashed runReview doesn't permanently block retriggering.
  */
 
-import { pgTable, uuid, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
@@ -78,10 +78,12 @@ export const inflightReviewsTable = pgTable(
      * The concurrency primitive: at most one marker per (owner, repo, pr_number, head_sha).
      * INSERT ... ON CONFLICT DO NOTHING on this constraint is the acquire operation.
      */
-    uniqPrHead: {
-      name: "uniq_pr_head",
-      columns: [table.owner, table.repo, table.prNumber, table.headSha],
-    },
+    uniqPrHead: uniqueIndex("uniq_pr_head").on(
+      table.owner,
+      table.repo,
+      table.prNumber,
+      table.headSha
+    ),
 
     /** TTL sweep and GC: find expired markers quickly. */
     byExpiresAt: index("idx_rir_expires_at").on(table.expiresAt),
