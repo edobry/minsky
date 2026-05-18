@@ -57,6 +57,37 @@ if (!githubToken) {
 }
 
 // ---------------------------------------------------------------------------
+// Known limitation (mt#1875 R2)
+// ---------------------------------------------------------------------------
+
+/**
+ * SCOPE_WARNING — KNOWN LIMITATION of this replay harness (mt#1875 R2).
+ *
+ * The harness computes a per-round priorTimestamp from the immediately preceding
+ * bot review's submittedAt, but `extractFixCommitDiff` does NOT filter the diff
+ * string by that timestamp — it just parses whatever diff is passed in. Since
+ * the full PR diff is what gets passed, the resulting lineRange is identical
+ * for every round. The replay shows whether findings fall inside the PR-wide
+ * scope, NOT whether per-round narrowing changes outcomes across rounds.
+ *
+ * The same placeholder exists in the production runReview path (review-worker.ts
+ * lines 933-937, "placeholder — real per-commit filtering is future work").
+ *
+ * Real per-commit-since-priorTimestamp filtering is tracked as mt#1882.
+ * When mt#1882 ships, this warning can be removed and the harness will reflect
+ * actual per-round narrowing.
+ *
+ * Operators reading the JSON report should treat per-round downgrade signals
+ * as a lower bound (worst case: full-PR scope). Real per-round narrowing will
+ * be at least as aggressive as what this harness shows.
+ */
+const SCOPE_WARNING =
+  "KNOWN LIMITATION (mt#1875 R2): per-round scopes are derived from the FULL PR diff, " +
+  "not from commits-since-prior-review-timestamp. The lineRange is identical across rounds. " +
+  "Real per-commit-since-priorTimestamp filtering is tracked as mt#1882. Treat per-round " +
+  "downgrade signals as a lower bound (real narrowing will be at least as aggressive).";
+
+// ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
 
