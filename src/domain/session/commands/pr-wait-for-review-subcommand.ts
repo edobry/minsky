@@ -160,7 +160,23 @@ export async function resolveReviewerFilter(
     return reviewer;
   }
 
-  const tokenProvider = await getTokenProvider();
+  // Acquire the TokenProvider. Wrap any acquisition failure (e.g.
+  // `getConfiguration()` throwing "Configuration not initialized." when
+  // invoked outside the normal CLI bootstrap) into a typed MinskyError
+  // that names the role context — so the caller sees a role-resolution
+  // error message rather than the generic "Failed to wait for PR review"
+  // wrapper from the outer try/catch.
+  let tokenProvider: TokenProvider;
+  try {
+    tokenProvider = await getTokenProvider();
+  } catch (acquisitionError) {
+    throw new MinskyError(
+      `Cannot resolve reviewer role "${role}": failed to acquire TokenProvider. ` +
+        `${getErrorMessage(acquisitionError)}. ` +
+        `Either ensure GitHub config is initialized before calling, or pass a ` +
+        `literal GitHub login (e.g. \`minsky-reviewer[bot]\`) to bypass role resolution.`
+    );
+  }
   if (!tokenProvider.isRoleConfigured(role)) {
     throw new MinskyError(
       `Cannot resolve reviewer role "${role}": required config key ` +

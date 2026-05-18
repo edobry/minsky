@@ -271,6 +271,27 @@ describe("resolveReviewerFilter", () => {
     expect((err as MinskyError).message).toContain("inconsistency");
   });
 
+  // R1 NON-BLOCKING fix (PR #1157): TokenProvider acquisition failures
+  // (e.g. `getConfiguration()` throwing "Configuration not initialized.")
+  // must surface as a typed MinskyError naming the role context, not bubble
+  // out as a generic Error that the outer try/catch wraps as
+  // "Failed to wait for PR review: ..."
+  test("wraps TokenProvider acquisition failures with role-named MinskyError", async () => {
+    const getTp = async (): Promise<TokenProvider> => {
+      throw new Error("Configuration not initialized. Call initializeConfiguration() first.");
+    };
+    let err: unknown;
+    try {
+      await resolveReviewerFilter("reviewer", getTp);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MinskyError);
+    expect((err as MinskyError).message).toContain('Cannot resolve reviewer role "reviewer"');
+    expect((err as MinskyError).message).toContain("failed to acquire TokenProvider");
+    expect((err as MinskyError).message).toContain("Configuration not initialized");
+  });
+
   test("literal login that resembles a role but isn't exact passes through", async () => {
     // "reviewer-bot" is NOT the literal role identifier "reviewer" (case-insensitive
     // strict match). Treat as a literal login.
