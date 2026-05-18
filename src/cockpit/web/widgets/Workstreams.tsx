@@ -143,8 +143,10 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-sm">
-              <span className="font-mono text-xs text-muted-foreground mr-1">{card.parentId}</span>
+            <CardTitle className="text-sm flex items-center gap-2 flex-wrap">
+              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-muted text-foreground">
+                {card.parentId}
+              </span>
               <span className="font-medium">{card.parentTitle}</span>
             </CardTitle>
           </div>
