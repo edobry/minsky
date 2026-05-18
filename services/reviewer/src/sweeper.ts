@@ -29,6 +29,24 @@
  * sweeper shares the same octokit / config the server already has. The
  * interval (10 min) is configurable via SWEEPER_INTERVAL_MS. To disable the
  * sweeper entirely, set SWEEPER_ENABLED=false.
+ *
+ * ## Cadence rationale (mt#1898)
+ *
+ * The 10-minute default was set as the upper bound of mt#1260's spec range
+ * ("every 5-10 minutes"), defensively rather than calibrated against measured
+ * cost. mt#1898 investigated four candidate cadences (1 / 2 / 5 / 10 min) and
+ * recommended keeping 10 min. The binding constraint is NOT GitHub API
+ * rate-limit (even 1-min cadence stays under 20% of the 5000 req/hr App
+ * installation budget) — it is a sweeper-vs-webhook double-trigger race:
+ * `detectMissingReview` cannot distinguish "no review yet because runReview
+ * is in-flight from a webhook" from "no review yet because a prior runReview
+ * failed". At 1-2 min cadence the race fires on ~75-100% of pushes, paying
+ * an OpenAI cycle AND a duplicate review comment per race. Tighter cadence
+ * is safe only once mt#1907 lands an in-flight marker. See mt#1898's
+ * `## Findings` for the full table and reasoning. Operators who want
+ * temporary faster recovery during the mt#1897 (OpenAI timeout) investigation
+ * window can set SWEEPER_INTERVAL_MS=300000 (5 min) at the Railway env-var
+ * layer; revert after mt#1897 ships.
  */
 
 import type { ReviewerConfig } from "./config";
@@ -74,6 +92,11 @@ export function loadSweeperConfig(): SweeperConfig {
     // Strict-positive parse (mt#1811 cascade-defense): malformed values
     // would feed NaN to setInterval. parsePositiveIntEnv throws at boot
     // time on any non-positive-integer value.
+    //
+    // 600_000 ms (10 min) default: see module-header "Cadence rationale" and
+    // mt#1898's `## Findings`. Do not lower below 5 min without first
+    // landing mt#1907 (in-flight marker) — the sweeper-vs-webhook race rate
+    // climbs sharply below that cadence.
     intervalMs: parsePositiveIntEnv("SWEEPER_INTERVAL_MS", 600_000),
     enabled: (process.env["SWEEPER_ENABLED"] ?? "false") === "true",
     // PR #1116 R1 cascade-defense: surface when defaults are in effect so silent
