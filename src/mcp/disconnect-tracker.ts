@@ -68,6 +68,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { log } from "../utils/logger";
+import { emitBraintrustEvent } from "../domain/observability/braintrust";
 
 /**
  * The kind of event recorded.
@@ -526,6 +527,25 @@ export class DisconnectTracker {
       ...(event.error ? { error: event.error } : {}),
     });
     this.appendEvent(event);
+    // mt#1778: emit a Braintrust log event alongside the JSONL append so the
+    // disconnect cause distribution is queryable in the Braintrust dashboard.
+    // Fire-and-forget; the JSONL log at ~/.local/state/minsky/mcp-disconnect-log.json
+    // remains the source of truth. Failures inside the emitter are silently swallowed
+    // (see `src/domain/observability/braintrust.ts` graceful-degradation contract).
+    void emitBraintrustEvent({
+      output: {
+        cause: event.cause,
+        uptimeMs: event.uptimeMs,
+        processRole: event.processRole,
+        ...(event.error ? { error: event.error } : {}),
+      },
+      metadata: {
+        serverName: event.serverName,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        source: "minsky.mcp.disconnect-tracker",
+      },
+    });
     return event;
   }
 
