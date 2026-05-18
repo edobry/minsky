@@ -55,7 +55,7 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
           <span className="text-sm font-semibold">{label}</span>
           {badge}
         </div>
-        <p className="text-xs text-muted-foreground leading-snug mt-0.5 line-clamp-2">{description}</p>
+        <p className="text-xs text-muted-foreground leading-snug mt-0.5">{description}</p>
       </div>
 
       {/* Arrow affordance — grows more visible on hover */}
@@ -79,19 +79,19 @@ export function PromotedPageTiles() {
           to="/agents"
           icon={Bot}
           label="Agents"
-          description="Monitor active agent sessions, liveness status, and PR state."
+          description="Active sessions, liveness, and PR state"
         />
         <EntryTile
           to="/workstreams"
           icon={GitBranch}
           label="Workstreams"
-          description="Collapsible view of parent tasks with active, done, and blocked child counts."
+          description="Parent tasks with child status counts"
         />
         <EntryTile
           to="/tasks"
           icon={Network}
           label="Task Graph"
-          description="Interactive dependency DAG of all Minsky tasks — pan, zoom, and click to inspect."
+          description="Interactive task dependency DAG"
         />
       </div>
     </section>
