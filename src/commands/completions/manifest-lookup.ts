@@ -123,6 +123,18 @@ export function lookupCompletions(env: CompletionEnv, manifest: ManifestCommand)
 
   // Mode 2: flag completion.
   if (partialWord.startsWith("-")) {
+    // mt#1893 PR #1161 R1-B2: when partialWord exactly matches a known
+    // value-bearing flag, the user has finished typing the flag name and
+    // hit TAB expecting values — not a partial-flag-name expansion. Most
+    // shells treat "exact match for what's already typed" as no-op, leading
+    // to confused UX. Detect this case and emit values instead.
+    if (node.options) {
+      for (const opt of node.options) {
+        if (opt.takesValue && opt.values && opt.flags.includes(partialWord)) {
+          return [...opt.values];
+        }
+      }
+    }
     const out: string[] = [];
     if (node.options) {
       for (const opt of node.options) {

@@ -220,4 +220,32 @@ describe("lookupCompletions — value completion (mt#1893)", () => {
     // through to subcommand completion. init has no subcommands → [].
     expect(result).toEqual([]);
   });
+
+  // mt#1893 PR #1161 R1-B2: --flag<TAB> (no space) emits values.
+  it("emits values when partial exactly matches a value-bearing flag (no trailing space)", () => {
+    const result = lookupCompletions({ partial: "minsky init --backend" }, FIXTURE_WITH_VALUES);
+    expect(result).toEqual(["github", "minsky"]);
+  });
+
+  it("emits values for exact-flag-match at deeper nesting", () => {
+    const result = lookupCompletions(
+      { partial: "minsky tasks list --status" },
+      FIXTURE_WITH_VALUES
+    );
+    expect(result).toEqual(["TODO", "READY", "DONE"]);
+  });
+
+  it("still does prefix flag completion when partial is a STRICT prefix (not exact match)", () => {
+    // "minsky init --back" — strict prefix of --backend, NOT exact match.
+    // Should still emit the flag name for the shell to auto-complete.
+    const result = lookupCompletions({ partial: "minsky init --back" }, FIXTURE_WITH_VALUES);
+    expect(result).toEqual(["--backend"]);
+  });
+
+  it("does NOT emit values for exact-flag-match on a boolean flag (no takesValue)", () => {
+    // --overwrite is a boolean — no values list. Even though it's an exact
+    // match, fall through to prefix-flag-completion (returns ["--overwrite"]).
+    const result = lookupCompletions({ partial: "minsky init --overwrite" }, FIXTURE_WITH_VALUES);
+    expect(result).toEqual(["--overwrite"]);
+  });
 });

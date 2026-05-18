@@ -35,19 +35,36 @@ export async function serveCompletions(): Promise<void> {
   if (!env.complete) return;
 
   const candidates = lookupCompletions({ partial: env.partial }, manifest);
+  if (candidates.length === 0) return;
 
-  // tabtab.log needs the shell to format candidates (zsh wants `name:desc`,
-  // fish wants `name\tdesc`, bash/pwsh want plain names). Resolve from
-  // process.env.SHELL via tabtab.getShellFromEnv; fall back to bash when
-  // SHELL is unset or set to an unsupported value. The fallback can misformat
-  // fish output, but logging to stderr would surface in the user's shell
-  // prompt — intentionally silent. (tabtab.log's `shell` parameter accepts
-  // only bash/zsh/fish/pwsh per its types.)
+  // Resolve the shell for output formatting (zsh wants `name:desc`, fish
+  // wants `name\tdesc`, bash/pwsh want plain names). Fall back to bash when
+  // SHELL is unset or set to an unsupported value — logging to stderr would
+  // surface in the user's shell prompt, so we stay silent on errors.
   let shell: "bash" | "zsh" | "fish" | "pwsh" = "bash";
   try {
     shell = tabtab.getShellFromEnv(process.env);
   } catch {
     // SHELL unset or unsupported — keep the bash default.
   }
-  tabtab.log(candidates, shell);
+
+  // Write directly to process.stdout instead of going through tabtab.log,
+  // which uses console.log internally. The src/cli.ts main() calls
+  // process.exit(0) after parseAsync resolves, and console.log's stdout
+  // buffer can be dropped under Bun when stdout is not a TTY (piped /
+  // captured / shell-completion context). process.stdout.write is
+  // synchronous to kernel for the common case and reliably reaches the
+  // shell before the process exits.
+  //
+  // The line format matches what tabtab.log would have produced:
+  //   bash / pwsh → "<name>" per line
+  //   zsh         → "<name>:<description>" per line (no descriptions in
+  //                 our manifest, so just the name)
+  //   fish        → "<name>\t<description>" per line (same — no descriptions)
+  // Since our candidates are bare strings (no per-candidate descriptions),
+  // all four shells receive the same plain-name output for now. Descriptions
+  // are a future enhancement.
+  void shell; // Reserved for future per-shell formatting; bash output works universally.
+  const output = `${candidates.join("\n")}\n`;
+  process.stdout.write(output);
 }

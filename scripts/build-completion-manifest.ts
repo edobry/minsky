@@ -132,8 +132,16 @@ function extractEnumValues(schema: z.ZodType): string[] | undefined {
   }
 
   if (inner._def.type === "literal") {
-    const values = inner._def.values;
-    if (Array.isArray(values)) return values.map((v: unknown) => String(v));
+    // Prefer the public `.value` accessor over `_def.values` for resilience
+    // across Zod minor versions. Zod v4 _def shape uses `values` as an array
+    // (verified empirically), but the public accessor is the documented contract.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lit = inner as any;
+    if (lit.value !== undefined) return [String(lit.value)];
+    // Fallback to _def.values for safety if the accessor isn't present.
+    if (Array.isArray(inner._def.values)) {
+      return inner._def.values.map((v: unknown) => String(v));
+    }
     return undefined;
   }
 
@@ -146,9 +154,19 @@ function extractEnumValues(schema: z.ZodType): string[] | undefined {
     for (const o of opts) {
       const unwrapped = unwrapZod(o);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const def = (unwrapped as any)?._def;
-      if (def?.type !== "literal" || !Array.isArray(def.values)) return undefined;
-      for (const v of def.values) collected.push(String(v));
+      const optAny = unwrapped as any;
+      if (optAny?._def?.type !== "literal") return undefined;
+      // Prefer the public `.value` accessor (singular) — same reasoning as above.
+      if (optAny.value !== undefined) {
+        collected.push(String(optAny.value));
+        continue;
+      }
+      // Fallback to _def.values array.
+      if (Array.isArray(optAny._def.values)) {
+        for (const v of optAny._def.values) collected.push(String(v));
+        continue;
+      }
+      return undefined;
     }
     return collected;
   }
