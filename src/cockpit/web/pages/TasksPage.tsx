@@ -17,13 +17,7 @@ interface TasksPageProps {
 export function TasksPage({ data }: TasksPageProps) {
   if (data === null) {
     return (
-      <div className="flex flex-col gap-4 p-4 w-full">
-        <div>
-          <h1 className="text-base font-semibold text-foreground">Task Graph</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Dependency graph of all Minsky tasks
-          </p>
-        </div>
+      <div className="p-4 w-full">
         <div className="rounded-lg border border-border bg-card p-6 text-sm text-muted-foreground">
           Loading task graph…
         </div>
@@ -32,19 +26,13 @@ export function TasksPage({ data }: TasksPageProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4 w-full">
-      <div>
-        <h1 className="text-base font-semibold text-foreground">Task Graph</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Dependency graph of all Minsky tasks
-        </p>
-      </div>
-      {/* TaskGraph renders its own Card + react-flow canvas.
-          containerClassName overrides the default 600px to fill the
-          viewport: 100vh minus header (3.5rem/h-14) + page padding (2rem)
-          + title section (2.5rem) + gap (1rem) + card header (3.5rem)
-          + card-content top padding (0.5rem) ≈ 13rem → use 13rem. */}
-      <TaskGraph data={data} containerClassName="h-[calc(100vh-13rem)]" />
+    <div className="p-4 w-full">
+      {/* TaskGraph renders its own Card + react-flow canvas with the widget's
+          CardTitle "Task Graph" serving as the page header. containerClassName
+          overrides the default 600px so the canvas fills the viewport:
+          100vh minus app header (h-14 = 3.5rem) + page padding (2rem)
+          + card header (3.5rem) + card-content top padding (0.5rem) ≈ 9.5rem. */}
+      <TaskGraph data={data} containerClassName="h-[calc(100vh-9.5rem)]" />
     </div>
   );
 }

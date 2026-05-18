@@ -11,15 +11,7 @@ import { Agents } from "../widgets/Agents";
 
 export function AgentsPage() {
   return (
-    <div className="flex flex-col gap-4 p-4 max-w-5xl mx-auto w-full">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-semibold text-foreground">Agents</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Active sessions and their liveness status
-          </p>
-        </div>
-      </div>
+    <div className="p-4 max-w-5xl mx-auto w-full">
       <Agents />
     </div>
   );
