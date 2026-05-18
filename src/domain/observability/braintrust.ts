@@ -67,7 +67,14 @@ export async function readBraintrustConfig(): Promise<BraintrustConfig | null> {
     if (home) {
       const configPath = `${home}/.config/minsky/config.yaml`;
       const yaml = await import("yaml");
-      const content = await Bun.file(configPath).text();
+      // mt#1778 R1 BLOCKING: cross-runtime read via node:fs. The original
+      // `Bun.file(...)` would throw a ReferenceError under Node consumers,
+      // which the surrounding try/catch swallows — silently disabling YAML
+      // fallback. `fs.promises.readFile` works under both Bun and Node.
+      const { readFile } = await import("node:fs/promises");
+      // Cast to string: with an encoding the return is `string`, but the
+      // tsgo type narrowing on the overload returns `string | Buffer`.
+      const content = (await readFile(configPath, { encoding: "utf8" })) as string;
       const parsed = yaml.parse(content) as Record<string, unknown> | undefined;
       const obs = (parsed?.["observability"] as Record<string, unknown> | undefined)?.[
         "providers"

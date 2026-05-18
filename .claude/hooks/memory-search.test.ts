@@ -11,7 +11,6 @@ import {
   isTrivialPrompt,
   MIN_PROMPT_LENGTH,
   parseSearchOutput,
-  readBraintrustConfig,
   renderResult,
   rotateLogIfNeeded,
   TRUNCATION_MARKER,
@@ -19,6 +18,10 @@ import {
   type LogFsDeps,
   type MemorySearchResultLite,
 } from "./memory-search";
+// mt#1778 R1 NON-BLOCKING #1: read shared-emitter API directly from its
+// canonical module rather than through the hook's re-export, which was
+// fragile coupling per reviewer feedback.
+import { readBraintrustConfig } from "../../src/domain/observability/braintrust";
 
 const TRUNCATION_MARKER_TEXT = TRUNCATION_MARKER.trim();
 

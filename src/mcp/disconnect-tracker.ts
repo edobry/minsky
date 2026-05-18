@@ -529,9 +529,22 @@ export class DisconnectTracker {
     this.appendEvent(event);
     // mt#1778: emit a Braintrust log event alongside the JSONL append so the
     // disconnect cause distribution is queryable in the Braintrust dashboard.
-    // Fire-and-forget; the JSONL log at ~/.local/state/minsky/mcp-disconnect-log.json
-    // remains the source of truth. Failures inside the emitter are silently swallowed
-    // (see `src/domain/observability/braintrust.ts` graceful-degradation contract).
+    //
+    // Delivery semantics (at-most-once, intentional per mt#1778 R1 NON-BLOCKING #2):
+    // - Fire-and-forget (`void`) so the synchronous `recordDisconnect()` signature is
+    //   preserved — callers may invoke this from signal handlers or stdio teardown
+    //   where async-await isn't safe.
+    // - On abrupt process exit (kill -9, OOM, parent dropping stdio), the in-flight
+    //   `logger.log` HTTP request may not complete before the process dies. Up to one
+    //   disconnect event per process lifetime can be dropped at the very tail. Acceptable
+    //   for observability signal: the JSONL log at
+    //   `~/.local/state/minsky/mcp-disconnect-log.json` remains the source of truth and
+    //   captures the same event durably before this fire-and-forget call.
+    // - `asyncFlush: false` in the shared emitter (`src/domain/observability/braintrust.ts`)
+    //   forces a synchronous flush on each `logger.log`, so under normal teardown paths
+    //   the event lands before the next event-loop tick.
+    // - Failures inside the emitter (network, SDK, config) are silently swallowed per the
+    //   shared module's graceful-degradation contract.
     void emitBraintrustEvent({
       output: {
         cause: event.cause,

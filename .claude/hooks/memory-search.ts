@@ -33,16 +33,8 @@
 
 import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import {
-  type BraintrustConfig,
-  emitBraintrustEvent,
-  readBraintrustConfig,
-} from "../../src/domain/observability/braintrust";
+import { emitBraintrustEvent } from "../../src/domain/observability/braintrust";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
-
-// Re-export so existing callers (tests, downstream consumers) that import these names
-// from this module continue to work after the mt#1778 extraction.
-export { type BraintrustConfig, readBraintrustConfig };
 
 // ---------------------------------------------------------------------------
 // Types
