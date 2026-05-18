@@ -60,7 +60,7 @@ import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
 import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
-import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
+import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import type { PriorReview } from "./prior-review-summary";
@@ -70,7 +70,12 @@ import {
   summarizePriorReviews,
 } from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
-import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
+import {
+  decideRouting,
+  resolveTier,
+  type AuthorshipTier,
+  type TierRoutingDecision,
+} from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
 import { composeReviewBody, type ComposeReviewResult } from "./compose-review";
@@ -92,6 +97,7 @@ import {
   type DiffScopeDowngradeAuditEntry,
   type FixCommitLineRangeMap,
 } from "./diff-scoper";
+import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
@@ -819,6 +825,128 @@ export async function runReview(
     return { status: "skipped", reason: routing.reason, tier };
   }
 
+  // ---------------------------------------------------------------------------
+  // In-flight marker (mt#1907): acquire AFTER routing.shouldReview so skipped
+  // PRs don't churn marker rows. Uses pr.headSha (authoritative from GitHub)
+  // rather than the caller-supplied headSha which may be stale.
+  //
+  // Fail-open contract (SC #6): if the DB is unavailable, proceed without the
+  // marker guarantee rather than blocking the review.
+  // ---------------------------------------------------------------------------
+  const acquiredBy = deliveryId.startsWith("sweeper-") ? "sweeper" : "webhook";
+  let markerId: string | null = null;
+
+  if (deps.db !== undefined) {
+    try {
+      const markerResult = await acquireMarker(deps.db, {
+        owner,
+        repo,
+        prNumber,
+        headSha: pr.headSha,
+        acquiredBy,
+        deliveryId,
+      });
+
+      if (!markerResult.acquired) {
+        // Another caller holds the marker — skip to avoid duplicate review.
+        console.log(
+          JSON.stringify({
+            event: "runReview.skipped_concurrent_inflight",
+            pr_owner: owner,
+            pr_repo: repo,
+            pr_number: prNumber,
+            head_sha: pr.headSha,
+            acquired_by: markerResult.heldBy,
+            delivery_id: deliveryId,
+          })
+        );
+        return {
+          status: "skipped",
+          reason: "concurrent_inflight",
+          tier,
+        };
+      }
+
+      markerId = markerResult.id;
+    } catch (markerErr: unknown) {
+      // DB error — fail open: proceed without marker guarantee.
+      const errorMessage = markerErr instanceof Error ? markerErr.message : String(markerErr);
+      console.log(
+        JSON.stringify({
+          event: "runReview.marker_acquire_failed_fail_open",
+          pr_owner: owner,
+          pr_repo: repo,
+          pr_number: prNumber,
+          head_sha: pr.headSha,
+          delivery_id: deliveryId,
+          error: errorMessage,
+        })
+      );
+    }
+  }
+
+  // Wrap the rest of runReview in try/finally to release the marker on completion
+  // (success or error). When markerId is null (DB absent or acquire failed),
+  // release is a no-op.
+  try {
+    return await runReviewBody(
+      config,
+      owner,
+      repo,
+      prNumber,
+      prAuthorLogin,
+      deliveryId,
+      deps,
+      octokit,
+      pr,
+      tier,
+      prScope,
+      scopeBucket,
+      routing
+    );
+  } finally {
+    if (markerId !== null && deps.db !== undefined) {
+      await releaseMarker(deps.db, markerId).catch((releaseErr: unknown) => {
+        const message = releaseErr instanceof Error ? releaseErr.message : String(releaseErr);
+        console.warn(
+          JSON.stringify({
+            event: "runReview.marker_release_failed",
+            pr_owner: owner,
+            pr_repo: repo,
+            pr_number: prNumber,
+            head_sha: pr.headSha,
+            marker_id: markerId,
+            error: message,
+          })
+        );
+      });
+    }
+  }
+}
+
+/**
+ * Core runReview body — extracted so it can be wrapped in try/finally for
+ * marker release without deep nesting. All heavy lifting is here; the outer
+ * runReview does routing, marker acquisition, and release wrapping.
+ *
+ * Receives pre-computed values from runReview (pr, tier, prScope, etc.) to
+ * avoid re-fetching.
+ */
+async function runReviewBody(
+  config: ReviewerConfig,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  prAuthorLogin: string,
+  deliveryId: string,
+  deps: RunReviewDeps,
+  octokit: Awaited<ReturnType<typeof createOctokit>>,
+  pr: Awaited<ReturnType<typeof fetchPullRequestContext>>,
+  tier: AuthorshipTier,
+  prScope: PRScope,
+  scopeBucket: ScopeBucket,
+  _routing: TierRoutingDecision
+): Promise<ReviewResult> {
   // Confirm the reviewer identity is distinct from the PR author. If they
   // happen to match (misconfiguration, same App used for both roles), we
   // cannot APPROVE and must fall back to COMMENT — GitHub blocks

@@ -586,13 +586,28 @@ describe("runSweep", () => {
     expect(result.retriggeredCount).toBe(1);
     // runReview should have been called with the right args
     expect(runReviewFn).toHaveBeenCalledTimes(1);
-    expect(runReviewFn).toHaveBeenCalledWith(
-      BASE_CONFIG,
-      SWEEPER_CONFIG.owner,
-      SWEEPER_CONFIG.repo,
-      prNumber,
-      PR_AUTHOR
-    );
+    // runReview is called with (config, owner, repo, prNumber, authorLogin, deliveryId,
+    // headSha, deps). deliveryId is "sweeper-{timestamp}", headSha comes from the PR,
+    // and deps is undefined when no db is available.
+    const [
+      callConfig,
+      callOwner,
+      callRepo,
+      callPrNumber,
+      callAuthor,
+      callDeliveryId,
+      callSha,
+      callDeps,
+    ] = runReviewFn.mock.calls[0] as unknown[];
+    expect(callConfig).toBe(BASE_CONFIG);
+    expect(callOwner).toBe(SWEEPER_CONFIG.owner);
+    expect(callRepo).toBe(SWEEPER_CONFIG.repo);
+    expect(callPrNumber).toBe(prNumber);
+    expect(callAuthor).toBe(PR_AUTHOR);
+    expect(typeof callDeliveryId).toBe("string");
+    expect((callDeliveryId as string).startsWith("sweeper-")).toBe(true);
+    expect(callSha).toBe(HEAD_SHA);
+    expect(callDeps).toBeUndefined();
   });
 
   test("no open PRs: prsScanned=0, missing=[], retriggeredCount=0", async () => {

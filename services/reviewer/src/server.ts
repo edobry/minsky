@@ -888,7 +888,7 @@ if (import.meta.main) {
   // Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
   // SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
-  startSweeper(config, loadSweeperConfig());
+  startSweeper(config, loadSweeperConfig(), db);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
