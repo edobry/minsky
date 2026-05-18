@@ -667,8 +667,9 @@ export const sessionPrWaitForReviewCommandParams = {
   reviewer: {
     schema: z.string(),
     description:
-      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). " +
-      "Case-insensitive. Defaults to any reviewer.",
+      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot] " +
+      "or the bare minsky-reviewer form). Case-insensitive; a trailing [bot] " +
+      "suffix is optional on both sides of the comparison. Defaults to any reviewer.",
     required: false,
   },
   since: {
