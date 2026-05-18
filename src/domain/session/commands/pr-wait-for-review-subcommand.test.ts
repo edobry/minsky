@@ -81,6 +81,41 @@ describe("findMatchingReview", () => {
     expect(r?.reviewId).toBe(2);
   });
 
+  // mt#1906 regression: PR #1151 (mt#1887) wait-for-review missed two
+  // matching reviews because the caller passed `reviewer: "minsky-reviewer"`
+  // (bare form) while GitHub's API returns `minsky-reviewer[bot]`. The strict
+  // case-insensitive equality rejected the match; 300s elapsed each time.
+  const REVIEWER_BARE = "minsky-reviewer";
+  test("reviewer filter matches when caller omits [bot] suffix", () => {
+    const r = findMatchingReview(
+      [mkReview({ reviewId: 1, reviewerLogin: REVIEWER_BOT })],
+      since,
+      REVIEWER_BARE
+    );
+    expect(r?.reviewId).toBe(1);
+  });
+
+  test("reviewer filter matches when caller supplies [bot] suffix and review omits it", () => {
+    const r = findMatchingReview(
+      [mkReview({ reviewId: 1, reviewerLogin: REVIEWER_BARE })],
+      since,
+      REVIEWER_BOT
+    );
+    expect(r?.reviewId).toBe(1);
+  });
+
+  test("reviewer filter only strips a trailing [bot], not mid-string", () => {
+    // A login like "minsky-reviewer[bot]-staging" must NOT normalize to
+    // "minsky-reviewer-staging"; the `[bot]` is a positional suffix marker,
+    // not a generic substring to drop.
+    const r = findMatchingReview(
+      [mkReview({ reviewId: 1, reviewerLogin: `${REVIEWER_BOT}-staging` })],
+      since,
+      REVIEWER_BARE
+    );
+    expect(r).toBeUndefined();
+  });
+
   test("reviewer filter rejects non-matches even if review is recent", () => {
     const r = findMatchingReview(
       [mkReview({ reviewId: 1, reviewerLogin: "someone-else" })],
