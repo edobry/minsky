@@ -103,6 +103,16 @@ export interface MinskyMCPServerOptions {
    * code paths.
    */
   clientCapabilityRegistry?: MCPClientCapabilityRegistry;
+
+  /**
+   * Optional static memory bundle to include in the SDK Server's `instructions`
+   * field at construction time. Composed by the MCP start command from the
+   * memory store BEFORE this constructor runs (so the bundle is present at
+   * every `initialize` handshake without any post-construction mutation).
+   *
+   * @see mt#1625 — server-side memory injection via MCP `instructions`
+   */
+  instructions?: string;
 }
 
 // Tool definitions for MCP server
@@ -220,6 +230,16 @@ export class MinskyMCPServer {
    */
   private memoryService: MemoryServiceSurface | undefined;
   /**
+   * mt#1625 spike: static memory bundle for MCP `instructions` injection.
+   * When set, this text is appended to the `instructions` field passed to
+   * every SDK `Server` constructor created by `createConfiguredServer`.
+   * Passed via the `instructions` constructor option (composed by the MCP
+   * start command from the memory store BEFORE this class is instantiated).
+   * Stdio mode receives it at constructor time; HTTP per-session Servers
+   * read it on each `createConfiguredServer` call.
+   */
+  private instructionsBundle: string | null | undefined = null;
+  /**
    * Wake-pending service for the mt#1661 v0 wake-enrichment middleware. Optional —
    * when absent, the middleware is a no-op. Set via `setWakeService` from the
    * MCP start command after the persistence provider resolves.
@@ -327,6 +347,11 @@ export class MinskyMCPServer {
     // mt#1457: capability registry for the Ask router. When provided, each
     // Server created via createConfiguredServer is registered.
     this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+
+    // mt#1625: optional static memory bundle for the `instructions` field.
+    // Must be set BEFORE createConfiguredServer is called below so the
+    // eager-constructed stdio Server picks it up via the SDK constructor.
+    this.instructionsBundle = options.instructions;
 
     // Parse session cap from env var. Non-positive or non-numeric values → no cap.
     const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
@@ -445,6 +470,16 @@ export class MinskyMCPServer {
    * session's disconnect reads its own counter).
    */
   private createConfiguredServer(sessionKey: string): Server {
+    // mt#1625 spike: compose the `instructions` field from the static
+    // reconnect note plus the optional memory bundle (when set). The bundle
+    // is appended after the operational note so the agent sees the reconnect
+    // guidance first, then the memory context.
+    const baseInstructions =
+      "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.";
+    const instructions = this.instructionsBundle
+      ? `${baseInstructions}\n\n${this.instructionsBundle}`
+      : baseInstructions;
+
     const server = new Server(
       {
         name: this.options.name,
@@ -457,8 +492,7 @@ export class MinskyMCPServer {
           prompts: {},
           logging: {},
         },
-        instructions:
-          "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.",
+        instructions,
       }
     );
     this.diag.captureInit(server);
