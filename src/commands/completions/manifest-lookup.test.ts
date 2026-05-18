@@ -1,8 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  lookupCompletions,
-  type ManifestCommand,
-} from "../../../src/commands/completions/manifest-lookup";
+import { lookupCompletions, type ManifestCommand } from "./manifest-lookup";
 
 const FIXTURE: ManifestCommand = {
   name: "minsky",
