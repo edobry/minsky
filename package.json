@@ -23,7 +23,8 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "bun build --target=bun --outfile=dist/minsky.js src/cli.ts",
+    "build": "bun run build:completion-manifest && bun build --target=bun --outfile=dist/minsky.js src/cli.ts",
+    "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
     "prepublishOnly": "bun run build",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings=0",

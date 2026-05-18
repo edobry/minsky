@@ -45,7 +45,7 @@ import { exit } from "./utils/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
 import { validateError } from "./schemas/error";
 import type { AppContainerInterface } from "./composition/types";
-import { isMcpStartStdio } from "./cli-discriminators";
+import { isMcpStartStdio, isCompletionInvocation } from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 
 /**
@@ -98,6 +98,14 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     if (isMcpStartStdio(actionCommand)) {
       profileCheckpoint("preaction_skipped_for_mcp_stdio");
       log.debug("Container init deferred for mcp start stdio (mt#1751)");
+      return;
+    }
+
+    // mt#1892: shell-completion TAB handler must not touch DB / DI container.
+    // Latency budget is 300ms; container init alone is ~1s. Skip outright.
+    if (isCompletionInvocation(actionCommand)) {
+      profileCheckpoint("preaction_skipped_for_completions_complete");
+      log.debug("Container init skipped for completions complete (mt#1892)");
       return;
     }
 
@@ -164,6 +172,16 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
   if (needsAll || requestedCommand === "cockpit") {
     const { createCockpitCommand } = await import("./commands/cockpit/index");
     cli.addCommand(createCockpitCommand(container));
+  }
+  if (needsAll || requestedCommand === "completions" || requestedCommand === "completion-server") {
+    const { createCompletionsCommand, createCompletionServerCommand } = await import(
+      "./commands/completions/index"
+    );
+    cli.addCommand(createCompletionsCommand());
+    // Hidden top-level command invoked by the user's shell on TAB.
+    // `tabtab` generates shell scripts that call `minsky completion-server`,
+    // not `minsky completions complete`, so this MUST be top-level.
+    cli.addCommand(createCompletionServerCommand(), { hidden: true });
   }
 
   // Set error handler

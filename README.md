@@ -102,6 +102,30 @@ cd $(minsky session dir mt#1)
 minsky session pr create --title "feat: Add user authentication"
 ```
 
+### Shell completions (bash / zsh / fish)
+
+`minsky` ships tab-completion for bash, zsh, and fish via [@pnpm/tabtab](https://github.com/pnpm/tabtab). One-time setup:
+
+```bash
+# Interactive: prompts for which shell to set up
+minsky completions install
+
+# Then re-source your shell config (or open a new shell)
+exec $SHELL -l
+```
+
+After install, tab-complete top-level commands, subcommands, and option flags:
+
+```
+minsky <TAB>             # → tasks, session, rules, git, config, mcp, ...
+minsky tasks <TAB>       # → list, get, create, status, ...
+minsky tasks list --<TAB>  # → --backend, --status, --tag, ...
+```
+
+To uninstall, run `minsky completions uninstall`. For manual install (bypassing the interactive prompt), `minsky completions bash`, `minsky completions zsh`, or `minsky completions fish` emit the raw completion script to stdout — pipe it into the appropriate shell config.
+
+Option-value completion (`--backend <TAB>` → `github | minsky`) and dynamic completion (`tasks get <TAB>` → live task IDs) are tracked separately as mt#1893 and mt#1894. Windows and PowerShell are not supported.
+
 ## Design Philosophy
 
 Minsky applies principles from organizational cybernetics — the study of control and communication in complex systems. By creating the right feedback loops and control structures, good practices become the path of least resistance:

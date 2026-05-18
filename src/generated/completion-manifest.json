@@ -5000,6 +5000,36 @@
           ]
         }
       ]
+    },
+    {
+      "name": "completions",
+      "description": "Manage shell completions for minsky",
+      "subcommands": [
+        {
+          "name": "install",
+          "description": "Install shell completions (prompts for bash/zsh/fish)"
+        },
+        {
+          "name": "uninstall",
+          "description": "Uninstall shell completions"
+        },
+        {
+          "name": "bash",
+          "description": "Emit the bash completion script to stdout"
+        },
+        {
+          "name": "zsh",
+          "description": "Emit the zsh completion script to stdout"
+        },
+        {
+          "name": "fish",
+          "description": "Emit the fish completion script to stdout"
+        }
+      ]
+    },
+    {
+      "name": "completion-server",
+      "description": "(internal) shell completion handler invoked on TAB"
     }
   ],
   "options": [
