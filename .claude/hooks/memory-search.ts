@@ -33,7 +33,16 @@
 
 import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import {
+  type BraintrustConfig,
+  emitBraintrustEvent,
+  readBraintrustConfig,
+} from "../../src/domain/observability/braintrust";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
+
+// Re-export so existing callers (tests, downstream consumers) that import these names
+// from this module continue to work after the mt#1778 extraction.
+export { type BraintrustConfig, readBraintrustConfig };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -528,75 +537,19 @@ export function writeLog(
 // ---------------------------------------------------------------------------
 // Braintrust emission (mt#1813 — Phase 1a of the trace-shape RFC)
 //
-// Each hook invocation also emits a Braintrust log event with K/budget/MIN/
+// Each hook invocation emits a Braintrust log event with K/budget/MIN/
 // sessionId/variant/injectedTokens/latencyMs metadata, so we can compare hook-
 // tuning intervention variants (mt#1783) in the Braintrust dashboard.
+//
+// The SDK interaction lives in the shared module at
+// `src/domain/observability/braintrust.ts` (extracted in mt#1778); this hook
+// owns the memory-search-specific event shape and variant derivation.
 //
 // Emission is graceful-degradation: missing/invalid config → silent skip;
 // SDK or network failure → silent skip; we never block the hook on
 // instrumentation. The local JSONL log at `/tmp/claude-memory-search-hook.log`
 // remains the source of truth.
 // ---------------------------------------------------------------------------
-
-/** Resolved Braintrust configuration; null if not configured or disabled. */
-export interface BraintrustConfig {
-  apiKey: string;
-  projectName: string;
-  appUrl: string;
-}
-
-/**
- * Read Braintrust config from env vars (highest precedence) then
- * `~/.config/minsky/config.yaml` under `observability.providers.braintrust.*`.
- * Returns null when the provider is disabled, missing an apiKey, or the
- * config file can't be read.
- */
-export async function readBraintrustConfig(): Promise<BraintrustConfig | null> {
-  // Env vars take precedence over YAML values for the same fields (matches the
-  // `environmentMappings` table in src/domain/configuration/sources/environment.ts).
-  // The one exception: the `enabled` flag is YAML-only — there's no env-var
-  // mapping for it, so we always consult YAML to determine enabled-ness,
-  // regardless of whether apiKey came from env or YAML.
-  let apiKey: string | undefined = process.env.BRAINTRUST_API_KEY;
-  let projectName: string | undefined = process.env.BRAINTRUST_PROJECT_NAME;
-  let appUrl: string | undefined = process.env.BRAINTRUST_API_URL;
-  let enabled = true;
-
-  try {
-    const home = process.env.HOME ?? process.env.USERPROFILE;
-    if (home) {
-      const configPath = `${home}/.config/minsky/config.yaml`;
-      const yaml = await import("yaml");
-      const content = await Bun.file(configPath).text();
-      const parsed = yaml.parse(content) as Record<string, unknown> | undefined;
-      const obs = (parsed?.["observability"] as Record<string, unknown> | undefined)?.[
-        "providers"
-      ] as Record<string, unknown> | undefined;
-      const bt = obs?.["braintrust"] as
-        | { apiKey?: string; projectName?: string; apiUrl?: string; enabled?: boolean }
-        | undefined;
-      if (bt) {
-        // YAML values fill in only where env vars haven't already set them.
-        apiKey = apiKey ?? bt.apiKey;
-        projectName = projectName ?? bt.projectName;
-        appUrl = appUrl ?? bt.apiUrl;
-        // `enabled` is always YAML-driven (no env-var mapping); explicit
-        // `enabled: false` disables emission even when an apiKey is set via env.
-        enabled = bt.enabled !== false;
-      }
-    }
-  } catch {
-    // YAML read/parse failure: fall through with whatever env vars provided.
-    // If apiKey is still unset after env+YAML, the next check returns null.
-  }
-
-  if (!apiKey || !enabled) return null;
-  return {
-    apiKey,
-    projectName: projectName ?? "minsky",
-    appUrl: appUrl ?? "https://api.braintrust.dev",
-  };
-}
 
 /**
  * Derive the variant tag from the current K/budget/MIN constants.
@@ -612,59 +565,44 @@ export function deriveVariantTag(
 }
 
 /**
- * Emit a hook-fire event to Braintrust. Lazy-imports the SDK only when
- * config is present. Synchronous flush (asyncFlush: false) so the event
- * lands before the hook subprocess exits.
+ * Emit a hook-fire event to Braintrust. Builds the memory-search-specific
+ * input/output/metadata shape, then delegates the SDK interaction to the
+ * shared emitter at `src/domain/observability/braintrust.ts`.
  *
- * Always awaitable; throws on no condition that the caller should handle —
- * internal failures are swallowed. The caller calls `await emitBraintrust(...)`
- * before `process.exit(0)`.
+ * Always awaitable; never throws — see `emitBraintrustEvent` for the
+ * graceful-degradation contract. Callers `await emitBraintrust(entry)`
+ * before `process.exit(0)` so the event lands before the hook subprocess exits.
  */
 export async function emitBraintrust(entry: LogEntry): Promise<void> {
-  try {
-    const cfg = await readBraintrustConfig();
-    if (!cfg) return;
-
-    const { initLogger } = await import("braintrust");
-    const logger = initLogger({
-      apiKey: cfg.apiKey,
-      projectName: cfg.projectName,
-      appUrl: cfg.appUrl,
-      asyncFlush: false,
-    });
-
-    const variant = deriveVariantTag();
-    const output = entry.skipped
-      ? { skipped: true, skipReason: entry.skipReason ?? "unknown" }
-      : {
-          skipped: false,
-          injectedTokens: entry.injectedTokens,
-          injectedCount: entry.injectedCount,
-          backend: entry.backend,
-          latencyMs: entry.latencyMs,
-        };
-
-    await logger.log({
-      input: {
-        prompt_prefix: entry.promptPrefix,
-        prompt_length: entry.promptLength,
-      },
-      output,
-      metadata: {
-        sessionId: entry.sessionId,
-        variant,
-        k: DEFAULT_K,
-        tokenBudget: DEFAULT_TOKEN_BUDGET,
-        minPromptLength: MIN_PROMPT_LENGTH,
+  const variant = deriveVariantTag();
+  const output = entry.skipped
+    ? { skipped: true, skipReason: entry.skipReason ?? "unknown" }
+    : {
+        skipped: false,
+        injectedTokens: entry.injectedTokens,
+        injectedCount: entry.injectedCount,
+        backend: entry.backend,
         latencyMs: entry.latencyMs,
-        hookVersion: HOOK_VERSION,
-        warning: entry.warning,
-        source: "minsky.hooks.memory-search",
-      },
-    });
-  } catch {
-    // Instrumentation failures never block the hook.
-  }
+      };
+
+  await emitBraintrustEvent({
+    input: {
+      prompt_prefix: entry.promptPrefix,
+      prompt_length: entry.promptLength,
+    },
+    output,
+    metadata: {
+      sessionId: entry.sessionId,
+      variant,
+      k: DEFAULT_K,
+      tokenBudget: DEFAULT_TOKEN_BUDGET,
+      minPromptLength: MIN_PROMPT_LENGTH,
+      latencyMs: entry.latencyMs,
+      hookVersion: HOOK_VERSION,
+      warning: entry.warning,
+      source: "minsky.hooks.memory-search",
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
