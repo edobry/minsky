@@ -890,12 +890,14 @@ if (import.meta.main) {
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
   startSweeper(config, loadSweeperConfig());
 
-  // Start the PR-watch scheduler (mt#1618).
+  // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
   // that registered PR watches fire automatically without manual operator action.
   // Configurable via PR_WATCH_ENABLED, PR_WATCH_POLL_INTERVAL_MS.
   // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
-  // Opt-in: disabled by default; set PR_WATCH_ENABLED=true to activate.
+  // Enabled by default post-mt#1899 (was opt-in pre-mt#1725 because the
+  // agent-context delivery path wasn't wired yet); set PR_WATCH_ENABLED=false
+  // to disable (e.g., local dev to avoid polling GitHub from a workstation).
   startPrWatchScheduler(config, loadPrWatchSchedulerConfig());
 
   // Start the Asks-reconcile scheduler (mt#1636).

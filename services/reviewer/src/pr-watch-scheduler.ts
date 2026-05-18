@@ -23,26 +23,70 @@
  * - `PR_WATCH_POLL_INTERVAL_MS` — poll interval (default: 60 000 ms / 1 min).
  *   Set lower for active iteration windows; 60 s covers the "within one
  *   polling interval" acceptance test criterion.
- * - `PR_WATCH_ENABLED` — set to `"true"` to activate (disabled by default).
+ * - `PR_WATCH_ENABLED` — set to `"false"` to disable. **Enabled by default
+ *   post-mt#1899.** mt#1618 originally shipped this OFF because the
+ *   agent-context delivery path (`WakeSignalSink` → `wake_pending` →
+ *   `enrichWakeResponse`) was not yet wired; once mt#1725 + mt#1755 closed
+ *   that gap, no commit revisited the default. mt#1899's investigation found
+ *   no remaining blocker, so the default was flipped to match the
+ *   sweeper convention (`SWEEPER_ENABLED` / `MERGE_STATE_SWEEPER_ENABLED`
+ *   defaults — see services/reviewer/railway.config.ts).
  * - `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` — used to call `pr_watch_run` via
  *   the Minsky MCP server (existing wiring in server.ts); required when this
  *   scheduler is enabled.
  *
  * ## Invocation mechanism
  *
- * The scheduler calls the Minsky MCP `pr.watch.run` tool via the service's
+ * The scheduler calls the Minsky MCP `pr_watch_run` tool via the service's
  * existing `mcpClient` infrastructure. This is the same pattern used by the
  * reviewer service for task-spec fetches (task-spec-fetch.ts). It preserves
  * the clean boundary between the reviewer service (GitHub-facing) and the
  * Minsky core (PR-watch domain): the watcher logic lives in Minsky, the
  * scheduler trigger lives in the reviewer service.
  *
+ * ## Rate-limit posture (PR #1153 R1)
+ *
+ * Per-tick cost when zero active watches: ONE Postgres SELECT (the
+ * `runWatcher` for-loop iterates over `prWatchRepository.listActive()` and
+ * simply doesn't execute when the list is empty — no GitHub API calls).
+ *
+ * Per-tick cost when N active watches: 1 DB SELECT + N × 3 GitHub API calls
+ * (`getPr` + `listReviews` + `listCheckRuns`). At the default 60s cadence
+ * with the 5000-req/hour GitHub App rate limit, this floor is ~111 watches
+ * before the per-instance load saturates the App's rate budget (assuming
+ * one App-token-per-installation). The watches are scoped to operator-
+ * registered PRs, so steady-state N is typically <10. The reviewer GitHub
+ * App's token is distinct from the implementer App's token, so this load
+ * does not compete with the implementer's PR-create / review-post traffic.
+ *
+ * To avoid thundering-herd alignment when multiple reviewer instances run
+ * in parallel (staging + production, or a future horizontal-scale-out), each
+ * instance jitters its tick interval by `Math.random() × JITTER_FRACTION ×
+ * intervalMs` (default 10%) at startup. Computed once per instance, so the
+ * cadence is stable but instances drift apart over time and dilute any
+ * wall-clock alignment they started with.
+ *
  * @see mt#1618 — Invocation path wiring for mt#1295 PR-watch subsystem.
+ * @see mt#1899 — Default flipped from OFF to ON post-mt#1725 delivery wiring.
  */
 
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { callMcp } from "./mcp-client";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-instance interval jitter as a fraction of `intervalMs` (PR #1153 R1).
+ *
+ * Each instance computes `Math.random() * JITTER_FRACTION * intervalMs` at
+ * startup and adds it to the configured interval. Default 10% — at 60s
+ * cadence this spreads parallel instances across a 6-second window, so they
+ * don't all hit GitHub on the same wall-clock second.
+ */
+const JITTER_FRACTION = 0.1;
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -64,7 +108,12 @@ export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
     // Strict-positive parse (mt#1811 cascade-defense): malformed values would
     // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
     intervalMs: parsePositiveIntEnv("PR_WATCH_POLL_INTERVAL_MS", 60_000),
-    enabled: (process.env["PR_WATCH_ENABLED"] ?? "false") === "true",
+    // mt#1899: default flipped to "true". The agent-context delivery path
+    // (mt#1725 WakeSignalSink + mt#1755 pr.watch.list session filter) is
+    // wired end-to-end, so the original OFF default no longer reflects any
+    // operational constraint. Set PR_WATCH_ENABLED=false to disable locally
+    // (e.g., during dev to avoid polling GitHub from a workstation).
+    enabled: (process.env["PR_WATCH_ENABLED"] ?? "true") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
     mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
@@ -149,8 +198,9 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
  *
  * Chosen over a Railway cron entry-point for simplicity: the reviewer service
  * is already running 24/7 and this scheduler shares the same process.
- * Configurable via `PR_WATCH_POLL_INTERVAL_MS` (default: 60 s). Opt-in via
- * `PR_WATCH_ENABLED=true` (disabled by default).
+ * Configurable via `PR_WATCH_POLL_INTERVAL_MS` (default: 60 s). **Enabled by
+ * default post-mt#1899**; set `PR_WATCH_ENABLED=false` to disable (e.g.,
+ * local dev workstation).
  *
  * A reentrancy guard (`isRunning`) prevents overlapping calls if a poll cycle
  * takes longer than the interval.
@@ -180,8 +230,8 @@ export function startPrWatchScheduler(
       JSON.stringify({
         event: "pr_watch_scheduler.missing_credentials",
         message:
-          "PR_WATCH_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
-          "PR-watch scheduler will not start.",
+          "PR-watch scheduler is enabled but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+          "PR-watch scheduler will not start. Set PR_WATCH_ENABLED=false to silence this warning.",
       })
     );
     return null;
@@ -199,6 +249,16 @@ export function startPrWatchScheduler(
   void config;
 
   let isRunning = false;
+
+  // Per-instance interval jitter (PR #1153 R1): when multiple reviewer
+  // instances run in parallel (staging + production, or horizontal scale-out)
+  // they shouldn't all hit GitHub on the same wall-clock second. Each
+  // instance computes its own random jitter in [0, JITTER_FRACTION) ×
+  // intervalMs at startup, added to the base interval. Over time the
+  // instances drift apart and natural spreading dilutes thundering-herd
+  // alignment. Computed once — subsequent ticks use the same jittered value.
+  const jitterMs = Math.random() * JITTER_FRACTION * schedulerConfig.intervalMs;
+  const effectiveIntervalMs = schedulerConfig.intervalMs + jitterMs;
 
   const handle = setInterval(() => {
     if (isRunning) {
@@ -238,7 +298,7 @@ export function startPrWatchScheduler(
       .finally(() => {
         isRunning = false;
       });
-  }, schedulerConfig.intervalMs);
+  }, effectiveIntervalMs);
 
   return handle;
 }
