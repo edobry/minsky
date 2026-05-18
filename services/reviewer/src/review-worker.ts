@@ -86,6 +86,12 @@ import {
   type ConvergenceDowngradeAuditEntry,
   type ConvergenceDetectionResult,
 } from "./convergence-detector";
+import {
+  extractFixCommitDiff,
+  applyDiffScopeBoundedDowngrade,
+  type DiffScopeDowngradeAuditEntry,
+  type FixCommitLineRangeMap,
+} from "./diff-scoper";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
@@ -452,6 +458,12 @@ export interface ComposeWithRecoveryResult {
    * Empty when convergenceEnabled=false or no downgrades fired.
    */
   convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry>;
+  /**
+   * Audit entries for BLOCKINGs downgraded by the diff-scope-bounded pass
+   * (mt#1875 Fix 3). Empty when diffScopeBoundedEnabled=false, when
+   * priorReviewsMarkdown is empty (R1), or when no downgrades fired.
+   */
+  diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry>;
 }
 
 export interface ApplyRecoveryAndComposeOptions {
@@ -479,6 +491,19 @@ export interface ApplyRecoveryAndComposeOptions {
    * threshold gating. Required when convergenceEnabled=true.
    */
   iterationIndex?: number;
+  /**
+   * Whether to run the mt#1875 diff-scope-bounded downgrade pass (Fix 3).
+   * Default: false (feature-flagged until empirical verification).
+   * Only fires when priorReviewsMarkdown is non-empty (R≥2).
+   */
+  diffScopeBoundedEnabled?: boolean;
+  /**
+   * Fix-commit-diff line range map. When supplied and non-empty, BLOCKING
+   * findings outside this range are downgraded to NON-BLOCKING.
+   * Produced by extractFixCommitDiff from the diff-scoper module.
+   * When absent or empty, the downgrade pass is a no-op (conservative).
+   */
+  fixCommitLineRange?: FixCommitLineRangeMap;
 }
 
 export function applyRecoveryAndCompose(
@@ -564,6 +589,31 @@ export function applyRecoveryAndCompose(
     }
   }
 
+  // Step 3c: diff-scope-bounded downgrade (mt#1875 Fix 3).
+  // Runs AFTER convergence detection (Step 3b) so the scope check sees
+  // already-convergence-downgraded tool calls (prevents double-audit of
+  // the same finding). Fires only when diffScopeBoundedEnabled=true AND
+  // fixCommitLineRange is non-empty (the caller gates on priorReviewsMarkdown
+  // non-empty before supplying a non-empty lineRange — R1 path gets empty map
+  // and the downgrade is a no-op by construction).
+  let diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry> = [];
+  const diffScopeBoundedEnabled = opts.diffScopeBoundedEnabled ?? false;
+  if (diffScopeBoundedEnabled) {
+    const fixCommitLineRange = opts.fixCommitLineRange ?? new Map();
+    const diffScopeResult = applyDiffScopeBoundedDowngrade(
+      toolCallsForComposition,
+      fixCommitLineRange
+    );
+    diffScopeBoundedDowngrades = diffScopeResult.downgrades;
+    if (diffScopeResult.downgradeApplied) {
+      toolCallsForComposition = diffScopeResult.toolCalls;
+      // Recount post-diff-scope-bounded BLOCKINGs.
+      postRecoveryBlockingCount = toolCallsForComposition.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+      ).length;
+    }
+  }
+
   // Step 4: compose. Spread to coerce the readonly local to the mutable
   // signature expected by composeReviewBody (which only reads).
   const composed = composeReviewBody([...toolCallsForComposition]);
@@ -577,6 +627,7 @@ export function applyRecoveryAndCompose(
     reconcileApplied,
     convergenceDetection,
     convergenceDowngrades,
+    diffScopeBoundedDowngrades,
   };
 }
 
@@ -854,12 +905,52 @@ export async function runReview(
     );
   }
 
+  // mt#1875 SC2: when diff-scope-bounded is enabled AND prior reviews exist (R≥2),
+  // narrow the prompt context to the fix-commit diff. This must happen before
+  // buildReviewPrompt so the model only sees the narrowed diff in its context.
+  //
+  // We read the env var here (outside the outputToolsActive block) so the prompt
+  // diff routing and the post-hoc downgrade both use the same flag and the same
+  // extracted diff. On R1 (no prior reviews), promptDiff falls back to pr.diff.
+  const diffScopeBoundedEnabledForPrompt = /^(true|1|yes|on)$/i.test(
+    (process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED ?? "").trim()
+  );
+  const priorReviewsPresentForPrompt = priorReviewsMarkdown.trim().length > 0;
+
+  // Extracted fix-commit diff for prompt routing and for the downgrade pass.
+  // Initialized as a shared variable so the outputToolsActive block can reuse it.
+  let promptDiff = pr.diff;
+  let sharedFixCommitLineRange: FixCommitLineRangeMap = new Map();
+
+  if (diffScopeBoundedEnabledForPrompt && priorReviewsPresentForPrompt) {
+    // Use the full PR diff as the fix-commit scope approximation. A future
+    // enhancement can filter to commits after the prior-review timestamp via
+    // the GitHub commits API; for now, the full PR diff is a conservative
+    // safe fallback that still enables downgrading findings on files/lines
+    // not present in the PR diff at all.
+    const priorTimestamp =
+      priorReviewIngestion.iterationCount > 0
+        ? new Date(0).toISOString() // placeholder — real per-commit filtering is future work
+        : new Date(0).toISOString();
+    try {
+      const fixCommitResult = extractFixCommitDiff(pr.diff, priorTimestamp);
+      promptDiff = fixCommitResult.diff;
+      sharedFixCommitLineRange = fixCommitResult.lineRange;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[mt#1875] Fix-commit diff extraction failed for prompt routing, using full PR diff: ${message}`
+      );
+      // promptDiff remains pr.diff (full diff fallback)
+    }
+  }
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
     prBody: pr.body,
     taskSpec,
-    diff: pr.diff,
+    diff: promptDiff,
     authorshipTier: tier,
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
@@ -1037,6 +1128,17 @@ export async function runReview(
       (process.env.REVIEWER_COMPOSITION_CONVERGENCE_ENABLED ?? "").trim()
     );
 
+    // mt#1875 diff-scope-bounded downgrade (Fix 3 from mt#1640 paper):
+    // when enabled AND priorReviewsMarkdown is non-empty (R≥2), restrict
+    // BLOCKING findings to those within the fix-commit-diff line range.
+    // Findings outside the range are auto-downgraded to NON-BLOCKING.
+    // Default-off until empirical verification (same convention as above).
+    //
+    // NOTE: diffScopeBoundedEnabledForPrompt (computed before buildReviewPrompt
+    // above) reads the same env var; using the same value here ensures the
+    // prompt-context routing and the post-hoc downgrade are always in sync.
+    const diffScopeBoundedEnabled = diffScopeBoundedEnabledForPrompt;
+
     // Compute iteration index (1-based) for the convergence threshold gate.
     // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
     // so iterationIndex = iterationCount + 1.
@@ -1089,6 +1191,27 @@ export async function runReview(
       }
     }
 
+    // mt#1875: reuse the fix-commit line range extracted before buildReviewPrompt
+    // (sharedFixCommitLineRange). Both the prompt-context routing and the post-hoc
+    // downgrade use the same extracted scope so they are consistent.
+    //
+    // When priorReviewsMarkdown is empty (R1), sharedFixCommitLineRange is an empty
+    // map (set by the guard above), so the downgrade pass is a no-op by construction
+    // (conservative behavior: preserve all findings on R1 reviews).
+    const fixCommitLineRange: FixCommitLineRangeMap = sharedFixCommitLineRange;
+    if (diffScopeBoundedEnabled && priorReviewsPresent) {
+      console.log(
+        JSON.stringify({
+          event: "reviewer.diff_scope_bounded_extracted",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          diff_scope: "fix_commit",
+          filesInScope: fixCommitLineRange.size,
+        })
+      );
+    }
+
     // Delegate the recovery + reconciliation + convergence + composition to the
     // pure helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
     // persistent "no integration tests" complaint at the unit level — see
@@ -1108,6 +1231,8 @@ export async function runReview(
         priorFindingsForConvergence: priorFlatFindings,
         priorBlockingCounts: priorBlockingCountsForConvergence,
         iterationIndex: currentIterationIndex,
+        diffScopeBoundedEnabled,
+        fixCommitLineRange,
       }
     );
     const composed = recoveryResult.composed;
@@ -1224,6 +1349,45 @@ export async function runReview(
           reason: convDetection.reason,
           // Evidence verdicts per BLOCKING (populated when downgradeApplied=true)
           evidenceVerdicts: convDetection.downgradeApplied ? convDetection.evidenceVerdicts : [],
+        })
+      );
+    }
+
+    // mt#1875 diff-scope-bounded downgrade logging: emit one structured event per
+    // downgraded finding, plus a summary event. The summary always emits when
+    // diffScopeBoundedEnabled is true (mirrors severity_downgrade_summary
+    // convention — zero downgrades still useful for "enabled but never fired"
+    // observability). Per-finding events only emit when the downgrade fires.
+    if (diffScopeBoundedEnabled) {
+      // Per-finding downgrade events
+      for (const d of recoveryResult.diffScopeBoundedDowngrades) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.diff_scope_bounded_downgrade",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            file: d.file,
+            ...(d.line !== undefined ? { line: d.line } : {}),
+            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+            fromSeverity: d.fromSeverity,
+            toSeverity: d.toSeverity,
+            reason: d.reason,
+          })
+        );
+      }
+      // Summary event — always emitted when enabled so dashboards see one entry
+      // per review regardless of whether the downgrade fired.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.diff_scope_bounded_summary",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          priorReviewsPresent,
+          diff_scope: priorReviewsPresent ? "fix_commit" : "full_pr",
+          filesInScope: fixCommitLineRange.size,
+          downgradeApplied: recoveryResult.diffScopeBoundedDowngrades.length > 0,
+          downgradeCount: recoveryResult.diffScopeBoundedDowngrades.length,
         })
       );
     }
