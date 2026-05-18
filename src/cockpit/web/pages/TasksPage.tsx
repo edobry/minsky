@@ -39,8 +39,12 @@ export function TasksPage({ data }: TasksPageProps) {
           Dependency graph of all Minsky tasks
         </p>
       </div>
-      {/* TaskGraph renders its own Card + react-flow canvas */}
-      <TaskGraph data={data} />
+      {/* TaskGraph renders its own Card + react-flow canvas.
+          containerClassName overrides the default 600px to fill the
+          viewport: 100vh minus header (3.5rem/h-14) + page padding (2rem)
+          + title section (2.5rem) + gap (1rem) + card header (3.5rem)
+          + card-content top padding (0.5rem) ≈ 13rem → use 13rem. */}
+      <TaskGraph data={data} containerClassName="h-[calc(100vh-13rem)]" />
     </div>
   );
 }

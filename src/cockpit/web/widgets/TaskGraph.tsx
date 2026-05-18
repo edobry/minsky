@@ -66,6 +66,10 @@ type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"; reaso
 
 interface Props {
   data: WidgetData;
+  /** Override the canvas container height class. Defaults to `h-[600px]` for
+   * card-context usage. Full-page consumers (TasksPage) pass a viewport-relative
+   * class like `h-[calc(100vh-14rem)]` so the graph fills the available space. */
+  containerClassName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -304,7 +308,7 @@ function SelectedPanel({ node, onClose }: SelectedPanelProps) {
 // Main widget component
 // ---------------------------------------------------------------------------
 
-export function TaskGraph({ data }: Props) {
+export function TaskGraph({ data, containerClassName = "h-[600px]" }: Props) {
   // Track whether ReactFlow has performed its initial fit-to-view. After the
   // first onInit, subsequent renders skip fitView so polling refreshes don't
   // snap the user's viewport back to the default.
@@ -383,7 +387,7 @@ export function TaskGraph({ data }: Props) {
         {nodeCount === 0 ? (
           <p className="text-sm text-muted-foreground p-4">No tasks yet</p>
         ) : (
-          <div className="relative" style={{ height: 600 }}>
+          <div className={`relative ${containerClassName}`}>
             <ReactFlow
               nodes={rfNodes}
               edges={rfEdges}
