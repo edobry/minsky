@@ -23,7 +23,14 @@
  * - `PR_WATCH_POLL_INTERVAL_MS` — poll interval (default: 60 000 ms / 1 min).
  *   Set lower for active iteration windows; 60 s covers the "within one
  *   polling interval" acceptance test criterion.
- * - `PR_WATCH_ENABLED` — set to `"true"` to activate (disabled by default).
+ * - `PR_WATCH_ENABLED` — set to `"false"` to disable. **Enabled by default
+ *   post-mt#1899.** mt#1618 originally shipped this OFF because the
+ *   agent-context delivery path (`WakeSignalSink` → `wake_pending` →
+ *   `enrichWakeResponse`) was not yet wired; once mt#1725 + mt#1755 closed
+ *   that gap, no commit revisited the default. mt#1899's investigation found
+ *   no remaining blocker, so the default was flipped to match the
+ *   sweeper convention (`SWEEPER_ENABLED` / `MERGE_STATE_SWEEPER_ENABLED`
+ *   defaults — see services/reviewer/railway.config.ts).
  * - `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` — used to call `pr_watch_run` via
  *   the Minsky MCP server (existing wiring in server.ts); required when this
  *   scheduler is enabled.
@@ -38,6 +45,7 @@
  * scheduler trigger lives in the reviewer service.
  *
  * @see mt#1618 — Invocation path wiring for mt#1295 PR-watch subsystem.
+ * @see mt#1899 — Default flipped from OFF to ON post-mt#1725 delivery wiring.
  */
 
 import type { ReviewerConfig } from "./config";
@@ -64,7 +72,12 @@ export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
     // Strict-positive parse (mt#1811 cascade-defense): malformed values would
     // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
     intervalMs: parsePositiveIntEnv("PR_WATCH_POLL_INTERVAL_MS", 60_000),
-    enabled: (process.env["PR_WATCH_ENABLED"] ?? "false") === "true",
+    // mt#1899: default flipped to "true". The agent-context delivery path
+    // (mt#1725 WakeSignalSink + mt#1755 pr.watch.list session filter) is
+    // wired end-to-end, so the original OFF default no longer reflects any
+    // operational constraint. Set PR_WATCH_ENABLED=false to disable locally
+    // (e.g., during dev to avoid polling GitHub from a workstation).
+    enabled: (process.env["PR_WATCH_ENABLED"] ?? "true") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
     mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
@@ -149,8 +162,9 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
  *
  * Chosen over a Railway cron entry-point for simplicity: the reviewer service
  * is already running 24/7 and this scheduler shares the same process.
- * Configurable via `PR_WATCH_POLL_INTERVAL_MS` (default: 60 s). Opt-in via
- * `PR_WATCH_ENABLED=true` (disabled by default).
+ * Configurable via `PR_WATCH_POLL_INTERVAL_MS` (default: 60 s). **Enabled by
+ * default post-mt#1899**; set `PR_WATCH_ENABLED=false` to disable (e.g.,
+ * local dev workstation).
  *
  * A reentrancy guard (`isRunning`) prevents overlapping calls if a poll cycle
  * takes longer than the interval.
@@ -180,8 +194,8 @@ export function startPrWatchScheduler(
       JSON.stringify({
         event: "pr_watch_scheduler.missing_credentials",
         message:
-          "PR_WATCH_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
-          "PR-watch scheduler will not start.",
+          "PR-watch scheduler is enabled but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+          "PR-watch scheduler will not start. Set PR_WATCH_ENABLED=false to silence this warning.",
       })
     );
     return null;
