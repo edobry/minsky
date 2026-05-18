@@ -61,6 +61,14 @@ Minsky runs on your infrastructure, in your git repository. It integrates with A
 
 Sessions are isolated git clones. Changesets are branches. Pull requests are the integration mechanism. There is no proprietary state format — everything lives in git and is inspectable with standard tools.
 
+### Attention as the scarce resource
+
+Underneath every mechanism above sits a scarcer resource than CPU or storage: operator attention. A pre-commit hook catching unformatted code, a session starting from a clean git clone, a `BLOCKED` task surfaced in review — each one routes a decision to the cheapest thing that can resolve it, and pulls in the operator only when nothing cheaper will do.
+
+Two symmetric failure modes follow. **Waste** is asking about choices the system could have resolved from policy. **Usurp** is deciding things — architectural calls, precedent-setting naming, scope expansions — that structurally belong to the operator. Minsky treats these as a single routing problem: different kinds of asks (permission, direction, escalation, review, notification) need different transports and cost models, not one-size-fits-all confirmation dialogs.
+
+The full argument — and the emerging ask taxonomy — is in the [companion essay](https://www.notion.so/34a937f03cb4814badbaf2e5cee38c08).
+
 ## Quick Start
 
 ### Installation
