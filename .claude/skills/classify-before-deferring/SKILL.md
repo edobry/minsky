@@ -3,14 +3,16 @@ name: classify-before-deferring
 description: >-
   Before ending a turn with a question to the user, OR writing a deferred-action
   recommendation ("I'll file that as a follow-up," "out of scope to address
-  right now," "worth filing separately") without doing the action in the same
-  turn, classify the draft as Class A (verifiable by lookup), Class B (default
-  already clear from CLAUDE.md / user-preference rule), Class C (genuinely
-  ambiguous principal-stakes choice), or R3 (recommending-instead-of-acting).
-  Act on the classification instead of writing the draft. Use whenever a draft
-  question, "want me to X or Y," "should I," "I'd file that," "we should
-  investigate," "not in scope for current PR but," or any deferral-shaped
-  prose is about to land.
+  right now," "worth filing separately," "let's track that," "parking lot
+  this," "circle back later," "flag as follow-up") without doing the action
+  in the same turn, classify the draft as Class A (verifiable by lookup),
+  Class B (default already clear from CLAUDE.md / user-preference rule),
+  Class C (genuinely ambiguous principal-stakes choice), or R3
+  (recommending-instead-of-acting). Act on the classification instead of
+  writing the draft. Use whenever a draft question, "want me to X or Y,"
+  "should I," "I'd file that," "we should investigate," "not in scope for
+  current PR but," "for now leaving X as," "noting for later," or any
+  deferral-shaped prose is about to land.
 user-invocable: true
 ---
 
@@ -18,10 +20,12 @@ user-invocable: true
 
 Catch the asking-instead-of-acting and recommending-instead-of-acting failure family at output-write time. Both shapes are instances of the parent anti-pattern **performative language as substitute for action** — the agent defers information-gathering, rule-application, or action-taking onto the user when it could just do the thing.
 
-This skill is the structural enforcement of:
+This skill is the **agent-self-discipline tier** of enforcement for:
 
 - CLAUDE.md `User Preferences §Take direct action without asking` (forward / asking direction)
 - CLAUDE.md `Work Completion §Never notice an issue without acting on it` (R3 / recommending direction)
+
+The skill primes the agent at pre-output time via Claude Code's auto-load matching against the frontmatter description; the _application_ of the classifier is the agent's own self-check before each draft question or deferral-recommendation lands. Harness-level hook enforcement (PreToolUse/PostToolUse hook scanning outbound text for trigger phrases and blocking until classification has been applied) is deferred per the originating spec's `## Scope` → `Out of scope` and per memory `8ecfdf66`'s structural-fix-lineage; it will be filed as a follow-up if this self-discipline tier alone proves insufficient.
 
 The sibling skill for the contrition direction (self-recognized failure → retrospective) is `retrospective` (see mt#1895 for the auto-trigger amendment).
 
@@ -46,7 +50,7 @@ The skill description triggers whenever output is about to contain a draft quest
 
 **Recommending-shape triggers (R3 — also semantic family):**
 
-- "I'll file that as its own task" / "I'd file that as a follow-up" (without the actual `tasks_create` call in the same turn)
+- "I'll file that as its own task" / "I'd file that as a follow-up" (without the actual `mcp__minsky__tasks_create` call in the same turn)
 - "Out of scope to address right now" / "Tracking separately" / "Filed for later" (without the actual filing happening NOW)
 - "This should be tracked separately" / "Worth filing as a follow-up"
 - "We should investigate this further" (without doing the investigation or filing it)
@@ -60,7 +64,7 @@ The "but" / "however" / "though" in R3-shape phrases is the tell: a noticed issu
 ## When NOT to invoke
 
 - **Mid-turn working questions to the user that are genuinely Class C already.** If the user has signaled they want a choice surfaced (e.g., "give me options"), the discipline is to _package_ the question well (per `humility.mdc §Escalation packaging`), not to suppress it.
-- **Recommendations that are explicitly out-of-scope per the spec.** If the spec's `## Scope` → `Out of scope` already names the deferral, writing "deferred per spec §Out of scope" is documentation, not R3. (Still file a tracking task if one doesn't exist.)
+- **Recommendations that are explicitly out-of-scope per the spec AND already owned by a tracking task.** If the spec's `## Scope` → `Out of scope` names the deferral AND an owner task exists, writing "deferred per spec §Out of scope (mt#X)" is documentation, not R3 — do not re-file. If no owner task exists, file exactly one in the same turn (`mcp__minsky__tasks_create`) and link the spec section. The skill fires when EITHER condition fails: deferral not in spec, OR deferral in spec but no owner task.
 - **Closing a turn after action.** "Done. Tests pass. See PR #N" is not a question or a deferral — no classification needed.
 
 ## Process
@@ -122,12 +126,12 @@ This shape is arguably worse than asking, because it doesn't even surface the ch
 
 Examples:
 
-- "I'd file that as its own task, not doing it autonomously since it touches shared config" → STOP. File the task NOW in the same turn (`tasks_create`).
-- "Worth tracking separately as a follow-up" → STOP. Track it now (`tasks_create` or `memory_create`).
+- "I'd file that as its own task, not doing it autonomously since it touches shared config" → STOP. File the task NOW in the same turn (`mcp__minsky__tasks_create`).
+- "Worth tracking separately as a follow-up" → STOP. Track it now (`mcp__minsky__tasks_create` or `mcp__minsky__memory_create`).
 - "We should investigate this further" → STOP. Either investigate now, or file the investigation task now.
 - "Out of scope for current PR, but worth noting" → STOP. Either move it into scope, or file the out-of-scope item as its own task NOW.
 
-**Action: DO IT NOW, IN THE SAME TURN.** Call `tasks_create` / `memory_create` / `tasks_spec_patch` / the actual action — don't write the recommendation as a future-tense promise. The recommendation IS the deferral; the filing IS the action.
+**Action: DO IT NOW, IN THE SAME TURN.** Call `mcp__minsky__tasks_create` / `mcp__minsky__memory_create` / `mcp__minsky__tasks_spec_patch` / the actual action — don't write the recommendation as a future-tense promise. The recommendation IS the deferral; the filing IS the action.
 
 Per `Work Completion §Never notice an issue without acting on it`: mentioning is not action.
 
@@ -149,7 +153,7 @@ All three are from the 2026-05-18 originating session (memory `8ecfdf66`, recurr
 
 **Classification:** Class B. CLAUDE.md `User Preferences §Take direct action without asking` + the project convention ("we always do a task") + the standard skill chain (`/create-task → /plan-task → /implement-task`) all converge on: file the task.
 
-**Correct action:** Just file it. Invoke `/create-task` (or `mcp__minsky__tasks_create` directly). Don't surface the choice.
+**Correct action:** Just file it. Invoke `/create-task` (the skill, which calls `mcp__minsky__tasks_create` after generating a structured spec). Don't surface the choice.
 
 ### Example 3 — R3 failure caught (R3)
 
@@ -167,9 +171,15 @@ All three are from the 2026-05-18 originating session (memory `8ecfdf66`, recurr
 
 3. **Skipping the classifier on "obvious" drafts.** Even when the draft feels obvious, the classifier's job is to make the question's class legible to the agent. The cost of running it is ~10 seconds; the cost of a wrong A/B/R3 is 1–3 user turns of correction plus user frustration.
 
-4. **Hiding R3 behind "for now" language.** "For now, leaving that as a follow-up" / "noting for later" / "leaving room to do that next round" are all R3-shape. If you noticed it, file it now.
+4. **Hiding R3 behind "for now" language.** "For now, leaving that as a follow-up" / "noting for later" / "leaving room to do that next round" / "parking lot this" / "circle back later" are all R3-shape. If you noticed it, file it now.
 
-5. **Counting an in-conversation recommendation as the artifact.** If you wrote "worth filing a task for X" in chat without calling `tasks_create`, the artifact does not exist. The user has to catch the recommendation and prompt you to file it. That's the failure mode this skill exists for.
+5. **Counting an in-conversation recommendation as the artifact.** If you wrote "worth filing a task for X" in chat without calling `mcp__minsky__tasks_create`, the artifact does not exist. The user has to catch the recommendation and prompt you to file it. That's the failure mode this skill exists for.
+
+## Future structural enforcement (deferred)
+
+This skill is agent-self-discipline at output-write time. It primes the agent via auto-load but does not mechanically block bad output. The next tier of enforcement — a PreToolUse/PostToolUse hook that scans outbound text for trigger phrases and denies until classification has been applied (or until a sibling action like `mcp__minsky__tasks_create` lands in the same turn) — is deferred per the originating spec's `## Scope` → `Out of scope` and per memory `8ecfdf66`'s structural-fix-lineage.
+
+Trigger to file the hook task: this skill demonstrates insufficiency (e.g., 2+ R-class incidents post-skill-ship within 24h, or 3+ in 5 days, per the workaround-budget convention in `Work Completion §Temporary mechanism budget`). Until then, agent-self-discipline is the contract.
 
 ## Sibling pattern: contrition direction
 
