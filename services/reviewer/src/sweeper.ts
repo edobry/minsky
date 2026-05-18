@@ -339,6 +339,23 @@ export async function buildSweeperDeps(config: ReviewerConfig): Promise<SweeperD
  */
 const SWEEP_CONCURRENCY = 3;
 
+/**
+ * Boot-time warning threshold for the sweeper cadence (mt#1898 PR #1154 R1).
+ *
+ * When `SWEEPER_INTERVAL_MS` resolves to less than this value, `startSweeper`
+ * emits a structured warning naming the configured interval, the safe
+ * threshold, and mt#1907 as the structural prerequisite. The threshold is the
+ * floor of the "safe without an in-flight marker" band documented in mt#1898's
+ * `## Findings §3`: below 5 min the sweeper-vs-webhook double-trigger race
+ * rate climbs above ~30% per push.
+ *
+ * The warning does NOT block startup — operators can still opt into a tighter
+ * cadence (e.g., during the mt#1897 OpenAI-timeout investigation window),
+ * but the choice produces an operator-visible log line. This mirrors the
+ * PR #1116 R1 cascade-defense convention for silent mis-targeting.
+ */
+const SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS = 300_000;
+
 export async function runSweep(
   config: ReviewerConfig,
   sweeperConfig: SweeperConfig,
@@ -516,6 +533,31 @@ export function startSweeper(
           "missed-review sweeper is using default repo coordinates. " +
           "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
           "to avoid silently sweeping the wrong repository.",
+      })
+    );
+  }
+
+  // mt#1898 PR #1154 R1 cascade-defense: warn when the configured cadence is
+  // below the "safe without an in-flight marker" threshold. Below ~5 min the
+  // sweeper-vs-webhook double-trigger race rate climbs above ~30% per push
+  // (mt#1898 `## Findings §3`); the cost is silent (wasted OpenAI cycles +
+  // duplicate review comments on PRs). The warning makes the choice
+  // operator-visible at boot. Non-blocking by design — operators may want a
+  // tighter cadence during the mt#1897 (OpenAI timeout) investigation window.
+  if (sweeperConfig.intervalMs < SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS) {
+    console.warn(
+      JSON.stringify({
+        event: "sweeper.low_interval_warning",
+        intervalMs: sweeperConfig.intervalMs,
+        safeThresholdMs: SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS,
+        message:
+          `SWEEPER_INTERVAL_MS=${sweeperConfig.intervalMs} is below the ` +
+          `${SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS} ms (5 min) safe threshold. ` +
+          "Below this threshold the sweeper-vs-webhook double-trigger race " +
+          "(no in-flight marker; see mt#1898 `## Findings §4`) fires on a " +
+          "significant fraction of pushes, paying an OpenAI cycle AND a " +
+          "duplicate review comment per race. Land mt#1907 (in-flight " +
+          "marker) before tuning the cadence below this threshold.",
       })
     );
   }
