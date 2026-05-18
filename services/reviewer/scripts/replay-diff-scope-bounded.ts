@@ -204,6 +204,7 @@ interface ReplayReport {
   dbRowCount: number;
   githubBotReviewCount: number;
   diffLinesExtracted: number;
+  scopeWarning: string;
   roundResults: RoundReplayResult[];
   summary: {
     totalRounds: number;
@@ -359,6 +360,7 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
     dbRowCount: dbRows.length,
     githubBotReviewCount: botReviews.length,
     diffLinesExtracted: prDiff.split("\n").length,
+    scopeWarning: SCOPE_WARNING,
     roundResults,
     summary: {
       totalRounds,
@@ -396,6 +398,9 @@ async function main(): Promise<void> {
     console.error(`Rounds with prior reviews (R≥2): ${report.summary.roundsWithPriorReviews}`);
     console.error(`Rounds where downgrade would fire: ${report.summary.roundsWithDowngrade}`);
     console.error(`Total findings that would be downgraded: ${report.summary.totalDowngrades}`);
+    console.error("");
+    console.error("=== WARNING ===");
+    console.error(SCOPE_WARNING);
 
     process.exit(0);
   } catch (err: unknown) {
