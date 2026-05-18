@@ -56,7 +56,9 @@ import {
   type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
+import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
+import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
 import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
@@ -79,6 +81,11 @@ import {
   type DowngradeAuditEntry,
   type FlatPriorFinding,
 } from "./severity-recovery";
+import {
+  applyCompositionConvergenceDowngrade,
+  type ConvergenceDowngradeAuditEntry,
+  type ConvergenceDetectionResult,
+} from "./convergence-detector";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
@@ -434,19 +441,58 @@ export interface ComposeWithRecoveryResult {
   postRecoveryBlockingCount: number;
   /** True when the conclude_review tool call was rewritten REQUEST_CHANGES → COMMENT. */
   reconcileApplied: boolean;
+  /**
+   * Result of the composition-side convergence detection pass (mt#1867 Fix 2).
+   * Present only when convergenceEnabled=true. Absent (undefined) when the
+   * feature flag is off so callers can conditionally log it.
+   */
+  convergenceDetection?: ConvergenceDetectionResult;
+  /**
+   * Audit entries for BLOCKINGs downgraded by the convergence detection pass.
+   * Empty when convergenceEnabled=false or no downgrades fired.
+   */
+  convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry>;
+}
+
+export interface ApplyRecoveryAndComposeOptions {
+  /** Whether to run the mt#1496 severity-monotonicity recovery pass. */
+  recoveryEnabled: boolean;
+  /**
+   * Whether to run the mt#1867 composition-side convergence detection pass.
+   * Default: false (feature-flagged until empirical verification).
+   */
+  convergenceEnabled?: boolean;
+  /**
+   * Pre-parsed flat findings from all prior rounds (any severity), for the
+   * convergence evidence-novelty comparison. Oldest-first. When absent but
+   * convergenceEnabled=true, the convergence detector uses an empty list
+   * (equivalent to "all evidence is new" — conservative, will not fire).
+   */
+  priorFindingsForConvergence?: ReadonlyArray<import("./convergence-detector").FindingForDetection>;
+  /**
+   * BLOCKING counts from each prior round (oldest first) for convergence
+   * strictly-decreasing check. Required when convergenceEnabled=true.
+   */
+  priorBlockingCounts?: ReadonlyArray<number>;
+  /**
+   * 1-based current iteration index (R1=1, R4=4, etc.) for convergence
+   * threshold gating. Required when convergenceEnabled=true.
+   */
+  iterationIndex?: number;
 }
 
 export function applyRecoveryAndCompose(
   toolCalls: ReadonlyArray<ReviewToolCall>,
   priorFindings: ReadonlyArray<FlatPriorFinding>,
   diffText: string,
-  recoveryEnabled: boolean
+  recoveryEnabled: boolean,
+  options?: ApplyRecoveryAndComposeOptions
 ): ComposeWithRecoveryResult {
   const originalBlockingCount = toolCalls.filter(
     (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
   ).length;
 
-  // Step 1: optionally recover.
+  // Step 1: optionally recover (mt#1496 monotonicity recovery).
   let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = toolCalls;
   let downgrades: ReadonlyArray<DowngradeAuditEntry> = [];
   if (recoveryEnabled && priorFindings.length > 0) {
@@ -456,7 +502,7 @@ export function applyRecoveryAndCompose(
   }
 
   // Step 2: count post-recovery BLOCKING.
-  const postRecoveryBlockingCount = toolCallsForComposition.filter(
+  let postRecoveryBlockingCount = toolCallsForComposition.filter(
     (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
   ).length;
 
@@ -484,6 +530,40 @@ export function applyRecoveryAndCompose(
     });
   }
 
+  // Step 3b: composition-side convergence detection (mt#1867 Fix 2).
+  // Runs AFTER monotonicity recovery so the convergence check sees already-
+  // recovered tool calls (prevents double-downgrade of the same finding).
+  let convergenceDetection: ConvergenceDetectionResult | undefined;
+  let convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry> = [];
+  const opts = options ?? { recoveryEnabled };
+  const convergenceEnabled = opts.convergenceEnabled ?? false;
+  if (convergenceEnabled && postRecoveryBlockingCount > 0) {
+    // Use pre-parsed findings if provided; otherwise empty list (conservative:
+    // empty priorFindingsForConvergence means all evidence is "new", so no
+    // stagnation fires — safe default).
+    const priorFindingsForConvergence = opts.priorFindingsForConvergence ?? [];
+    const priorCounts = opts.priorBlockingCounts ?? [];
+    const iterIdx = opts.iterationIndex ?? 1;
+
+    const convergenceResult = applyCompositionConvergenceDowngrade(
+      toolCallsForComposition,
+      priorFindingsForConvergence,
+      priorCounts,
+      iterIdx
+    );
+
+    convergenceDetection = convergenceResult.detectionResult;
+    convergenceDowngrades = convergenceResult.downgrades;
+
+    if (convergenceResult.downgradeApplied) {
+      toolCallsForComposition = convergenceResult.toolCalls;
+      // Recount post-convergence-downgrade BLOCKINGs.
+      postRecoveryBlockingCount = toolCallsForComposition.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+      ).length;
+    }
+  }
+
   // Step 4: compose. Spread to coerce the readonly local to the mutable
   // signature expected by composeReviewBody (which only reads).
   const composed = composeReviewBody([...toolCallsForComposition]);
@@ -495,6 +575,8 @@ export function applyRecoveryAndCompose(
     originalBlockingCount,
     postRecoveryBlockingCount,
     reconcileApplied,
+    convergenceDetection,
+    convergenceDowngrades,
   };
 }
 
@@ -556,6 +638,57 @@ export function buildConvergenceMetricLog(
     newBlockerCount,
     acknowledgedAsAddressedCount,
   };
+}
+
+/**
+ * Read prior-round BLOCKING counts from the mt#1306 substrate
+ * (reviewer_convergence_metrics table).
+ *
+ * Returns an array of new_blocker_count values, one per prior review row,
+ * ordered oldest-first (ascending iteration_index). Excludes the current
+ * round's row (rows with iteration_index >= currentIterationIndex).
+ *
+ * This is the authoritative source for the convergence detection path per
+ * the mt#1867 spec ("reads prior-round convergence metrics from the mt#1306
+ * substrate"). The fallback (parsed from GitHub review bodies) is used only
+ * when the DB is unavailable.
+ *
+ * Errors are swallowed — the caller falls back to the review-body-parsed
+ * counts. This mirrors the metrics-write swallow-on-error pattern.
+ *
+ * @param db                    Drizzle DB instance.
+ * @param owner                 GitHub repository owner.
+ * @param repo                  GitHub repository name.
+ * @param prNumber              Pull request number.
+ * @param currentIterationIndex 1-based index of the current review round.
+ *                              Only rows with iteration_index < currentIterationIndex
+ *                              are returned.
+ */
+export async function fetchPriorBlockingCountsFromDb(
+  db: ReviewerDb,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  currentIterationIndex: number
+): Promise<number[]> {
+  try {
+    const rows = await db
+      .select({ newBlockerCount: convergenceMetricsTable.newBlockerCount })
+      .from(convergenceMetricsTable)
+      .where(
+        and(
+          eq(convergenceMetricsTable.prOwner, owner),
+          eq(convergenceMetricsTable.prRepo, repo),
+          eq(convergenceMetricsTable.prNumber, prNumber),
+          lt(convergenceMetricsTable.iterationIndex, currentIterationIndex)
+        )
+      )
+      .orderBy(asc(convergenceMetricsTable.iterationIndex));
+    return rows.map((r) => r.newBlockerCount);
+  } catch {
+    // Swallow — caller falls back to review-body-parsed counts.
+    return [];
+  }
 }
 
 /**
@@ -896,15 +1029,86 @@ export async function runReview(
       (process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? "").trim()
     );
 
-    // Delegate the recovery + reconciliation + composition to the pure
-    // helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
+    // mt#1867 composition-side convergence detection (Fix 2 from mt#1640 paper):
+    // when enabled, downgrade ALL BLOCKINGs when R(N+1) shows neither strictly-
+    // decreasing BLOCKING count nor new evidence per finding. Default-off until
+    // empirical verification (same pattern as monotonicityRecovery above).
+    const compositionConvergenceEnabled = /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_COMPOSITION_CONVERGENCE_ENABLED ?? "").trim()
+    );
+
+    // Compute iteration index (1-based) for the convergence threshold gate.
+    // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
+    // so iterationIndex = iterationCount + 1.
+    const currentIterationIndex = priorReviewIngestion.iterationCount + 1;
+
+    // mt#1867: read prior BLOCKING counts from the mt#1306 DB substrate when the
+    // DB is available. This is the spec-required source for convergence detection
+    // ("reads prior-round convergence metrics from the mt#1306 substrate").
+    //
+    // Fallback: if DB is unavailable or returns empty (e.g., for PRs predating
+    // mt#1306), fall back to counts parsed from GitHub review bodies
+    // (priorReviewIngestion.priorBlockingCounts). The fallback is only used when
+    // the DB read returns an empty array, ensuring the detector still has prior
+    // context when DB rows are not yet populated.
+    let priorBlockingCountsForConvergence: ReadonlyArray<number> =
+      priorReviewIngestion.priorBlockingCounts;
+    if (compositionConvergenceEnabled && deps.db !== undefined) {
+      const dbCounts = await fetchPriorBlockingCountsFromDb(
+        deps.db,
+        owner,
+        repo,
+        prNumber,
+        currentIterationIndex
+      );
+      if (dbCounts.length > 0) {
+        priorBlockingCountsForConvergence = dbCounts;
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_counts_source",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            source: "db_substrate",
+            count: dbCounts.length,
+            iterationIndex: currentIterationIndex,
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_counts_source",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            source: "review_body_fallback",
+            reason:
+              "DB returned no rows (PR may predate mt#1306 substrate or first review); using parsed review body counts",
+            count: priorReviewIngestion.priorBlockingCounts.length,
+            iterationIndex: currentIterationIndex,
+          })
+        );
+      }
+    }
+
+    // Delegate the recovery + reconciliation + convergence + composition to the
+    // pure helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
     // persistent "no integration tests" complaint at the unit level — see
     // applyRecoveryAndCompose tests in review-worker.test.ts).
+    // priorFlatFindings is already parsed (FlatPriorFinding[] from severity-recovery).
+    // FlatPriorFinding is structurally compatible with FindingForDetection (same fields:
+    // file, severity, line?, lineEnd?), so we can pass it directly as
+    // priorFindingsForConvergence without re-parsing the prior review bodies.
     const recoveryResult = applyRecoveryAndCompose(
       output.toolCalls,
       priorFlatFindings,
       pr.diff,
-      monotonicityRecoveryEnabled
+      monotonicityRecoveryEnabled,
+      {
+        recoveryEnabled: monotonicityRecoveryEnabled,
+        convergenceEnabled: compositionConvergenceEnabled,
+        priorFindingsForConvergence: priorFlatFindings,
+        priorBlockingCounts: priorBlockingCountsForConvergence,
+        iterationIndex: currentIterationIndex,
+      }
     );
     const composed = recoveryResult.composed;
     const blockingCount = recoveryResult.postRecoveryBlockingCount;
@@ -976,6 +1180,50 @@ export async function runReview(
           crossedZero:
             recoveryResult.originalBlockingCount > 0 &&
             recoveryResult.postRecoveryBlockingCount === 0,
+        })
+      );
+    }
+
+    // mt#1867 convergence detection logging: emit one structured event per
+    // downgraded finding, plus a summary event. The summary always emits when
+    // compositionConvergenceEnabled is true (mirrors severity_downgrade_summary
+    // convention — zero downgrades still useful for "enabled but never fired"
+    // observability). Per-finding events only emit when the downgrade fires.
+    if (compositionConvergenceEnabled && recoveryResult.convergenceDetection !== undefined) {
+      const convDetection = recoveryResult.convergenceDetection;
+      // Per-finding downgrade events
+      for (const d of recoveryResult.convergenceDowngrades) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_downgrade",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            file: d.file,
+            ...(d.line !== undefined ? { line: d.line } : {}),
+            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+            fromSeverity: d.fromSeverity,
+            toSeverity: d.toSeverity,
+            reason: d.reason,
+          })
+        );
+      }
+      // Summary event — always emitted when enabled so dashboards see one entry
+      // per review regardless of whether the downgrade fired.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.composition_convergence_summary",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          downgradeApplied: convDetection.downgradeApplied,
+          downgradeCount: recoveryResult.convergenceDowngrades.length,
+          currentBlockingCount: convDetection.currentBlockingCount,
+          priorBlockingCounts: convDetection.priorBlockingCounts,
+          isCountDecreasing: convDetection.isCountDecreasing,
+          hasAnyNewEvidence: convDetection.hasAnyNewEvidence,
+          reason: convDetection.reason,
+          // Evidence verdicts per BLOCKING (populated when downgradeApplied=true)
+          evidenceVerdicts: convDetection.downgradeApplied ? convDetection.evidenceVerdicts : [],
         })
       );
     }

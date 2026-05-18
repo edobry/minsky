@@ -9,6 +9,7 @@ import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Agents } from "./widgets/Agents";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
+import { Credentials } from "./widgets/Credentials";
 import { TaskGraph } from "./widgets/TaskGraph";
 import { Workstreams } from "./widgets/Workstreams";
 
@@ -16,6 +17,7 @@ import { Workstreams } from "./widgets/Workstreams";
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   agents: Agents,
   attention: Attention,
+  credentials: Credentials,
 };
 
 // Widgets that receive data from App-level polling

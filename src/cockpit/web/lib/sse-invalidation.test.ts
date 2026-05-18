@@ -16,6 +16,7 @@ const CH_SESSION_STARTED = "minsky.session.started";
 const CH_SESSION_SCOPE_CHANGED = "minsky.session.scope_changed";
 const CH_TASK_STATUS_CHANGED = "minsky.task.status_changed";
 const CH_TASK_BLOCKING = "minsky.task.blocking";
+const CH_CREDENTIAL_INVALIDATED = "minsky.credential.invalidated";
 
 describe("queryKeysForChannel", () => {
   describe("known channels with active producers (mt#1411)", () => {
@@ -50,6 +51,11 @@ describe("queryKeysForChannel", () => {
       const keys = queryKeysForChannel(CH_TASK_STATUS_CHANGED);
       expect(Array.from(keys)).toHaveLength(0);
     });
+
+    it("minsky.credential.invalidated → invalidates credentials (mt#1426)", () => {
+      const keys = queryKeysForChannel(CH_CREDENTIAL_INVALIDATED);
+      expect(keys).toContainEqual(["credentials"]);
+    });
   });
 
   describe("unknown channels", () => {
@@ -71,7 +77,7 @@ describe("queryKeysForChannel", () => {
   });
 
   describe("CHANNEL_TO_QUERY_KEYS coverage", () => {
-    it("all 6 ADR-010 channels are present in the map", () => {
+    it("all canonical channels are present in the map (6 ADR-010 + credential)", () => {
       const expectedChannels = [
         CH_ATTENTION_OPENED,
         CH_ATTENTION_CLOSED,
@@ -79,6 +85,7 @@ describe("queryKeysForChannel", () => {
         CH_SESSION_SCOPE_CHANGED,
         CH_TASK_STATUS_CHANGED,
         CH_TASK_BLOCKING,
+        CH_CREDENTIAL_INVALIDATED,
       ];
       for (const channel of expectedChannels) {
         expect(channel in CHANNEL_TO_QUERY_KEYS).toBe(true);

@@ -11,6 +11,7 @@ import type { GitHubConfig } from "./schemas/github";
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { consumeAndReportInvalidationNotice } from "../credentials/invalidations";
 
 export type CredentialSource = "env" | "file" | "keychain" | "manual";
 
@@ -42,7 +43,14 @@ export class DefaultCredentialResolver implements CredentialResolver {
    */
   async getCredential(service: "github"): Promise<string | undefined> {
     if (service === "github") {
-      return this.getGitHubCredential();
+      const token = await this.getGitHubCredential();
+      if (token) {
+        // mt#1426: surface a one-line stderr notice if a prior recheck flagged
+        // this credential as invalidated. Fire-and-forget — never blocks the
+        // credential read on bookkeeping failures.
+        await consumeAndReportInvalidationNotice("github");
+      }
+      return token;
     }
     return undefined;
   }
@@ -69,7 +77,14 @@ export class DefaultCredentialResolver implements CredentialResolver {
         return undefined;
       }
 
-      return this.resolveCredentialFromConfig(credentials);
+      const token = await this.resolveCredentialFromConfig(credentials);
+      if (token && (provider === "anthropic" || provider === "openai" || provider === "google")) {
+        // mt#1426: stderr notice on invalidated AI credentials. Only fires for
+        // providers that have a credential-lifecycle plugin (currently anthropic;
+        // openai/google are listed as future surfaces of the same shape).
+        await consumeAndReportInvalidationNotice(provider);
+      }
+      return token;
     } catch (error) {
       // If config path doesn't exist, return undefined
       return undefined;

@@ -11,6 +11,7 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
+import type { CredentialModuleOverride } from "./server";
 import type { WidgetModule, WidgetData, WidgetContext } from "./types";
 import { createAgentsWidget } from "./widgets/agents";
 import { createAttentionWidget } from "./widgets/attention";
@@ -57,6 +58,13 @@ const DEFAULT_CONFIG = {
 };
 
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
+
+// Credential error codes — keep in sync with `CredentialErrorCode` in
+// src/cockpit/server.ts and `CredentialApiErrorCode` in
+// src/cockpit/web/widgets/Credentials.tsx (mt#1426 PR #1142 R1).
+const CRED_ERR_UNKNOWN_PROVIDER = "unknown_provider";
+const CRED_ERR_MISSING_FIELD = "missing_field";
+const CRED_ERR_VALIDATION_FAILED = "validation_failed";
 
 // ---------------------------------------------------------------------------
 // Test servers — started lazily and closed per-test
@@ -1279,5 +1287,330 @@ describe("Cockpit server", () => {
     const peerAsk = await repo.getById("ask-peer-routed");
     expect(policyAsk?.state).toBe("suspended");
     expect(peerAsk?.state).toBe("suspended");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Credential endpoints (mt#1426)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a stub CredentialModuleOverride for credential endpoint tests.
+   *
+   * Provides minimal doubles for getCredentialProvider, addCredential,
+   * listCredentials, and removeCredential so tests never touch the real
+   * filesystem (config.yaml, credentials-meta.json).
+   */
+  function makeCredentialModuleStub(
+    opts: {
+      providerExists?: boolean;
+      validateOk?: boolean;
+      validateDetail?: string;
+      addResult?: import("./server").CredentialModuleOverride["addCredential"] extends (
+        ...args: infer _A
+      ) => Promise<infer R>
+        ? R
+        : never;
+      listResult?: Array<{
+        provider: string;
+        displayName: string;
+        configPath: string;
+        configured: boolean;
+        lastValidatedAt?: string;
+        lastValidationDetail?: string;
+      }>;
+      removeResult?: { removed: boolean };
+    } = {}
+  ): CredentialModuleOverride {
+    const {
+      providerExists = true,
+      validateOk = true,
+      validateDetail = "ok",
+      listResult = [],
+      removeResult = { removed: true },
+    } = opts;
+
+    return {
+      getCredentialProvider: (id: string) => {
+        if (!providerExists) return undefined;
+        return {
+          validate: async (_token: string) => ({
+            ok: validateOk,
+            detail: validateDetail,
+          }),
+          id,
+          displayName: id,
+          configPath: `${id}.token`,
+          acquireUrl: `https://example.com/${id}/tokens`,
+          scopeGuidance: "test guidance",
+          test: async (_token: string) => ({ ok: true, detail: "smoke ok" }),
+        };
+      },
+      addCredential: opts.addResult
+        ? async (_provider: string, _token: string) =>
+            opts.addResult as Awaited<ReturnType<CredentialModuleOverride["addCredential"]>>
+        : async (provider: string, _token: string) => ({
+            provider,
+            validate: { ok: validateOk, detail: validateDetail },
+            stored: validateOk ? { configFilePath: `/mock/config.yaml` } : undefined,
+            test: validateOk ? { ok: true, detail: "smoke ok" } : undefined,
+          }),
+      listCredentials: async () => listResult,
+      removeCredential: async (_provider: string) => removeResult,
+    };
+  }
+
+  // 13a. GET /api/credentials → 200 + { credentials: [...] }
+  test("GET /api/credentials returns credentials list", async () => {
+    const credMod = makeCredentialModuleStub({
+      listResult: [
+        {
+          provider: "github",
+          displayName: "GitHub",
+          configPath: "github.token",
+          configured: true,
+          lastValidatedAt: new Date().toISOString(),
+          lastValidationDetail: "github:octocat",
+        },
+        {
+          provider: "anthropic",
+          displayName: "Anthropic",
+          configPath: "anthropic.apiKey",
+          configured: false,
+        },
+      ],
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { credentials: Array<{ provider: string }> };
+    expect(Array.isArray(body.credentials)).toBe(true);
+    expect(body.credentials.length).toBe(2);
+    const providers = body.credentials.map((c) => c.provider);
+    expect(providers).toContain("github");
+    expect(providers).toContain("anthropic");
+  });
+
+  // 13b. GET /api/credentials — response never includes a token field
+  test("GET /api/credentials response never includes token field", async () => {
+    const credMod = makeCredentialModuleStub({
+      listResult: [
+        {
+          provider: "github",
+          displayName: "GitHub",
+          configPath: "github.token",
+          configured: true,
+        },
+      ],
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials`);
+    const body = (await res.json()) as { credentials: Array<Record<string, unknown>> };
+    // Trust-boundary: none of the entries may include a 'token' key
+    for (const entry of body.credentials) {
+      expect(Object.keys(entry)).not.toContain("token");
+    }
+  });
+
+  // 13c. POST /api/credentials/validate → 200 + { ok, detail }; never echoes token
+  test("POST /api/credentials/validate returns ok result and never echoes token", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: true,
+      validateDetail: "github:octocat",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "secret-token-value" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(body.detail).toBe("github:octocat");
+    // Trust-boundary: response must not echo the token back
+    expect(JSON.stringify(body)).not.toContain("secret-token-value");
+  });
+
+  // 13d. POST /api/credentials/validate → 200 + { ok: false } on invalid token
+  test("POST /api/credentials/validate returns ok:false on validation failure", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: false,
+      validateDetail: "401 Unauthorized",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "bad-token" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe("401 Unauthorized");
+    expect(JSON.stringify(body)).not.toContain("bad-token");
+  });
+
+  // 13e. POST /api/credentials/validate → 400 on unknown provider
+  test("POST /api/credentials/validate returns 400 for unknown provider", async () => {
+    const credMod = makeCredentialModuleStub({ providerExists: false });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "nonexistent", token: "tok" }),
+    });
+    expect(res.status).toBe(400);
+    // Normalized error shape per PR #1142 R1: { error: { code, message } }
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
+    expect(JSON.stringify(body)).not.toContain("tok");
+  });
+
+  // 13f. POST /api/credentials/validate → 400 when token is missing
+  test("POST /api/credentials/validate returns 400 when token is missing", async () => {
+    const credMod = makeCredentialModuleStub();
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github" }), // no token field
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_MISSING_FIELD);
+    expect(body.error.message).toMatch(/token/i);
+  });
+
+  // 13g. POST /api/credentials/add → 200 + result shape; never echoes token
+  test("POST /api/credentials/add returns result and never echoes token", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: true,
+      validateDetail: "github:octocat",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/add`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "my-secret-token" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.provider).toBe("github");
+    // Trust-boundary: response body must not contain the token value at any depth
+    expect(JSON.stringify(body)).not.toContain("my-secret-token");
+    // Result shape: validate + stored + test present on success
+    expect((body.validate as Record<string, unknown>).ok).toBe(true);
+    expect(body.stored).toBeDefined();
+  });
+
+  // 13h. POST /api/credentials/add → 400 when validation fails (never echoes token)
+  test("POST /api/credentials/add returns 400 on validation failure and never echoes token", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: false,
+      validateDetail: "401 bad credentials",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/add`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "invalid-secret" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    const err = body.error as { code: string; message: string };
+    expect(err.code).toBe(CRED_ERR_VALIDATION_FAILED);
+    expect(err.message).toMatch(/validation failed/i);
+    // Structured validate result rides along per PR #1142 R1
+    expect((body.validate as Record<string, unknown>).ok).toBe(false);
+    // Trust-boundary: token value must not appear anywhere in the error response
+    expect(JSON.stringify(body)).not.toContain("invalid-secret");
+  });
+
+  // 13i. POST /api/credentials/add → 400 on unknown provider
+  test("POST /api/credentials/add returns 400 for unknown provider", async () => {
+    const credMod = makeCredentialModuleStub({ providerExists: false });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/add`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "nonexistent", token: "tok" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
+  });
+
+  // 13j. DELETE /api/credentials/:provider → 200 + { removed: true }
+  test("DELETE /api/credentials/:provider returns removed:true", async () => {
+    const credMod = makeCredentialModuleStub({ removeResult: { removed: true } });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/github`, {
+      method: "DELETE",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { removed: boolean };
+    expect(body.removed).toBe(true);
+  });
+
+  // 13k. DELETE /api/credentials/:provider → 400 on unknown provider
+  test("DELETE /api/credentials/:provider returns 400 for unknown provider", async () => {
+    const credMod = makeCredentialModuleStub({ providerExists: false });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/nonexistent`, {
+      method: "DELETE",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
+  });
+
+  // 13l. credentials widget present in /api/widgets when enabled
+  test("credentials widget present in /api/widgets when enabled", async () => {
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "credentials", enabled: true }],
+      },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    const ids = body.map((w) => w.id);
+    expect(ids).toContain("credentials");
   });
 });
