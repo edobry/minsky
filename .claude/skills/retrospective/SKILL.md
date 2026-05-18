@@ -2,11 +2,14 @@
 name: retrospective
 description: >-
   Structured post-failure analysis that identifies root causes and produces
-  durable fixes to process artifacts. Auto-triggers on correction signals ("that's
-  wrong", "you keep doing this", "why did you do that?"). Use when a post-merge
-  audit finds issues, the same feedback is given repeatedly, a subagent produces
-  incomplete work, or the user asks "what went wrong" / "retrospective" / "why
-  does this keep happening".
+  durable fixes to process artifacts. Auto-triggers on user-side correction
+  signals ("that's wrong", "you keep doing this", "why did you do that?") AND
+  on agent self-recognized failure signals ("I owe you an apology", "I was
+  wrong about X", "I should have caught this", "I anchored on X and missed Y",
+  "I didn't think it through") — match by meaning, not literal string. Use
+  when a post-merge audit finds issues, the same feedback is given repeatedly,
+  a subagent produces incomplete work, or the user asks "what went wrong" /
+  "retrospective" / "why does this keep happening".
 user-invocable: true
 ---
 
@@ -25,12 +28,23 @@ Optional: a description of the incident, PR number, or task ID. If omitted, anal
 - Subagent produces incomplete or incorrect work
 - A process step is consistently skipped or forgotten
 - User explicitly asks: "what went wrong", "retrospective", "root cause", "why does this keep happening"
-- **Auto-trigger on correction signals** (no explicit invocation required):
+- **Auto-trigger on user-side correction signals** (no explicit invocation required):
   - Direct correction: "that's wrong", "incorrect", "not right", "that's not what I said"
   - Frustration indicators: "you keep doing this", "I've told you this before", "again?", "how many times"
   - Preference directives: "going forward, always...", "from now on...", "I want you to always..."
   - Rationale questions: "why did you do that?", "what were you thinking?", "why would you..."
   - Agent error requiring user intervention: when your own action caused an error the user had to correct
+- **Auto-trigger on agent self-recognized failure signals** (no explicit invocation required; **match by _meaning_, not literal string** — the lists below are illustrative, NOT exhaustive):
+
+  - Apology / contrition: "I owe you an apology", "I apologize for X", "that was my fault"
+  - Wrong-recommendation admission: "I was wrong about X", "my recommendation was incorrect", "I made a mistake on X"
+  - Should-have-caught: "I should have caught this", "I should have known better", "I should have thought of that", "I missed the obvious"
+  - Anchoring / conflation: "I anchored on X and missed Y", "I conflated A with B"
+  - Operational / explanatory prose (R2 extension, 2026-05-18): "I didn't think it through", "I didn't think through X", "I went straight to X without checking Y", "I defaulted to Z because I didn't pause to consider W"
+
+  **When you are about to write any of these phrases (or a semantic variant) in user-facing output: STOP before the phrase lands.** Invoke the retrospective process and produce durable artifacts (root-cause analysis, memory entry, structural fix) FIRST — then either skip the apology entirely or reduce it to one sentence with the artifacts presented first. Apology language is performative; it does not produce a durable fix. The user does not need the apology — the user needs the same failure not to happen again. Artifacts achieve that; apologies don't.
+
+  This is the failure-direction dual of `User Preferences §Professional communication`'s ban on performative credit-language ("You're absolutely right", "Perfect!"). Both substitute language for action. The parent rule is `Work Completion §Never notice an issue without acting on it`: mentioning a self-recognized failure without producing a durable artifact is the same anti-pattern as noticing-without-acting. See memory `feedback_self_recognized_failure_is_retrospective_trigger` (id `1b36a19e`) for the canonical trigger-phrase list (updated continuously; pull from the memory at trigger time, not from this skill body) and the full R2 semantic-family rule.
 
 ## Process
 
