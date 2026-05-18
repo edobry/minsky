@@ -223,6 +223,98 @@ hosted deployment are out of scope by construction.
 
 ---
 
+## Operator dev loop — lifecycle module + agent-driven inspection
+
+mt#1904 introduced two coordinated subsystems for the cockpit dev loop:
+
+### Workspace-keyed lifecycle (`src/cockpit/lifecycle.ts`)
+
+The cockpit server writes its runtime state to a per-workspace file at
+`~/.local/state/minsky/cockpit/<workspace-key>.json` on startup and removes it on
+graceful shutdown. The workspace key is the session ID for session workspaces (resolved
+from the working-directory path under `getSessionsDir()`) or the literal string `"main"`
+for the main workspace.
+
+State-file shape:
+
+```ts
+interface CockpitState {
+  pid: number; // server process PID
+  port: number; // listening port
+  url: string; // http://localhost:<port>
+  workspaceId: string; // session ID or "main" (matches the filename stem)
+  workspacePath: string; // absolute path of the workspace the cockpit was started in
+  startedAt: string; // ISO timestamp
+  devChromiumPid?: number; // PID of Minsky's dev chromium, if launched for this cockpit
+}
+```
+
+Multi-workspace concurrency is the reason for the per-workspace keying: under the
+single-global PID file mt#1887 originally shipped, legitimate peer cockpits in different
+operator session workspaces would have been misclassified as recoverable zombies. The
+lifecycle module scopes recognition to **this workspace's prior cockpit** — peer cockpits
+in other workspaces are always "unrecognized" and never auto-killed even with `--force`.
+
+`src/cockpit/port-recovery.ts` (the mt#1887 module) was refactored to consume this module.
+
+### Minsky-managed dev chromium (`src/cockpit/dev-chromium.ts`)
+
+`minsky cockpit start` launches a shared dev chromium with
+`--remote-debugging-port=9222 --user-data-dir=~/.local/share/minsky/dev-chromium` and a
+small set of "first-run-suppressing" flags. The dev chromium spawns detached so it
+survives `minsky cockpit` exit; subsequent invocations probe `/json/version` and reuse
+the already-running instance. Its state lives at `~/.local/state/minsky/dev-chromium.json`.
+
+The dedicated `--user-data-dir` keeps the dev chromium structurally separated from the
+operator's main Chrome profile.
+
+Detection is cross-platform — macOS, Linux, Windows — with `MINSKY_DEV_CHROMIUM_EXECUTABLE`
+as the operator override for non-standard installs.
+
+Opt-out: `minsky cockpit start --no-dev-chromium` skips the launch (for headless / CI
+contexts where the inspection surface is unnecessary).
+
+### chrome-devtools-mcp attachment
+
+Configure `chrome-devtools-mcp` in your Claude Code MCP config with
+`--browser-url=http://127.0.0.1:9222`:
+
+```jsonc
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222"],
+    },
+  },
+}
+```
+
+All concurrent Claude Code sessions attach to the same dev chromium. Each session's agent
+opens its workspace's cockpit URL as a NEW tab in the shared window, so the operator can
+scan every active cockpit at a glance. The `cockpit-design` skill's Step 0 encodes the
+URL-discovery + tab-selection procedure.
+
+### chrome://inspect gotcha (do not use)
+
+Chrome 144+ added a `chrome://inspect/#remote-debugging` UI toggle that exposes a debug
+port. **Do NOT use it for this setup.** chrome-devtools-mcp upstream issue #1194 is
+closed as wontfix-by-design: `chrome://inspect/#remote-debugging` is intended for the
+separate `--autoConnect` path (which requires per-connection auth dialogs and attaches to
+the operator's main Chrome). For `--browser-url`, Chrome MUST be launched with the
+explicit `--remote-debugging-port=` flag and a non-default `--user-data-dir` — which is
+exactly what mt#1904's dev chromium does.
+
+### Deferred hardening: page-id routing
+
+mt#1912 tracks enabling chrome-devtools-mcp's `--experimentalPageIdRouting` flag if
+cross-tab interference is ever observed in practice (two agents accidentally
+manipulating each other's tabs in the shared chromium). v0 ignores this in exchange for
+not depending on an experimental flag whose schema may shift; agents stick to the
+discipline of "find tab by URL → select_page once → do work, done."
+
+---
+
 ## Companion principles in the cockpit
 
 The cockpit is shaped by the three companion principles named in
@@ -253,6 +345,10 @@ The cockpit is shaped by the three companion principles named in
 - **mt#1411** — Service-window primitives consumed by the Attention widget
 - **mt#1001** — Mesh signal push (gates SSE transport upgrade)
 - **mt#1078** — Agent identity (feeds Agents widget display)
+- **mt#1887** — Cockpit start: port-in-use recovery + `--open` flag
+- **mt#1904** — Workspace-keyed lifecycle module + Minsky-managed dev chromium
+- **mt#1912** — Deferred hardening: enable `--experimentalPageIdRouting` on observed cross-tab interference
+- **mt#1913** — Generic upstream-issue watcher (sibling of the chrome://inspect gotcha record)
 
 ### Docs
 

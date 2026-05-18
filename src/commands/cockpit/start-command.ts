@@ -4,13 +4,9 @@ import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
 import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
-import {
-  classifyPortHolder,
-  killZombie,
-  openInBrowser,
-  removeCockpitPidFile,
-  writeCockpitPidFile,
-} from "../../cockpit/port-recovery";
+import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
+import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
+import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 
 const DEFAULT_PORT = 3737;
 
@@ -67,6 +63,11 @@ export function createStartCommand(): Command {
         "Never terminates unrecognized processes."
     )
     .option("--open", "After the server starts, open the cockpit URL in the default browser.")
+    .option(
+      "--no-dev-chromium",
+      "Skip launching the dedicated dev chromium (used by chrome-devtools-mcp " +
+        "for agent-driven UI inspection). Useful for headless / CI contexts."
+    )
     .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
@@ -138,24 +139,29 @@ export function createStartCommand(): Command {
       const server = attempt.server;
 
       try {
-        writeCockpitPidFile(port);
+        writeCurrentCockpitState({
+          pid: process.pid,
+          port,
+          url: `http://localhost:${port}`,
+        });
       } catch (err) {
         const e = err as Error;
-        console.warn(`Warning: could not write cockpit PID file: ${e.message}`);
+        console.warn(`Warning: could not write cockpit state file: ${e.message}`);
       }
 
       // Cleanup on shutdown. Idempotent against double-fire across multiple
       // signal sources AND the process-exit path. Per PR #1151 R1 (mt#1887)
-      // BLOCKING #2 — signal-only cleanup left stale PID files on non-signal
+      // BLOCKING #2 — signal-only cleanup left stale state files on non-signal
       // shutdown paths (process.exit() called elsewhere, uncaughtException,
       // unhandledRejection, normal event-loop drain). All paths now route
-      // through `cleanupSync` which removes the PID file unconditionally
-      // before exit.
+      // through `cleanupSync` which removes the state file unconditionally
+      // before exit. State file moved from a single-global path to the
+      // per-workspace lifecycle module in mt#1904.
       let shuttingDown = false;
       const cleanupSync = () => {
         if (shuttingDown) return;
         shuttingDown = true;
-        removeCockpitPidFile();
+        removeCurrentCockpitState();
       };
       const cleanupAndExit = () => {
         cleanupSync();
@@ -203,6 +209,26 @@ export function createStartCommand(): Command {
 
       if (options.open) {
         openInBrowser(`http://localhost:${port}`);
+      }
+
+      // Launch the shared dev chromium for chrome-devtools-mcp attachment
+      // (mt#1904). Idempotent — reuses an already-running instance. Best-effort:
+      // failures don't block cockpit. Commander negates --no-* flags into
+      // `options.devChromium === false`.
+      if (options.devChromium !== false) {
+        try {
+          const devChromium = await ensureDevChromiumRunning();
+          if (devChromium) {
+            console.log(
+              `Dev chromium running at http://127.0.0.1:${devChromium.debuggingPort} ` +
+                `(PID ${devChromium.pid}) — attach chrome-devtools-mcp via ` +
+                `--browser-url=http://127.0.0.1:${devChromium.debuggingPort}`
+            );
+          }
+        } catch (err) {
+          const e = err as Error;
+          console.warn(`Warning: dev chromium launch failed: ${e.message}`);
+        }
       }
 
       // Keep the action handler awaiting indefinitely so the top-level CLI

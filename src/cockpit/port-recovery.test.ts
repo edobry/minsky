@@ -1,17 +1,19 @@
 /**
- * Tests for port-recovery — mt#1887.
+ * Tests for port-recovery — mt#1887 (refactored to consume lifecycle.ts in mt#1904).
  *
  * Covers:
- *   - PID file write / read / remove lifecycle (including stale + malformed)
  *   - isProcessAlive against self + invalid PIDs
  *   - findPortHolder with a real listener (skipped on Windows)
  *   - classifyPortHolder: free / recognized-zombie / unrecognized
  *   - killZombie against a spawned sleep child (skipped on Windows)
  *   - openInBrowser opener selection per platform + failure-tolerant behavior
  *
+ * State-file lifecycle tests live in `src/cockpit/lifecycle.test.ts` since
+ * mt#1904 — that module owns the state file the classifier reads.
+ *
  * Real filesystem I/O and a real TCP listener are intentional in this file —
- * port-recovery wraps OS primitives (fs atomic write, lsof, process signals),
- * so mocked fs would test the mock rather than the contract. Same posture as
+ * port-recovery wraps OS primitives (lsof, process signals), so mocked fs
+ * would test the mock rather than the contract. Same posture as
  * `src/mcp/disconnect-tracker.test.ts` (file-wide disable, identical reason).
  */
 /* eslint-disable custom/no-real-fs-in-tests -- testing real fs/process I/O IS the contract */
@@ -26,20 +28,21 @@ import type { SpawnLike } from "./port-recovery";
 import {
   classifyPortHolder,
   findPortHolder,
-  getCockpitPidFilePath,
   isProcessAlive,
   killZombie,
   openInBrowser,
-  readCockpitPidFile,
-  removeCockpitPidFile,
-  writeCockpitPidFile,
 } from "./port-recovery";
+import {
+  getCockpitStateFilePath,
+  resolveWorkspaceKey,
+  writeCurrentCockpitState,
+} from "./lifecycle";
 
 // ---------------------------------------------------------------------------
 // Test scaffolding
 // ---------------------------------------------------------------------------
 
-/** Env var that overrides the state-dir for tests (shared with disconnect-tracker, daemon-state). */
+/** Env var that overrides the state-dir for tests (shared with lifecycle, disconnect-tracker, daemon-state). */
 const STATE_DIR_ENV = "MINSKY_STATE_DIR";
 
 let tmpStateDir: string;
@@ -88,59 +91,6 @@ async function findFreePort(): Promise<number> {
   await closeListener(server);
   return port;
 }
-
-// ---------------------------------------------------------------------------
-// PID file lifecycle
-// ---------------------------------------------------------------------------
-
-describe("PID file lifecycle", () => {
-  test("write + read round-trips with the expected shape", () => {
-    writeCockpitPidFile(3737);
-    const data = readCockpitPidFile();
-    expect(data).not.toBeNull();
-    if (!data) return;
-    expect(data.pid).toBe(process.pid);
-    expect(data.port).toBe(3737);
-    expect(typeof data.startedAt).toBe("string");
-    expect(() => new Date(data.startedAt).toISOString()).not.toThrow();
-  });
-
-  test("write creates the state dir if missing", () => {
-    fs.rmSync(tmpStateDir, { recursive: true, force: true });
-    expect(fs.existsSync(tmpStateDir)).toBe(false);
-    writeCockpitPidFile(4242);
-    expect(fs.existsSync(getCockpitPidFilePath())).toBe(true);
-  });
-
-  test("readCockpitPidFile on missing file returns null", () => {
-    expect(readCockpitPidFile()).toBeNull();
-  });
-
-  test("readCockpitPidFile on malformed JSON returns null (does not throw)", () => {
-    fs.writeFileSync(getCockpitPidFilePath(), "not json {{{");
-    expect(readCockpitPidFile()).toBeNull();
-  });
-
-  test("readCockpitPidFile on wrong-shape JSON returns null", () => {
-    fs.writeFileSync(getCockpitPidFilePath(), JSON.stringify({ pid: "not-a-number" }));
-    expect(readCockpitPidFile()).toBeNull();
-  });
-
-  test("removeCockpitPidFile clears the file", () => {
-    writeCockpitPidFile(3737);
-    expect(fs.existsSync(getCockpitPidFilePath())).toBe(true);
-    removeCockpitPidFile();
-    expect(fs.existsSync(getCockpitPidFilePath())).toBe(false);
-  });
-
-  test("removeCockpitPidFile is silent on missing file", () => {
-    expect(() => removeCockpitPidFile()).not.toThrow();
-  });
-
-  test(`getCockpitPidFilePath honours ${STATE_DIR_ENV}`, () => {
-    expect(getCockpitPidFilePath()).toBe(path.join(tmpStateDir, "cockpit.pid"));
-  });
-});
 
 // ---------------------------------------------------------------------------
 // isProcessAlive
@@ -198,10 +148,15 @@ describe("classifyPortHolder", () => {
     expect(classifyPortHolder(port).kind).toBe("free");
   });
 
-  skipOnWindows("returns 'recognized-zombie' when PID file matches the holder", async () => {
+  skipOnWindows("returns 'recognized-zombie' when state file matches the holder", async () => {
     const { server, port } = await bindListener();
     try {
-      writeCockpitPidFile(port); // PID file records *our* pid + port
+      // Write state file for THIS workspace pointing at our pid + port.
+      writeCurrentCockpitState({
+        pid: process.pid,
+        port,
+        url: `http://localhost:${port}`,
+      });
       const result = classifyPortHolder(port);
       expect(result.kind).toBe("recognized-zombie");
       if (result.kind === "recognized-zombie") {
@@ -212,10 +167,10 @@ describe("classifyPortHolder", () => {
     }
   });
 
-  skipOnWindows("returns 'unrecognized' when PID file is absent", async () => {
+  skipOnWindows("returns 'unrecognized' when state file is absent", async () => {
     const { server, port } = await bindListener();
     try {
-      // No PID file written.
+      // No state file written.
       const result = classifyPortHolder(port);
       expect(result.kind).toBe("unrecognized");
       if (result.kind === "unrecognized") {
@@ -226,21 +181,36 @@ describe("classifyPortHolder", () => {
     }
   });
 
-  skipOnWindows("returns 'unrecognized' when PID file records a different PID", async () => {
-    const { server, port } = await bindListener();
-    try {
-      // Stale PID file pointing at some other PID
-      const otherPid = process.pid === 1 ? 2 : 1;
-      fs.writeFileSync(
-        getCockpitPidFilePath(),
-        JSON.stringify({ pid: otherPid, port, startedAt: new Date().toISOString() })
-      );
-      const result = classifyPortHolder(port);
-      expect(result.kind).toBe("unrecognized");
-    } finally {
-      await closeListener(server);
+  skipOnWindows(
+    "returns 'unrecognized' when state file records a different PID (peer cockpit)",
+    async () => {
+      const { server, port } = await bindListener();
+      try {
+        // Write state file directly with a different PID — simulates a
+        // stale entry OR a peer cockpit in this workspace (which won't
+        // happen in practice but exercises the comparison branch).
+        const workspaceKey = resolveWorkspaceKey(process.cwd());
+        const statePath = getCockpitStateFilePath(workspaceKey);
+        fs.mkdirSync(path.dirname(statePath), { recursive: true });
+        const otherPid = process.pid === 1 ? 2 : 1;
+        fs.writeFileSync(
+          statePath,
+          JSON.stringify({
+            pid: otherPid,
+            port,
+            url: `http://localhost:${port}`,
+            workspaceId: workspaceKey,
+            workspacePath: process.cwd(),
+            startedAt: new Date().toISOString(),
+          })
+        );
+        const result = classifyPortHolder(port);
+        expect(result.kind).toBe("unrecognized");
+      } finally {
+        await closeListener(server);
+      }
     }
-  });
+  );
 });
 
 // ---------------------------------------------------------------------------

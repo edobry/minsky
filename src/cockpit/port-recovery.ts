@@ -1,17 +1,21 @@
 /**
  * Cockpit port recovery — detect what's holding a port, recognize our own
- * stale instances via a PID file, and provide opt-in kill of recognized
- * zombies (never of arbitrary processes). Also provides a best-effort
- * cross-platform browser opener for the `--open` flag.
+ * stale instances via the per-workspace state file (owned by lifecycle.ts),
+ * and provide opt-in kill of recognized zombies (never of arbitrary
+ * processes). Also provides a best-effort cross-platform browser opener for
+ * the `--open` flag.
  *
- * @see mt#1887 — this module
+ * State-file ownership moved to src/cockpit/lifecycle.ts in mt#1904:
+ * recognition is now per-workspace, so concurrent cockpits in different
+ * operator session workspaces don't false-positive each other.
+ *
+ * @see mt#1887 — port-recovery (this module)
+ * @see mt#1904 — lifecycle refactor; src/cockpit/lifecycle.ts owns the state file
  * @see src/mcp/daemon-state.ts — sibling state-file convention
  */
 
-import fs from "fs";
-import path from "path";
-import os from "os";
 import { execSync, spawn, type SpawnOptions } from "child_process";
+import { readCurrentCockpitState } from "./lifecycle";
 import { log } from "../utils/logger";
 
 // The project's narrowed `process` type omits EventEmitter methods like
@@ -27,12 +31,6 @@ const proc = process as unknown as {
 // Types
 // ---------------------------------------------------------------------------
 
-export interface CockpitPidFile {
-  pid: number;
-  port: number;
-  startedAt: string;
-}
-
 export interface PortHolder {
   pid: number;
   command: string;
@@ -42,82 +40,6 @@ export type PortClassification =
   | { kind: "free" }
   | { kind: "recognized-zombie"; pid: number; command: string }
   | { kind: "unrecognized"; pid: number; command: string };
-
-// ---------------------------------------------------------------------------
-// State directory (shared with disconnect-tracker, daemon-state)
-// ---------------------------------------------------------------------------
-
-function getStateDir(): string {
-  const envDir = process.env["MINSKY_STATE_DIR"];
-  if (envDir) return envDir;
-  return path.join(os.homedir(), ".local", "state", "minsky");
-}
-
-export function getCockpitPidFilePath(): string {
-  return path.join(getStateDir(), "cockpit.pid");
-}
-
-// ---------------------------------------------------------------------------
-// PID file read / write / remove
-// ---------------------------------------------------------------------------
-
-export function writeCockpitPidFile(port: number): void {
-  const statePath = getCockpitPidFilePath();
-  const stateDir = path.dirname(statePath);
-  if (!fs.existsSync(stateDir)) {
-    fs.mkdirSync(stateDir, { recursive: true });
-  }
-
-  const data: CockpitPidFile = {
-    pid: process.pid,
-    port,
-    startedAt: new Date().toISOString(),
-  };
-
-  const tmp = `${statePath}.tmp.${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(data), "utf-8");
-  fs.renameSync(tmp, statePath);
-}
-
-export function removeCockpitPidFile(): void {
-  try {
-    fs.unlinkSync(getCockpitPidFilePath());
-  } catch {
-    // Missing or permission error — silent.
-  }
-}
-
-export function readCockpitPidFile(filePath?: string): CockpitPidFile | null {
-  const p = filePath ?? getCockpitPidFilePath();
-  if (!fs.existsSync(p)) return null;
-  let raw: string;
-  try {
-    const contents = fs.readFileSync(p, { encoding: "utf-8" });
-    raw = String(contents);
-  } catch {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
-  if (!parsed || typeof parsed !== "object") return null;
-  const o = parsed as Record<string, unknown>;
-  if (
-    typeof o["pid"] !== "number" ||
-    typeof o["port"] !== "number" ||
-    typeof o["startedAt"] !== "string"
-  ) {
-    return null;
-  }
-  return {
-    pid: o["pid"] as number,
-    port: o["port"] as number,
-    startedAt: o["startedAt"] as string,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // Process introspection
@@ -174,14 +96,18 @@ export function findPortHolder(port: number): PortHolder | null {
 
 // ---------------------------------------------------------------------------
 // Classification
+//
+// "recognized-zombie" requires THIS workspace's prior cockpit state to match
+// the port-holder. Peer cockpits in other workspaces are "unrecognized" — we
+// will never auto-kill another workspace's cockpit even with `--force`.
 // ---------------------------------------------------------------------------
 
 export function classifyPortHolder(port: number): PortClassification {
   const holder = findPortHolder(port);
   if (!holder) return { kind: "free" };
 
-  const pidFile = readCockpitPidFile();
-  if (pidFile && pidFile.pid === holder.pid && pidFile.port === port) {
+  const state = readCurrentCockpitState();
+  if (state && state.pid === holder.pid && state.port === port) {
     return { kind: "recognized-zombie", pid: holder.pid, command: holder.command };
   }
   return { kind: "unrecognized", pid: holder.pid, command: holder.command };

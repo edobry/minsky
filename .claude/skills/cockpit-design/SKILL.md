@@ -27,6 +27,32 @@ The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read 
 - Implementing drill-down navigation
 - Auditing existing Cockpit UI against Minsky-domain conventions
 
+## Step 0 — View the live cockpit
+
+Before designing or critiquing UI, **always open the running cockpit in the shared dev chromium and look at it**. Specks and screenshots drift fast; the rendered surface is the ground truth.
+
+The dev chromium is launched by `minsky cockpit` (mt#1904) with `--remote-debugging-port=9222` and a dedicated `--user-data-dir`. It is shared across all concurrent Claude Code sessions — each session's agent opens its own cockpit URL as a tab in the same chromium window so the operator can see every active cockpit at once.
+
+**Procedure** (run this at the start of any cockpit design or implementation session, and any time you want to verify your change rendered):
+
+1. **Resolve the cockpit URL for THIS session's workspace.** Read the lifecycle state file:
+
+   - Compute the workspace key: if the current working directory is under the Minsky **sessions dir** (resolved by `getSessionsDir()` from `src/utils/paths.ts` — defaults to `~/.local/state/minsky/sessions/` but respects `XDG_STATE_HOME` and varies by OS), the key is the first path segment after that dir (the session ID). Otherwise it is `"main"`.
+   - Read the **state dir's** `cockpit/<workspace-key>.json` file (state dir defaults to `~/.local/state/minsky/` but respects `MINSKY_STATE_DIR` and `XDG_STATE_HOME`). The `url` field is the cockpit URL (e.g. `http://localhost:3737`).
+   - If the file is missing, the cockpit is not running for this workspace. Ask the operator to run `minsky cockpit start` in this workspace, or do not proceed with steps that need the live surface.
+
+2. **Find or open the tab.** Call `mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages` to see what's already open. If a tab matches the URL from step 1, select it with `select_page`. Otherwise open it with `new_page` (passing the URL as the navigation target).
+
+3. **Snapshot and look.** Call `take_snapshot` (a11y-tree view; preferred over screenshots for textual reasoning) or `take_screenshot` (visual, when you need pixel-level review).
+
+4. **Stay on YOUR tab.** Other concurrent agents may have their own cockpit tabs in the same chromium. Always `select_page` to your tab before any page-scoped action (`click`, `type_text`, `evaluate_script`). Do not assume the currently-focused page is yours.
+
+**MCP attachment**: chrome-devtools-mcp must be configured with `--browser-url=http://127.0.0.1:9222` so it attaches to the shared dev chromium rather than launching its own ephemeral instance. Verify the operator's MCP config once; this is one-time setup.
+
+**Gotcha** (chrome://inspect): Chrome 144+ added a `chrome://inspect/#remote-debugging` UI toggle that exposes a debug port. Do NOT use it for our setup — chrome-devtools-mcp `--browser-url` only works against a Chrome launched with the explicit `--remote-debugging-port=` flag and a non-default `--user-data-dir`. Upstream issue #1194 is closed as wontfix-by-design; the UI toggle is for the separate `--autoConnect` path which has different semantics. mt#1904's dev chromium is the maintainer-recommended setup for our case.
+
+**Cross-tab interference** (mt#1912): the shared chromium model has a small race — two agents calling `select_page` interleaved with `click` could land on the wrong tab. v0 ignores this in exchange for not enabling the experimental `--experimentalPageIdRouting` flag; if you observe an interference incident (screenshot of wrong page, click on wrong widget), escalate to mt#1912.
+
 ## The Minsky domain model
 
 Cockpit visualizes Minsky's internal state. Six core entities + their states are the IA organizing layer. Surface them; don't abstract them away.
