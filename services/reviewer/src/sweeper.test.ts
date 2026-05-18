@@ -821,4 +821,78 @@ describe("startSweeper", () => {
     const handle = startSweeper(BASE_CONFIG, { ...SWEEPER_CONFIG, enabled: false });
     expect(handle).toBeNull();
   });
+
+  test("emits sweeper.low_interval_warning when intervalMs < 300_000 (mt#1898 PR #1154 R1)", () => {
+    const warnings: unknown[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args[0]);
+    };
+
+    try {
+      // 2 min cadence — below the 5-min safe threshold.
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 120_000,
+      });
+
+      // Stop the setInterval immediately — we only care about the boot-time log.
+      if (handle) clearInterval(handle);
+
+      const events = warnings
+        .map((w) => {
+          try {
+            return JSON.parse(String(w));
+          } catch {
+            return null;
+          }
+        })
+        .filter((e): e is { event: string } => e !== null && typeof e === "object");
+
+      const lowIntervalWarning = events.find(
+        (e) => (e as { event?: string }).event === "sweeper.low_interval_warning"
+      ) as { event: string; intervalMs: number; safeThresholdMs: number } | undefined;
+
+      expect(lowIntervalWarning).toBeDefined();
+      expect(lowIntervalWarning?.intervalMs).toBe(120_000);
+      expect(lowIntervalWarning?.safeThresholdMs).toBe(300_000);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test("does NOT emit sweeper.low_interval_warning at the safe 10-min default (mt#1898 PR #1154 R1)", () => {
+    const warnings: unknown[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args[0]);
+    };
+
+    try {
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 600_000,
+      });
+
+      if (handle) clearInterval(handle);
+
+      const events = warnings
+        .map((w) => {
+          try {
+            return JSON.parse(String(w));
+          } catch {
+            return null;
+          }
+        })
+        .filter((e): e is { event: string } => e !== null && typeof e === "object");
+
+      const lowIntervalWarning = events.find(
+        (e) => (e as { event?: string }).event === "sweeper.low_interval_warning"
+      );
+
+      expect(lowIntervalWarning).toBeUndefined();
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
 });
