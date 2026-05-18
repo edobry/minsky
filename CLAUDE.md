@@ -292,6 +292,34 @@ that class at the merge surface.
 4. On match, blocks with a structured message naming each matched phrase, a short surrounding
    excerpt for context, and the override mechanism.
 
+**Markdown-aware filtering (mt#1707):** before substring scanning, the hook elides three
+markdown contexts that carry textual references rather than coordination instructions, per
+CommonMark:
+
+- **Inline code spans** — backtick-delimited with variable run length
+  (`` `rootDirectory` `` and `` ``rootDirectory`` `` both elided). The closing run must
+  match the opening run length and not be followed by another backtick.
+- **Fenced code blocks** — backtick OR tilde fences (3+ markers), opening line indented
+  up to 3 spaces, optional info string, CRLF-tolerant; closing fence matches the opening
+  marker exactly.
+- **Blockquote lines** — up to 3 leading spaces, one or more `>` markers (covers nested
+  quotes like `>>`), CRLF-tolerant.
+
+The elision pass replaces matched content with same-length whitespace, preserving
+character positions so excerpts in the denial message still slice from the ORIGINAL
+body and show real surrounding context. Trigger phrases in bare prose (e.g., "after
+merge, set rootDirectory to empty") continue to fire — only textual references in
+markdown contexts are filtered out. Originating false-positive: mt#1701 PR #1021
+(2026-05-09) DEPLOY.md docs update, where field-name references in code spans tripped
+the substring matcher and the author worked around it by paraphrasing in the PR body.
+
+**Known limitation:** CommonMark "lazy continuation" — a blockquote paragraph wrapped
+onto subsequent lines without a leading `>` marker — is not elided on the wrapped lines.
+The first marked line is still elided; only the wrapped continuation remains scannable.
+This is rare in PR bodies (CommonMark renderers do handle it, but humans usually repeat
+the `>` marker per line); flagged here so a future false-positive can be diagnosed
+quickly.
+
 **On block:** the hook denies with this shape:
 > "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
 > pre-authorized) BEFORE merging. Matched trigger phrases: [list with excerpts]. If the
