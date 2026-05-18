@@ -71,6 +71,21 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 /**
+ * Normalize a GitHub login for comparison: lowercase, and strip a trailing
+ * `[bot]` suffix. GitHub App identities present their login as `<app>[bot]`
+ * on the API but agents/operators frequently write the bare `<app>` form
+ * (e.g. `minsky-reviewer` vs `minsky-reviewer[bot]`). Treating the two as
+ * equivalent for filter purposes matches the principle of least surprise
+ * and the convention used in user-facing skill/memory text.
+ *
+ * Only the trailing `[bot]` is stripped — a login containing `[bot]`
+ * mid-string is not normalized, so substring collisions are avoided.
+ */
+function normalizeReviewerLogin(login: string): string {
+  return login.toLowerCase().replace(/\[bot\]$/, "");
+}
+
+/**
  * Pick the first review, in listing order, that matches the filter criteria.
  *
  * Exported for unit tests — keeps the filter logic independent of the polling
@@ -82,6 +97,7 @@ export function findMatchingReview(
   since: number,
   reviewer: string | undefined
 ): ReviewListEntry | undefined {
+  const normalizedReviewer = reviewer !== undefined ? normalizeReviewerLogin(reviewer) : undefined;
   for (const review of reviews) {
     // Exclude PENDING — those are draft reviews the reviewer hasn't submitted
     // yet; they don't count as "a review has been posted" for waiter purposes.
@@ -90,9 +106,12 @@ export function findMatchingReview(
     const submittedMs = Date.parse(review.submittedAt);
     if (Number.isNaN(submittedMs)) continue;
     if (submittedMs < since) continue;
-    if (reviewer !== undefined) {
-      // GitHub logins are case-insensitive at the platform level; be lenient.
-      if ((review.reviewerLogin ?? "").toLowerCase() !== reviewer.toLowerCase()) continue;
+    if (normalizedReviewer !== undefined) {
+      // GitHub logins are case-insensitive at the platform level; the
+      // `[bot]` suffix is a presentation-layer artifact of the App identity.
+      // Compare on the normalized form so `minsky-reviewer` matches
+      // `minsky-reviewer[bot]` and vice versa.
+      if (normalizeReviewerLogin(review.reviewerLogin ?? "") !== normalizedReviewer) continue;
     }
     return review;
   }
