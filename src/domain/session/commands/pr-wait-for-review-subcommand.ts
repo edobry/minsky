@@ -43,7 +43,11 @@ export interface SessionPrWaitForReviewParams {
   timeoutSeconds?: number;
   /** Polling interval in seconds (default 15). Clamped to [5, 60] internally. */
   intervalSeconds?: number;
-  /** Optional reviewer login filter (e.g., "minsky-reviewer[bot]"). */
+  /**
+   * Optional reviewer login filter (e.g., "minsky-reviewer[bot]" or the bare
+   * "minsky-reviewer" form). Case-insensitive; a trailing `[bot]` suffix is
+   * optional on both sides of the comparison.
+   */
   reviewer?: string;
   /** Optional ISO timestamp; reviews with submittedAt earlier than this are ignored. */
   since?: string;
