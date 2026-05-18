@@ -48,6 +48,14 @@ export default defineRailwayConfig({
     // the in-code default applies).
     SWEEPER_ENABLED: "true",
 
+    // mt#1867 (Fix 2 from mt#1640): composition-side convergence
+    // detection. At R>=4, downgrades BLOCKINGs to NON-BLOCKING when
+    // iteration is stagnating (count not strictly decreasing AND no
+    // new file:line evidence). Enabled 2026-05-17 post-mt#1867 merge to
+    // start the +2 day bypass-cadence measurement window per mt#1867
+    // SC#6 and mt#1869 acceptance test.
+    REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: "true",
+
     // -------------------------------------------------------------------
     // mt#1614 recovery-layer wiring (mt#1811)
     //
