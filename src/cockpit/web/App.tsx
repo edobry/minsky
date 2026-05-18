@@ -57,10 +57,8 @@ function HomePage({ widgets }: HomePageProps) {
       {/* System section — always first: "is anything wrong?" scan */}
       {widgets.length > 0 && (
         <section aria-label="System status">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-            System
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             {widgets.map(({ meta, data }) => {
               const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
               const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
@@ -93,6 +91,7 @@ function HomePage({ widgets }: HomePageProps) {
                 </ErrorBoundary>
               );
             })}
+            </div>
           </div>
         </section>
       )}

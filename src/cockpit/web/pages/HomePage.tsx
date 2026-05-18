@@ -2,17 +2,18 @@
  * HomePage — the "/" route.
  *
  * Structure (operator journey order):
- *   1. SYSTEM section  — compact status cards (BasicHealth, Attention, Credentials)
- *      rendered by App.tsx's HomePage component directly.
- *   2. NAVIGATE section — generous nav tiles for the three promoted pages.
+ *   1. System section  — compact status cards (BasicHealth, Attention, Credentials)
+ *      inside a subtle bordered panel; rendered by App.tsx's HomePage component.
+ *   2. Nav section — generous tiles for the three promoted pages.
  *      Exported here as PromotedPageTiles, consumed by App.tsx.
  *
  * The two sections are intentionally different in visual weight:
- *   SYSTEM  = dense, data-first, single-metric cards (mission-control density)
- *   NAVIGATE = spacious tiles with icon + description + arrow affordance
+ *   System  = dense, data-first cards enclosed in a muted bordered panel
+ *   Nav     = spacious tiles with icon + description + arrow affordance
  *
- * Eyebrow labels ("SYSTEM" / "NAVIGATE") are wayfinding, not headings.
- * They use `<p>` — not `<h2>` — to avoid implying section hierarchy.
+ * Categorization is signaled by surface/shape (bordered panel vs. plain tiles),
+ * not by eyebrow labels. The `<section aria-label>` attributes provide the
+ * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
 import { Bot, GitBranch, Network, ChevronRight } from "lucide-react";
@@ -54,7 +55,7 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
           <span className="text-sm font-semibold">{label}</span>
           {badge}
         </div>
-        <p className="text-xs text-muted-foreground leading-snug mt-0.5 truncate">{description}</p>
+        <p className="text-xs text-muted-foreground leading-snug mt-0.5 line-clamp-2">{description}</p>
       </div>
 
       {/* Arrow affordance — grows more visible on hover */}
@@ -73,10 +74,6 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
 export function PromotedPageTiles() {
   return (
     <section aria-label="Navigate to feature pages">
-      {/* Eyebrow label — wayfinding, not a heading */}
-      <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
-        Navigate
-      </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <EntryTile
           to="/agents"
