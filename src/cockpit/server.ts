@@ -802,8 +802,12 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     app.use("/assets", express.static(path.join(WEB_DIST_DIR, "assets")));
   }
 
-  /** GET / — serve index.html or 404 gracefully if bundle not built */
-  app.get("/", (_req, res) => {
+  /**
+   * SPA fallback — serve index.html for any GET that didn't match an API
+   * or asset route. Required because React Router uses the History API:
+   * a hard refresh on /agents would otherwise 404 at the server.
+   */
+  app.get("*", (_req, res) => {
     if (fs.existsSync(INDEX_HTML)) {
       res.sendFile(INDEX_HTML);
     } else {
