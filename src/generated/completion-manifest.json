@@ -2108,7 +2108,7 @@
                 },
                 {
                   "flags": ["--reviewer"],
-                  "description": "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). Case-insensitive. Defaults to any reviewer."
+                  "description": "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot] or the bare minsky-reviewer form). Case-insensitive; a trailing [bot] suffix is optional on both sides of the comparison. Defaults to any reviewer."
                 },
                 {
                   "flags": ["--since"],
@@ -4996,6 +4996,14 @@
             {
               "flags": ["--port"],
               "description": "Port to listen on (default: 3737)"
+            },
+            {
+              "flags": ["--force"],
+              "description": "If a previous cockpit instance is holding the port, terminate it and retry. Never terminates unrecognized processes."
+            },
+            {
+              "flags": ["--open"],
+              "description": "After the server starts, open the cockpit URL in the default browser."
             }
           ]
         }
@@ -5026,10 +5034,6 @@
           "description": "Emit the fish completion script to stdout"
         }
       ]
-    },
-    {
-      "name": "completion-server",
-      "description": "(internal) shell completion handler invoked on TAB"
     }
   ],
   "options": [

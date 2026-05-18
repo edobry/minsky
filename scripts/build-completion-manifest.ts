@@ -44,19 +44,29 @@ interface ManifestCommand {
   options?: ManifestOption[];
 }
 
+/**
+ * Internal commands that should NEVER appear in user-facing completion output.
+ * Commander 14 has no public `hidden` getter, so we can't introspect the
+ * `hidden: true` flag set via `cli.addCommand(cmd, { hidden: true })`. The
+ * denylist enumerates known internal commands by exact name; any future
+ * hidden command must be added here (and the test fixture in
+ * manifest-builder.test.ts updated accordingly).
+ *
+ * Currently:
+ *   - `completion-server` — the tabtab-invoked TAB handler (mt#1892).
+ *     It's a sibling of `completions` per tabtab's convention; it ships
+ *     in the Commander tree but must not surface to users.
+ */
+const HIDDEN_COMMAND_NAMES: ReadonlySet<string> = new Set(["completion-server"]);
+
 function walkCommand(cmd: Command): ManifestCommand {
   const node: ManifestCommand = { name: cmd.name() };
   const desc = cmd.description();
   if (desc) node.description = desc;
 
-  // Hidden subcommands (e.g., the `completions complete` handler once it
-  // exists) are included in v1 — Commander 14 has no public reader for the
-  // hidden flag and accessing the private field violates lint rules. The
-  // cosmetic cost is that `minsky completions <TAB>` will include `complete`
-  // alongside the user-facing verbs. Acceptable for v1; filter can be added
-  // later if it becomes a problem.
-  if (cmd.commands.length > 0) {
-    node.subcommands = cmd.commands.map(walkCommand);
+  const visibleSubs = cmd.commands.filter((s) => !HIDDEN_COMMAND_NAMES.has(s.name()));
+  if (visibleSubs.length > 0) {
+    node.subcommands = visibleSubs.map(walkCommand);
   }
 
   if (cmd.options.length > 0) {

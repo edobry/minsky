@@ -105,6 +105,11 @@
   "peerDependencies": {
     "typescript": "5.8.3"
   },
+  "overrides": {
+    "_comment_ansi_regex_strip_ansi": "mt#1892 PR #1155 R1 BLOCKING: @pnpm/tabtab pulls in enquirer@2.4.1 which would downgrade top-level resolutions of ansi-regex (6→5) and strip-ansi (7→6). Pin top-level back to v6/v7; enquirer keeps its own scoped v5/v6 resolution.",
+    "ansi-regex": "^6.0.1",
+    "strip-ansi": "^7.0.1"
+  },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.2",
     "@ai-sdk/google": "^1.0.2",

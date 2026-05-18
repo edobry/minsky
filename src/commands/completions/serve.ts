@@ -1,5 +1,7 @@
 /**
- * `minsky completions complete` — hidden handler invoked by the shell on TAB.
+ * `minsky completion-server` — hidden top-level handler invoked by the shell
+ * on TAB. (Named `completion-server` because that's tabtab's hard-coded
+ * convention for the completer subcommand in its generated shell scripts.)
  *
  * Reads COMP_* env vars via tabtab.parseEnv, looks up candidates in the
  * build-time-generated manifest (NOT the live commander tree — see mt#1892
@@ -7,9 +9,9 @@
  * tabtab.log.
  *
  * The handler must NOT touch the DI container, the DB, or any I/O beyond
- * reading the bundled manifest. The MINSKY_SKIP_CLI_AUTORUN-style
- * `isCompletionInvocation` carve-out in src/cli.ts ensures the preAction
- * hook skips container init for this code path.
+ * reading the bundled manifest. The `isCompletionInvocation` carve-out in
+ * src/cli.ts ensures the preAction hook skips container init for this code
+ * path.
  */
 import tabtab from "@pnpm/tabtab";
 import manifestJson from "../../generated/completion-manifest.json" with { type: "json" };
@@ -35,13 +37,17 @@ export async function serveCompletions(): Promise<void> {
   const candidates = lookupCompletions({ partial: env.partial }, manifest);
 
   // tabtab.log needs the shell to format candidates (zsh wants `name:desc`,
-  // fish wants `name\tdesc`, etc.). Derive from process.env.SHELL via
-  // tabtab's helper — falls back to bash-shaped output if unknown.
-  let shell: "bash" | "zsh" | "fish" | "pwsh" | "nushell" = "bash";
+  // fish wants `name\tdesc`, bash/pwsh want plain names). Resolve from
+  // process.env.SHELL via tabtab.getShellFromEnv; fall back to bash when
+  // SHELL is unset or set to an unsupported value. The fallback can misformat
+  // fish output, but logging to stderr would surface in the user's shell
+  // prompt — intentionally silent. (tabtab.log's `shell` parameter accepts
+  // only bash/zsh/fish/pwsh per its types.)
+  let shell: "bash" | "zsh" | "fish" | "pwsh" = "bash";
   try {
     shell = tabtab.getShellFromEnv(process.env);
   } catch {
-    // SHELL unset or unsupported value — keep the bash default.
+    // SHELL unset or unsupported — keep the bash default.
   }
   tabtab.log(candidates, shell);
 }
