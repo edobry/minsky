@@ -2,6 +2,8 @@
 
 Standalone Railway-deployed webhook service that posts adversarial PR reviews as a separate GitHub App identity. Implements the Chinese-wall review architecture described in the [Structural Review position paper](https://www.notion.so/34a937f03cb481b38babf9b676f2f168).
 
+_Status: v1 deployed 2026-04-22 to Railway production; end-to-end smoke test tracked in [mt#1099](https://github.com/edobry/minsky/issues/mt-1099)._
+
 Part of Sprint A (mt#1083) under mt#1073.
 
 ## Architecture
