@@ -114,17 +114,21 @@ minsky completions install
 exec $SHELL -l
 ```
 
-After install, tab-complete top-level commands, subcommands, and option flags:
+After install, tab-complete top-level commands, subcommands, option flags, AND option values:
 
 ```
-minsky <TAB>             # → tasks, session, rules, git, config, mcp, ...
-minsky tasks <TAB>       # → list, get, create, status, ...
-minsky tasks list --<TAB>  # → --backend, --status, --tag, ...
+minsky <TAB>                          # → tasks, session, rules, git, config, mcp, ...
+minsky tasks <TAB>                    # → list, get, create, status, ...
+minsky tasks list --<TAB>             # → --backend, --status, --tag, ...
+minsky tasks list --status <TAB>      # → TODO, PLANNING, READY, IN-PROGRESS, ...
+minsky git merge --conflict-strategy <TAB>  # → automatic, guided, manual
 ```
+
+Value completion (`--status <TAB>` → enum values) is automatic for any option whose underlying Zod schema in the shared command registry is a finite enum (`z.enum([...])`, `z.union([z.literal(...), ...])`, or any of those wrapped in `.optional()` / `.default(...)` / `.nullable()`). Free-form options (`z.string()`, `z.number()`) produce no values — those fall through to the shell's default behavior.
 
 To uninstall, run `minsky completions uninstall`. For manual install (bypassing the interactive prompt), `minsky completions bash`, `minsky completions zsh`, or `minsky completions fish` emit the raw completion script to stdout — pipe it into the appropriate shell config.
 
-Option-value completion (`--backend <TAB>` → `github | minsky`) and dynamic completion (`tasks get <TAB>` → live task IDs) are tracked separately as mt#1893 and mt#1894. Windows and PowerShell are not supported.
+Dynamic value completion (`tasks get <TAB>` → live task IDs queried from the DB at TAB time) is tracked separately as mt#1894. Windows and PowerShell are not supported.
 
 ## Design Philosophy
 

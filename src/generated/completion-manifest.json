@@ -13,11 +13,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--all"],
@@ -33,7 +35,8 @@
             },
             {
               "flags": ["--files"],
-              "description": "Specific file paths to stage before committing. Prefer omitting this: work should happen in a session dedicated to a single task, where all dirty files belong to that task and `all: true` is the right default. Selective commits on main indicate a workflow deviation — the correct fix is usually to move the work into a session. Use this parameter only for genuine exceptions (e.g., small harness/config tweaks on main that can't reasonably be sessionized)."
+              "description": "Specific file paths to stage before committing. Prefer omitting this: work should happen in a session dedicated to a single task, where all dirty files belong to that task and `all: true` is the right default. Selective commits on main indicate a workflow deviation — the correct fix is usually to move the work into a session. Use this parameter only for genuine exceptions (e.g., small harness/config tweaks on main that can't reasonably be sessionized).",
+              "takesValue": true
             }
           ]
         },
@@ -43,11 +46,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -59,7 +64,8 @@
             },
             {
               "flags": ["--remote"],
-              "description": "Git remote name"
+              "description": "Git remote name",
+              "takesValue": true
             }
           ]
         },
@@ -69,15 +75,18 @@
           "options": [
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--branch"],
-              "description": "Git branch name"
+              "description": "Git branch name",
+              "takesValue": true
             },
             {
               "flags": ["--destination"],
-              "description": "Target directory for the clone"
+              "description": "Target directory for the clone",
+              "takesValue": true
             }
           ]
         },
@@ -95,7 +104,8 @@
             },
             {
               "flags": ["--name"],
-              "description": "Name of the branch to create"
+              "description": "Name of the branch to create",
+              "takesValue": true
             }
           ]
         },
@@ -105,11 +115,13 @@
           "options": [
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--preview"],
@@ -121,7 +133,9 @@
             },
             {
               "flags": ["--conflict-strategy"],
-              "description": "Choose conflict resolution strategy"
+              "description": "Choose conflict resolution strategy",
+              "takesValue": true,
+              "values": ["automatic", "guided", "manual"]
             }
           ]
         },
@@ -131,11 +145,13 @@
           "options": [
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -157,11 +173,13 @@
           "options": [
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--preview"],
@@ -173,7 +191,9 @@
             },
             {
               "flags": ["--conflict-strategy"],
-              "description": "Choose conflict resolution strategy"
+              "description": "Choose conflict resolution strategy",
+              "takesValue": true,
+              "values": ["automatic", "guided", "manual"]
             }
           ]
         },
@@ -183,15 +203,19 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Output format for conflict results"
+              "description": "Output format for conflict results",
+              "takesValue": true,
+              "values": ["json", "text"]
             },
             {
               "flags": ["--context"],
-              "description": "Number of context lines to include around conflicts"
+              "description": "Number of context lines to include around conflicts",
+              "takesValue": true
             },
             {
               "flags": ["--files"],
-              "description": "File pattern to limit conflict scanning (e.g. '*.ts')"
+              "description": "File pattern to limit conflict scanning (e.g. '*.ts')",
+              "takesValue": true
             }
           ]
         },
@@ -201,39 +225,49 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of commits to show"
+              "description": "Maximum number of commits to show",
+              "takesValue": true
             },
             {
               "flags": ["--author"],
-              "description": "Filter commits by author name or email"
+              "description": "Filter commits by author name or email",
+              "takesValue": true
             },
             {
               "flags": ["--since"],
-              "description": "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')"
+              "description": "Show commits more recent than a specific date (e.g. '2024-01-01', '1 week ago')",
+              "takesValue": true
             },
             {
               "flags": ["--until"],
-              "description": "Show commits older than a specific date"
+              "description": "Show commits older than a specific date",
+              "takesValue": true
             },
             {
               "flags": ["--path"],
-              "description": "Filter commits that affect the specified file path"
+              "description": "Filter commits that affect the specified file path",
+              "takesValue": true
             },
             {
               "flags": ["--grep"],
-              "description": "Filter commits by message text"
+              "description": "Filter commits by message text",
+              "takesValue": true
             },
             {
               "flags": ["--format"],
-              "description": "Output format: oneline, short, medium, or full"
+              "description": "Output format: oneline, short, medium, or full",
+              "takesValue": true,
+              "values": ["oneline", "short", "medium", "full"]
             },
             {
               "flags": ["--ref"],
-              "description": "Branch, tag, or ref to start log from"
+              "description": "Branch, tag, or ref to start log from",
+              "takesValue": true
             }
           ]
         },
@@ -243,23 +277,29 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--type"],
-              "description": "Search type: content (git grep), commits (git log -S pickaxe), or diff (git log -p with grep)"
+              "description": "Search type: content (git grep), commits (git log -S pickaxe), or diff (git log -p with grep)",
+              "takesValue": true,
+              "values": ["content", "commits", "diff"]
             },
             {
               "flags": ["--path"],
-              "description": "Restrict search to a specific file path or directory"
+              "description": "Restrict search to a specific file path or directory",
+              "takesValue": true
             },
             {
               "flags": ["--ref"],
-              "description": "Search at a specific ref (default HEAD for content search)"
+              "description": "Search at a specific ref (default HEAD for content search)",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return"
+              "description": "Maximum number of results to return",
+              "takesValue": true
             },
             {
               "flags": ["--ignore-case"],
@@ -273,19 +313,23 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--from"],
-              "description": "Starting ref (commit, branch, tag). If omitted, shows unstaged changes"
+              "description": "Starting ref (commit, branch, tag). If omitted, shows unstaged changes",
+              "takesValue": true
             },
             {
               "flags": ["--to"],
-              "description": "Ending ref. If omitted with from, diffs from against working tree"
+              "description": "Ending ref. If omitted with from, diffs from against working tree",
+              "takesValue": true
             },
             {
               "flags": ["--path"],
-              "description": "Restrict diff to a specific file or directory"
+              "description": "Restrict diff to a specific file or directory",
+              "takesValue": true
             },
             {
               "flags": ["--stat"],
@@ -303,19 +347,23 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--ref"],
-              "description": "Blame at specific ref (default HEAD)"
+              "description": "Blame at specific ref (default HEAD)",
+              "takesValue": true
             },
             {
               "flags": ["--start-line"],
-              "description": "Start of line range"
+              "description": "Start of line range",
+              "takesValue": true
             },
             {
               "flags": ["--end-line"],
-              "description": "End of line range"
+              "description": "End of line range",
+              "takesValue": true
             }
           ]
         },
@@ -325,19 +373,23 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--remote"],
-              "description": "Remote name (default: origin)"
+              "description": "Remote name (default: origin)",
+              "takesValue": true
             },
             {
               "flags": ["--branch"],
-              "description": "Branch to pull (default: main)"
+              "description": "Branch to pull (default: main)",
+              "takesValue": true
             }
           ]
         },
@@ -347,11 +399,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             }
           ]
         },
@@ -361,19 +415,23 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--message"],
-              "description": "Optional message for the stash entry"
+              "description": "Optional message for the stash entry",
+              "takesValue": true
             },
             {
               "flags": ["--paths"],
-              "description": "Optional list of paths to stash selectively"
+              "description": "Optional list of paths to stash selectively",
+              "takesValue": true
             }
           ]
         },
@@ -383,15 +441,18 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--ref"],
-              "description": "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent."
+              "description": "Specific stash ref to pop (e.g. stash@{1}). Defaults to most recent.",
+              "takesValue": true
             }
           ]
         },
@@ -401,11 +462,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             }
           ]
         },
@@ -415,15 +478,19 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--confirm-drop"],
-              "description": "Must be set to `true` to confirm this destructive operation. The stash entry cannot be recovered once dropped."
+              "description": "Must be set to `true` to confirm this destructive operation. The stash entry cannot be recovered once dropped.",
+              "takesValue": true,
+              "values": ["true"]
             }
           ]
         },
@@ -433,11 +500,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             }
           ]
         },
@@ -447,19 +516,24 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--target"],
-              "description": "Target ref to reset to (default: HEAD)."
+              "description": "Target ref to reset to (default: HEAD).",
+              "takesValue": true
             },
             {
               "flags": ["--confirm-hard"],
-              "description": "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset."
+              "description": "Required when mode is 'hard'. Must be set to `true` to confirm the destructive working-tree reset.",
+              "takesValue": true,
+              "values": ["true"]
             }
           ]
         }
@@ -475,11 +549,13 @@
           "options": [
             {
               "flags": ["--offset"],
-              "description": "Line offset to start reading from (0-based)"
+              "description": "Line offset to start reading from (0-based)",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of lines to return"
+              "description": "Maximum number of lines to return",
+              "takesValue": true
             }
           ]
         },
@@ -489,7 +565,8 @@
           "options": [
             {
               "flags": ["--path"],
-              "description": "Restrict search to this path (relative to workspace root)"
+              "description": "Restrict search to this path (relative to workspace root)",
+              "takesValue": true
             },
             {
               "flags": ["--ignore-case"],
@@ -503,7 +580,8 @@
           "options": [
             {
               "flags": ["--path"],
-              "description": "Directory path relative to workspace root (default: \".\")"
+              "description": "Directory path relative to workspace root (default: \".\")",
+              "takesValue": true
             }
           ]
         },
@@ -517,27 +595,33 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session"],
-                  "description": "Session identifier"
+                  "description": "Session identifier",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 },
                 {
-                  "flags": ["--status"]
+                  "flags": ["--status"],
+                  "takesValue": true
                 },
                 {
-                  "flags": ["--author"]
+                  "flags": ["--author"],
+                  "takesValue": true
                 },
                 {
-                  "flags": ["--target-branch"]
+                  "flags": ["--target-branch"],
+                  "takesValue": true
                 },
                 {
-                  "flags": ["--limit"]
+                  "flags": ["--limit"],
+                  "takesValue": true
                 },
                 {
                   "flags": ["--include-closed"]
@@ -550,24 +634,29 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session"],
-                  "description": "Session identifier"
+                  "description": "Session identifier",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 },
                 {
-                  "flags": ["--status"]
+                  "flags": ["--status"],
+                  "takesValue": true
                 },
                 {
-                  "flags": ["--author"]
+                  "flags": ["--author"],
+                  "takesValue": true
                 },
                 {
-                  "flags": ["--limit"]
+                  "flags": ["--limit"],
+                  "takesValue": true
                 },
                 {
                   "flags": ["--search-title"]
@@ -589,7 +678,8 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -606,7 +696,8 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -632,19 +723,23 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace path"
+                  "description": "Workspace path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session"],
-                  "description": "Session identifier"
+                  "description": "Session identifier",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)"
+                  "description": "Backend type (available: github, minsky)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -658,19 +753,23 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace path"
+                  "description": "Workspace path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session"],
-                  "description": "Session identifier"
+                  "description": "Session identifier",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)"
+                  "description": "Backend type (available: github, minsky)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -690,23 +789,28 @@
               "options": [
                 {
                   "flags": ["--section"],
-                  "description": "Specific section of the specification to retrieve"
+                  "description": "Specific section of the specification to retrieve",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace path"
+                  "description": "Workspace path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session"],
-                  "description": "Session identifier"
+                  "description": "Session identifier",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Backend type (available: github, minsky)"
+                  "description": "Backend type (available: github, minsky)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -726,27 +830,44 @@
             },
             {
               "flags": ["--status"],
-              "description": "Task status"
+              "description": "Task status",
+              "takesValue": true,
+              "values": [
+                "TODO",
+                "PLANNING",
+                "READY",
+                "IN-PROGRESS",
+                "IN-REVIEW",
+                "DONE",
+                "BLOCKED",
+                "CLOSED",
+                "COMPLETED"
+              ]
             },
             {
               "flags": ["-s", "--filter"],
-              "description": "Filter by task status"
+              "description": "Filter by task status",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of tasks to return"
+              "description": "Maximum number of tasks to return",
+              "takesValue": true
             },
             {
               "flags": ["--tag"],
-              "description": "Filter by tag (can be repeated for multiple tags, e.g., --tag di-cleanup --tag test-quality)"
+              "description": "Filter by tag (can be repeated for multiple tags, e.g., --tag di-cleanup --tag test-quality)",
+              "takesValue": true
             },
             {
               "flags": ["--since"],
-              "description": "Only include tasks updated on/after this time (YYYY-MM-DD or 7d/24h/30m)"
+              "description": "Only include tasks updated on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
             },
             {
               "flags": ["--until"],
-              "description": "Only include tasks updated on/before this time (YYYY-MM-DD or 7d/24h/30m)"
+              "description": "Only include tasks updated on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
             },
             {
               "flags": ["--hierarchical"],
@@ -762,19 +883,23 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -788,19 +913,23 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -826,11 +955,13 @@
           "options": [
             {
               "flags": ["--title"],
-              "description": "Title for the task"
+              "description": "Title for the task",
+              "takesValue": true
             },
             {
               "flags": ["--spec"],
-              "description": "Task specification content"
+              "description": "Task specification content",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -838,35 +969,43 @@
             },
             {
               "flags": ["--github-repo"],
-              "description": "GitHub repository override in 'owner/repo' format (only for github-issues backend)"
+              "description": "GitHub repository override in 'owner/repo' format (only for github-issues backend)",
+              "takesValue": true
             },
             {
               "flags": ["--depends-on"],
-              "description": "Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])"
+              "description": "Task ID(s) this task depends on (e.g., 'mt#123' or ['mt#123', 'mt#456'])",
+              "takesValue": true
             },
             {
               "flags": ["--parent"],
-              "description": "Parent task ID — makes this a subtask (e.g., 'mt#237')"
+              "description": "Parent task ID — makes this a subtask (e.g., 'mt#237')",
+              "takesValue": true
             },
             {
               "flags": ["--tag"],
-              "description": "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)"
+              "description": "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -880,7 +1019,8 @@
           "options": [
             {
               "flags": ["--title"],
-              "description": "New title for the task"
+              "description": "New title for the task",
+              "takesValue": true
             },
             {
               "flags": ["--spec"],
@@ -888,15 +1028,18 @@
             },
             {
               "flags": ["--spec-file"],
-              "description": "Path to file containing new task specification content"
+              "description": "Path to file containing new task specification content",
+              "takesValue": true
             },
             {
               "flags": ["--spec-content"],
-              "description": "New specification content (completely replaces existing)"
+              "description": "New specification content (completely replaces existing)",
+              "takesValue": true
             },
             {
               "flags": ["--tag"],
-              "description": "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)"
+              "description": "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
+              "takesValue": true
             },
             {
               "flags": ["--execute"],
@@ -904,19 +1047,23 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -934,19 +1081,23 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -960,11 +1111,13 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Max number of results"
+              "description": "Max number of results",
+              "takesValue": true
             },
             {
               "flags": ["--threshold"],
-              "description": "Optional distance threshold (lower is closer)"
+              "description": "Optional distance threshold (lower is closer)",
+              "takesValue": true
             },
             {
               "flags": ["--details"],
@@ -972,19 +1125,23 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -998,11 +1155,13 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Max number of results"
+              "description": "Max number of results",
+              "takesValue": true
             },
             {
               "flags": ["--threshold"],
-              "description": "Optional distance threshold (lower is closer)"
+              "description": "Optional distance threshold (lower is closer)",
+              "takesValue": true
             },
             {
               "flags": ["--details"],
@@ -1014,7 +1173,19 @@
             },
             {
               "flags": ["--status"],
-              "description": "Task status"
+              "description": "Task status",
+              "takesValue": true,
+              "values": [
+                "TODO",
+                "PLANNING",
+                "READY",
+                "IN-PROGRESS",
+                "IN-REVIEW",
+                "DONE",
+                "BLOCKED",
+                "CLOSED",
+                "COMPLETED"
+              ]
             },
             {
               "flags": ["--quiet"],
@@ -1022,19 +1193,23 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1048,7 +1223,8 @@
           "options": [
             {
               "flags": ["--task"],
-              "description": "Task identifier"
+              "description": "Task identifier",
+              "takesValue": true
             },
             {
               "flags": ["--reindex"],
@@ -1056,27 +1232,33 @@
             },
             {
               "flags": ["--concurrency"],
-              "description": "Number of tasks to index in parallel"
+              "description": "Number of tasks to index in parallel",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Max number of tasks to index (to avoid heavy costs)"
+              "description": "Max number of tasks to index (to avoid heavy costs)",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Session identifier"
+              "description": "Session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Backend type (available: github, minsky)"
+              "description": "Backend type (available: github, minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1090,7 +1272,8 @@
           "options": [
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1108,7 +1291,8 @@
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1122,7 +1306,9 @@
           "options": [
             {
               "flags": ["--from"],
-              "description": "Source backend (auto-detect if not provided)"
+              "description": "Source backend (auto-detect if not provided)",
+              "takesValue": true,
+              "values": ["minsky", "github"]
             },
             {
               "flags": ["--execute"],
@@ -1130,11 +1316,13 @@
             },
             {
               "flags": ["--limit"],
-              "description": "Limit number of tasks to migrate"
+              "description": "Limit number of tasks to migrate",
+              "takesValue": true
             },
             {
               "flags": ["--filter-status"],
-              "description": "Filter tasks by status (e.g., TODO, IN-PROGRESS)"
+              "description": "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
+              "takesValue": true
             },
             {
               "flags": ["--update-ids"],
@@ -1160,7 +1348,8 @@
               "options": [
                 {
                   "flags": ["--depends-on"],
-                  "description": "Task that is the dependency"
+                  "description": "Task that is the dependency",
+                  "takesValue": true
                 }
               ]
             },
@@ -1170,7 +1359,8 @@
               "options": [
                 {
                   "flags": ["--depends-on"],
-                  "description": "Task that is the dependency"
+                  "description": "Task that is the dependency",
+                  "takesValue": true
                 }
               ]
             },
@@ -1190,7 +1380,8 @@
               "options": [
                 {
                   "flags": ["--max-depth"],
-                  "description": "Maximum depth to show in the tree"
+                  "description": "Maximum depth to show in the tree",
+                  "takesValue": true
                 }
               ]
             },
@@ -1200,35 +1391,47 @@
               "options": [
                 {
                   "flags": ["--limit"],
-                  "description": "Maximum number of tasks to include"
+                  "description": "Maximum number of tasks to include",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--status"],
-                  "description": "Filter tasks by status"
+                  "description": "Filter tasks by status",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--format"],
-                  "description": "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)"
+                  "description": "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)",
+                  "takesValue": true,
+                  "values": ["ascii", "dot", "svg", "png", "pdf"]
                 },
                 {
                   "flags": ["--output"],
-                  "description": "Output file path (auto-generated if not specified for rendered formats)"
+                  "description": "Output file path (auto-generated if not specified for rendered formats)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--layout"],
-                  "description": "Layout engine (dot, neato, fdp, circo, twopi)"
+                  "description": "Layout engine (dot, neato, fdp, circo, twopi)",
+                  "takesValue": true,
+                  "values": ["dot", "neato", "fdp", "circo", "twopi"]
                 },
                 {
                   "flags": ["--direction"],
-                  "description": "Direction (TB, BT) - vertical layouts only"
+                  "description": "Direction (TB, BT) - vertical layouts only",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--spacing"],
-                  "description": "Spacing (compact, normal, wide)"
+                  "description": "Spacing (compact, normal, wide)",
+                  "takesValue": true,
+                  "values": ["compact", "normal", "wide"]
                 },
                 {
                   "flags": ["--style"],
-                  "description": "Visual style (default, tech-tree, kanban, mobile, compact)"
+                  "description": "Visual style (default, tech-tree, kanban, mobile, compact)",
+                  "takesValue": true,
+                  "values": ["default", "tech-tree", "kanban", "mobile", "compact"]
                 },
                 {
                   "flags": ["--open"],
@@ -1252,7 +1455,8 @@
           "options": [
             {
               "flags": ["--parent"],
-              "description": "New parent task ID (e.g. mt#456), or omit with --no-parent to orphan"
+              "description": "New parent task ID (e.g. mt#456), or omit with --no-parent to orphan",
+              "takesValue": true
             }
           ]
         },
@@ -1262,15 +1466,18 @@
           "options": [
             {
               "flags": ["--status"],
-              "description": "Filter by task status (default: TODO,IN-PROGRESS)"
+              "description": "Filter by task status (default: TODO,IN-PROGRESS)",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Filter by specific backend (mt, md, gh, etc.)"
+              "description": "Filter by specific backend (mt, md, gh, etc.)",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of tasks to show"
+              "description": "Maximum number of tasks to show",
+              "takesValue": true
             },
             {
               "flags": ["--show-effort"],
@@ -1286,7 +1493,8 @@
             },
             {
               "flags": ["--min-readiness"],
-              "description": "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks"
+              "description": "Minimum readiness score (0.0-1.0) - default 0.5 shows partially-ready tasks",
+              "takesValue": true
             }
           ]
         },
@@ -1296,7 +1504,9 @@
           "options": [
             {
               "flags": ["--strategy"],
-              "description": "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)"
+              "description": "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
+              "takesValue": true,
+              "values": ["shortest-path", "value-first", "ready-first"]
             },
             {
               "flags": ["--parallel"],
@@ -1314,23 +1524,29 @@
           "options": [
             {
               "flags": ["--instructions"],
-              "description": "Work instructions for the subagent"
+              "description": "Work instructions for the subagent",
+              "takesValue": true
             },
             {
               "flags": ["--parent-task-id"],
-              "description": "Parent task ID — creates a subtask. Omit for a root task."
+              "description": "Parent task ID — creates a subtask. Omit for a root task.",
+              "takesValue": true
             },
             {
               "flags": ["--type"],
-              "description": "Prompt type for the subagent"
+              "description": "Prompt type for the subagent",
+              "takesValue": true,
+              "values": ["implementation", "refactor", "review", "cleanup", "audit"]
             },
             {
               "flags": ["--scope"],
-              "description": "Comma-separated file paths to constrain the subagent to"
+              "description": "Comma-separated file paths to constrain the subagent to",
+              "takesValue": true
             },
             {
               "flags": ["--description"],
-              "description": "Task description/spec content"
+              "description": "Task description/spec content",
+              "takesValue": true
             }
           ]
         },
@@ -1340,7 +1556,8 @@
           "options": [
             {
               "flags": ["--status"],
-              "description": "Subtask statuses to include (comma-separated, default: TODO)"
+              "description": "Subtask statuses to include (comma-separated, default: TODO)",
+              "takesValue": true
             }
           ]
         },
@@ -1350,7 +1567,8 @@
           "options": [
             {
               "flags": ["--similar-limit"],
-              "description": "Maximum number of similar tasks to include"
+              "description": "Maximum number of similar tasks to include",
+              "takesValue": true
             }
           ]
         },
@@ -1360,7 +1578,8 @@
           "options": [
             {
               "flags": ["--similar-limit"],
-              "description": "Maximum number of similar tasks to include"
+              "description": "Maximum number of similar tasks to include",
+              "takesValue": true
             }
           ]
         },
@@ -1370,7 +1589,8 @@
           "options": [
             {
               "flags": ["--similar-limit"],
-              "description": "Maximum number of similar tasks to include"
+              "description": "Maximum number of similar tasks to include",
+              "takesValue": true
             }
           ]
         }
@@ -1386,7 +1606,8 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1394,23 +1615,28 @@
             },
             {
               "flags": ["--task"],
-              "description": "Filter sessions by task ID (e.g. 'mt#283' or '283')"
+              "description": "Filter sessions by task ID (e.g. 'mt#283' or '283')",
+              "takesValue": true
             },
             {
               "flags": ["--since"],
-              "description": "Only include sessions created on/after this time (YYYY-MM-DD or 7d/24h/30m)"
+              "description": "Only include sessions created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
             },
             {
               "flags": ["--until"],
-              "description": "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)"
+              "description": "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of sessions to return (default: 20)"
+              "description": "Maximum number of sessions to return (default: 20)",
+              "takesValue": true
             },
             {
               "flags": ["--offset"],
-              "description": "Number of sessions to skip for pagination (default: 0)"
+              "description": "Number of sessions to skip for pagination (default: 0)",
+              "takesValue": true
             },
             {
               "flags": ["-v", "--verbose"],
@@ -1424,11 +1650,13 @@
           "options": [
             {
               "flags": ["-t", "--task"],
-              "description": "Task ID associated with the session"
+              "description": "Task ID associated with the session",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1436,11 +1664,13 @@
             },
             {
               "flags": ["--since"],
-              "description": "Only match if session created on/after this time (YYYY-MM-DD or 7d/24h/30m)"
+              "description": "Only match if session created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
             },
             {
               "flags": ["--until"],
-              "description": "Only match if session created on/before this time (YYYY-MM-DD or 7d/24h/30m)"
+              "description": "Only match if session created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+              "takesValue": true
             }
           ]
         },
@@ -1450,19 +1680,23 @@
           "options": [
             {
               "flags": ["-t", "--task"],
-              "description": "Task ID to associate with the session (required if --description not provided)"
+              "description": "Task ID to associate with the session (required if --description not provided)",
+              "takesValue": true
             },
             {
               "flags": ["-d", "--description"],
-              "description": "Description for auto-created task (required if --task not provided)"
+              "description": "Description for auto-created task (required if --task not provided)",
+              "takesValue": true
             },
             {
               "flags": ["--branch"],
-              "description": "Git branch to use"
+              "description": "Git branch to use",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1482,7 +1716,9 @@
             },
             {
               "flags": ["--package-manager"],
-              "description": "Package manager to use"
+              "description": "Package manager to use",
+              "takesValue": true,
+              "values": ["npm", "yarn", "pnpm", "bun"]
             },
             {
               "flags": ["--recover"],
@@ -1496,11 +1732,13 @@
           "options": [
             {
               "flags": ["-t", "--task"],
-              "description": "Task ID associated with the session"
+              "description": "Task ID associated with the session",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1514,7 +1752,8 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return"
+              "description": "Maximum number of results to return",
+              "takesValue": true
             }
           ]
         },
@@ -1524,19 +1763,23 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID"
+              "description": "Session ID",
+              "takesValue": true
             },
             {
               "flags": ["--task"],
-              "description": "Task ID"
+              "description": "Task ID",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--timeout"],
-              "description": "Timeout in milliseconds (default: 30000, max: 120000)"
+              "description": "Timeout in milliseconds (default: 30000, max: 120000)",
+              "takesValue": true
             }
           ]
         },
@@ -1546,7 +1789,8 @@
           "options": [
             {
               "flags": ["-t", "--task"],
-              "description": "Task ID associated with the session"
+              "description": "Task ID associated with the session",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -1554,7 +1798,8 @@
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1568,15 +1813,18 @@
           "options": [
             {
               "flags": ["-t", "--task"],
-              "description": "Task ID associated with the session"
+              "description": "Task ID associated with the session",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--branch"],
-              "description": "Branch to update from"
+              "description": "Branch to update from",
+              "takesValue": true
             },
             {
               "flags": ["--no-stash"],
@@ -1618,15 +1866,18 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID"
+              "description": "Session ID",
+              "takesValue": true
             },
             {
               "flags": ["--task"],
-              "description": "Task ID"
+              "description": "Task ID",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1638,7 +1889,9 @@
             },
             {
               "flags": ["--to"],
-              "description": "Target backend to migrate to (default: github)"
+              "description": "Target backend to migrate to (default: github)",
+              "takesValue": true,
+              "values": ["github"]
             },
             {
               "flags": ["--update-remote"],
@@ -1660,7 +1913,8 @@
             },
             {
               "flags": ["--older-than"],
-              "description": "Include sessions with no activity older than this duration (e.g., '7d', '24h', '30m')"
+              "description": "Include sessions with no activity older than this duration (e.g., '7d', '24h', '30m')",
+              "takesValue": true
             },
             {
               "flags": ["--dry-run"],
@@ -1682,7 +1936,8 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session identifier (ID or task ID)"
+              "description": "Session identifier (ID or task ID)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1726,15 +1981,18 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID"
+              "description": "Session ID",
+              "takesValue": true
             },
             {
               "flags": ["--task"],
-              "description": "Task ID"
+              "description": "Task ID",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -1742,11 +2000,13 @@
             },
             {
               "flags": ["--output"],
-              "description": "Output format (json, text)"
+              "description": "Output format (json, text)",
+              "takesValue": true
             },
             {
               "flags": ["--pr-branch"],
-              "description": "PR branch name (defaults to pr/<session-id>)"
+              "description": "PR branch name (defaults to pr/<session-id>)",
+              "takesValue": true
             },
             {
               "flags": ["--ai"],
@@ -1754,15 +2014,19 @@
             },
             {
               "flags": ["--model"],
-              "description": "AI model to use (gpt-4o, claude-3.5, etc.)"
+              "description": "AI model to use (gpt-4o, claude-3.5, etc.)",
+              "takesValue": true
             },
             {
               "flags": ["--provider"],
-              "description": "AI provider (openai, anthropic, google, cohere, mistral)"
+              "description": "AI provider (openai, anthropic, google, cohere, mistral)",
+              "takesValue": true
             },
             {
               "flags": ["--focus"],
-              "description": "Focus area for AI review"
+              "description": "Focus area for AI review",
+              "takesValue": true,
+              "values": ["security", "performance", "style", "logic", "testing", "general"]
             },
             {
               "flags": ["--detailed"],
@@ -1786,11 +2050,13 @@
             },
             {
               "flags": ["--temperature"],
-              "description": "AI creativity vs consistency (0.0-1.0)"
+              "description": "AI creativity vs consistency (0.0-1.0)",
+              "takesValue": true
             },
             {
               "flags": ["--max-tokens"],
-              "description": "Maximum tokens for AI response"
+              "description": "Maximum tokens for AI response",
+              "takesValue": true
             }
           ]
         },
@@ -1804,31 +2070,52 @@
               "options": [
                 {
                   "flags": ["--title"],
-                  "description": "Title for the PR (auto-generated if not provided)"
+                  "description": "Title for the PR (auto-generated if not provided)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--type"],
-                  "description": "Conventional commit type to generate title prefix"
+                  "description": "Conventional commit type to generate title prefix",
+                  "takesValue": true,
+                  "values": [
+                    "feat",
+                    "fix",
+                    "docs",
+                    "style",
+                    "refactor",
+                    "perf",
+                    "test",
+                    "chore",
+                    "ci",
+                    "build",
+                    "revert",
+                    "merge"
+                  ]
                 },
                 {
                   "flags": ["--body"],
-                  "description": "Body text for the PR"
+                  "description": "Body text for the PR",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--body-path"],
-                  "description": "Path to file containing PR body text"
+                  "description": "Path to file containing PR body text",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (auto-detected from workspace if not provided)"
+                  "description": "Session ID (auto-detected from workspace if not provided)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["-t", "--task"],
-                  "description": "Task ID associated with the session (auto-detected if not provided)"
+                  "description": "Task ID associated with the session (auto-detected if not provided)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--no-status-update"],
@@ -1858,31 +2145,52 @@
               "options": [
                 {
                   "flags": ["--title"],
-                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title"
+                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--type"],
-                  "description": "Conventional commit type to generate prefix when editing (optional)"
+                  "description": "Conventional commit type to generate prefix when editing (optional)",
+                  "takesValue": true,
+                  "values": [
+                    "feat",
+                    "fix",
+                    "docs",
+                    "style",
+                    "refactor",
+                    "perf",
+                    "test",
+                    "chore",
+                    "ci",
+                    "build",
+                    "revert",
+                    "merge"
+                  ]
                 },
                 {
                   "flags": ["--body"],
-                  "description": "PR body content (to update)"
+                  "description": "PR body content (to update)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--body-path"],
-                  "description": "Path to file containing PR body (to update)"
+                  "description": "Path to file containing PR body (to update)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--debug"],
@@ -1896,31 +2204,39 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Filter PRs by specific session ID"
+                  "description": "Filter PRs by specific session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["-t", "--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--status"],
-                  "description": "Filter by PR status. Valid options: open, closed, merged, draft, created, unknown, not_found, all (or comma-separated combinations)"
+                  "description": "Filter by PR status. Valid options: open, closed, merged, draft, created, unknown, not_found, all (or comma-separated combinations)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Filter by repository backend type"
+                  "description": "Filter by repository backend type",
+                  "takesValue": true,
+                  "values": ["github"]
                 },
                 {
                   "flags": ["--since"],
-                  "description": "Only include PRs updated on/after this time (YYYY-MM-DD or relative like 7d, 24h)"
+                  "description": "Only include PRs updated on/after this time (YYYY-MM-DD or relative like 7d, 24h)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--until"],
-                  "description": "Only include PRs updated on/before this time (YYYY-MM-DD or relative like 7d, 24h)"
+                  "description": "Only include PRs updated on/before this time (YYYY-MM-DD or relative like 7d, 24h)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -1938,15 +2254,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID to look up PR for (positional)"
+                  "description": "Session ID to look up PR for (positional)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["-t", "--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -1954,19 +2273,24 @@
                 },
                 {
                   "flags": ["--backend"],
-                  "description": "Restrict to a specific repository backend type"
+                  "description": "Restrict to a specific repository backend type",
+                  "takesValue": true,
+                  "values": ["github"]
                 },
                 {
                   "flags": ["--status"],
-                  "description": "Optional state constraint for the matched PR: open, closed, merged, draft, created, all (or comma-separated combinations)"
+                  "description": "Optional state constraint for the matched PR: open, closed, merged, draft, created, all (or comma-separated combinations)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--since"],
-                  "description": "Only match if PR was updated on/after this time (YYYY-MM-DD or 7d/24h)"
+                  "description": "Only match if PR was updated on/after this time (YYYY-MM-DD or 7d/24h)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--until"],
-                  "description": "Only match if PR was updated on/before this time (YYYY-MM-DD or 7d/24h)"
+                  "description": "Only match if PR was updated on/before this time (YYYY-MM-DD or 7d/24h)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--content"],
@@ -1980,15 +2304,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 }
               ]
             },
@@ -1998,15 +2325,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2020,15 +2350,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2050,15 +2383,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2070,11 +2406,13 @@
                 },
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Maximum seconds to wait when --wait is enabled (default: 600)"
+                  "description": "Maximum seconds to wait when --wait is enabled (default: 600)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--interval-seconds"],
-                  "description": "Polling interval in seconds when --wait is enabled (default: 30)"
+                  "description": "Polling interval in seconds when --wait is enabled (default: 30)",
+                  "takesValue": true
                 }
               ]
             },
@@ -2084,15 +2422,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (positional)"
+                  "description": "Session ID (positional)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2100,19 +2441,23 @@
                 },
                 {
                   "flags": ["--timeout-seconds"],
-                  "description": "Maximum seconds to wait for a matching review (default: 600, max: 1800 / 30 min)"
+                  "description": "Maximum seconds to wait for a matching review (default: 600, max: 1800 / 30 min)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--interval-seconds"],
-                  "description": "Polling interval in seconds (default: 15, min: 5, max: 60)"
+                  "description": "Polling interval in seconds (default: 15, min: 5, max: 60)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--reviewer"],
-                  "description": "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot] or the bare minsky-reviewer form). Case-insensitive; a trailing [bot] suffix is optional on both sides of the comparison. Defaults to any reviewer."
+                  "description": "Only match reviews from this reviewer. Accepts either: (1) a TokenRole identifier (\"reviewer\" or \"implementer\", case-insensitive) — resolved at call setup against the configured GitHub App identity; throws a typed error if the role's service account is not configured. (2) a literal GitHub login (e.g., minsky-reviewer[bot] or the bare minsky-reviewer form, or any human reviewer's login) — case-insensitive with optional trailing [bot] suffix on either side. Role identifiers shadow literal logins of the same name; pass the [bot]-suffixed form to disambiguate. Defaults to any reviewer.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the call's start time."
+                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the call's start time.",
+                  "takesValue": true
                 }
               ]
             },
@@ -2122,15 +2467,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID (positional)"
+                  "description": "Session ID (positional)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID to resolve session from"
+                  "description": "Task ID to resolve session from",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 }
               ]
             },
@@ -2148,27 +2496,33 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID"
+                          "description": "Session ID",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--task"],
-                          "description": "Task ID"
+                          "description": "Task ID",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--repo"],
-                          "description": "Repository path"
+                          "description": "Repository path",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--event"],
-                          "description": "Review event type: APPROVE, COMMENT, or REQUEST_CHANGES"
+                          "description": "Review event type: APPROVE, COMMENT, or REQUEST_CHANGES",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--comments"],
-                          "description": "Optional inline line-level comments"
+                          "description": "Optional inline line-level comments",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--identity"],
-                          "description": "Bot identity to post the review under. Defaults: COMMENT → implementer (minsky-ai); APPROVE / REQUEST_CHANGES → reviewer (minsky-reviewer). APPROVE and REQUEST_CHANGES require `github.reviewer.serviceAccount` to be configured. Override only when you need to force a specific identity. Supersedes mt#1065."
+                          "description": "Bot identity to post the review under. Defaults: COMMENT → implementer (minsky-ai); APPROVE / REQUEST_CHANGES → reviewer (minsky-reviewer). APPROVE and REQUEST_CHANGES require `github.reviewer.serviceAccount` to be configured. Override only when you need to force a specific identity. Supersedes mt#1065.",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--json"],
@@ -2188,19 +2542,23 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID"
+                          "description": "Session ID",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--task"],
-                          "description": "Task ID"
+                          "description": "Task ID",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--repo"],
-                          "description": "Repository path"
+                          "description": "Repository path",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--message"],
-                          "description": "Dismissal reason / message — required by the GitHub API and shown on the dismissed review. Include why the review is stale (e.g. 'covers commit <sha>; blocker addressed in <sha>')."
+                          "description": "Dismissal reason / message — required by the GitHub API and shown on the dismissed review. Include why the review is stale (e.g. 'covers commit <sha>; blocker addressed in <sha>').",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--json"],
@@ -2224,19 +2582,23 @@
                           "options": [
                             {
                               "flags": ["--session-id"],
-                              "description": "Session ID"
+                              "description": "Session ID",
+                              "takesValue": true
                             },
                             {
                               "flags": ["--task"],
-                              "description": "Task ID"
+                              "description": "Task ID",
+                              "takesValue": true
                             },
                             {
                               "flags": ["--repo"],
-                              "description": "Repository path"
+                              "description": "Repository path",
+                              "takesValue": true
                             },
                             {
                               "flags": ["--action"],
-                              "description": "Action to perform: \"resolve\" marks the thread as done; \"unresolve\" reopens it."
+                              "description": "Action to perform: \"resolve\" marks the thread as done; \"unresolve\" reopens it.",
+                              "takesValue": true
                             },
                             {
                               "flags": ["--json"],
@@ -2264,19 +2626,23 @@
                       "options": [
                         {
                           "flags": ["--session-id"],
-                          "description": "Session ID"
+                          "description": "Session ID",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--task"],
-                          "description": "Task ID"
+                          "description": "Task ID",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--repo"],
-                          "description": "Repository path"
+                          "description": "Repository path",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--check-run-name"],
-                          "description": "Override the check run name (default: 'minsky-reviewer/findings'). Must be stable across runs for branch-protection integration."
+                          "description": "Override the check run name (default: 'minsky-reviewer/findings'). Must be stable across runs for branch-protection integration.",
+                          "takesValue": true
                         },
                         {
                           "flags": ["--json"],
@@ -2310,23 +2676,29 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID"
+              "description": "Session ID",
+              "takesValue": true
             },
             {
               "flags": ["--task"],
-              "description": "Task ID to identify session"
+              "description": "Task ID to identify session",
+              "takesValue": true
             },
             {
               "flags": ["--format"],
-              "description": "Output format for conflict results"
+              "description": "Output format for conflict results",
+              "takesValue": true,
+              "values": ["json", "text"]
             },
             {
               "flags": ["--context"],
-              "description": "Number of context lines to include around conflicts"
+              "description": "Number of context lines to include around conflicts",
+              "takesValue": true
             },
             {
               "flags": ["--files"],
-              "description": "File pattern to limit conflict scanning (e.g. '*.ts')"
+              "description": "File pattern to limit conflict scanning (e.g. '*.ts')",
+              "takesValue": true
             }
           ]
         },
@@ -2336,15 +2708,18 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID"
+              "description": "Session ID",
+              "takesValue": true
             },
             {
               "flags": ["--task"],
-              "description": "Task ID"
+              "description": "Task ID",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -2386,15 +2761,19 @@
           "options": [
             {
               "flags": ["--type"],
-              "description": "Prompt type: implementation, refactor, review, cleanup, or audit"
+              "description": "Prompt type: implementation, refactor, review, cleanup, or audit",
+              "takesValue": true,
+              "values": ["implementation", "refactor", "review", "cleanup", "audit"]
             },
             {
               "flags": ["--instructions"],
-              "description": "Specific work instructions for the subagent"
+              "description": "Specific work instructions for the subagent",
+              "takesValue": true
             },
             {
               "flags": ["--scope"],
-              "description": "Comma-separated list of file paths to constrain to"
+              "description": "Comma-separated list of file paths to constrain to",
+              "takesValue": true
             },
             {
               "flags": ["--omit-operating-envelope"],
@@ -2408,19 +2787,23 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID to sync (resolved from task if omitted)"
+              "description": "Session ID to sync (resolved from task if omitted)",
+              "takesValue": true
             },
             {
               "flags": ["--task"],
-              "description": "Task ID whose session should be synced (e.g. 'mt#123'). Used when sessionId is unknown."
+              "description": "Task ID whose session should be synced (e.g. 'mt#123'). Used when sessionId is unknown.",
+              "takesValue": true
             },
             {
               "flags": ["--merge-sha"],
-              "description": "Merge commit SHA for audit log and PR record sync"
+              "description": "Merge commit SHA for audit log and PR record sync",
+              "takesValue": true
             },
             {
               "flags": ["--merged-at"],
-              "description": "ISO-8601 timestamp of the merge event (defaults to now)"
+              "description": "ISO-8601 timestamp of the merge event (defaults to now)",
+              "takesValue": true
             },
             {
               "flags": ["--cleanup-session"],
@@ -2428,7 +2811,8 @@
             },
             {
               "flags": ["--trigger"],
-              "description": "Audit attribution string — which path triggered this sync. One of: 'session_pr_merge' | 'webhook' | 'sweeper' | 'repair_pass'. Defaults to 'unknown'."
+              "description": "Audit attribution string — which path triggered this sync. One of: 'session_pr_merge' | 'webhook' | 'sweeper' | 'repair_pass'. Defaults to 'unknown'.",
+              "takesValue": true
             }
           ]
         },
@@ -2438,19 +2822,23 @@
           "options": [
             {
               "flags": ["--session-id"],
-              "description": "Session ID"
+              "description": "Session ID",
+              "takesValue": true
             },
             {
               "flags": ["--path"],
-              "description": "Path to the file within the session workspace"
+              "description": "Path to the file within the session workspace",
+              "takesValue": true
             },
             {
               "flags": ["-i", "--instruction"],
-              "description": "Instructions describing the edit to make"
+              "description": "Instructions describing the edit to make",
+              "takesValue": true
             },
             {
               "flags": ["-f", "--pattern-file"],
-              "description": "Path to file containing edit pattern (alternative to stdin)"
+              "description": "Path to file containing edit pattern (alternative to stdin)",
+              "takesValue": true
             },
             {
               "flags": ["-n", "--dry-run"],
@@ -2480,17 +2868,21 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 },
                 {
-                  "flags": ["--status"]
+                  "flags": ["--status"],
+                  "takesValue": true,
+                  "values": ["open", "merged", "closed", "draft"]
                 },
                 {
-                  "flags": ["--limit"]
+                  "flags": ["--limit"],
+                  "takesValue": true
                 },
                 {
                   "flags": ["--all"]
@@ -2503,14 +2895,16 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 },
                 {
-                  "flags": ["--id"]
+                  "flags": ["--id"],
+                  "takesValue": true
                 },
                 {
                   "flags": ["--details"]
@@ -2523,27 +2917,47 @@
               "options": [
                 {
                   "flags": ["--type"],
-                  "description": "Conventional commit type to generate title prefix"
+                  "description": "Conventional commit type to generate title prefix",
+                  "takesValue": true,
+                  "values": [
+                    "feat",
+                    "fix",
+                    "docs",
+                    "style",
+                    "refactor",
+                    "perf",
+                    "test",
+                    "chore",
+                    "ci",
+                    "build",
+                    "revert",
+                    "merge"
+                  ]
                 },
                 {
                   "flags": ["--body"],
-                  "description": "PR body content"
+                  "description": "PR body content",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--body-path"],
-                  "description": "Path to file containing PR body"
+                  "description": "Path to file containing PR body",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--no-status-update"],
@@ -2573,15 +2987,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2595,15 +3012,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2617,31 +3037,52 @@
               "options": [
                 {
                   "flags": ["--title"],
-                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title"
+                  "description": "PR title (to update). With --type, pass description-only; otherwise pass full conventional title",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--type"],
-                  "description": "Conventional commit type to generate prefix when editing (optional)"
+                  "description": "Conventional commit type to generate prefix when editing (optional)",
+                  "takesValue": true,
+                  "values": [
+                    "feat",
+                    "fix",
+                    "docs",
+                    "style",
+                    "refactor",
+                    "perf",
+                    "test",
+                    "chore",
+                    "ci",
+                    "build",
+                    "revert",
+                    "merge"
+                  ]
                 },
                 {
                   "flags": ["--body"],
-                  "description": "PR body content (to update)"
+                  "description": "PR body content (to update)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--body-path"],
-                  "description": "Path to file containing PR body (to update)"
+                  "description": "Path to file containing PR body (to update)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--debug"],
@@ -2661,17 +3102,21 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 },
                 {
-                  "flags": ["--status"]
+                  "flags": ["--status"],
+                  "takesValue": true,
+                  "values": ["open", "merged", "closed", "draft"]
                 },
                 {
-                  "flags": ["--limit"]
+                  "flags": ["--limit"],
+                  "takesValue": true
                 },
                 {
                   "flags": ["--all"]
@@ -2684,14 +3129,16 @@
               "options": [
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
                   "description": "Output in JSON format"
                 },
                 {
-                  "flags": ["--id"]
+                  "flags": ["--id"],
+                  "takesValue": true
                 },
                 {
                   "flags": ["--details"]
@@ -2704,27 +3151,47 @@
               "options": [
                 {
                   "flags": ["--type"],
-                  "description": "Conventional commit type to generate title prefix"
+                  "description": "Conventional commit type to generate title prefix",
+                  "takesValue": true,
+                  "values": [
+                    "feat",
+                    "fix",
+                    "docs",
+                    "style",
+                    "refactor",
+                    "perf",
+                    "test",
+                    "chore",
+                    "ci",
+                    "build",
+                    "revert",
+                    "merge"
+                  ]
                 },
                 {
                   "flags": ["--body"],
-                  "description": "PR body content"
+                  "description": "PR body content",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--body-path"],
-                  "description": "Path to file containing PR body"
+                  "description": "Path to file containing PR body",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--no-status-update"],
@@ -2754,15 +3221,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2776,15 +3246,18 @@
               "options": [
                 {
                   "flags": ["--session-id"],
-                  "description": "Session ID"
+                  "description": "Session ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--task"],
-                  "description": "Task ID"
+                  "description": "Task ID",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "Repository path"
+                  "description": "Repository path",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -2806,7 +3279,8 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Limit number of rules to index (for debugging)"
+              "description": "Limit number of rules to index (for debugging)",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -2828,19 +3302,23 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)"
+              "description": "Rule format (cursor or generic)",
+              "takesValue": true
             },
             {
               "flags": ["--tag"],
-              "description": "Rule tag for filtering"
+              "description": "Rule tag for filtering",
+              "takesValue": true
             },
             {
               "flags": ["--since"],
-              "description": "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps."
+              "description": "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+              "takesValue": true
             },
             {
               "flags": ["--until"],
-              "description": "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps."
+              "description": "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -2858,21 +3336,26 @@
           "options": [
             {
               "flags": ["--query"],
-              "description": "Search query for rules"
+              "description": "Search query for rules",
+              "takesValue": true
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)"
+              "description": "Rule format (cursor or generic)",
+              "takesValue": true
             },
             {
               "flags": ["--tag"],
-              "description": "Rule tag for filtering"
+              "description": "Rule tag for filtering",
+              "takesValue": true
             },
             {
-              "flags": ["--limit"]
+              "flags": ["--limit"],
+              "takesValue": true
             },
             {
-              "flags": ["--threshold"]
+              "flags": ["--threshold"],
+              "takesValue": true
             },
             {
               "flags": ["--details"]
@@ -2897,7 +3380,8 @@
           "options": [
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)"
+              "description": "Rule format (cursor or generic)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -2915,15 +3399,19 @@
           "options": [
             {
               "flags": ["--interface"],
-              "description": "Interface preference for generated rules (cli, mcp, or hybrid)"
+              "description": "Interface preference for generated rules (cli, mcp, or hybrid)",
+              "takesValue": true,
+              "values": ["cli", "mcp", "hybrid"]
             },
             {
               "flags": ["--rules"],
-              "description": "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)"
+              "description": "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)",
+              "takesValue": true
             },
             {
               "flags": ["--output-dir"],
-              "description": "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)"
+              "description": "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)",
+              "takesValue": true
             },
             {
               "flags": ["--dry-run"],
@@ -2935,7 +3423,9 @@
             },
             {
               "flags": ["--format"],
-              "description": "Rule format for file system organization (cursor or generic)"
+              "description": "Rule format for file system organization (cursor or generic)",
+              "takesValue": true,
+              "values": ["cursor", "generic", "minsky"]
             },
             {
               "flags": ["--prefer-mcp"],
@@ -2943,7 +3433,9 @@
             },
             {
               "flags": ["--mcp-transport"],
-              "description": "MCP transport method (only relevant when interface is mcp or hybrid)"
+              "description": "MCP transport method (only relevant when interface is mcp or hybrid)",
+              "takesValue": true,
+              "values": ["stdio", "http"]
             },
             {
               "flags": ["--json"],
@@ -2961,27 +3453,33 @@
           "options": [
             {
               "flags": ["--content"],
-              "description": "Rule content (markdown or text)"
+              "description": "Rule content (markdown or text)",
+              "takesValue": true
             },
             {
               "flags": ["--description"],
-              "description": "Description of the rule"
+              "description": "Description of the rule",
+              "takesValue": true
             },
             {
               "flags": ["--name"],
-              "description": "Display name of the rule (defaults to ID)"
+              "description": "Display name of the rule (defaults to ID)",
+              "takesValue": true
             },
             {
               "flags": ["--globs"],
-              "description": "Comma-separated list or JSON array of glob patterns"
+              "description": "Comma-separated list or JSON array of glob patterns",
+              "takesValue": true
             },
             {
               "flags": ["--tags"],
-              "description": "Comma-separated rule tags"
+              "description": "Comma-separated rule tags",
+              "takesValue": true
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)"
+              "description": "Rule format (cursor or generic)",
+              "takesValue": true
             },
             {
               "flags": ["--overwrite"],
@@ -2999,27 +3497,33 @@
           "options": [
             {
               "flags": ["--content"],
-              "description": "Content of the rule (or path to file containing _content)"
+              "description": "Content of the rule (or path to file containing _content)",
+              "takesValue": true
             },
             {
               "flags": ["--description"],
-              "description": "Description of the rule"
+              "description": "Description of the rule",
+              "takesValue": true
             },
             {
               "flags": ["--name"],
-              "description": "Display name of the rule (defaults to ID)"
+              "description": "Display name of the rule (defaults to ID)",
+              "takesValue": true
             },
             {
               "flags": ["--globs"],
-              "description": "Comma-separated list or JSON array of glob patterns"
+              "description": "Comma-separated list or JSON array of glob patterns",
+              "takesValue": true
             },
             {
               "flags": ["--tags"],
-              "description": "Comma-separated rule tags"
+              "description": "Comma-separated rule tags",
+              "takesValue": true
             },
             {
               "flags": ["--format"],
-              "description": "Rule format (cursor or generic)"
+              "description": "Rule format (cursor or generic)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3037,11 +3541,13 @@
           "options": [
             {
               "flags": ["--target"],
-              "description": "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md."
+              "description": "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+              "takesValue": true
             },
             {
               "flags": ["--output"],
-              "description": "Output file path (defaults to the target's default output path)"
+              "description": "Output file path (defaults to the target's default output path)",
+              "takesValue": true
             },
             {
               "flags": ["--dry-run"],
@@ -3095,11 +3601,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3121,11 +3629,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3147,11 +3657,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3169,11 +3681,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3189,7 +3703,9 @@
             },
             {
               "flags": ["--format"],
-              "description": "File format to use"
+              "description": "File format to use",
+              "takesValue": true,
+              "values": ["yaml", "json"]
             }
           ]
         },
@@ -3199,11 +3715,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3219,7 +3737,9 @@
             },
             {
               "flags": ["--format"],
-              "description": "File format to use"
+              "description": "File format to use",
+              "takesValue": true,
+              "values": ["yaml", "json"]
             }
           ]
         },
@@ -3229,11 +3749,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3255,11 +3777,13 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3293,7 +3817,8 @@
                     },
                     {
                       "flags": ["--token"],
-                      "description": "Token value (MCP / scripted path). Omit on CLI to get a masked interactive prompt."
+                      "description": "Token value (MCP / scripted path). Omit on CLI to get a masked interactive prompt.",
+                      "takesValue": true
                     }
                   ]
                 }
@@ -3345,7 +3870,8 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic). Omit to recheck all configured providers."
+                      "description": "Credential provider id (supabase | github | anthropic). Omit to recheck all configured providers.",
+                      "takesValue": true
                     }
                   ]
                 }
@@ -3369,7 +3895,8 @@
           "options": [
             {
               "flags": ["--message"],
-              "description": "Message to echo back"
+              "description": "Message to echo back",
+              "takesValue": true
             }
           ]
         },
@@ -3389,11 +3916,13 @@
           "options": [
             {
               "flags": ["--from"],
-              "description": "Source backend (auto-detect if not specified)"
+              "description": "Source backend (auto-detect if not specified)",
+              "takesValue": true
             },
             {
               "flags": ["--sqlite-path"],
-              "description": "SQLite database file path"
+              "description": "SQLite database file path",
+              "takesValue": true
             },
             {
               "flags": ["--backup"],
@@ -3423,11 +3952,14 @@
           "options": [
             {
               "flags": ["--file"],
-              "description": "Path to database file to check (SQLite only)"
+              "description": "Path to database file to check (SQLite only)",
+              "takesValue": true
             },
             {
               "flags": ["--backend"],
-              "description": "Force specific backend validation"
+              "description": "Force specific backend validation",
+              "takesValue": true,
+              "values": ["sqlite", "postgres"]
             },
             {
               "flags": ["--fix"],
@@ -3451,19 +3983,23 @@
           "options": [
             {
               "flags": ["--model"],
-              "description": "AI model to use"
+              "description": "AI model to use",
+              "takesValue": true
             },
             {
               "flags": ["--provider"],
-              "description": "AI provider to use"
+              "description": "AI provider to use",
+              "takesValue": true
             },
             {
               "flags": ["--temperature"],
-              "description": "Completion temperature (0-1)"
+              "description": "Completion temperature (0-1)",
+              "takesValue": true
             },
             {
               "flags": ["--max-tokens"],
-              "description": "Maximum tokens to generate"
+              "description": "Maximum tokens to generate",
+              "takesValue": true
             },
             {
               "flags": ["--stream"],
@@ -3471,7 +4007,8 @@
             },
             {
               "flags": ["--system"],
-              "description": "System prompt"
+              "description": "System prompt",
+              "takesValue": true
             }
           ]
         },
@@ -3481,19 +4018,23 @@
           "options": [
             {
               "flags": ["--instructions"],
-              "description": "Description of what changes to make"
+              "description": "Description of what changes to make",
+              "takesValue": true
             },
             {
               "flags": ["--code-edit"],
-              "description": "New code with '// ... existing code ...' markers (Cursor format)"
+              "description": "New code with '// ... existing code ...' markers (Cursor format)",
+              "takesValue": true
             },
             {
               "flags": ["--provider"],
-              "description": "Fast-apply provider to use (defaults to auto-detect)"
+              "description": "Fast-apply provider to use (defaults to auto-detect)",
+              "takesValue": true
             },
             {
               "flags": ["--model"],
-              "description": "Model to use for fast-apply"
+              "description": "Model to use for fast-apply",
+              "takesValue": true
             },
             {
               "flags": ["--dry-run"],
@@ -3507,15 +4048,18 @@
           "options": [
             {
               "flags": ["--model"],
-              "description": "AI model to use"
+              "description": "AI model to use",
+              "takesValue": true
             },
             {
               "flags": ["--provider"],
-              "description": "AI provider to use"
+              "description": "AI provider to use",
+              "takesValue": true
             },
             {
               "flags": ["--system"],
-              "description": "System prompt"
+              "description": "System prompt",
+              "takesValue": true
             }
           ]
         },
@@ -3529,11 +4073,13 @@
               "options": [
                 {
                   "flags": ["--provider"],
-                  "description": "Filter by provider"
+                  "description": "Filter by provider",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--format"],
-                  "description": "Output format (table|json)"
+                  "description": "Output format (table|json)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -3547,7 +4093,8 @@
               "options": [
                 {
                   "flags": ["--provider"],
-                  "description": "Specific provider to refresh (optional)"
+                  "description": "Specific provider to refresh (optional)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--force"],
@@ -3561,11 +4108,13 @@
               "options": [
                 {
                   "flags": ["--provider"],
-                  "description": "Filter by provider"
+                  "description": "Filter by provider",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--format"],
-                  "description": "Output format (table|json|yaml)"
+                  "description": "Output format (table|json|yaml)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--show-cache"],
@@ -3589,7 +4138,8 @@
               "options": [
                 {
                   "flags": ["--provider"],
-                  "description": "Specific provider to clear (optional)"
+                  "description": "Specific provider to clear (optional)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--confirm"],
@@ -3605,7 +4155,8 @@
           "options": [
             {
               "flags": ["--provider"],
-              "description": "Validate specific provider only"
+              "description": "Validate specific provider only",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -3623,7 +4174,8 @@
               "options": [
                 {
                   "flags": ["--format"],
-                  "description": "Output format (table|json)"
+                  "description": "Output format (table|json)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--json"],
@@ -3645,7 +4197,8 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Limit number of tools to index (for debugging)"
+              "description": "Limit number of tools to index (for debugging)",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -3666,13 +4219,16 @@
           "description": "Search for tools using natural language queries",
           "options": [
             {
-              "flags": ["--limit"]
+              "flags": ["--limit"],
+              "takesValue": true
             },
             {
-              "flags": ["--threshold"]
+              "flags": ["--threshold"],
+              "takesValue": true
             },
             {
-              "flags": ["--category"]
+              "flags": ["--category"],
+              "takesValue": true
             },
             {
               "flags": ["--details"]
@@ -3691,10 +4247,12 @@
           "description": "Find tools similar to the given tool using embeddings",
           "options": [
             {
-              "flags": ["--limit"]
+              "flags": ["--limit"],
+              "takesValue": true
             },
             {
-              "flags": ["--threshold"]
+              "flags": ["--threshold"],
+              "takesValue": true
             },
             {
               "flags": ["--details"]
@@ -3715,15 +4273,18 @@
               "options": [
                 {
                   "flags": ["--state"],
-                  "description": "Filter by Ask state (detected | classified | routed | ...)"
+                  "description": "Filter by Ask state (detected | classified | routed | ...)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--kind"],
-                  "description": "Filter by Ask kind (quality.review | direction.decide | ...)"
+                  "description": "Filter by Ask kind (quality.review | direction.decide | ...)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--limit"],
-                  "description": "Maximum number of results"
+                  "description": "Maximum number of results",
+                  "takesValue": true
                 }
               ]
             },
@@ -3737,11 +4298,13 @@
               "options": [
                 {
                   "flags": ["--message"],
-                  "description": "Operator response message — becomes response.payload.message"
+                  "description": "Operator response message — becomes response.payload.message",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--responder"],
-                  "description": "AgentId or 'operator' identifier; defaults to 'operator'"
+                  "description": "AgentId or 'operator' identifier; defaults to 'operator'",
+                  "takesValue": true
                 }
               ]
             },
@@ -3751,51 +4314,63 @@
               "options": [
                 {
                   "flags": ["--title"],
-                  "description": "Short summary line used for list rendering and notifications"
+                  "description": "Short summary line used for list rendering and notifications",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--question"],
-                  "description": "Full ask body — what the requestor needs resolved"
+                  "description": "Full ask body — what the requestor needs resolved",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--options"],
-                  "description": "Decision frame: array of {label, value, description?}; for decision-like kinds"
+                  "description": "Decision frame: array of {label, value, description?}; for decision-like kinds",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--context-refs"],
-                  "description": "Pointers to artifacts the responder may need"
+                  "description": "Pointers to artifacts the responder may need",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--parent-task-id"],
-                  "description": "Parent task ID (e.g. mt#123)"
+                  "description": "Parent task ID (e.g. mt#123)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--parent-session-id"],
-                  "description": "Parent session UUID when the Ask originates in an active session"
+                  "description": "Parent session UUID when the Ask originates in an active session",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--deadline"],
-                  "description": "ISO-8601 soft deadline; when exceeded the Ask transitions to expired"
+                  "description": "ISO-8601 soft deadline; when exceeded the Ask transitions to expired",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--metadata"],
-                  "description": "Arbitrary metadata for transport adapters and future extensions"
+                  "description": "Arbitrary metadata for transport adapters and future extensions",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--classifier-version"],
-                  "description": "Classifier version (caller-provided; v1 is agent self-declaration)"
+                  "description": "Classifier version (caller-provided; v1 is agent self-declaration)",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--requestor"],
-                  "description": "AgentId of the requestor; defaults to a session-unknown marker"
+                  "description": "AgentId of the requestor; defaults to a session-unknown marker",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--service-strategy"],
-                  "description": "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. When absent, per-kind defaults apply."
+                  "description": "Routing strategy: 'asap' (default) | 'scheduled' | 'deadline-bound'. When absent, per-kind defaults apply.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--window-key"],
-                  "description": "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'."
+                  "description": "Named service window (e.g. 'ask-hours'). Only used when serviceStrategy='scheduled'.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--force-immediate"],
@@ -3819,15 +4394,18 @@
                   "options": [
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repository name"
+                      "description": "GitHub repository name",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--number"],
-                      "description": "Pull request number"
+                      "description": "Pull request number",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--event"],
-                      "description": "Which PR event to watch for: merged | review-posted | check-status-changed (default: merged)"
+                      "description": "Which PR event to watch for: merged | review-posted | check-status-changed (default: merged)",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--keep"],
@@ -3835,15 +4413,18 @@
                     },
                     {
                       "flags": ["--watcher-id"],
-                      "description": "Watcher identity in {kind}:{scope}:{id} format. Defaults to operator:local:default"
+                      "description": "Watcher identity in {kind}:{scope}:{id} format. Defaults to operator:local:default",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--session"],
-                      "description": "Minsky session UUID of the registering agent. When provided, the wake signal is routed to this session via enrichWakeResponse on the next allowlisted MCP tool call (mt#1725)."
+                      "description": "Minsky session UUID of the registering agent. When provided, the wake signal is routed to this session via enrichWakeResponse on the next allowlisted MCP tool call (mt#1725).",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--session-id"],
-                      "description": "Alias for session. The first non-empty value of session/sessionId is used."
+                      "description": "Alias for session. The first non-empty value of session/sessionId is used.",
+                      "takesValue": true
                     }
                   ]
                 },
@@ -3853,11 +4434,13 @@
                   "options": [
                     {
                       "flags": ["--session"],
-                      "description": "Filter watches by registering session's parentSessionId. When provided, only watches registered by this session are returned, AND the wake-enrichment middleware can route pending wakes to the calling session on this tool call (mt#1755)."
+                      "description": "Filter watches by registering session's parentSessionId. When provided, only watches registered by this session are returned, AND the wake-enrichment middleware can route pending wakes to the calling session on this tool call (mt#1755).",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--session-id"],
-                      "description": "Alias for session. The first non-empty value of session/sessionId is used."
+                      "description": "Alias for session. The first non-empty value of session/sessionId is used.",
+                      "takesValue": true
                     }
                   ]
                 },
@@ -3887,19 +4470,23 @@
                   "options": [
                     {
                       "flags": ["--owner"],
-                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')"
+                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')"
+                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--bot-login"],
-                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')"
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--threshold"],
-                      "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)"
+                      "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)",
+                      "takesValue": true
                     }
                   ]
                 },
@@ -3909,23 +4496,28 @@
                   "options": [
                     {
                       "flags": ["--owner"],
-                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')"
+                      "description": "GitHub repo owner (default: $MINSKY_REVIEWER_WATCH_OWNER or 'edobry')",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--repo"],
-                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')"
+                      "description": "GitHub repo name (default: $MINSKY_REVIEWER_WATCH_REPO or 'minsky')",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--bot-login"],
-                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')"
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--threshold"],
-                      "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)"
+                      "description": "Min missed reviews to fire alert (default: $MINSKY_REVIEWER_WATCH_THRESHOLD or 1)",
+                      "takesValue": true
                     },
                     {
                       "flags": ["--interval-ms"],
-                      "description": "Poll interval in ms (default: $MINSKY_REVIEWER_WATCH_INTERVAL_MS or 600000 = 10 min)"
+                      "description": "Poll interval in ms (default: $MINSKY_REVIEWER_WATCH_INTERVAL_MS or 600000 = 10 min)",
+                      "takesValue": true
                     }
                   ]
                 }
@@ -3943,7 +4535,8 @@
               "options": [
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace directory to run validation in (defaults to current working directory)"
+                  "description": "Workspace directory to run validation in (defaults to current working directory)",
+                  "takesValue": true
                 }
               ]
             },
@@ -3953,7 +4546,8 @@
               "options": [
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace directory to run validation in (defaults to current working directory)"
+                  "description": "Workspace directory to run validation in (defaults to current working directory)",
+                  "takesValue": true
                 }
               ]
             }
@@ -3969,11 +4563,13 @@
               "options": [
                 {
                   "flags": ["--task"],
-                  "description": "Task ID to report on (e.g., mt#123). Mutually exclusive with --kind."
+                  "description": "Task ID to report on (e.g., mt#123). Mutually exclusive with --kind.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--kind"],
-                  "description": "Ask kind to report on. Returns top 10 most expensive tasks for this kind."
+                  "description": "Ask kind to report on. Returns top 10 most expensive tasks for this kind.",
+                  "takesValue": true
                 }
               ]
             }
@@ -4017,11 +4613,13 @@
           "options": [
             {
               "flags": ["--sources"],
-              "description": "Optional list of source names to restrict the search"
+              "description": "Optional list of source names to restrict the search",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return (default 5)"
+              "description": "Maximum number of results to return (default 5)",
+              "takesValue": true
             }
           ]
         },
@@ -4031,7 +4629,8 @@
           "options": [
             {
               "flags": ["--document-id"],
-              "description": "ID of the document to fetch"
+              "description": "ID of the document to fetch",
+              "takesValue": true
             }
           ]
         },
@@ -4045,7 +4644,8 @@
           "options": [
             {
               "flags": ["--source"],
-              "description": "Name of the knowledge source to sync (omit to sync all)"
+              "description": "Name of the knowledge source to sync (omit to sync all)",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -4065,19 +4665,25 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return (default 10)"
+              "description": "Maximum number of results to return (default 10)",
+              "takesValue": true
             },
             {
               "flags": ["--type"],
-              "description": "Filter by memory type"
+              "description": "Filter by memory type",
+              "takesValue": true,
+              "values": ["user", "feedback", "project", "reference"]
             },
             {
               "flags": ["--scope"],
-              "description": "Filter by memory scope"
+              "description": "Filter by memory scope",
+              "takesValue": true,
+              "values": ["project", "user", "cross_project"]
             },
             {
               "flags": ["--project-id"],
-              "description": "Filter by project identifier"
+              "description": "Filter by project identifier",
+              "takesValue": true
             },
             {
               "flags": ["--exclude-superseded"],
@@ -4095,15 +4701,20 @@
           "options": [
             {
               "flags": ["--type"],
-              "description": "Filter by memory type"
+              "description": "Filter by memory type",
+              "takesValue": true,
+              "values": ["user", "feedback", "project", "reference"]
             },
             {
               "flags": ["--scope"],
-              "description": "Filter by memory scope"
+              "description": "Filter by memory scope",
+              "takesValue": true,
+              "values": ["project", "user", "cross_project"]
             },
             {
               "flags": ["--project-id"],
-              "description": "Filter by project identifier"
+              "description": "Filter by project identifier",
+              "takesValue": true
             },
             {
               "flags": ["--exclude-superseded"],
@@ -4115,11 +4726,13 @@
             },
             {
               "flags": ["--staleness-days"],
-              "description": "Threshold (in days) for the --stale filter; defaults to 90"
+              "description": "Threshold (in days) for the --stale filter; defaults to 90",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return"
+              "description": "Maximum number of results to return",
+              "takesValue": true
             }
           ]
         },
@@ -4129,39 +4742,49 @@
           "options": [
             {
               "flags": ["--name"],
-              "description": "Short name / title for the memory"
+              "description": "Short name / title for the memory",
+              "takesValue": true
             },
             {
               "flags": ["--description"],
-              "description": "Longer description of the memory"
+              "description": "Longer description of the memory",
+              "takesValue": true
             },
             {
               "flags": ["--content"],
-              "description": "Full content of the memory"
+              "description": "Full content of the memory",
+              "takesValue": true
             },
             {
               "flags": ["--scope"],
-              "description": "Scope of the memory (project | user | cross_project)"
+              "description": "Scope of the memory (project | user | cross_project)",
+              "takesValue": true,
+              "values": ["project", "user", "cross_project"]
             },
             {
               "flags": ["--project-id"],
-              "description": "Project identifier (required when scope=project)"
+              "description": "Project identifier (required when scope=project)",
+              "takesValue": true
             },
             {
               "flags": ["--tags"],
-              "description": "Optional tags for categorisation"
+              "description": "Optional tags for categorisation",
+              "takesValue": true
             },
             {
               "flags": ["--source-agent-id"],
-              "description": "Agent that produced this memory"
+              "description": "Agent that produced this memory",
+              "takesValue": true
             },
             {
               "flags": ["--source-session-id"],
-              "description": "Session that produced this memory"
+              "description": "Session that produced this memory",
+              "takesValue": true
             },
             {
               "flags": ["--confidence"],
-              "description": "Confidence score (0–1), reserved for Phase 3"
+              "description": "Confidence score (0–1), reserved for Phase 3",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -4175,43 +4798,55 @@
           "options": [
             {
               "flags": ["--type"],
-              "description": "New memory type"
+              "description": "New memory type",
+              "takesValue": true,
+              "values": ["user", "feedback", "project", "reference"]
             },
             {
               "flags": ["--name"],
-              "description": "New name / title"
+              "description": "New name / title",
+              "takesValue": true
             },
             {
               "flags": ["--description"],
-              "description": "New description"
+              "description": "New description",
+              "takesValue": true
             },
             {
               "flags": ["--content"],
-              "description": "New content"
+              "description": "New content",
+              "takesValue": true
             },
             {
               "flags": ["--scope"],
-              "description": "New scope"
+              "description": "New scope",
+              "takesValue": true,
+              "values": ["project", "user", "cross_project"]
             },
             {
               "flags": ["--project-id"],
-              "description": "New project identifier"
+              "description": "New project identifier",
+              "takesValue": true
             },
             {
               "flags": ["--tags"],
-              "description": "New tags"
+              "description": "New tags",
+              "takesValue": true
             },
             {
               "flags": ["--source-agent-id"],
-              "description": "New source agent identifier"
+              "description": "New source agent identifier",
+              "takesValue": true
             },
             {
               "flags": ["--source-session-id"],
-              "description": "New source session identifier"
+              "description": "New source session identifier",
+              "takesValue": true
             },
             {
               "flags": ["--confidence"],
-              "description": "New confidence score"
+              "description": "New confidence score",
+              "takesValue": true
             }
           ]
         },
@@ -4225,11 +4860,13 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Maximum number of similar memories to return (default 10)"
+              "description": "Maximum number of similar memories to return (default 10)",
+              "takesValue": true
             },
             {
               "flags": ["--threshold"],
-              "description": "Minimum similarity score threshold"
+              "description": "Minimum similarity score threshold",
+              "takesValue": true
             }
           ]
         },
@@ -4239,47 +4876,60 @@
           "options": [
             {
               "flags": ["--type"],
-              "description": "Memory type for the replacement"
+              "description": "Memory type for the replacement",
+              "takesValue": true,
+              "values": ["user", "feedback", "project", "reference"]
             },
             {
               "flags": ["--name"],
-              "description": "Name for the replacement memory"
+              "description": "Name for the replacement memory",
+              "takesValue": true
             },
             {
               "flags": ["--description"],
-              "description": "Description for the replacement memory"
+              "description": "Description for the replacement memory",
+              "takesValue": true
             },
             {
               "flags": ["--content"],
-              "description": "Content for the replacement memory"
+              "description": "Content for the replacement memory",
+              "takesValue": true
             },
             {
               "flags": ["--scope"],
-              "description": "Scope for the replacement memory"
+              "description": "Scope for the replacement memory",
+              "takesValue": true,
+              "values": ["project", "user", "cross_project"]
             },
             {
               "flags": ["--project-id"],
-              "description": "Project identifier for the replacement"
+              "description": "Project identifier for the replacement",
+              "takesValue": true
             },
             {
               "flags": ["--tags"],
-              "description": "Tags for the replacement memory"
+              "description": "Tags for the replacement memory",
+              "takesValue": true
             },
             {
               "flags": ["--source-agent-id"],
-              "description": "Source agent for the replacement"
+              "description": "Source agent for the replacement",
+              "takesValue": true
             },
             {
               "flags": ["--source-session-id"],
-              "description": "Source session for the replacement"
+              "description": "Source session for the replacement",
+              "takesValue": true
             },
             {
               "flags": ["--confidence"],
-              "description": "Confidence score for the replacement"
+              "description": "Confidence score for the replacement",
+              "takesValue": true
             },
             {
               "flags": ["--reason"],
-              "description": "Reason the old memory is being superseded"
+              "description": "Reason the old memory is being superseded",
+              "takesValue": true
             }
           ]
         },
@@ -4299,7 +4949,9 @@
           "options": [
             {
               "flags": ["--artifact-type"],
-              "description": "Type of artifact. One of: commit, pr, review, issue_comment"
+              "description": "Type of artifact. One of: commit, pr, review, issue_comment",
+              "takesValue": true,
+              "values": ["commit", "pr", "review", "issue_comment"]
             }
           ]
         },
@@ -4325,7 +4977,9 @@
           "options": [
             {
               "flags": ["--artifact-type"],
-              "description": "Type of artifact. One of: commit, pr, review, issue_comment"
+              "description": "Type of artifact. One of: commit, pr, review, issue_comment",
+              "takesValue": true,
+              "values": ["commit", "pr", "review", "issue_comment"]
             }
           ]
         },
@@ -4351,7 +5005,8 @@
           "options": [
             {
               "flags": ["--cwd"],
-              "description": "Directory to inspect. Defaults to the server's process.cwd(). Pass an explicit path when calling from a different working directory."
+              "description": "Directory to inspect. Defaults to the server's process.cwd(). Pass an explicit path when calling from a different working directory.",
+              "takesValue": true
             }
           ]
         }
@@ -4371,11 +5026,13 @@
             },
             {
               "flags": ["--session"],
-              "description": "Ingest a single session by its agent session UUID"
+              "description": "Ingest a single session by its agent session UUID",
+              "takesValue": true
             },
             {
               "flags": ["--harness"],
-              "description": "Source harness label (default: claude_code)"
+              "description": "Source harness label (default: claude_code)",
+              "takesValue": true
             }
           ]
         },
@@ -4389,7 +5046,8 @@
             },
             {
               "flags": ["--session"],
-              "description": "Index a single session by its agent session UUID"
+              "description": "Index a single session by its agent session UUID",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -4403,23 +5061,29 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return (default 10)"
+              "description": "Maximum number of results to return (default 10)",
+              "takesValue": true
             },
             {
               "flags": ["--role"],
-              "description": "Filter to turns by role: 'user' or 'assistant'"
+              "description": "Filter to turns by role: 'user' or 'assistant'",
+              "takesValue": true,
+              "values": ["user", "assistant"]
             },
             {
               "flags": ["--from"],
-              "description": "ISO date string — include only turns from sessions started after this date"
+              "description": "ISO date string — include only turns from sessions started after this date",
+              "takesValue": true
             },
             {
               "flags": ["--to"],
-              "description": "ISO date string — include only turns from sessions started before this date"
+              "description": "ISO date string — include only turns from sessions started before this date",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Restrict results to a single agent session by its UUID"
+              "description": "Restrict results to a single agent session by its UUID",
+              "takesValue": true
             }
           ]
         },
@@ -4429,15 +5093,18 @@
           "options": [
             {
               "flags": ["--turn-id"],
-              "description": "Composite turn key \"<agentSessionId>:<turnIndex>\" — find turns similar to this seed turn"
+              "description": "Composite turn key \"<agentSessionId>:<turnIndex>\" — find turns similar to this seed turn",
+              "takesValue": true
             },
             {
               "flags": ["--session-id"],
-              "description": "Agent session UUID — find sessions similar to this seed session"
+              "description": "Agent session UUID — find sessions similar to this seed session",
+              "takesValue": true
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return (default 10)"
+              "description": "Maximum number of results to return (default 10)",
+              "takesValue": true
             }
           ]
         },
@@ -4451,7 +5118,8 @@
             },
             {
               "flags": ["--session"],
-              "description": "Extract spawns for a single parent session by its agent session UUID"
+              "description": "Extract spawns for a single parent session by its agent session UUID",
+              "takesValue": true
             }
           ]
         },
@@ -4461,23 +5129,29 @@
           "options": [
             {
               "flags": ["--limit"],
-              "description": "Maximum number of results to return (default 10)"
+              "description": "Maximum number of results to return (default 10)",
+              "takesValue": true
             },
             {
               "flags": ["--role"],
-              "description": "Filter to turns by role: 'user' or 'assistant'"
+              "description": "Filter to turns by role: 'user' or 'assistant'",
+              "takesValue": true,
+              "values": ["user", "assistant"]
             },
             {
               "flags": ["--from"],
-              "description": "ISO date string — include only turns from sessions started after this date"
+              "description": "ISO date string — include only turns from sessions started after this date",
+              "takesValue": true
             },
             {
               "flags": ["--to"],
-              "description": "ISO date string — include only turns from sessions started before this date"
+              "description": "ISO date string — include only turns from sessions started before this date",
+              "takesValue": true
             },
             {
               "flags": ["--session"],
-              "description": "Restrict results to a single agent session by its UUID"
+              "description": "Restrict results to a single agent session by its UUID",
+              "takesValue": true
             }
           ]
         },
@@ -4487,7 +5161,8 @@
           "options": [
             {
               "flags": ["--turn-range"],
-              "description": "Inclusive turn index range in 'start-end' format (e.g. '10-20'). Returns only turns with turn_index between start and end (inclusive)."
+              "description": "Inclusive turn index range in 'start-end' format (e.g. '10-20'). Returns only turns with turn_index between start and end (inclusive).",
+              "takesValue": true
             }
           ]
         }
@@ -4511,7 +5186,8 @@
                 },
                 {
                   "flags": ["--session-id"],
-                  "description": "Restrict to a single session (default: walk all sessions in the findings directory)"
+                  "description": "Restrict to a single session (default: walk all sessions in the findings directory)",
+                  "takesValue": true
                 }
               ]
             },
@@ -4521,11 +5197,13 @@
               "options": [
                 {
                   "flags": ["--finding-index"],
-                  "description": "0-based index of the finding within the session record"
+                  "description": "0-based index of the finding within the session record",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--note"],
-                  "description": "Optional operator note attached to the verdict"
+                  "description": "Optional operator note attached to the verdict",
+                  "takesValue": true
                 }
               ]
             },
@@ -4535,11 +5213,13 @@
               "options": [
                 {
                   "flags": ["--finding-index"],
-                  "description": "0-based index of the finding within the session record"
+                  "description": "0-based index of the finding within the session record",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--note"],
-                  "description": "Optional operator note attached to the verdict"
+                  "description": "Optional operator note attached to the verdict",
+                  "takesValue": true
                 }
               ]
             }
@@ -4555,11 +5235,13 @@
               "options": [
                 {
                   "flags": ["--recency-days"],
-                  "description": "Delivery-recency window in days (default: 30). DONE siblings updated within this window are considered."
+                  "description": "Delivery-recency window in days (default: 30). DONE siblings updated within this window are considered.",
+                  "takesValue": true
                 },
                 {
                   "flags": ["--min-overlap-signals"],
-                  "description": "Minimum signal types that must overlap (1-3, default 1: any of file/identifier/keyword)"
+                  "description": "Minimum signal types that must overlap (1-3, default 1: any of file/identifier/keyword)",
+                  "takesValue": true
                 }
               ]
             }
@@ -4593,7 +5275,8 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path for operations that require repository context (default: current directory)"
+              "description": "Repository path for operations that require repository context (default: current directory)",
+              "takesValue": true
             },
             {
               "flags": ["--with-inspector"],
@@ -4601,7 +5284,8 @@
             },
             {
               "flags": ["--inspector-port"],
-              "description": "Port for the MCP inspector"
+              "description": "Port for the MCP inspector",
+              "takesValue": true
             },
             {
               "flags": ["--http"],
@@ -4609,15 +5293,18 @@
             },
             {
               "flags": ["--port"],
-              "description": "HTTP port (required for http transport, default: 3000)"
+              "description": "HTTP port (required for http transport, default: 3000)",
+              "takesValue": true
             },
             {
               "flags": ["--host"],
-              "description": "HTTP host (default: localhost)"
+              "description": "HTTP host (default: localhost)",
+              "takesValue": true
             },
             {
               "flags": ["--endpoint"],
-              "description": "HTTP endpoint path (default: /mcp)"
+              "description": "HTTP endpoint path (default: /mcp)",
+              "takesValue": true
             },
             {
               "flags": ["--require-auth"],
@@ -4631,7 +5318,8 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path for operations that require repository context (default: current directory)"
+              "description": "Repository path for operations that require repository context (default: current directory)",
+              "takesValue": true
             },
             {
               "flags": ["--json"],
@@ -4645,15 +5333,18 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path for operations that require repository context (default: current directory)"
+              "description": "Repository path for operations that require repository context (default: current directory)",
+              "takesValue": true
             },
             {
               "flags": ["--arg"],
-              "description": "Tool arguments in key=value format (can be used multiple times)"
+              "description": "Tool arguments in key=value format (can be used multiple times)",
+              "takesValue": true
             },
             {
               "flags": ["--timeout"],
-              "description": "Timeout in seconds (default: 10s for most tools, 60s for session operations)"
+              "description": "Timeout in seconds (default: 10s for most tools, 60s for session operations)",
+              "takesValue": true
             },
             {
               "flags": ["--inspector"],
@@ -4667,23 +5358,28 @@
           "options": [
             {
               "flags": ["--repo"],
-              "description": "Repository path for operations that require repository context (default: current directory)"
+              "description": "Repository path for operations that require repository context (default: current directory)",
+              "takesValue": true
             },
             {
               "flags": ["--method"],
-              "description": "MCP method to call (e.g., tools/list, resources/list, prompts/list)"
+              "description": "MCP method to call (e.g., tools/list, resources/list, prompts/list)",
+              "takesValue": true
             },
             {
               "flags": ["--arg"],
-              "description": "Method arguments in key=value format (can be used multiple times)"
+              "description": "Method arguments in key=value format (can be used multiple times)",
+              "takesValue": true
             },
             {
               "flags": ["--tool-name"],
-              "description": "Tool name for tools/call method"
+              "description": "Tool name for tools/call method",
+              "takesValue": true
             },
             {
               "flags": ["--tool-arg"],
-              "description": "Tool arguments in key=value format (can be used multiple times)"
+              "description": "Tool arguments in key=value format (can be used multiple times)",
+              "takesValue": true
             }
           ]
         },
@@ -4693,15 +5389,18 @@
           "options": [
             {
               "flags": ["--client"],
-              "description": "The MCP client to register with (e.g., cursor)"
+              "description": "The MCP client to register with (e.g., cursor)",
+              "takesValue": true
             },
             {
               "flags": ["--repo"],
-              "description": "Repository path"
+              "description": "Repository path",
+              "takesValue": true
             },
             {
               "flags": ["--workspace-path"],
-              "description": "Workspace path"
+              "description": "Workspace path",
+              "takesValue": true
             },
             {
               "flags": ["--overwrite"],
@@ -4715,11 +5414,13 @@
           "options": [
             {
               "flags": ["--child-command"],
-              "description": "Command to run as the inner MCP server (default: minsky)"
+              "description": "Command to run as the inner MCP server (default: minsky)",
+              "takesValue": true
             },
             {
               "flags": ["--child-args"],
-              "description": "Arguments for the inner MCP server as a JSON array (preferred) or comma-separated string (deprecated). JSON form: --child-args '[\"mcp\",\"start\"]'. Default when --child-command is provided: [\"mcp\",\"start\"]."
+              "description": "Arguments for the inner MCP server as a JSON array (preferred) or comma-separated string (deprecated). JSON form: --child-args '[\"mcp\",\"start\"]'. Default when --child-command is provided: [\"mcp\",\"start\"].",
+              "takesValue": true
             }
           ]
         }
@@ -4765,11 +5466,13 @@
             },
             {
               "flags": ["--limit"],
-              "description": "Maximum number of suggestions to return"
+              "description": "Maximum number of suggestions to return",
+              "takesValue": true
             },
             {
               "flags": ["--threshold"],
-              "description": "Maximum vector distance threshold (optional)"
+              "description": "Maximum vector distance threshold (optional)",
+              "takesValue": true
             },
             {
               "flags": ["--no-embeddings"],
@@ -4781,7 +5484,8 @@
             },
             {
               "flags": ["--workspace-path"],
-              "description": "Workspace path for context"
+              "description": "Workspace path for context",
+              "takesValue": true
             }
           ]
         },
@@ -4795,27 +5499,33 @@
             },
             {
               "flags": ["-c", "--components"],
-              "description": "Comma-separated list of component IDs to include"
+              "description": "Comma-separated list of component IDs to include",
+              "takesValue": true
             },
             {
               "flags": ["-o", "--output"],
-              "description": "Output file path (defaults to stdout)"
+              "description": "Output file path (defaults to stdout)",
+              "takesValue": true
             },
             {
               "flags": ["-t", "--template"],
-              "description": "Use specific template for generation"
+              "description": "Use specific template for generation",
+              "takesValue": true
             },
             {
               "flags": ["-m", "--model"],
-              "description": "Target AI model for context generation"
+              "description": "Target AI model for context generation",
+              "takesValue": true
             },
             {
               "flags": ["-p", "--prompt"],
-              "description": "User prompt to customize context generation"
+              "description": "User prompt to customize context generation",
+              "takesValue": true
             },
             {
               "flags": ["-i", "--interface"],
-              "description": "Interface mode for tool schemas (cli|mcp|hybrid)"
+              "description": "Interface mode for tool schemas (cli|mcp|hybrid)",
+              "takesValue": true
             },
             {
               "flags": ["--analyze"],
@@ -4827,7 +5537,8 @@
             },
             {
               "flags": ["--compare-models"],
-              "description": "Comma-separated list of models to compare"
+              "description": "Comma-separated list of models to compare",
+              "takesValue": true
             },
             {
               "flags": ["--show-breakdown"],
@@ -4843,11 +5554,13 @@
             },
             {
               "flags": ["--chart-type"],
-              "description": "Chart type: bar, pie, tree"
+              "description": "Chart type: bar, pie, tree",
+              "takesValue": true
             },
             {
               "flags": ["--max-width"],
-              "description": "Maximum chart width in characters"
+              "description": "Maximum chart width in characters",
+              "takesValue": true
             },
             {
               "flags": ["--show-details"],
@@ -4879,7 +5592,8 @@
         },
         {
           "flags": ["--threshold"],
-          "description": "Warning threshold (default: 100)"
+          "description": "Warning threshold (default: 100)",
+          "takesValue": true
         },
         {
           "flags": ["--detect"],
@@ -4887,7 +5601,8 @@
         },
         {
           "flags": ["--config"],
-          "description": "Override project root path for configuration detection"
+          "description": "Override project root path for configuration detection",
+          "takesValue": true
         }
       ]
     },
@@ -4897,11 +5612,13 @@
       "options": [
         {
           "flags": ["--repo"],
-          "description": "Repository path to initialize"
+          "description": "Repository path to initialize",
+          "takesValue": true
         },
         {
           "flags": ["--backend"],
-          "description": "Backend type (available: github, minsky)"
+          "description": "Backend type (available: github, minsky)",
+          "takesValue": true
         },
         {
           "flags": ["--overwrite"],
@@ -4909,35 +5626,43 @@
         },
         {
           "flags": ["--workspace-path"],
-          "description": "Workspace path"
+          "description": "Workspace path",
+          "takesValue": true
         },
         {
           "flags": ["--github-owner"],
-          "description": "GitHub repository owner"
+          "description": "GitHub repository owner",
+          "takesValue": true
         },
         {
           "flags": ["--github-repo"],
-          "description": "GitHub repository name"
+          "description": "GitHub repository name",
+          "takesValue": true
         },
         {
           "flags": ["--rule-format"],
-          "description": "Rule format (cursor or generic)"
+          "description": "Rule format (cursor or generic)",
+          "takesValue": true
         },
         {
           "flags": ["--mcp"],
-          "description": "Enable/disable MCP configuration"
+          "description": "Enable/disable MCP configuration",
+          "takesValue": true
         },
         {
           "flags": ["--mcp-transport"],
-          "description": "MCP transport type (stdio, sse, httpStream)"
+          "description": "MCP transport type (stdio, sse, httpStream)",
+          "takesValue": true
         },
         {
           "flags": ["--mcp-port"],
-          "description": "Port for MCP network transports"
+          "description": "Port for MCP network transports",
+          "takesValue": true
         },
         {
           "flags": ["--mcp-host"],
-          "description": "Host for MCP network transports"
+          "description": "Host for MCP network transports",
+          "takesValue": true
         }
       ]
     },
@@ -4947,7 +5672,8 @@
       "options": [
         {
           "flags": ["--client"],
-          "description": "MCP client to register with (e.g. cursor)"
+          "description": "MCP client to register with (e.g. cursor)",
+          "takesValue": true
         },
         {
           "flags": ["--overwrite"],
@@ -4955,11 +5681,13 @@
         },
         {
           "flags": ["--repo"],
-          "description": "Repository path"
+          "description": "Repository path",
+          "takesValue": true
         },
         {
           "flags": ["--workspace-path"],
-          "description": "Workspace path"
+          "description": "Workspace path",
+          "takesValue": true
         }
       ]
     },
@@ -4969,11 +5697,13 @@
       "options": [
         {
           "flags": ["--target"],
-          "description": "Compile target to run (e.g. \"claude-skills\"). Defaults to \"claude-skills\"."
+          "description": "Compile target to run (e.g. \"claude-skills\"). Defaults to \"claude-skills\".",
+          "takesValue": true
         },
         {
           "flags": ["--output"],
-          "description": "Override the default output directory for the target."
+          "description": "Override the default output directory for the target.",
+          "takesValue": true
         },
         {
           "flags": ["--dry-run"],
@@ -4995,7 +5725,8 @@
           "options": [
             {
               "flags": ["--port"],
-              "description": "Port to listen on (default: 3737)"
+              "description": "Port to listen on (default: 3737)",
+              "takesValue": true
             },
             {
               "flags": ["--force"],
@@ -5004,6 +5735,10 @@
             {
               "flags": ["--open"],
               "description": "After the server starts, open the cockpit URL in the default browser."
+            },
+            {
+              "flags": ["--no-dev-chromium"],
+              "description": "Skip launching the dedicated dev chromium (used by chrome-devtools-mcp for agent-driven UI inspection). Useful for headless / CI contexts."
             }
           ]
         }
