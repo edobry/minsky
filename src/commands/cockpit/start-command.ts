@@ -6,6 +6,7 @@ import type { Server } from "http";
 import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
+import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 
 const DEFAULT_PORT = 3737;
 
@@ -62,6 +63,11 @@ export function createStartCommand(): Command {
         "Never terminates unrecognized processes."
     )
     .option("--open", "After the server starts, open the cockpit URL in the default browser.")
+    .option(
+      "--no-dev-chromium",
+      "Skip launching the dedicated dev chromium (used by chrome-devtools-mcp " +
+        "for agent-driven UI inspection). Useful for headless / CI contexts."
+    )
     .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
@@ -203,6 +209,26 @@ export function createStartCommand(): Command {
 
       if (options.open) {
         openInBrowser(`http://localhost:${port}`);
+      }
+
+      // Launch the shared dev chromium for chrome-devtools-mcp attachment
+      // (mt#1904). Idempotent — reuses an already-running instance. Best-effort:
+      // failures don't block cockpit. Commander negates --no-* flags into
+      // `options.devChromium === false`.
+      if (options.devChromium !== false) {
+        try {
+          const devChromium = await ensureDevChromiumRunning();
+          if (devChromium) {
+            console.log(
+              `Dev chromium running at http://127.0.0.1:${devChromium.debuggingPort} ` +
+                `(PID ${devChromium.pid}) — attach chrome-devtools-mcp via ` +
+                `--browser-url=http://127.0.0.1:${devChromium.debuggingPort}`
+            );
+          }
+        } catch (err) {
+          const e = err as Error;
+          console.warn(`Warning: dev chromium launch failed: ${e.message}`);
+        }
       }
 
       // Keep the action handler awaiting indefinitely so the top-level CLI
