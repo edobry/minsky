@@ -86,9 +86,39 @@ diff --git a/src/foo.ts b/src/foo.ts
     expect(result.size).toBe(1);
     const ranges = result.get("src/foo.ts");
     expect(ranges).toBeDefined();
-    // newStart=10, newCount=7 → range covers lines 10-16
+    // newStart=10 → context(10), +added1(11), +added2(12), context(13)
+    // Only + lines are in scope: lines 11 and 12, coalesced to [11, 12]
     if (ranges === undefined) throw new Error("ranges should be defined");
-    expect(ranges[0]).toEqual([10, 16]);
+    expect(ranges[0]).toEqual([11, 12]);
+  });
+
+  test("context lines are NOT in scope (only + lines are in scope)", () => {
+    // Verifies Finding 3: only added lines (prefix '+') count as in-scope.
+    // Context lines (no prefix) and removed lines (prefix '-') are excluded.
+    const diff = `
+diff --git a/src/foo.ts b/src/foo.ts
+--- a/src/foo.ts
++++ b/src/foo.ts
+@@ -5,5 +5,6 @@
+ context_at_5
+ context_at_6
++added_at_7
+ context_at_8
+ context_at_9
+`.trim();
+    const result = parseFixCommitLineRanges(diff);
+    // newStart=5: context(5), context(6), +added(7), context(8), context(9)
+    // Only line 7 is added → range [7, 7]
+    const ranges = result.get("src/foo.ts");
+    expect(ranges).toBeDefined();
+    if (ranges === undefined) throw new Error("ranges should be defined");
+    expect(ranges).toEqual([[7, 7]]);
+    // Verify context lines are not in scope
+    expect(isLineInScope("src/foo.ts", 5, undefined, result)).toBe(false);
+    expect(isLineInScope("src/foo.ts", 6, undefined, result)).toBe(false);
+    expect(isLineInScope("src/foo.ts", 7, undefined, result)).toBe(true);
+    expect(isLineInScope("src/foo.ts", 8, undefined, result)).toBe(false);
+    expect(isLineInScope("src/foo.ts", 9, undefined, result)).toBe(false);
   });
 
   test("normalizes file paths (strips a/ and b/ prefixes)", () => {
@@ -127,14 +157,16 @@ diff --git a/deleted.ts b/deleted.ts
     expect(result.has("deleted.ts")).toBe(false);
   });
 
-  test("handles deletion-only diff (no new lines)", () => {
+  test("handles deletion-only diff (no added lines — file not in scope)", () => {
     const result = parseFixCommitLineRanges(DELETION_DIFF);
-    // deletion-only: hunk header @@ -1,5 +1,3 @@ → newStart=1, newCount=3 → range [1,3]
-    expect(result.has("src/old.ts")).toBe(true);
-    const ranges = result.get("src/old.ts");
-    expect(ranges).toBeDefined();
-    if (ranges === undefined) throw new Error("deletion-only ranges should be defined");
-    expect(ranges.length).toBeGreaterThan(0);
+    // deletion-only: no + lines in the hunk, so no added lines to record.
+    // The file has no in-scope lines and should not appear in the map.
+    // This means findings on deleted-only files are conservatively preserved
+    // (isLineInScope returns true when the map is empty, or when the file is
+    // absent from the map the lineRange check still applies at the caller site).
+    // With a non-empty lineRange, a file absent from the map is out-of-scope.
+    // But a deletion-only file never has findings at new-file line numbers anyway.
+    expect(result.has("src/old.ts")).toBe(false);
   });
 
   test("handles hunk with no count (count defaults to 1)", () => {
@@ -150,7 +182,7 @@ diff --git a/src/single.ts b/src/single.ts
     expect(result.has("src/single.ts")).toBe(true);
   });
 
-  test("is case-insensitive for file paths (normalized to lowercase)", () => {
+  test("preserves file path case (case-sensitive filesystems require exact match)", () => {
     const diff = `
 diff --git a/Src/Util.ts b/Src/Util.ts
 --- a/Src/Util.ts
@@ -161,7 +193,10 @@ diff --git a/Src/Util.ts b/Src/Util.ts
  line2
 `.trim();
     const result = parseFixCommitLineRanges(diff);
-    expect(result.has("src/util.ts")).toBe(true);
+    // File path is stored as-is (without lowercasing) to preserve case.
+    // On case-sensitive filesystems, Src/Util.ts and src/util.ts are distinct files.
+    expect(result.has("Src/Util.ts")).toBe(true);
+    expect(result.has("src/util.ts")).toBe(false);
   });
 });
 
@@ -259,10 +294,13 @@ describe("isLineInScope", () => {
     expect(isLineInScope("src/foo.ts", 20, 25, lineRange)).toBe(false);
   });
 
-  test("is case-insensitive for file paths", () => {
+  test("is case-sensitive for file paths (matches exact case)", () => {
     lineRange = buildTestLineRange();
-    // lineRange uses lowercase keys; check with uppercase input
-    expect(isLineInScope("Src/Foo.ts", 10, undefined, lineRange)).toBe(true);
+    // lineRange uses lowercase keys (src/foo.ts); uppercase input does NOT match
+    // because file paths are case-sensitive on Linux/macOS case-sensitive FS.
+    expect(isLineInScope("Src/Foo.ts", 10, undefined, lineRange)).toBe(false);
+    // Exact lowercase match works
+    expect(isLineInScope("src/foo.ts", 10, undefined, lineRange)).toBe(true);
   });
 
   test("handles file paths with a/ and b/ prefixes", () => {
@@ -485,16 +523,19 @@ diff --git a/src/foo.ts b/src/foo.ts
 
     const result = extractFixCommitDiff(fixCommitDiff, "2026-05-17T10:00:00Z");
     expect(result.diff).toBe(fixCommitDiff);
-    // src/foo.ts should have a range covering the hunk: newStart=20, newCount=7 → [20,26]
+    // src/foo.ts: newStart=20 → context(20), +fix1(21), +fix2(22), context(23)
+    // Only added lines 21 and 22 are in scope (coalesced: [21, 22]).
     expect(result.lineRange.has("src/foo.ts")).toBe(true);
     const ranges = result.lineRange.get("src/foo.ts");
     if (ranges === undefined)
       throw new Error("fix-commit lineRange for src/foo.ts should be defined");
     expect(ranges.length).toBeGreaterThan(0);
-    // The finding at line 42 (not in fix-commit range [20,26]) should be downgraded
+    // The finding at line 42 (not in fix-commit added-line range) should be downgraded
     expect(isLineInScope("src/foo.ts", 42, undefined, result.lineRange)).toBe(false);
-    // The finding at line 21 (inside fix-commit range) should be preserved
+    // The finding at line 21 (added line in fix-commit) should be preserved
     expect(isLineInScope("src/foo.ts", 21, undefined, result.lineRange)).toBe(true);
+    // Context line 20 is NOT in scope (only + lines are in scope)
+    expect(isLineInScope("src/foo.ts", 20, undefined, result.lineRange)).toBe(false);
   });
 
   test("AT2: downgrade logic — BLOCKING outside fix-commit-diff range → NON-BLOCKING", () => {

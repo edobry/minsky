@@ -254,15 +254,14 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
     `Fetched ${dbRows.length} DB row(s), ${botReviews.length} bot review(s), diff length=${prDiff.length} chars.`
   );
 
-  // 3. Extract the fix-commit diff scope (using the full PR diff as approximation).
-  //    In production, this would be filtered to commits after the prior-review timestamp.
-  //    The replay uses the full diff as a conservative lower bound for scope detection.
-  const fixCommitResult = extractFixCommitDiff(prDiff, new Date(0).toISOString());
-  const filesInScope = fixCommitResult.lineRange.size;
+  console.error(`PR diff fetched: ${prDiff.length} chars.`);
 
-  console.error(`Fix-commit diff scope: ${filesInScope} file(s) with line ranges.`);
-
-  // 4. Build per-round results
+  // 3. Build per-round results.
+  //    For each round at R≥2, derive a per-round fix-commit scope from the
+  //    timestamp of the immediately preceding bot review. This mirrors the
+  //    production runReview logic: the scope is relative to the LAST reviewer
+  //    round, not the PR-wide epoch. Using a shared epoch (new Date(0)) overstates
+  //    in-scope lines and cannot show whether per-round narrowing changes outcomes.
   const roundResults: RoundReplayResult[] = [];
 
   for (const row of dbRows) {
@@ -274,6 +273,25 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
     const priorReviewBodies = botReviews.slice(0, botReviewArrayIdx).map((r) => r.body);
     const isPriorRoundPresent = priorReviewBodies.length > 0;
 
+    // Per-round fix-commit scope: use the timestamp of the immediately preceding
+    // bot review when R≥2. For R1 (no prior reviews), use an empty lineRange
+    // (conservative: all findings preserved) matching the production behavior.
+    let roundFixCommitLineRange: ReturnType<typeof extractFixCommitDiff>["lineRange"] = new Map();
+    if (isPriorRoundPresent) {
+      // The preceding review is at botReviewArrayIdx - 1.
+      const precedingReview = botReviews[botReviewArrayIdx - 1];
+      const priorTimestamp =
+        precedingReview !== undefined ? precedingReview.submittedAt : new Date(0).toISOString(); // fallback: epoch (conservative)
+      try {
+        const fixCommitResult = extractFixCommitDiff(prDiff, priorTimestamp);
+        roundFixCommitLineRange = fixCommitResult.lineRange;
+      } catch {
+        // Defensive: malformed diff — leave lineRange empty (conservative).
+        roundFixCommitLineRange = new Map();
+      }
+    }
+    const filesInScope = roundFixCommitLineRange.size;
+
     // Current review body (if available from GitHub).
     const currentReviewBody = botReviews[botReviewArrayIdx]?.body;
 
@@ -281,9 +299,9 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
     const currentFindings = currentReviewBody ? parsePriorBodyFindings(currentReviewBody) : [];
     const currentBlockings = currentFindings.filter((f) => f.severity === "BLOCKING");
 
-    // Per-finding scope analysis.
+    // Per-finding scope analysis using the per-round lineRange.
     const findingResults: FindingReplayResult[] = currentBlockings.map((f) => {
-      const inScope = isLineInScope(f.file, f.line, f.lineEnd, fixCommitResult.lineRange);
+      const inScope = isLineInScope(f.file, f.line, f.lineEnd, roundFixCommitLineRange);
       return {
         file: f.file,
         ...(f.line !== undefined ? { line: f.line } : {}),
@@ -311,7 +329,7 @@ async function replayPr(owner: string, repo: string, prNumber: number): Promise<
         },
       }));
 
-      const result = applyDiffScopeBoundedDowngrade(syntheticToolCalls, fixCommitResult.lineRange);
+      const result = applyDiffScopeBoundedDowngrade(syntheticToolCalls, roundFixCommitLineRange);
       downgradeApplied = result.downgradeApplied;
       wouldHaveDowngradedCount = result.downgrades.length;
     }

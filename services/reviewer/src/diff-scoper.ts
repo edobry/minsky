@@ -85,24 +85,42 @@ export interface DiffScopeBoundedDowngradeResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Normalize a file path for comparison: lowercase, forward-slash separators,
+ * Normalize a file path for comparison: forward-slash separators,
  * strip leading a/ and b/ prefixes used in git diff output.
+ *
+ * Does NOT lowercase: file paths are case-sensitive on Linux and macOS
+ * case-sensitive filesystems. Lowercasing would produce false in-scope
+ * matches (or missed out-of-scope) for repos with mixed-case paths like
+ * src/Foo.ts vs src/foo.ts, which are distinct files on those systems.
  */
 function normalizePath(p: string): string {
-  return p
-    .replace(/\\/g, "/")
-    .replace(/^[ab]\//, "")
-    .toLowerCase();
+  return p.replace(/\\/g, "/").replace(/^[ab]\//, "");
+}
+
+/**
+ * Coalesce or append a line number into a range list.
+ * Consecutive line numbers are merged into a single range.
+ * Uses mutable [number, number] internally; the result is treated as LineRange externally.
+ */
+function pushLine(ranges: Array<[number, number]>, line: number): void {
+  const last = ranges[ranges.length - 1];
+  if (last !== undefined && last[1] === line - 1) {
+    // Extend the last range by one
+    last[1] = line;
+  } else {
+    ranges.push([line, line]);
+  }
 }
 
 /**
  * Parse a unified-diff string into a per-file map of changed line ranges in
- * the NEW file (added + context lines, 1-based inclusive).
+ * the NEW file (added lines only — lines starting with `+`, 1-based inclusive).
  *
- * We treat every line in the diff hunk (not just `+` lines) as "potentially
- * changed" for the purpose of scope detection. This is intentionally
- * conservative: if a finding is at a line that appears in the hunk context
- * window, it may relate to the fix commit and should be preserved.
+ * Only `+` lines are treated as "changed" for scope detection. Context lines
+ * (no prefix) and removed lines (`-`) are NOT included. This is intentionally
+ * precise: a finding on a context-only line was not modified in the fix commit
+ * and should be eligible for downgrade, narrowing the discovery surface as
+ * specified in mt#1875 Fix 3.
  *
  * Hunk header format: @@ -oldStart,oldCount +newStart,newCount @@
  *
@@ -113,34 +131,25 @@ function normalizePath(p: string): string {
 export function parseFixCommitLineRanges(diff: string): FixCommitLineRangeMap {
   if (!diff.trim()) return new Map();
 
-  const result = new Map<string, LineRange[]>();
+  // Use mutable [number, number] internally for in-place range extension.
+  // The result is widened to FixCommitLineRangeMap (ReadonlyMap<string, ReadonlyArray<LineRange>>)
+  // at the return site, which is safe: callers only read the map.
+  const result = new Map<string, Array<[number, number]>>();
   let currentFile: string | null = null;
   let inHunk = false;
-  let hunkRangeStart = 0;
-  let hunkRangeEnd = 0;
-
-  function flushHunk(): void {
-    if (currentFile !== null && inHunk && hunkRangeEnd >= hunkRangeStart) {
-      const normalized = normalizePath(currentFile);
-      const existing = result.get(normalized) ?? [];
-      existing.push([hunkRangeStart, hunkRangeEnd]);
-      result.set(normalized, existing);
-    }
-    inHunk = false;
-  }
+  let currentNewLine = 0;
 
   const lines = diff.split("\n");
   for (const line of lines) {
     // New file header (diff --git a/... b/...)
     if (line.startsWith("diff --git ")) {
-      flushHunk();
       currentFile = null;
+      inHunk = false;
       continue;
     }
 
     // +++ line: file path for the new version
     if (line.startsWith("+++ ")) {
-      flushHunk();
       const path = line.slice(4).trim();
       // Skip /dev/null (deleted files)
       if (path !== "/dev/null") {
@@ -148,30 +157,42 @@ export function parseFixCommitLineRanges(diff: string): FixCommitLineRangeMap {
       } else {
         currentFile = null;
       }
+      inHunk = false;
       continue;
     }
 
     // Hunk header: @@ -oldStart[,oldCount] +newStart[,newCount] @@
-    // Precompute the full hunk range from the header (newStart to newStart+newCount-1).
-    // We treat the entire hunk window as "in scope" for conservative scope detection.
+    // Capture newStart to begin tracking line numbers for + lines.
     if (line.startsWith("@@")) {
-      flushHunk();
-      const hunkMatch = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      const hunkMatch = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
       if (hunkMatch) {
         const newStart = parseInt(hunkMatch[1] ?? "1", 10);
-        // newCount defaults to 1 when absent
-        const newCount = hunkMatch[2] !== undefined ? parseInt(hunkMatch[2], 10) : 1;
-        hunkRangeStart = newStart;
-        hunkRangeEnd = newCount > 0 ? newStart + newCount - 1 : newStart;
+        currentNewLine = newStart;
         inHunk = true;
       }
       continue;
     }
 
     if (!inHunk || currentFile === null) continue;
-    // Content lines (+ / - / context) do not affect the precomputed range.
+
+    if (line.startsWith("+")) {
+      // Added line: record this line as in-scope, then advance new-file counter.
+      const normalized = normalizePath(currentFile);
+      if (!result.has(normalized)) {
+        result.set(normalized, []);
+      }
+      const ranges = result.get(normalized);
+      if (ranges !== undefined) {
+        pushLine(ranges, currentNewLine);
+      }
+      currentNewLine++;
+    } else if (line.startsWith("-")) {
+      // Removed line: does NOT advance the new-file counter.
+    } else {
+      // Context line: advances the new-file counter but is not in scope.
+      currentNewLine++;
+    }
   }
-  flushHunk();
 
   return result;
 }

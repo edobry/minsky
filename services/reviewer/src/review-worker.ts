@@ -905,12 +905,52 @@ export async function runReview(
     );
   }
 
+  // mt#1875 SC2: when diff-scope-bounded is enabled AND prior reviews exist (R≥2),
+  // narrow the prompt context to the fix-commit diff. This must happen before
+  // buildReviewPrompt so the model only sees the narrowed diff in its context.
+  //
+  // We read the env var here (outside the outputToolsActive block) so the prompt
+  // diff routing and the post-hoc downgrade both use the same flag and the same
+  // extracted diff. On R1 (no prior reviews), promptDiff falls back to pr.diff.
+  const diffScopeBoundedEnabledForPrompt = /^(true|1|yes|on)$/i.test(
+    (process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED ?? "").trim()
+  );
+  const priorReviewsPresentForPrompt = priorReviewsMarkdown.trim().length > 0;
+
+  // Extracted fix-commit diff for prompt routing and for the downgrade pass.
+  // Initialized as a shared variable so the outputToolsActive block can reuse it.
+  let promptDiff = pr.diff;
+  let sharedFixCommitLineRange: FixCommitLineRangeMap = new Map();
+
+  if (diffScopeBoundedEnabledForPrompt && priorReviewsPresentForPrompt) {
+    // Use the full PR diff as the fix-commit scope approximation. A future
+    // enhancement can filter to commits after the prior-review timestamp via
+    // the GitHub commits API; for now, the full PR diff is a conservative
+    // safe fallback that still enables downgrading findings on files/lines
+    // not present in the PR diff at all.
+    const priorTimestamp =
+      priorReviewIngestion.iterationCount > 0
+        ? new Date(0).toISOString() // placeholder — real per-commit filtering is future work
+        : new Date(0).toISOString();
+    try {
+      const fixCommitResult = extractFixCommitDiff(pr.diff, priorTimestamp);
+      promptDiff = fixCommitResult.diff;
+      sharedFixCommitLineRange = fixCommitResult.lineRange;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[mt#1875] Fix-commit diff extraction failed for prompt routing, using full PR diff: ${message}`
+      );
+      // promptDiff remains pr.diff (full diff fallback)
+    }
+  }
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
     prBody: pr.body,
     taskSpec,
-    diff: pr.diff,
+    diff: promptDiff,
     authorshipTier: tier,
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
@@ -1093,9 +1133,11 @@ export async function runReview(
     // BLOCKING findings to those within the fix-commit-diff line range.
     // Findings outside the range are auto-downgraded to NON-BLOCKING.
     // Default-off until empirical verification (same convention as above).
-    const diffScopeBoundedEnabled = /^(true|1|yes|on)$/i.test(
-      (process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED ?? "").trim()
-    );
+    //
+    // NOTE: diffScopeBoundedEnabledForPrompt (computed before buildReviewPrompt
+    // above) reads the same env var; using the same value here ensures the
+    // prompt-context routing and the post-hoc downgrade are always in sync.
+    const diffScopeBoundedEnabled = diffScopeBoundedEnabledForPrompt;
 
     // Compute iteration index (1-based) for the convergence threshold gate.
     // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
@@ -1149,45 +1191,25 @@ export async function runReview(
       }
     }
 
-    // mt#1875: extract fix-commit diff scope when enabled and R≥2.
-    // The current implementation uses the full PR diff as the fix-commit scope
-    // approximation. A future enhancement can filter to commits after the
-    // last reviewer round timestamp using the GitHub commits API; for now,
-    // the full PR diff is a conservative safe fallback that still enables
-    // the downgrade for findings on files not touched by the PR at all.
+    // mt#1875: reuse the fix-commit line range extracted before buildReviewPrompt
+    // (sharedFixCommitLineRange). Both the prompt-context routing and the post-hoc
+    // downgrade use the same extracted scope so they are consistent.
     //
-    // When priorReviewsMarkdown is empty (R1), we supply an empty lineRange so
-    // the downgrade pass is a no-op by construction (conservative behavior:
-    // preserve all findings on R1 reviews).
-    let fixCommitLineRange: FixCommitLineRangeMap = new Map();
+    // When priorReviewsMarkdown is empty (R1), sharedFixCommitLineRange is an empty
+    // map (set by the guard above), so the downgrade pass is a no-op by construction
+    // (conservative behavior: preserve all findings on R1 reviews).
+    const fixCommitLineRange: FixCommitLineRangeMap = sharedFixCommitLineRange;
     if (diffScopeBoundedEnabled && priorReviewsPresent) {
-      // Use the full PR diff as the fix-commit scope. This is intentionally
-      // conservative: it only downgrades findings on files/lines NOT present
-      // in the PR diff at all, which is a safe lower bound.
-      const priorTimestamp =
-        priorReviewIngestion.iterationCount > 0
-          ? new Date(0).toISOString() // placeholder — real filtering via GitHub API is future work
-          : new Date(0).toISOString();
-      try {
-        const fixCommitResult = extractFixCommitDiff(pr.diff, priorTimestamp);
-        fixCommitLineRange = fixCommitResult.lineRange;
-        console.log(
-          JSON.stringify({
-            event: "reviewer.diff_scope_bounded_extracted",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            iterationIndex: currentIterationIndex,
-            diff_scope: "fix_commit",
-            filesInScope: fixCommitLineRange.size,
-          })
-        );
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.warn(
-          `[mt#1875] Fix-commit diff extraction failed, using empty scope (conservative): ${message}`
-        );
-        fixCommitLineRange = new Map();
-      }
+      console.log(
+        JSON.stringify({
+          event: "reviewer.diff_scope_bounded_extracted",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          diff_scope: "fix_commit",
+          filesInScope: fixCommitLineRange.size,
+        })
+      );
     }
 
     // Delegate the recovery + reconciliation + convergence + composition to the
