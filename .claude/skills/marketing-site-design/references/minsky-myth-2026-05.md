@@ -12,15 +12,15 @@ Use as the worked reference when running this process for any future Minsky mark
 
 **Locked statement:**
 
-> *"AI agents are productivity tools you wire to your existing workflow. The job is choosing the right agent and giving it the right tools."*
+> _"AI agents are productivity tools you wire to your existing workflow. The job is choosing the right agent and giving it the right tools."_
 
 This default naturalizes:
 
 - Agents as **enhancements to the individual engineer** (Cursor's frame)
 - Agents as **plumbing between an agent and SaaS apps** (Composio's frame)
 - Agents as **factory workers operated by a foreman** (Factory's frame)
-- The unit of work as a *task an individual engineer hands off*
-- The buyer's question as *"which agent product helps me / my team get more done?"*
+- The unit of work as a _task an individual engineer hands off_
+- The buyer's question as _"which agent product helps me / my team get more done?"_
 
 A buyer landing on Minsky's site has this default loaded. Whatever Minsky says will be heard through this filter unless the site explicitly displaces the default.
 
@@ -33,16 +33,16 @@ A buyer landing on Minsky's site has this default loaded. Whatever Minsky says w
 - Notion strategic anchors: [Minsky home](https://www.notion.so/33a937f03cb48197a93ecd4a98a94261), [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [The cockpit problem](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8), [Operative Ontology corpus](https://www.notion.so/35e937f03cb481a39301cb319cdc6cd2), [Digital Twin & Cognitive Interface](https://www.notion.so/1d1937f03cb480008bbdc529dfb5eb68)
 - CLAUDE.md `§Principal Context` — commercial-product framing
 - Attention-allocation subsystem framing (mt#1034) — Minsky as attention-allocation system for scarce human attention
-- Eugene's verbal framing (2026-05-19): *"Like Manfred Macx's flock from Accelerando, or an exocortex. An extension of my own mind, like I have a thought and then other faculties kick in and drive that thought to completion. CEO as ego; AI agents as the subsystems within the body that act out my intents."*
+- Eugene's verbal framing (2026-05-19): _"Like Manfred Macx's flock from Accelerando, or an exocortex. An extension of my own mind, like I have a thought and then other faculties kick in and drive that thought to completion. CEO as ego; AI agents as the subsystems within the body that act out my intents."_
 - The pee_zombie Twitter corpus (8,094 originals, 2020-08 → 2025-04). See [corpus-discovery section](#pee_zombie-corpus-discovery) below.
 
 **Five candidate myths surfaced:**
 
-1. **Exocortex / flock:** *"Minsky is the exocortex — a flock of intent-bearing servitors that extends the principal's cognition into realized work."*
-2. **Declarative cybernetic body:** *"Minsky is the cybernetic body whose subsystems realize the principal's declared intent."*
-3. **Operative ontology:** *"Minsky is the substrate that turns declared intent into coordinated realization, the way magick turns Will into world."*
-4. **Locus of control:** *"Minsky is the interface where the principal's intent meets a substrate that does the work."*
-5. **Servitor flock:** *"Minsky is the disciplined coordination of servitors — autonomous intent-bearers operating as one body."*
+1. **Exocortex / flock:** _"Minsky is the exocortex — a flock of intent-bearing servitors that extends the principal's cognition into realized work."_
+2. **Declarative cybernetic body:** _"Minsky is the cybernetic body whose subsystems realize the principal's declared intent."_
+3. **Operative ontology:** _"Minsky is the substrate that turns declared intent into coordinated realization, the way magick turns Will into world."_
+4. **Locus of control:** _"Minsky is the interface where the principal's intent meets a substrate that does the work."_
+5. **Servitor flock:** _"Minsky is the disciplined coordination of servitors — autonomous intent-bearers operating as one body."_
 
 ---
 
@@ -50,24 +50,24 @@ A buyer landing on Minsky's site has this default loaded. Whatever Minsky says w
 
 Tests applied:
 
-| Test | Question |
-|---|---|
-| Contestable | Would a buyer disagree before encountering the site? Would a competitor find it awkward to claim? |
-| Carried by product | Can the product surfaces (CLI / cockpit / reviewer-bot / mesh / asks / memory) instantiate this myth? |
-| Durable | Will it still be true and important in 2-3 years? |
-| Aligned with principal investment | Does the operator want to spend years naturalizing this proposition? |
+| Test                              | Question                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Contestable                       | Would a buyer disagree before encountering the site? Would a competitor find it awkward to claim?     |
+| Carried by product                | Can the product surfaces (CLI / cockpit / reviewer-bot / mesh / asks / memory) instantiate this myth? |
+| Durable                           | Will it still be true and important in 2-3 years?                                                     |
+| Aligned with principal investment | Does the operator want to spend years naturalizing this proposition?                                  |
 
 ### Results
 
 - **#1 (Exocortex / flock)** — strongest contestability (the category default is "tools," not "extension"), strongest aesthetic resonance with Eugene's existing corpus, carriable by the product, durable. **PICKED.** Risk: "exocortex" is unfamiliar vocabulary for fresh audiences; needs careful instantiation via residual codes (Section 4 of SKILL.md). Risk mitigated via Step 4 below.
-- **#2 (Cybernetic body)** — academically clean, maps to VSM, durable. Misses the *enchantment* the corpus is reaching for. Available as secondary framing.
+- **#2 (Cybernetic body)** — academically clean, maps to VSM, durable. Misses the _enchantment_ the corpus is reaching for. Available as secondary framing.
 - **#3 (Operative ontology)** — most ambitious; explicitly invokes magick. Risk: alienates the engineer-buyer who reads "magick" as woo. **Footnote-only**, not foreground.
 - **#4 (Locus)** — accurate to the corpus but the principal's existing memory `Locus and Minsky long-term convergence` says Locus is not a present-day pitch frame. **Deferred** per existing discipline.
 - **#5 (Servitor)** — most precise per the Operative Ontology vocabulary. Risk: "servitor" reads as occult to engineers. **Manifesto-page only**, not foreground.
 
 ### Locked myth (single declarative sentence)
 
-> ***"Minsky is the exocortex for software organizations led by a principal — a flock of intent-bearing servitors that extends the principal's cognition into coordinated realized work."***
+> **_"Minsky is the exocortex for software organizations led by a principal — a flock of intent-bearing servitors that extends the principal's cognition into coordinated realized work."_**
 
 Underlying proposition: AI agents are autonomous intent-bearers that extend the principal's cognition. Minsky is the substrate that makes the flock coherent — the cybernetic body that translates declared intent into realized work.
 
@@ -75,7 +75,7 @@ Underlying proposition: AI agents are autonomous intent-bearers that extend the 
 
 ## Step 4 — Cultural code with reference set
 
-The myth lives in an *emergent* code with no current AI-tool category instantiation. Per Section 4 of SKILL.md (bridge-as-affect), the discipline is to invoke the emergent code through *residual* codes the audience already recognizes.
+The myth lives in an _emergent_ code with no current AI-tool category instantiation. Per Section 4 of SKILL.md (bridge-as-affect), the discipline is to invoke the emergent code through _residual_ codes the audience already recognizes.
 
 ### Code name
 
@@ -83,43 +83,43 @@ The myth lives in an *emergent* code with no current AI-tool category instantiat
 
 ### Five-layer code architecture (Section 7 of SKILL.md applied to Minsky)
 
-Per Oswald's framing: the brand identity lives in the intersection of multiple codes, not in any single one. The intersection is *"professional cybernetic-cognitive substrate where the principal extends through a coordinated flock."*
+Per Oswald's framing: the brand identity lives in the intersection of multiple codes, not in any single one. The intersection is _"professional cybernetic-cognitive substrate where the principal extends through a coordinated flock."_
 
-| Layer | Reference | Role | Foregrounding |
-|---|---|---|---|
-| 1 | **Ghost in the Shell, Stand Alone Complex** | Primary visual + structural anchor. Cybernetic substrate, Tachikoma flock, Section 9 ops register, the Stand Alone Complex concept (independent agents converging on coordinated behavior — structurally Minsky's mesh). | Adoptable wholesale at the register layer. Eugene's deepest personal anchor. |
-| 2 | **Evangelion** | Backline cultural-salience. Magi terminal aesthetic when the system speaks. Sync-ratio metaphor for principal-flock coherence. NERV warning palette. Density-with-soul discipline. | Audience-relevant cultural backbone. Drawn from, not literal. |
-| 3 | **Mitsuo Iso (*Orbital Children*, *Dennō Coil*)** | Deep-cut texture. AR overlays integrated with daily life. Soft warm tones inside cybernetic register. AI companions with personality embedded in ambient workflow. | Differentiates "ops room you visit" from "system you live with." Texture layer. |
-| 4 | **Magilumière Magical Girls, Inc.** | Tonal lock. Magick-as-corporate-profession. The site reads as a B2B operational platform; the substrate happens to be cybernetic-magickal. Brand voice is the *agency*, not the protagonists. | Holds the seriousness lock. Prevents whimsy. |
-| 5 | **Stross, *Accelerando* — Manfred Macx + the flock** | Literary anchor. Prose register: terse, technically loaded, presupposing reader literacy. The manifesto-page voice. The "flock" term itself directly borrowed. | Manifesto and About-page surfaces; possibly a single literary epigraph on the homepage. |
+| Layer | Reference                                            | Role                                                                                                                                                                                                                     | Foregrounding                                                                           |
+| ----- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| 1     | **Ghost in the Shell, Stand Alone Complex**          | Primary visual + structural anchor. Cybernetic substrate, Tachikoma flock, Section 9 ops register, the Stand Alone Complex concept (independent agents converging on coordinated behavior — structurally Minsky's mesh). | Adoptable wholesale at the register layer. Eugene's deepest personal anchor.            |
+| 2     | **Evangelion**                                       | Backline cultural-salience. Magi terminal aesthetic when the system speaks. Sync-ratio metaphor for principal-flock coherence. NERV warning palette. Density-with-soul discipline.                                       | Audience-relevant cultural backbone. Drawn from, not literal.                           |
+| 3     | **Mitsuo Iso (_Orbital Children_, _Dennō Coil_)**    | Deep-cut texture. AR overlays integrated with daily life. Soft warm tones inside cybernetic register. AI companions with personality embedded in ambient workflow.                                                       | Differentiates "ops room you visit" from "system you live with." Texture layer.         |
+| 4     | **Magilumière Magical Girls, Inc.**                  | Tonal lock. Magick-as-corporate-profession. The site reads as a B2B operational platform; the substrate happens to be cybernetic-magickal. Brand voice is the _agency_, not the protagonists.                            | Holds the seriousness lock. Prevents whimsy.                                            |
+| 5     | **Stross, _Accelerando_ — Manfred Macx + the flock** | Literary anchor. Prose register: terse, technically loaded, presupposing reader literacy. The manifesto-page voice. The "flock" term itself directly borrowed.                                                           | Manifesto and About-page surfaces; possibly a single literary epigraph on the homepage. |
 
 ### Background-only references
 
-- **Operative Ontology corpus** — declarative-magick as substrate; servitor-as-agent. Informs the underlying metaphysics; stays internal per the principal's existing Locus-deferral discipline. *Notion: [`35e937f0-3cb4-81a3-9301-cb319cdc6cd2`](https://www.notion.so/35e937f03cb481a39301cb319cdc6cd2)*
-- **Ambient computing — Dynamicland, Folk Computer, *Blindsight* smart paint** — Locus-direction substrate inspiration. Not surfaced on Minsky's present-day site per the Locus-deferral discipline.
+- **Operative Ontology corpus** — declarative-magick as substrate; servitor-as-agent. Informs the underlying metaphysics; stays internal per the principal's existing Locus-deferral discipline. _Notion: [`35e937f0-3cb4-81a3-9301-cb319cdc6cd2`](https://www.notion.so/35e937f03cb481a39301cb319cdc6cd2)_
+- **Ambient computing — Dynamicland, Folk Computer, _Blindsight_ smart paint** — Locus-direction substrate inspiration. Not surfaced on Minsky's present-day site per the Locus-deferral discipline.
 
 ### Explicit rejects (calibrated 2026-05-19)
 
-| Reject | Reason |
-|---|---|
-| Pacific Rim | Eugene unfamiliar with the source; aesthetics read as "mid" to him; would be posing |
-| Gundam | Eugene unfamiliar with the source; would be posing |
-| Iron Man / JARVIS | Overdone in Instagram cloud-AI demos; would read as derivative |
-| Gurren Lagann | Available but not foregrounded; exuberance not aligned with Magilumiere tonal lock |
-| Mecha as literal imagery | Per bridge-as-affect: borrow at the register, never at the literal-character layer |
+| Reject                   | Reason                                                                              |
+| ------------------------ | ----------------------------------------------------------------------------------- |
+| Pacific Rim              | Eugene unfamiliar with the source; aesthetics read as "mid" to him; would be posing |
+| Gundam                   | Eugene unfamiliar with the source; would be posing                                  |
+| Iron Man / JARVIS        | Overdone in Instagram cloud-AI demos; would read as derivative                      |
+| Gurren Lagann            | Available but not foregrounded; exuberance not aligned with Magilumiere tonal lock  |
+| Mecha as literal imagery | Per bridge-as-affect: borrow at the register, never at the literal-character layer  |
 
 ### Brand vocabulary (locked)
 
-| Term | Source | Use |
-|---|---|---|
-| **Cyberbrain** | GitS | Category name. *"The cyberbrain for software orgs led by one mind."* |
-| **Stand Alone Complex** | GitS SAC | Operating principle for the mesh. Use carefully; not flag-waving. |
-| **Sync rate** / **sync ratio** | Eva | Principal-flock coherence metric. Recurring instrument motif. |
-| **Section** | GitS | Unit-of-operation noun. |
-| **Flock** | Stross | The multi-agent unit. Direct borrow from Macx. |
-| **Ghost** | GitS | Philosophical-continuity sense only; not spooky sense. |
-| **Servitor** | Operative Ontology | Footnote-only in foreground; manifesto register. |
-| **Substrate** | Eugene's existing vocabulary | Canonical; heavy use is fine. |
+| Term                           | Source                       | Use                                                                  |
+| ------------------------------ | ---------------------------- | -------------------------------------------------------------------- |
+| **Cyberbrain**                 | GitS                         | Category name. _"The cyberbrain for software orgs led by one mind."_ |
+| **Stand Alone Complex**        | GitS SAC                     | Operating principle for the mesh. Use carefully; not flag-waving.    |
+| **Sync rate** / **sync ratio** | Eva                          | Principal-flock coherence metric. Recurring instrument motif.        |
+| **Section**                    | GitS                         | Unit-of-operation noun.                                              |
+| **Flock**                      | Stross                       | The multi-agent unit. Direct borrow from Macx.                       |
+| **Ghost**                      | GitS                         | Philosophical-continuity sense only; not spooky sense.               |
+| **Servitor**                   | Operative Ontology           | Footnote-only in foreground; manifesto register.                     |
+| **Substrate**                  | Eugene's existing vocabulary | Canonical; heavy use is fine.                                        |
 
 ---
 
@@ -148,13 +148,15 @@ During the workshop (2026-05-19), Eugene mentioned a five-year Twitter corpus (8
 Three load-bearing tweets surfaced that show the brand thesis was already operating substrate in the corpus years before the workshop:
 
 1. **2022-06-24, exocortex-as-tribe (flock as social substrate):**
-   > *"a tribe is an exocortex, an extension of our Self into the social connectome; this is socially-embodied [cognition]"*
+
+   > _"a tribe is an exocortex, an extension of our Self into the social connectome; this is socially-embodied [cognition]"_
 
 2. **2023-05-08, cognitive engineering = applied cybernetics:**
-   > *"cognitive engineering is a modern revival of applied cybernetics, which thru a systems frame studied the information processing dynamics of various realworld systems — less a metaphor & more so a literal truth: we are engaged in nothing [less than that]"*
+
+   > _"cognitive engineering is a modern revival of applied cybernetics, which thru a systems frame studied the information processing dynamics of various realworld systems — less a metaphor & more so a literal truth: we are engaged in nothing [less than that]"_
 
 3. **2022-04-01, Operative Ontology corpus as a tweet:**
-   > *"magick is any tool you can use without understanding its operating principles. magick operates on interface (ritual) alone. magick is a reified abstraction, a stable world-compression"*
+   > _"magick is any tool you can use without understanding its operating principles. magick operates on interface (ritual) alone. magick is a reified abstraction, a stable world-compression"_
 
 **Implication for the brand:** the cyberbrain / Section 9 / exocortex frame is **not being grafted onto Minsky from the outside**. It has been the operating system of the principal's thinking for half a decade. The marketing site is recovering a coherence that already exists in the corpus.
 
@@ -214,7 +216,7 @@ Would the right reader recognize the borrowing without being told? If yes, ship 
 
 These are downstream tasks not part of mt#1927; the umbrella will be filed after this PR lands.
 
-1. **Position paper** in Notion under Minsky home — *"Position: Minsky's brand register — cyberbrain symbiosis as operative frame"*. Strategic doc-of-record. Cites Barthes / Oswald / Peirce + the Operative Ontology corpus + Macx + the layered references. Outlives every implementation.
+1. **Position paper** in Notion under Minsky home — _"Position: Minsky's brand register — cyberbrain symbiosis as operative frame"_. Strategic doc-of-record. Cites Barthes / Oswald / Peirce + the Operative Ontology corpus + Macx + the layered references. Outlives every implementation.
 2. **Brand-system doc** at `docs/brand-system.md` — operational reference with concrete tokens, type stack, color values, vocabulary inventory. Implementation-facing.
 3. **Brand-foundation skill** at `.claude/skills/minsky-brand/SKILL.md` — extracts the brand identity (cyberbrain code + layered references + register vocabulary) into a separately-consumable skill. `marketing-site-design` and `cockpit-design` then both reference this as their strategic anchor. Refactor existing skills to depend on it.
 4. **Minsky-site rebuild** at `~/Projects/minsky-site` — apply the locked brand to the actual marketing site. Phase-decomposed (foundation → hero → sections → polish).
@@ -225,7 +227,7 @@ These are downstream tasks not part of mt#1927; the umbrella will be filed after
    - Phase 1: Raw corpus → relevance-filtered → vector-indexed in a new `principal-corpus` namespace on Minsky's shared pgvector infra. New tool `principal_corpus_search` / `principal_corpus_similar`. Architectural decision: principal-scoped namespace, NOT mixed into `memory_search`.
    - Phase 2: Synthesized memeplex → ~15-25 cluster-level memory entries via `memory_create`, tagged `principal-thinking`, with tweet-ID citations.
 
-The 8 tasks belong under one umbrella: *"Minsky brand register: foundation + propagation"* (`kind: umbrella`).
+The 8 tasks belong under one umbrella: _"Minsky brand register: foundation + propagation"_ (`kind: umbrella`).
 
 ---
 
