@@ -978,11 +978,18 @@ export function classifyCompileCheckError(
   const stdout = execError.stdout ?? "";
   const stderr = execError.stderr ?? "";
 
-  // The CLI emits "[rules compile --check] Target "X" is STALE" to stdout
-  // only when it has verified the output is out-of-date. Any other non-zero
-  // exit is a compile-command failure unrelated to staleness.
-  const isGenuinelyStale =
-    stdout.includes("[rules compile --check]") && stdout.includes("is STALE");
+  // The CLI emits a line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE
+  // to stdout only when it has verified the output is out-of-date. Match this
+  // with a per-target line-anchored regex so that near-misses (e.g. a note
+  // about "previous run detected STALE files", or a STALE marker for a
+  // different target) do not count.
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const staleLineRe = new RegExp(
+    `\\[rules compile --check\\] Target "${escapedTarget}" is STALE`,
+    "m"
+  );
+  const isGenuinelyStale = staleLineRe.test(stdout);
 
   if (isGenuinelyStale) {
     return {
@@ -998,10 +1005,29 @@ export function classifyCompileCheckError(
   // what to fix — re-running "rules compile" will NOT help.
   const rawDetail = stderr.trim() || stdout.trim();
   const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
+
+  // Detect setup-incomplete: the CLI emits "Validation error: Developer setup incomplete"
+  // when the Minsky setup has not been run. Telling the operator to "regenerate" is
+  // misleading in that case — the correct action is to run the setup command.
+  const isSetupIncomplete = /Validation error: Developer setup incomplete/i.test(errorDetail);
+
   const indented = errorDetail
     .split("\n")
     .map((line) => `   ${line}`)
     .join("\n");
+
+  if (isSetupIncomplete) {
+    return {
+      logLines: [
+        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        indented,
+        `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
+        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+      ],
+      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+    };
+  }
+
   return {
     logLines: [
       `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,

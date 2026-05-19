@@ -12,6 +12,9 @@
 import { describe, test, expect } from "bun:test";
 import { classifyCompileCheckError } from "./pre-commit";
 
+/** Substring emitted by classifyCompileCheckError for non-staleness compile failures. */
+const NOT_STALENESS_MARKER = "not a staleness issue";
+
 /**
  * Build a mock exec error matching the shape Node.js `promisify(exec)` throws
  * when the subprocess exits non-zero.
@@ -52,8 +55,8 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
       // Must surface the actual underlying error
       expect(allOutput).toContain("Developer setup incomplete");
 
-      // Must flag this as a non-staleness failure
-      expect(allOutput).toContain("not a staleness issue");
+      // Must tell operator to run setup (BLOCKING #1 requirement)
+      expect(allOutput).toContain("setup --client");
 
       // Message should also reflect the error
       expect(result.message).toContain("failed");
@@ -113,7 +116,7 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
       expect(allOutput).toContain("is stale");
 
       // Must NOT claim this is a "compile failed" error
-      expect(allOutput).not.toContain("not a staleness issue");
+      expect(allOutput).not.toContain(NOT_STALENESS_MARKER);
       expect(allOutput).not.toContain("Fix the error above");
 
       // Message should describe staleness
@@ -144,6 +147,118 @@ describe("classifyCompileCheckError — mt#1940 acceptance tests", () => {
 
       // Staleness message must contain stale indicator
       expect(stalenessResult.message).toContain("stale");
+    });
+  });
+
+  describe("BLOCKING #1 — setup-incomplete remediation message", () => {
+    test("setup-incomplete stderr triggers minsky setup --client hint", () => {
+      const error = makeExecError({
+        stderr: "Validation error: Developer setup incomplete. Run `minsky setup` first.",
+        stdout: "",
+      });
+
+      const result = classifyCompileCheckError(error, "agents.md");
+      const allOutput = result.logLines.join("\n");
+
+      // Must NOT suggest regenerating
+      expect(allOutput).not.toContain("regenerate");
+
+      // Must tell operator to run minsky setup --client
+      expect(allOutput).toContain("setup --client");
+
+      // Must surface the actual error detail
+      expect(allOutput).toContain("Developer setup incomplete");
+    });
+
+    test("setup-incomplete match is case-insensitive", () => {
+      const error = makeExecError({
+        stderr: "validation error: developer setup incomplete",
+        stdout: "",
+      });
+
+      const result = classifyCompileCheckError(error, "claude.md");
+      const allOutput = result.logLines.join("\n");
+
+      expect(allOutput).toContain("setup --client");
+    });
+
+    test("setup-incomplete in stdout also triggers hint", () => {
+      // Some error outputs come through stdout
+      const error = makeExecError({
+        stdout: "Validation error: Developer setup incomplete. Please run setup.",
+        stderr: "",
+      });
+
+      const result = classifyCompileCheckError(error, "cursor-rules");
+      const allOutput = result.logLines.join("\n");
+
+      expect(allOutput).toContain("setup --client");
+      expect(allOutput).not.toContain("regenerate");
+    });
+  });
+
+  describe("BLOCKING #2 — line-anchored stale detection for correct target only", () => {
+    test("stale-looking note for previous run does NOT classify as stale", () => {
+      // Near-miss: contains 'STALE' and '[rules compile --check]' but
+      // it is a diagnostic note, not the exact per-target stale marker.
+      const error = makeExecError({
+        stdout: "[rules compile --check] note: previous run detected STALE files",
+        stderr: "",
+      });
+
+      const result = classifyCompileCheckError(error, "agents.md");
+      const allOutput = result.logLines.join("\n");
+
+      // Must NOT be treated as genuine staleness
+      expect(allOutput).not.toContain("is stale");
+      // Must be treated as a compile failure
+      expect(allOutput).toContain(NOT_STALENESS_MARKER);
+    });
+
+    test("stale marker for a DIFFERENT target does NOT classify as stale", () => {
+      // stdout has the stale marker for "claude.md" but we are checking "agents.md"
+      const error = makeExecError({
+        stdout: '[rules compile --check] Target "claude.md" is STALE',
+        stderr: "",
+      });
+
+      const result = classifyCompileCheckError(error, "agents.md");
+      const allOutput = result.logLines.join("\n");
+
+      // Must NOT classify as staleness for agents.md
+      expect(allOutput).toContain(NOT_STALENESS_MARKER);
+      expect(allOutput).not.toContain('Run "bun run minsky rules compile --target agents.md"');
+    });
+
+    test("stale marker for the CORRECT target DOES classify as stale", () => {
+      const error = makeExecError({
+        stdout: '[rules compile --check] Target "agents.md" is STALE',
+        stderr: "",
+      });
+
+      const result = classifyCompileCheckError(error, "agents.md");
+      const allOutput = result.logLines.join("\n");
+
+      expect(allOutput).toContain("is stale");
+      expect(allOutput).toContain("regenerate");
+      expect(allOutput).not.toContain(NOT_STALENESS_MARKER);
+    });
+
+    test("stderr validation error alongside stale-looking stdout classifies as non-staleness", () => {
+      // Actual stderr has a validation error; stdout happens to look stale-ish
+      // but is NOT the exact per-target marker.
+      const error = makeExecError({
+        stdout: "[rules compile --check] note: previous run detected STALE files",
+        stderr: "Validation error: some other problem",
+      });
+
+      const result = classifyCompileCheckError(error, "agents.md");
+      const allOutput = result.logLines.join("\n");
+
+      // Should surface the actual stderr error
+      expect(allOutput).toContain("some other problem");
+      // Should be flagged as a non-staleness failure
+      expect(allOutput).toContain(NOT_STALENESS_MARKER);
     });
   });
 });
