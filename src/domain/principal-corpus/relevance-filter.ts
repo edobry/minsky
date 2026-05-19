@@ -33,6 +33,11 @@ export interface ClassifyOptions {
   relevanceThreshold?: number;
   /** Hard upper bound on tweets to classify (debug). */
   limit?: number;
+  /**
+   * Emit a one-line progress log every N completed tweets. Default 100.
+   * Set to 0 to disable.
+   */
+  progressEvery?: number;
 }
 
 export interface ClassifyResult {
@@ -93,6 +98,24 @@ export async function classifyAndFilterTweets(
   const classifications = new Map<string, TweetClassification>();
   let failed = 0;
   let i = 0;
+  let completed = 0;
+  const progressEvery = opts.progressEvery ?? 100;
+  const startedAt = Date.now();
+
+  function noteProgress() {
+    completed++;
+    if (progressEvery > 0 && completed % progressEvery === 0) {
+      const elapsedSec = (Date.now() - startedAt) / 1000;
+      const rate = elapsedSec > 0 ? (completed / elapsedSec).toFixed(2) : "?";
+      const etaSec =
+        elapsedSec > 0 ? ((slice.length - completed) / (completed / elapsedSec)).toFixed(0) : "?";
+      // Emit to stdout directly so the line shows up immediately in piped logs
+      // (avoid log.* which may route through a structured channel).
+      process.stdout.write(
+        `[relevance-filter] progress: ${completed}/${slice.length} classified, failed=${failed}, ${rate}/sec, eta ${etaSec}s\n`
+      );
+    }
+  }
 
   const worker = async () => {
     while (true) {
@@ -123,6 +146,7 @@ export async function classifyAndFilterTweets(
           error: lastErr instanceof Error ? lastErr.message : String(lastErr),
         });
       }
+      noteProgress();
     }
   };
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
