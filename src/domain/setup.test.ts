@@ -15,7 +15,7 @@ import { parse as yamlParse } from "yaml";
 import { setupTestMocks } from "../utils/test-utils/mocking";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 import { performSetup } from "./setup";
-import { configurationSchema } from "./configuration/schemas";
+import { workspaceConfigSchema } from "./configuration/schemas";
 import type { FsLike } from "./interfaces/fs-like";
 
 setupTestMocks();
@@ -110,12 +110,15 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
   const clients = ["cursor", "claude-desktop", "codex", "vscode"] as const;
 
   for (const client of clients) {
-    test(`--client ${client}: written YAML is accepted by configurationSchema`, async () => {
-      const fs = makeMockFs();
-      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, fs);
+    test(`--client ${client}: written YAML workspace section is accepted by workspaceConfigSchema`, async () => {
+      const mockFs = makeMockFs();
+      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs);
 
-      const parsed = readLocalConfig(fs);
-      const result = configurationSchema.safeParse(parsed);
+      // config.local.yaml only contains the workspace overlay — validate that
+      // sub-object against workspaceConfigSchema rather than the full root schema
+      // (which accepts any partial config because all its fields are optional).
+      const parsed = readLocalConfig(mockFs);
+      const result = workspaceConfigSchema.safeParse(parsed.workspace);
 
       expect(result.success).toBe(true);
       if (!result.success) {
@@ -123,15 +126,15 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
         const issues = result.error.issues
           .map((i) => `${i.path.join(".")}: ${i.message}`)
           .join("\n");
-        throw new Error(`Config validation failed for client=${client}:\n${issues}`);
+        throw new Error(`workspace config validation failed for client=${client}:\n${issues}`);
       }
     });
 
     test(`--client ${client}: harness is written under workspace.harness, not at root`, async () => {
-      const fs = makeMockFs();
-      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, fs);
+      const mockFs = makeMockFs();
+      await performSetup({ repoPath: REPO_PATH, client, overwrite: true }, mockFs);
 
-      const parsed = readLocalConfig(fs);
+      const parsed = readLocalConfig(mockFs);
 
       // Root-level `harness` key must be absent
       expect(Object.keys(parsed)).not.toContain("harness");
@@ -146,19 +149,19 @@ describe("performSetup — config.local.yaml schema round-trip (mt#1939)", () =>
 
 describe("performSetup — baseline behaviour", () => {
   test("writes workspace.mainPath to the repo path", async () => {
-    const fs = makeMockFs();
-    await performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, fs);
+    const mockFs = makeMockFs();
+    await performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, mockFs);
 
-    const parsed = readLocalConfig(fs);
+    const parsed = readLocalConfig(mockFs);
     const workspace = parsed.workspace as Record<string, unknown> | undefined;
     expect(workspace?.mainPath).toBe(REPO_PATH);
   });
 
   test("returns success with localConfigPath and client", async () => {
-    const fs = makeMockFs();
+    const mockFs = makeMockFs();
     const result = await performSetup(
       { repoPath: REPO_PATH, client: "cursor", overwrite: true },
-      fs
+      mockFs
     );
 
     expect(result.success).toBe(true);
@@ -167,12 +170,12 @@ describe("performSetup — baseline behaviour", () => {
   });
 
   test("throws when .minsky/config.yaml does not exist", async () => {
-    const fs = makeMockFs();
+    const mockFs = makeMockFs();
     // Remove the project config so the guard fires
-    fs.deleteFile(CONFIG_YAML_PATH);
+    mockFs.deleteFile(CONFIG_YAML_PATH);
 
     await expect(
-      performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, fs)
+      performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, mockFs)
     ).rejects.toThrow("No .minsky/config.yaml found");
   });
 });
