@@ -176,3 +176,7 @@ The 2026-05 analysis (Composio / Cursor / Factory) is the canonical first instan
 - Anti-pattern citation: Pepsi "Breathtaking" document (Arnell Group, 2008) — [archived PDF](https://www.goldennumber.net/wp-content/uploads/pepsi-arnell-021109.pdf), [Ad Age coverage](https://adage.com/article/agency-news/breathtaking-word-purported-arnell-pepsi-doc/134552/), [Fast Company](https://www.fastcompany.com/1160304/pepsi-logo-design-brief-branding-lunacy-max)
 - Originating session: 2026-05-18/19 brand workshop in mt#1927; methodology was originally embedded in `marketing-site-design/SKILL.md` and extracted into this standalone skill on 2026-05-19 via mt#1944.
 - mt#1944 — extraction task
+
+---
+
+**Extracted 2026-05-19 (mt#1944):** This skill was originally a set of sections inside `marketing-site-design/SKILL.md` (§3 framework, §2 Pepsi/Arnell trap, §4 bridge-as-affect, the implicit per-analysis workflow, the two-idiom synthesis). Extracted into a standalone skill so the methodology is invokable for any adjacent-product read (RFC support, competitive analysis, build-vs-buy decisions), not only for marketing-positioning work. The Composio / Cursor / Factory worked example was moved with the methodology to `references/case-studies-2026-05.md`. No semantic changes to the methodology itself.
