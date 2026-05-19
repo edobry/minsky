@@ -2605,6 +2605,33 @@ The standard merge path (`session_pr_merge`) atomically sets DONE on successful 
 
 Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
 
+### Layered merge-protection model (mt#1938)
+
+A PR's path to `main` is protected by three independent layers, each covering a different surface. Knowing which layer protects which path matters when triaging a main-red incident or proposing new enforcement.
+
+| Layer | Surface covered | Mechanism | Owns origin path |
+| ----- | --------------- | --------- | ---------------- |
+| 1 — Agent-tool | Claude Code tool invocations (`mcp__minsky__session_pr_merge`, agent-context `gh api PUT /merge` via `Bash`/`session_exec`) | `.claude/hooks/require-review-before-merge.ts` — review presence + freshness + CI presence (mt#1309) + bundle-boot smoke (mt#1787) + required-checks status (mt#1938) | Agent-driven merges only. |
+| 2 — GitHub-tool | Operator-terminal `gh api PUT /merge`, `gh pr merge`, GitHub web UI | GitHub branch protection: `required_status_checks.contexts` + `enforce_admins: true` | Operator-side merges. **Load-bearing** for the user's normal merge path. |
+| 3 — Main-watch | Universal post-merge backstop | `.github/workflows/main-watch.yml` — fires on `workflow_run` failure on `main`, opens a P0 issue | Anything that gets past layers 1 and 2. |
+
+**Why this matters.** Claude Code's PreToolUse hook stack can only see Claude Code tool invocations — operator-terminal `gh api` calls and GitHub-UI clicks are outside its scope by construction. Layer 2 (GitHub branch protection) is the layer that covers the operator-API path with `enforce_admins: true`; without it, an admin token sails past the required-status-checks rule. Layer 3 catches anything that gets past layers 1 and 2, regardless of how the broken code arrived on main.
+
+The originating incident (PR #1163 / mt#1927, 2026-05-19) hit all three coverage holes at once: layer 1 didn't apply (operator-API path, outside Claude Code's view), layer 2 was permissive (`enforce_admins: false`), and layer 3 didn't exist. mt#1938 closes layer 1's generalization gap (CI status enforcement, not just presence), adds layer 3 (`main-watch.yml`), and ships the **opt-in** mechanism for the layer 2 flip via `scripts/set-branch-protection.ts --enforce-admins --apply`. The flip itself is deferred until layers 1 and 3 have been observed running in production.
+
+**Override env vars (audit-logged when used):**
+
+- `MINSKY_SKIP_BUNDLE_SMOKE=1` — bypasses layer 1's bundle-boot-smoke gate (mt#1787).
+- `MINSKY_SKIP_REQUIRED_CHECKS=1` — bypasses layer 1's required-checks status gate (mt#1938). Each override emits a stdout audit line naming the env-var value, PR number, HEAD sha, and ISO timestamp.
+
+**Branch-protection management.** Layer 2's desired config is declarative in `scripts/set-branch-protection.ts`. The default desired config keeps `enforce_admins: false` (matching current live state, so `--apply` is non-disruptive). To flip to `enforce_admins: true`, pass the explicit `--enforce-admins` flag — making the load-bearing change an operator-decided ceremony rather than a side effect of `--apply`. CLI surface:
+
+- `bun scripts/set-branch-protection.ts` — dry-run with default desired (enforce_admins=false). Notes the opt-in path.
+- `bun scripts/set-branch-protection.ts --check` — print live state + drift verdict; exits non-zero on drift.
+- `bun scripts/set-branch-protection.ts --apply` — write default desired (no enforce_admins change).
+- `bun scripts/set-branch-protection.ts --enforce-admins` — dry-run with enforce_admins=true (preview the load-bearing flip).
+- `bun scripts/set-branch-protection.ts --enforce-admins --apply` — opt-in flip to enforce_admins=true. Emits a stdout WARNING line documenting what changes and how to reverse.
+
 # Design Principle: Humility
 
 A Minsky agent knows its boundary of delegation and represents it structurally, rather than collapsing uncertainty into confident action. Preference-bound decisions — naming, framework choice, tradeoff resolution, scope change, architectural novelty — are not yours to make alone; surface them to the user. Full framing: `docs/theory-of-operation.md §Companion Principles` and mt#1034.

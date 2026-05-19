@@ -23,7 +23,7 @@ user-invocable: true
 
 You are designing or auditing a marketing surface for Minsky (`~/Projects/minsky-site` or any future microsite, launch page, or campaign page). The vendored Tier-1 skills cover visual quality, IA, engineering stack, SEO, and motion. The sibling `analyze-adjacent-product` skill encodes the Peirce-Barthes-Oswald semiotic framework for reading other brands. This skill adds the layer those do not: **which myth is Minsky naturalizing, which cultural code does that myth live in, and which signs instantiate that code at the visual layer.**
 
-If you are pattern-matching against "what other AI startup sites look like" before deciding what Minsky's site is *for*, stop. That order of operations produces the Pepsi/Arnell trap (see Section 2). The order is: pick the myth, identify the cultural code that carries the myth, then choose the signs that instantiate the code.
+If you are pattern-matching against "what other AI startup sites look like" before deciding what Minsky's site is _for_, stop. That order of operations produces the Pepsi/Arnell trap (see Section 2). The order is: pick the myth, identify the cultural code that carries the myth, then choose the signs that instantiate the code.
 
 ## When to invoke
 
@@ -32,11 +32,11 @@ If you are pattern-matching against "what other AI startup sites look like" befo
 - Auditing an existing marketing surface against the locked brand register
 - Workshopping a brand positioning myth before committing to a visual direction
 - Reviewing a design proposal that arrived without explicit myth-statement
-- *(For analyzing an adjacent product's marketing site, use the sibling skill `analyze-adjacent-product` instead — this skill consumes that one's output.)*
+- _(For analyzing an adjacent product's marketing site, use the sibling skill `analyze-adjacent-product` instead — this skill consumes that one's output.)_
 
 ## 1. Pick the myth before the visuals
 
-The first design decision is not a font, a color, or a layout. It is the **myth the brand is naturalizing** — the second-order signification (per Barthes) where culturally-constructed meanings get *naturalized* and made to seem obviously true. The framework that defines myth and the surrounding semiotic vocabulary lives in `analyze-adjacent-product` SKILL.md Section 1 (Peirce icon/index/symbol + Barthes denotation/connotation/myth + Oswald cultural codes). Read that section first if you don't have the framework loaded.
+The first design decision is not a font, a color, or a layout. It is the **myth the brand is naturalizing** — the second-order signification (per Barthes) where culturally-constructed meanings get _naturalized_ and made to seem obviously true. The framework that defines myth and the surrounding semiotic vocabulary lives in `analyze-adjacent-product` SKILL.md Section 1 (Peirce icon/index/symbol + Barthes denotation/connotation/myth + Oswald cultural codes). Read that section first if you don't have the framework loaded.
 
 Skipping straight to "what should the hero look like" without first naming the myth means you are instantiating a myth by accident — usually the dominant default of your category, which is rarely the myth that differentiates.
 
@@ -58,9 +58,9 @@ Applied to Minsky: the Cyberbrain / Section 9 code is emergent (no current AI-to
 
 Empirical observation from the 2026-05 three-way analysis (full version in `analyze-adjacent-product/references/case-studies-2026-05.md`):
 
-**Idiom A — Motion-decorated infographic** (exemplar: Composio): WebGL shader, centered headlines, multi-color saturated tiles, decorative animation, premium paid typeface. Sells *concept*. Used when the product is invisible plumbing.
+**Idiom A — Motion-decorated infographic** (exemplar: Composio): WebGL shader, centered headlines, multi-color saturated tiles, decorative animation, premium paid typeface. Sells _concept_. Used when the product is invisible plumbing.
 
-**Idiom B — Product-screenshot dominant, restrained** (exemplars: Cursor, Factory): static/near-static hero, left-caption + right-product-screenshot, monochrome dark with minimal accent, real product UI as dominant visual element, free or commissioned typeface, muted customer-logo row. Sells *the actual product*. Used when the product has surfaces worth showing.
+**Idiom B — Product-screenshot dominant, restrained** (exemplars: Cursor, Factory): static/near-static hero, left-caption + right-product-screenshot, monochrome dark with minimal accent, real product UI as dominant visual element, free or commissioned typeface, muted customer-logo row. Sells _the actual product_. Used when the product has surfaces worth showing.
 
 Minsky is in the Idiom-B camp. The CLI, MCP tool calls, cockpit, reviewer-bot PR comments, task graph, memory recall — these are the surfaces that should carry the pitch. Decorative motion would substitute for product proof Minsky already has.
 
@@ -68,13 +68,13 @@ Minsky is in the Idiom-B camp. The CLI, MCP tool calls, cockpit, reviewer-bot PR
 
 From the 2026-05 analysis, the visual codes already in active use in adjacent AI-tool marketing:
 
-| Code | Exemplars | Visual signature |
-|---|---|---|
-| Consumer-tech polish | Composio, Notion AI, OpenAI Platform | saturated multicolor, premium grotesque, WebGL hero, designer-tech genealogy |
-| Serious IDE / developer tool | Cursor, Aider, Continue | dark monochrome, IDE screenshot dominant, restrained type, named-individual testimonials |
-| Industrial infrastructure | Factory, Railway, Render | pure black, all-caps signage, terminal aesthetic, deploy-platform genealogy |
-| AI futurism | OpenAI, Anthropic, Mistral | abstract shader gradients, minimal copy, conceptual rather than product-shown |
-| Mission-control / instrument-panel | (underclaimed in AI tooling) | Bloomberg Terminal, NASA mission-ops, ATC, SCADA — appropriate for the cockpit WIDGET; not the site myth |
+| Code                               | Exemplars                            | Visual signature                                                                                         |
+| ---------------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Consumer-tech polish               | Composio, Notion AI, OpenAI Platform | saturated multicolor, premium grotesque, WebGL hero, designer-tech genealogy                             |
+| Serious IDE / developer tool       | Cursor, Aider, Continue              | dark monochrome, IDE screenshot dominant, restrained type, named-individual testimonials                 |
+| Industrial infrastructure          | Factory, Railway, Render             | pure black, all-caps signage, terminal aesthetic, deploy-platform genealogy                              |
+| AI futurism                        | OpenAI, Anthropic, Mistral           | abstract shader gradients, minimal copy, conceptual rather than product-shown                            |
+| Mission-control / instrument-panel | (underclaimed in AI tooling)         | Bloomberg Terminal, NASA mission-ops, ATC, SCADA — appropriate for the cockpit WIDGET; not the site myth |
 
 **Minsky's primary lane (locked 2026-05-19):** **Cyberbrain / Section 9** — an autonomous-flock cybernetic substrate that extends a principal's cognition, rendered as a serious operational profession. Available white-space in the AI-tool category; native to Minsky's existing intellectual substrate.
 
@@ -82,14 +82,14 @@ The code is anchored at the intersection of five references — none of which th
 
 - **Ghost in the Shell, Stand Alone Complex** (primary visual + structural anchor): cybernetic substrate, autonomous-companion AI (Tachikomas), Section 9 ops register, the Stand Alone Complex concept itself (independent agents converging on coordinated behavior). Minsky's mesh is structurally a Stand Alone Complex; the flock is the Tachikoma frame.
 - **Evangelion** (backline; cultural salience to the Eva-sensitive audience): Magi terminal aesthetic when the system speaks, sync ratio as a metaphor for principal-flock coherence, NERV warning palette for hook denials, density-without-decoration discipline.
-- **Mitsuo Iso's *Orbital Children* + *Dennō Coil*** (deep-cut texture): AR overlays integrated with daily life, soft warm tones, AI companions with personality embedded in ambient workflow. Differentiates the register from "ops room you visit" to "system you live with."
-- **Magilumière Magical Girls, Inc.** (tonal lock): magick-as-corporate-profession. The site reads as a B2B operational platform for serious work; the substrate happens to be cybernetic-magickal. The brand voice is the *agency*, not the protagonists.
-- **Stross, *Accelerando***, Manfred Macx and the flock (literary anchor): prose register. Terse, technically loaded, presupposing reader literacy. The manifesto-page register.
+- **Mitsuo Iso's _Orbital Children_ + _Dennō Coil_** (deep-cut texture): AR overlays integrated with daily life, soft warm tones, AI companions with personality embedded in ambient workflow. Differentiates the register from "ops room you visit" to "system you live with."
+- **Magilumière Magical Girls, Inc.** (tonal lock): magick-as-corporate-profession. The site reads as a B2B operational platform for serious work; the substrate happens to be cybernetic-magickal. The brand voice is the _agency_, not the protagonists.
+- **Stross, _Accelerando_**, Manfred Macx and the flock (literary anchor): prose register. Terse, technically loaded, presupposing reader literacy. The manifesto-page register.
 
 **Background-only, NOT foreground:**
 
-- **Operative Ontology corpus** (declarative-magick as substrate; *Notion `35e937f0-3cb4-81a3-9301-cb319cdc6cd2`*): informs the underlying metaphysics. Footnote-only in present-day pitches.
-- **Ambient computing** (Dynamicland, Folk Computer, *Blindsight* smart paint): Locus-direction long-term substrate inspiration. Background only per existing Locus-deferral discipline.
+- **Operative Ontology corpus** (declarative-magick as substrate; _Notion `35e937f0-3cb4-81a3-9301-cb319cdc6cd2`_): informs the underlying metaphysics. Footnote-only in present-day pitches.
+- **Ambient computing** (Dynamicland, Folk Computer, _Blindsight_ smart paint): Locus-direction long-term substrate inspiration. Background only per existing Locus-deferral discipline.
 
 **Explicit rejects** (specific references Eugene calibrated out 2026-05-19): Pacific Rim (audience unfamiliarity), Gundam (operator unfamiliarity — no posing), Iron Man / JARVIS (overdone in Instagram demos), Gurren Lagann (not foregrounded).
 
@@ -100,32 +100,33 @@ The five references invoked at section 5 are NOT a list to pick one from. They a
 The intersection: **professional cybernetic-cognitive substrate where the principal extends through a coordinated flock.**
 
 No single reference carries all of it:
+
 - GitS supplies the cybernetic substrate + autonomous-flock-coordination structure
 - Eva supplies the sync-as-principal-substrate metric + system-as-personality with soul
 - Iso supplies the AR-companion warmth that humanizes the cybernetic register
 - Magilumiere supplies the agency-as-employer / work-as-profession tonal lock
 - Macx supplies the literary register and the "extension-of-self" proposition
 
-When designing any Minsky marketing surface, the question to ask is: *does this choice carry the intersection, or just one of the codes?* If it carries only one (e.g., a literal GitS reference without the Iso warmth), it's pastiche. The brand identity lives in the layered blend.
+When designing any Minsky marketing surface, the question to ask is: _does this choice carry the intersection, or just one of the codes?_ If it carries only one (e.g., a literal GitS reference without the Iso warmth), it's pastiche. The brand identity lives in the layered blend.
 
 ## 7. Vendored Tier-1 skill bundle
 
 The marketing-site-design umbrella complements these skills (already present in `.claude/skills/`):
 
-| Skill | Covers | When to invoke during marketing-site work |
-|---|---|---|
-| `analyze-adjacent-product` | Semiotic analysis methodology (Peirce-Barthes-Oswald + Chrome DevTools capture + per-analysis template) | When reading a competitor's surface to inform positioning decisions (Section 9 workshop Step 4) |
-| `impeccable` | Visual quality audit, design polish, anti-patterns | After draft, before commit — does this read as production-grade? |
-| `frontend-design` (Anthropic) | Distinctive frontend interfaces, anti-AI-slop | When generating marketing-page React/Astro components |
-| `web-design-guidelines` | Web Interface Guidelines, accessibility, UX | Always — accessibility floor for any public surface |
-| `plan-design-review` | Designer's-eye plan critique, 0-10 dimension rating | Before implementing any new section — rate the plan, fix to 10 |
-| `information-architecture` | Section structure, hierarchy, navigation model | When deciding page IA, section ordering |
-| `engineering-writing` | Long-form argumentative prose, technical voice | For position-paper landing pages, manifesto sections, about pages |
-| `seo-skill` (vendored 2026-05-19) | Static-site meta/OG/JSON-LD/sitemap/robots | After draft, before launch — discoverability floor |
-| `motion-framer` (vendored 2026-05-19) | Framer Motion patterns for ambient identity motion, scroll reveals | When implementing the motion budget (see section 8) |
-| `tailwind-v4-shadcn` | Tailwind v4 + shadcn/ui setup | If using shadcn for component primitives |
-| `react-best-practices` | React/Next.js performance patterns | For Astro islands or Next.js page implementation |
-| `composition-patterns` | React composition (compound components, render props) | When building reusable section primitives (Hero, FeatureRow, etc.) |
+| Skill                                 | Covers                                                                                                  | When to invoke during marketing-site work                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `analyze-adjacent-product`            | Semiotic analysis methodology (Peirce-Barthes-Oswald + Chrome DevTools capture + per-analysis template) | When reading a competitor's surface to inform positioning decisions (Section 9 workshop Step 4) |
+| `impeccable`                          | Visual quality audit, design polish, anti-patterns                                                      | After draft, before commit — does this read as production-grade?                                |
+| `frontend-design` (Anthropic)         | Distinctive frontend interfaces, anti-AI-slop                                                           | When generating marketing-page React/Astro components                                           |
+| `web-design-guidelines`               | Web Interface Guidelines, accessibility, UX                                                             | Always — accessibility floor for any public surface                                             |
+| `plan-design-review`                  | Designer's-eye plan critique, 0-10 dimension rating                                                     | Before implementing any new section — rate the plan, fix to 10                                  |
+| `information-architecture`            | Section structure, hierarchy, navigation model                                                          | When deciding page IA, section ordering                                                         |
+| `engineering-writing`                 | Long-form argumentative prose, technical voice                                                          | For position-paper landing pages, manifesto sections, about pages                               |
+| `seo-skill` (vendored 2026-05-19)     | Static-site meta/OG/JSON-LD/sitemap/robots                                                              | After draft, before launch — discoverability floor                                              |
+| `motion-framer` (vendored 2026-05-19) | Framer Motion patterns for ambient identity motion, scroll reveals                                      | When implementing the motion budget (see section 8)                                             |
+| `tailwind-v4-shadcn`                  | Tailwind v4 + shadcn/ui setup                                                                           | If using shadcn for component primitives                                                        |
+| `react-best-practices`                | React/Next.js performance patterns                                                                      | For Astro islands or Next.js page implementation                                                |
+| `composition-patterns`                | React composition (compound components, render props)                                                   | When building reusable section primitives (Hero, FeatureRow, etc.)                              |
 
 ## 8. The Minsky-specific layer — concrete decisions from the locked code
 
@@ -153,14 +154,14 @@ See Section 5 for the reference set and rationale. See `references/minsky-myth-2
 - **Text:** near-white around `rgb(238, 238, 238)`.
 - **Primary accent (signal):** cyan — channeling GitS Section 9 ops palette. Used for active status, links, sync indicators, "live" dots.
 - **Warning / blocked / escalation accent:** amber moving toward NERV-red. Used sparingly for hook denials, blocked actions, escalation alerts.
-- **Iso-pastel warmth:** allowed *very* sparingly, in surfaces where an agent's companion-personality is being shown (e.g., agent identity indicators in product screenshots).
+- **Iso-pastel warmth:** allowed _very_ sparingly, in surfaces where an agent's companion-personality is being shown (e.g., agent identity indicators in product screenshots).
 - **Reject** multi-color saturation. Composio's blue+pink+cyan+green palette is the anti-pattern.
 
 ### Layout pattern
 
 - **Hero:** left-aligned caption column + right-aligned product proof. Never centered.
 - **Sections:** alternating left/right caption + product screenshot.
-- **Customer logo strip:** single muted row of **co-product logos** (Claude Code / Cursor / Codex / MCP / GitHub / Notion / Railway) framed as *"Minsky composes with"*, not *"trusted by."* Minsky doesn't yet have public customer logos.
+- **Customer logo strip:** single muted row of **co-product logos** (Claude Code / Cursor / Codex / MCP / GitHub / Notion / Railway) framed as _"Minsky composes with"_, not _"trusted by."_ Minsky doesn't yet have public customer logos.
 - **No sticky-numbered-nav + colored-tile-panel section pattern.** That's Idiom A's signature.
 
 ### Motion budget
@@ -189,32 +190,32 @@ Each scene is a real screenshot or terminal recording, not a mockup. The site is
 
 - **Manifesto / About page voice:** Macx prose. Terse, technically loaded, presupposing literacy. Sentences that assume you already know.
 - **Section headlines:** three- to four-word conceptual. Examples to noodle on:
-  - *"Tasks that converge"*
-  - *"Reviews that hold"*
-  - *"Memory that compounds"*
-  - *"Attention that allocates"*
-  - *"Hooks that catch"*
-  - *"Asks that escalate"*
+  - _"Tasks that converge"_
+  - _"Reviews that hold"_
+  - _"Memory that compounds"_
+  - _"Attention that allocates"_
+  - _"Hooks that catch"_
+  - _"Asks that escalate"_
 - **Sentence case, present tense, no exclamation.**
 - **All-caps for structural labels only** (nav, eyebrows, numbered section markers).
 - **Avoid SaaS hyperbole** ("the future of," "transforms your," "supercharge your," "from your first X to your IPO").
-- **Magilumiere tonal lock:** brand voice is the *agency* operating the magickal substrate, not the *protagonists*. Serious B2B operational platform; substrate happens to be cybernetic-magickal. The whimsy stays at the *reference* layer; the surface is professional.
+- **Magilumiere tonal lock:** brand voice is the _agency_ operating the magickal substrate, not the _protagonists_. Serious B2B operational platform; substrate happens to be cybernetic-magickal. The whimsy stays at the _reference_ layer; the surface is professional.
 - **Peer-to-peer, not vendor-to-buyer.** The reader is a principal; address them as one.
 
 ### Brand vocabulary (locked 2026-05-19)
 
 Specific terms the site can use, drawn from the layered references:
 
-| Term | Source | Use |
-|---|---|---|
-| **Cyberbrain** | GitS | The substrate Minsky is. Category name. *"The cyberbrain for software orgs led by one mind."* |
-| **Stand Alone Complex** | GitS SAC | Operating principle for the mesh — independent agents converging on coordinated behavior. Use carefully; not as flag-waving reference. |
-| **Sync rate** / **sync ratio** | Eva | Metric vocabulary for principal-flock coherence. A recurring instrument motif. |
-| **Section** | GitS | Unit-of-operation noun (a Section runs a specific workstream). |
-| **Flock** | Stross | The multi-agent unit. Direct borrow from Macx. |
-| **Ghost** | GitS | Used carefully — the philosophical-continuity sense (the principal's continuity of self through substrate), NOT the spooky sense. |
-| **Servitor** | Operative Ontology corpus | Footnote-only in foreground; used in manifesto / About-page register. |
-| **Substrate** | Eugene's existing vocabulary | The thing Minsky is. Heavy use is fine — it's already canonical. |
+| Term                           | Source                       | Use                                                                                                                                    |
+| ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **Cyberbrain**                 | GitS                         | The substrate Minsky is. Category name. _"The cyberbrain for software orgs led by one mind."_                                          |
+| **Stand Alone Complex**        | GitS SAC                     | Operating principle for the mesh — independent agents converging on coordinated behavior. Use carefully; not as flag-waving reference. |
+| **Sync rate** / **sync ratio** | Eva                          | Metric vocabulary for principal-flock coherence. A recurring instrument motif.                                                         |
+| **Section**                    | GitS                         | Unit-of-operation noun (a Section runs a specific workstream).                                                                         |
+| **Flock**                      | Stross                       | The multi-agent unit. Direct borrow from Macx.                                                                                         |
+| **Ghost**                      | GitS                         | Used carefully — the philosophical-continuity sense (the principal's continuity of self through substrate), NOT the spooky sense.      |
+| **Servitor**                   | Operative Ontology corpus    | Footnote-only in foreground; used in manifesto / About-page register.                                                                  |
+| **Substrate**                  | Eugene's existing vocabulary | The thing Minsky is. Heavy use is fine — it's already canonical.                                                                       |
 
 ### Customer-logo / co-product-logo strategy
 
@@ -226,7 +227,7 @@ Minsky does not yet have public customer logos. Substitute with **co-product log
 - Railway (deploy)
 - Bun (runtime)
 
-Frame as *"Minsky composes with"* — borrows credibility from the named products without claiming customers that do not yet exist.
+Frame as _"Minsky composes with"_ — borrows credibility from the named products without claiming customers that do not yet exist.
 
 ## 9. Workshop process — how to pick Minsky's (or any Minsky-surface's) myth
 
@@ -249,10 +250,10 @@ Use this when pairing with the operator (or self-running) to pick the myth befor
 
 For each candidate myth:
 
-- Is it *contestable*? (Would a buyer disagree before encountering the site? Would a competitor find it awkward to claim?)
-- Is it *carried by the actual product*? (Can the product surfaces in section 8 instantiate this myth?)
-- Is it *durable*? (Will it still be true and important in 2-3 years?)
-- Is it *aligned with the principal's investment*? (Does the operator want to spend years naturalizing this proposition?)
+- Is it _contestable_? (Would a buyer disagree before encountering the site? Would a competitor find it awkward to claim?)
+- Is it _carried by the actual product_? (Can the product surfaces in section 8 instantiate this myth?)
+- Is it _durable_? (Will it still be true and important in 2-3 years?)
+- Is it _aligned with the principal's investment_? (Does the operator want to spend years naturalizing this proposition?)
 
 Output: one selected myth, written as a single declarative sentence.
 
@@ -261,8 +262,8 @@ Output: one selected myth, written as a single declarative sentence.
 Given the selected myth, name the cultural code that carries it. **Invoke the sibling skill `analyze-adjacent-product`** to read adjacent brands and identify which codes are occupied vs. white-space:
 
 - Use Section 5's table as starting points; new codes are allowed if justified.
-- If the myth lives in an *occupied* code, name the competitor whose visual register the brand will partially share. Decide which signs to adopt and which to reject.
-- If the myth lives in an *available* code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see `analyze-adjacent-product` SKILL.md Section 3 for the bridge-as-affect discipline).
+- If the myth lives in an _occupied_ code, name the competitor whose visual register the brand will partially share. Decide which signs to adopt and which to reject.
+- If the myth lives in an _available_ code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see `analyze-adjacent-product` SKILL.md Section 3 for the bridge-as-affect discipline).
 
 Output: 1 cultural code, with 2-3 exemplars cited. If the code is layered (per Section 6's code-architecture), name each reference and the role it plays.
 
@@ -322,11 +323,11 @@ Reject these explicitly. They instantiate either Idiom A or AI-slop defaults:
   - [Operative Ontology — declarative cosmology, sigil-as-program, and the architecture of realization](https://www.notion.so/35e937f03cb481a39301cb319cdc6cd2) (background, footnote-only)
   - [Digital Twin & Cognitive Interface](https://www.notion.so/1d1937f03cb480008bbdc529dfb5eb68) (early formulation of the exocortex frame, 2025-04)
 - Source texts (Minsky brand register):
-  - Charles Stross, *Accelerando* (2005) — Manfred Macx and the flock
-  - *Ghost in the Shell: Stand Alone Complex* (Production I.G., 2002–2005) — Section 9, Tachikomas, Stand Alone Complex concept
-  - *Neon Genesis Evangelion* (Anno / Gainax, 1995–1996) — Magi, NERV, sync ratio, density-with-soul
-  - Mitsuo Iso, *Dennō Coil* (2007) and *Orbital Children* (2022) — AR/AI/companion warmth
-  - *Magilumière Magical Girls, Inc.* (Magilumiere Co. Ltd., 2024 manga/anime) — magick-as-corporate-profession tonal lock
+  - Charles Stross, _Accelerando_ (2005) — Manfred Macx and the flock
+  - _Ghost in the Shell: Stand Alone Complex_ (Production I.G., 2002–2005) — Section 9, Tachikomas, Stand Alone Complex concept
+  - _Neon Genesis Evangelion_ (Anno / Gainax, 1995–1996) — Magi, NERV, sync ratio, density-with-soul
+  - Mitsuo Iso, _Dennō Coil_ (2007) and _Orbital Children_ (2022) — AR/AI/companion warmth
+  - _Magilumière Magical Girls, Inc._ (Magilumiere Co. Ltd., 2024 manga/anime) — magick-as-corporate-profession tonal lock
 - Originating session: 2026-05-18/19 workshop — Composio / Cursor / Factory case studies + Minsky myth selection. Captured in `../analyze-adjacent-product/references/case-studies-2026-05.md` and `references/minsky-myth-2026-05.md`.
 - mt#1927 — task that installed this skill bundle with the methodology absorbed inline
 - mt#1944 — task that extracted the analytical methodology into the standalone `analyze-adjacent-product` skill
