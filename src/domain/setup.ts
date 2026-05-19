@@ -46,7 +46,7 @@ interface MinimalProjectConfig {
  * 2. Read and parse it (use yaml.parse)
  * 3. Extract mcp section (default to { transport: "stdio" } if missing)
  * 4. Call registerWithClient() to write the harness config file
- * 5. Write .minsky/config.local.yaml with workspace.mainPath AND harness field
+ * 5. Write .minsky/config.local.yaml with workspace.mainPath and workspace.harness
  * 6. Return result describing what was written
  */
 export async function performSetup(
@@ -85,11 +85,12 @@ export async function performSetup(
   const registrar = getRegistrar(client);
   const harnessConfigPath = registrar.configPath(repoPath);
 
-  // 5. Write .minsky/config.local.yaml with workspace.mainPath AND harness field
+  // 5. Write .minsky/config.local.yaml with workspace.mainPath and workspace.harness
+  // Both fields belong under the `workspace` key — placing `harness` at the root
+  // would be rejected by the strict config-schema validator (mt#1939).
   const localConfigPath = path.join(repoPath, ".minsky", "config.local.yaml");
   const localConfigContent = yamlStringify({
-    workspace: { mainPath: repoPath },
-    harness: client,
+    workspace: { mainPath: repoPath, harness: client },
   });
   await createFileIfNotExists(localConfigPath, localConfigContent, overwrite, fileSystem);
 
