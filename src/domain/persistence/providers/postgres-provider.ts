@@ -568,11 +568,17 @@ export class PostgresVectorPersistenceProvider
     }
 
     const config = EMBEDDINGS_CONFIGS[domain];
+    // The `metadata` (JSONB) and `content_hash` (TEXT) columns are created by
+    // createEmbeddingsTable() on every embeddings table; pass them through so
+    // PostgresVectorStorage actually writes the values it's been given.
+    // Pre-mt#1930 these were silently dropped on the floor.
     return new PostgresVectorStorage(this.sql, this.db, dimension, {
       tableName: config.tableName,
       idColumn: config.idColumn,
       embeddingColumn: config.vectorColumn,
       lastIndexedAtColumn: config.indexedAtColumn,
+      metadataColumn: "metadata",
+      contentHashColumn: "content_hash",
     });
   }
 

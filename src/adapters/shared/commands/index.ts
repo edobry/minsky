@@ -37,6 +37,7 @@ import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
 import { registerEpicDecompositionCommands } from "./epic-decomposition";
 import { registerObservabilityCommands } from "./observability";
+import { registerPrincipalCorpusCommands } from "./principal-corpus";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -139,6 +140,10 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register observability commands (Braintrust smoke-test etc. — mt#1795)
   registerObservabilityCommands();
 
+  // Register principal-corpus commands (principal-scoped semantic search — mt#1930).
+  // No container arg — commands read persistence from ctx at execute time.
+  registerPrincipalCorpusCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -176,4 +181,5 @@ export {
   registerUnaskedDirectionCommands,
   registerEpicDecompositionCommands,
   registerObservabilityCommands,
+  registerPrincipalCorpusCommands,
 };

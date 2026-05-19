@@ -766,6 +766,22 @@ export function registerDetectorsCommandsWithMcp(
 }
 
 /**
+ * Register principal-corpus commands with MCP (mt#1930 — `principal_corpus.*`).
+ *
+ * Follows the MEMORY single-path model — invoked once via the per-category
+ * adapter `registerPrincipalCorpusTools` in `start-command.ts`.
+ */
+export function registerPrincipalCorpusCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.PRINCIPAL_CORPUS],
+    ...config,
+  });
+}
+
+/**
  * Register authorship commands with MCP.
  *
  * This is the **least-privilege MCP entry point** for the authorship namespace.
