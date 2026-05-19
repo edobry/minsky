@@ -43,28 +43,45 @@ The dev chromium is launched by `minsky cockpit` (mt#1904) with `--remote-debugg
 
    **c. Decide based on state file + PID liveness:**
 
-   - **State file present AND its `pid` is alive** (`kill -0 <pid>` succeeds): cockpit is already running. Use the `url` field for step 2.
+   - **State file present AND its `pid` is alive**: cockpit is already running. Use the `url` field for step 2.
    - **State file missing OR `pid` is dead** (stale): cockpit needs to be started. Continue to (d).
+
+   **Cross-platform PID liveness check.** `kill -0 <pid>` is Unix-only. Use this Bun one-liner instead — it works on macOS, Linux, AND Windows under Bun:
+
+   ```bash
+   bun -e "try { process.kill(PID, 0); process.exit(0) } catch { process.exit(1) }"
+   ```
+
+   Exit 0 = alive, exit 1 = dead. Substitute `PID` with the value from the state file.
 
    **d. Auto-start opt-out check.** If the operator has explicitly said "don't auto-start cockpit", "skip cockpit start", "I'll start it myself", or equivalent in the current OR prior conversation turn, do NOT auto-start — report "cockpit not running for this workspace" and stop here. Otherwise continue to (e).
 
-   **e. Auto-start the cockpit** by running this single deterministic shell command (replace `<key>` with the workspace key from (a)):
+   **e. Auto-start the cockpit** by running this single deterministic shell command (replace `<key>` with the workspace key from (a)). The script resolves the state dir + log dir from env vars with the same precedence as the lifecycle module (`MINSKY_STATE_DIR` > `XDG_STATE_HOME` > default) so it works in customized setups:
 
    ```bash
-   nohup bun src/cli.ts cockpit start > /tmp/cockpit-<key>.log 2>&1 &
-   STATE=$HOME/.local/state/minsky/cockpit/<key>.json
+   STATE_DIR="${MINSKY_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/minsky}"
+   LOG_DIR="${TMPDIR:-/tmp}"
+   STATE="$STATE_DIR/cockpit/<key>.json"
+   LOG="$LOG_DIR/cockpit-<key>.log"
+   nohup bun src/cli.ts cockpit start > "$LOG" 2>&1 &
    for i in $(seq 1 10); do
-     sleep 1; [ -f "$STATE" ] && { echo "READY: $(cat $STATE)"; exit 0; }
+     sleep 1
+     if [ -f "$STATE" ]; then
+       cat "$STATE"
+       exit 0
+     fi
    done
-   echo "TIMEOUT: cockpit state file did not appear within 10s"
-   tail -30 /tmp/cockpit-<key>.log
+   echo "TIMEOUT: cockpit state file did not appear within 10s ($STATE)" >&2
+   tail -30 "$LOG"
    exit 1
    ```
 
    In a session workspace, invoke via `mcp__minsky__session_exec(task: "<task-id>", command: "<the shell above>")`. In the main workspace, invoke via the `Bash` tool.
 
-   - **On READY**: parse the JSON line to get the `url` field. Continue to step 2.
-   - **On TIMEOUT**: surface the log tail to the operator and STOP. Something prevented cockpit startup (port conflict, build error, missing dependencies, etc.). Do not proceed with attach steps.
+   - **On exit 0**: stdout contains the raw state-file JSON. Parse it for the `url` field. Continue to step 2.
+   - **On exit 1**: surface the TIMEOUT message (on stderr) and the log tail (on stdout) to the operator and STOP. Something prevented cockpit startup (port conflict, build error, missing dependencies, etc.). Do not proceed with attach steps.
+
+   **Windows note.** The bash snippet above assumes a POSIX-like shell (macOS / Linux / WSL). On native Windows shells, the equivalent uses PowerShell env-var expansion (`$env:MINSKY_STATE_DIR ?? $env:XDG_STATE_HOME ?? "$env:USERPROFILE\.local\state"` etc.) and `Start-Process` for backgrounding. Auto-start is currently scoped to POSIX shells; Windows operators run `minsky cockpit start` manually until this is generalized.
 
    **f. After successful auto-start**, the dev chromium is also ensured (`minsky cockpit start` idempotently probes `/json/version` and only spawns Chrome if missing — mt#1904). No separate step needed.
 
