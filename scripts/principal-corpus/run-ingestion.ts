@@ -21,15 +21,50 @@ import { classifyAndFilterTweets } from "../../src/domain/principal-corpus/relev
 import { createPrincipalCorpusService } from "../../src/domain/principal-corpus/principal-corpus-service";
 import type { TweetRecord } from "../../src/domain/principal-corpus/types";
 
-const ARCHIVE_ZIP =
-  "/Users/edobry/Downloads/twitter-2025-09-21-7b577fd37a1599577caac86a86d9f0a69b739bb5a741dce078dba1ffa9237906.zip";
-const ACCOUNT_USER_ID = "1278573670739464192";
-const SCREEN_NAME = "pee_zombie";
+/**
+ * Required inputs (one of the two must be set):
+ *   --archive=<path>          (CLI arg)
+ *   PRINCIPAL_CORPUS_ARCHIVE  (env var)
+ *
+ * Also required:
+ *   --account-id=<id>             (Twitter numeric user_id, principal-specific)
+ *   --screen-name=<handle>        (without @, principal-specific)
+ * OR
+ *   PRINCIPAL_CORPUS_ACCOUNT_ID, PRINCIPAL_CORPUS_SCREEN_NAME
+ *
+ * No defaults are baked in — the values are operator-supplied because the
+ * Twitter archive lives on the principal's filesystem (the path includes
+ * a unique hash) and the account identifiers identify the specific
+ * principal, neither of which belong in repo-committed code.
+ */
 const FILTER_CACHE = "tmp/principal-corpus-classifications.json";
 const STATS_OUT = "tmp/principal-corpus-stats.json";
 const RELEVANCE_THRESHOLD = 0.5;
 const CLASSIFIER_CONCURRENCY = 8;
 const EMBEDDING_CONCURRENCY = 4;
+
+function parseArgsAndEnv(): { archiveZip: string; accountUserId: string; screenName: string } {
+  const args = new Map<string, string>();
+  for (const arg of process.argv.slice(2)) {
+    const match = /^--([^=]+)=(.*)$/.exec(arg);
+    if (match && match[1] !== undefined && match[2] !== undefined) {
+      args.set(match[1], match[2]);
+    }
+  }
+  const archiveZip = args.get("archive") ?? process.env.PRINCIPAL_CORPUS_ARCHIVE ?? "";
+  const accountUserId = args.get("account-id") ?? process.env.PRINCIPAL_CORPUS_ACCOUNT_ID ?? "";
+  const screenName = args.get("screen-name") ?? process.env.PRINCIPAL_CORPUS_SCREEN_NAME ?? "";
+  const missing: string[] = [];
+  if (!archiveZip) missing.push("--archive=<path> (or PRINCIPAL_CORPUS_ARCHIVE)");
+  if (!accountUserId) missing.push("--account-id=<id> (or PRINCIPAL_CORPUS_ACCOUNT_ID)");
+  if (!screenName) missing.push("--screen-name=<handle> (or PRINCIPAL_CORPUS_SCREEN_NAME)");
+  if (missing.length > 0) {
+    console.error("[ingest] missing required inputs:");
+    for (const m of missing) console.error(`  - ${m}`);
+    process.exit(2);
+  }
+  return { archiveZip, accountUserId, screenName };
+}
 
 interface CachedClassification {
   id: string;
@@ -38,15 +73,16 @@ interface CachedClassification {
 }
 
 async function main() {
+  const { archiveZip, accountUserId, screenName } = parseArgsAndEnv();
   mkdirSync("tmp", { recursive: true });
   await setupConfiguration();
 
   // ----- 1. Parse archive -----
-  console.log(`[ingest] parsing archive ${ARCHIVE_ZIP}...`);
+  console.log(`[ingest] parsing archive ${archiveZip}...`);
   const parsed = parseTwitterArchive({
-    zipPath: ARCHIVE_ZIP,
-    accountUserId: ACCOUNT_USER_ID,
-    screenName: SCREEN_NAME,
+    zipPath: archiveZip,
+    accountUserId,
+    screenName,
   });
   console.log(
     `[ingest] parsed ${parsed.total} entries → ${parsed.originals.length} originals ` +
@@ -143,7 +179,7 @@ async function main() {
   // ----- 4. Stats -----
   const stats = {
     archive: {
-      zipPath: ARCHIVE_ZIP,
+      zipPath: archiveZip,
       total: parsed.total,
       originals: parsed.originals.length,
       dropped: parsed.dropped,

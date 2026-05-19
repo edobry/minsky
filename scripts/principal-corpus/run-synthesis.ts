@@ -17,12 +17,37 @@ import {
   type TweetForSynthesis,
 } from "../../src/domain/principal-corpus/memeplex-synthesizer";
 
-const ARCHIVE_ZIP =
-  "/Users/edobry/Downloads/twitter-2025-09-21-7b577fd37a1599577caac86a86d9f0a69b739bb5a741dce078dba1ffa9237906.zip";
-const ACCOUNT_USER_ID = "1278573670739464192";
-const SCREEN_NAME = "pee_zombie";
+/**
+ * Required inputs (CLI args or env vars; no defaults — see run-ingestion.ts):
+ *   --archive=<path>     | PRINCIPAL_CORPUS_ARCHIVE
+ *   --account-id=<id>    | PRINCIPAL_CORPUS_ACCOUNT_ID
+ *   --screen-name=<h>    | PRINCIPAL_CORPUS_SCREEN_NAME
+ */
 const FILTER_CACHE = "tmp/principal-corpus-classifications.json";
 const MEMEPLEX_OUT = "tmp/principal-corpus-memeplexes.json";
+
+function parseArgsAndEnv(): { archiveZip: string; accountUserId: string; screenName: string } {
+  const args = new Map<string, string>();
+  for (const arg of process.argv.slice(2)) {
+    const match = /^--([^=]+)=(.*)$/.exec(arg);
+    if (match && match[1] !== undefined && match[2] !== undefined) {
+      args.set(match[1], match[2]);
+    }
+  }
+  const archiveZip = args.get("archive") ?? process.env.PRINCIPAL_CORPUS_ARCHIVE ?? "";
+  const accountUserId = args.get("account-id") ?? process.env.PRINCIPAL_CORPUS_ACCOUNT_ID ?? "";
+  const screenName = args.get("screen-name") ?? process.env.PRINCIPAL_CORPUS_SCREEN_NAME ?? "";
+  const missing: string[] = [];
+  if (!archiveZip) missing.push("--archive=<path> (or PRINCIPAL_CORPUS_ARCHIVE)");
+  if (!accountUserId) missing.push("--account-id=<id> (or PRINCIPAL_CORPUS_ACCOUNT_ID)");
+  if (!screenName) missing.push("--screen-name=<handle> (or PRINCIPAL_CORPUS_SCREEN_NAME)");
+  if (missing.length > 0) {
+    console.error("[synth] missing required inputs:");
+    for (const m of missing) console.error(`  - ${m}`);
+    process.exit(2);
+  }
+  return { archiveZip, accountUserId, screenName };
+}
 
 interface CachedClassification {
   id: string;
@@ -31,6 +56,7 @@ interface CachedClassification {
 }
 
 async function main() {
+  const { archiveZip, accountUserId, screenName } = parseArgsAndEnv();
   mkdirSync("tmp", { recursive: true });
   await setupConfiguration();
 
@@ -44,9 +70,9 @@ async function main() {
   console.log(`[synth] loaded ${cache.size} classifications`);
 
   const parsed = parseTwitterArchive({
-    zipPath: ARCHIVE_ZIP,
-    accountUserId: ACCOUNT_USER_ID,
-    screenName: SCREEN_NAME,
+    zipPath: archiveZip,
+    accountUserId,
+    screenName,
   });
 
   const tweets: TweetForSynthesis[] = parsed.originals

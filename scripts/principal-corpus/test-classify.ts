@@ -10,12 +10,29 @@ import { parseTwitterArchive } from "../../src/domain/principal-corpus/tweet-arc
 import { classifyAndFilterTweets } from "../../src/domain/principal-corpus/relevance-filter";
 
 async function main() {
+  const args = new Map<string, string>();
+  for (const arg of process.argv.slice(2)) {
+    const match = /^--([^=]+)=(.*)$/.exec(arg);
+    if (match && match[1] !== undefined && match[2] !== undefined) {
+      args.set(match[1], match[2]);
+    }
+  }
+  const archiveZip = args.get("archive") ?? process.env.PRINCIPAL_CORPUS_ARCHIVE ?? "";
+  const accountUserId = args.get("account-id") ?? process.env.PRINCIPAL_CORPUS_ACCOUNT_ID ?? "";
+  const screenName = args.get("screen-name") ?? process.env.PRINCIPAL_CORPUS_SCREEN_NAME ?? "";
+  if (!archiveZip || !accountUserId || !screenName) {
+    console.error(
+      "Usage: bun scripts/principal-corpus/test-classify.ts --archive=<path> --account-id=<id> --screen-name=<handle>"
+    );
+    console.error("Or set PRINCIPAL_CORPUS_{ARCHIVE,ACCOUNT_ID,SCREEN_NAME} env vars.");
+    process.exit(2);
+  }
+
   await setupConfiguration();
   const parsed = parseTwitterArchive({
-    zipPath:
-      "/Users/edobry/Downloads/twitter-2025-09-21-7b577fd37a1599577caac86a86d9f0a69b739bb5a741dce078dba1ffa9237906.zip",
-    accountUserId: "1278573670739464192",
-    screenName: "pee_zombie",
+    zipPath: archiveZip,
+    accountUserId,
+    screenName,
   });
 
   const sample = parsed.originals.slice(0, 50);
