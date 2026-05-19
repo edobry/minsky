@@ -385,14 +385,32 @@ export function parseBranchProtectionResponse(result: {
     required_status_checks?: { contexts?: unknown; checks?: unknown };
     enforce_admins?: { enabled?: unknown } | boolean;
   };
+  // GitHub's Branch Protection API supports two shapes for required-check names:
+  //   - Older: `required_status_checks.contexts[]` — array of string names.
+  //   - Newer: `required_status_checks.checks[]` — array of `{context, app_id}`.
+  // Modern responses typically include both, but operators can set up protection
+  // via the API such that only `checks[]` is populated and `contexts[]` is empty
+  // or absent. Reject only when BOTH are missing — single-source-only responses
+  // are valid (PR #1167 R1 BLOCKING #1).
   const contexts = obj.required_status_checks?.contexts;
-  if (!Array.isArray(contexts)) {
+  const checks = obj.required_status_checks?.checks;
+  const namesFromContexts = Array.isArray(contexts)
+    ? contexts.filter((c): c is string => typeof c === "string")
+    : [];
+  const namesFromChecks = Array.isArray(checks)
+    ? (checks as Array<{ context?: unknown }>)
+        .map((c) => c?.context)
+        .filter((c): c is string => typeof c === "string")
+    : [];
+  if (!Array.isArray(contexts) && !Array.isArray(checks)) {
     return {
       ok: false,
-      error: "gh api response missing required_status_checks.contexts[]",
+      error: "gh api response missing both required_status_checks.contexts[] and .checks[]",
     };
   }
-  const requiredChecks = contexts.filter((c): c is string => typeof c === "string");
+  // Union the two sources (deduplicate) so callers see every required check
+  // name regardless of which field GitHub populated.
+  const requiredChecks = Array.from(new Set([...namesFromContexts, ...namesFromChecks]));
   // enforce_admins can be `{enabled: true}` (GET response) or a bare bool
   // (rare; defensive).
   let enforceAdmins = false;
@@ -416,6 +434,12 @@ export interface CheckRunSummary {
 export interface AllCheckRunsParseSuccess {
   ok: true;
   runs: CheckRunSummary[];
+  // GitHub's Checks API returns `total_count` indicating the total number of
+  // check_runs on this commit across pagination. The caller (`per_page=100`)
+  // gets at most 100 runs; if `totalCount > runs.length`, pagination would
+  // be needed to see all runs. Surfaced here so the evaluator can warn rather
+  // than silently produce a possibly-stale verdict (PR #1167 R1 NON-BLOCKING #3).
+  totalCount: number;
 }
 export type AllCheckRunsParseResult = AllCheckRunsParseSuccess | CheckRunsParseFailure;
 
@@ -457,7 +481,7 @@ export function parseAllCheckRunsResponse(result: {
   if (!parsed || typeof parsed !== "object") {
     return { ok: false, error: "gh api response is not an object" };
   }
-  const obj = parsed as { check_runs?: unknown };
+  const obj = parsed as { check_runs?: unknown; total_count?: unknown };
   if (!Array.isArray(obj.check_runs)) {
     return { ok: false, error: "gh api response missing check_runs[]" };
   }
@@ -471,7 +495,10 @@ export function parseAllCheckRunsResponse(result: {
       startedAt: typeof r.started_at === "string" ? r.started_at : null,
       completedAt: typeof r.completed_at === "string" ? r.completed_at : null,
     }));
-  return { ok: true, runs };
+  // Trust GitHub's `total_count` when present (it's the canonical pagination-safe
+  // field); fall back to runs.length when absent (older / non-paginated responses).
+  const totalCount = typeof obj.total_count === "number" ? obj.total_count : runs.length;
+  return { ok: true, runs, totalCount };
 }
 
 // Pick the latest check_run matching `checkName`, using the same matching
@@ -549,6 +576,26 @@ export function evaluateRequiredChecksStatus(
         `Unable to query check_runs for PR #${prNumber} HEAD ${headSha.slice(0, 7)} (mt#1938): ${allRuns.error}. ` +
         `This is a gh api transport/parse failure — investigate before retrying. ` +
         `Override after manual verification: set ${REQUIRED_CHECKS_OVERRIDE_ENV}=1.`,
+    };
+  }
+
+  // Pagination guardrail (PR #1167 R1 NON-BLOCKING #3): if GitHub reports more
+  // check_runs than we fetched in a single `?per_page=100` page, the result is
+  // possibly truncated — the latest run for a required check could be in an
+  // unreturned page, making the gate's verdict stale. Deny rather than risk a
+  // false-pass. Override is available for the rare legitimate case (operator
+  // has manually verified state). Tracking a follow-up to paginate properly is
+  // appropriate if this fires in practice.
+  if (allRuns.totalCount > allRuns.runs.length) {
+    return {
+      deny: true,
+      reason:
+        `Check_runs response for PR #${prNumber} HEAD ${headSha.slice(0, 7)} is truncated ` +
+        `(total_count=${allRuns.totalCount}, returned=${allRuns.runs.length}; mt#1938 pagination guardrail). ` +
+        `The required-checks status gate cannot guarantee a fresh verdict because the latest run ` +
+        `for a required check might be on an unreturned page. ` +
+        `Override after manual verification: set ${REQUIRED_CHECKS_OVERRIDE_ENV}=1. ` +
+        `If this fires routinely, file a follow-up to paginate the check-runs query.`,
     };
   }
 

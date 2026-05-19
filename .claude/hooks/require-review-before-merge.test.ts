@@ -684,11 +684,78 @@ describe("parseBranchProtectionResponse (mt#1938)", () => {
     }
   });
 
-  it("returns failure when required_status_checks.contexts is missing", () => {
+  it("returns failure when BOTH contexts and checks are missing", () => {
     const result = parseBranchProtectionResponse(ok('{"enforce_admins":{"enabled":true}}'));
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain("required_status_checks.contexts");
+      expect(result.error).toContain(".checks");
+    }
+  });
+
+  it("derives requiredChecks from checks[] when contexts is absent (newer API shape)", () => {
+    const body = JSON.stringify({
+      required_status_checks: {
+        checks: [
+          { context: "build", app_id: 15368 },
+          { context: REQUIRED_CHECK_PLACEHOLDER_TESTS, app_id: 15368 },
+        ],
+      },
+      enforce_admins: { enabled: false },
+    });
+    const result = parseBranchProtectionResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.requiredChecks).toEqual(["build", REQUIRED_CHECK_PLACEHOLDER_TESTS]);
+    }
+  });
+
+  it("derives requiredChecks from checks[] when contexts is an empty array", () => {
+    const body = JSON.stringify({
+      required_status_checks: {
+        contexts: [],
+        checks: [{ context: "build", app_id: 15368 }],
+      },
+    });
+    const result = parseBranchProtectionResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.requiredChecks).toEqual(["build"]);
+    }
+  });
+
+  it("dedupes when the same name appears in both contexts[] and checks[]", () => {
+    const body = JSON.stringify({
+      required_status_checks: {
+        contexts: ["build"],
+        checks: [
+          { context: "build", app_id: 15368 },
+          { context: REQUIRED_CHECK_PLACEHOLDER_TESTS, app_id: 15368 },
+        ],
+      },
+    });
+    const result = parseBranchProtectionResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.requiredChecks).toEqual(["build", REQUIRED_CHECK_PLACEHOLDER_TESTS]);
+    }
+  });
+
+  it("filters non-string context values defensively in checks[]", () => {
+    const body = JSON.stringify({
+      required_status_checks: {
+        checks: [
+          { context: "build", app_id: 15368 },
+          { context: null, app_id: 15368 },
+          { app_id: 15368 },
+          { context: 42, app_id: 15368 },
+        ],
+      },
+    });
+    const result = parseBranchProtectionResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.requiredChecks).toEqual(["build"]);
     }
   });
 
@@ -739,6 +806,7 @@ describe("parseAllCheckRunsResponse (mt#1938)", () => {
 
   it("parses every check_run into the flat list (no name filtering)", () => {
     const body = JSON.stringify({
+      total_count: 3,
       check_runs: [
         { name: "build", status: "completed", conclusion: "success" },
         { name: REQUIRED_CHECK_PLACEHOLDER_TESTS, status: "completed", conclusion: "success" },
@@ -754,6 +822,34 @@ describe("parseAllCheckRunsResponse (mt#1938)", () => {
         REQUIRED_CHECK_PLACEHOLDER_TESTS,
         BUNDLE_BOOT_SMOKE_CHECK_NAME,
       ]);
+      expect(result.totalCount).toBe(3);
+    }
+  });
+
+  it("extracts total_count from the response (truncation guardrail input)", () => {
+    const body = JSON.stringify({
+      total_count: 250,
+      check_runs: [{ name: "build", status: "completed", conclusion: "success" }],
+    });
+    const result = parseAllCheckRunsResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.totalCount).toBe(250);
+      expect(result.runs).toHaveLength(1);
+    }
+  });
+
+  it("falls back to runs.length for totalCount when total_count is absent", () => {
+    const body = JSON.stringify({
+      check_runs: [
+        { name: "build", status: "completed", conclusion: "success" },
+        { name: REQUIRED_CHECK_PLACEHOLDER_TESTS, status: "completed", conclusion: "success" },
+      ],
+    });
+    const result = parseAllCheckRunsResponse(ok(body));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.totalCount).toBe(2);
     }
   });
 
@@ -934,18 +1030,23 @@ describe("evaluateRequiredChecksStatus (mt#1938)", () => {
       htmlUrl?: string | null;
       startedAt?: string | null;
       completedAt?: string | null;
-    }>
-  ): ReturnType<typeof parseAllCheckRunsResponse> => ({
-    ok: true,
-    runs: runs.map((r) => ({
+    }>,
+    options: { totalCount?: number } = {}
+  ): ReturnType<typeof parseAllCheckRunsResponse> => {
+    const mapped = runs.map((r) => ({
       name: r.name,
       status: r.status ?? "completed",
       conclusion: r.conclusion ?? null,
       htmlUrl: r.htmlUrl ?? null,
       startedAt: r.startedAt ?? null,
       completedAt: r.completedAt ?? null,
-    })),
-  });
+    }));
+    return {
+      ok: true,
+      runs: mapped,
+      totalCount: options.totalCount ?? mapped.length,
+    };
+  };
   const failRuns = (error: string): ReturnType<typeof parseAllCheckRunsResponse> => ({
     ok: false,
     error,
@@ -1122,5 +1223,50 @@ describe("evaluateRequiredChecksStatus (mt#1938)", () => {
     );
     expect(result.reason).toContain(`#${pr}`);
     expect(result.reason).toContain(headSha.slice(0, 7));
+  });
+
+  it("DENIES on suspected pagination truncation (totalCount > runs.length)", () => {
+    // GitHub reports 250 total runs but we only have 100 in the page. The
+    // latest run for `build` could be on an unreturned page — gate cannot
+    // safely conclude success.
+    const result = evaluateRequiredChecksStatus(
+      okProtection(["build"]),
+      okRuns([{ name: "build", conclusion: "success" }], { totalCount: 250 }),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("truncated");
+    expect(result.reason).toContain("total_count=250");
+    expect(result.reason).toContain("returned=1");
+    expect(result.reason).toContain("pagination guardrail");
+    expect(result.reason).toContain(REQUIRED_CHECKS_OVERRIDE_ENV);
+  });
+
+  it("ALLOWS when totalCount equals runs.length (no truncation suspected)", () => {
+    const result = evaluateRequiredChecksStatus(
+      okProtection(["build"]),
+      okRuns([{ name: "build", conclusion: "success" }], { totalCount: 1 }),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(false);
+  });
+
+  it("ALLOWS at the boundary: totalCount=100 with 100 returned runs", () => {
+    // Edge: GitHub returns exactly 100 runs and reports total=100. No truncation.
+    const oneRun = { name: "build", conclusion: "success" as const };
+    const runs = Array.from({ length: 99 }, (_, i) => ({
+      name: `build-${i}`,
+      conclusion: "success" as const,
+    }));
+    runs.push(oneRun);
+    const result = evaluateRequiredChecksStatus(
+      okProtection(["build"]),
+      okRuns(runs, { totalCount: 100 }),
+      pr,
+      headSha
+    );
+    expect(result.deny).toBe(false);
   });
 });

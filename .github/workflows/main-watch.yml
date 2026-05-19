@@ -21,7 +21,10 @@ name: main-watch
 
 on:
   workflow_run:
-    workflows: ["CI", "Bundle Boot Smoke"]
+    # Intentionally unscoped — no `workflows:` filter. The whole point of layer 3 is
+    # to be a UNIVERSAL backstop: any workflow that fails on main should produce a
+    # P0 issue. Listing specific workflow names would silently miss new workflows,
+    # renames, or one-off `workflow_dispatch` runs against main. PR #1167 R1 BLOCKING #2.
     types: [completed]
     branches: [main]
 
