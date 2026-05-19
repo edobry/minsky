@@ -946,19 +946,70 @@ export class PreCommitHook {
           timeout: 30000,
         });
       } catch (error) {
-        log.cli(`❌ Rules compile output for target "${target}" is stale.`);
-        log.cli(`💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`);
-        return {
-          success: false,
-          message: `Rules compile output for target "${target}" is stale`,
-          exitCode: 1,
-        };
+        const result = classifyCompileCheckError(error, target);
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
       }
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+}
+
+/**
+ * Classify a failed `rules compile --check` subprocess error as either genuine
+ * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ *
+ * When the CLI detects stale output it prints a `[rules compile --check]` /
+ * `is STALE` marker to stdout before throwing. Any other non-zero exit means
+ * the compile command itself failed — telling the operator to "regenerate"
+ * would be misleading because the same error will recur.
+ *
+ * Exported for unit testing; not part of the public hook API.
+ */
+export function classifyCompileCheckError(
+  error: unknown,
+  target: string
+): { logLines: string[]; message: string } {
+  const execError = error as { stdout?: string; stderr?: string };
+  const stdout = execError.stdout ?? "";
+  const stderr = execError.stderr ?? "";
+
+  // The CLI emits "[rules compile --check] Target "X" is STALE" to stdout
+  // only when it has verified the output is out-of-date. Any other non-zero
+  // exit is a compile-command failure unrelated to staleness.
+  const isGenuinelyStale =
+    stdout.includes("[rules compile --check]") && stdout.includes("is STALE");
+
+  if (isGenuinelyStale) {
+    return {
+      logLines: [
+        `❌ Rules compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`,
+      ],
+      message: `Rules compile output for target "${target}" is stale`,
+    };
+  }
+
+  // Compile command errored. Surface the actual error so the operator knows
+  // what to fix — re-running "rules compile" will NOT help.
+  const rawDetail = stderr.trim() || stdout.trim();
+  const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
+  const indented = errorDetail
+    .split("\n")
+    .map((line) => `   ${line}`)
+    .join("\n");
+  return {
+    logLines: [
+      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      indented,
+      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+    ],
+    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+  };
 }
 
 // CLI entry point
