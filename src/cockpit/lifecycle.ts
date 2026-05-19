@@ -18,21 +18,28 @@
 
 import fs from "fs";
 import path from "path";
-import os from "os";
-import { getSessionsDir } from "../utils/paths";
+import { getMinskyStateDir, getSessionsDir } from "../utils/paths";
 
 // ---------------------------------------------------------------------------
 // State directory
 //
-// MINSKY_STATE_DIR is the documented env-var override (shared with
-// disconnect-tracker, daemon-state, and historical port-recovery). Default
-// path matches the XDG-style convention used elsewhere in Minsky.
+// Precedence (matches what `cockpit-design` skill's auto-start snippet polls):
+//   1. MINSKY_STATE_DIR (documented Minsky-wide override, shared with
+//      disconnect-tracker, daemon-state, and historical port-recovery)
+//   2. XDG_STATE_HOME-aware fallback via paths.ts:getMinskyStateDir(),
+//      which uses XDG_STATE_HOME if set, else $HOME/.local/state/minsky
+//
+// The XDG layer is added in mt#1925 R2 to match the architecture doc's
+// claim and the skill snippet's polling shape — previously this function
+// only honored MINSKY_STATE_DIR and hardcoded `~/.local/state/minsky`,
+// which would have caused the skill's polling loop to TIMEOUT on systems
+// with XDG_STATE_HOME set.
 // ---------------------------------------------------------------------------
 
 export function getStateDir(): string {
   const envDir = process.env["MINSKY_STATE_DIR"];
   if (envDir) return envDir;
-  return path.join(os.homedir(), ".local", "state", "minsky");
+  return getMinskyStateDir();
 }
 
 export function getCockpitStateDir(): string {

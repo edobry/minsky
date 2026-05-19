@@ -70,6 +70,41 @@ describe("state dir resolution", () => {
     expect(getStateDir()).toBe(tmpStateDir);
   });
 
+  test("getStateDir honours XDG_STATE_HOME when MINSKY_STATE_DIR unset (mt#1925 R2)", () => {
+    delete process.env[STATE_DIR_ENV];
+    const xdgTmp = fs.mkdtempSync(path.join(os.tmpdir(), "xdg-state-test-"));
+    const priorXdg = process.env["XDG_STATE_HOME"];
+    process.env["XDG_STATE_HOME"] = xdgTmp;
+    try {
+      expect(getStateDir()).toBe(path.join(xdgTmp, "minsky"));
+    } finally {
+      if (priorXdg === undefined) {
+        delete process.env["XDG_STATE_HOME"];
+      } else {
+        process.env["XDG_STATE_HOME"] = priorXdg;
+      }
+      process.env[STATE_DIR_ENV] = tmpStateDir; // restore afterEach invariant
+      try {
+        fs.rmSync(xdgTmp, { recursive: true, force: true });
+      } catch {
+        // best-effort
+      }
+    }
+  });
+
+  test("getStateDir falls back to ~/.local/state/minsky when both env vars unset", () => {
+    delete process.env[STATE_DIR_ENV];
+    const priorXdg = process.env["XDG_STATE_HOME"];
+    delete process.env["XDG_STATE_HOME"];
+    try {
+      const result = getStateDir();
+      expect(result.endsWith(path.join(".local", "state", "minsky"))).toBe(true);
+    } finally {
+      if (priorXdg !== undefined) process.env["XDG_STATE_HOME"] = priorXdg;
+      process.env[STATE_DIR_ENV] = tmpStateDir; // restore afterEach invariant
+    }
+  });
+
   test("getCockpitStateDir is <stateDir>/cockpit", () => {
     expect(getCockpitStateDir()).toBe(path.join(tmpStateDir, "cockpit"));
   });
