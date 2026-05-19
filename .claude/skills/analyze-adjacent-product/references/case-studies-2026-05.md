@@ -203,7 +203,7 @@ When analyzing a new adjacent product's marketing site:
 
 1. **Open the site in Chrome DevTools MCP.** Capture hero + 2-3 scroll states + any cursor-reactive interaction states. Inspect typography (font family / weight / size / tracking) and color tokens via `evaluate_script`. Check for canvas/WebGL elements.
 2. **Pull positioning copy verbatim.** Hero headline, subhead, section headers, CTAs, customer-logo list, pricing tier names (if any), nav register.
-3. **Write the five sections in order:**
+3. **Write the six sections in order:**
    - Captured (artifacts + screenshots)
    - Denotation (literal content)
    - Connotation (cultural associations)
@@ -211,7 +211,7 @@ When analyzing a new adjacent product's marketing site:
    - Peirce read (classify principal signs as icon / index / symbol)
    - Cultural codes invoked (per Oswald; cite exemplars)
 4. **Compare to the two-idiom synthesis.** Which idiom does the site operate in? Which cultural codes does it claim? Which does it explicitly reject?
-5. **Note the implication for Minsky.** Does this analysis change the recommended cultural-code lane for Minsky? Does it open or close a white-space code? Update the umbrella SKILL.md's Section 5 table if a new code emerges.
+5. **Note the implication for Minsky.** Does this analysis change the recommended cultural-code lane for Minsky? Does it open or close a white-space code? Update `marketing-site-design` SKILL.md's Section 5 table (the cultural-codes-occupied table) if a new code emerges.
 6. **Apply the Pepsi/Arnell discipline.** When stating the myth, verify it is grounded in the actual visual evidence captured, not constructed post-hoc to make a tactical recommendation sound principled.
 
 The 2026-05 analysis (Composio / Cursor / Factory) is the canonical first instance of this template. Future instances should follow the same shape; archive them in this directory with date-stamped filenames (e.g., `case-studies-2026-08.md`).
