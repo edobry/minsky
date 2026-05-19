@@ -45,9 +45,24 @@ const memeplexEntrySchema = z.object({
   citations: z.array(z.string().min(3)).min(3),
 });
 
-const memeplexBatchSchema = z.object({
-  memeplexes: z.array(memeplexEntrySchema).min(1),
-});
+/**
+ * The synthesizer accepts either a bare array or an object wrapper with one
+ * of several common keys (different Sonnet runs have returned `memeplexes`,
+ * `entries`, `items`, or `propositions`). We coerce all shapes into a plain
+ * array before validation.
+ */
+function coerceToArray(parsed: unknown): unknown[] {
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && typeof parsed === "object") {
+    const obj = parsed as Record<string, unknown>;
+    for (const key of ["memeplexes", "entries", "items", "propositions", "results"]) {
+      if (Array.isArray(obj[key])) return obj[key] as unknown[];
+    }
+    const firstArrayVal = Object.values(obj).find((v) => Array.isArray(v));
+    if (Array.isArray(firstArrayVal)) return firstArrayVal as unknown[];
+  }
+  throw new Error("Synthesizer response did not contain a recognisable array of memeplexes");
+}
 
 export interface TweetForSynthesis extends TweetRecord {
   relevance?: number;
@@ -126,22 +141,101 @@ export async function synthesizeMemeplexes(
 
 ${corpusBlock}
 
-Synthesize between 15 and ${maxMemeplexes} distinct memeplexes from this corpus. Each must cite ≥ 3 tweet IDs from above. Output strict JSON.`;
+Synthesize between 15 and ${maxMemeplexes} distinct memeplexes from this corpus. Each must cite ≥ 3 tweet IDs from above.
 
-  const result = await completionService.generateObject({
-    messages: [
-      { role: "system", content: SYNTHESIS_SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    schema: memeplexBatchSchema,
+Output ONLY a JSON array (no wrapper object, no markdown fences, no preamble). The array contains memeplex objects with keys: name, description, content, theme, citations.`;
+
+  // Use generateText rather than generateObject — completion-service.generateObject
+  // currently drops maxTokens (mt#1930), and we need ≥ 16K to fit 25 memeplexes.
+  // We parse + validate manually below.
+  const response = await completionService.complete({
+    prompt: userPrompt,
+    systemPrompt: SYNTHESIS_SYSTEM_PROMPT,
     model: SYNTHESIS_MODEL,
     provider: SYNTHESIS_PROVIDER,
     temperature: 0.2,
     maxTokens: 16000,
   });
 
-  const parsed = result as z.infer<typeof memeplexBatchSchema>;
-  return parsed.memeplexes;
+  const text = response.content ?? "";
+  const parsed = parseJsonAllowingFences(text);
+  const rawEntries = coerceToArray(parsed);
+  const validated: MemeplexEntry[] = [];
+  for (const item of rawEntries) {
+    try {
+      validated.push(memeplexEntrySchema.parse(item));
+    } catch (err) {
+      log.warn("[memeplex-synth] dropped invalid memeplex entry", {
+        error: err instanceof Error ? err.message : String(err),
+        item: JSON.stringify(item).slice(0, 200),
+      });
+    }
+  }
+  if (validated.length === 0) {
+    const { safeTruncate } = await import("../../utils/safe-truncate");
+    throw new Error(
+      `Synthesizer returned no valid memeplexes. Raw response (truncated): ${safeTruncate(text, 500, "head")}`
+    );
+  }
+  return validated;
+}
+
+/**
+ * Parse JSON from a model response. Tolerates markdown code fences (```json ... ```),
+ * leading prose ("Here are the memeplexes:\n["), and trailing prose.
+ */
+function parseJsonAllowingFences(text: string): unknown {
+  // Try direct parse first
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Strip code fences and retry
+  }
+  const fenced = trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "");
+  try {
+    return JSON.parse(fenced);
+  } catch {
+    // Extract first balanced JSON array or object
+  }
+  // Find the first '[' or '{' and the matching close
+  for (const open of ["[", "{"]) {
+    const startIdx = fenced.indexOf(open);
+    if (startIdx === -1) continue;
+    const close = open === "[" ? "]" : "}";
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let idx = startIdx; idx < fenced.length; idx++) {
+      const ch = fenced[idx];
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\" && inString) {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === open) depth++;
+      else if (ch === close) {
+        depth--;
+        if (depth === 0) {
+          try {
+            return JSON.parse(fenced.slice(startIdx, idx + 1));
+          } catch {
+            // try other shape
+            break;
+          }
+        }
+      }
+    }
+  }
+  throw new Error("Could not parse JSON from synthesizer response");
 }
 
 function oneLine(text: string): string {

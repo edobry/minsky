@@ -96,7 +96,7 @@ async function main() {
     const { sql } = await import("drizzle-orm");
     try {
       const rows = await checkDb.execute?.(
-        sql`SELECT COUNT(*) AS n FROM memories WHERE tags ? 'principal-thinking'`
+        sql`SELECT COUNT(*) AS n FROM memories WHERE 'principal-thinking' = ANY(tags)`
       );
       const n = rows && rows[0] ? Number(rows[0].n) : 0;
       if (n > 0) {
@@ -121,6 +121,7 @@ async function main() {
     try {
       const record = await memoryService.create({
         type: "feedback",
+        scope: "user",
         name: m.name,
         description: m.description,
         content: fullContent,
