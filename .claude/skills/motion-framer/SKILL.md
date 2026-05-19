@@ -13,6 +13,8 @@ user-invocable: true
 
 # Motion & Framer Motion
 
+> **Attribution:** Vendored from [freshtechbro/claudedesignskills](https://github.com/freshtechbro/claudedesignskills) (retrieved 2026-05-19), specifically the `motion-framer` sub-skill. Minor edits: added frontmatter for Claude Code skill discoverability; condensed for inclusion in the Minsky marketing-site-design Tier-1 bundle.
+
 ## Overview
 
 Motion (formerly Framer Motion) is a production-ready animation library for React and JavaScript that enables declarative, performant animations with minimal code. It provides `motion` components that wrap HTML elements with animation superpowers, supports gesture recognition (hover, tap, drag, focus), and includes advanced features like layout animations, exit animations, and spring physics.

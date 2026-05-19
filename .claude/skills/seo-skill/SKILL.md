@@ -13,6 +13,8 @@ user-invocable: true
 
 # SEO Skill — Static Site Optimization
 
+> **Attribution:** Vendored from [aevans-eng/seo-skill](https://github.com/aevans-eng/seo-skill) (retrieved 2026-05-19). Minor edits: added frontmatter for Claude Code skill discoverability; replaced unicode check/cross with Y/N for ASCII compliance per CLAUDE.md `§Ensure ASCII Code Symbols`.
+
 Lightweight audit and fix tool for static HTML sites (GitHub Pages, Netlify, Vercel, Astro static-output, etc.). No build tools required.
 
 ## Setup
