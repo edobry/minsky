@@ -946,19 +946,96 @@ export class PreCommitHook {
           timeout: 30000,
         });
       } catch (error) {
-        log.cli(`❌ Rules compile output for target "${target}" is stale.`);
-        log.cli(`💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`);
-        return {
-          success: false,
-          message: `Rules compile output for target "${target}" is stale`,
-          exitCode: 1,
-        };
+        const result = classifyCompileCheckError(error, target);
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
       }
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+}
+
+/**
+ * Classify a failed `rules compile --check` subprocess error as either genuine
+ * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ *
+ * When the CLI detects stale output it prints a `[rules compile --check]` /
+ * `is STALE` marker to stdout before throwing. Any other non-zero exit means
+ * the compile command itself failed — telling the operator to "regenerate"
+ * would be misleading because the same error will recur.
+ *
+ * Exported for unit testing; not part of the public hook API.
+ */
+export function classifyCompileCheckError(
+  error: unknown,
+  target: string
+): { logLines: string[]; message: string } {
+  const execError = error as { stdout?: string; stderr?: string };
+  const stdout = execError.stdout ?? "";
+  const stderr = execError.stderr ?? "";
+
+  // The CLI emits a line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE
+  // to stdout only when it has verified the output is out-of-date. Match this
+  // with a per-target line-anchored regex so that near-misses (e.g. a note
+  // about "previous run detected STALE files", or a STALE marker for a
+  // different target) do not count.
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const staleLineRe = new RegExp(
+    `\\[rules compile --check\\] Target "${escapedTarget}" is STALE`,
+    "m"
+  );
+  const isGenuinelyStale = staleLineRe.test(stdout);
+
+  if (isGenuinelyStale) {
+    return {
+      logLines: [
+        `❌ Rules compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`,
+      ],
+      message: `Rules compile output for target "${target}" is stale`,
+    };
+  }
+
+  // Compile command errored. Surface the actual error so the operator knows
+  // what to fix — re-running "rules compile" will NOT help.
+  const rawDetail = stderr.trim() || stdout.trim();
+  const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
+
+  // Detect setup-incomplete: the CLI emits "Validation error: Developer setup incomplete"
+  // when the Minsky setup has not been run. Telling the operator to "regenerate" is
+  // misleading in that case — the correct action is to run the setup command.
+  const isSetupIncomplete = /Validation error: Developer setup incomplete/i.test(errorDetail);
+
+  const indented = errorDetail
+    .split("\n")
+    .map((line) => `   ${line}`)
+    .join("\n");
+
+  if (isSetupIncomplete) {
+    return {
+      logLines: [
+        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        indented,
+        `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
+        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+      ],
+      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+    };
+  }
+
+  return {
+    logLines: [
+      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      indented,
+      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+    ],
+    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+  };
 }
 
 // CLI entry point
