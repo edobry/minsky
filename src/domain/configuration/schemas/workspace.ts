@@ -10,6 +10,14 @@ export const workspaceConfigSchema = z
      * Absolute path to the main workspace root
      */
     mainPath: z.string().min(1).optional(),
+
+    /**
+     * The MCP client harness registered for this workspace (e.g. "cursor",
+     * "claude-desktop"). Written by `minsky setup --client <X>` and stored
+     * in `.minsky/config.local.yaml` so the chosen harness is remembered
+     * across subsequent invocations.
+     */
+    harness: z.string().optional(),
   })
   .default({});
 
