@@ -21,6 +21,7 @@ interface AgentRow {
   title: string;
   liveness: "healthy" | "idle" | "stale" | "orphaned";
   taskId: string | null;
+  taskTitle: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
@@ -310,23 +311,17 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
   const label = livenessLabel(agent.liveness);
   return (
     <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
-      {/* Status: liveness dot + label as one unit. Passive `aria-label` (no
-          `role="status"`) avoids screen-reader spam on the 5s polling refetch;
-          `title` provides a hover tooltip for sighted users. */}
+      {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
+          spam on the 5s polling refetch; the label is read when the dot receives focus. */}
       <span
         aria-label={`Liveness: ${label}`}
-        title={`Liveness: ${label}`}
-        className="flex items-center gap-1.5 flex-shrink-0 w-20"
-      >
-        <span
-          className={`inline-block h-2 w-2 rounded-full ${livenessDotClass(agent.liveness)}`}
-        />
-        <span className="text-xs text-muted-foreground">{label}</span>
-      </span>
+        className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
+      />
 
-      {/* Title + task ID */}
+      {/* Primary label: task title when available, branch/sessionId as fallback.
+          The taskId secondary line gives the operator the canonical reference. */}
       <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium truncate block">{agent.title}</span>
+        <span className="text-sm font-medium truncate block">{agent.taskTitle ?? agent.title}</span>
         {agent.taskId && (
           <span className="text-xs text-muted-foreground">{agent.taskId}</span>
         )}

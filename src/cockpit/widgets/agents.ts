@@ -5,10 +5,11 @@
  * Filters out orphaned sessions and sessions in terminal statuses (MERGED, CLOSED).
  *
  * The widget is constructed via createAgentsWidget(), which accepts a
- * getSessionProvider async factory so the cockpit server can inject the
- * real persistence provider while tests inject a lightweight double.
+ * getSessionProvider async factory and an optional getTaskProvider async factory
+ * so the cockpit server can inject the real persistence providers while tests
+ * inject lightweight doubles.
  *
- * The default export `agentsWidget` uses a lazy PersistenceService singleton
+ * The default export `agentsWidget` uses lazy PersistenceService singletons
  * for production use (no DI container needed).
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
@@ -17,12 +18,24 @@ import { SessionStatus } from "../../domain/session/types";
 import { deriveSessionLiveness } from "../../domain/session/types";
 import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
 
+/**
+ * Minimal interface for task title look-up. The agents widget only needs
+ * `getTask()` — a subset of `TaskServiceInterface` — keeping the coupling
+ * thin and the test doubles trivial.
+ */
+export interface TaskProviderLike {
+  getTask(taskId: string): Promise<{ title: string } | null>;
+}
+
 /** Shape of a single agent row emitted in the payload */
 export interface AgentRow {
   sessionId: string;
   title: string;
   liveness: "healthy" | "idle" | "stale" | "orphaned";
   taskId: string | null;
+  /** Human-readable task title sourced from the task backend; null when taskId
+   *  is absent or the task could not be resolved. */
+  taskTitle: string | null;
   prNumber: number | null;
   prStatus: string | null;
   lastActivityAt: string;
@@ -41,8 +54,11 @@ const TERMINAL_STATUSES: Set<SessionStatus> = new Set([SessionStatus.MERGED, Ses
  * Map a SessionRecord to an AgentRow.
  * Derives liveness via the domain function; leaves agentId as null
  * until mt#1078 populates it.
+ *
+ * @param record  The session record to map.
+ * @param taskTitle  Pre-fetched task title (or null when unavailable).
  */
-function toAgentRow(record: SessionRecord): AgentRow {
+function toAgentRow(record: SessionRecord, taskTitle: string | null): AgentRow {
   const liveness = deriveSessionLiveness(record);
 
   // Title precedence: prefer the human-meaningful git branch when present,
@@ -71,6 +87,7 @@ function toAgentRow(record: SessionRecord): AgentRow {
     title,
     liveness,
     taskId,
+    taskTitle,
     prNumber,
     prStatus,
     lastActivityAt,
@@ -85,15 +102,24 @@ function toAgentRow(record: SessionRecord): AgentRow {
  *   Called on each fetch() so callers can lazily initialise the provider.
  *   If the call throws, fetch() catches and returns a degraded state.
  *
+ * @param getTaskProvider  Optional async factory that returns a TaskProviderLike.
+ *   When provided, task titles are looked up in a single parallel batch for all
+ *   unique non-null taskIds in the current session list. When absent or when the
+ *   factory throws, taskTitle fields are null (graceful degradation).
+ *
  * @example
  *   // Production use (cockpit default):
- *   export const agentsWidget = createAgentsWidget(defaultProviderFactory);
+ *   export const agentsWidget = createAgentsWidget(defaultProviderFactory, defaultTaskProviderFactory);
  *
- *   // Test use:
+ *   // Test use (session provider only, no task enrichment):
  *   const widget = createAgentsWidget(async () => mockProvider);
+ *
+ *   // Test use (with task enrichment):
+ *   const widget = createAgentsWidget(async () => mockProvider, async () => mockTaskProvider);
  */
 export function createAgentsWidget(
-  getProvider: () => Promise<SessionProviderInterface>
+  getProvider: () => Promise<SessionProviderInterface>,
+  getTaskProvider?: () => Promise<TaskProviderLike>
 ): WidgetModule {
   return {
     id: "agents",
@@ -104,16 +130,46 @@ export function createAgentsWidget(
         const provider = await getProvider();
         const records = await provider.listSessions();
 
-        const agents: AgentRow[] = records
-          .filter((r) => {
-            // Filter terminal statuses
-            if (r.status && TERMINAL_STATUSES.has(r.status)) return false;
-            // Filter orphaned liveness
-            const liveness = deriveSessionLiveness(r);
-            if (liveness === "orphaned") return false;
-            return true;
-          })
-          .map(toAgentRow);
+        const filtered = records.filter((r) => {
+          // Filter terminal statuses
+          if (r.status && TERMINAL_STATUSES.has(r.status)) return false;
+          // Filter orphaned liveness
+          const liveness = deriveSessionLiveness(r);
+          if (liveness === "orphaned") return false;
+          return true;
+        });
+
+        // Batch-fetch task titles for all unique non-null taskIds in one pass.
+        // Using Promise.all avoids sequential awaits (no client-side waterfall).
+        const taskTitleMap = new Map<string, string>();
+        if (getTaskProvider) {
+          try {
+            const taskProvider = await getTaskProvider();
+            const uniqueTaskIds = [
+              ...new Set(filtered.map((r) => r.taskId).filter((id): id is string => id != null)),
+            ];
+            const results = await Promise.all(
+              uniqueTaskIds.map(async (rawId) => {
+                const displayId = formatTaskIdForDisplay(rawId);
+                const task = await taskProvider.getTask(displayId);
+                return { displayId, title: task?.title ?? null };
+              })
+            );
+            for (const { displayId, title } of results) {
+              if (title != null) {
+                taskTitleMap.set(displayId, title);
+              }
+            }
+          } catch {
+            // Task provider failure is non-fatal — rows degrade to taskTitle: null.
+          }
+        }
+
+        const agents: AgentRow[] = filtered.map((r) => {
+          const displayTaskId = r.taskId ? formatTaskIdForDisplay(r.taskId) : null;
+          const taskTitle = displayTaskId ? (taskTitleMap.get(displayTaskId) ?? null) : null;
+          return toAgentRow(r, taskTitle);
+        });
 
         const payload: AgentsPayload = { agents };
         return { state: "ok", payload };
@@ -161,5 +217,45 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
   return provider;
 }
 
+// ---------------------------------------------------------------------------
+// Default task provider — lazy singleton mirroring defaultProviderFactory.
+//
+// Uses createConfiguredTaskService (the same path the CLI uses) so the widget
+// benefits from multi-backend task resolution (mt# Minsky DB + gh# GitHub).
+// A separate PersistenceService instance is constructed here to keep the
+// session-provider singleton and the task-provider singleton independent;
+// both share the same underlying DB URL, so there is no duplication of
+// authoritative state.
+// ---------------------------------------------------------------------------
+
+let _cachedTaskProvider: TaskProviderLike | null = null;
+
+async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
+  if (_cachedTaskProvider) return _cachedTaskProvider;
+
+  const { PersistenceService } = await import("../../domain/persistence/service");
+  const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
+
+  const svc = new PersistenceService();
+  await svc.initialize();
+  const persistenceProvider = svc.getProvider();
+
+  // Resolve workspace path — same strategy as src/composition/cli.ts.
+  // The cockpit server is always started from the repo root, so process.cwd()
+  // is a reliable workspace root without needing import.meta.url resolution.
+  const workspacePath = process.cwd();
+
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    persistenceProvider,
+  });
+
+  _cachedTaskProvider = taskService;
+  return _cachedTaskProvider;
+}
+
 /** Default agents widget — ready to drop into WIDGET_REGISTRY */
-export const agentsWidget: WidgetModule = createAgentsWidget(defaultProviderFactory);
+export const agentsWidget: WidgetModule = createAgentsWidget(
+  defaultProviderFactory,
+  defaultTaskProviderFactory
+);
