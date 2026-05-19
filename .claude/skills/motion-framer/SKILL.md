@@ -20,6 +20,7 @@ user-invocable: true
 Motion (formerly Framer Motion) is a production-ready animation library for React and JavaScript that enables declarative, performant animations with minimal code. It provides `motion` components that wrap HTML elements with animation superpowers, supports gesture recognition (hover, tap, drag, focus), and includes advanced features like layout animations, exit animations, and spring physics.
 
 **When to use this skill:**
+
 - Building interactive UI components (buttons, cards, menus)
 - Creating micro-interactions and hover effects
 - Implementing page transitions and route animations
@@ -30,6 +31,7 @@ Motion (formerly Framer Motion) is a production-ready animation library for Reac
 - Replacing CSS transitions with more powerful, controllable animations
 
 **Technology:**
+
 - **Motion** (v11+) — the modern, smaller library from Framer Motion creators
 - **Framer Motion** — the full-featured predecessor (still widely used)
 - React 18+ compatible, also supports Vue
@@ -70,10 +72,7 @@ const [isOpen, setIsOpen] = useState(false)
 Set the initial state before animation using the `initial` prop:
 
 ```jsx
-<motion.div
-  initial={{ opacity: 0, y: 50 }}
-  animate={{ opacity: 1, y: 0 }}
-/>
+<motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} />
 ```
 
 Set `initial={false}` to disable initial animations on mount.
@@ -148,7 +147,7 @@ const item = { hidden: { x: -20, opacity: 0 }, visible: { x: 0, opacity: 1 } }
 Components removed from DOM animate out:
 
 ```jsx
-import { AnimatePresence } from "framer-motion"
+import { AnimatePresence } from "framer-motion";
 
 <AnimatePresence>
   {visible && (
@@ -159,7 +158,7 @@ import { AnimatePresence } from "framer-motion"
       exit={{ opacity: 0 }}
     />
   )}
-</AnimatePresence>
+</AnimatePresence>;
 ```
 
 Children of `AnimatePresence` must have unique `key` props.
