@@ -33,3 +33,24 @@ Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an 
 The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
 
 Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
+
+### Layered merge-protection model (mt#1938)
+
+A PR's path to `main` is protected by three independent layers, each covering a different surface. Knowing which layer protects which path matters when triaging a main-red incident or proposing new enforcement.
+
+| Layer | Surface covered | Mechanism | Owns origin path |
+| ----- | --------------- | --------- | ---------------- |
+| 1 — Agent-tool | Claude Code tool invocations (`mcp__minsky__session_pr_merge`, agent-context `gh api PUT /merge` via `Bash`/`session_exec`) | `.claude/hooks/require-review-before-merge.ts` — review presence + freshness + CI presence (mt#1309) + bundle-boot smoke (mt#1787) + required-checks status (mt#1938) | Agent-driven merges only. |
+| 2 — GitHub-tool | Operator-terminal `gh api PUT /merge`, `gh pr merge`, GitHub web UI | GitHub branch protection: `required_status_checks.contexts` + `enforce_admins: true` | Operator-side merges. **Load-bearing** for the user's normal merge path. |
+| 3 — Main-watch | Universal post-merge backstop | `.github/workflows/main-watch.yml` — fires on `workflow_run` failure on `main`, opens a P0 issue | Anything that gets past layers 1 and 2. |
+
+**Why this matters.** Claude Code's PreToolUse hook stack can only see Claude Code tool invocations — operator-terminal `gh api` calls and GitHub-UI clicks are outside its scope by construction. Layer 2 (GitHub branch protection) is the layer that covers the operator-API path with `enforce_admins: true`; without it, an admin token sails past the required-status-checks rule. Layer 3 catches anything that gets past layers 1 and 2, regardless of how the broken code arrived on main.
+
+The originating incident (PR #1163 / mt#1927, 2026-05-19) hit all three coverage holes at once: layer 1 didn't apply (operator-API path, outside Claude Code's view), layer 2 was permissive (`enforce_admins: false`), and layer 3 didn't exist. mt#1938 closes layer 1's generalization gap (CI status enforcement, not just presence), flips layer 2 (`enforce_admins: true`), and adds layer 3 (`main-watch.yml`).
+
+**Override env vars (audit-logged when used):**
+
+- `MINSKY_SKIP_BUNDLE_SMOKE=1` — bypasses layer 1's bundle-boot-smoke gate (mt#1787).
+- `MINSKY_SKIP_REQUIRED_CHECKS=1` — bypasses layer 1's required-checks status gate (mt#1938). Each override emits a stdout audit line naming the env-var value, PR number, HEAD sha, and ISO timestamp.
+
+**Branch-protection management.** Layer 2's desired config is declarative in `scripts/set-branch-protection.ts`. Dry-run is the default: `bun scripts/set-branch-protection.ts` previews live-vs-desired diff. `--check` exits non-zero on drift (suitable for periodic audits). `--apply` writes the desired config via `gh api PATCH`.

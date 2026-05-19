@@ -1,0 +1,128 @@
+# Main-watch detector (mt#1938) — universal post-merge backstop.
+#
+# Fires when any workflow on main concludes with a non-success outcome and
+# opens (or updates) a P0 GitHub issue with the failing run's details. This
+# is layer 3 of the mt#1938 three-layer enforcement stack (see
+# .claude/hooks/SPEC.md §Layered enforcement model):
+#
+#   Layer 1 — Claude Code merge-gate hook (`require-review-before-merge.ts`).
+#             Covers agent-driven merges only.
+#   Layer 2 — GitHub branch protection (`enforce_admins: true`).
+#             Covers operator-API and UI paths.
+#   Layer 3 — THIS workflow. Universal backstop: regardless of which path
+#             got broken code in, this fires within ~minutes and surfaces
+#             the breakage as a P0 issue.
+#
+# Originating incident: PR #1163 / mt#1927 (2026-05-19) — main CI was red
+# for ~28 minutes because no detector fired when the push-triggered
+# `build` job failed. The user discovered it by manual notice.
+
+name: main-watch
+
+on:
+  workflow_run:
+    workflows: ["CI", "Bundle Boot Smoke"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  # Need issues:write to file the P0 issue.
+  issues: write
+  # Need actions:read to look up the failing run's URL via the API.
+  actions: read
+  contents: read
+
+jobs:
+  detect-main-red:
+    # Only fire on actual failure conclusions. GitHub workflow_run events
+    # also fire on `success`, `neutral`, `cancelled`, `skipped`, etc. — we
+    # only care about failures and timed_outs that signify main is broken.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' ||
+      github.event.workflow_run.conclusion == 'timed_out' ||
+      github.event.workflow_run.conclusion == 'startup_failure'
+    runs-on: ubuntu-latest
+    steps:
+      - name: File P0 issue for main-red
+        env:
+          GH_TOKEN: ${{ github.token }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_COMMIT_MESSAGE: ${{ github.event.workflow_run.head_commit.message }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="${HEAD_SHA:0:7}"
+          ISSUE_TITLE="P0: main CI red — ${WORKFLOW_NAME} ${CONCLUSION} on ${SHORT_SHA}"
+
+          # Look for an existing open issue with the same title to avoid
+          # duplicate P0s when re-runs flap. Title equality is the dedupe
+          # key — distinct SHA produces a new title and a new issue.
+          EXISTING=$(gh issue list \
+            --repo "${REPO}" \
+            --state open \
+            --search "in:title \"${ISSUE_TITLE}\"" \
+            --json number \
+            --jq '.[0].number // empty')
+
+          BODY=$(cat <<EOF
+          # P0: main went red
+
+          **Workflow:** \`${WORKFLOW_NAME}\` concluded **${CONCLUSION}** on \`main\`.
+
+          **Failing run:** ${WORKFLOW_URL}
+          **HEAD SHA:** \`${HEAD_SHA}\`
+          **Head commit:** ${HEAD_COMMIT_MESSAGE}
+
+          ## What this means
+
+          A push to \`main\` triggered CI and the workflow above did not conclude success. Per
+          CLAUDE.md user preference ("main must never be broken"), this is severity-1.
+
+          ## Diagnostic checklist
+
+          1. Open the failing run URL above; identify which job/step failed.
+          2. Check whether the offending PR was merged with a known-failing required check
+             (operator-API bypass via \`gh api PUT /merge\` despite \`enforce_admins\`).
+          3. Confirm \`enforce_admins\` is currently enabled:
+             \`\`\`
+             gh api repos/${REPO}/branches/main/protection --jq .enforce_admins.enabled
+             \`\`\`
+             Expected: \`true\` post-mt#1938. If \`false\`, that is itself a separate finding.
+
+          ## Recovery
+
+          1. Open a hotfix branch off current \`main\`.
+          2. Apply the smallest fix that turns CI green (often a formatter pass or a config
+             flip).
+          3. Land via the standard Minsky session flow:
+             \`tasks_create → session_start → session_commit → session_pr_create →
+             /review-pr → session_pr_merge\`.
+          4. Verify the post-merge \`main\` build is green within ~5 minutes.
+          5. Close this issue with a link to the hotfix PR.
+
+          ## Cross-references
+
+          - mt#1938 — structural fix for the main-red coverage holes
+          - mt#1928 — prior hotfix that unblocked main on 2026-05-19
+          - PR #1163 / mt#1927 — originating incident
+          - \`.claude/hooks/SPEC.md\` §Layered enforcement model — three-layer model
+          - This issue is auto-filed by \`.github/workflows/main-watch.yml\`.
+          EOF
+          )
+
+          if [[ -n "${EXISTING}" ]]; then
+            echo "Existing P0 issue #${EXISTING} found for this run; adding a comment instead."
+            gh issue comment "${EXISTING}" --repo "${REPO}" --body "Workflow re-fired with conclusion=${CONCLUSION}. Run: ${WORKFLOW_URL}"
+          else
+            echo "Filing new P0 issue."
+            gh issue create \
+              --repo "${REPO}" \
+              --title "${ISSUE_TITLE}" \
+              --body "${BODY}" \
+              --label "p0,main-red"
+          fi
