@@ -234,7 +234,7 @@ The 8 tasks belong under one umbrella: _"Minsky brand register: foundation + pro
 ## Cross-references
 
 - `../SKILL.md` — the skill body that consumes this worked example
-- `./case-studies-2026-05.md` — the three-way Composio / Cursor / Factory analysis that informed Step 4
+- `../../analyze-adjacent-product/references/case-studies-2026-05.md` — the three-way Composio / Cursor / Factory analysis that informed Step 4 (moved 2026-05-19 via mt#1944 when the analytical methodology was extracted into the standalone `analyze-adjacent-product` skill)
 - Notion home: [`33a937f0-3cb4-8197-a93e-cd4a98a94261`](https://www.notion.so/33a937f03cb48197a93ecd4a98a94261)
 - Notion: [Operative Ontology corpus](https://www.notion.so/35e937f03cb481a39301cb319cdc6cd2), [Digital Twin & Cognitive Interface](https://www.notion.so/1d1937f03cb480008bbdc529dfb5eb68), [Vision & theory](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [The cockpit problem](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8)
 - pee_zombie corpus source: the full Twitter archive ZIP at `~/Downloads/twitter-2025-09-21-*.zip` is the durable source of record on the principal's local filesystem. The 2026-05-19 workshop extracted `data/tweets.js` from that ZIP and parsed 8,094 originals into an ephemeral temp-folder JSON for grep-scanning during the workshop; that temp artifact is not durable and will be regenerated when needed. Follow-up #8 below specs the durable path: vector-indexing the originals into a `principal-corpus` namespace on Minsky's shared pgvector infra, with `principal_corpus_search` / `principal_corpus_similar` tools as the durable query surface.
