@@ -4,7 +4,7 @@
  * Identifies and removes stale/orphaned sessions via `deriveSessionLiveness`.
  * Completes the session lifecycle: create → track → clean.
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import type { SessionProviderInterface, SessionRecord, SessionLiveness } from "./types";
 import { deriveSessionLiveness, SessionStatus } from "./types";
 import { getSessionsDir } from "../../utils/paths";
@@ -137,4 +137,79 @@ export async function identifyCleanupCandidates(
   }
 
   return candidates;
+}
+
+/**
+ * A workspace directory under getSessionsDir() that has no matching DB record.
+ * This is the mt#1941 failure mode: the DB record was deleted (by a concurrent
+ * applyPostMergeStateSync or deleteSession call) but the workspace dir remained
+ * on disk. session_cleanup --orphaned must detect these as well as the traditional
+ * "DB record exists, dir missing" orphans.
+ */
+export interface FilesystemOrphanDir {
+  /** UUID / dirname under getSessionsDir(). */
+  sessionId: string;
+  /** Absolute path to the directory. */
+  dirPath: string;
+}
+
+/**
+ * Scan getSessionsDir() for workspace directories that have no matching session
+ * record in the DB.
+ *
+ * Background (mt#1941): the standard "orphaned" check in identifyCleanupCandidates
+ * detects sessions WHERE the DB record exists but the local dir is missing.
+ * This function detects the INVERSE: dirs on disk with NO DB record. This occurs
+ * when applyPostMergeStateSync is called twice concurrently (webhook + session_pr_merge):
+ * the first call deletes the DB record AND the dir; the second call finds no DB record
+ * and (pre-fix) did not clean up the dir. The result is a dir on disk with nothing in
+ * the DB to reference it — standard session_cleanup misses it entirely.
+ *
+ * Only top-level directory entries under getSessionsDir() are inspected. Entries
+ * that are not directories are skipped. Entries that correspond to an existing DB
+ * session record are skipped.
+ *
+ * Returns an empty array if getSessionsDir() does not exist or cannot be read.
+ */
+export async function identifyFilesystemOrphanDirs(
+  sessionProvider: SessionProviderInterface
+): Promise<FilesystemOrphanDir[]> {
+  const sessionsDir = getSessionsDir();
+  if (!existsSync(sessionsDir)) {
+    return [];
+  }
+
+  let entries: string[];
+  try {
+    entries = readdirSync(sessionsDir);
+  } catch (err) {
+    log.debug(
+      `identifyFilesystemOrphanDirs: could not read sessions dir ${sessionsDir}: ${getErrorMessage(err)}`
+    );
+    return [];
+  }
+
+  // Build a set of all known session IDs from the DB for O(1) lookup.
+  const allSessions = await sessionProvider.listSessions();
+  const knownIds = new Set(allSessions.map((s) => s.sessionId));
+
+  const orphans: FilesystemOrphanDir[] = [];
+  for (const entry of entries) {
+    const dirPath = `${sessionsDir}/${entry}`;
+    // Only consider directories (skip files like .gitkeep, etc.)
+    let isDir: boolean;
+    try {
+      isDir = statSync(dirPath).isDirectory();
+    } catch {
+      continue;
+    }
+    if (!isDir) continue;
+
+    // If the DB has a record for this sessionId, it is not a filesystem orphan.
+    if (knownIds.has(entry)) continue;
+
+    orphans.push({ sessionId: entry, dirPath });
+  }
+
+  return orphans;
 }
