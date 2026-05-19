@@ -13,9 +13,19 @@
 //   the desired config declarative and auditable.
 //
 // Usage:
-//   bun scripts/set-branch-protection.ts            # dry-run (preview + diff vs live)
-//   bun scripts/set-branch-protection.ts --apply    # apply the config via PATCH
-//   bun scripts/set-branch-protection.ts --check    # print live state + drift verdict
+//   bun scripts/set-branch-protection.ts                    # dry-run (preview + diff vs live)
+//   bun scripts/set-branch-protection.ts --check            # print live state + drift verdict
+//   bun scripts/set-branch-protection.ts --apply            # apply default desired (enforce_admins=false)
+//   bun scripts/set-branch-protection.ts --enforce-admins   # dry-run with enforce_admins=true
+//   bun scripts/set-branch-protection.ts --enforce-admins --apply  # opt-in flip to enforce_admins=true
+//
+// `enforce_admins: true` is the load-bearing fix for mt#1938's originating-incident
+// merge-bypass path (admin tokens skipping required-status-checks). The default
+// desired config leaves it at `false` so this script's `--apply` path is
+// non-disruptive; opting in requires the explicit `--enforce-admins` flag plus
+// `--apply`. This makes the flip an operator-decided ceremony rather than a side
+// effect of `--apply`. The hook (layer 1) and main-watch workflow (layer 3) cover
+// distinct surfaces and ship enabled by default.
 //
 // Defaults follow the user's operational-safety-dry-run-first principle (CLAUDE.md).
 
@@ -23,14 +33,21 @@ const OWNER = "edobry";
 const REPO = "minsky";
 const BRANCH = "main";
 
-// Desired branch-protection config. Mirrors the GitHub PATCH /branches/<b>/protection
+// Desired branch-protection config. Mirrors the GitHub PUT /branches/<b>/protection
 // schema. Required contexts are the CI job names that branch protection enforces.
-const DESIRED_CONFIG = {
+//
+// `enforce_admins` is intentionally LEFT AT FALSE in the default desired config.
+// Flipping it to `true` is the load-bearing step that closes the operator-API
+// bypass path identified in the mt#1938 originating incident — but the operator
+// has chosen to defer that flip until layers 1 (this hook) and 3 (main-watch
+// workflow) have been observed running in production. To opt in, pass
+// `--enforce-admins` on the CLI (still `--apply`-gated).
+const DESIRED_CONFIG_BASE = {
   required_status_checks: {
     strict: true,
     contexts: ["build", "Prevent Placeholder Tests"],
   },
-  enforce_admins: true,
+  enforce_admins: false,
   required_pull_request_reviews: {
     dismiss_stale_reviews: true,
     require_code_owner_reviews: false,
@@ -46,6 +63,10 @@ const DESIRED_CONFIG = {
   allow_fork_syncing: false,
 };
 
+function buildDesiredConfig(enforceAdmins: boolean): typeof DESIRED_CONFIG_BASE {
+  return { ...DESIRED_CONFIG_BASE, enforce_admins: enforceAdmins };
+}
+
 function readLiveProtection(): unknown {
   const result = Bun.spawnSync({
     cmd: ["gh", "api", `repos/${OWNER}/${REPO}/branches/${BRANCH}/protection`],
@@ -60,7 +81,10 @@ function readLiveProtection(): unknown {
   return JSON.parse(stdout);
 }
 
-function isLiveCompliant(live: unknown): { compliant: boolean; reasons: string[] } {
+function isLiveCompliant(
+  live: unknown,
+  desired: typeof DESIRED_CONFIG_BASE
+): { compliant: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (!live || typeof live !== "object") {
     return { compliant: false, reasons: ["live response is not an object"] };
@@ -71,18 +95,25 @@ function isLiveCompliant(live: unknown): { compliant: boolean; reasons: string[]
     required_pull_request_reviews?: unknown;
   };
 
-  // enforce_admins: THE load-bearing field.
-  const enforceAdmins =
+  // enforce_admins: drift is anything that doesn't match the chosen desired
+  // value (default false; --enforce-admins flips to true). Compliance is
+  // value-equality, not "true is always required."
+  const liveEnforceAdmins =
     typeof l.enforce_admins === "boolean" ? l.enforce_admins : l.enforce_admins?.enabled === true;
-  if (!enforceAdmins) {
-    reasons.push("enforce_admins: false (mt#1938 LOAD-BEARING — must be true)");
+  if (liveEnforceAdmins !== desired.enforce_admins) {
+    const hint = desired.enforce_admins
+      ? "mt#1938 LOAD-BEARING — pass --enforce-admins --apply to flip"
+      : "run without --enforce-admins to match";
+    reasons.push(
+      `enforce_admins: live=${liveEnforceAdmins}, desired=${desired.enforce_admins} (${hint})`
+    );
   }
 
   // Required status checks: contexts must include all desired.
   const liveContexts = l.required_status_checks?.contexts ?? [];
-  for (const desired of DESIRED_CONFIG.required_status_checks.contexts) {
-    if (!liveContexts.includes(desired)) {
-      reasons.push(`required_status_checks.contexts is missing "${desired}"`);
+  for (const required of desired.required_status_checks.contexts) {
+    if (!liveContexts.includes(required)) {
+      reasons.push(`required_status_checks.contexts is missing "${required}"`);
     }
   }
   if (l.required_status_checks?.strict !== true) {
@@ -94,11 +125,11 @@ function isLiveCompliant(live: unknown): { compliant: boolean; reasons: string[]
   return { compliant: reasons.length === 0, reasons };
 }
 
-function applyProtection(): void {
+function applyProtection(desired: typeof DESIRED_CONFIG_BASE): void {
   // gh api PUT expects the body via stdin with `--input -`. Bun.spawnSync pipes
   // the body buffer into the child's stdin. inherit stdout/stderr so gh's
   // response prints directly to the operator's terminal.
-  const body = JSON.stringify(DESIRED_CONFIG);
+  const body = JSON.stringify(desired);
   const result = Bun.spawnSync({
     cmd: [
       "gh",
@@ -122,20 +153,22 @@ function main(): void {
   const args = process.argv.slice(2);
   const apply = args.includes("--apply");
   const check = args.includes("--check");
+  const enforceAdmins = args.includes("--enforce-admins");
 
   if (apply && check) {
     process.stderr.write("--apply and --check are mutually exclusive\n");
     process.exit(2);
   }
 
+  const desired = buildDesiredConfig(enforceAdmins);
   const live = readLiveProtection();
-  const verdict = isLiveCompliant(live);
+  const verdict = isLiveCompliant(live, desired);
 
   if (check) {
     process.stdout.write(`Live branch protection for ${OWNER}/${REPO}:${BRANCH}:\n`);
     process.stdout.write(`${JSON.stringify(live, null, 2)}\n\n`);
     if (verdict.compliant) {
-      process.stdout.write("Verdict: COMPLIANT with mt#1938 desired config.\n");
+      process.stdout.write("Verdict: COMPLIANT with desired config.\n");
       process.exit(0);
     } else {
       process.stdout.write("Verdict: DRIFT detected. Reasons:\n");
@@ -145,11 +178,17 @@ function main(): void {
   }
 
   if (!apply) {
-    process.stdout.write("DRY RUN — no changes will be applied. Pass --apply to execute.\n\n");
-    process.stdout.write("Desired config:\n");
-    process.stdout.write(`${JSON.stringify(DESIRED_CONFIG, null, 2)}\n\n`);
+    process.stdout.write("DRY RUN — no changes will be applied. Pass --apply to execute.\n");
+    if (!enforceAdmins) {
+      process.stdout.write(
+        "NOTE: enforce_admins is intentionally FALSE in default desired config. " +
+          "Pass --enforce-admins to opt in (mt#1938 LOAD-BEARING — operator-decided).\n"
+      );
+    }
+    process.stdout.write("\nDesired config:\n");
+    process.stdout.write(`${JSON.stringify(desired, null, 2)}\n\n`);
     if (verdict.compliant) {
-      process.stdout.write("Live state is already COMPLIANT — no PATCH needed.\n");
+      process.stdout.write("Live state is already COMPLIANT — no PUT needed.\n");
     } else {
       process.stdout.write("Live state has DRIFT from desired:\n");
       for (const r of verdict.reasons) process.stdout.write(`  - ${r}\n`);
@@ -160,12 +199,19 @@ function main(): void {
 
   // --apply path
   process.stdout.write(`Applying branch protection to ${OWNER}/${REPO}:${BRANCH} ...\n`);
-  applyProtection();
+  if (enforceAdmins) {
+    process.stdout.write(
+      "WARNING: --enforce-admins is set. Admin-authenticated `gh api PUT /merge` " +
+        "calls will be subject to required-status-checks after this writes. " +
+        "Reverse with `bun scripts/set-branch-protection.ts --apply` (without the flag).\n"
+    );
+  }
+  applyProtection(desired);
   process.stdout.write("\nVerifying post-apply state ...\n");
   const live2 = readLiveProtection();
-  const verdict2 = isLiveCompliant(live2);
+  const verdict2 = isLiveCompliant(live2, desired);
   if (verdict2.compliant) {
-    process.stdout.write("SUCCESS — branch protection now matches mt#1938 desired config.\n");
+    process.stdout.write("SUCCESS — branch protection now matches desired config.\n");
     process.exit(0);
   } else {
     process.stderr.write("APPLIED but post-verify FAILED. Reasons:\n");
