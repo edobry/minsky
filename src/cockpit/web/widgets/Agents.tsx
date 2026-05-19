@@ -310,12 +310,19 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
   const label = livenessLabel(agent.liveness);
   return (
     <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
-      {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
-          spam on the 5s polling refetch; the label is read when the dot receives focus. */}
+      {/* Status: liveness dot + label as one unit. Passive `aria-label` (no
+          `role="status"`) avoids screen-reader spam on the 5s polling refetch;
+          `title` provides a hover tooltip for sighted users. */}
       <span
         aria-label={`Liveness: ${label}`}
-        className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${livenessDotClass(agent.liveness)}`}
-      />
+        title={`Liveness: ${label}`}
+        className="flex items-center gap-1.5 flex-shrink-0 w-20"
+      >
+        <span
+          className={`inline-block h-2 w-2 rounded-full ${livenessDotClass(agent.liveness)}`}
+        />
+        <span className="text-xs text-muted-foreground">{label}</span>
+      </span>
 
       {/* Title + task ID */}
       <div className="flex-1 min-w-0">
@@ -348,8 +355,9 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
 function AgentsTableHeader() {
   return (
     <div className="flex items-center gap-3 py-1 mb-0.5 border-b border-border">
-      {/* dot placeholder */}
-      <span className="inline-block h-2 w-2 flex-shrink-0" />
+      <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-20">
+        Status
+      </span>
       <span className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
         Session
       </span>
@@ -391,6 +399,13 @@ function agentSortFn(a: AgentRow, b: AgentRow, key: AgentSortKey, dir: SortDir):
     case "sessionId":
       cmp = a.sessionId.localeCompare(b.sessionId);
       break;
+  }
+  // Stable tiebreaker — when many rows share the same primary key (common
+  // for liveness sort when all sessions are stale), fall back to sessionId
+  // so the sort produces a deterministic order and the dir toggle visibly
+  // reverses the list rather than no-op'ing.
+  if (cmp === 0 && key !== "sessionId") {
+    cmp = a.sessionId.localeCompare(b.sessionId);
   }
   return dir === "asc" ? cmp : -cmp;
 }
