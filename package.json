@@ -138,7 +138,7 @@
     "drizzle-orm": "^0.44.2",
     "express": "^4.21.2",
     "fs-extra": "^11.3.0",
-    "glob": "^11.0.3",
+    "glob": "^13.0.6",
     "gpt-tokenizer": "^3.0.1",
     "gray-matter": "^4.0.3",
     "logform": "^2.7.0",
