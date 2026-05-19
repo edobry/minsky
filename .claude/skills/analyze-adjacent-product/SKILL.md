@@ -28,6 +28,8 @@ See `documentation-taxonomy.mdc §The eight categories` for the full taxonomy. A
 
 ## Research discipline — PRIMARY sources only
 
+The MCP tool names referenced in this section (`mcp__chrome-devtools__new_page`, `mcp__chrome-devtools__take_snapshot`, `mcp__plugin_Notion_notion__notion-search`, `mcp__plugin_Notion_notion__notion-fetch`, `mcp__plugin_Notion_notion__notion-create-pages`) are harness-provided by Claude Code plugins, not by this repository. Verify availability with the harness tool-search before assuming presence — if Chrome devtools is unavailable, fall back to `WebFetch` with an explicit note in the analysis that JS-rendered content may be missing.
+
 **Default research path: load the product's live site through Chrome devtools** (`mcp__chrome-devtools__new_page` + `take_snapshot`). Most AI-product sites are JavaScript-rendered; WebFetch returns a near-empty DOM and forces you to fall back to review aggregators (capterra, futuretools, automateed). Those aggregators are routinely 6–18 months stale, especially for products that have pivoted. A confident-but-wrong "no overlap" verdict is the failure mode this discipline prevents.
 
 Sequence:
@@ -77,11 +79,15 @@ Before writing the comparison, name the Minsky concepts the product touches:
 - **Forgebackend subinterfaces** (ADR-005) — Git-forge abstraction
 - **In-band review semantics** (ADR-009) — reviewer subagent as load-bearing gate
 
+ADR numbers and task IDs above are pointers, not anchors — resolve them via `ls docs/architecture/adr-*.md` and `mcp__minsky__tasks_get` at use-time. Numbers can drift between branches, especially when sibling work is in flight.
+
 Per `principal-context.mdc`, name the **framework** you're evaluating under — commercial-product-workflow-fit, not OSS-purity or lock-in-minimization. Don't import generic-SE frameworks (per `decision-defaults.mdc §Build vs buy`).
 
 ### 4. Draft the analysis
 
-File the Notion page under the Minsky home (`33a937f0-3cb4-8197-a93e-cd4a98a94261`). Use this title pattern:
+File the Notion page under the Minsky home. The parent page ID is `33a937f0-3cb4-8197-a93e-cd4a98a94261` (dashed UUID form; the undashed 32-hex form `33a937f03cb48197a93ecd4a98a94261` is equivalent — Notion accepts both). **Verify the current parent via `mcp__plugin_Notion_notion__notion-fetch` on the workspace home before creating**, so a relocation or rename does not produce a misfiled page (same convention as `incident-memo/SKILL.md`).
+
+Use this title pattern:
 
 ```
 Analysis: <product>[ × <product>] × Minsky — <descriptor> (<month> <year>)
@@ -186,9 +192,10 @@ When the skill completes, verify:
 
 ## Cross-references
 
-- `documentation-taxonomy.mdc` — the rule that names this as an analysis-page category
-- `draft-rfc/SKILL.md` — sibling skill for proposing direction in response to analysis
-- `draft-adr/SKILL.md` — sibling skill for recording a single architectural decision
+- `documentation-taxonomy.mdc §The eight categories` — the rule that names this as an analysis-page category (Architecture reference / Vision-Insight-Field-notes cluster)
+- `draft-rfc/SKILL.md` — sibling skill for proposing direction in response to an analysis
+- `draft-adr/SKILL.md` — sibling skill for recording a single architectural decision crystallized by an analysis
+- `incident-memo/SKILL.md` — sibling skill (the "outward / market-facing" analysis here vs. the "inward / Minsky-internal" incident postmortem there)
 - `engineering-writing/SKILL.md` — writing-craft skill (analyses benefit from its discipline on concision and source-anchoring)
 - `principal-context.mdc` — persona frame that determines which evaluation framework applies
 - `decision-defaults.mdc §Build vs buy` — adjacent rule on commercial-product framing
