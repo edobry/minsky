@@ -100,14 +100,27 @@ export async function classifyAndFilterTweets(
       if (idx >= slice.length) break;
       const tweet = slice[idx];
       if (!tweet) break;
-      try {
-        const result = await classifyOne(completionService, tweet);
-        classifications.set(tweet.id, result);
-      } catch (err) {
+      // Retry once on failure (JSON-parse drops, transient rate-limits).
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const result = await classifyOne(completionService, tweet);
+          classifications.set(tweet.id, result);
+          lastErr = null;
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt === 0) {
+            // small jittered backoff
+            await new Promise((r) => setTimeout(r, 200 + Math.random() * 300));
+          }
+        }
+      }
+      if (lastErr) {
         failed++;
         log.warn("[relevance-filter] classification failed", {
           tweetId: tweet.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: lastErr instanceof Error ? lastErr.message : String(lastErr),
         });
       }
     }
@@ -148,7 +161,7 @@ Classify this tweet's relevance to the corpus author's intellectual substrate.`;
     model: JUDGING_MODEL,
     provider: JUDGING_PROVIDER,
     temperature: 0.0,
-    maxTokens: 200,
+    maxTokens: 350,
   });
   return result as TweetClassification;
 }
