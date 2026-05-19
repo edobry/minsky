@@ -44,12 +44,23 @@ export interface ArchiveParseOptions {
   accountUserId: string;
   /** The principal's @-handle, used to build the canonical tweet URL. */
   screenName: string;
+  /**
+   * If true, drop tweets that are replies to OTHER users (i.e. tweets whose
+   * `in_reply_to_user_id` is non-null and ≠ accountUserId). Default false.
+   *
+   * Originally true, but pre-filtering replies-to-others coarsely removes a
+   * meaningful set of substantive content — quote-tweet replies, thread starts
+   * with @mentions, and substantive engagement with others. The relevance
+   * classifier is the right judgment surface; the parser should not pre-filter
+   * what the classifier could decide more precisely.
+   */
+  dropRepliesToOthers?: boolean;
 }
 
 export interface ArchiveParseResult {
   /** All tweet entries parsed from the archive. */
   total: number;
-  /** Originals retained: not retweets, not replies-to-others. */
+  /** Originals retained: principal-authored tweets (always excludes retweets; replies-to-others controlled by option). */
   originals: TweetRecord[];
   /** Counts dropped by reason. */
   dropped: {
@@ -60,17 +71,25 @@ export interface ArchiveParseResult {
 }
 
 /**
- * Parse a Twitter archive and return only the principal's originals.
+ * Parse a Twitter archive and return tweets the principal authored.
  *
- * "Original" means:
- * - NOT a retweet (full_text does not start with "RT @")
- * - NOT a reply to someone else (in_reply_to_user_id is null/missing OR equals accountUserId)
+ * Always drops:
+ * - **Retweets** — `full_text` starting with `RT @`. Retweets are someone
+ *   else's content republished verbatim; not the principal's voice.
  *
- * Self-replies (threads) ARE kept and tagged via `inReplyToStatusId` so
- * downstream code can re-thread them.
+ * NOT dropped (vs. pre-mt#1930):
+ * - **Quote tweets** — these have the principal's own text appended to a URL
+ *   pointing at the quoted tweet. They don't start with `RT @`, so they pass
+ *   through unchanged. Crucial for Visa-style thread engagement.
+ * - **Replies to others** — by default we keep them. The relevance classifier
+ *   downstream is the right judgment surface for whether they carry substance.
+ *   Pass `dropRepliesToOthers: true` to restore the pre-mt#1930 behaviour.
+ *
+ * Self-replies (threads) are always kept and tagged via `inReplyToStatusId`
+ * so downstream code can re-thread them.
  */
 export function parseTwitterArchive(opts: ArchiveParseOptions): ArchiveParseResult {
-  const { zipPath, accountUserId, screenName } = opts;
+  const { zipPath, accountUserId, screenName, dropRepliesToOthers = false } = opts;
   if (!existsSync(zipPath)) {
     throw new Error(`Twitter archive ZIP not found at ${zipPath}`);
   }
@@ -84,15 +103,15 @@ export function parseTwitterArchive(opts: ArchiveParseOptions): ArchiveParseResu
   for (const rt of rawTweets) {
     try {
       const text = rt.full_text || "";
-      // Drop retweets
+      // Always drop retweets.
       if (text.startsWith("RT @")) {
         dropped.retweets++;
         continue;
       }
 
-      // Drop replies-to-others (any non-null in_reply_to_user_id NOT equal to the account)
       const replyUserId = rt.in_reply_to_user_id || rt.in_reply_to_user_id_str || null;
-      if (replyUserId !== null && String(replyUserId) !== accountUserId) {
+      const isReplyToOther = replyUserId !== null && String(replyUserId) !== accountUserId;
+      if (dropRepliesToOthers && isReplyToOther) {
         dropped.repliesToOthers++;
         continue;
       }
