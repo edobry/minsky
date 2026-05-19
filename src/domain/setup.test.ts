@@ -31,15 +31,30 @@ const REPO_PATH = "/mock/repo";
 const CONFIG_YAML_PATH = `${REPO_PATH}/.minsky/config.yaml`;
 
 /**
+ * Return type for makeMockFs: the FsLike interface passed to performSetup,
+ * plus a readFileSync accessor for test assertions (no raw internal Map exposure).
+ */
+type MockFsHandle = FsLike & {
+  /** Read a written file back as UTF-8 text — throws ENOENT if absent. */
+  readFileSync(path: string, encoding: BufferEncoding): string;
+  /** Remove a file from the mock store (for simulating missing-file scenarios). */
+  deleteFile(path: string): void;
+};
+
+/**
  * Build a mock filesystem pre-populated with the minimal project config.
  * The mock filesystem automatically satisfies the `FsLike` interface used
  * by `performSetup` (async `exists`, `readFile`, `writeFile`, `mkdir`).
+ *
+ * Assertions on written files use `mockFs.readFileSync(path, "utf-8")` rather
+ * than accessing internal Map state, so the tests are not coupled to mock
+ * implementation details.
  */
-function makeMockFs(): FsLike & { _files: Map<string, string> } {
+function makeMockFs(): MockFsHandle {
   const mockFs = createMockFilesystem({ [CONFIG_YAML_PATH]: MINIMAL_PROJECT_CONFIG });
   // Build an object that satisfies FsLike using plain async wrappers (not createMock
   // wrappers, which return `void | T` and cause assignability errors).
-  const fs: FsLike = {
+  const fsLike: FsLike = {
     exists: (p: string) => Promise.resolve(mockFs.existsSync(p) as boolean),
     readFile: (p: string, _enc: BufferEncoding) => {
       if (!mockFs.existsSync(p)) return Promise.reject(new Error(`ENOENT: ${p}`));
@@ -64,19 +79,28 @@ function makeMockFs(): FsLike & { _files: Map<string, string> } {
     copyFile: (_src: string, _dest: string) => Promise.resolve(),
     rm: (_p: string, _opts?: { recursive?: boolean; force?: boolean }) => Promise.resolve(),
   };
-  return Object.assign(fs, { _files: mockFs.files });
+  return Object.assign(fsLike, {
+    readFileSync: (path: string, encoding: BufferEncoding) =>
+      mockFs.readFileSync(path, encoding) as string,
+    deleteFile: (path: string) => mockFs.files.delete(path),
+  });
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 /**
  * Read the written config.local.yaml content from the mock filesystem and
- * parse it as YAML.
+ * parse it as YAML.  Uses `readFileSync` (an exposed public API) rather than
+ * accessing the internal Map directly.
  */
-function readLocalConfig(fs: ReturnType<typeof makeMockFs>): Record<string, unknown> {
+function readLocalConfig(mockHandle: MockFsHandle): Record<string, unknown> {
   const localConfigPath = `${REPO_PATH}/.minsky/config.local.yaml`;
-  const raw = fs._files.get(localConfigPath);
-  if (!raw) throw new Error(`config.local.yaml not written to ${localConfigPath}`);
+  let raw: string;
+  try {
+    raw = mockHandle.readFileSync(localConfigPath, "utf-8");
+  } catch {
+    throw new Error(`config.local.yaml not written to ${localConfigPath}`);
+  }
   return yamlParse(raw) as Record<string, unknown>;
 }
 
@@ -145,7 +169,7 @@ describe("performSetup — baseline behaviour", () => {
   test("throws when .minsky/config.yaml does not exist", async () => {
     const fs = makeMockFs();
     // Remove the project config so the guard fires
-    fs._files.delete(CONFIG_YAML_PATH);
+    fs.deleteFile(CONFIG_YAML_PATH);
 
     await expect(
       performSetup({ repoPath: REPO_PATH, client: "cursor", overwrite: true }, fs)
