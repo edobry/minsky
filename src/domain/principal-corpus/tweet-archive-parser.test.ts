@@ -49,4 +49,33 @@ describe("parseTweetsJs", () => {
     expect(tweets).toHaveLength(1);
     expect(tweets[0]?.id).toBe("1");
   });
+
+  test("handles trailing semicolon (Twitter export style)", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "ok", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } }
+    ];`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(1);
+    expect(tweets[0]?.id).toBe("1");
+  });
+
+  test("handles trailing semicolon + whitespace + footer prose", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "ok", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } }
+    ] ;\n\n// end of exports\n`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(1);
+    expect(tweets[0]?.id).toBe("1");
+  });
+
+  test("handles bracket-like characters in tweet text without false-closing the array", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "an [array]-shaped] string ]] with ]] brackets", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } },
+      { "tweet": { "id": "2", "full_text": "another", "created_at": "Wed Sep 10 14:46:55 +0000 2025" } }
+    ];`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(2);
+    expect(tweets[0]?.full_text).toContain("[array]");
+    expect(tweets[1]?.id).toBe("2");
+  });
 });
