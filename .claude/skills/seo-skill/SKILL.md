@@ -43,16 +43,18 @@ Each HTML page requires:
 ### 2. Structured Data (JSON-LD)
 
 Homepage should include:
+
 - **Person** / **Organization** schema: name, jobTitle, affiliation, sameAs links, knowsAbout
 - **WebSite** schema: name, URL
 
 Project / product pages use **CreativeWork** or **SoftwareApplication** schema with name, author, description, URL.
 
-*Rule:* JSON-LD only. No FAQPage, HowTo, or placeholder text.
+_Rule:_ JSON-LD only. No FAQPage, HowTo, or placeholder text.
 
 ### 3. robots.txt
 
 Create at site root:
+
 ```
 User-agent: *
 Allow: /
@@ -107,16 +109,16 @@ XML file listing all pages with `<loc>`, `<lastmod>` (YYYY-MM-DD), and `<priorit
 
 When invoked, read all HTML files and report:
 
-| Check | Status | Notes |
-|-------|--------|-------|
-| Meta descriptions | Y/N | Details |
-| OG tags | Y/N | Details |
-| JSON-LD schema | Y/N | Details |
-| robots.txt | Y/N | Details |
-| sitemap.xml | Y/N | Details |
-| Image alt text | Y/N | Details |
-| H1 tags | Y/N | Details |
-| Internal links | Y/N | Details |
-| Canonical URLs | Y/N | Details |
+| Check             | Status | Notes   |
+| ----------------- | ------ | ------- |
+| Meta descriptions | Y/N    | Details |
+| OG tags           | Y/N    | Details |
+| JSON-LD schema    | Y/N    | Details |
+| robots.txt        | Y/N    | Details |
+| sitemap.xml       | Y/N    | Details |
+| Image alt text    | Y/N    | Details |
+| H1 tags           | Y/N    | Details |
+| Internal links    | Y/N    | Details |
+| Canonical URLs    | Y/N    | Details |
 
 Then offer to fix what's missing.
