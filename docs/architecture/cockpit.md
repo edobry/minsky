@@ -293,7 +293,15 @@ Configure `chrome-devtools-mcp` in your Claude Code MCP config with
 All concurrent Claude Code sessions attach to the same dev chromium. Each session's agent
 opens its workspace's cockpit URL as a NEW tab in the shared window, so the operator can
 scan every active cockpit at a glance. The `cockpit-design` skill's Step 0 encodes the
-URL-discovery + tab-selection procedure.
+URL-discovery + tab-selection procedure, AND auto-starts the cockpit server if it isn't
+running for the current workspace (mt#1925) — operators don't have to remember to run
+`minsky cockpit start` per session. The auto-start uses a cross-platform PID-liveness probe (Bun's `process.kill(pid, 0)` so
+it works on macOS, Linux, and Windows under Bun), resolves the state-file path from
+`MINSKY_STATE_DIR` / `XDG_STATE_HOME` with the same precedence as the lifecycle module
+(no hardcoded `~/.local/state/...`), and has an opt-out via operator-direction phrase
+("don't auto-start cockpit", "skip cockpit start", "I'll start it myself"). Windows
+operators currently run `minsky cockpit start` manually — the auto-start shell snippet is
+POSIX-scoped today.
 
 ### chrome://inspect gotcha (do not use)
 
@@ -348,6 +356,7 @@ The cockpit is shaped by the three companion principles named in
 - **mt#1887** — Cockpit start: port-in-use recovery + `--open` flag
 - **mt#1904** — Workspace-keyed lifecycle module + Minsky-managed dev chromium
 - **mt#1912** — Deferred hardening: enable `--experimentalPageIdRouting` on observed cross-tab interference
+- **mt#1925** — Skill-level cockpit auto-start (eliminates the rote `minsky cockpit start` step before agent UI inspection)
 - **mt#1913** — Generic upstream-issue watcher (sibling of the chrome://inspect gotcha record)
 
 ### Docs
