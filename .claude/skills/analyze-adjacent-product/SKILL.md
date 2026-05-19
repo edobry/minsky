@@ -85,6 +85,8 @@ Each analysis produces a structured artifact suitable for archiving as `referenc
 
 1. **Capture.** Open the site in Chrome DevTools MCP. Take hero + scroll-state screenshots (at least 3-4 scroll positions). Inspect typography stack via `evaluate_script` (font family / weight / size / tracking / line-height). Check for canvas / WebGL / video elements. Pull color tokens (background, text, accent). Pull positioning copy verbatim — hero headline, subhead, section headers, CTAs, customer-logo list, pricing tier names if any, nav register.
 
+   **Anti-pattern: aggregator-staleness on JS-rendered AI-product sites.** Do NOT substitute review aggregators (capterra.com, futuretools.io, automateed.com, g2.com, softwareadvice.com), VC press releases, or Google Cloud / AWS customer case studies for the live site. AI-product sites are routinely JS-rendered, which means `WebFetch` returns a near-empty DOM and forces the agent down the aggregator path. Aggregators describe whatever the product was at _content-cataloging time_ — for fast-moving AI products, that's 6–18 months stale; pivots are common; the "no overlap with X" verdict on aggregator data is reliably wrong when the product has repositioned. Originating incident: 2026-05-19 Macro (macro.com) analysis. First-pass WebFetch + 5 aggregator sources unanimously described Macro as "AI document workspace" (its 2023 product); Chrome DevTools snapshot of the live homepage corrected the picture in one turn to "operating system for your startup" (its late-2024 / 2025 pivot). If Chrome DevTools is unavailable, state the aggregator-fallback explicitly in the analysis: _"Live-site capture failed; describing from <aggregator>, dated <month>; verdict applies to that snapshot only."_ Don't elide the staleness.
+
 2. **Denotation.** What is literally on the page. Restate the captured content as the literal-content layer: which fonts at which sizes, which colors, which animation systems, which sections, which copy. Resist interpretation at this layer.
 
 3. **Connotation.** What cultural associations the signs carry. For each major sign captured (typography, color, motion, layout, copy register, social proof), name the connotation. Format as bullets: "X connotes Y" — where Y is a learned cultural association, not a designer's intent.
@@ -105,12 +107,12 @@ Each analysis produces a structured artifact suitable for archiving as `referenc
 
 When the analysis is complete, also produce:
 
-- **Idiom placement.** Place the brand against the two-idiom synthesis (see below). Which idiom is the brand operating in? Are there hybrid moves?
+- **Idiom placement.** Place the brand against the three-idiom synthesis (see §5 below — Idiom A motion-decorated-infographic / Idiom B product-screenshot-dominant / Idiom C founder-essay). Which idiom is the brand operating in? Are there hybrid moves? If the brand fits none of the three cleanly, it may be evidence for a fourth idiom — surface it.
 - **Implications.** What does this analysis change about positioning for whoever consumes the output? (E.g., for marketing-site-design consumers: which codes does this analysis open or close for our own brand?)
 
-## 5. The two-idiom synthesis (current state — 2026-05)
+## 5. The three-idiom synthesis (current state — 2026-05)
 
-From the 2026-05 three-way analysis (Composio / Cursor / Factory):
+From the 2026-05 four-way analysis (Composio / Cursor / Factory / Macro). Idioms A and B emerged from the 2026-05-18 three-way; Idiom C was added 2026-05-19 from the Macro analysis. The earlier "two-idiom synthesis" framing is superseded.
 
 **Idiom A — Motion-decorated infographic** (exemplar: Composio)
 
@@ -132,16 +134,32 @@ From the 2026-05 three-way analysis (Composio / Cursor / Factory):
 - Customer logos as muted single row
 - Sells _the actual product_. Used when the product has surfaces worth showing.
 
-**The decision driver is whether the product has UI surfaces worth showing.** When analyzing a new brand, place it against this synthesis as an early sense-making step.
+**Idiom C — Founder-essay** (exemplar: Macro; pre-AI exemplars: Linear founding era, Superhuman) — added 2026-05-19 from the Macro analysis
 
-The two-idiom synthesis itself is empirical observation, not a closed taxonomy. New idioms may emerge; revise this section when an analysis produces a clearly-different idiom that doesn't fit either.
+- Embedded founder/customer testimonial videos as hero content (no large hero screenshot, no canvas-orchestrated motion)
+- Stage-selector mirror language replaces feature-tour ("we know your stage")
+- Warm-tinted dark (not industrial-cold, not neutral) with amber/gold accents — atelier / lamp-light / founder's-room register
+- Comparison strip linking to long-form "What We Learned from X" essays — the canon-citation move
+- Custom semantic-token typography (e.g., `display` / `body` family tokens with a custom weight like 410) — the in-house design system is itself the taste signal
+- H1 often absent; brand-mark image carries the visual top
+- Single-tier pricing; minimal sales surface
+- Named-founder titles foreground design (`CEO / Product Designer`)
+- Sells _the founder's philosophy_. Used when the product is multi-surface (no single screenshot represents it) AND the buyer is another founder who reads essays.
+
+**Decision drivers (revised):**
+
+- Idiom A when the product is invisible plumbing.
+- Idiom B when the product has UI worth showing.
+- Idiom C when the product is multi-surface AND the founder's taste IS the differentiation.
+
+The three-idiom synthesis is empirical observation, not a closed taxonomy. New idioms may emerge; revise this section when an analysis produces a clearly-different idiom that doesn't fit any of these three.
 
 ## 6. Worked example
 
-`references/case-studies-2026-05.md` contains the canonical Composio / Cursor / Factory three-way analysis. Read it when:
+`references/case-studies-2026-05.md` contains the canonical four-way analysis: Composio (Idiom A), Cursor + Factory (Idiom B), and Macro (Idiom C — added 2026-05-19 from the macro.com investigation; see Idiom C synthesis row in that file). Read it when:
 
 - Analyzing a new adjacent product's marketing site (use it as the structural template)
-- Re-grounding your sense of what the two idioms actually look like
+- Re-grounding your sense of what the three idioms (A motion-decorated-infographic / B product-screenshot-dominant / C founder-essay) actually look like
 - Pairing with the operator on a competitive read-out
 - Onboarding to the methodology
 
@@ -149,7 +167,7 @@ The two-idiom synthesis itself is empirical observation, not a closed taxonomy. 
 
 When analyzing a new adjacent product's marketing site:
 
-1. **Open the site in Chrome DevTools MCP.** Capture hero + 2-3 scroll states + any cursor-reactive interaction states. Inspect typography (font family / weight / size / tracking) and color tokens via `evaluate_script`. Check for canvas/WebGL elements.
+1. **Open the site in Chrome DevTools MCP.** Capture hero + 2-3 scroll states + any cursor-reactive interaction states. Inspect typography (font family / weight / size / tracking) and color tokens via `evaluate_script`. Check for canvas/WebGL elements. **Do not substitute review aggregators or VC press releases for the live site** — see §4 step 1 anti-pattern (aggregator-staleness on JS-rendered AI-product sites).
 2. **Pull positioning copy verbatim.** Hero headline, subhead, section headers, CTAs, customer-logo list, pricing tier names (if any), nav register.
 3. **Write the six sections in order:**
    - Captured (artifacts + screenshots)
@@ -158,11 +176,11 @@ When analyzing a new adjacent product's marketing site:
    - Myth (single declarative sentence; the proposition being naturalized)
    - Peirce read (classify principal signs as icon / index / symbol)
    - Cultural codes invoked (per Oswald; cite exemplars)
-4. **Compare to the two-idiom synthesis.** Which idiom does the site operate in? Which cultural codes does it claim? Which does it explicitly reject?
+4. **Compare to the three-idiom synthesis** (Idiom A motion-decorated-infographic / Idiom B product-screenshot-dominant / Idiom C founder-essay). Which idiom does the site operate in? Which cultural codes does it claim? Which does it explicitly reject?
 5. **Note the implications for the consumer.** For `marketing-site-design` consumers: does this analysis change the recommended cultural-code lane for our own brand? Does it open or close a white-space code? Update the marketing-site-design skill's cultural-code table if a new code emerges.
 6. **Apply the Pepsi/Arnell discipline.** When stating the myth, verify it is grounded in the actual visual evidence captured, not constructed post-hoc to make a tactical recommendation sound principled.
 
-The 2026-05 analysis (Composio / Cursor / Factory) is the canonical first instance of this template. Future instances should follow the same shape; archive them in this directory with date-stamped filenames (e.g., `case-studies-2026-08.md`).
+The 2026-05 analysis (Composio / Cursor / Factory / Macro) is the canonical four-way instance of this template. Future instances should follow the same shape; archive them in this directory with date-stamped filenames (e.g., `case-studies-2026-08.md`).
 
 ## Cross-references
 
