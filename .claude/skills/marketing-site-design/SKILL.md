@@ -52,7 +52,7 @@ For this skill specifically: if you cannot explain a visual choice as a sign car
 
 The discipline for invoking emergent cultural codes through residual references the audience already recognizes. Full discussion in `analyze-adjacent-product` SKILL.md Section 3.
 
-Applied to Minsky: the Cyberbrain / Section 9 code is emergent (no current AI-tool category instantiation). The five-layer reference architecture (GitS / Eva / Iso / Magilumiere / Macx) provides the residual codes that bridge for the audience. **Borrow at the layer of register, never at the layer of imagery.** Specific rules in Section 7 below.
+Applied to Minsky: the Cyberbrain / Section 9 code is emergent (no current AI-tool category instantiation). The five-layer reference architecture (GitS / Eva / Iso / Magilumiere / Macx) provides the residual codes that bridge for the audience. **Borrow at the layer of register, never at the layer of imagery.** Specific register-borrowing rules live in Section 8 (typography / color / motion / vocabulary specifications); the imagery-rejection rules live in Section 10 (named anti-patterns including literal anime, mecha, magical girls, and product-name pastiche).
 
 ## 4. The competing idioms in AI-product marketing
 
@@ -330,3 +330,7 @@ Reject these explicitly. They instantiate either Idiom A or AI-slop defaults:
 - Originating session: 2026-05-18/19 workshop — Composio / Cursor / Factory case studies + Minsky myth selection. Captured in `../analyze-adjacent-product/references/case-studies-2026-05.md` and `references/minsky-myth-2026-05.md`.
 - mt#1927 — task that installed this skill bundle with the methodology absorbed inline
 - mt#1944 — task that extracted the analytical methodology into the standalone `analyze-adjacent-product` skill
+
+---
+
+**Refactor 2026-05-19 (mt#1944):** Extracted the semiotic-analysis framework, Pepsi/Arnell trap, bridge-as-affect discipline, per-analysis capture workflow, and per-analysis template into the standalone `analyze-adjacent-product` skill. Moved `references/case-studies-2026-05.md` to `../analyze-adjacent-product/references/case-studies-2026-05.md`. This file reduced from 391 lines to ~332 lines (~15% reduction); the extracted content is now invokable as a top-level skill rather than nested inside this one. No semantic changes to the methodology itself — same content, relocated for reusability.
