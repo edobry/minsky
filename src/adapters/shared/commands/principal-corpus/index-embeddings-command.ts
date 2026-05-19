@@ -18,7 +18,7 @@ import type { CommandParameterMap } from "../../schema-bridge";
 import { parseTwitterArchive } from "../../../../domain/principal-corpus/tweet-archive-parser";
 import { createPrincipalCorpusService } from "../../../../domain/principal-corpus/principal-corpus-service";
 import { classifyAndFilterTweets } from "../../../../domain/principal-corpus/relevance-filter";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import { resolvePersistenceFromCtx } from "../principal-corpus";
 import type { TweetRecord } from "../../../../domain/principal-corpus/types";
 import { readFileSync, existsSync, writeFileSync } from "fs";
 
@@ -85,8 +85,6 @@ export class PrincipalCorpusIndexEmbeddingsCommand {
   readonly description =
     "Ingest the principal's Twitter archive into the principal-corpus embedding namespace";
   readonly parameters = principalCorpusIndexEmbeddingsParams;
-
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {}
 
   async execute(
     params: PrincipalCorpusIndexEmbeddingsParams,
@@ -180,7 +178,8 @@ export class PrincipalCorpusIndexEmbeddingsCommand {
 
     if (!isJson) log.cli(`[principal-corpus] embedding ${toIndex.length} tweets...`);
 
-    const service = await createPrincipalCorpusService(this.getPersistenceProvider());
+    const persistence = resolvePersistenceFromCtx(ctx, "principal_corpus.index-embeddings");
+    const service = await createPrincipalCorpusService(persistence);
 
     let indexed = 0;
     let skipped = 0;
@@ -234,8 +233,6 @@ export class PrincipalCorpusIndexEmbeddingsCommand {
   }
 }
 
-export function createPrincipalCorpusIndexEmbeddingsCommand(
-  getPersistenceProvider: () => PersistenceProvider
-): PrincipalCorpusIndexEmbeddingsCommand {
-  return new PrincipalCorpusIndexEmbeddingsCommand(getPersistenceProvider);
+export function createPrincipalCorpusIndexEmbeddingsCommand(): PrincipalCorpusIndexEmbeddingsCommand {
+  return new PrincipalCorpusIndexEmbeddingsCommand();
 }

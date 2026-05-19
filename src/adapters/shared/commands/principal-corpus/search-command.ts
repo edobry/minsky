@@ -9,7 +9,7 @@ import type { CommandExecutionContext } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
 import { createPrincipalCorpusService } from "../../../../domain/principal-corpus/principal-corpus-service";
 import type { TweetMetadata } from "../../../../domain/principal-corpus/types";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import { resolvePersistenceFromCtx } from "../principal-corpus";
 
 export interface PrincipalCorpusSearchParams {
   query: string;
@@ -42,11 +42,9 @@ export class PrincipalCorpusSearchCommand {
   readonly description = "Semantic search over the principal-corpus tweet archive";
   readonly parameters = principalCorpusSearchParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {}
-
   async execute(
     params: PrincipalCorpusSearchParams,
-    _ctx: CommandExecutionContext
+    ctx: CommandExecutionContext
   ): Promise<{
     success: boolean;
     count: number;
@@ -55,7 +53,8 @@ export class PrincipalCorpusSearchCommand {
     degraded: boolean;
     degradedReason?: string;
   }> {
-    const service = await createPrincipalCorpusService(this.getPersistenceProvider());
+    const persistence = resolvePersistenceFromCtx(ctx, "principal_corpus.search");
+    const service = await createPrincipalCorpusService(persistence);
     const response = await service.searchByText(params.query, params.limit ?? 10);
     return {
       success: !response.degraded,
@@ -72,8 +71,6 @@ export class PrincipalCorpusSearchCommand {
   }
 }
 
-export function createPrincipalCorpusSearchCommand(
-  getPersistenceProvider: () => PersistenceProvider
-): PrincipalCorpusSearchCommand {
-  return new PrincipalCorpusSearchCommand(getPersistenceProvider);
+export function createPrincipalCorpusSearchCommand(): PrincipalCorpusSearchCommand {
+  return new PrincipalCorpusSearchCommand();
 }

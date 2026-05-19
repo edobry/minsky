@@ -1,5 +1,12 @@
 /**
  * Principal-corpus commands registration (mt#1930).
+ *
+ * Registration is container-free: commands read the persistence provider
+ * from the per-call `ctx.container` at execute time, not from a closure
+ * captured at registration. This means `registerAllSharedCommands()`
+ * cannot fail to register principal-corpus commands when no container is
+ * supplied — execution will simply throw a clear error if the container
+ * is also missing at call time.
  */
 
 import {
@@ -10,20 +17,30 @@ import {
 import { createPrincipalCorpusSearchCommand } from "./principal-corpus/search-command";
 import { createPrincipalCorpusSimilarCommand } from "./principal-corpus/similar-command";
 import { createPrincipalCorpusIndexEmbeddingsCommand } from "./principal-corpus/index-embeddings-command";
-import type { AppContainerInterface } from "../../../composition/types";
 import type { PersistenceProvider } from "../../../domain/persistence/types";
 
-export function registerPrincipalCorpusCommands(container?: AppContainerInterface): void {
-  const getPersistenceProvider = (): PersistenceProvider => {
-    if (!container?.has("persistence")) {
-      throw new Error(
-        "Persistence provider not available. Ensure the DI container is initialized."
-      );
-    }
-    return container.get("persistence");
-  };
+/**
+ * Pull the persistence provider out of the execution context. Use from
+ * inside a command's `execute` method. Throws a typed error naming the
+ * caller's command id if no container is available; this is preferable
+ * to silently degrading because the principal-corpus tools cannot
+ * function without persistence (the corpus lives in pgvector).
+ */
+export function resolvePersistenceFromCtx(
+  ctx: CommandExecutionContext,
+  commandId: string
+): PersistenceProvider {
+  if (!ctx.container?.has("persistence")) {
+    throw new Error(
+      `${commandId}: persistence provider not available in execution context. ` +
+        `Ensure the DI container is initialized before invoking this tool.`
+    );
+  }
+  return ctx.container.get("persistence");
+}
 
-  const searchCommand = createPrincipalCorpusSearchCommand(getPersistenceProvider);
+export function registerPrincipalCorpusCommands(): void {
+  const searchCommand = createPrincipalCorpusSearchCommand();
   sharedCommandRegistry.registerCommand({
     id: searchCommand.id,
     category: CommandCategory.PRINCIPAL_CORPUS,
@@ -35,7 +52,7 @@ export function registerPrincipalCorpusCommands(container?: AppContainerInterfac
     },
   });
 
-  const similarCommand = createPrincipalCorpusSimilarCommand(getPersistenceProvider);
+  const similarCommand = createPrincipalCorpusSimilarCommand();
   sharedCommandRegistry.registerCommand({
     id: similarCommand.id,
     category: CommandCategory.PRINCIPAL_CORPUS,
@@ -47,7 +64,7 @@ export function registerPrincipalCorpusCommands(container?: AppContainerInterfac
     },
   });
 
-  const indexCommand = createPrincipalCorpusIndexEmbeddingsCommand(getPersistenceProvider);
+  const indexCommand = createPrincipalCorpusIndexEmbeddingsCommand();
   sharedCommandRegistry.registerCommand({
     id: indexCommand.id,
     category: CommandCategory.PRINCIPAL_CORPUS,

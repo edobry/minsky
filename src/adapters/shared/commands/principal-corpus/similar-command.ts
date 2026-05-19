@@ -9,7 +9,7 @@ import type { CommandExecutionContext } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
 import { createPrincipalCorpusService } from "../../../../domain/principal-corpus/principal-corpus-service";
 import type { TweetMetadata } from "../../../../domain/principal-corpus/types";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import { resolvePersistenceFromCtx } from "../principal-corpus";
 
 export interface PrincipalCorpusSimilarParams {
   tweetId: string;
@@ -42,11 +42,9 @@ export class PrincipalCorpusSimilarCommand {
   readonly description = "Find tweets similar to a given tweet (by ID) in the principal-corpus";
   readonly parameters = principalCorpusSimilarParams;
 
-  constructor(private readonly getPersistenceProvider: () => PersistenceProvider) {}
-
   async execute(
     params: PrincipalCorpusSimilarParams,
-    _ctx: CommandExecutionContext
+    ctx: CommandExecutionContext
   ): Promise<{
     success: boolean;
     count: number;
@@ -55,7 +53,8 @@ export class PrincipalCorpusSimilarCommand {
     degraded: boolean;
     degradedReason?: string;
   }> {
-    const service = await createPrincipalCorpusService(this.getPersistenceProvider());
+    const persistence = resolvePersistenceFromCtx(ctx, "principal_corpus.similar");
+    const service = await createPrincipalCorpusService(persistence);
     const response = await service.similar(params.tweetId, params.limit ?? 10);
     return {
       success: !response.degraded,
@@ -72,8 +71,6 @@ export class PrincipalCorpusSimilarCommand {
   }
 }
 
-export function createPrincipalCorpusSimilarCommand(
-  getPersistenceProvider: () => PersistenceProvider
-): PrincipalCorpusSimilarCommand {
-  return new PrincipalCorpusSimilarCommand(getPersistenceProvider);
+export function createPrincipalCorpusSimilarCommand(): PrincipalCorpusSimilarCommand {
+  return new PrincipalCorpusSimilarCommand();
 }
