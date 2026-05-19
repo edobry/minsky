@@ -17,8 +17,8 @@ Worked example for `marketing-site-design`. Three adjacent AI-tool sites read th
 
 ### Captured (2026-05-18)
 
-- Hero headline: *"Your agent decides what to do. We handle the rest."*
-- Hero subhead: *"Just-in-time tool calls, secure delegated auth, sandboxed environments, and parallel execution across 1,000+ apps."*
+- Hero headline: _"Your agent decides what to do. We handle the rest."_
+- Hero subhead: _"Just-in-time tool calls, secure delegated auth, sandboxed environments, and parallel execution across 1,000+ apps."_
 - CTAs: "Get started for free" (filled), "Get a demo" (outlined).
 - Hero canvas: 1800x660 WebGL2, particle/bar shader. Time-driven slow rotation. Cursor input modulates color/parallax but motion exists without input.
 - Typography: abcDiatype (paid grotesque, ABC Dinamo) + JetBrains Mono for eyebrows. H1 at 64px, weight 400, letter-spacing -1.6px, line-height 64px.
@@ -42,7 +42,7 @@ WebGL bar-stack particles, saturated full-bleed colored panels, dark terminal ca
 
 ### Myth
 
-*"AI integration plumbing is now a consumer-software experience."* The brand naturalizes the proposition that agent integration is no longer arcane API work — it is a beautifully-designed magical product layer that lives in the conversational surface alongside the agent.
+_"AI integration plumbing is now a consumer-software experience."_ The brand naturalizes the proposition that agent integration is no longer arcane API work — it is a beautifully-designed magical product layer that lives in the conversational surface alongside the agent.
 
 ### Peirce read
 
@@ -53,9 +53,9 @@ WebGL bar-stack particles, saturated full-bleed colored panels, dark terminal ca
 
 ### Cultural codes invoked
 
-- *Consumer-tech polish* (Notion / Linear / Vercel designer-tech genealogy)
-- *AI futurism* (abstract shader/gradient aesthetic shared with OpenAI, Anthropic, Mistral product surfaces)
-- *Wrapped enterprise* (GitHub-style terminal cards inside explicitly commercial / branded dressing)
+- _Consumer-tech polish_ (Notion / Linear / Vercel designer-tech genealogy)
+- _AI futurism_ (abstract shader/gradient aesthetic shared with OpenAI, Anthropic, Mistral product surfaces)
+- _Wrapped enterprise_ (GitHub-style terminal cards inside explicitly commercial / branded dressing)
 
 ---
 
@@ -63,7 +63,7 @@ WebGL bar-stack particles, saturated full-bleed colored panels, dark terminal ca
 
 ### Captured (2026-05-18)
 
-- Hero headline: *"Built to make you extraordinarily productive, Cursor is the best way to code with AI."*
+- Hero headline: _"Built to make you extraordinarily productive, Cursor is the best way to code with AI."_
 - CTAs: "Download for macOS ↓" (filled white pill), "Request a demo →" (outlined)
 - No canvas, no WebGL — fully static.
 - One video element: a logo MP4.
@@ -72,7 +72,7 @@ WebGL bar-stack particles, saturated full-bleed colored panels, dark terminal ca
 - Hero layout: 40% caption column (left) + 60% full IDE screenshot showing real Cursor session running "Build Landing Page" task.
 - Customer logos: single muted row — stripe / OpenAI / Linear / DATADOG / NVIDIA / Figma / ramp / Adobe.
 - Section pattern: alternating left/right — caption-left + screenshot-right, then caption-right + screenshot-left. Each section pinned to a real product screenshot.
-- Section headers: *"Agents turn ideas into code"* / *"Works autonomously, runs in parallel"* / *"In every tool, at every step"* / *"Magically accurate autocomplete"* / *"Complete codebase understanding"* / *"The new way to build software"*.
+- Section headers: _"Agents turn ideas into code"_ / _"Works autonomously, runs in parallel"_ / _"In every tool, at every step"_ / _"Magically accurate autocomplete"_ / _"Complete codebase understanding"_ / _"The new way to build software"_.
 - Social proof: named individuals (Jensen Huang/NVIDIA, Patrick Collison/Stripe, Diana Hu/YC, shadcn/shadcn-ui) — quotes attached to specific technical leaders, not anonymous testimonials.
 
 ### Denotation
@@ -90,7 +90,7 @@ Near-black page, small left-aligned headline, full-bleed IDE screenshot, custome
 
 ### Myth
 
-*"Cursor is the IDE the engineers you admire use."* The brand naturalizes AI-assisted coding as the default for serious engineering, with the Cursor brand standing in for that default.
+_"Cursor is the IDE the engineers you admire use."_ The brand naturalizes AI-assisted coding as the default for serious engineering, with the Cursor brand standing in for that default.
 
 ### Peirce read
 
@@ -101,9 +101,9 @@ Near-black page, small left-aligned headline, full-bleed IDE screenshot, custome
 
 ### Cultural codes invoked
 
-- *Serious developer tools* (Sublime / VS Code / IntelliJ genealogy — restrained, technical, screen-first)
-- *Silicon Valley success register* (named technical leaders, not paragraphs of marketing copy)
-- *Minimalism as confidence* (residual modernist code — less is more, restraint signals power)
+- _Serious developer tools_ (Sublime / VS Code / IntelliJ genealogy — restrained, technical, screen-first)
+- _Silicon Valley success register_ (named technical leaders, not paragraphs of marketing copy)
+- _Minimalism as confidence_ (residual modernist code — less is more, restraint signals power)
 
 ---
 
@@ -111,7 +111,7 @@ Near-black page, small left-aligned headline, full-bleed IDE screenshot, custome
 
 ### Captured (2026-05-18)
 
-- Hero headline: *"Your software Factory powered by Droid"*
+- Hero headline: _"Your software Factory powered by Droid"_
 - Hero install command shown verbatim: `curl -fsSL https://app.factory.ai/cli | sh`
 - CTAs: "DOWNLOAD FOR MAC" (filled white pill, all caps), "REQUEST A DEMO" (outlined, all caps).
 - One 2D canvas (1512x1104) for a rotating-gear animation in the wordmark.
@@ -123,8 +123,8 @@ Near-black page, small left-aligned headline, full-bleed IDE screenshot, custome
 - Section labels (eyebrows): also all caps, mono — `● DROID COMPUTER`, etc.
 - Customer logos: adyen / mongoDB / Monte Carlo / WRITER / groq / Chainguard / Profound / Klarna / Upstart — large-enterprise names.
 - "One platform, every surface your team works on" with tabs: Droid CLI / Desktop / Web / Mobile / Slack / Jira & Linear.
-- *"Spin up a Droid Computer"* section: photorealistic render of a Mac-Mini-style box with green LED. Treats Factory as if it had a physical-infrastructure object.
-- *"Factory Standard Credits"* section: real usage charts (Last 7/30/90 days).
+- _"Spin up a Droid Computer"_ section: photorealistic render of a Mac-Mini-style box with green LED. Treats Factory as if it had a physical-infrastructure object.
+- _"Factory Standard Credits"_ section: real usage charts (Last 7/30/90 days).
 
 ### Denotation
 
@@ -143,7 +143,7 @@ Pure black background, large headline in Geist, all-caps nav and section labels,
 
 ### Myth
 
-*"Software engineering is shifting from craft to industrial manufacturing."* The brand naturalizes the proposition that code production is moving from artisanal hand-coding to industrial-scale agent-operated factories, with Factory as the operator of that shift.
+_"Software engineering is shifting from craft to industrial manufacturing."_ The brand naturalizes the proposition that code production is moving from artisanal hand-coding to industrial-scale agent-operated factories, with Factory as the operator of that shift.
 
 ### Peirce read
 
@@ -156,25 +156,25 @@ Pure black background, large headline in Geist, all-caps nav and section labels,
 
 ### Cultural codes invoked
 
-- *Industrial manufacturing* (factory / droid / gear / all-caps signage — vertical code reaching back to mid-20th-century industrial aesthetics)
-- *Vercel-aligned modern deploy platform* (Geist, dark mode, terminal-aesthetic, contemporary deploy-platform peer set)
-- *Enterprise gravity* (mongoDB / Adyen / Klarna customer logos — large enterprise, not startup)
+- _Industrial manufacturing_ (factory / droid / gear / all-caps signage — vertical code reaching back to mid-20th-century industrial aesthetics)
+- _Vercel-aligned modern deploy platform_ (Geist, dark mode, terminal-aesthetic, contemporary deploy-platform peer set)
+- _Enterprise gravity_ (mongoDB / Adyen / Klarna customer logos — large enterprise, not startup)
 
 ---
 
 ## The two-idiom synthesis
 
-| Dimension | Idiom A (Composio) | Idiom B (Cursor, Factory) |
-|---|---|---|
-| Hero motion | WebGL shader + multi-system orchestration | Static or near-static (Factory's rotating gear is the maximum) |
-| Hero alignment | Centered | Left caption + right product screenshot |
-| Hero typography | 64px paid grotesque (abcDiatype), centered | Small-and-restrained (Cursor 26px) or large-and-tight (Factory 60px), left-aligned |
-| Color | Multi-color saturated tiles (blue/pink/cyan/teal) | Monochrome dark + one accent (Factory's orange) |
-| Customer/co-product logos | 1,000+ grid (vastness signal) | Single muted row (curation signal) |
-| Section pattern | Sticky numbered nav + colored panels | Alternating left/right product screenshots |
-| Social proof | Anonymous use-cases + abstract diagrams | Named individuals (Cursor) or large-enterprise logos (Factory) |
-| Sells | Concept | The actual product |
-| Used when | Product is invisible plumbing | Product has UI worth showing |
+| Dimension                 | Idiom A (Composio)                                | Idiom B (Cursor, Factory)                                                          |
+| ------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Hero motion               | WebGL shader + multi-system orchestration         | Static or near-static (Factory's rotating gear is the maximum)                     |
+| Hero alignment            | Centered                                          | Left caption + right product screenshot                                            |
+| Hero typography           | 64px paid grotesque (abcDiatype), centered        | Small-and-restrained (Cursor 26px) or large-and-tight (Factory 60px), left-aligned |
+| Color                     | Multi-color saturated tiles (blue/pink/cyan/teal) | Monochrome dark + one accent (Factory's orange)                                    |
+| Customer/co-product logos | 1,000+ grid (vastness signal)                     | Single muted row (curation signal)                                                 |
+| Section pattern           | Sticky numbered nav + colored panels              | Alternating left/right product screenshots                                         |
+| Social proof              | Anonymous use-cases + abstract diagrams           | Named individuals (Cursor) or large-enterprise logos (Factory)                     |
+| Sells                     | Concept                                           | The actual product                                                                 |
+| Used when                 | Product is invisible plumbing                     | Product has UI worth showing                                                       |
 
 **The decision driver is whether the product has UI surfaces worth showing.** Idiom A is Composio's choice because there is no single coherent UI to display — the product IS the integration layer, which is invisible. Idiom B is Cursor and Factory's choice because the IDE, the CLI, the terminal, the dashboards are themselves the most compelling visual content.
 
@@ -191,7 +191,7 @@ The four already-occupied AI-product cultural codes (from Section 5 of the umbre
 - Industrial infrastructure — claimed by Factory, Railway, Render
 - AI futurism — claimed by OpenAI, Anthropic, Mistral
 
-The **mission-control / instrument-panel** code is unclaimed in the AI-tool category. Exemplars exist outside it: Bloomberg Terminal, NASA mission-ops displays, ATC scopes, oil-rig SCADA, Palantir Gotham. The code's vocabulary — cockpit, dashboard, attention allocation, asks, status, alarms, dispatch, escalation — is *already* the vocabulary Minsky's corpus uses. The marketing surface has not yet caught up to where the substrate lives.
+The **mission-control / instrument-panel** code is unclaimed in the AI-tool category. Exemplars exist outside it: Bloomberg Terminal, NASA mission-ops displays, ATC scopes, oil-rig SCADA, Palantir Gotham. The code's vocabulary — cockpit, dashboard, attention allocation, asks, status, alarms, dispatch, escalation — is _already_ the vocabulary Minsky's corpus uses. The marketing surface has not yet caught up to where the substrate lives.
 
 Claiming the mission-control code for Minsky is not retrofitting. The corpus is already there. The visual register is the surface that needs to catch up.
 
