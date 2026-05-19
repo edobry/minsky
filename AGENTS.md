@@ -1731,8 +1731,20 @@ Minsky has ten kinds of written artifacts. Each has a home, a title pattern, and
 
 **Notion under the Minsky home page** is for **strategic, persuasive, and observational** material that's read and discussed. Page IDs are stable; titles drift, so cross-link by ID.
 
-- Minsky home: `33a937f0-3cb4-8197-a93e-cd4a98a94261`
-- Mesh RFC (precedent): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+- Minsky home (top-level index): `33a937f0-3cb4-8197-a93e-cd4a98a94261`
+- Mesh RFC (retained as the canonical precedent for RFC-format citation; see `.claude/skills/draft-rfc/SKILL.md`): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+
+**Cluster pages** (under Minsky home, post 2026-05-19 IA reorganization) — these are the navigable cluster indexes that each category resolves to. Listed in the categories table above; collected here for top-of-mind reference:
+
+- [Vision, Insights, and Companion Principles](https://www.notion.so/365937f03cb48152afa2ca9b04f8db9f) (`365937f0-3cb4-8152-afa2-ca9b04f8db9f`)
+- [RFCs](https://www.notion.so/365937f03cb481abbdc9fd1e6f376d25) (`365937f0-3cb4-81ab-bdc9-fd1e6f376d25`)
+- [Position papers](https://www.notion.so/365937f03cb481a5a001e389f1a924cf) (`365937f0-3cb4-81a5-a001-e389f1a924cf`)
+- [Design docs and architecture decisions](https://www.notion.so/365937f03cb481e79114f7a9e8dd8fd7) (`365937f0-3cb4-81e7-9114-f7a9e8dd8fd7`)
+- [Landscape analyses](https://www.notion.so/365937f03cb48132bacdf6cf474b813a) (`365937f0-3cb4-8132-bacd-f6cf474b813a`)
+- [Incident memos and retrospectives](https://www.notion.so/365937f03cb48121a3cdde97250189a6) (`365937f0-3cb4-8121-a3cd-de97250189a6`)
+- [Audits and strategic syntheses](https://www.notion.so/365937f03cb48108a822ccc8daef49da) (`365937f0-3cb4-8108-a822-ccc8daef49da`)
+- [Session logs, reframe memos, spike reports](https://www.notion.so/365937f03cb481a3a1a5e402899e12e0) (`365937f0-3cb4-81a3-a1a5-e402899e12e0`)
+- [Engineering guides and setup](https://www.notion.so/365937f03cb481c8b245f94f9a826d2a) (`365937f0-3cb4-81c8-b245-f94f9a826d2a`)
 
 ## Lifecycle conventions
 
@@ -1782,9 +1794,9 @@ A cross-cutting introspection of Minsky itself — roadmap stall audit, ownershi
 - **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135), [Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1)
 - **Architecture references:** `docs/architecture/stdio-proxy.md`, `docs/architecture/bundling.md`
 - **Engineering guides:** `docs/configuration-guide.md`, `docs/deploy-minsky-railway.md`, `docs/testing-patterns.md`
-- **Vision/Insight:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4)
-- **Landscape analyses:** [LangGraph × Claude Agent SDK × Minsky](https://www.notion.so/340937f03cb481c8b4d1ca8bfcbcd67e), [Macro × Minsky](https://www.notion.so/365937f03cb481e0b19bfeeae10b033e), [Agent SDK landscape](https://www.notion.so/348937f03cb48161a31fe344ada6fb28)
-- **Audits / strategic syntheses:** [Audit: how operations fits in Minsky's cognitive system hierarchy](https://www.notion.so/357937f03cb481a39a8bfc7d611579ae), [PR review-loop ownership](https://www.notion.so/358937f03cb4810ab11efc3d72bd0a06), [Minsky identity & gap report](https://www.notion.so/346937f03cb48133a6d1f9f013796767)
+- **Vision / Insight / Field notes:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4), [Field notes from inside the harness (v4.1)](https://www.notion.so/33b937f03cb481b8810debaef5e24a66)
+- **Landscape analyses:** [LangGraph × Claude Agent SDK × Minsky](https://www.notion.so/340937f03cb481c8b4d1ca8bfcbcd67e), [Macro × Minsky](https://www.notion.so/365937f03cb481e0b19bfeeae10b033e), [Agent SDK landscape](https://www.notion.so/348937f03cb48161a31fe344ada6fb28), [6 Claude Code Plugins — ecosystem landscape](https://www.notion.so/341937f03cb4811f93ace3c2dc98eb12)
+- **Audits / strategic syntheses:** [Audit: how operations fits in Minsky's cognitive system hierarchy](https://www.notion.so/357937f03cb481a39a8bfc7d611579ae), [PR review-loop ownership](https://www.notion.so/358937f03cb4810ab11efc3d72bd0a06), [Minsky identity & gap report](https://www.notion.so/346937f03cb48133a6d1f9f013796767), [mt#1505 synthesis: roadmap stall audit + structural-process retrospective](https://www.notion.so/35a937f03cb481119a08f3c47bd8e6e7)
 
 ## How to apply
 
