@@ -147,16 +147,43 @@ Exit code 2 is a **blocking error** in Claude Code — the agent is forced to co
 7. **Spec verification:** deny if no review body matches `/spec[- ]verification/i`
 8. **Documentation impact:** deny if no review body matches `/documentation[- ]impact/i`
 9. **Review freshness:** of the reviews containing spec verification, the most recent one's `commit_id` must equal the PR HEAD sha; otherwise deny as stale (covers an older commit). Skipped only when the PR-list query did not return a head sha.
-10. **CI check_runs presence (mt#1309 webhook-miss regression detection):** fetch `gh api repos/.../commits/<headSha>/check-runs?per_page=1` (10s timeout). The `?per_page=1` query keeps the response tiny — the gate only reads `total_count`, which is the canonical pagination-safe field on GitHub's Checks API. The response is run through `parseCheckRunsResponse`, which returns either `{ok:true, count}` or `{ok:false, error}`. `evaluateCheckRunsPresence` then:
+10. **CI check_runs presence (mt#1309 webhook-miss regression detection — presence floor):** fetch `gh api repos/.../commits/<headSha>/check-runs?per_page=1` (10s timeout). The `?per_page=1` query keeps the response tiny — the gate only reads `total_count`, which is the canonical pagination-safe field on GitHub's Checks API. The response is run through `parseCheckRunsResponse`, which returns either `{ok:true, count}` or `{ok:false, error}`. `evaluateCheckRunsPresence` then:
+
     - **deny with API-failure reason** if `{ok:false}` (timeout via `timedOut:true`, non-zero exit, empty body, non-JSON, missing fields, etc.). The reason is distinct from the webhook-miss text — it instructs the operator to investigate the gh api error before retrying. Timeouts get a distinct "gh api timed out" prefix.
     - **deny with webhook-miss reason** if `{ok:true, count:0}`. The reason names mt#1309 / PR #763 lineage and points at the empty-commit-to-wake-the-webhook recovery path documented in `/review-pr` step 7a.
-    - **allow** if `{ok:true, count>0}`. Status of the runs is intentionally not checked here — that policy is "presence-only, status-agnostic".
+    - **allow** if `{ok:true, count>0}`. Status of the runs is intentionally NOT checked here — this gate is the "presence-only, status-agnostic" floor. The mt#1938 gate below adds status enforcement on top.
+
+11. **Bundle-boot smoke check (mt#1787):** fetches `gh api .../commits/<headSha>/check-runs?check_name=bundle-boot-smoke` and runs the response through `parseBundleBootSmokeResponse` + `evaluateBundleBootSmokePresence`. Denies on API failure, missing check_run, in-progress/queued, or any non-success conclusion. Latest-wins recency: a later re-run failure overrides an earlier success. Override env: `MINSKY_SKIP_BUNDLE_SMOKE` (audit-logged).
+
+12. **Required-checks status enforcement (mt#1938 — generalized CI-status enforcement).** This gate closes the agent-driven-merge leg of the main-red coverage holes (originating incident: PR #1163 / mt#1927, 2026-05-19). Operates in two API calls:
+    - `gh api repos/edobry/minsky/branches/main/protection` → `parseBranchProtectionResponse` extracts the `required_status_checks.contexts[]` list and `enforce_admins.enabled` flag.
+    - `gh api repos/.../commits/<headSha>/check-runs?per_page=100` → `parseAllCheckRunsResponse` extracts every run on the SHA into a flat list.
+      `evaluateRequiredChecksStatus` then, for each required check name:
+    - Filters runs by name using the same matcher as bundle-boot-smoke (exact OR workflow-prefixed `<workflow> / <jobName>`).
+    - Picks the latest run via `pickLatestRunByName` (sorted by completedAt then startedAt, descending — same latest-wins semantics as mt#1787).
+    - **Denies** if no matching run exists (the check that was supposed to fire didn't — webhook miss, workflow disabled, or PR predates the contexts list); the denial reason names the `session_commit { noFiles: true, noStage: true }` webhook-wake recovery.
+    - **Denies** if the latest run's `status !== "completed"` (queued / in_progress — wait for completion).
+    - **Denies** if the latest run's `conclusion !== "success"` (the originating-incident class). The denial reason includes the run's `htmlUrl` for triage.
+    - **Allows** when every required check's latest run concluded success.
+      If branch protection returns 0 required checks, the gate passes silently — no contract to enforce; the mt#1309 presence floor still applies. `enforceAdmins` is parsed but not acted on here (it's a GitHub-side enforcement field; this gate operates at the Claude Code tool layer). Override env: `MINSKY_SKIP_REQUIRED_CHECKS` (audit-logged).
 
 The check is skipped entirely when `headSha` is unavailable (the `gh pr list` lookup at step 3 returned no row). This is a soft skip — the hook continues to allow the merge based on the prior review/spec/doc/freshness gates that already passed.
 
+### Layered enforcement model (mt#1938)
+
+This hook is one layer of a three-layer enforcement stack — it covers only the Claude Code tool-invocation surface. The other two layers cover paths outside Claude Code's view by construction:
+
+| Layer | Surface covered                                                                           | Mechanism                                                                    |
+| ----- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| 1     | Claude Code tool invocations (`mcp__minsky__session_pr_merge`, agent `gh api PUT /merge`) | This hook (`require-review-before-merge.ts`)                                 |
+| 2     | Operator-terminal commands, GitHub web UI                                                 | GitHub branch protection (`required_status_checks` + `enforce_admins: true`) |
+| 3     | Universal post-merge backstop                                                             | `.github/workflows/main-watch.yml` — opens P0 issue on red main CI           |
+
+Claude Code hooks cannot see operator-terminal shell invocations of `gh api PUT /merge`. The operator-API path that produced the originating incident (PR #1163) is structurally outside this hook's reach; layer 2 (branch protection with `enforce_admins: true`) is the load-bearing fix for that path. Layer 3 catches anything that gets past layers 1 and 2.
+
 ### Ordering
 
-The five gates run in this fixed order: review presence → spec verification → documentation impact → review freshness → CI check_runs presence. The most-specific user-actionable failure surfaces first; the CI gate runs last because it queries an external API and represents a less-likely-to-recur failure mode.
+The gates run in this fixed order: review presence → spec verification → documentation impact → review freshness → CI check_runs presence → bundle-boot smoke → required-checks status. The most-specific user-actionable failure surfaces first; CI-related gates run last because they query external APIs and represent less-likely-to-recur failure modes. The required-checks status gate (mt#1938) runs after bundle-boot-smoke (mt#1787) because bundle-boot is a stricter, more specific check; if both would fail, the bundle-boot reason is more actionable for the dev-vs-deployed-divergence class.
 
 ### Dependencies
 

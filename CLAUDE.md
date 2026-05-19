@@ -894,20 +894,22 @@ minsky persistence migrate --execute
 
 # Documentation Taxonomy
 
-Minsky has eight kinds of written artifacts. Each has a home, a title pattern, and a lifecycle. Picking the wrong type creates friction (RFCs in `docs/` won't get reviewed; ADRs in Notion drift from the code). This rule names them so the choice is mechanical, not improvised.
+Minsky has ten kinds of written artifacts. Each has a home, a title pattern, and a lifecycle. Picking the wrong type creates friction (RFCs in `docs/` won't get reviewed; ADRs in Notion drift from the code). This rule names them so the choice is mechanical, not improvised.
 
-## The eight categories
+## The ten categories
 
 | Type | Where | Title pattern | Lifecycle | Use when |
 | --- | --- | --- | --- | --- |
 | **ADR** | `docs/architecture/adr-NNN-<slug>.md` | `ADR-NNN: <topic>` | Proposed → Accepted → (Superseded by ADR-MMM) | Committing to one architectural option among alternatives; future readers will ask "why this and not that?" |
-| **RFC** | Notion under Minsky home (`33a937f0-3cb4-8197-a93e-cd4a98a94261`) | `RFC: <topic>` | Draft → Accepted → Implemented (or Declined / Superseded) | Strategic proposal opening discussion; multi-phase roadmap; cross-cutting architectural move |
-| **Design doc** | Notion under Minsky home | `Design: <feature>` | Draft → Implementing → Shipped (or Abandoned) | Concrete implementation plan, usually following an RFC or task spec |
-| **Position paper** | Notion under Minsky home | `Position: <thesis>` | Living | Arguing for a stance that should outlive specific implementation choices |
+| **RFC** | Notion under Minsky home (`33a937f0-3cb4-8197-a93e-cd4a98a94261`), cluster page [RFCs](https://www.notion.so/365937f03cb481abbdc9fd1e6f376d25) | `RFC: <topic>` | Draft → Accepted → Implemented (or Declined / Superseded) | Strategic proposal opening discussion; multi-phase roadmap; cross-cutting architectural move |
+| **Design doc** | Notion under Minsky home, cluster page [Design docs and architecture decisions](https://www.notion.so/365937f03cb481e79114f7a9e8dd8fd7) | `Design: <feature>` | Draft → Implementing → Shipped (or Abandoned) | Concrete implementation plan, usually following an RFC or task spec |
+| **Position paper** | Notion under Minsky home, cluster page [Position papers](https://www.notion.so/365937f03cb481a5a001e389f1a924cf) | `Position: <thesis>` | Living | Arguing for a stance that should outlive specific implementation choices |
 | **Architecture reference** | `docs/architecture/<feature>.md` | descriptive | Living | Engineering reference for a deployed subsystem |
-| **Engineering guide** | `docs/<topic>.md` | descriptive | Living | Setup, config, migration, ops, testing patterns |
-| **Incident memo** | `docs/incidents/<date>-<topic>.md` per-incident, Notion for cross-incident synthesis | descriptive | Static | Per-incident postmortems; cross-incident memos in Notion |
-| **Vision / Insight / Field notes** | Notion under Minsky home | `Vision: …`, `Insight: …`, `Field notes: …` | Living | Foundational theory, competitive positioning, operational observations |
+| **Engineering guide** | `docs/<topic>.md` (rare exceptions in Notion under cluster page [Engineering guides and setup](https://www.notion.so/365937f03cb481c8b245f94f9a826d2a)) | descriptive | Living | Setup, config, migration, ops, testing patterns |
+| **Incident memo** | `docs/incidents/<date>-<topic>.md` per-incident, Notion under cluster page [Incident memos and retrospectives](https://www.notion.so/365937f03cb48121a3cdde97250189a6) for cross-incident synthesis | descriptive | Static | Per-incident postmortems; cross-incident memos in Notion |
+| **Vision / Insight / Field notes** | Notion under Minsky home, cluster page [Vision, Insights, and Companion Principles](https://www.notion.so/365937f03cb48152afa2ca9b04f8db9f) | `Vision: …`, `Insight: …`, `Field notes: …` | Living | Foundational theory, observation of operational reality |
+| **Landscape analysis** | Notion under Minsky home, cluster page [Landscape analyses](https://www.notion.so/365937f03cb48132bacdf6cf474b813a) | `Analysis: <product>[ × <product>] × Minsky — <descriptor> (<month> <year>)` or `Analysis: <product> — <descriptor> & Minsky relevance (<month> <year>)` | Living (dated; revise on product pivots) | Adjacent-product read, ecosystem map, or competitive landscape analysis. Use the `/analyze-adjacent-product` skill for the semiotic methodology (Peirce / Barthes / Oswald); optionally extend with an architectural-overlap section per the established landscape-doc pattern. |
+| **Audit / strategic synthesis** | Notion under Minsky home, cluster page [Audits and strategic syntheses](https://www.notion.so/365937f03cb48108a822ccc8daef49da) | `Audit: <topic>` / `<topic>: <descriptor>` (un-prefixed strategic syntheses) / `Report: <topic>` | Static (dated) | Cross-cutting audit or meta-analysis of Minsky itself. Distinct from incident memos (bounded to one event) and from landscape analyses (about adjacent products). Surfaces strategic-level introspection: roadmap stalls, ownership gaps, identity-and-gap reports, operations-fit hierarchies. |
 
 ## Where each home is
 
@@ -921,8 +923,20 @@ Minsky has eight kinds of written artifacts. Each has a home, a title pattern, a
 
 **Notion under the Minsky home page** is for **strategic, persuasive, and observational** material that's read and discussed. Page IDs are stable; titles drift, so cross-link by ID.
 
-- Minsky home: `33a937f0-3cb4-8197-a93e-cd4a98a94261`
-- Mesh RFC (precedent): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+- Minsky home (top-level index): `33a937f0-3cb4-8197-a93e-cd4a98a94261`
+- Mesh RFC (retained as the canonical precedent for RFC-format citation; see `.claude/skills/draft-rfc/SKILL.md`): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+
+**Cluster pages** (under Minsky home, post 2026-05-19 IA reorganization) — these are the navigable cluster indexes that each category resolves to. Listed in the categories table above; collected here for top-of-mind reference:
+
+- [Vision, Insights, and Companion Principles](https://www.notion.so/365937f03cb48152afa2ca9b04f8db9f) (`365937f0-3cb4-8152-afa2-ca9b04f8db9f`)
+- [RFCs](https://www.notion.so/365937f03cb481abbdc9fd1e6f376d25) (`365937f0-3cb4-81ab-bdc9-fd1e6f376d25`)
+- [Position papers](https://www.notion.so/365937f03cb481a5a001e389f1a924cf) (`365937f0-3cb4-81a5-a001-e389f1a924cf`)
+- [Design docs and architecture decisions](https://www.notion.so/365937f03cb481e79114f7a9e8dd8fd7) (`365937f0-3cb4-81e7-9114-f7a9e8dd8fd7`)
+- [Landscape analyses](https://www.notion.so/365937f03cb48132bacdf6cf474b813a) (`365937f0-3cb4-8132-bacd-f6cf474b813a`)
+- [Incident memos and retrospectives](https://www.notion.so/365937f03cb48121a3cdde97250189a6) (`365937f0-3cb4-8121-a3cd-de97250189a6`)
+- [Audits and strategic syntheses](https://www.notion.so/365937f03cb48108a822ccc8daef49da) (`365937f0-3cb4-8108-a822-ccc8daef49da`)
+- [Session logs, reframe memos, spike reports](https://www.notion.so/365937f03cb481a3a1a5e402899e12e0) (`365937f0-3cb4-81a3-a1a5-e402899e12e0`)
+- [Engineering guides and setup](https://www.notion.so/365937f03cb481c8b245f94f9a826d2a) (`365937f0-3cb4-81c8-b245-f94f9a826d2a`)
 
 ## Lifecycle conventions
 
@@ -959,16 +973,22 @@ A new subsystem proposal, a multi-phase roadmap, or a cross-cutting architectura
 
 Postmortem of one incident → Incident memo (repo). Synthesis across multiple incidents → Notion incident memo.
 
-Foundational theory, competitive positioning, observation of operational reality → Vision / Insight / Field notes.
+Foundational theory, observation of operational reality → Vision / Insight / Field notes.
+
+An adjacent product, framework, or platform that needs reading against Minsky's surfaces — competitive positioning, RFC support, build-vs-buy decisions → Landscape analysis. Use `/analyze-adjacent-product`.
+
+A cross-cutting introspection of Minsky itself — roadmap stall audit, ownership-gap analysis, identity-and-gap report, operations hierarchy — not bounded to a single event (that would be an incident memo) → Audit / strategic synthesis.
 
 ## Examples currently in Minsky
 
 - **ADRs:** `docs/architecture/adr-002-persistence-provider-architecture.md`, `adr-005-forgebackend-subinterfaces.md`, `adr-008-attention-allocation-subsystem.md`
 - **RFCs:** [`RFC: the mesh`](https://www.notion.so/33a937f03cb4814f8603ff6faa52ec6b), [`RFC: memory system roadmap`](https://www.notion.so/34a937f03cb48176906cd2bd814a6498), [`RFC: Braintrust trace shape for Minsky`](https://www.notion.so/35e937f03cb481baa6ddf1f571d1020a)
-- **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135)
+- **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135), [Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1)
 - **Architecture references:** `docs/architecture/stdio-proxy.md`, `docs/architecture/bundling.md`
 - **Engineering guides:** `docs/configuration-guide.md`, `docs/deploy-minsky-railway.md`, `docs/testing-patterns.md`
-- **Vision/Insight:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4)
+- **Vision / Insight / Field notes:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4), [Field notes from inside the harness (v4.1)](https://www.notion.so/33b937f03cb481b8810debaef5e24a66)
+- **Landscape analyses:** [LangGraph × Claude Agent SDK × Minsky](https://www.notion.so/340937f03cb481c8b4d1ca8bfcbcd67e), [Macro × Minsky](https://www.notion.so/365937f03cb481e0b19bfeeae10b033e), [Agent SDK landscape](https://www.notion.so/348937f03cb48161a31fe344ada6fb28), [6 Claude Code Plugins — ecosystem landscape](https://www.notion.so/341937f03cb4811f93ace3c2dc98eb12)
+- **Audits / strategic syntheses:** [Audit: how operations fits in Minsky's cognitive system hierarchy](https://www.notion.so/357937f03cb481a39a8bfc7d611579ae), [PR review-loop ownership](https://www.notion.so/358937f03cb4810ab11efc3d72bd0a06), [Minsky identity & gap report](https://www.notion.so/346937f03cb48133a6d1f9f013796767), [mt#1505 synthesis: roadmap stall audit + structural-process retrospective](https://www.notion.so/35a937f03cb481119a08f3c47bd8e6e7)
 
 ## How to apply
 
@@ -984,6 +1004,8 @@ For RFC authoring specifically, use the `/draft-rfc` skill which encodes the ful
 
 For ADR authoring specifically, use the `/draft-adr` skill which walks the Michael-Nygard format with the numbered-file convention.
 
+For landscape-analysis authoring specifically, use the `/analyze-adjacent-product` skill which encodes the semiotic methodology (Peirce / Barthes / Oswald) and the established landscape-doc structure.
+
 ## Subsumes
 
 This rule subsumes the prior memory `Strategic RFCs and roadmap docs go in Notion, not repo docs/` — that memory covered the single repo-vs-Notion axis; this rule covers the full taxonomy. The prior memory remains as historical anchor but should be considered superseded.
@@ -995,8 +1017,10 @@ This rule subsumes the prior memory `Strategic RFCs and roadmap docs go in Notio
 - `decision-defaults.mdc §User does not review PRs in the loop` — sibling rule on convergence discipline
 - `.claude/skills/draft-rfc/SKILL.md` — lifecycle skill for RFC authoring
 - `.claude/skills/draft-adr/SKILL.md` — format skill for ADR authoring
-- `.claude/skills/engineering-writing/SKILL.md` — writing-craft skill referenced by both
+- `.claude/skills/analyze-adjacent-product/SKILL.md` — semiotic methodology for landscape-analysis authoring (mt#1944, mt#1945)
+- `.claude/skills/engineering-writing/SKILL.md` — writing-craft skill referenced by all three
 - Originating context: 2026-05-12 documentation-process retrospective and the Braintrust trace RFC that demonstrated the lifecycle
+- 2026-05-19 Notion IA reorganization: the cluster pages linked in the table above were created to give the ~70-page corpus a navigable home. Landscape analyses and Audits / strategic syntheses were formally added as recognized categories (mt#1946); the prior 8-category formulation is superseded.
 
 # Principal Context
 
@@ -1828,6 +1852,33 @@ Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an 
 The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
 
 Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
+
+### Layered merge-protection model (mt#1938)
+
+A PR's path to `main` is protected by three independent layers, each covering a different surface. Knowing which layer protects which path matters when triaging a main-red incident or proposing new enforcement.
+
+| Layer | Surface covered | Mechanism | Owns origin path |
+| ----- | --------------- | --------- | ---------------- |
+| 1 — Agent-tool | Claude Code tool invocations (`mcp__minsky__session_pr_merge`, agent-context `gh api PUT /merge` via `Bash`/`session_exec`) | `.claude/hooks/require-review-before-merge.ts` — review presence + freshness + CI presence (mt#1309) + bundle-boot smoke (mt#1787) + required-checks status (mt#1938) | Agent-driven merges only. |
+| 2 — GitHub-tool | Operator-terminal `gh api PUT /merge`, `gh pr merge`, GitHub web UI | GitHub branch protection: `required_status_checks.contexts` + `enforce_admins: true` | Operator-side merges. **Load-bearing** for the user's normal merge path. |
+| 3 — Main-watch | Universal post-merge backstop | `.github/workflows/main-watch.yml` — fires on `workflow_run` failure on `main`, opens a P0 issue | Anything that gets past layers 1 and 2. |
+
+**Why this matters.** Claude Code's PreToolUse hook stack can only see Claude Code tool invocations — operator-terminal `gh api` calls and GitHub-UI clicks are outside its scope by construction. Layer 2 (GitHub branch protection) is the layer that covers the operator-API path with `enforce_admins: true`; without it, an admin token sails past the required-status-checks rule. Layer 3 catches anything that gets past layers 1 and 2, regardless of how the broken code arrived on main.
+
+The originating incident (PR #1163 / mt#1927, 2026-05-19) hit all three coverage holes at once: layer 1 didn't apply (operator-API path, outside Claude Code's view), layer 2 was permissive (`enforce_admins: false`), and layer 3 didn't exist. mt#1938 closes layer 1's generalization gap (CI status enforcement, not just presence), adds layer 3 (`main-watch.yml`), and ships the **opt-in** mechanism for the layer 2 flip via `scripts/set-branch-protection.ts --enforce-admins --apply`. The flip itself is deferred until layers 1 and 3 have been observed running in production.
+
+**Override env vars (audit-logged when used):**
+
+- `MINSKY_SKIP_BUNDLE_SMOKE=1` — bypasses layer 1's bundle-boot-smoke gate (mt#1787).
+- `MINSKY_SKIP_REQUIRED_CHECKS=1` — bypasses layer 1's required-checks status gate (mt#1938). Each override emits a stdout audit line naming the env-var value, PR number, HEAD sha, and ISO timestamp.
+
+**Branch-protection management.** Layer 2's desired config is declarative in `scripts/set-branch-protection.ts`. The default desired config keeps `enforce_admins: false` (matching current live state, so `--apply` is non-disruptive). To flip to `enforce_admins: true`, pass the explicit `--enforce-admins` flag — making the load-bearing change an operator-decided ceremony rather than a side effect of `--apply`. CLI surface:
+
+- `bun scripts/set-branch-protection.ts` — dry-run with default desired (enforce_admins=false). Notes the opt-in path.
+- `bun scripts/set-branch-protection.ts --check` — print live state + drift verdict; exits non-zero on drift.
+- `bun scripts/set-branch-protection.ts --apply` — write default desired (no enforce_admins change).
+- `bun scripts/set-branch-protection.ts --enforce-admins` — dry-run with enforce_admins=true (preview the load-bearing flip).
+- `bun scripts/set-branch-protection.ts --enforce-admins --apply` — opt-in flip to enforce_admins=true. Emits a stdout WARNING line documenting what changes and how to reverse.
 
 Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
 
