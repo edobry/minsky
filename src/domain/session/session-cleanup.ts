@@ -154,6 +154,14 @@ export interface FilesystemOrphanDir {
 }
 
 /**
+ * RFC 4122 UUID pattern (version 1–5, any variant).
+ * Session workspace dirs are always named after their UUID session ID, so any
+ * entry whose name does NOT match this pattern is not a session dir and must
+ * be skipped — even if the DB has no record for it.
+ */
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
  * Scan getSessionsDir() for workspace directories that have no matching session
  * record in the DB.
  *
@@ -166,8 +174,10 @@ export interface FilesystemOrphanDir {
  * the DB to reference it — standard session_cleanup misses it entirely.
  *
  * Only top-level directory entries under getSessionsDir() are inspected. Entries
- * that are not directories are skipped. Entries that correspond to an existing DB
- * session record are skipped.
+ * that are not directories are skipped. Entries whose names are not valid UUID
+ * session IDs (matching SESSION_ID_RE) are skipped — this prevents accidental
+ * deletion of non-session subdirectories that happen to exist under the sessions
+ * root. Entries that correspond to an existing DB session record are skipped.
  *
  * Returns an empty array if getSessionsDir() does not exist or cannot be read.
  */
@@ -195,6 +205,11 @@ export async function identifyFilesystemOrphanDirs(
 
   const orphans: FilesystemOrphanDir[] = [];
   for (const entry of entries) {
+    // Skip entries that are not valid UUID session IDs to avoid accidentally
+    // treating non-session subdirectories (e.g. ".gitkeep", tool-created dirs)
+    // as deletable orphans.
+    if (!SESSION_ID_RE.test(entry)) continue;
+
     const dirPath = `${sessionsDir}/${entry}`;
     // Only consider directories (skip files like .gitkeep, etc.)
     let isDir: boolean;

@@ -36,9 +36,14 @@ import { SessionStatus } from "./types";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Stable session IDs that are valid UUIDs. */
-const ORPHAN_UUID = "aaaaaaaa-bbbb-cccc-dddd-111111111111";
-const KNOWN_UUID = "11111111-2222-3333-4444-555555555555";
+/**
+ * Stable v4 UUIDs for test scenarios. Must satisfy SESSION_ID_RE:
+ * /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+ * Version nibble (13th char of the canonical form) must be 1-5;
+ * variant nibble (17th char) must be 8, 9, a, or b.
+ */
+const ORPHAN_UUID = "aaaaaaaa-bbbb-4ccc-8ddd-111111111111";
+const KNOWN_UUID = "11111111-2222-4333-8444-555555555555";
 
 function makeSessionRecord(overrides: Partial<SessionRecord> = {}): SessionRecord {
   return {
@@ -150,6 +155,22 @@ describe("identifyFilesystemOrphanDirs (mt#1941 — orphan detection)", () => {
     expect(orphans).toHaveLength(0);
   });
 
+  it("skips dirs whose names are not valid UUID session IDs", async () => {
+    // Create dirs with non-UUID names (e.g. tool-created subdirs, temp dirs)
+    mkdirSync(join(sessionsDir, "not-a-uuid"), { recursive: true });
+    mkdirSync(join(sessionsDir, "some-tool-cache"), { recursive: true });
+    // Also create a valid UUID orphan to confirm it is still detected
+    const orphanDir = join(sessionsDir, ORPHAN_UUID);
+    mkdirSync(orphanDir, { recursive: true });
+
+    const sessionProvider = new FakeSessionProvider({ initialSessions: [] });
+    const orphans = await identifyFilesystemOrphanDirs(sessionProvider);
+
+    // Only the UUID-named dir should appear; non-UUID names are excluded
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0]?.sessionId).toBe(ORPHAN_UUID);
+  });
+
   it("returns empty array when sessions dir does not exist", async () => {
     // Remove the sessions dir entirely
     rmSync(sessionsDir, { recursive: true, force: true });
@@ -161,10 +182,11 @@ describe("identifyFilesystemOrphanDirs (mt#1941 — orphan detection)", () => {
   });
 
   it("returns multiple orphans when multiple dirs have no DB record", async () => {
+    // All UUIDs must satisfy SESSION_ID_RE (v4, variant bits 8/9/a/b).
     const uuids = [
-      "bbbbbbbb-0001-0000-0000-000000000001",
-      "bbbbbbbb-0001-0000-0000-000000000002",
-      "bbbbbbbb-0001-0000-0000-000000000003",
+      "bbbbbbbb-0001-4000-8000-000000000001",
+      "bbbbbbbb-0001-4000-8000-000000000002",
+      "bbbbbbbb-0001-4000-8000-000000000003",
     ];
     for (const uuid of uuids) {
       mkdirSync(join(sessionsDir, uuid), { recursive: true });
