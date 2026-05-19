@@ -57,6 +57,20 @@ should require a concrete consumer that justifies the install-time cost.
 `.agents/` is kept in `.gitignore` as a defensive measure: if any tool or
 manual invocation populates the directory, it will not be committed.
 
+### Local cleanup after upgrading
+
+Developers who had the `npx skills` postinstall fire in their local checkout
+before this PR landed will have a stale `.agents/skills/` tree under the repo
+root. The directory is gitignored, so it stays around indefinitely unless
+deleted. To clean up:
+
+```sh
+rm -rf .agents
+```
+
+This is a one-time cleanup; nothing in the repo will recreate `.agents/` after
+the postinstall hook is gone.
+
 ## Quick reference
 
 | Question                              | `.minsky/skills/`         | `.agents/skills/`       |
