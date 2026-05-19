@@ -73,7 +73,13 @@ supabase/
 # temporary PR-body drafts (passed inline to session_pr_create, not committed)
 /pr-body.md
 
-# installed agent skills (restore via postinstall)
+# third-party skill installer destination (`.agents/`) — defensive ignore.
+# The `postinstall: npx skills experimental_install -y` hook that auto-populated
+# this directory was retired in mt#1902 (2026-05-19) after audit found zero
+# consumers. The ignore is kept so any manual `npx skills` invocation or future
+# third-party tooling that targets `.agents/` does not pollute the working tree.
+# See docs/architecture/skills-surfaces.md for the `.agents/` vs `.minsky/skills/`
+# distinction.
 .agents/
 .claude/worktrees/
 

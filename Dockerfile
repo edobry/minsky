@@ -41,16 +41,11 @@ COPY services/reviewer/package.json ./services/reviewer/package.json
 #   from `src/cli.ts mcp start --http` reaches commander, ts-morph, eslint,
 #   prettier, vite/tailwind, husky, lint-staged, testcontainers, or the
 #   other 22 devDependencies. Each was checked explicitly.
-# - `--ignore-scripts`: skips package.json's two install hooks, both of
-#   which are dev-environment-only and unsafe to run in a container:
-#     * `prepare: husky` — installs git-hook stubs. No .git in the image
-#       (`.git` is .dockerignore'd), so husky would no-op-with-warning at
-#       best, error at worst.
-#     * `postinstall: npx skills experimental_install -y` — runs the
-#       Claude Code skill installer to populate `.agents/skills/`. This
-#       is a developer-environment setup for the local Claude Code agent,
-#       has no relationship to the MCP server's runtime, and would
-#       silently network-fetch on every Railway rebuild.
+# - `--ignore-scripts`: skips package.json's `prepare: husky` install
+#   hook, which installs git-hook stubs. No .git in the image
+#   (`.git` is .dockerignore'd), so husky would no-op-with-warning at
+#   best, error at worst. (A `postinstall: npx skills experimental_install`
+#   hook was also previously skipped here; retired in mt#1902.)
 #
 # Mirrors `services/reviewer/Dockerfile:24` which uses the same flag set
 # and ships to production without issue.
