@@ -107,7 +107,7 @@ Each analysis produces a structured artifact suitable for archiving as `referenc
 
 When the analysis is complete, also produce:
 
-- **Idiom placement.** Place the brand against the two-idiom synthesis (see below). Which idiom is the brand operating in? Are there hybrid moves?
+- **Idiom placement.** Place the brand against the three-idiom synthesis (see §5 below — Idiom A motion-decorated-infographic / Idiom B product-screenshot-dominant / Idiom C founder-essay). Which idiom is the brand operating in? Are there hybrid moves? If the brand fits none of the three cleanly, it may be evidence for a fourth idiom — surface it.
 - **Implications.** What does this analysis change about positioning for whoever consumes the output? (E.g., for marketing-site-design consumers: which codes does this analysis open or close for our own brand?)
 
 ## 5. The three-idiom synthesis (current state — 2026-05)
@@ -159,7 +159,7 @@ The three-idiom synthesis is empirical observation, not a closed taxonomy. New i
 `references/case-studies-2026-05.md` contains the canonical four-way analysis: Composio (Idiom A), Cursor + Factory (Idiom B), and Macro (Idiom C — added 2026-05-19 from the macro.com investigation; see Idiom C synthesis row in that file). Read it when:
 
 - Analyzing a new adjacent product's marketing site (use it as the structural template)
-- Re-grounding your sense of what the two idioms actually look like
+- Re-grounding your sense of what the three idioms (A motion-decorated-infographic / B product-screenshot-dominant / C founder-essay) actually look like
 - Pairing with the operator on a competitive read-out
 - Onboarding to the methodology
 

@@ -164,6 +164,8 @@ _"Software engineering is shifting from craft to industrial manufacturing."_ The
 
 ## Macro (macro.com) — Idiom C exemplar
 
+> **Capture provenance.** Typography weights, OKLCH color tokens, DOM-element counts, and verbatim copy below were captured via `mcp__chrome-devtools__evaluate_script` and `mcp__chrome-devtools__take_snapshot` on 2026-05-19 against the live homepage. Full capture artifacts (snapshot, screenshot, evaluate-script JSON output) are archived in the originating Notion analysis page [Analysis: Macro (macro.com) × Minsky](https://www.notion.so/365937f03cb481e0b19bfeeae10b033e); see its `## Captured` section for the verbatim DevTools output. The mt#1945 commit message also captures the full incident chain. Future readers verifying the technical details should re-capture against the current live site rather than treating the values below as canonical — the site evolves; the methodology does not.
+
 ### Captured (2026-05-19)
 
 - Top nav: `Github` (links to `macro-inc/macro`), `Pricing`, `Login`, `BOOK DEMO`, `TRY FOR FREE`. Minimal — no `PRODUCT`, `FEATURES`, `CUSTOMERS`, `BLOG`.
