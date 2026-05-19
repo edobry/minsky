@@ -125,7 +125,7 @@ Per Oswald's framing: the brand identity lives in the intersection of multiple c
 
 ## Step 5 — Visual specification
 
-Derived in `SKILL.md` Section 9 (the Minsky-specific layer). Summary of the locks:
+Derived in `SKILL.md` Section 8 (the Minsky-specific layer). Summary of the locks:
 
 - **Idiom:** B (product-screenshot dominant, restrained)
 - **Stack:** Astro (or equivalent static-output framework). The marketing site rebuild deferred to a downstream task.
@@ -206,7 +206,7 @@ Would the right reader recognize the borrowing without being told? If yes, ship 
 
 **References (layered, none literal):** GitS SAC (primary) + Eva (backline) + Iso (texture) + Magilumiere (tonal lock) + Macx (literary). Background-only: Operative Ontology corpus, ambient computing.
 
-**Visual spec:** see SKILL.md §9.
+**Visual spec:** see SKILL.md §8.
 
 **Vocabulary:** cyberbrain / Stand Alone Complex / sync rate / Section / flock / ghost (philosophical) / servitor (manifesto-only) / substrate.
 
