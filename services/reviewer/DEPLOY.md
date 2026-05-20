@@ -304,6 +304,92 @@ If no new deployment appears within ~60s of the merge, check:
 
 `railway up --detach` remains available for out-of-band pushes (e.g. testing uncommitted code on the production service). Prefer merge-to-main for anything reviewed; use manual deploy only for transient testing.
 
+## Schema reconciliation (mt#1967)
+
+The reviewer service uses a **dedicated drizzle migrations table**:
+`drizzle.__drizzle_migrations_reviewer`. This is service-scoped, separate
+from main Minsky's `drizzle.__drizzle_migrations`. Originating reason:
+mt#1967 — drizzle's postgres-js migrator uses a timestamp comparison
+(`Number(lastDbMigration.created_at) < migration.folderMillis`), not a
+hash-set check, so two services sharing the same tracking table can
+silently skip the older service's migrations. The reviewer's migrations
+were silently skipped for an unknown duration on the deployed Supabase
+until mt#1967.
+
+### When to run the reconciliation script
+
+- Suspecting the silent-skip class has re-surfaced (e.g., a new reviewer
+  migration shipped, deploy logged `migrations_applied`, but a query
+  against the new table returns `42P01 undefined_table`).
+- A manual `DROP TABLE` or production-incident recovery has occurred.
+- Pre-deploy diagnostic: confirm the deployed DB matches the expected
+  reviewer schema before flipping a feature flag that depends on a new
+  table.
+
+The reviewer service ALSO runs the same self-check on every boot via
+`verifyExpectedTables()` (added in mt#1967). The boot self-check
+fail-fasts with a clear message if any expected table is missing —
+crash-looping the service rather than silently degrading. The
+operator-facing script below is the out-of-band complement.
+
+### Dry-run
+
+From `services/reviewer/`:
+
+```bash
+MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
+  bun run reconcile-schema
+```
+
+Or from the repo root with the raw invocation:
+
+```bash
+MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
+  bun services/reviewer/scripts/reconcile-schema.ts
+```
+
+Reports a structured JSON diagnostic: `presentTables`, `missingTables`,
+`migrationRows`, and `outcome` (`all-present` or `missing-detected`).
+Non-zero exit on `missing-detected`. Read-only — no DDL applied.
+
+### Execute (forward-only repair)
+
+From `services/reviewer/`:
+
+```bash
+MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
+  bun run reconcile-schema:execute
+```
+
+Or from the repo root:
+
+```bash
+MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
+  bun services/reviewer/scripts/reconcile-schema.ts --execute
+```
+
+Invokes the canonical `applyMigrations()` (same codepath the reviewer
+service uses at boot). Drizzle's migrator inserts into
+`drizzle.__drizzle_migrations_reviewer` as it applies each migration, so
+subsequent runs (and subsequent boots) are idempotent.
+
+The post-migration self-check runs after `migrate()` returns. If any
+expected table is still missing the script exits non-zero with the
+diagnostic message.
+
+### Why the script exists alongside the boot self-check
+
+The boot path crash-loops the service on a self-check failure. That's
+the right behavior for production — fail fast, surface the alert. But
+it's not a useful operator surface for diagnosing or repairing the
+underlying state without a restart cycle. The script is the same
+diagnostic delivered out-of-band, with a `--execute` switch that performs
+the canonical repair against a chosen Postgres URL.
+
+The boot self-check and the script call `applyMigrations()` and the same
+`verifyExpectedTables()` helper, so neither codepath can drift from the
+other.
+
 ## Troubleshooting
 
 **Service boots but no webhooks arrive:** check the webhook URL in the App settings, check Railway domain is public, check the "Recent deliveries" in the App webhook settings page.
