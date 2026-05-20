@@ -19,6 +19,11 @@ import {
   isOverrideTruthy,
   NUL_BYTE_CHECK_OVERRIDE_ENV,
 } from "./nul-byte-detector";
+import {
+  runWorkspaceCopyCheck as runWorkspaceCopyDetector,
+  isWorkspaceCopyOverrideTruthy,
+  WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
+} from "./workspace-copy-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -74,11 +79,10 @@ export class PreCommitHook {
         return formatResult;
       }
 
-      // Step 2: Console usage validation (~1s)
-      const consoleResult = await this.runConsoleValidation();
-      if (!consoleResult.success) {
-        return consoleResult;
-      }
+      // Console-usage validation moved into ESLint as the `custom/no-raw-console`
+      // rule (mt#1960). Step 2 ran the standalone regex-based `lint:console:strict`
+      // script; that script and its package.json scripts were retired with mt#1960.
+      // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
       const variableResult = await this.runVariableNamingCheck();
@@ -99,6 +103,17 @@ export class PreCommitHook {
       const nulByteResult = await this.runNulByteCheck();
       if (!nulByteResult.success) {
         return nulByteResult;
+      }
+
+      // Step 3c: Workspace-COPY check (mt#1984). Verify every workspace
+      // declared by root `package.json`'s `workspaces` glob has a
+      // corresponding `COPY <ws>/package.json` line in the root Dockerfile
+      // before the `RUN bun install --frozen-lockfile` step. Prevents
+      // recurrence of mt#1977 (75-minute production outage after a new
+      // workspace was added without updating the Dockerfile's COPY list).
+      const workspaceCopyResult = await this.runWorkspaceCopyCheck();
+      if (!workspaceCopyResult.success) {
+        return workspaceCopyResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -680,6 +695,107 @@ export class PreCommitHook {
   }
 
   /**
+   * Run the workspace-COPY check (mt#1984). Verify that every workspace
+   * declared by root `package.json`'s `workspaces` glob AND containing a
+   * `package.json` has a corresponding `COPY <ws>/package.json` line in
+   * the root `Dockerfile` BEFORE the `RUN bun install --frozen-lockfile`
+   * step.
+   *
+   * Originating incident: mt#1977 — PR #1186 (mt#1934, marketing-site
+   * rebuild) added `services/site/` as a workspace without updating the
+   * Dockerfile's selective-COPY list. Every Railway deploy from that
+   * point until the mt#1977 fix landed (~75 minutes later) failed with
+   *   `error: lockfile had changes, but lockfile is frozen`
+   *
+   * The local `bun install` SUCCEEDS because the full repo is mounted;
+   * the failure mode is Railway-specific (selective COPY produces an
+   * incomplete tree). This check is the commit-time complement to that
+   * deploy-time failure mode.
+   *
+   * Override: setting `MINSKY_SKIP_WORKSPACE_COPY_CHECK` to `1` / `true`
+   * / `yes` skips the check and emits a one-line audit message.
+   *
+   * See `src/hooks/workspace-copy-detector.ts` for the pure-function
+   * detector this method wraps.
+   */
+  private async runWorkspaceCopyCheck(): Promise<HookResult> {
+    if (isWorkspaceCopyOverrideTruthy(process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:workspace-copy-check] override ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=${process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — workspace-COPY check skipped`
+      );
+      return {
+        success: true,
+        message: "Workspace-COPY check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      const missing = runWorkspaceCopyDetector(this.projectRoot);
+
+      // Silent on happy path (per spec): no preamble, no pass/skip
+      // confirmation. Only the failure case below emits stdout.
+      // - null = "this repo does not have a root Dockerfile / package.json
+      //   pair we protect" — short-circuit silently.
+      if (missing === null) {
+        return {
+          success: true,
+          message: "Workspace-COPY check inapplicable (no root Dockerfile)",
+          exitCode: 0,
+        };
+      }
+
+      if (missing.length === 0) {
+        return {
+          success: true,
+          message: "Workspace-COPY check passed",
+          exitCode: 0,
+        };
+      }
+
+      log.cli("");
+      log.cli("Root Dockerfile missing workspace package.json COPY line(s). Commit blocked.");
+      log.cli("");
+      for (const m of missing) {
+        log.cli(`   ${m.workspacePath}/  — add to Dockerfile:`);
+        log.cli(`     ${m.copyLineToAdd}`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli("   - Tracking task:        mt#1984");
+      log.cli("   - Originating incident: mt#1977 (75-minute production outage)");
+      log.cli("");
+      log.cli("Background: root `package.json` declares workspaces (`packages/*`,");
+      log.cli("   `services/*`). When a new workspace is added, `bun.lock` regenerates");
+      log.cli("   with its dependencies. The root Dockerfile's selective COPY block must");
+      log.cli("   include the new workspace's package.json BEFORE the");
+      log.cli("   `RUN bun install --frozen-lockfile` step — otherwise Railway's build");
+      log.cli("   container sees a workspace topology that doesn't match the lockfile and");
+      log.cli('   aborts with "lockfile had changes, but lockfile is frozen".');
+      log.cli("");
+      log.cli(
+        `If a COPY is intentionally omitted (rare), set ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `Workspace-COPY check failed: ${missing.length} missing COPY line(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Workspace-COPY check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Workspace-COPY check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
    * Run unit tests
    */
   private async runUnitTests(): Promise<HookResult> {
@@ -833,27 +949,6 @@ export class PreCommitHook {
     } catch (error) {
       log.cli("❌ Code formatting failed! Please check for syntax errors.");
       return { success: false, message: "Code formatting failed", exitCode: 1 };
-    }
-  }
-
-  /**
-   * Run console usage validation
-   */
-  private async runConsoleValidation(): Promise<HookResult> {
-    log.cli("🔇 Checking for console usage violations...");
-
-    try {
-      await execAsync("bun run lint:console:strict", {
-        cwd: this.projectRoot,
-        timeout: 30000,
-      });
-      log.cli("✅ No console usage violations found.");
-      return { success: true, message: "Console validation passed", exitCode: 0 };
-    } catch (error) {
-      log.cli("❌ Console usage violations found! These cause test output pollution.");
-      log.cli("💡 Replace console.* calls with logger.* or mock logger utilities");
-      log.cli("📖 See docs/testing/global-test-setup.md for guidance");
-      return { success: false, message: "Console usage violations found", exitCode: 1 };
     }
   }
 
