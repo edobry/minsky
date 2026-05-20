@@ -111,10 +111,10 @@ The palette is grounded in cybernetic-ops register: near-black ground, near-whit
   }
 }
 
-/* Pattern C — two custom-property declarations; OKLCH first, hex second, latter wins on unsupported engines */
+/* Pattern C — two custom-property declarations; hex first as legacy fallback, OKLCH last so it wins in modern engines (and is invalid + skipped in legacy engines) */
 .text-primary {
-  color: var(--text-primary-oklch);
-  color: var(--text-primary-hex);
+  color: var(--text-primary-hex); /* legacy fallback */
+  color: var(--text-primary-oklch); /* preferred when supported */
 }
 ```
 
