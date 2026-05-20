@@ -1,9 +1,8 @@
-# Minsky Documentation
+# Minsky documentation
 
-This directory contains implementation and operational reference documentation
-for the Minsky development workflow tool. Strategic memos, position papers, and
-incident records live in Notion (Minsky workspace); per-task history lives in
-the Minsky task DB and GitHub PRs.
+Implementation and operational reference for Minsky — the exocortex / principal substrate the top-level [README](../README.md) describes. Strategic memos, position papers, and incident records live in Notion (Minsky workspace); per-task history lives in the Minsky task DB and GitHub PRs. This directory is the code-adjacent layer: setup, configuration, migration, ops, testing patterns, architecture references.
+
+For the brand foundation (locked myth, cultural code, vocabulary), see the [`minsky-brand`](../.claude/skills/minsky-brand/SKILL.md) skill. For operational tokens (typography, color, motion, contrast), see [`brand-system.md`](./brand-system.md). For the documentation taxonomy that places each artifact in its slot (ADR / RFC / position paper / engineering guide / architecture reference / etc.), see [`CLAUDE.md §Documentation Taxonomy`](../CLAUDE.md#documentation-taxonomy).
 
 ## Getting Started
 
