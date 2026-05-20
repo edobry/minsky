@@ -43,6 +43,10 @@ class ConsoleUsageLinter {
     // narrow to this service specifically — future services must be added
     // here explicitly, not inherit the exemption.
     "**/services/reviewer/**",
+    // The minsky-site marketing service (services/site) is a standalone
+    // Astro+Bun deployable. Its src/server.ts uses console for startup +
+    // health-probe logging; same exemption rationale as reviewer.
+    "**/services/site/**",
     // CLI tools that legitimately need console output
     "**/test-quality-cli.ts",
     "**/scripts/**", // Scripts may use console for output
