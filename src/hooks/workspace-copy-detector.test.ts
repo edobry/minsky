@@ -85,7 +85,6 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ALL_WORKSPACE_GLOBS },
         workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
         dockerfileText: dockerfile,
       });
@@ -104,7 +103,6 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ALL_WORKSPACE_GLOBS },
         workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
         dockerfileText: dockerfile,
       });
@@ -128,7 +126,6 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ALL_WORKSPACE_GLOBS },
         workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
         dockerfileText: dockerfile,
       });
@@ -145,7 +142,6 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ["packages/*"] },
         workspacePackageJsons: [WS_SHARED, "packages/missing"],
         dockerfileText: dockerfile,
       });
@@ -164,7 +160,6 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ALL_WORKSPACE_GLOBS },
         workspacePackageJsons: [WS_SHARED, WS_SITE],
         dockerfileText: dockerfile,
       });
@@ -181,11 +176,37 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ["packages/*"] },
         workspacePackageJsons: [WS_SHARED],
         dockerfileText: dockerfile,
       });
       expect(result).toEqual([]);
+    });
+
+    test("leading-whitespace tolerance: indented `RUN bun install --frozen-lockfile` still matched", () => {
+      // PR #1193 R1 B2: pre-fix, `/^RUN .../m` anchored to the start of
+      // the line with no leading-whitespace tolerance — an indented
+      // install line (valid Dockerfile syntax) would silently bypass the
+      // check by failing the boundary match and returning [].
+      //
+      // Negative-case verification: a Dockerfile with an indented
+      // frozen-lockfile install AND a missing workspace COPY must STILL
+      // flag the missing COPY, not return [].
+      const dockerfile = [
+        FROM_BUN_BASE,
+        "WORKDIR /app",
+        COPY_ROOT_MANIFESTS,
+        COPY_SHARED_PKG,
+        // Two-space indent in front of the install — valid Dockerfile,
+        // post-fix must match, pre-fix would NOT and silently bypass.
+        `  ${FROZEN_INSTALL_LINE}`,
+        COPY_SRC,
+      ].join("\n");
+
+      const result = detectMissingWorkspaceCopies({
+        workspacePackageJsons: [WS_SHARED, WS_SITE],
+        dockerfileText: dockerfile,
+      });
+      expect(result.map((r) => r.workspacePath)).toEqual([WS_SITE]);
     });
 
     test("mt#1977 reproduction: pre-fix Dockerfile + services/site workspace → flagged", () => {
@@ -204,7 +225,6 @@ describe("workspace-copy-detector — mt#1984", () => {
       ].join("\n");
 
       const result = detectMissingWorkspaceCopies({
-        rootPackageJson: { workspaces: ALL_WORKSPACE_GLOBS },
         workspacePackageJsons: [WS_SHARED, WS_SITE, WS_REVIEWER],
         dockerfileText: dockerfile,
       });

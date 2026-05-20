@@ -57,19 +57,16 @@ export function isWorkspaceCopyOverrideTruthy(envValue: string | undefined): boo
  * this marker (in the source layer) don't satisfy the workspace-COPY
  * invariant — by then, the install has already failed.
  *
- * The match is line-anchored and tolerates the standard variants
- * (`--production`, `--ignore-scripts`, additional flags). The substring
- * `RUN bun install --frozen-lockfile` is the load-bearing signal.
+ * The match is line-anchored with leading-whitespace tolerance so an
+ * indented `RUN bun install --frozen-lockfile` line (valid Dockerfile
+ * syntax) doesn't silently bypass the check. The substring
+ * `RUN bun install --frozen-lockfile` is the load-bearing signal; the
+ * remainder of the line (additional flags like `--production`,
+ * `--ignore-scripts`) is intentionally not matched.
  */
-const FROZEN_INSTALL_LINE_RE = /^RUN bun install --frozen-lockfile/m;
+const FROZEN_INSTALL_LINE_RE = /^\s*RUN bun install --frozen-lockfile/m;
 
 export interface WorkspaceCopyCheckInput {
-  /**
-   * Parsed root `package.json`. Only the `workspaces` field is read; the
-   * rest is ignored. Both array form (`"workspaces": [...]`) and object
-   * form (`"workspaces": { "packages": [...] }`) are supported.
-   */
-  rootPackageJson: { workspaces?: string[] | { packages?: string[] } };
   /**
    * Workspace package.json paths that actually exist on disk, resolved
    * relative to the repo root (e.g. `"packages/shared"`,
@@ -286,7 +283,6 @@ export function runWorkspaceCopyCheck(
   const workspacesField = readWorkspacesField(rootPackageJson);
   const workspacePackageJsons = resolveWorkspacePackageJsonPaths(repoRoot, workspacesField, fs);
   return detectMissingWorkspaceCopies({
-    rootPackageJson,
     workspacePackageJsons,
     dockerfileText,
   });

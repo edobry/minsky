@@ -720,8 +720,6 @@ export class PreCommitHook {
    * detector this method wraps.
    */
   private async runWorkspaceCopyCheck(): Promise<HookResult> {
-    log.cli("Checking root Dockerfile workspace-COPY coverage...");
-
     if (isWorkspaceCopyOverrideTruthy(process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV])) {
       const ts = new Date().toISOString();
       log.cli(
@@ -738,10 +736,11 @@ export class PreCommitHook {
     try {
       const missing = runWorkspaceCopyDetector(this.projectRoot);
 
-      // null = "this repo does not have a root Dockerfile/package.json
-      // pair we protect" — short-circuit silently.
+      // Silent on happy path (per spec): no preamble, no pass/skip
+      // confirmation. Only the failure case below emits stdout.
+      // - null = "this repo does not have a root Dockerfile / package.json
+      //   pair we protect" — short-circuit silently.
       if (missing === null) {
-        log.cli("No root Dockerfile / package.json — workspace-COPY check skipped.");
         return {
           success: true,
           message: "Workspace-COPY check inapplicable (no root Dockerfile)",
@@ -750,7 +749,6 @@ export class PreCommitHook {
       }
 
       if (missing.length === 0) {
-        log.cli("Root Dockerfile COPYs every declared workspace package.json.");
         return {
           success: true,
           message: "Workspace-COPY check passed",
