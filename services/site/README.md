@@ -52,11 +52,19 @@ Deployed to Railway as its own service. Configuration lives in:
 
 - `services/site/railway.config.ts` — declarative service config (env vars, project/service/env IDs)
 - `services/site/deploy.config.ts` — platform declaration (Railway adapter)
+- `services/site/nixpacks.toml` — build/install/start commands
 
-To synthesize the live service config from this source:
+The `minsky-site` Railway project + service already exist (pre-date this monorepo absorb — the prior Hono+static scaffold deployed here). The post-absorb deploy requires three Railway-side config flips on the service:
+
+1. **Source repository:** `edobry/minsky` (was `edobry/minsky-site` pre-absorb).
+2. **Root directory:** `services/site` (was repo root pre-absorb).
+3. **Cleanup:** the project carries three leftover `Postgres*` services from the prior scaffold. The Astro static site needs no database; pruning them is a principal-authorized followup.
+
+To synthesize env vars from this source after the above is in place:
 
 ```bash
-bun scripts/railway/apply.ts services/site --execute
+bun scripts/railway/apply.ts services/site            # dry-run
+bun scripts/railway/apply.ts services/site --execute  # apply
 ```
 
 ## Phase progress (mt#1934)
