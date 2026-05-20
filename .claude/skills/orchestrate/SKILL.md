@@ -43,6 +43,40 @@ If no task IDs are given, the skill works from context provided by the user.
 
 ## Coordination concerns
 
+### 0. Restate plan check (pre-action, mandatory)
+
+**Before any tool call that advances the coordination plan**, check whether the user has previously given multi-step direction AND the current prompt contains action-now language. If both trigger conditions hold, invoke `/restate-plan` before proceeding.
+
+Trigger conditions (both must hold):
+
+- **Sequencing direction in prior turn(s):** the user has used `first`, `before`, `after`, `then`, numbered steps, `prerequisite`, `wait until`, or multi-clause direction (`X, then Y`).
+- **Action-now in current turn:** the current prompt contains `do it now`, `proceed`, `go`, `start`, `why not do it now`, `do it`, `go ahead`.
+
+When both fire, invoke `/restate-plan` (or walk its 3-step process inline) BEFORE the first tool call that advances the plan. The 3 steps: (1) restate the plan one line per step in user-facing output, (2) identify the next step explicitly, (3) flag any skipped step — STOP and confirm if skipping a user-named prerequisite.
+
+This guards against the action-bias-driven step-compression failure mode (PR #1073 / mt#1783 originating incident; `decision-defaults.mdc §Multi-step direction execution` corpus rule). See `.claude/skills/restate-plan/SKILL.md` for the full skill text. Skip the check when there's only a single-step direction or when the prior turn had no sequencing keywords — see the skill's "When NOT to invoke" section for exclusions.
+
+### 0a. Disambiguate-next check (multi-next-step chain-walk junctions)
+
+**Before chain-walking on a brief affirmative** ("proceed", "continue", "go", "ok"), check whether the task-graph junction has multiple unblocked sibling/child tasks. If so, invoke `/disambiguate-next` to surface the choice in user-facing output before walking to a specific next task.
+
+Trigger conditions (both must hold):
+
+- **Task-graph junction:** a task just transitioned to DONE / merged, OR a parent task's child completed, OR the agent is at any point where >1 sibling/child task is in a walkable state (TODO + spec-substantive, READY, or unblocked).
+- **Brief affirmative:** the current user prompt is a short approval token without disambiguating content.
+
+When both fire:
+
+1. Enumerate walkable siblings/children via `mcp__minsky__tasks_children <parent>` (if parent exists) or from recent conversation context.
+2. If count ≥ 2: invoke `/disambiguate-next` (or walk its 4-step process inline). Surface the options compactly in user-facing output BEFORE the first tool call that walks to a specific task.
+3. If count = 1: walk directly (sibling memory `4b83ff51-…` governs).
+
+**Exception:** if the prior agent turn explicitly recommended a specific next task and the user's brief affirmative immediately follows, the recommendation IS the disambiguation — walk to the recommended task without re-surfacing.
+
+This guards against the multi-next-step chain-walk-on-affirmative failure mode (2 recurrences 2026-05-12: mt#1772 scope-creep + mt#1768/mt#1773 wrong-child-pick). See `.claude/skills/disambiguate-next/SKILL.md` for the full skill text, including the stakes-filter sub-check and phase-labeling guidance.
+
+**Phase-labeling guidance (preventive — apply when filing subtasks in concern B).** When labeling multi-phase parents, use VALUE PROPOSITIONS (`skills-setup phase`, `stack-install phase`) not letters (`phase A`, `phase B`). Letter-labels are semantically empty and force the agent to re-derive ordering from the task graph at chain-walk time, which is where the originating mt#1768/mt#1773 wrong-child-pick failure happened.
+
 ### A. Pre-decomposition: sweep for parallel work
 
 **Before creating any subtasks or sibling tasks**, check whether parallel work already exists.

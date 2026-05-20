@@ -90,15 +90,17 @@ function processFileContentWithLineRange(
 }
 
 /**
- * Create a new session path resolver instance
+ * Create a SessionPathResolver wired to lazily look up the sessionProvider
+ * from the DI container at dispatch time. MCP tools register before
+ * container.initialize() runs, so the provider isn't bound at registration
+ * time but is bound by the time any handler dispatches (mt#1799).
  */
 function createPathResolver(
   container?: import("../../composition/types").AppContainerInterface
 ): SessionPathResolver {
-  const sessionProvider = container?.has("sessionProvider")
-    ? container.get("sessionProvider")
-    : undefined;
-  return new SessionPathResolver(sessionProvider);
+  return new SessionPathResolver(() =>
+    container?.has("sessionProvider") ? container.get("sessionProvider") : undefined
+  );
 }
 
 /**

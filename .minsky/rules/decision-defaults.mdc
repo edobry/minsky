@@ -7,7 +7,6 @@ tags:
   - principles
   - decision-defaults
 ---
-
 # Decision Defaults
 
 When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Pre-training emphasizes industry-average patterns; without a contrary anchor in this file, the textbook wins. Each entry below names the Minsky-grounded answer, the generic-SE alternative it overrides, and the originating memory.
@@ -17,6 +16,8 @@ This file is the **policy corpus** that the mt#1541 policy-coverage detector (Su
 ## Datastores: Postgres-via-Supabase by default
 
 When you need persistence, pubsub, or ephemeral state: **Postgres**. A second store (Redis, MinIO, Mongo, etc.) requires (a) a workload Postgres can't serve, (b) quantified evidence of the gap, (c) an ADR amendment naming the new store as a System 1 component, AND (d) operational ownership. Minsky is single-node + single-store by design.
+
+**Scope note (added 2026-05-12):** this policy covers Minsky's **source-of-truth state** — places that hold authoritative product data the system owns. It does NOT cover derived analytics, observability sinks, or event streams (per `§Build vs buy` below). Conflating the two is the policy-laundering pattern from `feedback_build_vs_buy_default_for_non_core`.
 
 **Generic-SE override:** "use Redis for queues, MinIO for blob storage, Mongo for documents, polyglot persistence." See `feedback_postgres_default_datastore`.
 
@@ -75,6 +76,149 @@ Don't end status updates with "ready for your review/merge." User has delegated 
 
 **Generic-SE override:** "PR awaits human review per standard GitFlow." See `feedback_user_does_not_review`.
 
+## Agent todos vs. Minsky tasks: durable to Minsky, ephemeral to harness
+
+Agent harnesses ship internal task-tracking systems (Claude Code's `TaskCreate` / `TaskUpdate` / `TaskList` / `TaskGet`, Cursor's `.cursor/scratchpad.md`, Cline, Devin, OpenHands). Minsky's task system covers a different layer: durable, status-machine-driven, audit-trailed, multi-backend (the orchestration substrate). These two surfaces overlap, and the boundary needs an explicit policy.
+
+**Durable work → Minsky task.** Anything with a spec, a status transition, a PR or merge milestone, cross-conversation relevance, or an audit-trail requirement. Use `mcp__minsky__tasks_create`, `mcp__minsky__tasks_status_set`, the skill chain.
+
+**Ephemeral, intra-conversation work → harness todo.** Pre-task triage (request hasn't been task-fied yet), multi-subagent intra-conversation bookkeeping, multi-step plans where the user benefits from a rendered progress view in the harness UI, investigation before deciding what's a task.
+
+**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/review-pr`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
+
+**When the harness emits a `TaskCreate` reminder during a Minsky skill chain → disregard silently.** Do NOT echo acknowledgment text ("ignoring harness reminder", "not applicable", etc.) to the user. The reminder fires on a frequency-based heuristic the harness operates that does not know the agent is inside a Minsky chain; environmental shaping (this rule) is the fix, not user-facing commentary. The user cannot see the reminder; making it visible by echoing turns harness noise into chat noise.
+
+**Generic-SE override:** "use the harness's todo system for all task tracking" or "use no task tracking at all." The first duplicates state with sync hazards; the second loses the external-memory benefit that research validates for long-horizon work. See `feedback_agent_todos_vs_minsky_tasks` and the position paper [*Position: Agent todos vs. Minsky tasks*](https://www.notion.so/35e937f03cb4812e9734f0c0f9a8b26c).
+
+**Deferred follow-up:** mt#1797 (RFC: harness-agnostic working-notes surface — Shape C). Activates when the operator regularly uses a second harness on the same Minsky backend, OR cross-harness session-resume becomes recurring, OR upstream Claude Code [Issue #6760](https://github.com/anthropics/claude-code/issues/6760) lands enabling cheap MCP-backed routing.
+
+**Pattern note:** This is the second instance of the "Minsky abstraction meets harness/protocol-native primitive" decision shape; the first was mt#1316 (Asks ↔ MCP elicitation). Both decompose into three architectural shapes — A (independent), B (bounded boundary with policy), C (Minsky owns both) — with the same decision drivers (overlap, protocol-native richness, build/maintain cost, cross-harness portability benefit). Future instances of this shape (harness file-edit tracking, harness search, harness memory) can use the same template; see the position paper for the reusable analysis frame.
+
+**Worked example.** During `/implement-task mt#X`: do not call `TaskCreate`. The Minsky task spec, gate criteria, and status transitions are the plan state. If a `TaskCreate` reminder fires mid-task, continue without echoing it. Versus: a user asks "look into the duplicate session-cleanup edge case I keep seeing", with no task filed yet. `TaskCreate` is appropriate here — list the diagnostic steps as ephemeral checklist items while you investigate; once you know what the bug is and want to fix it, call `mcp__minsky__tasks_create` to file the durable task and continue the work under the skill chain (at which point the harness todo becomes redundant and is dropped).
+
+## Build vs buy: default to buy for non-core capabilities
+
+When considering whether to build a capability in-house vs adopt an existing tool: **for any capability that is not Minsky's core differentiating value-add, the default is buy (or use existing OSS)**, not build. Minsky's core is the orchestration / task / session / mesh / cockpit / attention-allocation / asks-subsystem layer. Auxiliary capabilities — LLM observability, analytics, eval UIs, dashboards, CI infrastructure, tracing platforms, prompt-management UIs — are **not** the core. Building any of these consumes engineering time that does not advance Minsky's value.
+
+The bar to flip the default (from buy to build) requires all four:
+
+1. **Core relevance** — the capability is part of Minsky's distinctive value, not an industry-standard auxiliary
+2. **No mature option** — at least 3 mature OSS/SaaS options have been evaluated against concrete needs, each failing on a named requirement
+3. **Build cost ≪ ongoing buy cost** — quantified at our scale, not estimated
+4. **Strategic ownership** — clear product reason to own the capability (differentiator, unique integration with Minsky structures)
+
+**Generic-SE override:** "build from scratch is the safe / principled / open-source-pure / no-vendor-lock-in choice." That bias treats engineering time as free; it isn't. Engineering time is the scarcest resource for a small team; every hour spent building auxiliary infra is an hour not spent on Minsky core.
+
+**Specific biases to watch for in self:**
+
+1. **Policy-laundering at recommendation-time** — invoking `§Datastores: Postgres-via-Supabase by default` to justify building auxiliary analytics on Postgres. That policy is about Minsky's **source-of-truth state**, NOT about observability / analytics / event sinks. Observability data has near-zero lock-in cost (OTel is the wire standard; switching backends is an afternoon). Conflating the two is the confabulation pattern from `feedback_confabulated_strategic_frame_to_justify_tactical_preference` (memory id `88d92439-ae5a-4594-ab5e-e020150cb26b`). "Recommending the cheaper-or-faster option AND describing it as 'principled'" is the tell. (mt#1781 extension, 2026-05-14: the confabulation memory now explicitly enumerates 7 policy-citation trigger phrases — "per `§X`", "per the `X` policy", "the policy says X", "the default per `§X` is", "this would violate the `§X` default", "the `§X` rule covers this", and any sentence asserting a rule section covers the current case — and names *scope-laundering* as a distinct anti-pattern from design-intent invention. Verify the memory contents via `mcp__minsky__memory_get id:88d92439-ae5a-4594-ab5e-e020150cb26b` if the rule's claim needs an audit trail.)
+
+2. **Build-path-as-research at action-execution-time** (added 2026-05-12 R2): "use existing signals" / "capture from logs" / "extend in-house schemas (mt#1306, mt#1110, etc.)" / "grep what's already there" reads as research-discipline but is functionally the build path. Extracting from `/tmp/<hook>.log` or GitHub API by hand instead of adopting a tool that ingests the same data with a UI is the same substitution shape as policy-laundering, but operates at action-execution-time rather than recommendation-time. The corpus rule fires at recommendation; this anti-pattern slips past during action-now execution. Originating incident: 2026-05-12 PR #1073 was shipped using grep-of-logs as the baseline substrate while skipping the user-sequenced observability-platform-evaluation step. Triggered by "do it now" action-bias.
+
+**Anti-pattern checklist before recommending OR executing build:**
+
+- [ ] Did I elicit user priorities (cost tolerance, time horizon, lock-in tolerance, core-vs-auxiliary stance) before recommending?
+- [ ] Did I evaluate ≥3 mature OSS/SaaS options with concrete cost / feature comparison, not just name them?
+- [ ] Did I anchor on the first option named in my prior turn? If yes, force a fresh evaluation from scratch.
+- [ ] Is my "principled" framing actually preference-laundering? (If the principled story arrived AFTER the build preference, it's laundering.)
+- [ ] **At action-execution time:** is my chosen first action "extract from existing in-house data"? If yes, I'm in the build path — the SaaS evaluation step was skipped. Stop, restate the user's plan, name the skipped step.
+- [ ] **At action-execution time:** if the user gave multi-step direction and then said "do it now," did I restate the steps and identify which one is next BEFORE my first tool call? (See `§Multi-step direction execution` below.)
+
+**Originating incidents:**
+
+- 2026-05-12 R1 (recommendation-time): recommended "build narrow on Postgres" for context-economics measurement (mt#1776) across three turns despite mature community OSS+SaaS options. See `feedback_build_vs_buy_default_for_non_core`.
+- 2026-05-12 R2 (action-execution-time): even after the R1 fix landed in this rule, executed on "do it now" by skipping the user-sequenced platform-evaluation step and reverting to in-house data extraction. See `feedback_build_path_as_research_at_action_time`.
+
+### Spec-amendment-time premise check (R4, 2026-05-13)
+
+A third action surface where the build-vs-buy default can be confabulated is **spec
+amendment** — applying a categorization label to an existing artifact in a way that
+determines its substrate/policy treatment.
+
+The R4 incident (mt#1306, 2026-05-13): agent labeled mt#1306 "source-of-truth state" to
+justify keeping it on in-house Postgres, applied that framing across three spec amendments,
+then on user challenge discovered the label didn't fit the actual definition in `§Datastores`.
+The corpus rule (`§Build vs buy`) and the R1 memory (`feedback_confabulated_strategic_frame_to_justify_tactical_preference`)
+both existed at the time; neither prevented the failure because both fire at recommendation-time
+or action-execution-time, not at spec-amendment-time.
+
+**Structural enforcement:** `/plan-task` gate (j) — Premise label verification (mt#1820).
+Fires when a spec amendment contains a categorization label that determines policy treatment,
+requires the four-step citation-and-mapping protocol before the label can be applied.
+
+**At self-trigger time** (when about to write a categorization label into a spec amendment),
+the agent runs the protocol manually until gate (j) ships:
+
+1. Cite the rule that defines the label
+2. Quote the definition verbatim
+3. Map the artifact's properties to the criteria
+4. State the verdict (met / not met / ambiguous)
+
+If the mapping fails, do not apply the label. Surface the gap.
+
+**Cross-references:**
+
+- mt#1820 — gate (j) implementation task
+- `feedback_premise_label_verification_required` — bridge memory until gate (j) ships
+- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — R1 originating
+  pattern + R4 sub-pattern documented
+- `/declare-framework` (mt#1789) — sibling skill addressing framework selection (distinct
+  from label application)
+
+## Subsystem-assignment verification
+
+When recommending that content move FROM one subsystem TO another — rules ↔ memory, memory ↔ skill, skill ↔ rule, doc-type → doc-type, code-module ↔ code-module — apply the same four-step protocol as `§Build vs buy → Spec-amendment-time premise check (R4)`, but at recommendation-time, not spec-amendment-time:
+
+1. **Cite** the destination subsystem's defining rule, memory, or doc (the source of truth on what the subsystem is FOR).
+2. **Quote** its inclusion/exclusion criteria verbatim.
+3. **Map** the source content's properties to the criteria — explicitly list what the criteria say and what the content actually has.
+4. **State the verdict:** criteria met / criteria not met / criteria ambiguous (in which case file an Ask).
+
+If verdict is NOT MET, the migration is the wrong move regardless of how attractive the destination's name sounds. Names like "memory store," "skill," "rule," "doc" are evocative; their actual purpose is narrower than the name suggests and is encoded in the subsystem's defining rule.
+
+**Generic-SE override:** "X is for durable knowledge → durable Y belongs in X." Subsystems are defined by their inclusion/exclusion criteria, not by their names. The agent's pattern-matching on names without citation is the failure mode this rule prevents.
+
+**Originating incident:** 2026-05-17 (R5 of the premise-verification family). Agent recommended "migrate durable rules out of CLAUDE.md into the memory store" without checking that:
+
+- CLAUDE.md is a compiled output of `rules_compile` from `.minsky/rules/*.mdc` (banner on line 1 names the pipeline)
+- The memory store's defining rule (CLAUDE.md `§Memory Usage`) explicitly excludes rules from its scope: "something durable that's **not derivable from code, git history, specs, or rules**"
+
+Both criteria were present in injected context at the time of recommendation. Neither was cited. User caught the category error.
+
+**Why this rule extends `§Build vs buy → R4 (spec-amendment-time premise check)`:** R4 fires when a categorization label is being written into a spec; gate (j) in `/plan-task` enforces it. R5's slip occurred during a live recommendation in a research/planning turn outside any skill chain — neither R4's corpus rule nor gate (j) cover this surface. R5 is the recommendation-time / subsystem-assignment-time slice of the same family.
+
+**Structural enforcement (Phase 1 / Phase 2 split, mt#1868):**
+
+- **Phase 1 (this corpus rule):** the four-step protocol above is the immediate discipline upgrade. It's in injected context at every session start and consulted at recommendation time per `§How this is enforced` below. Same shape as `§Build vs buy` R1's corpus rule preceding mt#1789's `/declare-framework` skill. Walked against the R5 incident, this protocol blocks the original "migrate rules to memory store" recommendation at the citation step.
+- **Phase 2 (mt#1873, followup to mt#1868):** coverage analysis of recommendation surfaces NOT covered by gate (j) or `/declare-framework`, enforcement decision among Options A–E (extend gate j / new `/verify-destination` skill / text-pattern hook / combination), implementation, and retrospective acceptance walkthrough against R1–R5.
+
+PR #1141 (this PR) ships Phase 1, closing mt#1868. Phase 2 is tracked in mt#1873.
+
+**Cross-references:**
+
+- `§Build vs buy → R4` — sibling premise-check at spec-amendment-time
+- `feedback_premise_label_verification_required` — bridge memory; updated with R5 sub-pattern
+- mt#1820 — shipped gate (j) for the spec-amendment surface
+- mt#1789 — shipped `/declare-framework` for the strategic-recommendation surface (framework selection, not destination categorization)
+- mt#1868 — Phase 1 corpus-rule bridge (this rule); DONE on PR #1141 merge
+- mt#1873 — Phase 2 broader structural enforcement (followup)
+
+## Multi-step direction execution
+
+When the user provides multi-step direction (e.g., "X first, then Y, then Z" or "before doing W, do V") AND a later prompt contains action-now language (e.g., "do it now," "proceed," "go," "why not do it now?"): the agent MUST, before any tool call that would advance the plan:
+
+1. **Restate the multi-step plan** as understood, in one line per step.
+2. **Identify the next step explicitly** — which step is up, why this step and not another.
+3. **Name any skipped step** — if proceeding with a step that's not the named "next," explain why; if the cheapest immediate action skips a more expensive prerequisite step the user named, this is the signal to stop and confirm rather than proceed.
+
+Action-now language is permission to act, NOT permission to compress steps. Compression that drops user-named prerequisites is the failure mode this rule prevents.
+
+**Generic-SE override:** "act on the most recent direction; treat earlier direction as context." That heuristic works for single-step direction but collapses multi-step plans into action-bias.
+
+**Originating incident:** 2026-05-12 R2. User said "implement observability tool first, use the hook tuning as its first test case" then "do it now." I executed the hook tune (cheap, immediate) and skipped the observability tool selection (expensive, requires user account creation). The multi-step plan compressed to the cheapest step in flight.
+
+**Structural enforcement.** The `/restate-plan` skill (mt#1784, IMPLEMENTED 2026-05-14) operationalizes the three steps above as numbered process steps with required user-facing output. Invoke it explicitly when both trigger conditions hold (sequencing keywords in prior turn + action-now keywords in current turn), or self-trigger via the cues in the skill. See `.claude/skills/restate-plan/SKILL.md`. The skill is agent-invoked discipline, not harness-fired.
+
 ## How this is enforced
 
 Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
@@ -90,3 +234,15 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1035 — System 3\* detector design (defines the consumer of this corpus)
 - mt#1541 — Surface 1 policy-coverage detector implementation (will read this file)
 - mt#1508 — the audit task that produced this corpus
+- `feedback_build_vs_buy_default_for_non_core` — originating memory for `§Build vs buy` R1
+- `feedback_build_path_as_research_at_action_time` — originating memory for R2 (action-execution-time slice)
+- `feedback_multi_step_direction_compression` — originating memory for `§Multi-step direction execution`
+- `.claude/skills/restate-plan/SKILL.md` — structural enforcement of `§Multi-step direction execution` (mt#1784)
+- `feedback_agent_todos_vs_minsky_tasks` — originating memory for `§Agent todos vs. Minsky tasks`
+- `feedback_premise_label_verification_required` — bridge memory for `§Subsystem-assignment verification` (R5); updated 2026-05-17 with subsystem-assignment sub-pattern
+- Notion position paper *Position: Agent todos vs. Minsky tasks — the durable/ephemeral boundary* (35e937f0-3cb4-812e-9734-f0c0f9a8b26c)
+- mt#1316 — Asks ↔ MCP elicitation: the structurally equivalent first-instance of this shape (informs `§Agent todos vs. Minsky tasks`)
+- mt#1796 — this rule's implementation task
+- mt#1797 — deferred Shape C tracking task (harness-agnostic working-notes surface)
+- mt#1868 — R5 escalation task (recommendation-time / subsystem-assignment-time enforcement)
+- `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern

@@ -7,7 +7,7 @@
  * preserved within each severity bucket.
  */
 
-import type { ReviewToolCall, SubmitFindingArgs } from "./output-tools";
+import type { ReviewToolCall, SubmitFindingArgs, SubmitInlineCommentArgs } from "./output-tools";
 
 // ---------------------------------------------------------------------------
 // Severity ordering
@@ -42,16 +42,54 @@ function renderLocation(args: SubmitFindingArgs): string {
 // Public API
 // ---------------------------------------------------------------------------
 
+/**
+ * A thread-resolve request extracted from a `submit_thread_resolve` tool call.
+ * Passed back to the worker so it can call the GraphQL mutation after posting
+ * the review (mt#1345).
+ */
+export interface ThreadResolveEntry {
+  /** GraphQL node ID of the PullRequestReviewThread. */
+  threadId: string;
+  /** Short justification recorded in the worker log. */
+  reason: string;
+}
+
+/**
+ * A composed inline comment for forwarding to `submitReview`.
+ * Includes the optional `inReplyTo` field so reply-thread entries pass
+ * through to the Octokit API mapper (mt#1345).
+ */
+export interface ComposedInlineComment {
+  file: SubmitInlineCommentArgs["file"];
+  line: SubmitInlineCommentArgs["line"];
+  body: SubmitInlineCommentArgs["body"];
+  inReplyTo?: number;
+}
+
 export interface ComposeReviewResult {
   body: string;
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  /**
+   * Thread-resolve requests extracted from `submit_thread_resolve` tool calls.
+   * The worker iterates this array and calls the GraphQL mutation for each
+   * entry after posting the review. Empty when the model emitted no resolve calls.
+   */
+  threadResolves: ThreadResolveEntry[];
+  /**
+   * Inline comments with optional `inReplyTo` fields for reply-thread wiring.
+   * Replaces the prior pattern of re-extracting inline comments from toolCalls
+   * in the worker — the composed result now carries the full shape.
+   */
+  inlineComments: ComposedInlineComment[];
 }
 
 /**
  * Compose the GitHub review body and event from a list of output-tool payloads.
  *
  * @param toolCalls - The ordered list of tool calls emitted by the reviewer model.
- * @returns An object with `body` (Markdown string) and `event` (GitHub review event).
+ * @returns An object with `body` (Markdown string), `event` (GitHub review event),
+ *          `threadResolves` (thread-resolve requests for the worker), and
+ *          `inlineComments` (inline comments with optional inReplyTo fields).
  */
 export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewResult {
   // ------------------------------------------------------------------
@@ -61,6 +99,8 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     return {
       body: "The reviewer ran but produced no findings. This is not an approval — the model emitted no submit_finding, submit_inline_comment, or conclude_review calls.",
       event: "COMMENT",
+      threadResolves: [],
+      inlineComments: [],
     };
   }
 
@@ -71,7 +111,7 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     (tc): tc is Extract<ReviewToolCall, { name: "submit_finding" }> => tc.name === "submit_finding"
   );
 
-  const inlineComments = toolCalls.filter(
+  const inlineCommentCalls = toolCalls.filter(
     (tc): tc is Extract<ReviewToolCall, { name: "submit_inline_comment" }> =>
       tc.name === "submit_inline_comment"
   );
@@ -85,6 +125,25 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
     (tc): tc is Extract<ReviewToolCall, { name: "conclude_review" }> =>
       tc.name === "conclude_review"
   );
+
+  // Extract thread-resolve requests (mt#1345). These are NOT rendered in the
+  // review body — they are handled separately by the worker via the GraphQL
+  // mutation. We collect them here so callers don't have to re-scan toolCalls.
+  const threadResolves: ThreadResolveEntry[] = toolCalls
+    .filter(
+      (tc): tc is Extract<ReviewToolCall, { name: "submit_thread_resolve" }> =>
+        tc.name === "submit_thread_resolve"
+    )
+    .map((tc) => ({ threadId: tc.args.threadId, reason: tc.args.reason }));
+
+  // Build the composed inline-comments array with optional inReplyTo fields
+  // so the worker can pass them directly to submitReview without re-extracting.
+  const inlineComments: ComposedInlineComment[] = inlineCommentCalls.map((tc) => ({
+    file: tc.args.file,
+    line: tc.args.line,
+    body: tc.args.body,
+    ...(tc.args.inReplyTo !== undefined ? { inReplyTo: tc.args.inReplyTo } : {}),
+  }));
 
   // ------------------------------------------------------------------
   // Determine event and summary
@@ -145,9 +204,9 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   }
 
   // Section 3: Inline comments (optional)
-  if (inlineComments.length > 0) {
+  if (inlineCommentCalls.length > 0) {
     const lines: string[] = ["## Inline comments", ""];
-    for (const tc of inlineComments) {
+    for (const tc of inlineCommentCalls) {
       lines.push(`- ${tc.args.file}:${tc.args.line} — ${tc.args.body}`);
     }
     sections.push(lines.join("\n"));
@@ -173,5 +232,7 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   return {
     body: sections.join("\n\n"),
     event,
+    threadResolves,
+    inlineComments,
   };
 }

@@ -144,12 +144,24 @@ export function createApplyPostMergeStateSyncCommand(getDeps: LazySessionDeps): 
         });
 
         return {
-          success: true,
+          // PR #1121 R1 NON-BLOCKING #5: derive success from absence of error
+          // fields. Previously this was always `true` regardless of whether
+          // applyPostMergeStateSync reported partial failure, which let
+          // downstream consumers gating only on `success` treat partial
+          // failures as success.
+          success: result.taskUpdateError === undefined && result.sessionUpdateError === undefined,
           sessionId: result.sessionId,
           taskId: result.taskId,
           taskStatusUpdated: result.taskStatusUpdated,
           sessionStatusUpdated: result.sessionStatusUpdated,
           pullRequestRecordUpdated: result.pullRequestRecordUpdated,
+          // mt#1841: propagate partial-failure error fields so the webhook handler
+          // (and other MCP callers) can detect when (a) or (b/c/d) silently failed.
+          taskUpdateError: result.taskUpdateError,
+          sessionUpdateError: result.sessionUpdateError,
+          // PR #1121 R1 BLOCKING #3: top-level partialFailure for consumers that
+          // need a single boolean signal.
+          partialFailure: result.partialFailure,
           sessionCleanup: result.sessionCleanup,
         };
       }

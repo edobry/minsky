@@ -2,6 +2,7 @@ import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { MinskyError } from "../../errors/base-errors";
 import { createErrorContext, createSessionNotFoundMessage } from "../../errors/index";
+import { safeShellQuote } from "../../utils/exec";
 
 // Re-export types needed for PR generation
 export interface PrOptions {
@@ -148,7 +149,9 @@ async function determineCurrentBranch(
     return options.branch;
   }
 
-  const { stdout } = await deps.execAsync(`git -C ${workdir} branch --show-current`);
+  const { stdout } = await deps.execAsync(
+    `git -C ${safeShellQuote(workdir)} branch --show-current`
+  );
   const branch = stdout.trim();
 
   log.debug("Using current branch for PR", { branch });
@@ -161,10 +164,11 @@ async function findBaseBranch(
   options: PrOptions,
   deps: PrDependencies
 ): Promise<string> {
+  const qWorkdir = safeShellQuote(workdir);
   // Try to get the remote HEAD branch
   try {
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} symbolic-ref refs/remotes/origin/HEAD --short`
+      `git -C ${qWorkdir} symbolic-ref refs/remotes/origin/HEAD --short`
     );
     const baseBranch = stdout.trim().replace("origin/", "");
     log.debug("Found remote HEAD branch", { baseBranch });
@@ -179,7 +183,7 @@ async function findBaseBranch(
   // Try to get the upstream branch
   try {
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} rev-parse --abbrev-ref ${branch}@{upstream}`
+      `git -C ${qWorkdir} rev-parse --abbrev-ref ${branch}@{upstream}`
     );
     const baseBranch = stdout.trim().replace("origin/", "");
     log.debug("Found upstream branch", { baseBranch });
@@ -193,7 +197,7 @@ async function findBaseBranch(
 
   // Check if main exists
   try {
-    await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/main`);
+    await deps.execAsync(`git -C ${qWorkdir} show-ref --verify refs/remotes/origin/main`);
     log.debug("Using main as base branch");
     return "main";
   } catch (err) {
@@ -204,7 +208,7 @@ async function findBaseBranch(
 
   // Check if master exists
   try {
-    await deps.execAsync(`git -C ${workdir} show-ref --verify refs/remotes/origin/master`);
+    await deps.execAsync(`git -C ${qWorkdir} show-ref --verify refs/remotes/origin/master`);
     log.debug("Using master as base branch");
     return "master";
   } catch (err) {
@@ -223,6 +227,7 @@ async function determineBaseBranchAndMergeBase(
   options: PrOptions,
   deps: PrDependencies
 ): Promise<{ baseBranch: string; mergeBase: string; comparisonDescription: string }> {
+  const qWorkdir = safeShellQuote(workdir);
   const baseBranch = await findBaseBranch(workdir, branch, options, deps);
   log.debug("Using base branch for PR", { baseBranch });
 
@@ -232,7 +237,7 @@ async function determineBaseBranchAndMergeBase(
   try {
     // Find common ancestor of the current branch and the base branch
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} merge-base origin/${baseBranch} ${branch}`
+      `git -C ${qWorkdir} merge-base origin/${baseBranch} ${branch}`
     );
     mergeBase = stdout.trim();
     comparisonDescription = `Showing changes from merge-base with ${baseBranch}`;
@@ -246,7 +251,7 @@ async function determineBaseBranchAndMergeBase(
 
     // If merge-base fails, get the first commit of the branch
     try {
-      const { stdout } = await deps.execAsync(`git -C ${workdir} rev-list --max-parents=0 HEAD`);
+      const { stdout } = await deps.execAsync(`git -C ${qWorkdir} rev-list --max-parents=0 HEAD`);
       mergeBase = stdout.trim();
       comparisonDescription = "Showing changes from first commit";
       log.debug("Using first commit as base", { mergeBase });
@@ -442,7 +447,7 @@ async function getCommitsOnBranch(
 ): Promise<string> {
   try {
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} log --oneline ${mergeBase}..${branch}`,
+      `git -C ${safeShellQuote(workdir)} log --oneline ${mergeBase}..${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
     return stdout;
@@ -463,18 +468,19 @@ async function getModifiedFiles(
 ): Promise<{ modifiedFiles: string; diffNameStatus: string }> {
   let modifiedFiles = "";
   let diffNameStatus = "";
+  const qWorkdir = safeShellQuote(workdir);
 
   try {
     // Get modified files in name-status format for processing
     const { stdout: nameStatus } = await deps.execAsync(
-      `git -C ${workdir} diff --name-status ${mergeBase} ${branch}`,
+      `git -C ${qWorkdir} diff --name-status ${mergeBase} ${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
     diffNameStatus = nameStatus;
 
     // Get name-only format for display
     const { stdout: nameOnly } = await deps.execAsync(
-      `git -C ${workdir} diff --name-only ${mergeBase}..${branch}`,
+      `git -C ${qWorkdir} diff --name-only ${mergeBase}..${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
     modifiedFiles = nameOnly;
@@ -494,10 +500,11 @@ async function getWorkingDirectoryChanges(
 ): Promise<{ uncommittedChanges: string; untrackedFiles: string }> {
   let uncommittedChanges = "";
   let untrackedFiles = "";
+  const qWorkdir = safeShellQuote(workdir);
 
   try {
     // Get uncommitted changes
-    const { stdout } = await deps.execAsync(`git -C ${workdir} diff --name-status`, {
+    const { stdout } = await deps.execAsync(`git -C ${qWorkdir} diff --name-status`, {
       maxBuffer: 1024 * 1024,
     });
     uncommittedChanges = stdout;
@@ -508,7 +515,7 @@ async function getWorkingDirectoryChanges(
   try {
     // Get untracked files
     const { stdout } = await deps.execAsync(
-      `git -C ${workdir} ls-files --others --exclude-standard`,
+      `git -C ${qWorkdir} ls-files --others --exclude-standard`,
       { maxBuffer: 1024 * 1024 }
     );
     untrackedFiles = stdout;
@@ -535,7 +542,7 @@ async function getChangeStats(
   try {
     // Try to get diff stats from git
     const { stdout: statOutput } = await deps.execAsync(
-      `git -C ${workdir} diff --stat ${mergeBase}..${branch}`,
+      `git -C ${safeShellQuote(workdir)} diff --stat ${mergeBase}..${branch}`,
       { maxBuffer: 1024 * 1024 }
     );
 

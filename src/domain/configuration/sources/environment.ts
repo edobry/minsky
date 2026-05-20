@@ -51,6 +51,11 @@ export const environmentMappings = {
 
   AI_DEFAULT_PROVIDER: "ai.defaultProvider",
 
+  // Observability provider configuration (mt#1791)
+  BRAINTRUST_API_KEY: "observability.providers.braintrust.apiKey",
+  BRAINTRUST_PROJECT_NAME: "observability.providers.braintrust.projectName",
+  BRAINTRUST_API_URL: "observability.providers.braintrust.apiUrl",
+
   // Persistence configuration (modern — populates `persistence.*`)
   MINSKY_PERSISTENCE_BACKEND: "persistence.backend",
   MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
@@ -62,6 +67,12 @@ export const environmentMappings = {
   // auto-conversion fallback would route it to "postgres.url" instead of
   // "persistence.postgres.connectionString".
   MINSKY_POSTGRES_URL: "persistence.postgres.connectionString",
+
+  // Session-mode connection string for LISTEN/NOTIFY operations (mt#1852).
+  // Supavisor transaction pooler (:6543) is LISTEN-incompatible; session mode
+  // (:5432) keeps backend connections alive across commands. When unset, the
+  // provider auto-derives by swapping :6543 → :5432 from connectionString.
+  MINSKY_POSTGRES_SESSION_URL: "persistence.postgres.sessionConnectionString",
 
   // Supabase Management API credentials (developer-local; consumed by
   // `just supabase-usage`). Distinct from the Postgres connection string,
@@ -101,11 +112,49 @@ export const environmentMappings = {
  * Keep in sync with `.claude/hooks/*.ts` as new hook-only `MINSKY_*` env
  * vars are introduced.
  */
-const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
+// Exported so the lint rule `eslint-rules/no-unregistered-minsky-env-var.js`
+// (mt#1788) can grep this file for the canonical allowlist. The rule does
+// AST-based extraction (since ESLint runs under Node and can't import .ts),
+// so the export is a parallel signal — the const stays here regardless.
+// eslint-disable-next-line custom/no-domain-singleton
+export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_FORCE_PARALLEL", // .claude/hooks/parallel-work-guard.ts
   "MINSKY_SKIP_FRESHNESS", // .claude/hooks/check-branch-fresh.ts
   "MINSKY_TWO_STRIKES_STATE_DIR", // .claude/hooks/two-strikes-record.ts
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
+  "MINSKY_SKIP_BUNDLE_SMOKE", // .claude/hooks/require-review-before-merge.ts (mt#1787)
+  "MINSKY_SKIP_REQUIRED_CHECKS", // .claude/hooks/require-review-before-merge.ts (mt#1938)
+  "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
+  "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
+  // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
+  // Many of these arguably belong in environmentMappings with a proper config
+  // path; that promotion is a follow-up. The immediate goal is making the
+  // env-var-to-config parser SKIP them so Railway env-var sets don't crash
+  // the loader. Each entry is annotated with a representative read site.
+  "MINSKY_NON_INTERACTIVE", // src/cli.ts, src/utils/interactive.ts (UX flag)
+  "MINSKY_VERBOSE", // src/adapters/cli/utils/error-handler.ts (debug flag)
+  "MINSKY_SHOW_SQL", // (debug flag — promote to logger.* if it grows)
+  "MINSKY_STATE_DIR", // src/mcp/disconnect-tracker.ts (process-local path override)
+  "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
+  "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
+  "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
+  "MINSKY_MCP_AUTH_TOKEN", // src/mcp (auth — promote to mcp.auth.token)
+  "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
+  "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
+  "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
+  "MINSKY_MCP_SESSION_IDLE_TIMEOUT_MS", // src/mcp (server config — promote to mcp.sessionIdleTimeoutMs)
+  "MINSKY_MCP_TOOL_NAMES", // src/mcp/server.ts (naming convention flag)
+  "MINSKY_MCP_MEMORY_ENRICHMENT", // src/mcp (feature flag)
+  "MINSKY_MCP_MEMORY_ENRICHMENT_TIMEOUT_MS", // src/mcp (feature config)
+  "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
+  "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
+  // mt#1767 — auto-migration controls in postgres-provider.ts. Process-only;
+  // they govern boot-time behavior, not runtime config. Adding to the
+  // hook-only set so Railway env-var sets (e.g. MINSKY_AUTO_MIGRATE=false
+  // as the documented escape valve) don't crash the loader via the
+  // env-var-to-config dot-path parser.
+  "MINSKY_AUTO_MIGRATE", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-out)
+  "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
 ]);
 
 /**

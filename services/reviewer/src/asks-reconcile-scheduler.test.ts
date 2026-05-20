@@ -83,7 +83,7 @@ function captureConsole(fn: () => void): { logs: string[]; warns: string[] } {
 const ENV_ASKS_RECONCILE_ENABLED = "ASKS_RECONCILE_ENABLED";
 const ENV_ASKS_RECONCILE_POLL_INTERVAL_MS = "ASKS_RECONCILE_POLL_INTERVAL_MS";
 const ENV_MINSKY_MCP_URL = "MINSKY_MCP_URL";
-const ENV_MINSKY_MCP_TOKEN = "MINSKY_MCP_TOKEN";
+const ENV_MINSKY_MCP_AUTH_TOKEN = "MINSKY_MCP_AUTH_TOKEN";
 
 // ---------------------------------------------------------------------------
 // loadAsksReconcileSchedulerConfig
@@ -102,7 +102,7 @@ describe("loadAsksReconcileSchedulerConfig", () => {
       ENV_ASKS_RECONCILE_ENABLED,
       ENV_ASKS_RECONCILE_POLL_INTERVAL_MS,
       ENV_MINSKY_MCP_URL,
-      ENV_MINSKY_MCP_TOKEN,
+      ENV_MINSKY_MCP_AUTH_TOKEN,
     ]) {
       if (key in originalEnv) {
         process.env[key] = originalEnv[key];
@@ -116,7 +116,7 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     delete process.env[ENV_ASKS_RECONCILE_ENABLED];
     delete process.env[ENV_ASKS_RECONCILE_POLL_INTERVAL_MS];
     delete process.env[ENV_MINSKY_MCP_URL];
-    delete process.env[ENV_MINSKY_MCP_TOKEN];
+    delete process.env[ENV_MINSKY_MCP_AUTH_TOKEN];
 
     const cfg = loadAsksReconcileSchedulerConfig();
 
@@ -138,9 +138,9 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     expect(cfg.intervalMs).toBe(60_000);
   });
 
-  test("reads MINSKY_MCP_URL and MINSKY_MCP_TOKEN", () => {
+  test("reads MINSKY_MCP_URL and MINSKY_MCP_AUTH_TOKEN", () => {
     process.env[ENV_MINSKY_MCP_URL] = "http://mcp.example.com";
-    process.env[ENV_MINSKY_MCP_TOKEN] = "my-token";
+    process.env[ENV_MINSKY_MCP_AUTH_TOKEN] = "my-token";
     const cfg = loadAsksReconcileSchedulerConfig();
     expect(cfg.mcpUrl).toBe("http://mcp.example.com");
     expect(cfg.mcpToken).toBe("my-token");

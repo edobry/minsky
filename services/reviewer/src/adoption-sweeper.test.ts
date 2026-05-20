@@ -23,6 +23,7 @@ import {
   startAdoptionSweeper,
 } from "./adoption-sweeper";
 import type { AdoptionSweepDeps } from "./adoption-sweeper";
+import { resetMcpClientSessions } from "./mcp-client";
 import type { ReviewerConfig } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -75,7 +76,12 @@ let originalConsoleError: typeof console.error;
 beforeEach(() => {
   originalFetch = globalThis.fetch;
   fetchHandler = null;
+  // Reset MCP client session cache between tests so initialize replays for each.
+  resetMcpClientSessions();
 
+  // Install fake fetch. The wrapper transparently handles the MCP initialize
+  // handshake (mt#1821) so existing per-tool fetchHandler implementations only
+  // see tools/call requests.
   globalThis.fetch = (async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
     const url =
       typeof input === "string"
@@ -83,6 +89,30 @@ beforeEach(() => {
         : input instanceof URL
           ? input.href
           : (input as { url: string }).url;
+
+    const bodyText = typeof init?.body === "string" ? init.body : "";
+    let method: string | undefined;
+    try {
+      method = (JSON.parse(bodyText) as { method?: string }).method;
+    } catch {
+      // Non-JSON body — fall through to handler.
+    }
+    if (method === "initialize") {
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          result: { protocolVersion: "2025-03-26", capabilities: {} },
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", "Mcp-Session-Id": "test-session-id" },
+        }
+      );
+    }
+    if (method === "notifications/initialized") {
+      return new Response(null, { status: 202 });
+    }
     if (fetchHandler) {
       return fetchHandler(url, init ?? {});
     }

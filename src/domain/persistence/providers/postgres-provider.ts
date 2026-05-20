@@ -4,6 +4,8 @@
  * Full-featured persistence provider with SQL, transactions, JSONB, and vector support.
  */
 
+import { existsSync, statSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -18,6 +20,7 @@ import {
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
+import { logPostgresNotice } from "../postgres-notice-handler";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 import { withPgPoolRetry } from "../postgres-retry";
 import {
@@ -26,14 +29,92 @@ import {
 } from "../../storage/schemas/embeddings-schema-factory";
 
 // Per-process default pool size. Intentionally small: Minsky shares a single
-// Supabase/Supavisor session-mode pooler across multiple consumers (laptop
+// Supabase/Supavisor transaction-mode pooler across multiple consumers (laptop
 // MCP, Railway MCP, ad-hoc scripts). A high per-process max saturates the
 // pooler's global ceiling. Override via persistence.postgres.maxConnections
 // in config or MINSKY_POSTGRES_MAX_CONNECTIONS env var (mt#1193).
+// Note: the transaction-mode pooler is the primary connection used for all
+// normal queries. For LISTEN/NOTIFY, a separate session-mode connection is
+// maintained via `getListenCapableSqlConnection()` (mt#1852).
 const DEFAULT_POSTGRES_MAX_CONNECTIONS = 3;
 // Upper bound matching the config schema's .max(100). Applied to env-var
 // overrides too so a misconfigured value can't re-saturate the pooler.
 const MAX_POSTGRES_MAX_CONNECTIONS = 100;
+
+/**
+ * mt#1763 (PR #1065 R1 BLOCKING #3) — pure-function predicate for the
+ * auto-migration decision. Extracted so tests can exercise the decision
+ * logic without needing a real DB connection.
+ *
+ * Returns true when both:
+ *   - the caller did NOT inject any `deps` (sqlClient or postgresFactory), AND
+ *   - `MINSKY_AUTO_MIGRATE` env var is not explicitly disabled ("false" / "0").
+ *
+ * The `env` parameter is injectable so tests can override the env-var lookup
+ * without mutating `process.env` (which leaks across tests).
+ */
+export function shouldAutoMigrate(
+  deps?: { sqlClient?: unknown; postgresFactory?: unknown },
+  env: NodeJS.ProcessEnv = process.env
+): boolean {
+  const enabled = !["false", "0"].includes((env.MINSKY_AUTO_MIGRATE ?? "true").toLowerCase());
+  if (!enabled) return false;
+  const callerOwnsClient = deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined;
+  return !callerOwnsClient;
+}
+
+/**
+ * mt#1767 — bundle-aware migrations folder resolution. Replaces mt#1763's
+ * single-candidate path that worked in dev (Bun running `src/`) but failed
+ * in the production bundle (Bun running `/app/dist/minsky.js`) because the
+ * `import.meta.url`-relative `../../storage/migrations/pg` landed at
+ * `/storage/migrations/pg`, outside `/app`.
+ *
+ * Resolution order (first existing wins):
+ *   1. `MINSKY_MIGRATIONS_FOLDER` env override (errors loud if set + missing).
+ *   2. `./storage/migrations/pg` relative to this module — production bundle
+ *      path: bundle is at `/app/dist/minsky.js`, Dockerfile copies migrations
+ *      to `/app/dist/storage/migrations/pg/`.
+ *   3. `../../storage/migrations/pg` relative to this module — dev path:
+ *      this file is at `src/domain/persistence/providers/postgres-provider.ts`,
+ *      migrations are at `src/domain/storage/migrations/pg/`.
+ *
+ * If none exist, throws with the candidates listed so the operator sees
+ * exactly where the lookup looked. The mt#1787 bundle-boot-smoke CI gate
+ * exercises this path on every PR — any regression in the Dockerfile copy
+ * step or path-resolution logic surfaces at PR time.
+ */
+export function resolveMigrationsFolder(): string {
+  const override = process.env.MINSKY_MIGRATIONS_FOLDER;
+  if (override) {
+    // PR #1094 R1 BLOCKING: validate the override is a directory, not just any
+    // existing path. Without `isDirectory()`, a regular-file path would pass
+    // this gate and then fail downstream inside drizzle's migrator with a less
+    // actionable error. The error message below promises a directory check, so
+    // honor that contract here.
+    if (!existsSync(override) || !statSync(override).isDirectory()) {
+      throw new Error(
+        `MINSKY_MIGRATIONS_FOLDER=${override} but the directory does not exist or is not a directory. ` +
+          `Set MINSKY_MIGRATIONS_FOLDER to a directory containing Drizzle migrations or unset to use the default.`
+      );
+    }
+    return override;
+  }
+  const candidates = [
+    fileURLToPath(new URL("./storage/migrations/pg", import.meta.url)),
+    fileURLToPath(new URL("../../storage/migrations/pg", import.meta.url)),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  throw new Error(
+    `Auto-migration directory not found. Tried: ${candidates.join(", ")}. ` +
+      `This indicates the build artifact does not include the migrations folder. ` +
+      `Either copy src/domain/storage/migrations/pg/ next to the compiled module, ` +
+      `or set MINSKY_MIGRATIONS_FOLDER to an absolute path, ` +
+      `or set MINSKY_AUTO_MIGRATE=false and apply migrations out-of-band.`
+  );
+}
 
 function resolveMaxConnections(configured: number | undefined): number {
   const pick = (n: number): number => {
@@ -55,6 +136,35 @@ function resolveMaxConnections(configured: number | undefined): number {
 }
 
 /**
+ * Derive a session-mode-pooler URL from a Supavisor transaction-pooler URL by
+ * swapping the URL's port from 6543 → 5432. Returns the input unchanged if the
+ * URL is not on port 6543 (so non-Supavisor hosts pass through — the URL is
+ * assumed to already be session-mode-capable).
+ *
+ * Supavisor exposes the same logical pooler on two ports with different semantics:
+ *   - :6543 — transaction mode (pool connections between transactions; LISTEN-incompatible)
+ *   - :5432 — session mode (one backend connection per client; LISTEN-compatible)
+ *
+ * Uses URL parsing (handles IPv6 literals, credentials, query strings correctly)
+ * with a regex fallback for non-URL-shaped strings (e.g. libpq key=value format
+ * — rare but supported by postgres-js). PR #1135 R1 NON-BLOCKING refinement.
+ */
+export function swapSupavisorPort(connectionString: string): string {
+  try {
+    const url = new URL(connectionString);
+    if (url.port === "6543") {
+      url.port = "5432";
+      return url.toString();
+    }
+    return connectionString;
+  } catch {
+    // Not URL-shaped (e.g. libpq key=value DSN). Fall back to a bounded regex
+    // that only touches the authority's port segment between `@` and `/`.
+    return connectionString.replace(/(@[^/?]*):6543(?=\/|$|\?)/, "$1:5432");
+  }
+}
+
+/**
  * Base PostgreSQL persistence provider (without vector storage)
  */
 export class PostgresPersistenceProvider
@@ -63,6 +173,8 @@ export class PostgresPersistenceProvider
 {
   protected db: PostgresJsDatabase | null = null;
   protected sql: ReturnType<typeof postgres> | null = null;
+  /** Dedicated session-mode connection for LISTEN/NOTIFY (mt#1852). Created lazily. */
+  protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
   private cachedStorage: SessionStorage | null = null;
@@ -100,6 +212,15 @@ export class PostgresPersistenceProvider
   async initialize(deps?: {
     sqlClient?: ReturnType<typeof postgres>;
     postgresFactory?: typeof postgres;
+    /**
+     * Test-only override (mt#1763 PR #1065 R2 / mt#1767): when explicitly set,
+     * overrides the deps-based suppression in `shouldAutoMigrate`. Lets a test
+     * that injects a `postgresFactory` (to avoid a real socket) still flow
+     * through the auto-migrate branch so behavioral coverage of the happy path
+     * is possible without a real DB. Production callsites leave this
+     * `undefined` and let `shouldAutoMigrate` decide.
+     */
+    _overrideAutoMigrate?: boolean;
   }): Promise<void> {
     if (this.isInitialized) {
       return;
@@ -115,7 +236,12 @@ export class PostgresPersistenceProvider
       // Resolve the factory — allows tests to inject a mock without mock.module()
       const pgFactory = deps?.postgresFactory ?? postgres;
 
-      // Create PostgreSQL connection (use injected client or create new one)
+      // Create PostgreSQL connection (use injected client or create new one).
+      // `onnotice` routes NOTICEs through `log.debug` (via the shared handler at
+      // postgres-notice-handler.ts). Pre-mt#1828 this site dropped silently with
+      // `() => {}` to keep stdout clean (mt#1827); the helper preserves the
+      // stdout-clean property AND captures the operational signal at debug
+      // level. Six postgres-js sites in total go through this helper.
       const sql =
         deps?.sqlClient ??
         pgFactory(pgConfig.connectionString, {
@@ -123,6 +249,7 @@ export class PostgresPersistenceProvider
           connect_timeout: pgConfig.connectTimeout || 10,
           idle_timeout: pgConfig.idleTimeout || 60,
           prepare: pgConfig.prepareStatements ?? false,
+          onnotice: logPostgresNotice,
         });
 
       // Track only connections we created, so we can clean up on failure without
@@ -137,9 +264,30 @@ export class PostgresPersistenceProvider
       // Verify connection — retry on pool saturation (mt#1193)
       await withPgPoolRetry(() => sql`SELECT 1`, "postgres-provider.initialize");
 
-      // All checks passed — now cache
+      // Cache the connection objects BEFORE running migrations. runMigrations
+      // uses `this.db` / `this.sql`, but `this.isInitialized` stays false until
+      // migrations succeed — per mt#1763 R1 BLOCKING #1, callers waiting on
+      // initialize() must not see isInitialized=true while migrations are
+      // still running (race window where they could read pre-migration schema).
       this.sql = sql;
       this.db = db;
+
+      // mt#1767 (mt#1763 redo, post-revert): auto-run pending migrations.
+      // Skip conditions (see `shouldAutoMigrate` for the predicate):
+      // - Caller injected any `deps` (sqlClient or postgresFactory): test seam.
+      // - `MINSKY_AUTO_MIGRATE` env var is "false" / "0": explicit opt-out.
+      // The `_overrideAutoMigrate` test seam can force the auto-migrate branch
+      // (see initialize signature for rationale).
+      const autoMigrate = deps?._overrideAutoMigrate ?? shouldAutoMigrate(deps);
+      if (autoMigrate) {
+        await this.runMigrations(resolveMigrationsFolder());
+      } else if (deps?.sqlClient !== undefined || deps?.postgresFactory !== undefined) {
+        log.debug("Skipping auto-migration: caller-injected deps (test seam)");
+      } else {
+        log.warn("Skipping auto-migration: MINSKY_AUTO_MIGRATE=false");
+      }
+
+      // All checks passed AND migrations applied — now mark initialized.
       this.isInitialized = true;
       log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
@@ -226,6 +374,59 @@ export class PostgresPersistenceProvider
   }
 
   /**
+   * Get a session-mode-capable Sql instance for LISTEN/NOTIFY (mt#1852).
+   *
+   * The transaction-mode pooler (:6543) is incompatible with LISTEN — the pooler
+   * may route each command to a different backend connection, breaking per-connection
+   * LISTEN registrations. This method returns a connection over the session-mode pooler
+   * (:5432 on Supabase/Supavisor), which preserves backend connections for the life of
+   * the client session.
+   *
+   * The connection is created lazily on first call and cached for the lifetime of this
+   * provider instance. It uses max:1 and idle_timeout:0 so the LISTEN state persists
+   * without expiration.
+   *
+   * The underlying Sql instance is NOT closed by this method — lifecycle is owned by
+   * the caller (typically a `PostgresChannelListener`). `close()` on this provider
+   * closes the listen connection as part of full teardown.
+   */
+  async getListenCapableSqlConnection(): Promise<ReturnType<typeof postgres>> {
+    if (!this.isInitialized) {
+      throw new Error("PostgresPersistenceProvider not initialized");
+    }
+
+    if (this.listenSql) {
+      return this.listenSql;
+    }
+
+    const sessionUrl = this.resolveSessionConnectionString();
+    this.listenSql = postgres(sessionUrl, {
+      max: 1, // listener needs one connection; LISTEN state is per-connection
+      connect_timeout: this.pgConfig.connectTimeout ?? 10,
+      idle_timeout: 0, // never idle out — LISTEN must persist
+      prepare: false,
+      onnotice: logPostgresNotice,
+    });
+
+    return this.listenSql;
+  }
+
+  /**
+   * Resolve the session-mode connection string for LISTEN/NOTIFY.
+   * Uses the explicit sessionConnectionString config when set;
+   * otherwise auto-derives by swapping :6543 → :5432 (Supavisor port-swap).
+   */
+  private resolveSessionConnectionString(): string {
+    if (this.pgConfig.sessionConnectionString) {
+      return this.pgConfig.sessionConnectionString;
+    }
+    // Supavisor port-swap auto-derive: transaction pooler is on :6543, session
+    // pooler is on :5432, same host. For non-Supavisor hosts the URL is returned
+    // unchanged (assumed already session-mode-capable).
+    return swapSupavisorPort(this.pgConfig.connectionString);
+  }
+
+  /**
    * Run database migrations
    */
   async runMigrations(migrationsFolder: string): Promise<void> {
@@ -251,6 +452,17 @@ export class PostgresPersistenceProvider
    */
   async close(): Promise<void> {
     try {
+      // Close the session-mode listen connection first (if created)
+      if (this.listenSql) {
+        try {
+          await this.listenSql.end();
+        } catch (listenErr) {
+          log.warn(
+            `Error closing listen SQL connection: ${listenErr instanceof Error ? listenErr.message : String(listenErr)}`
+          );
+        }
+        this.listenSql = null;
+      }
       if (this.sql) {
         await this.sql.end();
         this.sql = null;
@@ -305,6 +517,12 @@ export class PostgresVectorPersistenceProvider
   async initialize(deps?: {
     sqlClient?: ReturnType<typeof postgres>;
     postgresFactory?: typeof postgres;
+    /**
+     * Test-only override (mt#1763 PR #1065 R2 / mt#1767): forwarded to
+     * `super.initialize()` so the auto-migrate branch is exercisable in
+     * tests that inject a `postgresFactory` to avoid a real DB socket.
+     */
+    _overrideAutoMigrate?: boolean;
   }): Promise<void> {
     // Initialize base PostgreSQL functionality first
     await super.initialize(deps);
@@ -317,7 +535,7 @@ export class PostgresVectorPersistenceProvider
     try {
       const result = await this.sql`
         SELECT EXISTS (
-          SELECT 1 FROM pg_extension WHERE extname = 'vector'  
+          SELECT 1 FROM pg_extension WHERE extname = 'vector'
         ) as exists
       `;
 
@@ -350,11 +568,17 @@ export class PostgresVectorPersistenceProvider
     }
 
     const config = EMBEDDINGS_CONFIGS[domain];
+    // The `metadata` (JSONB) and `content_hash` (TEXT) columns are created by
+    // createEmbeddingsTable() on every embeddings table; pass them through so
+    // PostgresVectorStorage actually writes the values it's been given.
+    // Pre-mt#1930 these were silently dropped on the floor.
     return new PostgresVectorStorage(this.sql, this.db, dimension, {
       tableName: config.tableName,
       idColumn: config.idColumn,
       embeddingColumn: config.vectorColumn,
       lastIndexedAtColumn: config.indexedAtColumn,
+      metadataColumn: "metadata",
+      contentHashColumn: "content_hash",
     });
   }
 

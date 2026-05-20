@@ -2,6 +2,7 @@ import { MinskyError } from "../../errors/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { NothingToCommitError } from "../../errors/index";
+import { safeShellQuote } from "../../utils/exec";
 import { classifyNothingToCommit, extractCommitHash } from "./git-with-deps";
 import type { GitStatus, StashResult, PullResult } from "./types";
 
@@ -15,16 +16,17 @@ type ExecAsyncFn = (
  */
 export async function getStatusImpl(execAsync: ExecAsyncFn, repoPath?: string): Promise<GitStatus> {
   const workdir = repoPath || process.cwd();
+  const qWorkdir = safeShellQuote(workdir);
 
-  const { stdout: modifiedOutput } = await execAsync(`git -C ${workdir} diff --name-only`);
+  const { stdout: modifiedOutput } = await execAsync(`git -C ${qWorkdir} diff --name-only`);
   const modified = modifiedOutput.trim().split("\n").filter(Boolean);
 
   const { stdout: untrackedOutput } = await execAsync(
-    `git -C ${workdir} ls-files --others --exclude-standard`
+    `git -C ${qWorkdir} ls-files --others --exclude-standard`
   );
   const untracked = untrackedOutput.trim().split("\n").filter(Boolean);
 
-  const { stdout: deletedOutput } = await execAsync(`git -C ${workdir} ls-files --deleted`);
+  const { stdout: deletedOutput } = await execAsync(`git -C ${qWorkdir} ls-files --deleted`);
   const deleted = deletedOutput.trim().split("\n").filter(Boolean);
 
   return { modified, untracked, deleted };
@@ -35,7 +37,7 @@ export async function getStatusImpl(execAsync: ExecAsyncFn, repoPath?: string): 
  */
 export async function stageAllImpl(execAsync: ExecAsyncFn, repoPath?: string): Promise<void> {
   const workdir = repoPath || process.cwd();
-  await execAsync(`git -C ${workdir} add -A`);
+  await execAsync(`git -C ${safeShellQuote(workdir)} add -A`);
 }
 
 /**
@@ -43,7 +45,7 @@ export async function stageAllImpl(execAsync: ExecAsyncFn, repoPath?: string): P
  */
 export async function stageModifiedImpl(execAsync: ExecAsyncFn, repoPath?: string): Promise<void> {
   const workdir = repoPath || process.cwd();
-  await execAsync(`git -C ${workdir} add .`);
+  await execAsync(`git -C ${safeShellQuote(workdir)} add .`);
 }
 
 /**
@@ -58,7 +60,7 @@ export async function stageFilesImpl(
   if (files.length === 0) return;
   const workdir = repoPath || process.cwd();
   const quoted = files.map((f) => `'${f.replace(/'/g, "'\\''")}'`).join(" ");
-  await execAsync(`git -C ${workdir} add -- ${quoted}`);
+  await execAsync(`git -C ${safeShellQuote(workdir)} add -- ${quoted}`);
 }
 
 /**
@@ -76,7 +78,15 @@ export async function commitImpl(
   let stdout: string;
   let stderr: string;
   try {
-    ({ stdout, stderr } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`));
+    // mt#1742: commit messages can contain markdown backticks, $-prefixed
+    // identifiers, and other shell metacharacters. `safeShellQuote` wraps
+    // both the message AND the workdir in POSIX single quotes so /bin/sh -c
+    // does not perform command substitution or variable expansion on either.
+    // PR #1058 R1: extended workdir quoting per class-not-instance — same
+    // shell-safety treatment for every interpolation in this template.
+    ({ stdout, stderr } = await execAsync(
+      `git -C ${safeShellQuote(workdir)} commit ${amendFlag} -m ${safeShellQuote(message)}`
+    ));
   } catch (err: unknown) {
     if (classifyNothingToCommit(err)) {
       throw new NothingToCommitError();
@@ -85,7 +95,9 @@ export async function commitImpl(
   }
 
   return extractCommitHash(stdout, stderr, async () => {
-    const { stdout: logOutput } = await execAsync(`git -C ${workdir} log -1 --pretty=format:%H`);
+    const { stdout: logOutput } = await execAsync(
+      `git -C ${safeShellQuote(workdir)} log -1 --pretty=format:%H`
+    );
     return logOutput;
   });
 }
@@ -97,12 +109,13 @@ export async function stashChangesImpl(
   execAsync: ExecAsyncFn,
   workdir: string
 ): Promise<StashResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: status } = await execAsync(`git -C ${workdir} status --porcelain`);
+    const { stdout: status } = await execAsync(`git -C ${qWorkdir} status --porcelain`);
     if (!status.trim()) {
       return { workdir, stashed: false };
     }
-    await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+    await execAsync(`git -C ${qWorkdir} stash push -m "minsky session update"`);
     return { workdir, stashed: true };
   } catch (err) {
     throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
@@ -113,12 +126,13 @@ export async function stashChangesImpl(
  * Pop stashed changes
  */
 export async function popStashImpl(execAsync: ExecAsyncFn, workdir: string): Promise<StashResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: stashList } = await execAsync(`git -C ${workdir} stash list`);
+    const { stdout: stashList } = await execAsync(`git -C ${qWorkdir} stash list`);
     if (!stashList.trim()) {
       return { workdir, stashed: false };
     }
-    await execAsync(`git -C ${workdir} stash pop`);
+    await execAsync(`git -C ${qWorkdir} stash pop`);
     return { workdir, stashed: true };
   } catch (err) {
     throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
@@ -133,10 +147,12 @@ export async function fetchLatestImpl(
   workdir: string,
   remote: string = "origin"
 ): Promise<PullResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
-    await execAsync(`git -C ${workdir} fetch ${remote}`);
-    const { stdout: afterHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
+    const { stdout: beforeHash } = await execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
+    // mt#1829: remote defaults to "origin" but is operator-overridable; quote it.
+    await execAsync(`git -C ${qWorkdir} fetch ${safeShellQuote(remote)}`);
+    const { stdout: afterHash } = await execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
     return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
   } catch (err) {
     throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err)}`);
@@ -150,7 +166,9 @@ export async function getCurrentBranchImpl(
   execAsync: ExecAsyncFn,
   repoPath: string
 ): Promise<string> {
-  const { stdout } = await execAsync(`git -C ${repoPath} rev-parse --abbrev-ref HEAD`);
+  const { stdout } = await execAsync(
+    `git -C ${safeShellQuote(repoPath)} rev-parse --abbrev-ref HEAD`
+  );
   return stdout.trim();
 }
 
@@ -161,7 +179,7 @@ export async function hasUncommittedChangesImpl(
   execAsync: ExecAsyncFn,
   repoPath: string
 ): Promise<boolean> {
-  const { stdout } = await execAsync(`git -C ${repoPath} status --porcelain`);
+  const { stdout } = await execAsync(`git -C ${safeShellQuote(repoPath)} status --porcelain`);
   return stdout.trim().length > 0;
 }
 

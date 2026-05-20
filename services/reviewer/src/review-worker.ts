@@ -45,16 +45,22 @@ import {
   createOctokit,
   fetchPriorReviews,
   fetchPullRequestContext,
+  fetchReviewThreads,
   getAppIdentity,
   listDirectoryAtRef,
   readFileAtRef,
+  resolveThread,
   submitReview,
   type PullRequestContext,
+  type ReviewInlineComment,
+  type ReviewThread,
   type SubmittedReview,
 } from "./github-client";
+import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
+import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
-import { classifyPRScope, scopeBucketFor, type PRScope } from "./pr-scope";
+import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
 import type { PriorReview } from "./prior-review-summary";
@@ -64,7 +70,12 @@ import {
   summarizePriorReviews,
 } from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
-import { decideRouting, resolveTier, type AuthorshipTier } from "./tier-routing";
+import {
+  decideRouting,
+  resolveTier,
+  type AuthorshipTier,
+  type TierRoutingDecision,
+} from "./tier-routing";
 import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
 import { composeReviewBody, type ComposeReviewResult } from "./compose-review";
@@ -75,6 +86,18 @@ import {
   type DowngradeAuditEntry,
   type FlatPriorFinding,
 } from "./severity-recovery";
+import {
+  applyCompositionConvergenceDowngrade,
+  type ConvergenceDowngradeAuditEntry,
+  type ConvergenceDetectionResult,
+} from "./convergence-detector";
+import {
+  extractFixCommitDiff,
+  applyDiffScopeBoundedDowngrade,
+  type DiffScopeDowngradeAuditEntry,
+  type FixCommitLineRangeMap,
+} from "./diff-scoper";
+import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /**
@@ -430,19 +453,77 @@ export interface ComposeWithRecoveryResult {
   postRecoveryBlockingCount: number;
   /** True when the conclude_review tool call was rewritten REQUEST_CHANGES → COMMENT. */
   reconcileApplied: boolean;
+  /**
+   * Result of the composition-side convergence detection pass (mt#1867 Fix 2).
+   * Present only when convergenceEnabled=true. Absent (undefined) when the
+   * feature flag is off so callers can conditionally log it.
+   */
+  convergenceDetection?: ConvergenceDetectionResult;
+  /**
+   * Audit entries for BLOCKINGs downgraded by the convergence detection pass.
+   * Empty when convergenceEnabled=false or no downgrades fired.
+   */
+  convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry>;
+  /**
+   * Audit entries for BLOCKINGs downgraded by the diff-scope-bounded pass
+   * (mt#1875 Fix 3). Empty when diffScopeBoundedEnabled=false, when
+   * priorReviewsMarkdown is empty (R1), or when no downgrades fired.
+   */
+  diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry>;
+}
+
+export interface ApplyRecoveryAndComposeOptions {
+  /** Whether to run the mt#1496 severity-monotonicity recovery pass. */
+  recoveryEnabled: boolean;
+  /**
+   * Whether to run the mt#1867 composition-side convergence detection pass.
+   * Default: false (feature-flagged until empirical verification).
+   */
+  convergenceEnabled?: boolean;
+  /**
+   * Pre-parsed flat findings from all prior rounds (any severity), for the
+   * convergence evidence-novelty comparison. Oldest-first. When absent but
+   * convergenceEnabled=true, the convergence detector uses an empty list
+   * (equivalent to "all evidence is new" — conservative, will not fire).
+   */
+  priorFindingsForConvergence?: ReadonlyArray<import("./convergence-detector").FindingForDetection>;
+  /**
+   * BLOCKING counts from each prior round (oldest first) for convergence
+   * strictly-decreasing check. Required when convergenceEnabled=true.
+   */
+  priorBlockingCounts?: ReadonlyArray<number>;
+  /**
+   * 1-based current iteration index (R1=1, R4=4, etc.) for convergence
+   * threshold gating. Required when convergenceEnabled=true.
+   */
+  iterationIndex?: number;
+  /**
+   * Whether to run the mt#1875 diff-scope-bounded downgrade pass (Fix 3).
+   * Default: false (feature-flagged until empirical verification).
+   * Only fires when priorReviewsMarkdown is non-empty (R≥2).
+   */
+  diffScopeBoundedEnabled?: boolean;
+  /**
+   * Fix-commit-diff line range map. When supplied and non-empty, BLOCKING
+   * findings outside this range are downgraded to NON-BLOCKING.
+   * Produced by extractFixCommitDiff from the diff-scoper module.
+   * When absent or empty, the downgrade pass is a no-op (conservative).
+   */
+  fixCommitLineRange?: FixCommitLineRangeMap;
 }
 
 export function applyRecoveryAndCompose(
   toolCalls: ReadonlyArray<ReviewToolCall>,
   priorFindings: ReadonlyArray<FlatPriorFinding>,
   diffText: string,
-  recoveryEnabled: boolean
+  recoveryEnabled: boolean,
+  options?: ApplyRecoveryAndComposeOptions
 ): ComposeWithRecoveryResult {
   const originalBlockingCount = toolCalls.filter(
     (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
   ).length;
 
-  // Step 1: optionally recover.
+  // Step 1: optionally recover (mt#1496 monotonicity recovery).
   let toolCallsForComposition: ReadonlyArray<ReviewToolCall> = toolCalls;
   let downgrades: ReadonlyArray<DowngradeAuditEntry> = [];
   if (recoveryEnabled && priorFindings.length > 0) {
@@ -452,7 +533,7 @@ export function applyRecoveryAndCompose(
   }
 
   // Step 2: count post-recovery BLOCKING.
-  const postRecoveryBlockingCount = toolCallsForComposition.filter(
+  let postRecoveryBlockingCount = toolCallsForComposition.filter(
     (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
   ).length;
 
@@ -480,6 +561,65 @@ export function applyRecoveryAndCompose(
     });
   }
 
+  // Step 3b: composition-side convergence detection (mt#1867 Fix 2).
+  // Runs AFTER monotonicity recovery so the convergence check sees already-
+  // recovered tool calls (prevents double-downgrade of the same finding).
+  let convergenceDetection: ConvergenceDetectionResult | undefined;
+  let convergenceDowngrades: ReadonlyArray<ConvergenceDowngradeAuditEntry> = [];
+  const opts = options ?? { recoveryEnabled };
+  const convergenceEnabled = opts.convergenceEnabled ?? false;
+  if (convergenceEnabled && postRecoveryBlockingCount > 0) {
+    // Use pre-parsed findings if provided; otherwise empty list (conservative:
+    // empty priorFindingsForConvergence means all evidence is "new", so no
+    // stagnation fires — safe default).
+    const priorFindingsForConvergence = opts.priorFindingsForConvergence ?? [];
+    const priorCounts = opts.priorBlockingCounts ?? [];
+    const iterIdx = opts.iterationIndex ?? 1;
+
+    const convergenceResult = applyCompositionConvergenceDowngrade(
+      toolCallsForComposition,
+      priorFindingsForConvergence,
+      priorCounts,
+      iterIdx
+    );
+
+    convergenceDetection = convergenceResult.detectionResult;
+    convergenceDowngrades = convergenceResult.downgrades;
+
+    if (convergenceResult.downgradeApplied) {
+      toolCallsForComposition = convergenceResult.toolCalls;
+      // Recount post-convergence-downgrade BLOCKINGs.
+      postRecoveryBlockingCount = toolCallsForComposition.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+      ).length;
+    }
+  }
+
+  // Step 3c: diff-scope-bounded downgrade (mt#1875 Fix 3).
+  // Runs AFTER convergence detection (Step 3b) so the scope check sees
+  // already-convergence-downgraded tool calls (prevents double-audit of
+  // the same finding). Fires only when diffScopeBoundedEnabled=true AND
+  // fixCommitLineRange is non-empty (the caller gates on priorReviewsMarkdown
+  // non-empty before supplying a non-empty lineRange — R1 path gets empty map
+  // and the downgrade is a no-op by construction).
+  let diffScopeBoundedDowngrades: ReadonlyArray<DiffScopeDowngradeAuditEntry> = [];
+  const diffScopeBoundedEnabled = opts.diffScopeBoundedEnabled ?? false;
+  if (diffScopeBoundedEnabled) {
+    const fixCommitLineRange = opts.fixCommitLineRange ?? new Map();
+    const diffScopeResult = applyDiffScopeBoundedDowngrade(
+      toolCallsForComposition,
+      fixCommitLineRange
+    );
+    diffScopeBoundedDowngrades = diffScopeResult.downgrades;
+    if (diffScopeResult.downgradeApplied) {
+      toolCallsForComposition = diffScopeResult.toolCalls;
+      // Recount post-diff-scope-bounded BLOCKINGs.
+      postRecoveryBlockingCount = toolCallsForComposition.filter(
+        (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+      ).length;
+    }
+  }
+
   // Step 4: compose. Spread to coerce the readonly local to the mutable
   // signature expected by composeReviewBody (which only reads).
   const composed = composeReviewBody([...toolCallsForComposition]);
@@ -491,6 +631,9 @@ export function applyRecoveryAndCompose(
     originalBlockingCount,
     postRecoveryBlockingCount,
     reconcileApplied,
+    convergenceDetection,
+    convergenceDowngrades,
+    diffScopeBoundedDowngrades,
   };
 }
 
@@ -552,6 +695,57 @@ export function buildConvergenceMetricLog(
     newBlockerCount,
     acknowledgedAsAddressedCount,
   };
+}
+
+/**
+ * Read prior-round BLOCKING counts from the mt#1306 substrate
+ * (reviewer_convergence_metrics table).
+ *
+ * Returns an array of new_blocker_count values, one per prior review row,
+ * ordered oldest-first (ascending iteration_index). Excludes the current
+ * round's row (rows with iteration_index >= currentIterationIndex).
+ *
+ * This is the authoritative source for the convergence detection path per
+ * the mt#1867 spec ("reads prior-round convergence metrics from the mt#1306
+ * substrate"). The fallback (parsed from GitHub review bodies) is used only
+ * when the DB is unavailable.
+ *
+ * Errors are swallowed — the caller falls back to the review-body-parsed
+ * counts. This mirrors the metrics-write swallow-on-error pattern.
+ *
+ * @param db                    Drizzle DB instance.
+ * @param owner                 GitHub repository owner.
+ * @param repo                  GitHub repository name.
+ * @param prNumber              Pull request number.
+ * @param currentIterationIndex 1-based index of the current review round.
+ *                              Only rows with iteration_index < currentIterationIndex
+ *                              are returned.
+ */
+export async function fetchPriorBlockingCountsFromDb(
+  db: ReviewerDb,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  currentIterationIndex: number
+): Promise<number[]> {
+  try {
+    const rows = await db
+      .select({ newBlockerCount: convergenceMetricsTable.newBlockerCount })
+      .from(convergenceMetricsTable)
+      .where(
+        and(
+          eq(convergenceMetricsTable.prOwner, owner),
+          eq(convergenceMetricsTable.prRepo, repo),
+          eq(convergenceMetricsTable.prNumber, prNumber),
+          lt(convergenceMetricsTable.iterationIndex, currentIterationIndex)
+        )
+      )
+      .orderBy(asc(convergenceMetricsTable.iterationIndex));
+    return rows.map((r) => r.newBlockerCount);
+  } catch {
+    // Swallow — caller falls back to review-body-parsed counts.
+    return [];
+  }
 }
 
 /**
@@ -631,6 +825,128 @@ export async function runReview(
     return { status: "skipped", reason: routing.reason, tier };
   }
 
+  // ---------------------------------------------------------------------------
+  // In-flight marker (mt#1907): acquire AFTER routing.shouldReview so skipped
+  // PRs don't churn marker rows. Uses pr.headSha (authoritative from GitHub)
+  // rather than the caller-supplied headSha which may be stale.
+  //
+  // Fail-open contract (SC #6): if the DB is unavailable, proceed without the
+  // marker guarantee rather than blocking the review.
+  // ---------------------------------------------------------------------------
+  const acquiredBy = deliveryId.startsWith("sweeper-") ? "sweeper" : "webhook";
+  let markerId: string | null = null;
+
+  if (deps.db !== undefined) {
+    try {
+      const markerResult = await acquireMarker(deps.db, {
+        owner,
+        repo,
+        prNumber,
+        headSha: pr.headSha,
+        acquiredBy,
+        deliveryId,
+      });
+
+      if (!markerResult.acquired) {
+        // Another caller holds the marker — skip to avoid duplicate review.
+        console.log(
+          JSON.stringify({
+            event: "runReview.skipped_concurrent_inflight",
+            pr_owner: owner,
+            pr_repo: repo,
+            pr_number: prNumber,
+            head_sha: pr.headSha,
+            acquired_by: markerResult.heldBy,
+            delivery_id: deliveryId,
+          })
+        );
+        return {
+          status: "skipped",
+          reason: "concurrent_inflight",
+          tier,
+        };
+      }
+
+      markerId = markerResult.id;
+    } catch (markerErr: unknown) {
+      // DB error — fail open: proceed without marker guarantee.
+      const errorMessage = markerErr instanceof Error ? markerErr.message : String(markerErr);
+      console.log(
+        JSON.stringify({
+          event: "runReview.marker_acquire_failed_fail_open",
+          pr_owner: owner,
+          pr_repo: repo,
+          pr_number: prNumber,
+          head_sha: pr.headSha,
+          delivery_id: deliveryId,
+          error: errorMessage,
+        })
+      );
+    }
+  }
+
+  // Wrap the rest of runReview in try/finally to release the marker on completion
+  // (success or error). When markerId is null (DB absent or acquire failed),
+  // release is a no-op.
+  try {
+    return await runReviewBody(
+      config,
+      owner,
+      repo,
+      prNumber,
+      prAuthorLogin,
+      deliveryId,
+      deps,
+      octokit,
+      pr,
+      tier,
+      prScope,
+      scopeBucket,
+      routing
+    );
+  } finally {
+    if (markerId !== null && deps.db !== undefined) {
+      await releaseMarker(deps.db, markerId).catch((releaseErr: unknown) => {
+        const message = releaseErr instanceof Error ? releaseErr.message : String(releaseErr);
+        console.warn(
+          JSON.stringify({
+            event: "runReview.marker_release_failed",
+            pr_owner: owner,
+            pr_repo: repo,
+            pr_number: prNumber,
+            head_sha: pr.headSha,
+            marker_id: markerId,
+            error: message,
+          })
+        );
+      });
+    }
+  }
+}
+
+/**
+ * Core runReview body — extracted so it can be wrapped in try/finally for
+ * marker release without deep nesting. All heavy lifting is here; the outer
+ * runReview does routing, marker acquisition, and release wrapping.
+ *
+ * Receives pre-computed values from runReview (pr, tier, prScope, etc.) to
+ * avoid re-fetching.
+ */
+async function runReviewBody(
+  config: ReviewerConfig,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  prAuthorLogin: string,
+  deliveryId: string,
+  deps: RunReviewDeps,
+  octokit: Awaited<ReturnType<typeof createOctokit>>,
+  pr: Awaited<ReturnType<typeof fetchPullRequestContext>>,
+  tier: AuthorshipTier,
+  prScope: PRScope,
+  scopeBucket: ScopeBucket,
+  _routing: TierRoutingDecision
+): Promise<ReviewResult> {
   // Confirm the reviewer identity is distinct from the PR author. If they
   // happen to match (misconfiguration, same App used for both roles), we
   // cannot APPROVE and must fall back to COMMENT — GitHub blocks
@@ -700,16 +1016,74 @@ export async function runReview(
     priorFlatFindings = [];
   }
 
+  // Fetch review threads (mt#1345): provides existing inline thread state to
+  // the model so it can reply to existing threads rather than opening duplicates.
+  // Non-blocking — returns [] on any error (graceful degradation like prior reviews).
+  // Only fetch when output tools are likely active; for non-OpenAI providers the
+  // thread context is informational but not yet wired into the prompt.
+  let reviewThreads: ReviewThread[] = [];
+  try {
+    reviewThreads = await fetchReviewThreads(octokit, owner, repo, prNumber);
+  } catch (err: unknown) {
+    // fetchReviewThreads already degrades gracefully internally; this outer
+    // catch is a safety net for any unexpected throw from the wiring.
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[mt#1345] Review-thread fetch failed, continuing without thread context: ${message}`
+    );
+  }
+
+  // mt#1875 SC2: when diff-scope-bounded is enabled AND prior reviews exist (R≥2),
+  // narrow the prompt context to the fix-commit diff. This must happen before
+  // buildReviewPrompt so the model only sees the narrowed diff in its context.
+  //
+  // We read the env var here (outside the outputToolsActive block) so the prompt
+  // diff routing and the post-hoc downgrade both use the same flag and the same
+  // extracted diff. On R1 (no prior reviews), promptDiff falls back to pr.diff.
+  const diffScopeBoundedEnabledForPrompt = /^(true|1|yes|on)$/i.test(
+    (process.env.REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED ?? "").trim()
+  );
+  const priorReviewsPresentForPrompt = priorReviewsMarkdown.trim().length > 0;
+
+  // Extracted fix-commit diff for prompt routing and for the downgrade pass.
+  // Initialized as a shared variable so the outputToolsActive block can reuse it.
+  let promptDiff = pr.diff;
+  let sharedFixCommitLineRange: FixCommitLineRangeMap = new Map();
+
+  if (diffScopeBoundedEnabledForPrompt && priorReviewsPresentForPrompt) {
+    // Use the full PR diff as the fix-commit scope approximation. A future
+    // enhancement can filter to commits after the prior-review timestamp via
+    // the GitHub commits API; for now, the full PR diff is a conservative
+    // safe fallback that still enables downgrading findings on files/lines
+    // not present in the PR diff at all.
+    const priorTimestamp =
+      priorReviewIngestion.iterationCount > 0
+        ? new Date(0).toISOString() // placeholder — real per-commit filtering is future work
+        : new Date(0).toISOString();
+    try {
+      const fixCommitResult = extractFixCommitDiff(pr.diff, priorTimestamp);
+      promptDiff = fixCommitResult.diff;
+      sharedFixCommitLineRange = fixCommitResult.lineRange;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[mt#1875] Fix-commit diff extraction failed for prompt routing, using full PR diff: ${message}`
+      );
+      // promptDiff remains pr.diff (full diff fallback)
+    }
+  }
+
   const userPrompt = buildReviewPrompt({
     prNumber: pr.number,
     prTitle: pr.title,
     prBody: pr.body,
     taskSpec,
-    diff: pr.diff,
+    diff: promptDiff,
     authorshipTier: tier,
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
     priorReviews: priorReviewsMarkdown || undefined,
+    reviewThreads: reviewThreads.length > 0 ? reviewThreads : undefined,
   });
 
   // Construct the tool context for this PR's HEAD ref. The model can use these
@@ -874,15 +1248,120 @@ export async function runReview(
       (process.env.REVIEWER_MONOTONICITY_RECOVERY_ENABLED ?? "").trim()
     );
 
-    // Delegate the recovery + reconciliation + composition to the pure
-    // helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
+    // mt#1867 composition-side convergence detection (Fix 2 from mt#1640 paper):
+    // when enabled, downgrade ALL BLOCKINGs when R(N+1) shows neither strictly-
+    // decreasing BLOCKING count nor new evidence per finding. Default-off until
+    // empirical verification (same pattern as monotonicityRecovery above).
+    const compositionConvergenceEnabled = /^(true|1|yes|on)$/i.test(
+      (process.env.REVIEWER_COMPOSITION_CONVERGENCE_ENABLED ?? "").trim()
+    );
+
+    // mt#1875 diff-scope-bounded downgrade (Fix 3 from mt#1640 paper):
+    // when enabled AND priorReviewsMarkdown is non-empty (R≥2), restrict
+    // BLOCKING findings to those within the fix-commit-diff line range.
+    // Findings outside the range are auto-downgraded to NON-BLOCKING.
+    // Default-off until empirical verification (same convention as above).
+    //
+    // NOTE: diffScopeBoundedEnabledForPrompt (computed before buildReviewPrompt
+    // above) reads the same env var; using the same value here ensures the
+    // prompt-context routing and the post-hoc downgrade are always in sync.
+    const diffScopeBoundedEnabled = diffScopeBoundedEnabledForPrompt;
+
+    // Compute iteration index (1-based) for the convergence threshold gate.
+    // iterationCount is the count of prior reviews (0 for first review, 1 for second, etc.)
+    // so iterationIndex = iterationCount + 1.
+    const currentIterationIndex = priorReviewIngestion.iterationCount + 1;
+
+    // mt#1867: read prior BLOCKING counts from the mt#1306 DB substrate when the
+    // DB is available. This is the spec-required source for convergence detection
+    // ("reads prior-round convergence metrics from the mt#1306 substrate").
+    //
+    // Fallback: if DB is unavailable or returns empty (e.g., for PRs predating
+    // mt#1306), fall back to counts parsed from GitHub review bodies
+    // (priorReviewIngestion.priorBlockingCounts). The fallback is only used when
+    // the DB read returns an empty array, ensuring the detector still has prior
+    // context when DB rows are not yet populated.
+    let priorBlockingCountsForConvergence: ReadonlyArray<number> =
+      priorReviewIngestion.priorBlockingCounts;
+    if (compositionConvergenceEnabled && deps.db !== undefined) {
+      const dbCounts = await fetchPriorBlockingCountsFromDb(
+        deps.db,
+        owner,
+        repo,
+        prNumber,
+        currentIterationIndex
+      );
+      if (dbCounts.length > 0) {
+        priorBlockingCountsForConvergence = dbCounts;
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_counts_source",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            source: "db_substrate",
+            count: dbCounts.length,
+            iterationIndex: currentIterationIndex,
+          })
+        );
+      } else {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_counts_source",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            source: "review_body_fallback",
+            reason:
+              "DB returned no rows (PR may predate mt#1306 substrate or first review); using parsed review body counts",
+            count: priorReviewIngestion.priorBlockingCounts.length,
+            iterationIndex: currentIterationIndex,
+          })
+        );
+      }
+    }
+
+    // mt#1875: reuse the fix-commit line range extracted before buildReviewPrompt
+    // (sharedFixCommitLineRange). Both the prompt-context routing and the post-hoc
+    // downgrade use the same extracted scope so they are consistent.
+    //
+    // When priorReviewsMarkdown is empty (R1), sharedFixCommitLineRange is an empty
+    // map (set by the guard above), so the downgrade pass is a no-op by construction
+    // (conservative behavior: preserve all findings on R1 reviews).
+    const fixCommitLineRange: FixCommitLineRangeMap = sharedFixCommitLineRange;
+    if (diffScopeBoundedEnabled && priorReviewsPresent) {
+      console.log(
+        JSON.stringify({
+          event: "reviewer.diff_scope_bounded_extracted",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          diff_scope: "fix_commit",
+          filesInScope: fixCommitLineRange.size,
+        })
+      );
+    }
+
+    // Delegate the recovery + reconciliation + convergence + composition to the
+    // pure helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
     // persistent "no integration tests" complaint at the unit level — see
     // applyRecoveryAndCompose tests in review-worker.test.ts).
+    // priorFlatFindings is already parsed (FlatPriorFinding[] from severity-recovery).
+    // FlatPriorFinding is structurally compatible with FindingForDetection (same fields:
+    // file, severity, line?, lineEnd?), so we can pass it directly as
+    // priorFindingsForConvergence without re-parsing the prior review bodies.
     const recoveryResult = applyRecoveryAndCompose(
       output.toolCalls,
       priorFlatFindings,
       pr.diff,
-      monotonicityRecoveryEnabled
+      monotonicityRecoveryEnabled,
+      {
+        recoveryEnabled: monotonicityRecoveryEnabled,
+        convergenceEnabled: compositionConvergenceEnabled,
+        priorFindingsForConvergence: priorFlatFindings,
+        priorBlockingCounts: priorBlockingCountsForConvergence,
+        iterationIndex: currentIterationIndex,
+        diffScopeBoundedEnabled,
+        fixCommitLineRange,
+      }
     );
     const composed = recoveryResult.composed;
     const blockingCount = recoveryResult.postRecoveryBlockingCount;
@@ -958,6 +1437,89 @@ export async function runReview(
       );
     }
 
+    // mt#1867 convergence detection logging: emit one structured event per
+    // downgraded finding, plus a summary event. The summary always emits when
+    // compositionConvergenceEnabled is true (mirrors severity_downgrade_summary
+    // convention — zero downgrades still useful for "enabled but never fired"
+    // observability). Per-finding events only emit when the downgrade fires.
+    if (compositionConvergenceEnabled && recoveryResult.convergenceDetection !== undefined) {
+      const convDetection = recoveryResult.convergenceDetection;
+      // Per-finding downgrade events
+      for (const d of recoveryResult.convergenceDowngrades) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.composition_convergence_downgrade",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            file: d.file,
+            ...(d.line !== undefined ? { line: d.line } : {}),
+            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+            fromSeverity: d.fromSeverity,
+            toSeverity: d.toSeverity,
+            reason: d.reason,
+          })
+        );
+      }
+      // Summary event — always emitted when enabled so dashboards see one entry
+      // per review regardless of whether the downgrade fired.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.composition_convergence_summary",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          downgradeApplied: convDetection.downgradeApplied,
+          downgradeCount: recoveryResult.convergenceDowngrades.length,
+          currentBlockingCount: convDetection.currentBlockingCount,
+          priorBlockingCounts: convDetection.priorBlockingCounts,
+          isCountDecreasing: convDetection.isCountDecreasing,
+          hasAnyNewEvidence: convDetection.hasAnyNewEvidence,
+          reason: convDetection.reason,
+          // Evidence verdicts per BLOCKING (populated when downgradeApplied=true)
+          evidenceVerdicts: convDetection.downgradeApplied ? convDetection.evidenceVerdicts : [],
+        })
+      );
+    }
+
+    // mt#1875 diff-scope-bounded downgrade logging: emit one structured event per
+    // downgraded finding, plus a summary event. The summary always emits when
+    // diffScopeBoundedEnabled is true (mirrors severity_downgrade_summary
+    // convention — zero downgrades still useful for "enabled but never fired"
+    // observability). Per-finding events only emit when the downgrade fires.
+    if (diffScopeBoundedEnabled) {
+      // Per-finding downgrade events
+      for (const d of recoveryResult.diffScopeBoundedDowngrades) {
+        console.log(
+          JSON.stringify({
+            event: "reviewer.diff_scope_bounded_downgrade",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            file: d.file,
+            ...(d.line !== undefined ? { line: d.line } : {}),
+            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+            fromSeverity: d.fromSeverity,
+            toSeverity: d.toSeverity,
+            reason: d.reason,
+          })
+        );
+      }
+      // Summary event — always emitted when enabled so dashboards see one entry
+      // per review regardless of whether the downgrade fired.
+      console.log(
+        JSON.stringify({
+          event: "reviewer.diff_scope_bounded_summary",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          iterationIndex: currentIterationIndex,
+          priorReviewsPresent,
+          diff_scope: priorReviewsPresent ? "fix_commit" : "full_pr",
+          filesInScope: fixCommitLineRange.size,
+          downgradeApplied: recoveryResult.diffScopeBoundedDowngrades.length > 0,
+          downgradeCount: recoveryResult.diffScopeBoundedDowngrades.length,
+        })
+      );
+    }
+
     // Self-review override: structural event from composeReviewBody (already
     // reconciled with recovery above), but force COMMENT when the reviewer
     // identity matches the PR author (GitHub blocks self-approval at the
@@ -986,6 +1548,19 @@ export async function runReview(
     }
 
     const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
+
+    // Map composed inline comments (file/line/body/inReplyTo) to the shape
+    // expected by submitReview's new inlineComments parameter (mt#1345).
+    const inlineCommentsForSubmit: ReviewInlineComment[] | undefined =
+      composed.inlineComments.length > 0
+        ? composed.inlineComments.map((c) => ({
+            path: c.file,
+            line: c.line,
+            body: c.body,
+            ...(c.inReplyTo !== undefined ? { inReplyTo: c.inReplyTo } : {}),
+          }))
+        : undefined;
+
     const review = await submitReview(
       octokit,
       owner,
@@ -993,8 +1568,66 @@ export async function runReview(
       prNumber,
       event,
       reviewBody,
-      config.githubTimeoutMs
+      config.githubTimeoutMs,
+      inlineCommentsForSubmit
     );
+
+    // Thread-resolve loop (mt#1345): after posting the review, resolve threads
+    // that the model marked as fixed. Guard: only resolve threads whose first
+    // comment was authored by the reviewer bot itself — never auto-resolve
+    // threads opened by humans. The guard is applied here (not in the model
+    // prompt alone) as a structural safety net.
+    if (composed.threadResolves.length > 0) {
+      const reviewerBotLogin = reviewerIdentity.login;
+      // Build a lookup from threadId → first-comment author from the fetched threads.
+      const threadAuthorMap = new Map<string, string | null>();
+      for (const t of reviewThreads) {
+        threadAuthorMap.set(t.id, t.comments[0]?.author ?? null);
+      }
+
+      for (const entry of composed.threadResolves) {
+        const firstAuthor = threadAuthorMap.get(entry.threadId);
+        // Allow resolve only when the first comment is ours.
+        if (firstAuthor !== reviewerBotLogin) {
+          console.log(
+            JSON.stringify({
+              event: "reviewer.thread_resolve_skipped",
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              sha: pr.headSha,
+              threadId: entry.threadId,
+              firstAuthor,
+              reason: "human-thread guard: first comment not from reviewer bot",
+            })
+          );
+          continue;
+        }
+
+        try {
+          await resolveThread(octokit, entry.threadId);
+          console.log(
+            JSON.stringify({
+              event: "reviewer.thread_resolved",
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              sha: pr.headSha,
+              threadId: entry.threadId,
+              modelReason: entry.reason,
+            })
+          );
+        } catch (resolveErr: unknown) {
+          const message = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
+          console.log(
+            JSON.stringify({
+              event: "reviewer.thread_resolve_failed",
+              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+              sha: pr.headSha,
+              threadId: entry.threadId,
+              error: message,
+            })
+          );
+          // Non-fatal: resolve failure should not abort the review result.
+        }
+      }
+    }
 
     const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce(
       (acc, n) => acc + n,

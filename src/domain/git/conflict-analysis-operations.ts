@@ -4,7 +4,7 @@
  * Operations for analyzing conflict files, regions, and resolution strategies.
  * Extracted from ConflictDetectionService to improve modularity.
  */
-import { execAsync } from "../../utils/exec";
+import { execAsync, safeShellQuote } from "../../utils/exec";
 import { execGitWithTimeout } from "../../utils/git-exec";
 import { readFile } from "fs/promises";
 import { join } from "path";
@@ -168,10 +168,11 @@ export async function checkSessionChangesInBase(
   baseBranch: string,
   exec: typeof execAsync = execAsync
 ): Promise<boolean> {
+  const qRepoPath = safeShellQuote(repoPath);
   try {
     // Get session commits not in base
     const { stdout: sessionCommits } = await exec(
-      `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
+      `git -C ${qRepoPath} rev-list ${baseBranch}..${sessionBranch}`
     );
 
     if (!sessionCommits.toString().trim()) {
@@ -180,10 +181,10 @@ export async function checkSessionChangesInBase(
 
     // Check if the content changes are already in base by comparing trees
     const { stdout: sessionTree } = await exec(
-      `git -C ${repoPath} rev-parse ${sessionBranch}^{tree}`
+      `git -C ${qRepoPath} rev-parse ${sessionBranch}^{tree}`
     );
 
-    const { stdout: baseTree } = await exec(`git -C ${repoPath} rev-parse ${baseBranch}^{tree}`);
+    const { stdout: baseTree } = await exec(`git -C ${qRepoPath} rev-parse ${baseBranch}^{tree}`);
 
     return sessionTree.toString().trim() === baseTree.toString().trim();
   } catch (error) {
@@ -219,7 +220,9 @@ export async function autoResolveDeleteConflicts(
       }
 
       // Commit the resolution
-      await execAsync(`git -C ${repoPath} commit -m "resolve conflicts: accept file deletions"`);
+      await execAsync(
+        `git -C ${safeShellQuote(repoPath)} commit -m "resolve conflicts: accept file deletions"`
+      );
       log.debug("Committed auto-resolved delete conflicts", {
         count: deleteConflicts.length,
       });

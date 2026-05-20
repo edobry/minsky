@@ -14,9 +14,10 @@ import {
 import { log } from "../utils/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getErrorMessageWithCause } from "../errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
+import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
 import { resolveAgentId } from "../domain/agent-identity/resolve";
@@ -102,14 +103,70 @@ export interface MinskyMCPServerOptions {
    * code paths.
    */
   clientCapabilityRegistry?: MCPClientCapabilityRegistry;
+
+  /**
+   * Optional static memory bundle to include in the SDK Server's `instructions`
+   * field at construction time. Composed by the MCP start command from the
+   * memory store BEFORE this constructor runs (so the bundle is present at
+   * every `initialize` handshake without any post-construction mutation).
+   *
+   * @see mt#1625 — server-side memory injection via MCP `instructions`
+   */
+  instructions?: string;
 }
 
 // Tool definitions for MCP server
+/**
+ * mt#1751: Tools that demonstrably don't touch DI services — these skip the
+ * `initPromise` await in the CallTool handler. Currently covers the three
+ * debug commands routed through the shared-command bridge (which doesn't
+ * thread the `requiresInit` field). Add to this set, or set
+ * `requiresInit: false` on the ToolDefinition directly, when you've verified
+ * a tool's handler does not call `container.get(...)` or otherwise depend on
+ * a resolved DI service.
+ *
+ * Tool names are matched against `request.params.name` exactly. The
+ * shared-command bridge registers debug tools with **dotted** IDs (e.g.,
+ * `debug.listMethods` — see `src/adapters/shared/commands/debug.ts`), and
+ * `CommandMapper.normalizeMethodName` (`src/mcp/command-mapper.ts:42`)
+ * preserves dots, so the protocol-level tool name keeps the dot. We list
+ * the dotted form below. (PR #1063 R3 BLOCKING: prior version used
+ * underscore names — `debug_echo` — and the allowlist never matched.)
+ */
+const DI_FREE_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "debug.echo",
+  "debug.listMethods",
+  "debug.systemInfo",
+]);
+
 export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema?: object;
-  handler: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * Eager (legacy) handler. At least one of `handler` or `getHandler` must be
+   * provided. When both are present, `handler` takes precedence.
+   */
+  handler?: (args: Record<string, unknown>) => Promise<unknown>;
+  /**
+   * mt#1792: lazy handler thunk — defers handler-module loading until first
+   * invocation. Mutually exclusive with `handler` at registration time: provide
+   * EITHER a direct `handler` (eager, legacy form) OR a `getHandler` thunk
+   * (lazy form). The CallTool dispatch resolves the thunk on first call and
+   * caches the resolved function back onto `handler` for subsequent calls.
+   *
+   * When both are provided, the legacy `handler` takes precedence and
+   * `getHandler` is ignored — backward-compatible coexistence.
+   */
+  getHandler?: () => Promise<(args: Record<string, unknown>) => Promise<unknown>>;
+  /**
+   * PR #1103 R1 NON-BLOCKING: in-flight thunk-resolution promise. Set on first
+   * call when `getHandler` resolution starts; subsequent concurrent first
+   * calls share this promise instead of invoking `getHandler()` again.
+   * Cleared on success (resolved value cached on `handler`) and on rejection
+   * (so retry can occur). Internal; not part of the registration API.
+   */
+  __resolving?: Promise<(args: Record<string, unknown>) => Promise<unknown>>;
   /**
    * When true, this tool performs external side effects (e.g. GitHub PR
    * create/edit/merge, force-push, session-update). The server will refuse
@@ -117,6 +174,18 @@ export interface ToolDefinition {
    * Read-only tools leave this unset or set it to false.
    */
   mutating?: boolean;
+  /**
+   * mt#1751: when explicitly `false`, this tool does NOT require the DI
+   * container to be initialized — the CallTool handler skips the init
+   * await for it. Default (unset/`true`) is to await DI init, which is
+   * the safe choice for any tool that calls `container.get(...)`.
+   *
+   * Opt out only for tools that demonstrably do not touch DI services
+   * (e.g. `debug_echo`, `debug_listMethods`). Mis-opting-out a tool that
+   * does need DI would surface as a "Service ... is not available"
+   * runtime error on first call before background init completes.
+   */
+  requiresInit?: boolean;
 }
 
 interface ResourceDefinition {
@@ -161,6 +230,16 @@ export class MinskyMCPServer {
    */
   private memoryService: MemoryServiceSurface | undefined;
   /**
+   * mt#1625 spike: static memory bundle for MCP `instructions` injection.
+   * When set, this text is appended to the `instructions` field passed to
+   * every SDK `Server` constructor created by `createConfiguredServer`.
+   * Passed via the `instructions` constructor option (composed by the MCP
+   * start command from the memory store BEFORE this class is instantiated).
+   * Stdio mode receives it at constructor time; HTTP per-session Servers
+   * read it on each `createConfiguredServer` call.
+   */
+  private instructionsBundle: string | null | undefined = null;
+  /**
    * Wake-pending service for the mt#1661 v0 wake-enrichment middleware. Optional —
    * when absent, the middleware is a no-op. Set via `setWakeService` from the
    * MCP start command after the persistence provider resolves.
@@ -175,6 +254,17 @@ export class MinskyMCPServer {
   /** Optional capability registry — when set, every Server created in
    * createConfiguredServer is register/unregister-tracked. */
   private clientCapabilityRegistry: MCPClientCapabilityRegistry | undefined;
+  /**
+   * mt#1751: DI initialization promise. When set via `setInitPromise`, every
+   * CallTool dispatch awaits this promise before invoking the tool handler.
+   * The MCP `initialize` handshake and `tools/list` do NOT await it (they
+   * don't need persistence) — only tool execution does. This lets the server
+   * accept the initialize handshake while DI runs in the background.
+   *
+   * Null in HTTP mode (init runs synchronously via preAction) and in tests
+   * that pre-populate the container.
+   */
+  private initPromise: Promise<void> | null = null;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -257,6 +347,11 @@ export class MinskyMCPServer {
     // mt#1457: capability registry for the Ask router. When provided, each
     // Server created via createConfiguredServer is registered.
     this.clientCapabilityRegistry = options.clientCapabilityRegistry;
+
+    // mt#1625: optional static memory bundle for the `instructions` field.
+    // Must be set BEFORE createConfiguredServer is called below so the
+    // eager-constructed stdio Server picks it up via the SDK constructor.
+    this.instructionsBundle = options.instructions;
 
     // Parse session cap from env var. Non-positive or non-numeric values → no cap.
     const maxSessionsRaw = process.env.MINSKY_MCP_MAX_SESSIONS;
@@ -375,6 +470,16 @@ export class MinskyMCPServer {
    * session's disconnect reads its own counter).
    */
   private createConfiguredServer(sessionKey: string): Server {
+    // mt#1625 spike: compose the `instructions` field from the static
+    // reconnect note plus the optional memory bundle (when set). The bundle
+    // is appended after the operational note so the agent sees the reconnect
+    // guidance first, then the memory context.
+    const baseInstructions =
+      "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.";
+    const instructions = this.instructionsBundle
+      ? `${baseInstructions}\n\n${this.instructionsBundle}`
+      : baseInstructions;
+
     const server = new Server(
       {
         name: this.options.name,
@@ -387,8 +492,7 @@ export class MinskyMCPServer {
           prompts: {},
           logging: {},
         },
-        instructions:
-          "You are connected to the Minsky MCP server. If a tool result or error references stale source code, run /mcp to reconnect minsky and pick up the latest server build.",
+        instructions,
       }
     );
     this.diag.captureInit(server);
@@ -431,7 +535,16 @@ export class MinskyMCPServer {
         res.status(405).set("Allow", "GET, POST").send("Method Not Allowed");
       }
     } catch (error) {
-      log.error("Error handling HTTP request", { error: getErrorMessage(error) });
+      // mt#1831 PR #1113 R1: keep the cause-chain enrichment inside the MCP
+      // tool-response path (CallToolRequestSchema catch) where the consumer is
+      // an MCP agent / operator. The outer HTTP transport's 500 handler fires
+      // for transport-level errors (body-parser, malformed JSON-RPC, express
+      // middleware crashes) whose audience includes arbitrary HTTP clients;
+      // exposing the full `.cause` chain there widens the leak surface to
+      // include driver messages and connection state beyond the spec's scope
+      // (operator-facing MCP wire path). Log the enriched chain for operator
+      // diagnostics but return only the shallow message to the wire.
+      log.error("Error handling HTTP request", { error: getErrorMessageWithCause(error) });
       res.status(500).json({
         error: "Internal server error",
         message: getErrorMessage(error),
@@ -722,13 +835,32 @@ export class MinskyMCPServer {
     // List tools
     server.setRequestHandler(ListToolsRequestSchema, async (request, extra) => {
       this.diag.captureRequest("tools/list", request, extra);
-      return {
-        tools: Array.from(this.tools.values()).map((tool) => ({
-          name: tool.name,
+      // mt#1779: dedupe by ToolDefinition identity (dual-registration in
+      // `addTool` puts the same tool object under both dotted and underscored
+      // keys). Whether to emit the underscored alias is feature-detected from
+      // the client's `clientInfo.name` reported during `initialize` —
+      // `shouldEmitDesktopAliases` defaults to false for non-Claude clients so
+      // the canonical dotted wire contract is preserved. Claude clients
+      // (clientInfo.name starts with "claude") see the underscored form that
+      // passes their strict frontend validator regex.
+      const clientInfo = server.getClientVersion() as { name?: string } | undefined;
+      const emitDesktop = shouldEmitDesktopAliases(clientInfo);
+      const seen = new Set<ToolDefinition>();
+      const tools: Array<{
+        name: string;
+        description: string;
+        inputSchema: object;
+      }> = [];
+      for (const tool of this.tools.values()) {
+        if (seen.has(tool)) continue;
+        seen.add(tool);
+        tools.push({
+          name: emitDesktop ? toClaudeDesktopName(tool.name) : tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema || {},
-        })),
-      };
+        });
+      }
+      return { tools };
     });
 
     // Call tool
@@ -763,6 +895,51 @@ export class MinskyMCPServer {
           // Drift gate: refuse mutating tools when the server is stale.
           // Read-only tools (mutating === false or unset) are allowed through.
           this.checkDriftGate(tool);
+
+          // mt#1751: await DI initialization before dispatching to the tool
+          // handler. The MCP `initialize` handshake completes before DI runs
+          // in stdio mode (so the server appears connected fast); the first
+          // DI-dependent tool call pays the cost. After the first await
+          // resolves, the promise is settled and subsequent awaits are O(1).
+          //
+          // Tools that declare `requiresInit: false` skip the await — this
+          // gates the latency to DI-dependent tools only, so read-only
+          // debug tools (`debug_echo`, `debug_listMethods`) respond
+          // immediately even if init is still in flight. The name-based
+          // allowlist below opts out specific shared-command-bridge tools
+          // that don't carry the explicit field through their registration
+          // pipeline.
+          const requiresInit =
+            tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
+          if (this.initPromise && requiresInit) {
+            await this.initPromise;
+          }
+
+          // mt#1792: lazy handler resolution. Resolve the getHandler thunk on
+          // first call and cache the result back onto tool.handler so subsequent
+          // calls use the resolved function directly (O(1) cached path).
+          // Handler resolution happens AFTER initPromise so DI services are
+          // available before the first handler module is loaded.
+          //
+          // PR #1103 R1 NON-BLOCKING: memoize the in-flight thunk resolution on
+          // `tool.__resolving` so concurrent first calls share a single
+          // `getHandler()` invocation (no redundant heavy module loads under
+          // parallel load). On rejection, the sentinel is cleared so a
+          // subsequent retry can re-attempt resolution.
+          if (!tool.handler && tool.getHandler) {
+            if (!tool.__resolving) {
+              const thunk = tool.getHandler;
+              tool.__resolving = thunk().catch((err) => {
+                tool.__resolving = undefined;
+                throw err;
+              });
+            }
+            tool.handler = await tool.__resolving;
+            tool.__resolving = undefined;
+          }
+          if (!tool.handler) {
+            throw new Error(`Tool '${request.params.name}' has no handler or getHandler`);
+          }
 
           const result = await tool.handler(request.params.arguments || {});
 
@@ -832,9 +1009,15 @@ export class MinskyMCPServer {
             ],
           };
         } catch (error) {
+          // mt#1831: surface the underlying `.cause` chain so operators can
+          // discriminate stale-connection failures (ECONNRESET, Connection
+          // terminated) from real DB errors (schema mismatch, constraint
+          // violation). DrizzleQueryError stashes the driver error on
+          // `.cause` but only surfaces "Failed query: <SQL>" via `.message`.
+          const wireMessage = getErrorMessageWithCause(error);
           log.error("Tool execution failed", {
             tool: request.params.name,
-            error: getErrorMessage(error),
+            error: wireMessage,
           });
 
           // Check for staleness on error path too — trigger fires notification
@@ -846,11 +1029,15 @@ export class MinskyMCPServer {
 
           // Preserve structured McpError instances (e.g. StructuredMcpError with
           // machine-readable data payload) so the SDK propagates `code` and `data`
-          // to the caller intact. Plain Error objects are wrapped as before.
+          // to the caller intact. Plain Error objects are wrapped as before, but
+          // mt#1831 PR #1113 R1 NON-BLOCKING: preserve the original error via the
+          // ES2022 `cause` option so downstream handlers can still inspect machine-
+          // readable fields (driver code, sub-error chain) even though the
+          // user-facing message is the flattened wireMessage string.
           if (error instanceof McpError) {
             throw error;
           }
-          throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
+          throw new Error(`Tool execution failed: ${wireMessage}`, { cause: error });
         }
       } finally {
         this.inFlightRequests.delete(trackingId);
@@ -971,6 +1158,25 @@ export class MinskyMCPServer {
   setWakeService(service: WakeServiceSurface, sessionResolver: WakeSessionResolver): void {
     this.wakeService = service;
     this.wakeSessionResolver = sessionResolver;
+  }
+
+  /**
+   * mt#1751: Set the DI initialization promise.
+   *
+   * When set, every CallTool dispatch awaits this promise before invoking the
+   * tool handler. The MCP `initialize` handshake and `tools/list` do NOT await
+   * it (they don't need persistence), so the server can become responsive
+   * immediately while DI runs in the background.
+   *
+   * The promise must complete in finite time and must not be cancellable —
+   * tool handlers depend on the container being fully resolved. If init
+   * fails, the rejection propagates to the first tool call.
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitPromise(p: Promise<void>): void {
+    this.initPromise = p;
   }
 
   /**
@@ -1218,11 +1424,66 @@ export class MinskyMCPServer {
   }
 
   /**
-   * Add a tool to the server
+   * Add a tool to the server.
+   *
+   * mt#1779: Tools whose canonical name contains a dot (e.g., `tasks.list`,
+   * `session.pr.get`) are dual-registered under both the canonical name AND
+   * an underscored alias produced by `toClaudeDesktopName(name)`. Reason:
+   * Claude Desktop's frontend validator regex `^[a-zA-Z0-9_-]{1,64}$` rejects
+   * dotted names, blocking every tool call. Legacy consumers using dotted
+   * names (Reviewer service: `session.list`, `session.pr.get`) keep working
+   * because the dotted key remains in the map. Both keys point to the SAME
+   * `ToolDefinition` object, so `tool.name` (used by logs, drift gate, and
+   * `DI_FREE_TOOL_NAMES` allowlist) keeps its canonical dotted form.
+   *
+   * `tools/list` (see `setupRequestHandlers`) dedupes by ToolDefinition
+   * identity and emits the variant appropriate for the connected client
+   * (see `shouldEmitDesktopAliases`).
+   *
+   * PR #1071 R1 BLOCKING #1 fix: pre-flight check BOTH the canonical and
+   * alias keys before any write. The pre-fix code wrote `tool.name` first
+   * then checked the alias — a canonical-name collision (e.g., adding
+   * `foo_bar` after `foo.bar` had been registered and created the
+   * `foo_bar` alias key) would overwrite silently. The fix is symmetric:
+   * any collision on either key to a different `ToolDefinition` refuses
+   * the registration and logs a clear warning. Idempotent re-adds of the
+   * same `ToolDefinition` object are allowed (no-op).
    */
   addTool(tool: ToolDefinition): void {
+    const desktopName = toClaudeDesktopName(tool.name);
+    const aliasDiffers = desktopName !== tool.name;
+
+    // Pre-flight: detect collisions BEFORE writing. Idempotent re-adds (same
+    // ToolDefinition object) are permitted as no-ops.
+    const canonicalExisting = this.tools.get(tool.name);
+    if (canonicalExisting && canonicalExisting !== tool) {
+      log.warn("mt#1779: tool name collision — refusing to overwrite existing tool", {
+        name: tool.name,
+        existing: canonicalExisting.name,
+      });
+      return;
+    }
+    if (aliasDiffers) {
+      const aliasExisting = this.tools.get(desktopName);
+      if (aliasExisting && aliasExisting !== tool) {
+        log.warn("mt#1779: Claude Desktop alias collision — refusing to register tool", {
+          canonical: tool.name,
+          desktopAlias: desktopName,
+          existing: aliasExisting.name,
+        });
+        return;
+      }
+    }
+
+    // No conflicts — register under both keys (or just the one if equal).
     this.tools.set(tool.name, tool);
-    log.debug("Added tool", { name: tool.name });
+    if (aliasDiffers) {
+      this.tools.set(desktopName, tool);
+    }
+    log.debug("Added tool", {
+      name: tool.name,
+      ...(aliasDiffers ? { desktopAlias: desktopName } : {}),
+    });
   }
 
   /**

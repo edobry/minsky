@@ -325,8 +325,10 @@ Minimum env the client needs:
 
 ```
 MINSKY_MCP_URL=https://<railway-domain>/mcp
-MINSKY_MCP_TOKEN=<same-token-as-MINSKY_MCP_AUTH_TOKEN>
+MINSKY_MCP_AUTH_TOKEN=<bearer-token-from-server>
 ```
+
+The client and server both use the name `MINSKY_MCP_AUTH_TOKEN`.
 
 ## Troubleshooting
 

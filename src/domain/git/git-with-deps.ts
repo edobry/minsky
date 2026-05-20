@@ -1,6 +1,7 @@
 import { NothingToCommitError } from "../../errors/index";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { safeShellQuote } from "../../utils/exec";
 import type {
   BasicGitDependencies,
   PrDependencies,
@@ -68,8 +69,11 @@ export async function commitWithDepsImpl(
   let stdout: string;
   let stderr: string;
   try {
+    // mt#1742: see git-core-operations.ts:commitImpl for the rationale —
+    // POSIX single-quote BOTH the message and the workdir to suppress shell
+    // substitution. PR #1058 R1: extended to workdir per class-not-instance.
     ({ stdout, stderr } = await deps.execAsync(
-      `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+      `git -C ${safeShellQuote(workdir)} commit ${amendFlag} -m ${safeShellQuote(message)}`
     ));
   } catch (err: unknown) {
     if (classifyNothingToCommit(err)) {
@@ -80,7 +84,7 @@ export async function commitWithDepsImpl(
 
   return extractCommitHash(stdout, stderr, async () => {
     const { stdout: logOutput } = await deps.execAsync(
-      `git -C ${workdir} log -1 --pretty=format:%H`
+      `git -C ${safeShellQuote(workdir)} log -1 --pretty=format:%H`
     );
     return logOutput;
   });
@@ -93,12 +97,13 @@ export async function stashChangesWithDepsImpl(
   workdir: string,
   deps: BasicGitDependencies
 ): Promise<StashResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+    const { stdout: status } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain`);
     if (!status.trim()) {
       return { workdir, stashed: false };
     }
-    await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
+    await deps.execAsync(`git -C ${qWorkdir} stash push -m "minsky session update"`);
     return { workdir, stashed: true };
   } catch (err) {
     throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
@@ -112,12 +117,13 @@ export async function popStashWithDepsImpl(
   workdir: string,
   deps: BasicGitDependencies
 ): Promise<StashResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: stashList } = await deps.execAsync(`git -C ${workdir} stash list`);
+    const { stdout: stashList } = await deps.execAsync(`git -C ${qWorkdir} stash list`);
     if (!stashList.trim()) {
       return { workdir, stashed: false };
     }
-    await deps.execAsync(`git -C ${workdir} stash pop`);
+    await deps.execAsync(`git -C ${qWorkdir} stash pop`);
     return { workdir, stashed: true };
   } catch (err) {
     throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
@@ -132,11 +138,13 @@ export async function mergeBranchWithDepsImpl(
   branch: string,
   deps: BasicGitDependencies
 ): Promise<MergeResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+    const { stdout: beforeHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
 
     try {
-      await deps.execAsync(`git -C ${workdir} merge ${branch}`);
+      // mt#1829: branch is PR/operator-controlled; quote it.
+      await deps.execAsync(`git -C ${qWorkdir} merge ${safeShellQuote(branch)}`);
     } catch (err) {
       if (
         err instanceof Error &&
@@ -145,15 +153,15 @@ export async function mergeBranchWithDepsImpl(
         return { workdir, merged: false, conflicts: true };
       }
 
-      const { stdout: status } = await deps.execAsync(`git -C ${workdir} status --porcelain`);
+      const { stdout: status } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain`);
       if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
-        await deps.execAsync(`git -C ${workdir} merge --abort`);
+        await deps.execAsync(`git -C ${qWorkdir} merge --abort`);
         return { workdir, merged: false, conflicts: true };
       }
       throw err;
     }
 
-    const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+    const { stdout: afterHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
 
     return {
       workdir,
@@ -172,7 +180,7 @@ export async function stageAllWithDepsImpl(
   workdir: string,
   deps: BasicGitDependencies
 ): Promise<void> {
-  await deps.execAsync(`git -C ${workdir} add -A`);
+  await deps.execAsync(`git -C ${safeShellQuote(workdir)} add -A`);
 }
 
 /**
@@ -182,7 +190,7 @@ export async function stageModifiedWithDepsImpl(
   workdir: string,
   deps: BasicGitDependencies
 ): Promise<void> {
-  await deps.execAsync(`git -C ${workdir} add .`);
+  await deps.execAsync(`git -C ${safeShellQuote(workdir)} add .`);
 }
 
 /**
@@ -193,10 +201,11 @@ export async function pullLatestWithDepsImpl(
   deps: BasicGitDependencies,
   remote: string = "origin"
 ): Promise<PullResult> {
+  const qWorkdir = safeShellQuote(workdir);
   try {
-    const { stdout: beforeHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
-    await deps.execAsync(`git -C ${workdir} fetch ${remote}`);
-    const { stdout: afterHash } = await deps.execAsync(`git -C ${workdir} rev-parse HEAD`);
+    const { stdout: beforeHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
+    await deps.execAsync(`git -C ${qWorkdir} fetch ${remote}`);
+    const { stdout: afterHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
     return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
   } catch (err) {
     throw new Error(`Failed to pull latest changes: ${getErrorMessage(err)}`);
@@ -217,7 +226,10 @@ export async function branchWithDepsImpl(
 
   const workdir = deps.getSessionWorkdir(options.session);
 
-  await deps.execAsync(`git -C ${workdir} checkout -b ${options.branch}`);
+  // mt#1829: options.branch is operator-controlled; quote it.
+  await deps.execAsync(
+    `git -C ${safeShellQuote(workdir)} checkout -b ${safeShellQuote(options.branch)}`
+  );
   return {
     workdir,
     branch: options.branch,
@@ -233,7 +245,7 @@ export async function fetchDefaultBranchWithDepsImpl(
 ): Promise<string> {
   try {
     const { stdout } = await deps.execAsync(
-      `git -C ${repoPath} symbolic-ref refs/remotes/origin/HEAD --short`
+      `git -C ${safeShellQuote(repoPath)} symbolic-ref refs/remotes/origin/HEAD --short`
     );
     const result = stdout.trim().replace(/^origin\//, "");
     return result;

@@ -667,8 +667,15 @@ export const sessionPrWaitForReviewCommandParams = {
   reviewer: {
     schema: z.string(),
     description:
-      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). " +
-      "Case-insensitive. Defaults to any reviewer.",
+      "Only match reviews from this reviewer. Accepts either: " +
+      '(1) a TokenRole identifier ("reviewer" or "implementer", ' +
+      "case-insensitive) — resolved at call setup against the configured GitHub " +
+      "App identity; throws a typed error if the role's service account is not " +
+      "configured. (2) a literal GitHub login (e.g., minsky-reviewer[bot] or " +
+      "the bare minsky-reviewer form, or any human reviewer's login) — " +
+      "case-insensitive with optional trailing [bot] suffix on either side. " +
+      "Role identifiers shadow literal logins of the same name; pass the " +
+      "[bot]-suffixed form to disambiguate. Defaults to any reviewer.",
     required: false,
   },
   since: {
@@ -712,6 +719,17 @@ export const sessionPrReviewSubmitCommandParams = {
           .optional()
           .describe(
             "Replacement code for a GitHub suggestion block. Line count must match the anchored range."
+          ),
+        inReplyTo: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "When present, this comment is a REPLY to the existing review comment with this " +
+              "database ID. Obtain the ID from reviewThreads[].comments[].databaseId in " +
+              "session_pr_review_context. When inReplyTo is set, path/line/side are ignored " +
+              "by GitHub — the reply is anchored to the parent comment's location."
           ),
       })
     ),

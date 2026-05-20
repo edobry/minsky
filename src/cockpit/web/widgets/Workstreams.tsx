@@ -12,7 +12,7 @@
  * separate refactor concern per mt#1146 review feedback.
  */
 import { useState } from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server WorkstreamCard / WorkstreamsPayload shapes.
@@ -158,7 +158,7 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
             {/* Expand/collapse button */}
             <button
               onClick={() => setIsOpen((prev) => !prev)}
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded"
+              className="text-muted-foreground hover:text-foreground p-1 rounded"
               aria-label={isOpen ? "Collapse workstream" : "Expand workstream"}
             >
               <Chevron open={isOpen} />
@@ -169,17 +169,15 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
 
       {isOpen && (
         <CardContent className="pt-0">
-          <div className="space-y-1">
-            {card.children.map((child) => (
-              <div key={child.id} className="flex items-center gap-2 py-1">
-                <StatusBadge status={child.status} />
-                <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
-                  {child.id}
-                </span>
-                <span className="text-sm truncate">{child.title}</span>
-              </div>
-            ))}
-          </div>
+          {card.children.map((child) => (
+            <div key={child.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
+              <StatusBadge status={child.status} />
+              <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
+                {child.id}
+              </span>
+              <span className="text-sm truncate">{child.title}</span>
+            </div>
+          ))}
         </CardContent>
       )}
     </Card>
@@ -194,10 +192,10 @@ export function Workstreams({ data }: Props) {
   if (data.state === "degraded") {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Workstreams</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Workstreams</CardTitle>
         </CardHeader>
-        <CardContent className="text-muted-foreground">
+        <CardContent className="text-sm text-muted-foreground">
           <p>{data.reason}</p>
         </CardContent>
       </Card>
@@ -212,8 +210,8 @@ export function Workstreams({ data }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">
           Workstreams
           {workstreams.length > 0 && (
             <span className="text-sm font-normal text-muted-foreground ml-2">

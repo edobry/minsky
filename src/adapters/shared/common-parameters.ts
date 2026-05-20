@@ -279,6 +279,10 @@ export const TaskParameters = {
 
   /**
    * Task status parameter
+   *
+   * Includes all statuses across all task kinds. The gate in
+   * validateStatusTransition() enforces per-kind state machine rules —
+   * e.g., COMPLETED is valid only for umbrella tasks (mt#1812).
    */
   status: {
     schema: z.enum([
@@ -290,6 +294,7 @@ export const TaskParameters = {
       "DONE",
       "BLOCKED",
       "CLOSED",
+      "COMPLETED",
     ]),
     description: "Task status",
     required: false,

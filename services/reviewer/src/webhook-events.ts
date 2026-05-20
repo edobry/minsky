@@ -60,6 +60,135 @@ import type { ReviewerDb } from "./db/client";
 import { webhookEventsTable, type WebhookOutcome } from "./db/schemas/webhook-events-schema";
 
 // ---------------------------------------------------------------------------
+// extractPgErrorContext (mt#1849)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract structured postgres-error context from a drizzle-wrapped error.
+ *
+ * Drizzle's `postgres-js` driver throws an Error whose `.message` is the
+ * wrapped query SQL ("Failed query: insert into ..."), and whose `.cause`
+ * carries the underlying postgres-js error with structured fields:
+ *   - `code`            (e.g. "42P01" for relation-does-not-exist)
+ *   - `severity`        (e.g. "ERROR")
+ *   - `message`         (the actual postgres-side message)
+ *   - `constraint_name` (on constraint violations)
+ *   - `table_name`      (on relation-bound errors)
+ *   - `column_name`     (on column-bound errors)
+ *   - `schema_name`     (on relation-bound errors)
+ *
+ * **Phase 2 (mt#1851):** the helper now also handles two cases Phase 1 missed:
+ *   1. **Postgres fields directly on err itself** (no wrapping) — when the
+ *      thrown error IS the postgres-js `PostgresError`, fields are at the
+ *      top level. The helper now checks both `err.cause` AND `err` directly.
+ *   2. **Cause exists but lacks standard fields** — when no standard fields
+ *      are recognized (this happens when the cause's shape diverges from
+ *      `postgres-js PostgresError`), the helper surfaces `error_cause_keys`
+ *      (sorted Object.keys) and `error_cause_json` (JSON.stringify, capped at
+ *      500 chars) so production observability is never a dead-end. PR #1130's
+ *      webhook (delivery `fc841420-...`) revealed this case in production —
+ *      cause IS present, just not with the expected shape.
+ *
+ * Returns a context object suitable for spreading into the log payload.
+ * Backward-compatible: errors without `.cause` (or non-Error throws) still
+ * produce the original `error: message` field; structured fields are
+ * undefined and omitted by JSON serialization. The fallback fields
+ * (`error_cause_keys` / `error_cause_json`) only fire when standard fields
+ * weren't recognized — avoiding double-emission noise on well-behaved errors.
+ */
+const ERROR_CAUSE_JSON_MAX = 500;
+
+/**
+ * Walk a candidate postgres-error-shaped object and extract the standard
+ * fields into ctx. Returns the number of fields recognized so the caller
+ * can decide whether to invoke the fallback (keys+JSON) path.
+ */
+function extractStandardPgFields(
+  source: Record<string, unknown>,
+  ctx: Record<string, unknown>
+): number {
+  let recognized = 0;
+  if (typeof source["code"] === "string") {
+    ctx["error_code"] = source["code"];
+    recognized++;
+  }
+  if (typeof source["severity"] === "string") {
+    ctx["error_severity"] = source["severity"];
+    recognized++;
+  }
+  if (typeof source["message"] === "string") {
+    ctx["error_detail"] = source["message"];
+    recognized++;
+  }
+  if (typeof source["constraint_name"] === "string") {
+    ctx["error_constraint"] = source["constraint_name"];
+    recognized++;
+  }
+  if (typeof source["table_name"] === "string") {
+    ctx["error_table"] = source["table_name"];
+    recognized++;
+  }
+  if (typeof source["column_name"] === "string") {
+    ctx["error_column"] = source["column_name"];
+    recognized++;
+  }
+  if (typeof source["schema_name"] === "string") {
+    ctx["error_schema"] = source["schema_name"];
+    recognized++;
+  }
+  return recognized;
+}
+
+export function extractPgErrorContext(err: unknown): Record<string, unknown> {
+  const message = err instanceof Error ? err.message : String(err);
+  const ctx: Record<string, unknown> = { error: message };
+
+  if (!(err instanceof Error)) return ctx;
+
+  // (1) Check top-level fields on err itself — handles the "postgres-js
+  // PostgresError thrown directly without drizzle wrapping" case (mt#1851).
+  // GUARD: only treat err as a postgres error if it has a string `code`. Every
+  // Error has `.message` as a string, so without this guard we'd extract
+  // `error_detail` from regular Errors and break backward-compat AND prevent
+  // the cause-fallback path from firing.
+  // The cast is safe: err is already narrowed to Error, and we treat it as a
+  // generic record only to read possible postgres-js fields.
+  const errAsRecord = err as Error & Record<string, unknown>;
+  let topRecognized = 0;
+  if (typeof errAsRecord["code"] === "string") {
+    topRecognized = extractStandardPgFields(errAsRecord, ctx);
+  }
+
+  // (2) Check err.cause — drizzle's DrizzleQueryError sets this for query
+  // errors. The cause is typically the underlying postgres-js error.
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (!cause || typeof cause !== "object") return ctx;
+
+  const c = cause as Record<string, unknown>;
+  const causeRecognized = extractStandardPgFields(c, ctx);
+
+  // (3) Fallback: if NEITHER top-level NOR cause produced any recognized
+  // fields, surface diagnostic info so production observability isn't a
+  // dead-end. This was the gap mt#1851 closed — PR #1130's webhook had a
+  // cause but no fields the helper recognized.
+  if (topRecognized === 0 && causeRecognized === 0) {
+    const keys = Object.keys(c).sort();
+    ctx["error_cause_keys"] = keys;
+    let json: string;
+    try {
+      json = JSON.stringify(c);
+    } catch {
+      // Cause has circular references or unserializable values
+      json = `[unserializable: ${keys.join(",")}]`;
+    }
+    ctx["error_cause_json"] =
+      json.length > ERROR_CAUSE_JSON_MAX ? `${json.slice(0, ERROR_CAUSE_JSON_MAX - 3)}...` : json;
+  }
+
+  return ctx;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -143,11 +272,10 @@ export async function recordWebhookReceipt(
       event_type: eventType,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error("webhook_event_record_failed", {
       event: "webhook_event_record_failed",
       delivery_id: deliveryId,
-      error: message,
+      ...extractPgErrorContext(err),
     });
     // Do NOT re-throw — persistence must not crash the webhook handler.
   }
@@ -191,12 +319,11 @@ export async function updateOutcome(
       terminal: isTerminal,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error("webhook_outcome_update_failed", {
       event: "webhook_outcome_update_failed",
       delivery_id: deliveryId,
       outcome,
-      error: message,
+      ...extractPgErrorContext(err),
     });
     // Do NOT re-throw — persistence must not crash the webhook handler.
   }
@@ -230,11 +357,10 @@ export async function pruneOldRows(db: ReviewerDb, retentionDays: number = 90): 
     });
     return count;
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
     log.error("webhook_events_prune_failed", {
       event: "webhook_events_prune_failed",
       retention_days: retentionDays,
-      error: message,
+      ...extractPgErrorContext(err),
     });
     return -1;
   }

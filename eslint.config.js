@@ -26,6 +26,7 @@ import requireInjectable from "./eslint-rules/require-injectable.js";
 import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
 import noUnsafeStringTruncation from "./eslint-rules/no-unsafe-string-truncation.js";
 import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
+import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-env-var.js";
 
 export default [
   js.configs.recommended,
@@ -133,6 +134,7 @@ export default [
           "no-skipped-tests": noSkippedTests,
           "no-unsafe-string-truncation": noUnsafeStringTruncation,
           "no-escape-deploy-context": noEscapeDeployContext,
+          "no-unregistered-minsky-env-var": noUnregisteredMinskyEnvVar,
         },
       },
     },
@@ -272,6 +274,13 @@ export default [
           excludeGlobs: ["services/*/railway.config.ts"],
         },
       ],
+
+      // mt#1788 — every `process.env.MINSKY_*` read in src/ must be registered
+      // in either `environmentMappings` or `HOOK_ONLY_ENV_VARS` to prevent
+      // env-var-namespace conflicts with the config-loader's dot-path parser.
+      // Closes the ADD side of the same class as mt#1610/mt#1624 (RETIRE side
+      // covered by mt#1626 /plan-task gate criterion h).
+      "custom/no-unregistered-minsky-env-var": "error",
 
       // === SINGLETON ARCHITECTURE ===
       "custom/no-singleton-reach-in": [

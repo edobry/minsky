@@ -47,10 +47,32 @@
  *   Owner: infrastructure monitoring (mt#1310).
  * - GitHub API being unreachable (sweeper can't check PR state).
  *   Owner: infrastructure monitoring.
+ * - **Deploys where MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is unset** (mt#1811). The
+ *   sweeper defaults to enabled but cannot start without MCP credentials —
+ *   startup emits "merge_state_sweeper.missing_credentials" and returns null.
+ *   Operators must set both env vars on the deployed service. See
+ *   services/reviewer/DEPLOY.md § Recovery layer activation.
+ *
+ * ## Detection source (mt#1752)
+ *
+ * The sweeper queries **live GitHub PR state via Octokit** (`pulls.get`), NOT
+ * the stored `session.pullRequest.state` field. The stored state is only
+ * refreshed by the post-merge sync path; if that path itself fails (the
+ * problem the sweeper exists to recover from), the stored state stays at
+ * `"open"` indefinitely and the sweeper would be blind to merges. Querying
+ * GitHub directly is the only reliable detection.
+ *
+ * Origin: mt#1752 — six historical drift incidents went undetected for
+ * 5–43 hours each despite the sweeper running every 10 min, because the
+ * predicate trusted stored state.
  */
 
 import type { ReviewerConfig } from "./config";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { parsePositiveIntEnv } from "./config";
+import { callMcp } from "./mcp-client";
+import { createOctokit } from "./github-client";
+import { withTimeout, TimeoutError } from "./with-timeout";
+import type { Octokit } from "@octokit/rest";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -59,21 +81,80 @@ import { safeTruncate } from "@minsky/shared/safe-truncate";
 export interface MergeStateSweeperConfig {
   /** Sweep interval in milliseconds. Default: 600_000 (10 min). */
   intervalMs: number;
-  /** Whether the sweeper is enabled. Default: false. */
+  /**
+   * Whether the sweeper is enabled. Default: true (flipped from false on mt#1811).
+   *
+   * The sweeper is mt#1614's load-bearing recovery mechanism for bypass-merge state-sync
+   * drift. Defaulting to disabled silently strands sessions whose webhook delivery missed.
+   * Operators can still explicitly opt out via MERGE_STATE_SWEEPER_ENABLED=false.
+   */
   enabled: boolean;
   /** Minsky MCP endpoint URL. */
   mcpUrl: string;
   /** Minsky MCP authentication token. */
   mcpToken: string;
+  /**
+   * Owner of the target GitHub repo. Reads `SWEEPER_REPO_OWNER` for parity with the
+   * sibling `sweeper.ts` (missed-review sweeper); defaults to `"edobry"` since both
+   * sweepers operate on the same repo in production. mt#1752.
+   */
+  owner: string;
+  /**
+   * Name of the target GitHub repo. Reads `SWEEPER_REPO_NAME` for parity with the
+   * sibling `sweeper.ts`; defaults to `"minsky"`. mt#1752.
+   */
+  repo: string;
+  /**
+   * True when `owner` was not explicitly set in the env and the default was used.
+   * Surfaced in the `merge_state_sweeper.started` log so operators can audit silent
+   * mis-targeting risk in non-Minsky deployments. PR #1116 R1 BLOCKING.
+   */
+  ownerDefaulted: boolean;
+  /**
+   * True when `repo` was not explicitly set in the env and the default was used.
+   * Surfaced in the `merge_state_sweeper.started` log. PR #1116 R1 BLOCKING.
+   */
+  repoDefaulted: boolean;
+  /**
+   * Per-call timeout for `octokit.rest.pulls.get` in milliseconds. A hung GitHub
+   * request would otherwise block the entire `Promise.all` chunk and leave
+   * `isRunning=true`, causing subsequent cycles to be skipped as `skip_reentrant`
+   * — effectively disabling the backstop until the request resolves. PR #1116 R1
+   * BLOCKING. Reads `MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS`; defaults to 30s
+   * (same baseline as `REVIEWER_GITHUB_TIMEOUT_MS` in `github-client.ts`).
+   */
+  githubTimeoutMs: number;
 }
 
 export function loadMergeStateSweeperConfig(): MergeStateSweeperConfig {
+  const ownerEnv = process.env["SWEEPER_REPO_OWNER"];
+  const repoEnv = process.env["SWEEPER_REPO_NAME"];
   return {
     // 10-minute default: see cadence rationale in module docstring.
-    intervalMs: parseInt(process.env["MERGE_STATE_SWEEPER_INTERVAL_MS"] ?? "600000", 10),
-    enabled: (process.env["MERGE_STATE_SWEEPER_ENABLED"] ?? "false") === "true",
+    // Strict-positive parse (mt#1811 R1 BLOCKING fix): now that the sweeper
+    // defaults to enabled, a misconfigured interval would feed NaN to
+    // setInterval and produce a tight CPU loop. parsePositiveIntEnv throws
+    // at boot time on any non-positive-integer value, making misconfiguration
+    // a clear startup error instead.
+    intervalMs: parsePositiveIntEnv("MERGE_STATE_SWEEPER_INTERVAL_MS", 600_000),
+    // Default to enabled (mt#1811). If MCP creds are absent, startMergeStateSweeper
+    // emits "missing_credentials" and refuses to start — no behavior regression for
+    // deploys without the credentials, but a clear log signal instead of silent disable.
+    enabled: (process.env["MERGE_STATE_SWEEPER_ENABLED"] ?? "true") === "true",
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
+    // Reuse the sibling sweeper's env vars — both sweepers run against the same repo.
+    // mt#1752.
+    owner: ownerEnv ?? "edobry",
+    repo: repoEnv ?? "minsky",
+    // PR #1116 R1 BLOCKING: surface when defaults are in effect so silent mis-targeting
+    // in non-Minsky deployments produces an operator-visible signal at boot.
+    ownerDefaulted: ownerEnv === undefined,
+    repoDefaulted: repoEnv === undefined,
+    // PR #1116 R1 BLOCKING: bounded timeout for octokit.rest.pulls.get. Strict-positive
+    // parse so misconfiguration produces a clear boot-time error rather than NaN/Infinity
+    // flowing into the AbortController.
+    githubTimeoutMs: parsePositiveIntEnv("MERGE_STATE_SWEEPER_GITHUB_TIMEOUT_MS", 30_000),
   };
 }
 
@@ -111,9 +192,31 @@ interface SessionListItem {
 }
 
 /**
- * Call a Minsky MCP tool via HTTP (same pattern as pr-watch-scheduler.ts).
+ * Call a Minsky MCP tool via HTTP.
  *
- * Returns the parsed result.content[0].text value, or null on error.
+ * Thin adapter over the shared {@link callMcp} helper (mt#1821) — preserves
+ * the legacy `string | null` return shape so the sweeper callsites don't
+ * change. The shared helper handles the initialize handshake and session-id
+ * caching, which prior to mt#1821 was missing here and caused every sweep
+ * cycle to fail with `-32600 "first request must be initialize"`.
+ *
+ * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+ * implementation. Passed explicitly (not relying on the helper's default)
+ * so any future change to the helper's default does not silently regress
+ * the sweeper's prior behavior.
+ *
+ * Observability: `callMcp` emits structured `console.warn` events with the
+ * `merge_state_sweeper.mcp` prefix. The event name suffixes are
+ * `_init_fetch_error`, `_init_http_error`, `_init_no_session_id`,
+ * `_init_notif_failed`, `_session_expired_retrying`, `_fetch_error`,
+ * `_http_error`, `_body_read_error`, `_parse_error`, `_rpc_error`, and
+ * `_tool_error`. The original
+ * `merge_state_sweeper.mcp_{http_error,rpc_error,fetch_error}` events are
+ * preserved at the same prefix; additional more-granular handshake events
+ * are added.
+ *
+ * Returns the concatenated text content from the tool result, or null on
+ * any error (transport / RPC / tool-level).
  */
 async function callMcpTool(
   mcpUrl: string,
@@ -121,103 +224,13 @@ async function callMcpTool(
   toolName: string,
   args: Record<string, unknown>
 ): Promise<string | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
-  try {
-    let response: Response;
-    try {
-      response = await fetch(mcpUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${mcpToken}`,
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: `merge-state-sweeper-${Date.now()}`,
-          method: "tools/call",
-          params: { name: toolName, arguments: args },
-        }),
-        signal: controller.signal,
-      });
-    } catch (fetchErr) {
-      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.mcp_fetch_error",
-          tool: toolName,
-          error: msg,
-        })
-      );
-      return null;
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "(unreadable)");
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.mcp_http_error",
-          tool: toolName,
-          status: response.status,
-          body: safeTruncate(text, 200, "head"),
-        })
-      );
-      return null;
-    }
-
-    const raw = await response.text().catch(() => null);
-    if (!raw) return null;
-
-    // Handle SSE (text/event-stream) or plain JSON responses.
-    const trimmed = raw.trim();
-    let jsonText: string | null = null;
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      jsonText = trimmed;
-    } else {
-      // SSE: extract last data: line
-      let last: string | null = null;
-      for (const line of trimmed.split("\n")) {
-        const stripped = line.trim();
-        if (stripped.startsWith("data:")) {
-          const payload = stripped.slice("data:".length).trim();
-          if (payload.startsWith("{") || payload.startsWith("[")) {
-            last = payload;
-          }
-        }
-      }
-      jsonText = last;
-    }
-
-    if (!jsonText) return null;
-
-    const parsed = JSON.parse(jsonText) as {
-      result?: { content?: Array<{ type?: string; text?: string }> };
-      error?: { message?: string };
-    };
-
-    if (parsed.error) {
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.mcp_rpc_error",
-          tool: toolName,
-          error: parsed.error.message,
-        })
-      );
-      return null;
-    }
-
-    // Concatenate all text chunks (handles multi-chunk responses).
-    const chunks = (parsed.result?.content ?? [])
-      .filter(
-        (c): c is { type: string; text: string } => c?.type === "text" && typeof c.text === "string"
-      )
-      .map((c) => c.text);
-
-    return chunks.length > 0 ? chunks.join("") : null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const result = await callMcp(
+    toolName,
+    args,
+    { mcpUrl, mcpToken },
+    { logPrefix: "merge_state_sweeper.mcp", timeoutMs: 15_000 }
+  );
+  return result.ok ? result.contentText : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,16 +242,24 @@ async function callMcpTool(
  *
  * 1. List all sessions (status=PR_OPEN filter via MCP session.list).
  * 2. For each PR_OPEN session with a recorded pullRequest.number, call
- *    session.pr.get to check current GitHub state.
- * 3. If PR is closed+merged on GitHub, call session.apply_post_merge_state_sync.
+ *    `octokit.rest.pulls.get` to fetch LIVE GitHub PR state (mt#1752 —
+ *    previously used `session.pr.get` which returns stored, never-refreshed
+ *    state and made this sweeper structurally blind to merged PRs).
+ *    The call is wrapped in `withTimeout` + `AbortSignal` (PR #1116 R1) so a
+ *    hung GitHub request cannot deadlock the cycle and block subsequent ticks.
+ * 3. If PR is merged on GitHub, call session.apply_post_merge_state_sync.
  *
  * NOTE: session.apply_post_merge_state_sync is an MCP tool added by this
  * task (mt#1614). If the MCP server doesn't yet expose it, the sweeper
  * falls back to logging the unsynced sessions for manual repair.
  */
 export async function runMergeStateSweep(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
   mcpUrl: string,
-  mcpToken: string
+  mcpToken: string,
+  githubTimeoutMs: number
 ): Promise<MergeStateSweepResult> {
   const startedAt = new Date().toISOString();
   const result: MergeStateSweepResult = {
@@ -298,8 +319,8 @@ export async function runMergeStateSweep(
     })
   );
 
-  // Step 2: For each PR_OPEN session with a pullRequest, check GitHub state.
-  // Cap concurrency at 3 to avoid rate-limiting the MCP server.
+  // Step 2: For each PR_OPEN session with a pullRequest, check LIVE GitHub state.
+  // Cap concurrency at 3 to avoid rate-limiting GitHub.
   const CONCURRENCY = 3;
   const chunks: SessionListItem[][] = [];
   for (let i = 0; i < sessions.length; i += CONCURRENCY) {
@@ -317,50 +338,50 @@ export async function runMergeStateSweep(
         }
 
         try {
-          // Step 2a: Fetch current PR state from GitHub via session.pr.get.
-          // The MCP command reads `params.sessionId` (not `params.session`).
-          // PR #1010 R2 fix.
-          const prGetText = await callMcpTool(mcpUrl, mcpToken, "session.pr.get", {
-            sessionId,
-          });
+          // Step 2a: Fetch LIVE GitHub PR state via Octokit (mt#1752).
+          //
+          // Previously called `session.pr.get` which returns the *stored*
+          // session.pullRequest record — never refreshed post-merge for
+          // sessions whose webhook handler didn't update the record. This
+          // made the sweeper a passive observer of stored state rather than
+          // an active recovery layer. GitHub is the authoritative source for
+          // PR merge state; query it directly.
+          //
+          // Wrapped in withTimeout + AbortSignal (PR #1116 R1 BLOCKING): a
+          // hung GitHub request would otherwise block this Promise.all chunk
+          // and leave isRunning=true on the parent interval, causing
+          // subsequent ticks to log skip_reentrant — effectively disabling
+          // the backstop until the request resolves. The signal is
+          // propagated into Octokit via `request: { signal }` so the
+          // underlying fetch is cooperatively cancelled.
+          const pullNumber = session.pullRequest.number;
+          const { data: livePr } = await withTimeout(
+            "github.pulls.get",
+            githubTimeoutMs,
+            (signal) =>
+              octokit.rest.pulls.get({
+                owner,
+                repo,
+                pull_number: pullNumber,
+                request: { signal },
+              })
+          );
 
-          if (!prGetText) {
-            // Non-fatal: skip this session.
+          if (!livePr.merged) {
+            // PR is not merged on GitHub (still open or closed without merge). Skip.
             return;
           }
 
-          const prData = JSON.parse(prGetText) as {
-            success?: boolean;
-            pullRequest?: {
-              state?: string;
-              merged?: boolean;
-              mergedAt?: string;
-              mergeSha?: string;
-            };
-          };
-
-          const pr = prData.pullRequest;
-          if (!pr) return;
-
-          const isMerged =
-            pr.merged === true ||
-            pr.state === "merged" ||
-            (pr.state === "closed" && pr.mergedAt != null);
-
-          if (!isMerged) {
-            // PR is not merged (still open or closed without merge). Skip.
-            return;
-          }
-
-          // Step 3: PR is closed-merged but session is still PR_OPEN — trigger sync.
+          // Step 3: PR is merged but session is still PR_OPEN — trigger sync.
           result.missedSyncs++;
           console.warn(
             JSON.stringify({
               event: "merge_state_sweeper.missed_sync_detected",
               sessionId,
               taskId: session.taskId,
-              prState: pr.state,
-              mergedAt: pr.mergedAt,
+              prNumber: session.pullRequest.number,
+              mergedAt: livePr.merged_at,
+              mergeSha: livePr.merge_commit_sha,
             })
           );
 
@@ -373,8 +394,8 @@ export async function runMergeStateSweep(
             "session.apply_post_merge_state_sync",
             {
               sessionId,
-              mergeSha: pr.mergeSha,
-              mergedAt: pr.mergedAt,
+              mergeSha: livePr.merge_commit_sha ?? undefined,
+              mergedAt: livePr.merged_at ?? undefined,
               trigger: "sweeper",
             }
           );
@@ -386,7 +407,7 @@ export async function runMergeStateSweep(
                 event: "merge_state_sweeper.sync_triggered",
                 sessionId,
                 taskId: session.taskId,
-                mergedAt: pr.mergedAt,
+                mergedAt: livePr.merged_at,
               })
             );
           } else {
@@ -403,10 +424,16 @@ export async function runMergeStateSweep(
           }
         } catch (sessionErr) {
           const msg = sessionErr instanceof Error ? sessionErr.message : String(sessionErr);
+          // Surface timeout errors with a dedicated event so operators can
+          // distinguish slow-GitHub from other failures. PR #1116 R1.
+          const eventName =
+            sessionErr instanceof TimeoutError
+              ? "merge_state_sweeper.session_timeout"
+              : "merge_state_sweeper.session_error";
           result.errors.push(`Error processing session ${sessionId}: ${msg}`);
           console.warn(
             JSON.stringify({
-              event: "merge_state_sweeper.session_error",
+              event: eventName,
               sessionId,
               error: msg,
             })
@@ -445,14 +472,19 @@ export async function runMergeStateSweep(
  * Start the merge-state sweeper on an in-process interval.
  *
  * Same pattern as sweeper.ts (mt#1260) and pr-watch-scheduler.ts (mt#1618).
- * Opt-in via MERGE_STATE_SWEEPER_ENABLED=true (disabled by default).
- * Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN.
+ * **Enabled by default (mt#1811)**: explicit opt-out via
+ * `MERGE_STATE_SWEEPER_ENABLED=false`. Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN
+ * to start — without them, logs `missing_credentials` and returns null.
  *
  * Cadence: 10 min by default (MERGE_STATE_SWEEPER_INTERVAL_MS). See module
  * docstring for calibration rationale.
+ *
+ * Per mt#1752, the sweep now queries live GitHub state via Octokit. The
+ * Octokit client is created lazily on the first cycle to keep startup
+ * non-blocking, then reused across cycles.
  */
 export function startMergeStateSweeper(
-  _config: ReviewerConfig,
+  config: ReviewerConfig,
   sweeperConfig: MergeStateSweeperConfig
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
@@ -470,7 +502,7 @@ export function startMergeStateSweeper(
       JSON.stringify({
         event: "merge_state_sweeper.missing_credentials",
         message:
-          "MERGE_STATE_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+          "MERGE_STATE_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
           "Merge-state sweeper will not start.",
       })
     );
@@ -482,10 +514,39 @@ export function startMergeStateSweeper(
       event: "merge_state_sweeper.started",
       intervalMs: sweeperConfig.intervalMs,
       mcpUrl: sweeperConfig.mcpUrl,
+      owner: sweeperConfig.owner,
+      repo: sweeperConfig.repo,
+      ownerDefaulted: sweeperConfig.ownerDefaulted,
+      repoDefaulted: sweeperConfig.repoDefaulted,
+      githubTimeoutMs: sweeperConfig.githubTimeoutMs,
     })
   );
 
+  // PR #1116 R1 BLOCKING: when owner/repo were silently defaulted, emit a
+  // structured warning at boot. In non-Minsky deployments this would otherwise
+  // silently target edobry/minsky and never produce a high-signal log line.
+  if (sweeperConfig.ownerDefaulted || sweeperConfig.repoDefaulted) {
+    console.warn(
+      JSON.stringify({
+        event: "merge_state_sweeper.using_default_repo_coordinates",
+        owner: sweeperConfig.owner,
+        repo: sweeperConfig.repo,
+        ownerDefaulted: sweeperConfig.ownerDefaulted,
+        repoDefaulted: sweeperConfig.repoDefaulted,
+        message:
+          "merge-state sweeper is using default repo coordinates. " +
+          "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
+          "to avoid silently sweeping the wrong repository.",
+      })
+    );
+  }
+
   let isRunning = false;
+  // Lazy Octokit creation — first cycle pays the auth-handshake cost;
+  // subsequent cycles reuse the client. createOctokit returns short-lived
+  // installation tokens that refresh internally, so a single instance is
+  // safe across many cycles.
+  let octokitPromise: Promise<Octokit> | null = null;
 
   const handle = setInterval(() => {
     if (isRunning) {
@@ -499,7 +560,20 @@ export function startMergeStateSweeper(
     }
     isRunning = true;
 
-    runMergeStateSweep(sweeperConfig.mcpUrl, sweeperConfig.mcpToken)
+    (async () => {
+      if (!octokitPromise) {
+        octokitPromise = createOctokit(config);
+      }
+      const octokit = await octokitPromise;
+      return runMergeStateSweep(
+        octokit,
+        sweeperConfig.owner,
+        sweeperConfig.repo,
+        sweeperConfig.mcpUrl,
+        sweeperConfig.mcpToken,
+        sweeperConfig.githubTimeoutMs
+      );
+    })()
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         console.error(
@@ -508,6 +582,11 @@ export function startMergeStateSweeper(
             error: message,
           })
         );
+        // Reset octokitPromise on auth-class errors so the next cycle re-authenticates.
+        // (createOctokit throws if the app credentials are invalid; we let it retry.)
+        if (/auth|credentials|401|403/i.test(message)) {
+          octokitPromise = null;
+        }
       })
       .finally(() => {
         isRunning = false;

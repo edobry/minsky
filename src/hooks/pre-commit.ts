@@ -9,8 +9,16 @@
 
 import { execAsync } from "../utils/exec";
 import { execGitWithTimeout } from "../utils/git-exec";
+import { stat } from "fs/promises";
+import { join } from "path";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
+import {
+  detectNulByteViolations,
+  isPathAllowlisted,
+  isOverrideTruthy,
+  NUL_BYTE_CHECK_OVERRIDE_ENV,
+} from "./nul-byte-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -82,6 +90,15 @@ export class PreCommitHook {
       const nodeShimResult = await this.runNodeShimCheck();
       if (!nodeShimResult.success) {
         return nodeShimResult;
+      }
+
+      // Step 3b: NUL-byte detection — reject any tracked text file containing
+      // a literal 0x00 byte (mt#1824). Closes the gate-gap exposed by mt#1821
+      // / PR #1107 R1 where a JSON-escaped U+0000 landed on disk inside a TS
+      // template literal and slipped past every other quality gate.
+      const nulByteResult = await this.runNulByteCheck();
+      if (!nulByteResult.success) {
+        return nulByteResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -402,16 +419,24 @@ export class PreCommitHook {
       const violations: string[] = [];
 
       for (const file of stagedFiles) {
-        // Read the staged content (index version, not working tree)
+        // Read the staged content (index version, not working tree).
+        // Use `gitShowStagedBytes` (argv-based, no shell) for the same
+        // safety reasons documented on `runNulByteCheck`: file names with
+        // shell metacharacters cannot break the command or enable
+        // injection. Raw bytes are decoded to utf-8 string for the
+        // shebang / `npm run` / `npx` regex scans (this check operates
+        // on text content, not byte content). Class-not-instance sweep
+        // alongside PR #1110 R1 BLOCKING #1.
         let content: string;
         try {
-          const catResult = await execGitWithTimeout("show", `show :${file}`, {
-            workdir: this.projectRoot,
-            timeout: 5000,
-          });
-          content = catResult.stdout.toString();
+          const bytes = await this.gitShowStagedBytes(file);
+          // TextDecoder rather than Buffer.toString("utf8") because the
+          // project's Buffer stub doesn't accept encoding args; the runtime
+          // result is equivalent. fatal: false keeps the lossy-decode
+          // behavior that this check expects (it scans for ASCII patterns).
+          content = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
         } catch {
-          // File may be binary or unavailable — skip
+          // File may be binary, gitlink, or unavailable — skip
           continue;
         }
 
@@ -475,6 +500,180 @@ export class PreCommitHook {
       return {
         success: false,
         message: `Node shim check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
+   * Scan staged files for NUL bytes (0x00) and block the commit if any
+   * tracked text file contains one.
+   *
+   * Closes the gate-gap exposed by mt#1821 / PR #1107 R1: a JSON-escaped
+   * U+0000 in a `session_write_file` content parameter landed as a literal
+   * NUL byte inside a TypeScript template literal and slipped past tsc,
+   * eslint, prettier, bun test, CI build, and CI bundle-boot-smoke. Git's
+   * binary-file detector and the reviewer-bot's diff renderer were the
+   * only gates that caught it — at review time, not commit time.
+   *
+   * Allowlist:
+   *   - `KNOWN_BINARY_EXTENSIONS` (png / woff / so / etc.) — NULs expected.
+   *   - `FIXTURE_PATH_PREFIXES` (tests/fixtures/) — regression fixtures may
+   *     legitimately contain NUL bytes.
+   *
+   * Override: setting `MINSKY_SKIP_NUL_CHECK` to `1` / `true` / `yes` skips
+   * the check and emits a one-line audit message to stdout.
+   *
+   * See `feedback_json_tool_writes_interpret_unicode_escapes` (b7e2f8ef)
+   * for the originating-incident context, and `src/hooks/nul-byte-detector.ts`
+   * for the pure-function implementation that this method wraps.
+   */
+  /**
+   * Fetch the staged blob for `file` as raw bytes using `Bun.spawn` with
+   * argv (no shell). Replaces `execGitWithTimeout(... `git show :${file}`)`
+   * for the NUL-byte check specifically to address two reviewer-bot
+   * BLOCKING findings on PR #1110 R1:
+   *
+   *   1. Shell-interpolation safety: the legacy path embedded the file
+   *      name into a single shell command string. Filenames containing
+   *      spaces, quotes, colons, or shell metacharacters could break the
+   *      command or enable argument injection. Argv bypasses shell
+   *      parsing entirely — git receives each argument as a literal
+   *      C-string from `execvp`.
+   *   2. Byte fidelity: the legacy path returned utf-8 decoded strings.
+   *      Re-encoding via `Buffer.from(string)` corrupts non-UTF-8 byte
+   *      sequences and shifts the reported byte offset of the first NUL.
+   *      `Bun.spawn` with `stdout: "pipe"` plus `arrayBuffer()` returns
+   *      the exact bytes git produced — necessary for the spec's
+   *      "byte offset of first NUL" guarantee to be correct for any
+   *      encoding.
+   *
+   * Throws on non-zero exit (gitlinks, deleted-then-modified edge cases,
+   * etc.); callers handle via `Promise.allSettled`.
+   */
+  private async gitShowStagedBytes(file: string): Promise<Buffer> {
+    const TIMEOUT_MS = 5000;
+    const proc = Bun.spawn(["git", "-C", this.projectRoot, "show", `:${file}`], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => proc.kill(), TIMEOUT_MS);
+    try {
+      const bytesPromise = new Response(proc.stdout).arrayBuffer();
+      const exitCode = await proc.exited;
+      if (exitCode !== 0) {
+        // Drain stderr for diagnostics, but don't block on it indefinitely.
+        const stderrText = await new Response(proc.stderr).text();
+        throw new Error(
+          `git show :${file} exited ${exitCode}: ${stderrText.trim() || "no stderr"}`
+        );
+      }
+      const bytes = await bytesPromise;
+      // eslint-disable-next-line custom/no-excessive-as-unknown -- Bun's Buffer.from accepts ArrayBuffer at runtime; project's Buffer stub is narrowed to string | any[] for portability with the Bun-light TS environment, so the cast is required to bridge the typing gap.
+      return Buffer.from(bytes as unknown as number[]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async runNulByteCheck(): Promise<HookResult> {
+    log.cli("Checking staged files for NUL bytes...");
+
+    if (isOverrideTruthy(process.env[NUL_BYTE_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:nul-byte-check] override ${NUL_BYTE_CHECK_OVERRIDE_ENV}=${process.env[NUL_BYTE_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — NUL-byte check skipped`
+      );
+      return { success: true, message: "NUL-byte check skipped via override", exitCode: 0 };
+    }
+
+    try {
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-only --diff-filter=ACM",
+        { workdir: this.projectRoot, timeout: 5000 }
+      );
+
+      const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (stagedFiles.length === 0) {
+        log.cli("No staged files — skipping NUL-byte check.");
+        return { success: true, message: "No staged files to check", exitCode: 0 };
+      }
+
+      // Filter allowlisted paths up-front so we never even fetch their content.
+      const candidates = stagedFiles.filter((f) => !isPathAllowlisted(f));
+
+      // Fetch staged blobs in parallel via `Bun.spawn` with argv. Two
+      // reasons (PR #1110 R1 reviewer-bot, both BLOCKING):
+      //   1. Argv bypasses shell parsing — file paths with spaces, quotes,
+      //      colons, or shell metacharacters cannot break the command or
+      //      enable argument injection. `execGitWithTimeout` interpolates
+      //      into a single shell string, which is unsafe for untrusted
+      //      paths (staged file names are operator-controlled but a hostile
+      //      filename in a contributor's repo could still cause damage).
+      //   2. Raw-bytes stdout — `execGitWithTimeout` returns utf-8 decoded
+      //      strings, which corrupts non-UTF-8 byte sequences and shifts
+      //      the reported byte offset of the first NUL. The spec requires
+      //      the offset to be the TRUE byte offset in the staged blob.
+      //
+      // `Promise.allSettled` so a single bad path (gitlink, etc.) doesn't
+      // kill the rest.
+      const results = await Promise.allSettled(
+        candidates.map((file) => this.gitShowStagedBytes(file))
+      );
+
+      const stagedContent = new Map<string, Buffer>();
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r === undefined || r.status !== "fulfilled") continue;
+        const file = candidates[i];
+        if (file === undefined) continue;
+        stagedContent.set(file, r.value);
+      }
+
+      const violations = detectNulByteViolations(stagedContent);
+
+      if (violations.length === 0) {
+        log.cli(`No NUL bytes detected in ${candidates.length} staged text file(s).`);
+        return { success: true, message: "NUL-byte check passed", exitCode: 0 };
+      }
+
+      log.cli("");
+      log.cli("NUL byte(s) detected in staged text files. Commit blocked.");
+      log.cli("");
+      for (const v of violations) {
+        log.cli(`   ${v.path}: first NUL byte at offset ${v.offset}`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli("   - Tracking task:        mt#1824");
+      log.cli("   - Originating incident: mt#1821 / PR #1107 R1");
+      log.cli(
+        "   - Memory:               feedback_json_tool_writes_interpret_unicode_escapes (b7e2f8ef)"
+      );
+      log.cli("");
+      log.cli("Common cause: a JSON-parameterized file-write tool received a content");
+      log.cli('   string with a "\\u0000" escape. JSON parsing converts the escape to');
+      log.cli("   a literal NUL byte BEFORE writing to disk. Pick a printable separator");
+      log.cli("   instead (e.g. a pipe, colon, or multi-char string).");
+      log.cli("");
+      log.cli(
+        `If a NUL byte is legitimate (rare), set ${NUL_BYTE_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `NUL bytes detected in ${violations.length} file(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`NUL-byte check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `NUL-byte check failed: ${errorMsg}`,
         exitCode: 1,
       };
     }
@@ -571,11 +770,30 @@ export class PreCommitHook {
 
       const nonExecutable: string[] = [];
       for (const file of hookFiles) {
-        const stat = await execAsync(`test -x "${file}" && echo ok || echo no`, {
-          cwd: this.projectRoot,
-          timeout: 2000,
-        });
-        if (stat.stdout.toString().trim() !== "ok") {
+        // Use fs.stat programmatically instead of `execAsync("test -x \"${file}\" ...")`
+        // (mt#1829): file paths from `git diff --cached --name-only` are
+        // git-controlled and may contain shell metacharacters. Programmatic
+        // stat avoids /bin/sh entirely. mode & 0o100 checks the owner-execute
+        // bit, which matches `test -x` for files the developer owns.
+        //
+        // PR #1122 R1: paths from `git diff` are repository-relative, so resolve
+        // them against projectRoot before stat. The prior execAsync call used
+        // `cwd: this.projectRoot` which made the shell resolve relative paths;
+        // fs.stat resolves against process.cwd() so we must join explicitly.
+        let mode: number | undefined;
+        try {
+          const st = await stat(join(this.projectRoot, file));
+          mode = st.mode;
+        } catch (err) {
+          // ENOENT = file staged-then-deleted in the working tree between
+          // diff and stat. Treat as "no check needed"; the git index will
+          // commit whatever permission is recorded there.
+          if ((err as NodeJS.ErrnoException)?.code === "ENOENT") {
+            continue;
+          }
+          throw err;
+        }
+        if ((mode & 0o100) === 0) {
           nonExecutable.push(file);
         }
       }
@@ -718,24 +936,106 @@ export class PreCommitHook {
 
     for (const target of targetsToCheck) {
       try {
+        // mt#1829: `target` is from the locally-built `targetsToCheck` array
+        // which contains only the hardcoded values "claude.md", "agents.md",
+        // and "cursor-rules" (set earlier in this function from
+        // existsSync/readdir checks). Bounded enum, no shell metacharacters
+        // possible — no safeShellQuote needed.
         await execAsync(`bun run src/cli.ts rules compile --check --target ${target}`, {
           cwd: this.projectRoot,
           timeout: 30000,
         });
       } catch (error) {
-        log.cli(`❌ Rules compile output for target "${target}" is stale.`);
-        log.cli(`💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`);
-        return {
-          success: false,
-          message: `Rules compile output for target "${target}" is stale`,
-          exitCode: 1,
-        };
+        const result = classifyCompileCheckError(error, target);
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
       }
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+}
+
+/**
+ * Classify a failed `rules compile --check` subprocess error as either genuine
+ * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ *
+ * When the CLI detects stale output it prints a `[rules compile --check]` /
+ * `is STALE` marker to stdout before throwing. Any other non-zero exit means
+ * the compile command itself failed — telling the operator to "regenerate"
+ * would be misleading because the same error will recur.
+ *
+ * Exported for unit testing; not part of the public hook API.
+ */
+export function classifyCompileCheckError(
+  error: unknown,
+  target: string
+): { logLines: string[]; message: string } {
+  const execError = error as { stdout?: string; stderr?: string };
+  const stdout = execError.stdout ?? "";
+  const stderr = execError.stderr ?? "";
+
+  // The CLI emits a line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE
+  // to stdout only when it has verified the output is out-of-date. Match this
+  // with a per-target line-anchored regex so that near-misses (e.g. a note
+  // about "previous run detected STALE files", or a STALE marker for a
+  // different target) do not count.
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const staleLineRe = new RegExp(
+    `\\[rules compile --check\\] Target "${escapedTarget}" is STALE`,
+    "m"
+  );
+  const isGenuinelyStale = staleLineRe.test(stdout);
+
+  if (isGenuinelyStale) {
+    return {
+      logLines: [
+        `❌ Rules compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`,
+      ],
+      message: `Rules compile output for target "${target}" is stale`,
+    };
+  }
+
+  // Compile command errored. Surface the actual error so the operator knows
+  // what to fix — re-running "rules compile" will NOT help.
+  const rawDetail = stderr.trim() || stdout.trim();
+  const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
+
+  // Detect setup-incomplete: the CLI emits "Validation error: Developer setup incomplete"
+  // when the Minsky setup has not been run. Telling the operator to "regenerate" is
+  // misleading in that case — the correct action is to run the setup command.
+  const isSetupIncomplete = /Validation error: Developer setup incomplete/i.test(errorDetail);
+
+  const indented = errorDetail
+    .split("\n")
+    .map((line) => `   ${line}`)
+    .join("\n");
+
+  if (isSetupIncomplete) {
+    return {
+      logLines: [
+        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        indented,
+        `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
+        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+      ],
+      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+    };
+  }
+
+  return {
+    logLines: [
+      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      indented,
+      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+    ],
+    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+  };
 }
 
 // CLI entry point

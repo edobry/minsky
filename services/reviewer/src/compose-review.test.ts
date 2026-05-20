@@ -17,6 +17,13 @@ import { describe, test, expect } from "bun:test";
 import { composeReviewBody } from "./compose-review";
 import type { ReviewToolCall } from "./output-tools";
 
+// Tool name constants — prevents magic-string-duplication lint warnings.
+const TOOL_SUBMIT_FINDING = "submit_finding";
+const TOOL_SUBMIT_INLINE_COMMENT = "submit_inline_comment";
+const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
+const TOOL_CONCLUDE_REVIEW = "conclude_review";
+const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
+
 // ---------------------------------------------------------------------------
 // Test 1: Three findings + conclude APPROVE → body has summary, ordered
 //         findings (BLOCKING, NON-BLOCKING, PRE-EXISTING), event APPROVE
@@ -26,7 +33,7 @@ describe("composeReviewBody", () => {
     const approvalSummary = "Overall the PR looks good.";
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/foo.ts",
@@ -36,7 +43,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "PRE-EXISTING",
           file: "src/bar.ts",
@@ -46,7 +53,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/baz.ts",
@@ -56,7 +63,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: approvalSummary,
@@ -90,7 +97,7 @@ describe("composeReviewBody", () => {
   test("2: two findings + inline comment + spec verification + REQUEST_CHANGES", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/a.ts",
@@ -100,7 +107,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/b.ts",
@@ -110,7 +117,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_inline_comment",
+        name: TOOL_SUBMIT_INLINE_COMMENT,
         args: {
           file: "src/c.ts",
           line: 42,
@@ -118,7 +125,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_spec_verification",
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
         args: {
           criterion: "Exports composeReviewBody",
           status: "Met",
@@ -126,7 +133,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "There is a blocking null pointer issue that must be fixed.",
@@ -158,7 +165,7 @@ describe("composeReviewBody", () => {
   test("3: no conclude_review with BLOCKING finding → event REQUEST_CHANGES, warning with severity counts", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/x.ts",
@@ -191,7 +198,7 @@ describe("composeReviewBody", () => {
   test("3b: no conclude_review with only NON-BLOCKING findings → event COMMENT, warning with counts", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/a.ts",
@@ -201,7 +208,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/b.ts",
@@ -241,7 +248,7 @@ describe("composeReviewBody", () => {
   test("5: multi-line range finding renders file:line-lineEnd", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/range.ts",
@@ -252,7 +259,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Refactoring needed.",
@@ -272,7 +279,7 @@ describe("composeReviewBody", () => {
   test("6: severity ordering — stable sort within severity buckets", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "a.ts",
@@ -282,7 +289,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "PRE-EXISTING",
           file: "b.ts",
@@ -292,7 +299,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "c.ts",
@@ -302,7 +309,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "d.ts",
@@ -312,7 +319,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Multiple issues found.",
@@ -347,14 +354,14 @@ describe("composeReviewBody", () => {
   test("7: multiple conclude_review calls → uses last one", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: "First summary — should be overridden.",
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Second summary — this is the final verdict.",
@@ -375,7 +382,7 @@ describe("composeReviewBody", () => {
   test("8: pipe characters in spec-verification cells are escaped", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_spec_verification",
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
         args: {
           criterion: "Handle A | B | C cases",
           status: "Met",
@@ -383,7 +390,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: "All criteria met.",
@@ -428,7 +435,7 @@ describe("composeReviewBody", () => {
   test("3d: conclude_review present with BLOCKING findings → derived path not taken, conclude_review.event wins", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/y.ts",
@@ -438,7 +445,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "APPROVE",
           summary: "Reviewer explicitly approved despite findings.",
@@ -457,12 +464,94 @@ describe("composeReviewBody", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Test 10: submit_thread_resolve calls → collected in threadResolves, NOT in body
+  // -------------------------------------------------------------------------
+  test("10: submit_thread_resolve tool calls are collected in threadResolves, not rendered in body", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_THREAD_RESOLVE,
+        args: { threadId: "PRRT_kwABCD", reason: "fix verified — see commit abc123" },
+      },
+      {
+        name: TOOL_SUBMIT_THREAD_RESOLVE,
+        args: { threadId: "PRRT_kwEFGH", reason: "outdated — function was deleted" },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "All prior findings resolved." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.threadResolves).toHaveLength(2);
+    expect(result.threadResolves[0]).toEqual({
+      threadId: "PRRT_kwABCD",
+      reason: "fix verified — see commit abc123",
+    });
+    expect(result.threadResolves[1]).toEqual({
+      threadId: "PRRT_kwEFGH",
+      reason: "outdated — function was deleted",
+    });
+    // Thread resolve entries must NOT appear in the review body
+    expect(result.body).not.toContain("PRRT_kwABCD");
+    expect(result.body).not.toContain("PRRT_kwEFGH");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 11: submit_inline_comment with inReplyTo → preserved in inlineComments
+  // -------------------------------------------------------------------------
+  test("11: inReplyTo on submit_inline_comment is preserved in composed inlineComments", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_INLINE_COMMENT,
+        args: { file: "src/foo.ts", line: 5, body: "still applies", inReplyTo: 98765 },
+      },
+      {
+        name: TOOL_SUBMIT_INLINE_COMMENT,
+        args: { file: "src/bar.ts", line: 10, body: "new observation" },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "COMMENT", summary: "Incremental review." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.inlineComments).toHaveLength(2);
+    expect(result.inlineComments[0]).toEqual({
+      file: "src/foo.ts",
+      line: 5,
+      body: "still applies",
+      inReplyTo: 98765,
+    });
+    expect(result.inlineComments[1]).toEqual({
+      file: "src/bar.ts",
+      line: 10,
+      body: "new observation",
+    });
+    // The inReplyTo field must NOT appear in the body text
+    expect("inReplyTo" in (result.inlineComments[1] ?? {})).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 12: empty toolCalls → threadResolves and inlineComments are empty arrays
+  // -------------------------------------------------------------------------
+  test("12: empty toolCalls → threadResolves and inlineComments are empty arrays", () => {
+    const result = composeReviewBody([]);
+
+    expect(result.threadResolves).toEqual([]);
+    expect(result.inlineComments).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------------
   // Test 9: side: LEFT annotated; default RIGHT (or absent) not annotated
   // -------------------------------------------------------------------------
   test("9: side LEFT is annotated, RIGHT (or absent) is not", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/left.ts",
@@ -473,7 +562,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "src/right.ts",
@@ -484,7 +573,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "src/noside.ts",
@@ -494,7 +583,7 @@ describe("composeReviewBody", () => {
         },
       },
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: {
           event: "REQUEST_CHANGES",
           summary: "Side annotation check.",

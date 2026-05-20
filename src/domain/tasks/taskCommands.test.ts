@@ -28,6 +28,8 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
   const testWorkspacePath = "/tmp/test-minsky-workspace";
   const _testTasksFile = path.join(testWorkspacePath, "process", "tasks.md");
+  // Shared spec path constant used in READY → DONE closeout-evidence tests.
+  const TEST_SPEC_PATH = "/test/path/spec.md";
 
   // Helper function to create a complete mock TaskService
   const _createMockTaskService = (mockGetTask: (taskId: string) => Promise<any>) =>
@@ -762,6 +764,129 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       await setTaskStatusFromParams(params, mockDeps as any);
       expect(statusSetTo).toBe(TASK_STATUS.PLANNING as any);
+    });
+
+    test("READY → DONE succeeds when spec has ## Closeout evidence section with content", async () => {
+      const params = {
+        taskId: "200",
+        status: TASK_STATUS.DONE,
+        json: false,
+      };
+
+      const specWithEvidence = `## Summary\nExternal deliverable.\n\n## Closeout evidence\nhttps://notion.so/page-abc — Published 2026-05-11.\n`;
+      let statusSetTo: string | null = null;
+
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          if (taskId === "200" || taskId === "mt#200") {
+            return { id: "mt#200", title: "External Task", status: TASK_STATUS.READY };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async (taskId: string, status: string) => {
+          statusSetTo = status;
+        },
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "minsky",
+        createTaskFromTitleAndSpec: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+        getTaskSpecContent: async () => ({
+          task: { id: "mt#200", title: "External Task", status: TASK_STATUS.READY },
+          specPath: TEST_SPEC_PATH,
+          content: specWithEvidence,
+        }),
+      };
+
+      const mockDeps = {
+        resolveRepoPath: async () => testWorkspacePath,
+        createConfiguredTaskService: async () => mockTaskService,
+      };
+
+      await setTaskStatusFromParams(params, mockDeps as any);
+      expect(statusSetTo).toBe(TASK_STATUS.DONE as any);
+    });
+
+    test("READY → DONE is refused when spec has no ## Closeout evidence section", async () => {
+      const params = {
+        taskId: "201",
+        status: TASK_STATUS.DONE,
+        json: false,
+      };
+
+      const specWithoutEvidence = `## Summary\nNo closeout section.\n\n## Scope\nIn scope: something.\n`;
+
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          if (taskId === "201" || taskId === "mt#201") {
+            return { id: "mt#201", title: "External Task", status: TASK_STATUS.READY };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "minsky",
+        createTaskFromTitleAndSpec: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+        getTaskSpecContent: async () => ({
+          task: { id: "mt#201", title: "External Task", status: TASK_STATUS.READY },
+          specPath: TEST_SPEC_PATH,
+          content: specWithoutEvidence,
+        }),
+      };
+
+      const mockDeps = {
+        resolveRepoPath: async () => testWorkspacePath,
+        createConfiguredTaskService: async () => mockTaskService,
+      };
+
+      await expect(setTaskStatusFromParams(params, mockDeps as any)).rejects.toThrow(
+        /Closeout evidence/
+      );
+    });
+
+    test("READY → DONE is refused when ## Closeout evidence section is empty", async () => {
+      const params = {
+        taskId: "202",
+        status: TASK_STATUS.DONE,
+        json: false,
+      };
+
+      // Heading present but no content after it
+      const specEmptyEvidence = `## Summary\nSome summary.\n\n## Closeout evidence\n\n`;
+
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          if (taskId === "202" || taskId === "mt#202") {
+            return { id: "mt#202", title: "External Task", status: TASK_STATUS.READY };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "minsky",
+        createTaskFromTitleAndSpec: async () => ({ id: "#test", title: "Test", status: "TODO" }),
+        getTaskSpecContent: async () => ({
+          task: { id: "mt#202", title: "External Task", status: TASK_STATUS.READY },
+          specPath: TEST_SPEC_PATH,
+          content: specEmptyEvidence,
+        }),
+      };
+
+      const mockDeps = {
+        resolveRepoPath: async () => testWorkspacePath,
+        createConfiguredTaskService: async () => mockTaskService,
+      };
+
+      await expect(setTaskStatusFromParams(params, mockDeps as any)).rejects.toThrow(
+        /Closeout evidence/
+      );
     });
   });
 

@@ -29,7 +29,7 @@ import ReactFlow, {
   type NodeMouseHandler,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server GraphNode / GraphEdge shapes.
@@ -354,10 +354,10 @@ export function TaskGraph({ data }: Props) {
   if (data.state === "degraded") {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Task Graph</CardTitle>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base font-semibold">Task Graph</CardTitle>
         </CardHeader>
-        <CardContent className="text-muted-foreground">
+        <CardContent className="text-sm text-muted-foreground">
           <p>{data.reason}</p>
         </CardContent>
       </Card>
@@ -369,8 +369,8 @@ export function TaskGraph({ data }: Props) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">
           Task Graph
           {nodeCount > 0 && (
             <span className="text-sm font-normal text-muted-foreground ml-2">

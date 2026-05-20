@@ -17,7 +17,7 @@
  *    follow-up tasks. Gated on SMOKE_ADOPTION_RUN_LIVE_SWEEP=true.
  *
  * This is a live-verification artifact per implement-task §7a.
- * Gates on GITHUB_TOKEN + MINSKY_MCP_URL + MINSKY_MCP_TOKEN env vars.
+ * Gates on GITHUB_TOKEN + MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN env vars.
  * Skips gracefully when any required env var is absent (exit 0 with SKIP).
  *
  * ## Live-verification gap note
@@ -36,7 +36,7 @@
  * Usage:
  *   GITHUB_TOKEN=ghp_xxx \
  *   MINSKY_MCP_URL=https://... \
- *   MINSKY_MCP_TOKEN=mcp_xxx \
+ *   MINSKY_MCP_AUTH_TOKEN=mcp_xxx \
  *     bun services/reviewer/scripts/smoke-adoption-sweeper.ts
  *
  *   # Optional: run a live dry-run sweep (reads tasks, NO writes):
@@ -54,14 +54,14 @@ import { extractAdoptionSignals } from "@minsky/shared/adoption/signal-extractio
 
 const githubToken = process.env["GITHUB_TOKEN"];
 const mcpUrl = process.env["MINSKY_MCP_URL"];
-const mcpToken = process.env["MINSKY_MCP_TOKEN"];
+const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"];
 
 if (!githubToken) {
   console.log("SKIP: GITHUB_TOKEN not set; skipping live smoke test.");
   process.exit(0);
 }
 if (!mcpUrl || !mcpToken) {
-  console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_TOKEN not set; skipping live smoke test.");
+  console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping live smoke test.");
   process.exit(0);
 }
 

@@ -43,6 +43,19 @@ function secondsTimeoutSchema(fieldName: string, maxSeconds: number) {
  */
 const postgresConfigSchema = z.object({
   connectionString: z.string(),
+  /**
+   * Optional session-mode connection string for LISTEN/NOTIFY operations (mt#1852).
+   *
+   * Supavisor's transaction pooler (:6543) is incompatible with LISTEN because
+   * LISTEN state is per-connection and the pooler may route each command to a
+   * different backend connection. Session-mode pooler (:5432 on Supabase/Supavisor)
+   * keeps the same backend connection for the lifetime of the session.
+   *
+   * When unset: the provider auto-derives a session-mode URL from connectionString
+   * by swapping :6543 → :5432 (Supavisor port-swap). For non-Supavisor hosts the
+   * connectionString is assumed to already be session-mode-capable and is used as-is.
+   */
+  sessionConnectionString: z.string().optional(),
   maxConnections: z.number().min(1).max(100).optional(),
   // connectTimeout: seconds (1–300). Passed directly to postgres-js connect_timeout
   // which is a seconds value. Using seconds avoids a conversion at the provider boundary.

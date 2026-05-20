@@ -17,8 +17,17 @@ import type { CockpitConfig } from "./types";
 const DEFAULT_CONFIG: CockpitConfig = {
   widgets: [
     { id: "agents", enabled: false },
-    { id: "attention-stub", enabled: true },
+    // attention (mt#1147) replaces the retired attention-stub. Real-data widget
+    // reading from the asks table; defaults to enabled because surfacing pending
+    // operator-routed asks is the cockpit's primary v0 value-add. Gracefully
+    // degrades when no DB is available.
+    { id: "attention", enabled: true },
     { id: "basic-health", enabled: true },
+    // credentials (mt#1426) — credential lifecycle surface. Defaults to enabled
+    // because credentials setup is a first-run concern; operators need to see
+    // and manage credentials from the cockpit home. No external dependency;
+    // reads from ~/.config/minsky/config.yaml and credentials-meta.json.
+    { id: "credentials", enabled: true },
     // task-graph (mt#1146) is a real-data widget reading from the task DB.
     // Defaulting to `enabled: false` lets users opt in explicitly so the
     // cockpit's first-run behavior stays bound to placeholder widgets.

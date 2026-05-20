@@ -4,7 +4,7 @@
  * Provides rebase conflict prediction functionality extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
-import { execAsync } from "../../utils/exec";
+import { execAsync, safeShellQuote } from "../../utils/exec";
 import { log } from "../../utils/logger";
 import type {
   RebaseConflictPrediction,
@@ -155,13 +155,13 @@ export async function predictRebaseConflictsImpl(
   try {
     // Find the common ancestor commit
     const { stdout: mergeBase } = await execAsync(
-      `git -C ${repoPath} merge-base ${baseBranch} ${featureBranch}`
+      `git -C ${safeShellQuote(repoPath)} merge-base ${safeShellQuote(baseBranch)} ${safeShellQuote(featureBranch)}`
     );
     const commonAncestor = mergeBase.toString().trim();
 
     // Get commits in feature branch that are not in base branch
     const { stdout: commitsOutput } = await execAsync(
-      `git -C ${repoPath} log --format="%H|%s|%an" ${commonAncestor}..${featureBranch}`
+      `git -C ${safeShellQuote(repoPath)} log --format="%H|%s|%an" ${safeShellQuote(commonAncestor)}..${safeShellQuote(featureBranch)}`
     );
 
     // Parse commit information
@@ -196,17 +196,27 @@ export async function predictRebaseConflictsImpl(
     const tempBranch = `rebase-simulation-${Date.now()}`;
     const conflictingCommits: ConflictingCommit[] = [];
 
+    // mt#1829: repoPath / baseBranch / featureBranch / commit.sha are all
+    // operator- or git-controlled. Quote consistently per the mt#1742
+    // pattern. tempBranch is internally-generated but quoted for uniformity.
+    const qRepoPath = safeShellQuote(repoPath);
+    const qBaseBranch = safeShellQuote(baseBranch);
+    const qFeatureBranch = safeShellQuote(featureBranch);
+    const qTempBranch = safeShellQuote(tempBranch);
+
     try {
       // Create temp branch from base
-      await execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${baseBranch}`);
+      await execAsync(`git -C ${qRepoPath} checkout -b ${qTempBranch} ${qBaseBranch}`);
 
       // Simulate cherry-picking each commit to detect conflicts
       for (const commit of commitInfos) {
         try {
-          await execAsync(`git -C ${repoPath} cherry-pick --no-commit ${commit.sha}`);
+          await execAsync(
+            `git -C ${qRepoPath} cherry-pick --no-commit ${safeShellQuote(commit.sha)}`
+          );
 
           // No conflict for this commit, clean up and continue
-          await execAsync(`git -C ${repoPath} reset --hard HEAD`);
+          await execAsync(`git -C ${qRepoPath} reset --hard HEAD`);
         } catch (cherryPickError) {
           // Cherry-pick failed, analyze conflicts
           const conflictFiles = await analyzeConflictFiles(repoPath);
@@ -223,14 +233,14 @@ export async function predictRebaseConflictsImpl(
           });
 
           // Abort the cherry-pick
-          await execAsync(`git -C ${repoPath} cherry-pick --abort`);
+          await execAsync(`git -C ${qRepoPath} cherry-pick --abort`);
         }
       }
     } finally {
       // Clean up temporary branch
       try {
-        await execAsync(`git -C ${repoPath} checkout ${featureBranch}`);
-        await execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
+        await execAsync(`git -C ${qRepoPath} checkout ${qFeatureBranch}`);
+        await execAsync(`git -C ${qRepoPath} branch -D ${qTempBranch}`);
       } catch (cleanupError) {
         log.warn("Failed to clean up temporary branch", {
           tempBranch,

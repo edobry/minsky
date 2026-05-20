@@ -5,7 +5,7 @@
  *   - A closed+merged PR on a task/mt-N branch calls session.get + apply_post_merge_state_sync.
  *   - A closed-without-merge PR (merged=false) does NOT trigger sync.
  *   - A closed+merged PR on a non-task branch is skipped gracefully.
- *   - When MINSKY_MCP_URL / MINSKY_MCP_TOKEN are absent, the handler logs and returns.
+ *   - When MINSKY_MCP_URL / MINSKY_MCP_AUTH_TOKEN are absent, the handler logs and returns.
  *   - The handler returns 200 immediately (fire-and-forget), without waiting for MCP calls.
  *
  * Strategy: same pattern as server.test.ts — use createApp() with port=0,
@@ -121,10 +121,13 @@ let mcpCalls: McpCall[] = [];
 let mcpHandler: McpHandler | null = null;
 let originalFetch: typeof globalThis.fetch;
 
-beforeEach(() => {
+beforeEach(async () => {
   originalFetch = globalThis.fetch;
   mcpCalls = [];
   mcpHandler = null;
+  // mt#1821: reset cached MCP session ids so each test gets a fresh initialize.
+  const { resetMcpClientSessions } = await import("./mcp-client");
+  resetMcpClientSessions();
 
   // Wrap fetch: MCP calls go to the handler; all others go to the real fetch.
   // Cast assigns to typeof globalThis.fetch to satisfy Bun's fetch type
@@ -138,12 +141,37 @@ beforeEach(() => {
           : (input as { url: string }).url;
 
     if (url.startsWith(MCP_URL)) {
-      // Intercept MCP call
+      // Intercept MCP call. The mt#1821 fix introduced an initialize handshake
+      // and a notifications/initialized notification before each tools/call,
+      // so we dispatch by JSON-RPC method here: handshake phases return their
+      // canned responses; tools/call delegates to the per-test mcpHandler.
       const body = JSON.parse(init?.body as string) as {
-        params: { name: string; arguments: Record<string, unknown> };
+        method?: string;
+        params?: { name?: string; arguments?: Record<string, unknown> };
       };
-      const toolName = body.params.name;
-      const args = body.params.arguments;
+
+      if (body.method === "initialize") {
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            result: { protocolVersion: "2025-03-26", capabilities: {} },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": CONTENT_TYPE_JSON,
+              "Mcp-Session-Id": "test-session-id",
+            },
+          }
+        );
+      }
+      if (body.method === "notifications/initialized") {
+        return new Response(null, { status: 202 });
+      }
+
+      const toolName = body.params?.name ?? "";
+      const args = body.params?.arguments ?? {};
       mcpCalls.push({ toolName, args });
 
       if (mcpHandler) {
@@ -300,6 +328,85 @@ describe("pull_request.closed webhook — merged=true, task/mt-N branch", () => 
       expect(syncArgs["trigger"]).toBe("webhook");
       expect(syncArgs["mergeSha"]).toBe(MERGE_SHA);
       expect(syncArgs["mergedAt"]).toBe(MERGED_AT);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  // mt#1841 spec SC#6: regression test simulating updateSession throwing once
+  // then succeeding, asserting the session-update eventually lands via the
+  // webhook handler's retry path (PR #1121 R1 BLOCKING #1). Returns
+  // sessionUpdateError on call #1 to apply_post_merge_state_sync, success on
+  // call #2. The handler should retry after the 1s delay and emit sync_complete.
+  test("retries apply_post_merge_state_sync on partialFailure and converges to success (mt#1841 SC#6)", async () => {
+    const SESSION_ID = "session-for-mt-1841";
+    let applyCallCountForOurSession = 0;
+
+    mcpHandler = async (toolName, args) => {
+      if (toolName === "session.get") {
+        // session.get is called with task ID, return our session only for mt#1841.
+        if (args["task"] === "mt#1841") {
+          return mcpResponse({ session: { sessionId: SESSION_ID } });
+        }
+        return mcpResponse({});
+      }
+      if (toolName === "session.apply_post_merge_state_sync") {
+        // Only count calls targeted at our session; prior tests with detached
+        // webhook handlers may still be sending sync requests for their own
+        // sessions to the shared mcpHandler.
+        if (args["sessionId"] !== SESSION_ID) {
+          return mcpResponse({ success: true });
+        }
+        applyCallCountForOurSession++;
+        if (applyCallCountForOurSession === 1) {
+          return mcpResponse({
+            success: false,
+            sessionId: SESSION_ID,
+            taskStatusUpdated: true,
+            sessionStatusUpdated: false,
+            pullRequestRecordUpdated: false,
+            sessionUpdateError: "Simulated transient DB failure",
+            partialFailure: true,
+          });
+        }
+        return mcpResponse({
+          success: true,
+          sessionId: SESSION_ID,
+          taskStatusUpdated: false,
+          sessionStatusUpdated: true,
+          pullRequestRecordUpdated: true,
+          partialFailure: false,
+        });
+      }
+      return mcpResponse({ success: true });
+    };
+
+    const { server } = createApp(BASE_CONFIG, async () => ({
+      status: "reviewed",
+      reason: "stub",
+      tier: 3,
+    }));
+    const baseUrl = `http://localhost:${server.port}`;
+
+    try {
+      const body = buildClosedPayload({
+        merged: true,
+        headRef: "task/mt-1841",
+        mergeCommitSha: MERGE_SHA,
+        mergedAt: MERGED_AT,
+      });
+
+      const res = await sendWebhook(baseUrl, body);
+      expect(res.status).toBe(200);
+
+      // Wait long enough for the first retry: handler delays 1000ms after
+      // detecting partialFailure on call #1, then issues call #2. Allow
+      // generous slack for MCP roundtrip + assertion timing.
+      await new Promise<void>((r) => setTimeout(r, 1_800));
+
+      // The handler must have retried — exactly 2 calls to the apply tool
+      // for OUR session (1st: partial failure, 2nd: success after 1s retry).
+      expect(applyCallCountForOurSession).toBe(2);
     } finally {
       server.stop(true);
     }

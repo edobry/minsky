@@ -315,22 +315,24 @@ describe("applyPostMergeStateSync — graceful degradation (SC#7)", () => {
     expect(result.sessionStatusUpdated).toBe(true);
   });
 
-  it("throws ResourceNotFoundError when session does not exist", async () => {
+  it("returns all-false result (no throw) when session does not exist (mt#1941 behavior change)", async () => {
     const sessionDB = new FakeSessionProvider({ initialSessions: [] });
     const taskService = new FakeTaskService();
     const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
 
-    let threw = false;
-    try {
-      await applyPostMergeStateSync(
-        { sessionId: "nonexistent-session", cleanupSession: false },
-        deps
-      );
-    } catch {
-      threw = true;
-    }
+    // mt#1941: session not found is now a graceful no-op, NOT an error.
+    // The DB record being gone is expected when a concurrent path already
+    // cleaned it up (webhook racing session_pr_merge).
+    const result = await applyPostMergeStateSync(
+      { sessionId: "nonexistent-session", cleanupSession: false },
+      deps
+    );
 
-    expect(threw).toBe(true);
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.pullRequestRecordUpdated).toBe(false);
+    expect(result.partialFailure).toBe(false);
+    expect(result.taskId).toBeUndefined();
   });
 
   it("continues to update session status even when task update fails", async () => {
@@ -368,6 +370,171 @@ describe("applyPostMergeStateSync — graceful degradation (SC#7)", () => {
     // Session status updated despite task service failure.
     const updated = await sessionDB.getSession(SESSION_ID);
     expect(updated?.status).toBe(SessionStatus.MERGED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1841 — partial-failure surfacing
+// ---------------------------------------------------------------------------
+//
+// Regression guard: when sessionDB.updateSession throws, the function must
+// (a) NOT optimistically set sessionStatusUpdated / pullRequestRecordUpdated
+//     to true (the prior bug: flags were set before the await), and
+// (b) populate sessionUpdateError with the underlying error message so the
+//     webhook handler can detect partial failure.
+//
+// Originating incident: mt#1813 (PR #1101, bypass-merged 2026-05-13T14:54Z)
+// had task=DONE within minutes but session.status stayed at PR_OPEN until
+// manually synced ~21h later. The catch block at session-merge-operations.ts
+// :204-210 logged the error but the result reported success because the
+// flags were set optimistically BEFORE the await.
+// ---------------------------------------------------------------------------
+
+describe("applyPostMergeStateSync — partial-failure surfacing (mt#1841)", () => {
+  it("sessionUpdateError populated and flags=false when updateSession throws", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    // Override updateSession to throw, simulating the silent-failure mode that
+    // produced the mt#1813 drift.
+    sessionDB.updateSession = (async () => {
+      throw new Error("Simulated DB failure during session-record update");
+    }) as typeof sessionDB.updateSession;
+
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergeSha: "deadbeef",
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    // task effect succeeded (its own try/catch is independent).
+    expect(result.taskStatusUpdated).toBe(true);
+
+    // session effect failed: flags must NOT be optimistically true.
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.pullRequestRecordUpdated).toBe(false);
+
+    // The error must be surfaced in the result so the caller can act on it.
+    expect(result.sessionUpdateError).toContain("Simulated DB failure");
+
+    // task-side error field stays undefined (only session side failed).
+    expect(result.taskUpdateError).toBeUndefined();
+
+    // PR #1121 R1 BLOCKING #3: partialFailure is the single boolean callers
+    // should check. True iff any error field is populated.
+    expect(result.partialFailure).toBe(true);
+  });
+
+  it("session-update success: sessionUpdateError stays undefined and flags=true", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergeSha: "deadbeef",
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    expect(result.sessionStatusUpdated).toBe(true);
+    expect(result.pullRequestRecordUpdated).toBe(true);
+    expect(result.sessionUpdateError).toBeUndefined();
+    expect(result.taskUpdateError).toBeUndefined();
+    // PR #1121 R1 BLOCKING #3: write-success path has partialFailure=false.
+    expect(result.partialFailure).toBe(false);
+  });
+
+  it("task-update failure surfaces taskUpdateError without affecting session side", async () => {
+    const sessionRecord = makeSessionRecord();
+    const sessionDB = new FakeSessionProvider({ initialSessions: [sessionRecord] });
+
+    const throwingTaskService = {
+      getTaskStatus: async () => {
+        throw new Error("Simulated task-DB failure");
+      },
+      setTaskStatus: async () => undefined,
+    } as any;
+
+    const deps: PostMergeStateSyncDeps = {
+      sessionDB,
+      taskService: throwingTaskService,
+    };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.taskUpdateError).toContain("Simulated task-DB failure");
+
+    // Session side still runs and lands.
+    expect(result.sessionStatusUpdated).toBe(true);
+    expect(result.sessionUpdateError).toBeUndefined();
+
+    // PR #1121 R1 BLOCKING #3: any error field populated → partialFailure=true.
+    expect(result.partialFailure).toBe(true);
+  });
+
+  // PR #1121 R1 BLOCKING #3: explicit no-op success — distinguishable from
+  // write failure via the partialFailure field. Session-side no-op is the
+  // core case (task-side no-op is covered by the idempotent SC#2 tests).
+  it("no-op success path: session already MERGED → sessionStatusUpdated=false but partialFailure=false", async () => {
+    // Build a session record already in the MERGED target state.
+    const baseRecord = makeSessionRecord();
+    const alreadyMerged = makeSessionRecord({
+      status: SessionStatus.MERGED,
+      pullRequest:
+        baseRecord.pullRequest === undefined
+          ? undefined
+          : {
+              ...baseRecord.pullRequest,
+              state: "closed",
+              mergedAt: MERGED_AT,
+            },
+    });
+    const sessionDB = new FakeSessionProvider({ initialSessions: [alreadyMerged] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      {
+        sessionId: SESSION_ID,
+        mergeSha: "deadbeef",
+        mergedAt: MERGED_AT,
+        cleanupSession: false,
+        trigger: "webhook",
+      },
+      deps
+    );
+
+    // Session-side: status update is a no-op because already in target state.
+    // sessionStatusUpdated stays false (we didn't write), with no error.
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.sessionUpdateError).toBeUndefined();
+
+    // The disambiguator: no errors anywhere → no partial failure, despite
+    // sessionStatusUpdated being false. This is the contract PR #1121 R1
+    // BLOCKING #3 codifies: false + !error = no-op success.
+    expect(result.partialFailure).toBe(false);
   });
 });
 
@@ -454,5 +621,126 @@ describe("mergeSessionPr → applyPostMergeStateSync (regression guard SC#4)", (
     // Verify session is MERGED (applyPostMergeStateSync fired).
     const updated = await sessionDB.getSession(SESSION_ID);
     expect(updated?.status).toBe(SessionStatus.MERGED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1941 — applyPostMergeStateSync: best-effort cleanup when session not in DB
+// ---------------------------------------------------------------------------
+//
+// Regression guard: when the session DB record is already gone (concurrent
+// cleanup from webhook path), applyPostMergeStateSync must NOT throw
+// "session not found". Instead it should:
+//   (a) Return an all-false result for DB effects (already done / no-op).
+//   (b) Best-effort remove the workspace dir using UUID path when cleanupSession=true.
+//   (c) Return sessionCleanup.performed=true when the dir existed and was removed.
+//   (d) Return sessionCleanup.performed=false when the dir does not exist.
+//   (e) Skip removal when cleanupSession=false.
+//
+// The "removes workspace dir" test uses real filesystem operations. The function
+// under test (applyPostMergeStateSync) calls existsSync/rmSync on real paths, so
+// we must create a real directory to observe the side-effect. The
+// custom/no-real-fs-in-tests rule is suppressed for this section only.
+// ---------------------------------------------------------------------------
+
+/* eslint-disable custom/no-real-fs-in-tests */
+import { mkdirSync, existsSync, rmSync } from "node:fs";
+/* eslint-enable custom/no-real-fs-in-tests */
+import { getSessionsDir } from "../../utils/paths";
+
+/** The trigger string used across mt#1941 tests (avoids magic-string duplication). */
+const MT1941_TRIGGER = "session_pr_merge" as const;
+
+describe("applyPostMergeStateSync — missing session record (mt#1941)", () => {
+  it("returns all-false result without throwing when session not in DB and cleanupSession=false", async () => {
+    // Empty DB — no session record
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    // Must NOT throw
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: false, trigger: MT1941_TRIGGER },
+      deps
+    );
+
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.pullRequestRecordUpdated).toBe(false);
+    expect(result.partialFailure).toBe(false);
+    expect(result.taskId).toBeUndefined();
+    // sessionCleanup not populated (cleanup skipped)
+    expect(result.sessionCleanup).toBeUndefined();
+  });
+
+  it("removes workspace dir and returns performed=true when session not in DB, dir exists, cleanupSession=true", async () => {
+    // Arrange: create the workspace dir under the real sessions path
+    const workspaceDir = `${getSessionsDir()}/${SESSION_ID}`;
+    /* eslint-disable custom/no-real-fs-in-tests */
+    // Justification: must create a real dir so existsSync/rmSync in production code work.
+    mkdirSync(workspaceDir, { recursive: true });
+    /* eslint-enable custom/no-real-fs-in-tests */
+
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    try {
+      const result = await applyPostMergeStateSync(
+        { sessionId: SESSION_ID, cleanupSession: true, trigger: MT1941_TRIGGER },
+        deps
+      );
+
+      // DB effects: all false (no record to update)
+      expect(result.taskStatusUpdated).toBe(false);
+      expect(result.sessionStatusUpdated).toBe(false);
+      expect(result.partialFailure).toBe(false);
+
+      // Cleanup: dir should be removed
+      expect(result.sessionCleanup?.performed).toBe(true);
+      expect(result.sessionCleanup?.directoriesRemoved).toContain(workspaceDir);
+      expect(result.sessionCleanup?.errors).toHaveLength(0);
+
+      // Verify directory is actually gone
+      /* eslint-disable custom/no-real-fs-in-tests */
+      // Justification: observing the real filesystem side-effect of cleanup.
+      expect(existsSync(workspaceDir)).toBe(false);
+      /* eslint-enable custom/no-real-fs-in-tests */
+    } finally {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      // Justification: teardown of the real dir created above.
+      rmSync(workspaceDir, { recursive: true, force: true });
+      /* eslint-enable custom/no-real-fs-in-tests */
+    }
+  });
+
+  it("returns sessionCleanup.performed=false when session not in DB and dir does not exist", async () => {
+    // No workspace dir exists for SESSION_ID in the real sessions dir
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: true, trigger: MT1941_TRIGGER },
+      deps
+    );
+
+    expect(result.sessionCleanup?.performed).toBe(false);
+    expect(result.sessionCleanup?.directoriesRemoved).toHaveLength(0);
+    expect(result.sessionCleanup?.errors).toHaveLength(0);
+  });
+
+  it("skips workspace cleanup and omits sessionCleanup when cleanupSession=false and session not in DB", async () => {
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: false, trigger: MT1941_TRIGGER },
+      deps
+    );
+
+    // sessionCleanup not populated (cleanup skipped entirely)
+    expect(result.sessionCleanup).toBeUndefined();
   });
 });

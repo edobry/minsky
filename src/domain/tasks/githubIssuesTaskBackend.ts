@@ -213,7 +213,12 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       if (options?.status && options.status !== "all") {
         tasks = tasks.filter((task) => task.status === options.status);
       } else if (!options?.all) {
-        tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
+        // Hide terminal statuses by default (mt#1812 adds COMPLETED for umbrella kind).
+        // Kept in sync with TASK_STATUSES_HIDDEN_BY_DEFAULT in task-filters.ts.
+        tasks = tasks.filter(
+          (task) =>
+            task.status !== "DONE" && task.status !== "CLOSED" && task.status !== "COMPLETED"
+        );
       }
 
       // Filter by tags if specified

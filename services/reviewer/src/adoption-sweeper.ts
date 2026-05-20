@@ -83,7 +83,8 @@
  */
 
 import type { ReviewerConfig } from "./config";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { parsePositiveIntEnv } from "./config";
+import { callMcp } from "./mcp-client";
 import {
   extractAdoptionSignals,
   buildGrepPattern,
@@ -115,10 +116,12 @@ export function loadAdoptionSweeperConfig(): AdoptionSweeperConfig {
     enabled: (process.env["ADOPTION_SWEEPER_ENABLED"] ?? "false") === "true",
     // 24-hour default: daily cadence calibrated against Minsky's merge frequency.
     // See spec mt#1630 §Plan-time decisions for rationale.
-    intervalMs: parseInt(process.env["ADOPTION_SWEEPER_INTERVAL_MS"] ?? "86400000", 10),
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values would
+    // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
+    intervalMs: parsePositiveIntEnv("ADOPTION_SWEEPER_INTERVAL_MS", 86_400_000),
     mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_TOKEN"] ?? "",
-    lookbackDays: parseInt(process.env["ADOPTION_SWEEPER_LOOKBACK_DAYS"] ?? "14", 10),
+    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
+    lookbackDays: parsePositiveIntEnv("ADOPTION_SWEEPER_LOOKBACK_DAYS", 14),
   };
 }
 
@@ -159,8 +162,20 @@ export interface AdoptionSweepResult {
 /**
  * Call a Minsky MCP tool via HTTP.
  *
- * Returns the parsed result.content[0].text value, or null on error.
- * 15-second AbortController timeout mirrors merge-state-sweeper.ts.
+ * Thin adapter over the shared {@link callMcp} helper (mt#1821) — preserves
+ * the legacy `string | null` return shape so adoption-sweeper callsites
+ * don't change. The shared helper performs the MCP initialize handshake
+ * and caches the session id; without it the server rejects every
+ * `tools/call` with `-32600 "first request must be initialize"`.
+ *
+ * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+ * implementation. Passed explicitly so any future change to the helper's
+ * default does not silently regress sweep behavior.
+ *
+ * Observability: `callMcp` emits structured `console.warn` events with the
+ * `adoption_sweeper.mcp` prefix; the legacy
+ * `adoption_sweeper.mcp_{http_error,rpc_error,fetch_error}` events are
+ * preserved at the same prefix.
  */
 async function callMcpTool(
   mcpUrl: string,
@@ -168,103 +183,13 @@ async function callMcpTool(
   toolName: string,
   args: Record<string, unknown>
 ): Promise<string | null> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
-  try {
-    let response: Response;
-    try {
-      response = await fetch(mcpUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${mcpToken}`,
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: `adoption-sweeper-${Date.now()}`,
-          method: "tools/call",
-          params: { name: toolName, arguments: args },
-        }),
-        signal: controller.signal,
-      });
-    } catch (fetchErr) {
-      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-      console.warn(
-        JSON.stringify({
-          event: "adoption_sweeper.mcp_fetch_error",
-          tool: toolName,
-          error: msg,
-        })
-      );
-      return null;
-    }
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => "(unreadable)");
-      console.warn(
-        JSON.stringify({
-          event: "adoption_sweeper.mcp_http_error",
-          tool: toolName,
-          status: response.status,
-          body: safeTruncate(text, 200, "head"),
-        })
-      );
-      return null;
-    }
-
-    const raw = await response.text().catch(() => null);
-    if (!raw) return null;
-
-    // Handle SSE (text/event-stream) or plain JSON responses.
-    const trimmed = raw.trim();
-    let jsonText: string | null = null;
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-      jsonText = trimmed;
-    } else {
-      // SSE: extract last data: line
-      let last: string | null = null;
-      for (const line of trimmed.split("\n")) {
-        const stripped = line.trim();
-        if (stripped.startsWith("data:")) {
-          const payload = stripped.slice("data:".length).trim();
-          if (payload.startsWith("{") || payload.startsWith("[")) {
-            last = payload;
-          }
-        }
-      }
-      jsonText = last;
-    }
-
-    if (!jsonText) return null;
-
-    const parsed = JSON.parse(jsonText) as {
-      result?: { content?: Array<{ type?: string; text?: string }> };
-      error?: { message?: string };
-    };
-
-    if (parsed.error) {
-      console.warn(
-        JSON.stringify({
-          event: "adoption_sweeper.mcp_rpc_error",
-          tool: toolName,
-          error: parsed.error.message,
-        })
-      );
-      return null;
-    }
-
-    // Concatenate all text chunks (handles multi-chunk responses).
-    const chunks = (parsed.result?.content ?? [])
-      .filter(
-        (c): c is { type: string; text: string } => c?.type === "text" && typeof c.text === "string"
-      )
-      .map((c) => c.text);
-
-    return chunks.length > 0 ? chunks.join("") : null;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+  const result = await callMcp(
+    toolName,
+    args,
+    { mcpUrl, mcpToken },
+    { logPrefix: "adoption_sweeper.mcp", timeoutMs: 15_000 }
+  );
+  return result.ok ? result.contentText : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -702,7 +627,7 @@ function buildFollowUpSpec(parentTaskId: string, signal: AdoptionSignal): string
  *
  * Same pattern as merge-state-sweeper.ts. Opt-in via
  * ADOPTION_SWEEPER_ENABLED=true (disabled by default until mt#1711 ships).
- * Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN.
+ * Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN.
  *
  * Returns an object with a `stop()` method to clean up the interval, or null
  * if the sweeper is disabled or credentials are missing.
@@ -728,7 +653,7 @@ export function startAdoptionSweeper(
       JSON.stringify({
         event: "adoption_sweeper.missing_credentials",
         message:
-          "ADOPTION_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_TOKEN is not set. " +
+          "ADOPTION_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
           "Adoption sweeper will not start.",
       })
     );

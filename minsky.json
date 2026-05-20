@@ -1,8 +1,8 @@
 {
   "workflows": {
     "lint": {
-      "jsonCommand": "eslint . --format json",
-      "fixCommand": "eslint . --fix"
+      "jsonCommand": "bunx eslint . --format json",
+      "fixCommand": "bunx eslint . --fix"
     },
     "test": {
       "jsonCommand": "bun test --reporter json"

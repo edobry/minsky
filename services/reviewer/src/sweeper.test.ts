@@ -53,6 +53,8 @@ const SWEEPER_CONFIG: SweeperConfig = {
   repo: "minsky",
   intervalMs: 600000,
   enabled: true,
+  ownerDefaulted: false,
+  repoDefaulted: false,
 };
 
 const BOT_LOGIN = "minsky-reviewer[bot]";
@@ -584,13 +586,28 @@ describe("runSweep", () => {
     expect(result.retriggeredCount).toBe(1);
     // runReview should have been called with the right args
     expect(runReviewFn).toHaveBeenCalledTimes(1);
-    expect(runReviewFn).toHaveBeenCalledWith(
-      BASE_CONFIG,
-      SWEEPER_CONFIG.owner,
-      SWEEPER_CONFIG.repo,
-      prNumber,
-      PR_AUTHOR
-    );
+    // runReview is called with (config, owner, repo, prNumber, authorLogin, deliveryId,
+    // headSha, deps). deliveryId is "sweeper-{timestamp}", headSha comes from the PR,
+    // and deps is undefined when no db is available.
+    const [
+      callConfig,
+      callOwner,
+      callRepo,
+      callPrNumber,
+      callAuthor,
+      callDeliveryId,
+      callSha,
+      callDeps,
+    ] = runReviewFn.mock.calls[0] as unknown[];
+    expect(callConfig).toBe(BASE_CONFIG);
+    expect(callOwner).toBe(SWEEPER_CONFIG.owner);
+    expect(callRepo).toBe(SWEEPER_CONFIG.repo);
+    expect(callPrNumber).toBe(prNumber);
+    expect(callAuthor).toBe(PR_AUTHOR);
+    expect(typeof callDeliveryId).toBe("string");
+    expect((callDeliveryId as string).startsWith("sweeper-")).toBe(true);
+    expect(callSha).toBe(HEAD_SHA);
+    expect(callDeps).toBeUndefined();
   });
 
   test("no open PRs: prsScanned=0, missing=[], retriggeredCount=0", async () => {
@@ -818,5 +835,79 @@ describe("startSweeper", () => {
   test("startSweeper returns null when disabled", () => {
     const handle = startSweeper(BASE_CONFIG, { ...SWEEPER_CONFIG, enabled: false });
     expect(handle).toBeNull();
+  });
+
+  test("emits sweeper.low_interval_warning when intervalMs < 300_000 (mt#1898 PR #1154 R1)", () => {
+    const warnings: unknown[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args[0]);
+    };
+
+    try {
+      // 2 min cadence — below the 5-min safe threshold.
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 120_000,
+      });
+
+      // Stop the setInterval immediately — we only care about the boot-time log.
+      if (handle) clearInterval(handle);
+
+      const events = warnings
+        .map((w) => {
+          try {
+            return JSON.parse(String(w));
+          } catch {
+            return null;
+          }
+        })
+        .filter((e): e is { event: string } => e !== null && typeof e === "object");
+
+      const lowIntervalWarning = events.find(
+        (e) => (e as { event?: string }).event === "sweeper.low_interval_warning"
+      ) as { event: string; intervalMs: number; safeThresholdMs: number } | undefined;
+
+      expect(lowIntervalWarning).toBeDefined();
+      expect(lowIntervalWarning?.intervalMs).toBe(120_000);
+      expect(lowIntervalWarning?.safeThresholdMs).toBe(300_000);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  test("does NOT emit sweeper.low_interval_warning at the safe 10-min default (mt#1898 PR #1154 R1)", () => {
+    const warnings: unknown[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args[0]);
+    };
+
+    try {
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 600_000,
+      });
+
+      if (handle) clearInterval(handle);
+
+      const events = warnings
+        .map((w) => {
+          try {
+            return JSON.parse(String(w));
+          } catch {
+            return null;
+          }
+        })
+        .filter((e): e is { event: string } => e !== null && typeof e === "object");
+
+      const lowIntervalWarning = events.find(
+        (e) => (e as { event?: string }).event === "sweeper.low_interval_warning"
+      );
+
+      expect(lowIntervalWarning).toBeUndefined();
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 });

@@ -11,8 +11,12 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
+import type { CredentialModuleOverride } from "./server";
 import type { WidgetModule, WidgetData, WidgetContext } from "./types";
 import { createAgentsWidget } from "./widgets/agents";
+import { createAttentionWidget } from "./widgets/attention";
+import type { AttentionPayload, AttentionAsk } from "./widgets/attention";
+import { FakeAskRepository } from "../domain/ask/repository";
 import type { AgentRow } from "./widgets/agents";
 import { createTaskGraphWidget } from "./widgets/task-graph";
 import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
@@ -43,14 +47,24 @@ async function startTestServer(opts?: Parameters<typeof createCockpitServer>[0])
 }
 
 // ---------------------------------------------------------------------------
-// Default registry: both placeholder widgets enabled
+// Default registry: real attention widget + basic-health
+// (attention-stub was retired in mt#1147 / PR #1125)
 // ---------------------------------------------------------------------------
 const DEFAULT_CONFIG = {
   widgets: [
-    { id: "attention-stub", enabled: true },
+    { id: "attention", enabled: true },
     { id: "basic-health", enabled: true },
   ],
 };
+
+const JSON_HEADERS = { "Content-Type": "application/json" } as const;
+
+// Credential error codes — keep in sync with `CredentialErrorCode` in
+// src/cockpit/server.ts and `CredentialApiErrorCode` in
+// src/cockpit/web/widgets/Credentials.tsx (mt#1426 PR #1142 R1).
+const CRED_ERR_UNKNOWN_PROVIDER = "unknown_provider";
+const CRED_ERR_MISSING_FIELD = "missing_field";
+const CRED_ERR_VALIDATION_FAILED = "validation_failed";
 
 // ---------------------------------------------------------------------------
 // Test servers — started lazily and closed per-test
@@ -85,7 +99,7 @@ describe("Cockpit server", () => {
     expect(body.uptime).toBeUndefined();
   });
 
-  // 2. GET /api/widgets → array containing both placeholder widgets
+  // 2. GET /api/widgets → array containing both enabled widgets
   test("GET /api/widgets returns both enabled widgets", async () => {
     const url = await server({ overrideConfig: DEFAULT_CONFIG });
     const res = await fetch(`${url}/api/widgets`);
@@ -93,19 +107,13 @@ describe("Cockpit server", () => {
     const body = (await res.json()) as Array<{ id: string }>;
     expect(Array.isArray(body)).toBe(true);
     const ids = body.map((w) => w.id);
-    expect(ids).toContain("attention-stub");
+    expect(ids).toContain("attention");
     expect(ids).toContain("basic-health");
   });
 
-  // 3. GET /api/widget/attention-stub/data → {state:"degraded", reason matching /pending mt#1034/i}
-  test("GET /api/widget/attention-stub/data returns degraded with pending reason", async () => {
-    const url = await server({ overrideConfig: DEFAULT_CONFIG });
-    const res = await fetch(`${url}/api/widget/attention-stub/data`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { state: string; reason: string };
-    expect(body.state).toBe("degraded");
-    expect(body.reason).toMatch(/pending mt#1034/i);
-  });
+  // 3. attention-stub-specific degraded test was retired in mt#1147 / PR #1125 R1
+  // alongside the stub widget itself. The real attention widget's degraded path
+  // is covered by test 12h (deps factory throws → degraded with attention error).
 
   // 4. GET /api/widget/basic-health/data → {state:"ok", payload:{uptimeSec:number, version:string, loadedWidgetCount:2}}
   test("GET /api/widget/basic-health/data returns ok with health payload", async () => {
@@ -145,12 +153,12 @@ describe("Cockpit server", () => {
     expect(body.reason).toMatch(/widget crashed/i);
   });
 
-  // 6. overrideConfig disabling attention-stub → only basic-health in /api/widgets
-  test("Disabling attention-stub via overrideConfig excludes it from /api/widgets", async () => {
+  // 6. overrideConfig disabling attention → only basic-health in /api/widgets
+  test("Disabling attention via overrideConfig excludes it from /api/widgets", async () => {
     const url = await server({
       overrideConfig: {
         widgets: [
-          { id: "attention-stub", enabled: false },
+          { id: "attention", enabled: false },
           { id: "basic-health", enabled: true },
         ],
       },
@@ -159,7 +167,7 @@ describe("Cockpit server", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
     const ids = body.map((w) => w.id);
-    expect(ids).not.toContain("attention-stub");
+    expect(ids).not.toContain("attention");
     expect(ids).toContain("basic-health");
   });
 
@@ -194,7 +202,7 @@ describe("Cockpit server", () => {
     const url = await server({
       overrideConfig: {
         widgets: [
-          { id: "attention-stub", enabled: true },
+          { id: "attention", enabled: true },
           { id: "basic-health", enabled: true },
           { id: "extra-stub", enabled: true },
         ],
@@ -879,5 +887,730 @@ describe("Cockpit server", () => {
     expect(body.state).toBe("ok");
     expect(Array.isArray(body.payload.workstreams)).toBe(true);
     expect(body.payload.workstreams.length).toBe(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Attention widget tests (mt#1147)
+  // ---------------------------------------------------------------------------
+
+  // Shared test constants — avoids magic-string duplication across cases
+  const KIND_DIRECTION = "direction.decide" as const;
+  const KIND_AUTH = "authorization.approve" as const;
+  const REQ_TASK1 = "minsky.native-subagent:task:mt#1" as const;
+  const REQ_TASK2 = "minsky.native-subagent:task:mt#2" as const;
+
+  /**
+   * Build a FakeAskRepository seeded with the given Asks.
+   * Uses _seedAtState to insert pre-built Asks at specific states.
+   */
+  function makeFakeRepo(
+    asks: Array<{
+      id: string;
+      kind: AttentionAsk["kind"];
+      state: "suspended" | "routed";
+      title: string;
+      question: string;
+      requestor: string;
+      routingTarget?: string;
+      parentTaskId?: string;
+      serviceStrategy?: "asap" | "scheduled" | "deadline-bound";
+      windowKey?: string;
+      windowMissedCount?: number;
+      options?: Array<{ label: string; value: unknown; description?: string }>;
+      deadline?: string;
+      metadata?: Record<string, unknown>;
+    }>
+  ): FakeAskRepository {
+    const repo = new FakeAskRepository();
+    const now = new Date().toISOString();
+    for (const a of asks) {
+      repo._seedAtState({
+        id: a.id,
+        kind: a.kind,
+        state: a.state,
+        classifierVersion: "v1",
+        title: a.title,
+        question: a.question,
+        requestor: a.requestor,
+        routingTarget: a.routingTarget,
+        parentTaskId: a.parentTaskId,
+        parentSessionId: undefined,
+        options: a.options,
+        contextRefs: undefined,
+        deadline: a.deadline,
+        serviceStrategy: a.serviceStrategy,
+        windowKey: a.windowKey,
+        windowMissedCount: a.windowMissedCount ?? 0,
+        forceImmediate: false,
+        metadata: a.metadata ?? {},
+        createdAt: now,
+      });
+    }
+    return repo;
+  }
+
+  // 12a. Attention widget present in /api/widgets when enabled
+  test("attention widget present in /api/widgets when enabled", async () => {
+    const repo = makeFakeRepo([]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    expect(body.map((w) => w.id)).toContain("attention");
+  });
+
+  // 12b. Empty state — no pending asks → ok payload with cohort: [], totalPending: 0
+  test("attention widget returns ok payload with empty cohort when no asks exist", async () => {
+    const repo = makeFakeRepo([]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    expect(Array.isArray(body.payload.cohort)).toBe(true);
+    expect(body.payload.cohort.length).toBe(0);
+    expect(body.payload.totalPending).toBe(0);
+    expect(body.payload.activeWindow).toBeNull();
+  });
+
+  // 12c. direction.decide Ask routed to operator appears in cohort
+  test("attention widget returns direction.decide ask in cohort when operator-routed", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-1",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Choose approach",
+        question: "Which architectural approach to take?",
+        requestor: "minsky.native-subagent:task:mt#1147",
+        routingTarget: "operator",
+        parentTaskId: "mt#1147",
+        options: [
+          { label: "Option A", value: "a", description: "Fast approach" },
+          { label: "Option B", value: "b", description: "Thorough approach" },
+        ],
+      },
+    ]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    expect(body.payload.cohort.length).toBe(1);
+    expect(body.payload.totalPending).toBe(1);
+
+    const ask = body.payload.cohort[0];
+    if (!ask) throw new Error("expected one ask in cohort");
+    expect(ask.id).toBe("ask-1");
+    expect(ask.kind).toBe(KIND_DIRECTION);
+    expect(ask.options).toHaveLength(2);
+    expect(ask.parentTaskId).toBe("mt#1147");
+  });
+
+  // 12d. Policy-resolved asks (routingTarget==="policy" or state==="closed") never appear
+  test("attention widget never surfaces policy-resolved or closed asks", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-good",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Visible ask",
+        question: "What to do?",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        parentTaskId: "mt#1",
+      },
+    ]);
+    // Also seed a closed ask directly
+    repo._seedAtState({
+      id: "ask-closed",
+      kind: KIND_AUTH,
+      state: "closed",
+      classifierVersion: "v1",
+      title: "Closed ask",
+      question: "Approve?",
+      requestor: REQ_TASK2,
+      routingTarget: "policy",
+      parentTaskId: "mt#2",
+      parentSessionId: undefined,
+      options: undefined,
+      contextRefs: undefined,
+      deadline: undefined,
+      serviceStrategy: undefined,
+      windowKey: undefined,
+      windowMissedCount: 0,
+      forceImmediate: false,
+      metadata: {},
+      createdAt: new Date().toISOString(),
+      closedAt: new Date().toISOString(),
+    });
+
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    // Only the visible ask appears — closed/policy asks filtered
+    const ids = body.payload.cohort.map((a) => a.id);
+    expect(ids).toContain("ask-good");
+    expect(ids).not.toContain("ask-closed");
+  });
+
+  // 12e. Multiple kind asks — priority ordering: stuck.unblock > authorization.approve > direction.decide
+  test("attention widget returns asks in priority order across kinds", async () => {
+    const baseTime = new Date().toISOString();
+    const repo = makeFakeRepo([
+      {
+        id: "ask-direction",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Direction ask",
+        question: "Which way?",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        parentTaskId: "mt#1",
+      },
+      {
+        id: "ask-stuck",
+        kind: "stuck.unblock",
+        state: "suspended",
+        title: "Stuck ask",
+        question: "I am stuck",
+        requestor: REQ_TASK2,
+        routingTarget: "operator",
+        parentTaskId: "mt#2",
+      },
+      {
+        id: "ask-auth",
+        kind: KIND_AUTH,
+        state: "suspended",
+        title: "Auth ask",
+        question: "Can I proceed?",
+        requestor: "minsky.native-subagent:task:mt#3",
+        routingTarget: "operator",
+        parentTaskId: "mt#3",
+      },
+    ]);
+    void baseTime; // suppress unused-var
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+    expect(body.payload.cohort.length).toBe(3);
+
+    const kinds = body.payload.cohort.map((a) => a.kind);
+    expect(kinds[0]).toBe("stuck.unblock");
+    expect(kinds[1]).toBe(KIND_AUTH);
+    expect(kinds[2]).toBe(KIND_DIRECTION);
+  });
+
+  // 12f. Resolve endpoint — POST /api/asks/:id/resolve transitions Ask to closed
+  test("POST /api/asks/:id/resolve marks ask as closed via FakeAskRepository", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-to-resolve",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Resolve me",
+        question: "Pick one",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        options: [{ label: "Yes", value: "yes" }],
+      },
+    ]);
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/ask-to-resolve/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        responder: "operator",
+        payload: { chosen: "yes" },
+        attentionCost: { transport: "inbox", resolvedIn: "inbox" },
+      }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; id: string; state: string };
+    expect(body.ok).toBe(true);
+    expect(body.id).toBe("ask-to-resolve");
+    expect(body.state).toBe("closed");
+
+    // Verify state changed in repo
+    const updated = await repo.getById("ask-to-resolve");
+    expect(updated?.state).toBe("closed");
+  });
+
+  // 12g. Resolve endpoint — 404 for unknown ask id
+  test("POST /api/asks/:id/resolve returns 404 for unknown ask", async () => {
+    const repo = makeFakeRepo([]);
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+    const res = await fetch(`${url}/api/asks/nonexistent/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: {} }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  // 12h. Degraded state — deps factory throws → degraded with "attention error" reason
+  test("attention widget returns degraded when deps factory throws", async () => {
+    const widget = createAttentionWidget(async () => {
+      throw new Error("DB unavailable");
+    });
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; reason: string };
+    expect(body.state).toBe("degraded");
+    expect(body.reason).toMatch(/attention error/i);
+    expect(body.reason).toMatch(/DB unavailable/i);
+  });
+
+  // 12i. Window-cohort mode — asks scheduled for "ask-hours" window appear when activeWindowKey is set
+  test("attention widget loads scheduled-window cohort when activeWindowKey provided", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-windowed",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Window ask",
+        question: "Decide now",
+        requestor: REQ_TASK1,
+        routingTarget: "operator",
+        serviceStrategy: "scheduled",
+        windowKey: "ask-hours",
+      },
+      {
+        id: "ask-other-window",
+        kind: "quality.review",
+        state: "suspended",
+        title: "Other window ask",
+        question: "Review this",
+        requestor: REQ_TASK2,
+        routingTarget: "operator",
+        serviceStrategy: "scheduled",
+        windowKey: "weekly-review",
+      },
+    ]);
+    const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: "ask-hours" }));
+    const url = await server({
+      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
+      overrideRegistry: { attention: widget },
+    });
+    const res = await fetch(`${url}/api/widget/attention/data`);
+    const body = (await res.json()) as { state: string; payload: AttentionPayload };
+    expect(body.state).toBe("ok");
+
+    // Active window info present
+    expect(body.payload.activeWindow).not.toBeNull();
+    expect(body.payload.activeWindow?.windowKey).toBe("ask-hours");
+
+    // Only the ask-hours window ask appears in cohort
+    const ids = body.payload.cohort.map((a) => a.id);
+    expect(ids).toContain("ask-windowed");
+    expect(ids).not.toContain("ask-other-window");
+  });
+
+  // 12j. Resolve endpoint enforces algedonic selection — non-operator-routed
+  // asks return 403 and do NOT transition to closed. PR #1125 R1 BLOCKING.
+  test("POST /api/asks/:id/resolve returns 403 for non-operator-routed asks", async () => {
+    const repo = makeFakeRepo([
+      {
+        id: "ask-policy-routed",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Policy routed",
+        question: "Should never reach operator",
+        requestor: REQ_TASK1,
+        routingTarget: "policy",
+      },
+      {
+        id: "ask-peer-routed",
+        kind: KIND_DIRECTION,
+        state: "suspended",
+        title: "Peer routed",
+        question: "Routed to a peer agent",
+        requestor: REQ_TASK1,
+        routingTarget: "agent:peer-1",
+      },
+    ]);
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideRegistry: {},
+      overrideAskRepository: repo,
+    });
+
+    const policyRes = await fetch(`${url}/api/asks/ask-policy-routed/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: {} }),
+    });
+    expect(policyRes.status).toBe(403);
+
+    const peerRes = await fetch(`${url}/api/asks/ask-peer-routed/resolve`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ responder: "operator", payload: {} }),
+    });
+    expect(peerRes.status).toBe(403);
+
+    // Neither should have transitioned
+    const policyAsk = await repo.getById("ask-policy-routed");
+    const peerAsk = await repo.getById("ask-peer-routed");
+    expect(policyAsk?.state).toBe("suspended");
+    expect(peerAsk?.state).toBe("suspended");
+  });
+
+  // ---------------------------------------------------------------------------
+  // Credential endpoints (mt#1426)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Build a stub CredentialModuleOverride for credential endpoint tests.
+   *
+   * Provides minimal doubles for getCredentialProvider, addCredential,
+   * listCredentials, and removeCredential so tests never touch the real
+   * filesystem (config.yaml, credentials-meta.json).
+   */
+  function makeCredentialModuleStub(
+    opts: {
+      providerExists?: boolean;
+      validateOk?: boolean;
+      validateDetail?: string;
+      addResult?: import("./server").CredentialModuleOverride["addCredential"] extends (
+        ...args: infer _A
+      ) => Promise<infer R>
+        ? R
+        : never;
+      listResult?: Array<{
+        provider: string;
+        displayName: string;
+        configPath: string;
+        configured: boolean;
+        lastValidatedAt?: string;
+        lastValidationDetail?: string;
+      }>;
+      removeResult?: { removed: boolean };
+    } = {}
+  ): CredentialModuleOverride {
+    const {
+      providerExists = true,
+      validateOk = true,
+      validateDetail = "ok",
+      listResult = [],
+      removeResult = { removed: true },
+    } = opts;
+
+    return {
+      getCredentialProvider: (id: string) => {
+        if (!providerExists) return undefined;
+        return {
+          validate: async (_token: string) => ({
+            ok: validateOk,
+            detail: validateDetail,
+          }),
+          id,
+          displayName: id,
+          configPath: `${id}.token`,
+          acquireUrl: `https://example.com/${id}/tokens`,
+          scopeGuidance: "test guidance",
+          test: async (_token: string) => ({ ok: true, detail: "smoke ok" }),
+        };
+      },
+      addCredential: opts.addResult
+        ? async (_provider: string, _token: string) =>
+            opts.addResult as Awaited<ReturnType<CredentialModuleOverride["addCredential"]>>
+        : async (provider: string, _token: string) => ({
+            provider,
+            validate: { ok: validateOk, detail: validateDetail },
+            stored: validateOk ? { configFilePath: `/mock/config.yaml` } : undefined,
+            test: validateOk ? { ok: true, detail: "smoke ok" } : undefined,
+          }),
+      listCredentials: async () => listResult,
+      removeCredential: async (_provider: string) => removeResult,
+    };
+  }
+
+  // 13a. GET /api/credentials → 200 + { credentials: [...] }
+  test("GET /api/credentials returns credentials list", async () => {
+    const credMod = makeCredentialModuleStub({
+      listResult: [
+        {
+          provider: "github",
+          displayName: "GitHub",
+          configPath: "github.token",
+          configured: true,
+          lastValidatedAt: new Date().toISOString(),
+          lastValidationDetail: "github:octocat",
+        },
+        {
+          provider: "anthropic",
+          displayName: "Anthropic",
+          configPath: "anthropic.apiKey",
+          configured: false,
+        },
+      ],
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { credentials: Array<{ provider: string }> };
+    expect(Array.isArray(body.credentials)).toBe(true);
+    expect(body.credentials.length).toBe(2);
+    const providers = body.credentials.map((c) => c.provider);
+    expect(providers).toContain("github");
+    expect(providers).toContain("anthropic");
+  });
+
+  // 13b. GET /api/credentials — response never includes a token field
+  test("GET /api/credentials response never includes token field", async () => {
+    const credMod = makeCredentialModuleStub({
+      listResult: [
+        {
+          provider: "github",
+          displayName: "GitHub",
+          configPath: "github.token",
+          configured: true,
+        },
+      ],
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials`);
+    const body = (await res.json()) as { credentials: Array<Record<string, unknown>> };
+    // Trust-boundary: none of the entries may include a 'token' key
+    for (const entry of body.credentials) {
+      expect(Object.keys(entry)).not.toContain("token");
+    }
+  });
+
+  // 13c. POST /api/credentials/validate → 200 + { ok, detail }; never echoes token
+  test("POST /api/credentials/validate returns ok result and never echoes token", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: true,
+      validateDetail: "github:octocat",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "secret-token-value" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(true);
+    expect(body.detail).toBe("github:octocat");
+    // Trust-boundary: response must not echo the token back
+    expect(JSON.stringify(body)).not.toContain("secret-token-value");
+  });
+
+  // 13d. POST /api/credentials/validate → 200 + { ok: false } on invalid token
+  test("POST /api/credentials/validate returns ok:false on validation failure", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: false,
+      validateDetail: "401 Unauthorized",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "bad-token" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.ok).toBe(false);
+    expect(body.detail).toBe("401 Unauthorized");
+    expect(JSON.stringify(body)).not.toContain("bad-token");
+  });
+
+  // 13e. POST /api/credentials/validate → 400 on unknown provider
+  test("POST /api/credentials/validate returns 400 for unknown provider", async () => {
+    const credMod = makeCredentialModuleStub({ providerExists: false });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "nonexistent", token: "tok" }),
+    });
+    expect(res.status).toBe(400);
+    // Normalized error shape per PR #1142 R1: { error: { code, message } }
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
+    expect(JSON.stringify(body)).not.toContain("tok");
+  });
+
+  // 13f. POST /api/credentials/validate → 400 when token is missing
+  test("POST /api/credentials/validate returns 400 when token is missing", async () => {
+    const credMod = makeCredentialModuleStub();
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/validate`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github" }), // no token field
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_MISSING_FIELD);
+    expect(body.error.message).toMatch(/token/i);
+  });
+
+  // 13g. POST /api/credentials/add → 200 + result shape; never echoes token
+  test("POST /api/credentials/add returns result and never echoes token", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: true,
+      validateDetail: "github:octocat",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/add`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "my-secret-token" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.provider).toBe("github");
+    // Trust-boundary: response body must not contain the token value at any depth
+    expect(JSON.stringify(body)).not.toContain("my-secret-token");
+    // Result shape: validate + stored + test present on success
+    expect((body.validate as Record<string, unknown>).ok).toBe(true);
+    expect(body.stored).toBeDefined();
+  });
+
+  // 13h. POST /api/credentials/add → 400 when validation fails (never echoes token)
+  test("POST /api/credentials/add returns 400 on validation failure and never echoes token", async () => {
+    const credMod = makeCredentialModuleStub({
+      validateOk: false,
+      validateDetail: "401 bad credentials",
+    });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/add`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "github", token: "invalid-secret" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, unknown>;
+    const err = body.error as { code: string; message: string };
+    expect(err.code).toBe(CRED_ERR_VALIDATION_FAILED);
+    expect(err.message).toMatch(/validation failed/i);
+    // Structured validate result rides along per PR #1142 R1
+    expect((body.validate as Record<string, unknown>).ok).toBe(false);
+    // Trust-boundary: token value must not appear anywhere in the error response
+    expect(JSON.stringify(body)).not.toContain("invalid-secret");
+  });
+
+  // 13i. POST /api/credentials/add → 400 on unknown provider
+  test("POST /api/credentials/add returns 400 for unknown provider", async () => {
+    const credMod = makeCredentialModuleStub({ providerExists: false });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/add`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ provider: "nonexistent", token: "tok" }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
+  });
+
+  // 13j. DELETE /api/credentials/:provider → 200 + { removed: true }
+  test("DELETE /api/credentials/:provider returns removed:true", async () => {
+    const credMod = makeCredentialModuleStub({ removeResult: { removed: true } });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/github`, {
+      method: "DELETE",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { removed: boolean };
+    expect(body.removed).toBe(true);
+  });
+
+  // 13k. DELETE /api/credentials/:provider → 400 on unknown provider
+  test("DELETE /api/credentials/:provider returns 400 for unknown provider", async () => {
+    const credMod = makeCredentialModuleStub({ providerExists: false });
+    const url = await server({
+      overrideConfig: { widgets: [] },
+      overrideCredentialModule: credMod,
+    });
+    const res = await fetch(`${url}/api/credentials/nonexistent`, {
+      method: "DELETE",
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe(CRED_ERR_UNKNOWN_PROVIDER);
+    expect(body.error.message).toMatch(/unknown credential provider/i);
+  });
+
+  // 13l. credentials widget present in /api/widgets when enabled
+  test("credentials widget present in /api/widgets when enabled", async () => {
+    const url = await server({
+      overrideConfig: {
+        widgets: [{ id: "credentials", enabled: true }],
+      },
+    });
+    const res = await fetch(`${url}/api/widgets`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Array<{ id: string }>;
+    const ids = body.map((w) => w.id);
+    expect(ids).toContain("credentials");
   });
 });

@@ -52,6 +52,9 @@ a status transition; everything else is investigation and gate-check.
   - (f) Subtasks filed for multi-phase work
   - (g) No parallel work in flight
   - (h) Contract-propagation enumeration
+  - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
+    with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
+  - (k) Third-party tool/dependency verification
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -313,13 +316,191 @@ following deployed-environment locations must be explicitly checked and enumerat
 A spec that says "sole consumer is X" without a verified sweep of the consumer classes does
 not satisfy this criterion — the claim must be grounded in an actual search, not an assumption.
 
+#### Gate criterion (j) — Premise label verification
+
+When the spec or amendment applies a categorization label that determines policy treatment,
+the agent MUST produce a four-step citation-and-mapping protocol BEFORE the label is applied.
+Categorization labels that determine policy treatment include (but are not limited to):
+
+- `source-of-truth state` (vs derived analytics / observability)
+- `auxiliary capability` (vs core)
+- `ephemeral` (vs durable)
+- `derived analytics` (vs source-of-truth)
+- `complement` / `in-house substrate` / `parallel implementation`
+- `tier N` (e.g., T0 / T1 / T4 in Progressive Adoption Model)
+- `policy carve-out` / `scope boundary` / `out of scope per §X`
+
+Rationale: four recurrences of the confabulated-strategic-frame failure family in six days
+(R1 hosted-MCP 2026-05-08; R2 build-vs-buy 2026-05-12; R3 explicit-framework-selection
+2026-05-12; R4 mt#1306 spec amendment 2026-05-13). Prior tier escalations: memory entry →
+corpus rule (`decision-defaults.mdc §Build vs buy`) → `/declare-framework` skill (mt#1789).
+The R4 sub-pattern — applying a categorization label _within_ a framework without verifying
+the label against the framework's actual definition — wasn't covered by `/declare-framework`
+(which addresses framework selection, not label application). Gate (j) is the sibling
+chain-step escalation for label application.
+
+The structural insight: memory-tier and corpus-tier rules say "watch for confabulation."
+They are advisory text that requires the agent to remember and apply the check at the right
+moment — which is mid-spec-amendment when attention is on substantive content. Citation is
+mechanical; introspection is unreliable. The four-step protocol forces specificity:
+citation, verbatim quote, explicit mapping, and explicit verdict. The agent cannot
+rationalize past "what is the actual definition of this label?" with the same fluency it
+can rationalize past "is this a confabulation?"
+
+**Trigger condition.** This criterion fires when the spec or amendment contains a
+categorization label from the list above (or a synonym/paraphrase). If no such label
+appears, the criterion passes automatically. State that explicitly:
+"(j) No categorization label applied — criterion passes."
+
+**Required four-step protocol (when triggered):**
+
+1. **Cite the rule** that defines the label. Examples: `decision-defaults.mdc §Datastores`
+   for "source-of-truth state"; `decision-defaults.mdc §Build vs buy` for "auxiliary
+   capability"; `progressive-adoption-model` memory for "tier N".
+2. **Quote the definition verbatim** — not paraphrased. Paraphrase is where confabulation
+   re-enters. Copy the exact language from the cited rule into the gate output.
+3. **Map the artifact's properties to the definition's criteria** — explicitly list what
+   the criteria say and what the artifact actually has. One-to-one mapping; identify any
+   criterion the artifact does not satisfy.
+4. **State the verdict:** "criteria met" / "criteria not met" / "criteria ambiguous". If
+   ambiguous, file an Ask rather than applying the label.
+
+A spec that applies a categorization label without producing this four-step output fails
+gate (j) and must not proceed to READY. If the mapping in step 3 cannot be cleanly
+produced, the label is suspect — surface this as a blocking gap and the user decides
+whether to apply a different label, retire the categorization, or file an Ask.
+
+**Regression example — mt#1306 (2026-05-13).** During a reviewer-cluster cleanup session,
+the agent labeled mt#1306 (in-house Postgres convergence-metrics table) "source-of-truth
+state" to justify keeping it in-house, applied that framing across three spec amendments
+(mt#1110/mt#1497/mt#1552). On user challenge ("Are you sure we want it to be in-house?
+Help me understand the justification"), checking `decision-defaults.mdc §Datastores`'s
+actual definition immediately invalidated the label.
+
+Walkthrough of what gate (j) would have produced:
+
+1. **Cite:** `decision-defaults.mdc §Datastores`
+2. **Quote:** _"this policy covers Minsky's source-of-truth state — places that hold
+   authoritative product data the system owns. It does NOT cover derived analytics,
+   observability sinks, or event streams."_
+3. **Map:** mt#1306 holds blocker-count aggregates derived from GitHub-side review data.
+   GitHub owns reviews (source of truth); Minsky owns tasks. mt#1306 doesn't own anything
+   authoritative — it's a measurement aggregate. Criterion "authoritative product data"
+   → NO. Criterion "the system owns" → NO.
+4. **Verdict:** Criteria NOT met. Label "source-of-truth state" is invalid for mt#1306.
+   The artifact is observability data, not source-of-truth.
+
+Gate (j) would have blocked the original spec amendment. The agent would have surfaced
+the gap, leading to the user's challenge being avoided entirely — or, if the user wanted
+to proceed anyway, the explicit "label not justified by definition" record would have
+made the choice intentional rather than confabulated.
+
+Cross-reference: `feedback_premise_label_verification_required` (id `b8bcebec`) is the
+bridge memory until this gate ships; once shipped, that memory's job becomes historical
+record + pointer here. Sibling skill: `/declare-framework` (mt#1789, framework selection).
+
+#### Gate criterion (k) — Third-party tool/dependency verification
+
+When the spec recommends adopting, installing, or relying on a third-party tool, library,
+or service — by GitHub repo URL, package name, CLI tool name, or similar reference — the
+agent must run four cheap verification checks BEFORE the spec can proceed to READY. A spec
+that references a third-party dependency without running these checks is incomplete.
+
+Rationale: mt#1714 / 2026-05-11 incident — the spec recommended `data-goblin/claude-code-mcp-reload`
+("mcp-hot-reload") as a staleness-exit absorption proxy. The recommendation was inherited
+from mt#1713's "Research findings" section, also written without verification. All four
+checks would have surfaced blocking gaps in under a minute:
+
+- **License**: `PROPRIETARY` — "Commercial use of any kind is STRICTLY PROHIBITED … You may
+  not modify, reverse engineer, decompile, or disassemble." Minsky is commercial.
+- **Maintenance**: 7 stars, 0 issues, 0 PRs, `created==pushed` on 2025-07-10 (single-day
+  project, no commits since).
+- **Install path**: spec said `pip install mcp-hot-reload`; package not on PyPI (404).
+  Actual install is `git clone && pip install -e .`.
+- **Canonical URL**: spec linked `data-goblin/claude-code-mcp-reload`. The upstream README's
+  own clone URL points to `claude-code-mcp-reload/claude-code-mcp-reload` — a non-existent
+  org (404).
+
+This is the third-party-tool slice of the contract-propagation pattern that Gate (h)
+addresses for first-party contracts: a claim crystallizes upstream and downstream consumers
+inherit it as a settled premise. Recurrence record: 9+ prior cases (mt#1208 ×2, mt#1224,
+mt#1262, mt#1682 ×4) plus mt#1713→mt#1714 (×2). Prior fix tier was a memory entry plus
+mt#1541's policy-coverage detector in calibration mode. Memory-only + calibration-mode
+detector is not sufficient enforcement; an explicit blocking gate at spec-quality-check time
+is the right tier.
+
+**Trigger condition.** This criterion fires when the spec contains any of:
+
+- A GitHub repo URL (e.g., `github.com/owner/repo`, `owner/repo` shorthand)
+- A package-manager install command (`pip install <name>`, `npm install <name>`,
+  `cargo add <name>`, `brew install <name>`, etc.)
+- An explicit recommendation to use any named external tool, library, or service
+  introduced by this task
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(k) No third-party tool recommendation found — criterion passes."
+
+**Required verification table (when triggered).** For each identified third-party dependency:
+
+| Check         | How to verify                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Block condition                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| License       | `gh api repos/<owner>/<repo>` → `.license.spdx_id`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Block on SPDX identifiers (case-sensitive, as returned by `gh api`): `Proprietary`, `NOASSERTION`, `Other`, and any `GPL-*` (including `GPL-2.0-only`, `GPL-2.0-or-later`, `GPL-3.0-only`, `GPL-3.0-or-later`, `AGPL-3.0-only`, `AGPL-3.0-or-later`). `LGPL-*` and `MPL-2.0` ARE on the allowlist (weak-copyleft, commercial-compatible per project policy). Block until explicit acknowledgment from user. |
+| Maintenance   | Same API response: check `archived`, `created_at`, `pushed_at`, `stargazers_count`, `forks_count`, `open_issues_count`                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | `archived==true` OR (`created_at == pushed_at` AND `stargazers_count < 10`) — block; single-day abandoned project heuristic                                                                                                                                                                                                                                                                                 |
+| Install path  | Probe registry: `pip index versions <name>` for Python; `npm view <name> version` for Node; `cargo search <name>` for Rust                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 404 / no result — block unless spec provides the correct alternative install path (e.g., `git clone && pip install -e .`)                                                                                                                                                                                                                                                                                   |
+| Canonical URL | HTTP 2xx or 3xx (following redirects) on the spec's stated URL AND on any HTTP(S) URL found inside the upstream's own README. Treat 401/403 as inconclusive (proceed but flag for manual review); block only on 4xx (other than auth) or 5xx. The HTTP status check applies to HTTP/S URLs only. SSH clone URLs (e.g., `git@github.com:owner/repo.git`) and `git://` URLs are excluded from this check; their presence in the README is fine. If the only canonical URL inside the README is a non-HTTP(S) URL, manually verify the repo exists by other means before applying this gate's verdict. | Disagreement between spec URL and upstream README URL, OR non-auth 4xx/5xx inside upstream README — block                                                                                                                                                                                                                                                                                                   |
+
+**Check steps:**
+
+1. Read the spec and identify any third-party tool, library, or service recommendation
+   (GitHub URL, package-manager install command, named external tool). If none, record
+   "(k) passes — no third-party tool recommendation."
+2. For each identified dependency, run the four checks in the table above. Use
+   `mcp__minsky__session_exec` (or equivalent shell access) for the registry probes and
+   HTTP checks.
+3. Record findings per check. License: state the `spdx_id`. Maintenance: state whether
+   `archived`, and the `created_at`/`pushed_at` equality check result. Install path: state
+   the registry probe result (HTTP status or package version). Canonical URL: state whether
+   the spec URL and upstream README URL agree.
+4. Any check that hits a block condition is a blocking gap. Summarize each blocking gap
+   with the check name and the specific finding (e.g., "License: PROPRIETARY").
+5. Evidence lives in the spec text under `## Context` as `Third-party dependency: <name>` —
+   include license, maintenance signal, install path, and canonical URL findings.
+
+A spec that says "use <tool>" or links a repo without running these four checks does not
+satisfy this criterion. The claim must be grounded in an actual verification, not an
+assumption inherited from upstream research or prior agent turns.
+
+Cross-reference: bridge memory `e296b3ee-324e-4186-9313-926dd3f9ee5b`
+(`Third-party tool recommendations must verify license/maintenance/install-path/canonical-URL
+at spec-authoring time`) is the precedent memory this gate formalizes; once this gate ships,
+that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
+(Surface 1 policy-coverage detector, graduating to enforcing mode).
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
 
 1. Report the gate summary (all green).
 2. Call `mcp__minsky__tasks_status_set` to transition the task to **READY**.
-3. Report: "Task mt#X is now READY for implementation. Use `/implement-task mt#X` to begin."
+3. **Continue the lifecycle: invoke `/implement-task mt#X` directly** (do NOT stop and hand the next-step instruction back to the user). Per CLAUDE.md User Preferences ("Take direct action without asking: When the next step is clear, proceed immediately"), the post-READY default IS implementation. Stopping at READY with "Use `/implement-task` to begin" wording is the failure mode this step was rewritten to prevent (originating incident 2026-05-11; prior incident 2026-04-30 captured in memory `feedback_auto_mode_chains_skills_at_affirmative_tokens`, id `4b83ff51-4bc2-49f5-84be-7e4eac073125`).
+
+   **Only halt before `/implement-task` if** one of these explicit halt conditions holds:
+
+   - The user said something during planning that explicitly defers implementation ("don't implement yet", "just plan it", "I'll handle the impl").
+   - The READY transition itself surfaced a new blocking signal (e.g., dependency status check failed mid-transition).
+   - The task is gated on an external decision the user owns (e.g., "spec needs your approval before impl"), explicitly stated in the spec.
+
+   **Do NOT halt for any of these reasons** (each was a confabulated halt rationale in the originating incident):
+
+   - "Planning is the skill's scope; implementation is a separate skill."
+   - "User might want to review the gate report before I proceed."
+   - "The next move is user-driven."
+
+   When a brief affirmative ("proceed", "continue", "go", "ok", "yes") arrives at any planning hand-off point, treat it as confirmation to walk the chain forward — NOT as acknowledgment to stop. The bridge memory `4b83ff51` covers this verbatim; this step encodes the same discipline structurally so the agent doesn't have to recall the memory at hand-off time.
+
+   **Multi-next-step disambiguation guard (mt#1842).** The chain-walk-on-affirmative discipline above assumes an UNAMBIGUOUS next step. When the just-READY'd task is a child of a parent with multiple unblocked siblings — i.e., walking to `/implement-task` on THIS task silently picks one of N possible next moves — invoke `/disambiguate-next` BEFORE the chain-walk to `/implement-task`. Trigger detection: call `mcp__minsky__tasks_parent <this-task>`; if a parent exists, call `mcp__minsky__tasks_children <parent>` and count tasks in walkable state (TODO + spec-substantive, READY, IN-PROGRESS). If count ≥ 2, the disambiguation guard fires — surface the option set in user-facing output BEFORE the `/implement-task` call. The exception: if the prior agent turn explicitly recommended THIS specific task as next and the user's brief affirmative followed that recommendation, no disambiguation is needed (the recommendation IS the disambiguation). See `.claude/skills/disambiguate-next/SKILL.md` for the full skill including the stakes-filter sub-check.
+
+   **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /review-pr walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, review-pr SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
 
 **One or more gate criteria fail:**
 
@@ -363,6 +544,56 @@ To re-run the gate after fixes: `/plan-task mt#X`
    (or confirm they do not after a verified grep).
 
 To re-run the gate after fixes: `/plan-task mt#1610`
+```
+
+**Example (j) failure.** For a task that amends a spec to label mt#1306 as "source-of-truth state"
+without producing the citation-and-mapping protocol:
+
+```
+## Gap Report for mt#1306 amendment (PLANNING — not yet READY)
+
+### Blocking gaps
+- (j) Premise label verification: spec applies the label "source-of-truth state" to mt#1306
+  without producing the four-step protocol. The label triggers gate (j) per the trigger list.
+  Required: cite `decision-defaults.mdc §Datastores`; quote the definition verbatim; map
+  mt#1306's properties (derived measurement counts of GitHub-side review data) against the
+  criteria ("authoritative product data the system owns"); state verdict.
+
+### Required actions before READY
+1. Produce the four-step protocol in the spec or amendment.
+2. If the mapping fails, retire the label (and the policy treatment it implied) OR file an
+   Ask to confirm whether a different label fits.
+
+To re-run the gate after fixes: `/plan-task <task-id>`
+```
+
+**Example (k) failure.** For a task that recommends adopting `acme-corp/auto-summarizer`
+(a hypothetical proprietary-licensed GitHub project) as a summarization backend without
+running any verification checks:
+
+```
+## Gap Report for mt#XXXX (PLANNING — not yet READY)
+
+### Blocking gaps
+- (k) Third-party tool/dependency verification: spec recommends `acme-corp/auto-summarizer`
+  but no verification checks were run. License check via `gh api repos/acme-corp/auto-summarizer`
+  returns `spdx_id: null, license: {name: "Proprietary"}`. Minsky is commercial; this license
+  is incompatible. Maintenance check: `archived: false`, but `created_at == pushed_at`
+  (2024-11-03) and `stargazers_count: 2` — single-day abandoned project heuristic fires.
+  Install path: `pip install auto-summarizer` returns HTTP 404 from PyPI — package does not
+  exist in the registry. Canonical URL: spec links `github.com/acme-corp/auto-summarizer`;
+  upstream README references `acme-corp/summarizer-v2` which returns 404 — URL mismatch.
+  All four sub-checks block.
+
+### Required actions before READY
+1. Abandon `acme-corp/auto-summarizer` as a dependency recommendation — license is
+   Proprietary (incompatible with Minsky's commercial use) and the project appears abandoned.
+2. Research an alternative with a permissive license (MIT, Apache-2.0, BSD-*, ISC) AND
+   active maintenance history. Run all four (k) checks before re-submitting.
+3. Add `Third-party dependency: <name>` evidence block to `## Context` with the verified
+   license, maintenance signal, install path, and canonical URL for the chosen replacement.
+
+To re-run the gate after fixes: `/plan-task mt#XXXX`
 ```
 
 ## State transition map

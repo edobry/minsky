@@ -16,6 +16,23 @@ import { log } from "../../utils/logger";
 import { deepMergeConfigs } from "./deep-merge";
 
 /**
+ * Typed marker for schema-validation failures at config-load time. The CLI
+ * boundary catch recognizes this class precisely (instanceof check) and
+ * renders a clean one-line diagnostic plus remediation hint instead of the
+ * default Winston cascade of log.error → uncaughtException dump.
+ *
+ * The wrapped message is the raw "Configuration validation failed: <detail>"
+ * produced by validateConfiguration — preserving the unrecognized-key name
+ * and field path that the operator needs to fix the config file.
+ */
+export class ConfigValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigValidationError";
+  }
+}
+
+/**
  * Configuration source metadata
  */
 export interface ConfigurationSourceMetadata {
@@ -126,7 +143,9 @@ export class ConfigurationLoader {
         const errorMessage = validationResult.error
           ? this.extractValidationErrors(validationResult.error).join(", ")
           : "Unknown validation error";
-        throw new Error(`Configuration validation failed: ${errorMessage}`);
+        // Throw the typed marker directly — avoids the brittle message-prefix
+        // check at the outer catch (PR #1090 R1 NB#2).
+        throw new ConfigValidationError(`Configuration validation failed: ${errorMessage}`);
       }
 
       // Build result
@@ -150,9 +169,15 @@ export class ConfigurationLoader {
 
       return result;
     } catch (error) {
-      throw new Error(
-        `Configuration loading failed: ${error instanceof Error ? error.message : String(error)}`
-      );
+      // ConfigValidationError is thrown directly by the validator block above;
+      // let it propagate so the CLI boundary catch can recognize it via
+      // instanceof. Other failure modes (file-read errors, malformed YAML,
+      // etc.) get the generic "Configuration loading failed:" prefix.
+      if (error instanceof ConfigValidationError) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Configuration loading failed: ${message}`);
     }
   }
 
