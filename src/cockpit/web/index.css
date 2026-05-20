@@ -29,7 +29,7 @@
   --secondary: 0.945 0 0;
   --secondary-foreground: 0.078 0 0;
   --muted: 0.945 0 0;
-  --muted-foreground: 0.517 0 0;
+  --muted-foreground: 0.717 0 0;
   --accent: 0.945 0 0;
   --accent-foreground: 0.078 0 0;
   --destructive: 0.585 0.219 27;
@@ -47,6 +47,10 @@
   --iso-pastel: 0.911 0.030 75;
   --text-subtle: 0.517 0 0;
   --bg-warm: 0.142 0.012 95;
+
+  /* Note: the light-theme :root block is placeholder-only; cockpit ships
+     dark-first via <html class="dark">. The light-theme --muted-foreground
+     should remain text.muted (0.717), distinct from --text-subtle (0.517). */
 
   /* Typography stacks (docs/brand-system.md §1; fonts loaded in index.html) */
   --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
