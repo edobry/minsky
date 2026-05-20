@@ -35,6 +35,20 @@
  * - Error-surfacing contract is preserved: when an attempt rejects (or a
  *   backoff-blocked call would re-throw), the awaiter sees the actual
  *   rejection, not a generic "init pending" message.
+ *
+ * Scope and non-goals (PR #1188 R1 NB2):
+ *
+ * - The controller retries TRANSIENT INITIALIZATION FAILURE. It is not a
+ *   health monitor and does not detect post-init environment breakage.
+ *   Once an attempt resolves successfully, the cached promise is reused
+ *   for every subsequent `awaitReady()` call — forever. If a downstream
+ *   resource (DB connection, file handle, network peer) breaks AFTER a
+ *   successful init, the controller will not re-attempt; tool calls will
+ *   fail in whatever way the broken resource surfaces.
+ * - Recovery from post-init resource failure is the responsibility of the
+ *   layer that owns the resource (connection pools that reconnect on
+ *   failure, query-time retry wrappers, etc.) — not this controller.
+ * - The contract is "one-shot success caches; only failure retries."
  */
 
 export interface InitController {

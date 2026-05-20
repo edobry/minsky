@@ -269,7 +269,9 @@ export class MinskyMCPServer {
    * the controller adds demand-driven retry on rejected attempts so a single
    * transient init failure no longer poisons the daemon. `setInitPromise` is
    * retained as the no-retry single-attempt API for tests and any caller
-   * that wants the legacy behavior.
+   * that wants the legacy behavior. Exactly one of `initPromise` /
+   * `initController` is set at any time — each setter clears the other
+   * (symmetric mutual exclusivity).
    */
   private initPromise: Promise<void> | null = null;
 
@@ -278,9 +280,9 @@ export class MinskyMCPServer {
    * CallTool dispatch calls `awaitReady()` instead of awaiting `initPromise`
    * directly. The controller tracks attempt state and re-invokes the
    * underlying initializer on demand (next tool call) when a prior attempt
-   * rejected, subject to a backoff cap. Either `initController` or
-   * `initPromise` is set, never both — `setInitController` clears
-   * `initPromise` so the controller is the single source of truth.
+   * rejected, subject to a backoff cap. Exactly one of `initPromise` /
+   * `initController` is set at any time — each setter clears the other
+   * (symmetric mutual exclusivity).
    */
   private initController: InitController | null = null;
 
@@ -928,12 +930,12 @@ export class MinskyMCPServer {
           // Tools that declare `requiresInit: false` skip the await — this
           // gates the latency to DI-dependent tools only, so read-only
           // debug tools (`debug_echo`, `debug_listMethods`) respond
-          // immediately even if init is still in flight. The name-based
-          // allowlist below opts out specific shared-command-bridge tools
-          // that don't carry the explicit field through their registration
-          // pipeline.
-          const requiresInit =
-            tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
+          // immediately even if init is still in flight. The DI-free
+          // allowlist is checked against the resolved tool's CANONICAL
+          // (dotted) name, not the request-provided name — so Claude
+          // Desktop clients invoking via the underscored alias (mt#1779
+          // dual-registration) still hit the fast path.
+          const requiresInit = tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(tool.name);
           if (requiresInit) {
             if (this.initController) {
               await this.initController.awaitReady();
@@ -1204,6 +1206,12 @@ export class MinskyMCPServer {
    */
   setInitPromise(p: Promise<void>): void {
     this.initPromise = p;
+    // mt#1962: symmetric mutual exclusivity — setInitPromise clears any
+    // previously-set controller, mirroring setInitController clearing
+    // initPromise. This prevents the silent-ignore failure mode where
+    // both fields are populated and the controller branch wins
+    // unconditionally in the CallTool handler.
+    this.initController = null;
   }
 
   /**
@@ -1215,7 +1223,8 @@ export class MinskyMCPServer {
    * a single rejected attempt no longer poisons the daemon.
    *
    * Clears any previously-set `initPromise` so the controller is the
-   * single source of truth.
+   * single source of truth (symmetric with `setInitPromise` clearing
+   * `initController`).
    *
    * Called from `src/commands/mcp/start-command.ts` for stdio mode after
    * `registerAllTools` returns but before `server.start()` resolves.

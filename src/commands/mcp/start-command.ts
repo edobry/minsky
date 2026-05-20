@@ -1029,18 +1029,41 @@ export function createStartCommand(
           //
           // The controller tracks attempt state and re-invokes the
           // initializer on demand when a prior attempt rejected (subject
-          // to a 30s backoff so repeated failures don't tight-loop the
-          // database). Concurrent tool calls during an in-flight retry
-          // collapse to a single `container.initialize()` invocation.
+          // to a 30s default backoff so repeated failures don't tight-
+          // loop the database; tunable via MINSKY_MCP_INIT_RETRY_INTERVAL_MS
+          // for environments with different recovery cadences). Concurrent
+          // tool calls during an in-flight retry collapse to a single
+          // `container.initialize()` invocation.
+          const DEFAULT_INIT_RETRY_INTERVAL_MS = 30_000;
+          const rawInterval = Number.parseInt(
+            process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS ?? "",
+            10
+          );
+          const minRetryIntervalMs =
+            Number.isFinite(rawInterval) && rawInterval > 0
+              ? rawInterval
+              : DEFAULT_INIT_RETRY_INTERVAL_MS;
+          if (rawInterval && minRetryIntervalMs !== rawInterval) {
+            log.warn("[mt#1962] MINSKY_MCP_INIT_RETRY_INTERVAL_MS invalid; using default", {
+              raw: process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS,
+              defaultMs: DEFAULT_INIT_RETRY_INTERVAL_MS,
+            });
+          }
+          log.debug("[mt#1962] init retry controller", { minRetryIntervalMs });
           const initController = new RetryingInitController({
             initializer: () =>
               container.initialize().then(() => {
                 profileCheckpoint("background_container_initialized");
               }),
+            minRetryIntervalMs,
             onAttemptSettled: (result) => {
               if (result.error === undefined) {
                 if (result.attempt > 1) {
-                  log.warn("[mt#1962] container.initialize() succeeded on retry", {
+                  // PR #1188 R1 NB1: success-on-retry is good news, not an
+                  // actionable warning. Operators expect WARN to be actionable;
+                  // log at info instead so transient self-heal doesn't generate
+                  // alert noise.
+                  log.info("[mt#1962] container.initialize() succeeded on retry", {
                     attempt: result.attempt,
                   });
                 }
