@@ -1396,6 +1396,7 @@ export class MinskyMCPServer {
       pid: number;
       on(event: ProcSignal, listener: () => void): void;
       removeListener(event: ProcSignal, listener: () => void): void;
+      listenerCount(event: ProcSignal): number;
       kill(pid: number, signal: ProcSignal): void;
     };
 
@@ -1419,11 +1420,22 @@ export class MinskyMCPServer {
           error: getErrorMessage(err),
         });
       }
-      // Re-emit the signal with our handler removed so default behavior
-      // (typically termination) takes over. Without this, the process would
-      // hang because Node's default handler only runs when no listener is
-      // attached.
+      // Remove our own listener so we don't re-enter on the kernel-default
+      // re-emit below, and so the post-removal listenerCount reflects only
+      // OTHER registered handlers.
       proc.removeListener(signal, listeners[signal]);
+
+      // mt#1987: only re-emit when there are no other listeners. When
+      // `start-command.ts` (or any other module) has registered a graceful-
+      // shutdown handler (e.g. the `cleanup` async closure that drains the
+      // DB pool and exits cleanly), defer to it — re-emitting SIGTERM mid-
+      // tick races against the cleanup handler and causes the kernel default
+      // to fire before the JS handler can run, exiting with `signal:SIGTERM`
+      // / code:null and bypassing the cleanup path entirely. Standalone
+      // usages (tests that construct an MCPServer without a cleanup handler)
+      // still get the kernel-default termination because the listenerCount
+      // is 0 after our removal.
+      if (proc.listenerCount(signal) > 0) return;
       proc.kill(proc.pid, signal);
     };
 
