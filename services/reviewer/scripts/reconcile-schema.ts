@@ -56,6 +56,7 @@ import {
   REVIEWER_EXPECTED_TABLES,
   REVIEWER_MIGRATIONS_TABLE,
   REVIEWER_MIGRATIONS_SCHEMA,
+  REVIEWER_TABLES_SCHEMA,
 } from "../src/db/migrate";
 import * as convergenceMetricsSchema from "../src/db/schemas/convergence-metrics-schema";
 import * as webhookEventsSchema from "../src/db/schemas/webhook-events-schema";
@@ -102,7 +103,7 @@ async function inspect(db: ReturnType<typeof drizzle<typeof schema>>): Promise<{
 }> {
   const tableRows = await db.execute<{ tablename: string }>(sql`
     SELECT tablename FROM pg_tables
-    WHERE schemaname = current_schema()
+    WHERE schemaname = ${REVIEWER_TABLES_SCHEMA}
       AND tablename = ANY(${[...REVIEWER_EXPECTED_TABLES] as string[]})
   `);
   const present = new Set(tableRows.map((r) => r.tablename));

@@ -334,7 +334,14 @@ operator-facing script below is the out-of-band complement.
 
 ### Dry-run
 
-From the repo root:
+From `services/reviewer/`:
+
+```bash
+MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
+  bun run reconcile-schema
+```
+
+Or from the repo root with the raw invocation:
 
 ```bash
 MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
@@ -346,6 +353,15 @@ Reports a structured JSON diagnostic: `presentTables`, `missingTables`,
 Non-zero exit on `missing-detected`. Read-only — no DDL applied.
 
 ### Execute (forward-only repair)
+
+From `services/reviewer/`:
+
+```bash
+MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \
+  bun run reconcile-schema:execute
+```
+
+Or from the repo root:
 
 ```bash
 MINSKY_SESSIONDB_POSTGRES_URL='<your-supabase-pooler-url>' \

@@ -50,6 +50,16 @@ export const REVIEWER_MIGRATIONS_TABLE = "__drizzle_migrations_reviewer";
 export const REVIEWER_MIGRATIONS_SCHEMA = "drizzle";
 
 /**
+ * Schema where reviewer-service application tables live. Hard-coded rather
+ * than derived from `current_schema()` because the reviewer service's tables
+ * are created in `public` (per the migration DDL) regardless of the runtime
+ * search_path. Using `current_schema()` would produce false-negative self-
+ * check failures if the search_path is set differently in some sessions
+ * (PR #1197 R1 fix).
+ */
+export const REVIEWER_TABLES_SCHEMA = "public";
+
+/**
  * Tables the reviewer service expects to exist after applyMigrations() succeeds.
  * Source of truth for the post-migration self-check.
  *
@@ -97,9 +107,14 @@ export async function applyMigrations(db: ReviewerDb): Promise<void> {
  * @param db - Drizzle DB instance
  */
 export async function verifyExpectedTables(db: ReviewerDb): Promise<void> {
+  // Scope to REVIEWER_TABLES_SCHEMA explicitly rather than current_schema()
+  // — the migration DDL targets `public` unconditionally; a search_path
+  // override at the session level would cause current_schema() to return a
+  // different schema and produce false-negative self-check failures
+  // (PR #1197 R1 fix).
   const result = await db.execute<{ tablename: string }>(sql`
     SELECT tablename FROM pg_tables
-    WHERE schemaname = current_schema()
+    WHERE schemaname = ${REVIEWER_TABLES_SCHEMA}
       AND tablename = ANY(${[...REVIEWER_EXPECTED_TABLES] as string[]})
   `);
   const presentTables = new Set(result.map((row) => row.tablename));
