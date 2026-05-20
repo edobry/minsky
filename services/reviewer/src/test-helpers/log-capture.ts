@@ -68,6 +68,32 @@ export function captureConsoleLogs(): CapturedLogs {
 }
 
 /**
+ * Replace `process.stdout.write` with a no-op for the lifetime of the
+ * returned handle. Tests that do not need to assert on emitted log lines but
+ * want to keep `bun test` output clean (the reviewer-local winston logger
+ * routes everything through stdout) call this in `beforeEach` and invoke the
+ * returned `restore()` in `afterEach`.
+ *
+ * Differs from `captureConsoleLogs()` in two ways: nothing is buffered, and
+ * the original write is NOT called — output is dropped on the floor.
+ */
+export function silenceConsoleLogs(): { restore: () => void } {
+  const originalWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((
+    _chunk: string | Uint8Array,
+    _encodingOrCb?: BufferEncoding | ((err?: Error) => void),
+    _cb?: (err?: Error) => void
+  ): boolean => {
+    return true;
+  }) as typeof process.stdout.write;
+  return {
+    restore: () => {
+      process.stdout.write = originalWrite;
+    },
+  };
+}
+
+/**
  * Parse captured log lines as JSON and return the first object whose `event`
  * field matches `eventName`. Returns `null` when no matching event is found.
  */

@@ -15,9 +15,10 @@
  *   - MAX_REVIEWS_FETCHED cap: more than 500 reviews triggers a warning and truncation
  */
 
-import { describe, test, expect, mock, spyOn } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import type { Octokit } from "@octokit/rest";
 import { CHINESE_WALL_MARKER, MINSKY_REVIEWER_BOT_LOGIN } from "./prior-review-summary";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
   fetchPriorReviews,
   fetchListFiles,
@@ -234,22 +235,25 @@ describe("fetchPriorReviews", () => {
       })
     );
 
-    const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
     const octokit = buildFakeOctokit([manyReviews]);
 
+    const { logs, restore } = captureConsoleLogs();
     try {
       const results = await fetchPriorReviews(octokit, "owner", "repo", 1);
 
       // Truncated to MAX_REVIEWS_FETCHED (500)
       expect(results.length).toBeLessThanOrEqual(500);
-      // Warning was emitted
-      expect(warnSpy).toHaveBeenCalled();
-      const warnMessage = warnSpy.mock.calls[0]?.[0] as string;
-      expect(warnMessage).toContain("501");
-      expect(warnMessage).toContain("500");
     } finally {
-      warnSpy.mockRestore();
+      restore();
     }
+
+    // Warning was emitted via log.warn; winston puts the string-only call
+    // into the `message` field. Find the line that mentions the cap.
+    const warnLine = logs.find(
+      (line) => line.includes("fetchPriorReviews") && line.includes("501")
+    );
+    expect(warnLine).toBeDefined();
+    expect(warnLine).toContain("500");
   });
 });
 
@@ -303,28 +307,19 @@ describe("fetchListFiles", () => {
       throw new Error("API rate limit exceeded");
     });
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: string[];
     try {
-      const result = await fetchListFiles(octokit, "owner", "repo", 7);
-
-      expect(result).toEqual([]);
-      // Must emit a structured JSON log with event: pr_scope_listfiles_error
-      const logCalls = logSpy.mock.calls;
-      const errorLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "pr_scope_listfiles_error");
-      expect(errorLog).not.toBeNull();
-      expect(errorLog?.pr).toBe(7);
-      expect(errorLog?.error).toContain("rate limit");
+      result = await fetchListFiles(octokit, "owner", "repo", 7);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const errorLog = findLogEvent(logs, "pr_scope_listfiles_error");
+    expect(errorLog).not.toBeNull();
+    expect(errorLog?.pr).toBe(7);
+    expect(errorLog?.error).toContain("rate limit");
   });
 
   test("returns [] and emits pr_scope_files_cap_exceeded when file count exceeds MAX_FILES_FETCHED", async () => {
@@ -334,29 +329,20 @@ describe("fetchListFiles", () => {
     }));
     const octokit = buildListFilesOctokit(async () => tooManyFiles);
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: string[];
     try {
-      const result = await fetchListFiles(octokit, "owner", "repo", 99);
-
-      expect(result).toEqual([]);
-      // Must emit pr_scope_files_cap_exceeded structured log
-      const logCalls = logSpy.mock.calls;
-      const capLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "pr_scope_files_cap_exceeded");
-      expect(capLog).not.toBeNull();
-      expect(capLog?.pr).toBe(99);
-      expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
-      expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
+      result = await fetchListFiles(octokit, "owner", "repo", 99);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const capLog = findLogEvent(logs, "pr_scope_files_cap_exceeded");
+    expect(capLog).not.toBeNull();
+    expect(capLog?.pr).toBe(99);
+    expect(capLog?.fileCount).toBe(MAX_FILES_FETCHED + 1);
+    expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
   });
 
   test("returns filenames (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
@@ -567,26 +553,18 @@ describe("fetchReviewThreads", () => {
     });
     const octokit = { graphql: graphqlMock } as unknown as Octokit;
 
-    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    const { logs, restore } = captureConsoleLogs();
+    let result: Awaited<ReturnType<typeof fetchReviewThreads>>;
     try {
-      const result = await fetchReviewThreads(octokit, "owner", "repo", 42);
-
-      expect(result).toEqual([]);
-      const logCalls = logSpy.mock.calls;
-      const errorLog = logCalls
-        .map((args) => {
-          try {
-            return JSON.parse(args[0] as string);
-          } catch {
-            return null;
-          }
-        })
-        .find((obj) => obj?.event === "reviewer_fetch_threads_error");
-      expect(errorLog).not.toBeNull();
-      expect(errorLog?.pr).toBe(42);
+      result = await fetchReviewThreads(octokit, "owner", "repo", 42);
     } finally {
-      logSpy.mockRestore();
+      restore();
     }
+
+    expect(result).toEqual([]);
+    const errorLog = findLogEvent(logs, "reviewer_fetch_threads_error");
+    expect(errorLog).not.toBeNull();
+    expect(errorLog?.pr).toBe(42);
   });
 
   test("returns [] when repository.pullRequest is null (permissions / not found)", async () => {

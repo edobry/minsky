@@ -14,6 +14,7 @@ import { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
 import { isBotReviewerEntry, type PriorReview } from "./prior-review-summary";
 import { withTimeout } from "./with-timeout";
+import { log } from "./logger";
 
 /**
  * Default GitHub-API timeout used when these helpers are called without an
@@ -123,29 +124,25 @@ export async function fetchListFiles(
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_listfiles_error",
-        owner,
-        repo,
-        pr: prNumber,
-        error: message,
-      })
-    );
+    log.info("pr_scope_listfiles_error", {
+      event: "pr_scope_listfiles_error",
+      owner,
+      repo,
+      pr: prNumber,
+      error: message,
+    });
     return [];
   }
 
   if (allFiles.length > MAX_FILES_FETCHED) {
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_files_cap_exceeded",
-        owner,
-        repo,
-        pr: prNumber,
-        fileCount: allFiles.length,
-        cap: MAX_FILES_FETCHED,
-      })
-    );
+    log.info("pr_scope_files_cap_exceeded", {
+      event: "pr_scope_files_cap_exceeded",
+      owner,
+      repo,
+      pr: prNumber,
+      fileCount: allFiles.length,
+      cap: MAX_FILES_FETCHED,
+    });
     return [];
   }
 
@@ -347,7 +344,7 @@ export async function fetchPriorReviews(
 
   let rawReviews = allReviews;
   if (rawReviews.length > MAX_REVIEWS_FETCHED) {
-    console.warn(
+    log.warn(
       `[fetchPriorReviews] PR #${prNumber} has ${rawReviews.length} reviews, ` +
         `exceeding the cap of ${MAX_REVIEWS_FETCHED}. Only the first ${MAX_REVIEWS_FETCHED} will be used.`
     );
@@ -746,15 +743,13 @@ export async function fetchReviewThreads(
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.log(
-        JSON.stringify({
-          event: "reviewer_fetch_threads_error",
-          owner,
-          repo,
-          pr: prNumber,
-          error: message,
-        })
-      );
+      log.info("reviewer_fetch_threads_error", {
+        event: "reviewer_fetch_threads_error",
+        owner,
+        repo,
+        pr: prNumber,
+        error: message,
+      });
       return allThreads;
     }
 
@@ -767,15 +762,13 @@ export async function fetchReviewThreads(
 
     for (const node of nodes) {
       if (allThreads.length >= MAX_REVIEW_THREADS) {
-        console.log(
-          JSON.stringify({
-            event: "reviewer_threads_cap_exceeded",
-            owner,
-            repo,
-            pr: prNumber,
-            cap: MAX_REVIEW_THREADS,
-          })
-        );
+        log.info("reviewer_threads_cap_exceeded", {
+          event: "reviewer_threads_cap_exceeded",
+          owner,
+          repo,
+          pr: prNumber,
+          cap: MAX_REVIEW_THREADS,
+        });
         return allThreads;
       }
 
