@@ -39,6 +39,7 @@ import { registerEpicDecompositionCommands } from "./epic-decomposition";
 import { registerDeploymentCommands } from "./deployment";
 import { registerObservabilityCommands } from "./observability";
 import { registerPrincipalCorpusCommands } from "./principal-corpus";
+import { registerForgeCommands } from "./forge";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -148,6 +149,11 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // No container arg — commands read persistence from ctx at execute time.
   registerPrincipalCorpusCommands();
 
+  // Register forge commands (forge-agnostic CI / check-runs / branch-protection /
+  // labels — mt#1957). Side-effect imports happen at module load; the call here
+  // is a no-op but matches the convention used by every other group.
+  registerForgeCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -187,4 +193,5 @@ export {
   registerEpicDecompositionCommands,
   registerObservabilityCommands,
   registerPrincipalCorpusCommands,
+  registerForgeCommands,
 };
