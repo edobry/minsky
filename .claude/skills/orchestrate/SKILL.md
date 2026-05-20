@@ -147,6 +147,42 @@ list.
 supersessions (e.g., a sibling under a different umbrella delivering scope) are
 not surfaced and remain a manual-judgment concern.
 
+### A.2 DAG filing: wave-by-wave with dependsOn, not bulk-create-then-wire
+
+**When filing a multi-task graph that carries real dependency edges** (e.g., an umbrella + N children where some children depend on others), the default pattern is **wave-by-wave filing** with `dependsOn` populated at `tasks_create` time — NOT bulk-create-then-bulk-wire.
+
+The anti-pattern: `tasks_create` for every node in parallel batches with NO deps, then `tasks_deps_add` for every edge in a final batch. The two-phase shape looks faster (more parallelism on the API calls) but has worse atomic-failure semantics: if the deps-add phase fails mid-flight (network glitch, validation rejection, race), the umbrella has N children but partial-or-zero dependency edges. Recovery requires manually inspecting which edges landed and replaying the missing ones — exactly the silent half-shipped state the recovery-layer discipline (CLAUDE.md `§Work Completion > Recovery layer spec discipline`) prohibits.
+
+The correct pattern leverages `tasks_create`'s existing `dependsOn` parameter:
+
+```
+Wave 0: file root task alone (no deps).
+        → `tasks_create(title="Umbrella mt#1234")`
+
+Wave 1: file tasks whose deps are ALL in Wave 0, with dependsOn populated.
+        → `tasks_create(title="Phase 1a", parent="mt#1234", dependsOn=[])` (no deps within the wave)
+        → `tasks_create(title="Phase 1b", parent="mt#1234", dependsOn=[])`
+
+Wave 2: file tasks whose deps are ALL in Waves 0-1, with dependsOn populated.
+        → `tasks_create(title="Phase 2 — needs 1a + 1b", parent="mt#1234", dependsOn=["mt#1235", "mt#1236"])`
+
+Continue until DAG is complete.
+```
+
+**Why wave-by-wave is the default:**
+
+- **Atomic per wave.** Each wave's `tasks_create` calls succeed or fail atomically per task; the dependency edge is part of the same call. No "task exists but edge doesn't" state.
+- **Failure recovery is local.** If wave 2 fails, waves 0 and 1 are already complete with correct edges. Replay only the failed wave.
+- **No re-traversal cost.** The deps-add phase in the bulk pattern requires looking up the IDs of just-created tasks to wire edges; wave-by-wave already has the IDs in hand from the prior wave.
+
+**Trade-off (be honest):**
+
+- Bulk-create-then-wire is fewer turns total (more parallelism per phase) but worse failure semantics.
+- Wave-by-wave is roughly the same wall-clock at typical DAG sizes (3–10 tasks, 1–3 waves) but cleaner failure semantics.
+- For trivial DAGs (single parent + N independent children with no inter-sib deps), the patterns converge — both reduce to one wave of `tasks_create` calls with no edges to wire. The discipline matters when the graph has inter-sibling dependencies.
+
+**When this fires:** `tasks_create` calls for 2+ related tasks where at least one sibling depends on another, OR an umbrella with children that have inter-sibling edges. The signal is "multi-task filing with `tasks_deps_add` calls planned afterward" — surface the wave structure first, file with `dependsOn` populated, never queue deps-add as a separate phase.
+
 ### B. Subtask decomposition before dispatch
 
 **For any non-trivial multi-phase task, decompose into subtasks first.**
@@ -334,3 +370,4 @@ single-task variant.
 - **Always sweep for parallel work before decomposing.** This is a mechanical pre-check, not optional.
 - **Always analyze file overlap before parallel dispatch.** Two agents on the same file produce conflicts.
 - **Decompose before dispatch.** Monolithic tasks dispatched to subagents hit turn limits.
+- **File DAGs wave-by-wave with `dependsOn` populated, never bulk-create-then-bulk-wire.** Two-phase filing leaves orphan-edge state on mid-flight failure; `tasks_create`'s `dependsOn` parameter is the right primitive. See §A.2.

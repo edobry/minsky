@@ -13,6 +13,7 @@ Multi-task coordination skill. Handles parent+subtask decomposition, parallel di
 dependency-graph navigation, and cross-task scope assessment.
 
 This skill does NOT own single-task lifecycle transitions:
+
 - Planning and investigation → \`/plan-task\`
 - Implementation and sessions → \`/implement-task\`
 - Verification and merge → \`/verify-task\`
@@ -20,6 +21,7 @@ This skill does NOT own single-task lifecycle transitions:
 ## Triggers
 
 This skill activates on multi-task coordination verbs:
+
 - "decompose mt#X"
 - "break this down into subtasks"
 - "coordinate mt#A and mt#B"
@@ -37,6 +39,40 @@ Optional: one or more task IDs (e.g., \`/orchestrate mt#123\` or \`/orchestrate 
 If no task IDs are given, the skill works from context provided by the user.
 
 ## Coordination concerns
+
+### 0. Restate plan check (pre-action, mandatory)
+
+**Before any tool call that advances the coordination plan**, check whether the user has previously given multi-step direction AND the current prompt contains action-now language. If both trigger conditions hold, invoke \`/restate-plan\` before proceeding.
+
+Trigger conditions (both must hold):
+
+- **Sequencing direction in prior turn(s):** the user has used \`first\`, \`before\`, \`after\`, \`then\`, numbered steps, \`prerequisite\`, \`wait until\`, or multi-clause direction (\`X, then Y\`).
+- **Action-now in current turn:** the current prompt contains \`do it now\`, \`proceed\`, \`go\`, \`start\`, \`why not do it now\`, \`do it\`, \`go ahead\`.
+
+When both fire, invoke \`/restate-plan\` (or walk its 3-step process inline) BEFORE the first tool call that advances the plan. The 3 steps: (1) restate the plan one line per step in user-facing output, (2) identify the next step explicitly, (3) flag any skipped step — STOP and confirm if skipping a user-named prerequisite.
+
+This guards against the action-bias-driven step-compression failure mode (PR #1073 / mt#1783 originating incident; \`decision-defaults.mdc §Multi-step direction execution\` corpus rule). See \`.claude/skills/restate-plan/SKILL.md\` for the full skill text. Skip the check when there's only a single-step direction or when the prior turn had no sequencing keywords — see the skill's "When NOT to invoke" section for exclusions.
+
+### 0a. Disambiguate-next check (multi-next-step chain-walk junctions)
+
+**Before chain-walking on a brief affirmative** ("proceed", "continue", "go", "ok"), check whether the task-graph junction has multiple unblocked sibling/child tasks. If so, invoke \`/disambiguate-next\` to surface the choice in user-facing output before walking to a specific next task.
+
+Trigger conditions (both must hold):
+
+- **Task-graph junction:** a task just transitioned to DONE / merged, OR a parent task's child completed, OR the agent is at any point where >1 sibling/child task is in a walkable state (TODO + spec-substantive, READY, or unblocked).
+- **Brief affirmative:** the current user prompt is a short approval token without disambiguating content.
+
+When both fire:
+
+1. Enumerate walkable siblings/children via \`mcp__minsky__tasks_children <parent>\` (if parent exists) or from recent conversation context.
+2. If count ≥ 2: invoke \`/disambiguate-next\` (or walk its 4-step process inline). Surface the options compactly in user-facing output BEFORE the first tool call that walks to a specific task.
+3. If count = 1: walk directly (sibling memory \`4b83ff51-…\` governs).
+
+**Exception:** if the prior agent turn explicitly recommended a specific next task and the user's brief affirmative immediately follows, the recommendation IS the disambiguation — walk to the recommended task without re-surfacing.
+
+This guards against the multi-next-step chain-walk-on-affirmative failure mode (2 recurrences 2026-05-12: mt#1772 scope-creep + mt#1768/mt#1773 wrong-child-pick). See \`.claude/skills/disambiguate-next/SKILL.md\` for the full skill text, including the stakes-filter sub-check and phase-labeling guidance.
+
+**Phase-labeling guidance (preventive — apply when filing subtasks in concern B).** When labeling multi-phase parents, use VALUE PROPOSITIONS (\`skills-setup phase\`, \`stack-install phase\`) not letters (\`phase A\`, \`phase B\`). Letter-labels are semantically empty and force the agent to re-derive ordering from the task graph at chain-walk time, which is where the originating mt#1768/mt#1773 wrong-child-pick failure happened.
 
 ### A. Pre-decomposition: sweep for parallel work
 
@@ -65,6 +101,84 @@ Parallel work detected:
 Recommend: coordinate with mt#X before filing new subtasks, or subsume the scope if
 mt#X's criteria are a strict subset.
 \`\`\`
+
+### A.1 Epic re-entry: audit for decomposition staleness
+
+When opening or referencing an **epic** that already has children — i.e., the
+intent is "coordinate / plan / pick the next thing" against a parent task with a
+non-empty child set — run the epic-decomposition-staleness audit to surface
+TODO/PLANNING children that may have been substantively delivered by a more
+recent DONE sibling. This is the Shape C complement to §A's parallel-work sweep
+(§A catches duplicate filings; §A.1 catches stale decomposition).
+
+Per \`feedback Epic-decomposition-children go stale when parent ships major delivery\`
+(memory id \`4bc8ee1f-1eee-4561-a865-73c067e48d2e\`): when an epic ships a
+"Sprint-A"-style major delivery, decomposition children filed pre-delivery often
+become substantively superseded but remain TODO indefinitely. The 2026-05-11
+mt#1552 audit found 7 such instances in a single sweep.
+
+**Audit procedure:**
+
+1. Invoke the audit:
+   - **Primary:** \`mcp__minsky__epic-decomposition_audit({ epic: "mt#<id>" })\` —
+     surfaces \`(todoChild, deliveringSibling)\` pairs with scope-overlap signals
+     (file paths, identifiers, keywords). Returns \`EpicAuditResult\` with the
+     candidate set grouped by todo-child id.
+   - **Alternative (if the MCP server has not yet picked up the v0.1 build):**
+     run \`MINSKY_POSTGRES_URL=... bun scripts/calibrate-epic-decomposition-staleness.ts mt#<id>\`.
+2. For each flagged TODO/PLANNING child, read its spec briefly and confirm the
+   failure mode it targets is structurally addressed by the delivering sibling.
+3. If superseded: close as CLOSED-superseded via \`mcp__minsky__tasks_status_set\`
+   with \`status: "CLOSED"\` and a pointer to the delivering task in the closure
+   reason. If not: leave open and note the false positive.
+4. The detector emits ≤2 false positives per epic in calibration (mt#1552), so
+   bulk-close is operator-judgment driven, not automated.
+
+**When to invoke (heuristic):** any time the user names an epic ID with a
+coordinating verb — "decompose mt#X", "what's next on mt#X", "plan mt#X family,"
+etc. — and the epic has at least one DONE child within the last 30 days. If
+unsure, run the audit; the cost is one command and a brief read of the candidate
+list.
+
+**Out of scope (v0.1):** the detector is within-epic only. Cross-epic
+supersessions (e.g., a sibling under a different umbrella delivering scope) are
+not surfaced and remain a manual-judgment concern.
+
+### A.2 DAG filing: wave-by-wave with dependsOn, not bulk-create-then-wire
+
+**When filing a multi-task graph that carries real dependency edges** (e.g., an umbrella + N children where some children depend on others), the default pattern is **wave-by-wave filing** with \`dependsOn\` populated at \`tasks_create\` time — NOT bulk-create-then-bulk-wire.
+
+The anti-pattern: \`tasks_create\` for every node in parallel batches with NO deps, then \`tasks_deps_add\` for every edge in a final batch. The two-phase shape looks faster (more parallelism on the API calls) but has worse atomic-failure semantics: if the deps-add phase fails mid-flight (network glitch, validation rejection, race), the umbrella has N children but partial-or-zero dependency edges. Recovery requires manually inspecting which edges landed and replaying the missing ones — exactly the silent half-shipped state the recovery-layer discipline (CLAUDE.md \`§Work Completion > Recovery layer spec discipline\`) prohibits.
+
+The correct pattern leverages \`tasks_create\`'s existing \`dependsOn\` parameter:
+
+\`\`\`
+Wave 0: file root task alone (no deps).
+        → \`tasks_create(title="Umbrella mt#1234")\`
+
+Wave 1: file tasks whose deps are ALL in Wave 0, with dependsOn populated.
+        → \`tasks_create(title="Phase 1a", parent="mt#1234", dependsOn=[])\` (no deps within the wave)
+        → \`tasks_create(title="Phase 1b", parent="mt#1234", dependsOn=[])\`
+
+Wave 2: file tasks whose deps are ALL in Waves 0-1, with dependsOn populated.
+        → \`tasks_create(title="Phase 2 — needs 1a + 1b", parent="mt#1234", dependsOn=["mt#1235", "mt#1236"])\`
+
+Continue until DAG is complete.
+\`\`\`
+
+**Why wave-by-wave is the default:**
+
+- **Atomic per wave.** Each wave's \`tasks_create\` calls succeed or fail atomically per task; the dependency edge is part of the same call. No "task exists but edge doesn't" state.
+- **Failure recovery is local.** If wave 2 fails, waves 0 and 1 are already complete with correct edges. Replay only the failed wave.
+- **No re-traversal cost.** The deps-add phase in the bulk pattern requires looking up the IDs of just-created tasks to wire edges; wave-by-wave already has the IDs in hand from the prior wave.
+
+**Trade-off (be honest):**
+
+- Bulk-create-then-wire is fewer turns total (more parallelism per phase) but worse failure semantics.
+- Wave-by-wave is roughly the same wall-clock at typical DAG sizes (3–10 tasks, 1–3 waves) but cleaner failure semantics.
+- For trivial DAGs (single parent + N independent children with no inter-sib deps), the patterns converge — both reduce to one wave of \`tasks_create\` calls with no edges to wire. The discipline matters when the graph has inter-sibling dependencies.
+
+**When this fires:** \`tasks_create\` calls for 2+ related tasks where at least one sibling depends on another, OR an umbrella with children that have inter-sibling edges. The signal is "multi-task filing with \`tasks_deps_add\` calls planned afterward" — surface the wave structure first, file with \`dependsOn\` populated, never queue deps-add as a separate phase.
 
 ### B. Subtask decomposition before dispatch
 
@@ -116,11 +230,11 @@ and-a-half in documented cases (e.g., PR #763, mt#1216 mid-iteration).
    expected file set.
 2. Build a file-set matrix:
 
-| Task   | Expected files              |
-|--------|-----------------------------|
-| mt#A   | src/domain/foo.ts, tests/… |
-| mt#B   | src/adapters/bar.ts, …      |
-| mt#C   | src/domain/foo.ts, …        |
+| Task | Expected files             |
+| ---- | -------------------------- |
+| mt#A | src/domain/foo.ts, tests/… |
+| mt#B | src/adapters/bar.ts, …     |
+| mt#C | src/domain/foo.ts, …       |
 
 3. Check for intersections across rows.
 4. Branch on overlap:
@@ -139,6 +253,55 @@ Must serialize: mt#C after mt#A (shared: src/domain/foo.ts)
 
 Recommended order: dispatch mt#A ∥ mt#B first, then mt#C after mt#A merges.
 \`\`\`
+
+### D. In-flight iteration: branch-divergence check
+
+The pre-dispatch sweep in §A catches sibling work that's already filed/merged at decomposition
+time. This rule extends that to the **review-iteration window** — once a PR is open and
+iterating with \`minsky-reviewer[bot]\`, sibling tasks may merge to main and create a real
+conflict that no MCP tool can resolve.
+
+**Apply when coordinating any task that is IN-REVIEW with multi-round reviewer iteration.**
+Per \`feedback_check_branch_behind_main_during_iteration\`: PR #763 (mt#1190) burned a
+session-and-a-half because mt#1216 merged mid-iteration touching the same file, and
+\`session_update\` then aborted on the conflict (mt#1303 gap, see Error recovery below).
+
+**Procedure:** every 2-3 reviewer rounds OR when iteration has spanned >30 minutes:
+
+1. \`mcp__minsky__git_log\` with \`ref: "task/mt-X"\` and \`limit: 5\` — record the branch HEAD.
+2. \`mcp__minsky__git_log\` with \`ref: "origin/main"\` and \`limit: 5\` — note recent main commits.
+3. If main has advanced and the branch's base ancestor hasn't moved, run
+   \`mcp__minsky__session_update\` early — before more iteration commits stack up — so any
+   conflicts surface while you still have buffer.
+4. If \`session_update\` aborts on conflict, that's the mt#1303 gap. **Do not loop with
+   different flags** (\`skipConflictCheck\`, \`force\`, \`noStash\` all abort identically). See
+   "Error recovery → session_update aborts on conflict without markers" below.
+
+**Pattern recognition for high-risk siblings:** tasks named \`[same area] polish\` /
+\`QoL bundle\` / \`calibration\` are the most likely to touch overlapping files mid-iteration.
+When dispatching alongside such a sibling, expect to apply this check more often.
+
+## Error recovery
+
+Operational realities that bit prior multi-task workflows hard. Each entry names the symptom,
+the root cause, and the recovery path. These supplement the per-skill error handling — they
+are surfaced at the orchestration layer because the recovery often spans skill boundaries
+(e.g., bypass-merge after \`/review-pr\` cannot APPROVE).
+
+**Scope qualifier:** the recovery actions in the table below operate on a single session/branch.
+This skill documents the _plan_ (what to do, in what order, with what cost). The actual call site
+is the appropriate phase skill — \`/implement-task\` for branch-mutating recovery during the IN-PROGRESS
+window, \`/verify-task\` for merge-flow recovery during the IN-REVIEW window. Do not invoke session
+mutations directly from this skill's flow.
+
+**Remote naming:** the procedures assume the upstream remote is \`origin\` and the trunk branch is
+\`main\` — Minsky sessions are created with this convention. If a session is configured against a
+different remote name (e.g., \`upstream\`), substitute accordingly.
+
+| Symptom                                                                                                | Root cause                                                                                                                                                                                                                                                                                        | Recovery path                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| \`session_update\` reports "Content conflicts detected" but working tree is clean (no \`<<<<<<<\` markers) | mt#1303 tooling gap: the tool aborts the merge cleanly on conflict and reverts the merge state. There is currently no MCP path to leave conflict markers for manual resolution. Direct \`git merge\` is hook-blocked. Looping with \`skipConflictCheck\` / \`force\` / \`noStash\` all abort identically. | When content compatibility is achievable but git's 3-way merge sees overlapping edits: (1) \`mcp__minsky__session_exec\` \`git reset --hard origin/main\` (carve-out is allowed); (2) use \`mcp__minsky__session_write_file\` to rewrite the conflicting file(s) with the desired final content; (3) \`mcp__minsky__session_commit\`; (4) \`mcp__minsky__git_push\` with \`force: true\`. **Cost: this loses the multi-commit history of the branch — the PR effectively becomes a single squashed commit.** Acceptable for feature PRs; loses signal for debugging-trail PRs. Escalate to the user if blocking — they can run \`git merge\` outside hook scope.                                                                                                                                                                                                    |
+| \`minsky-reviewer[bot]\` silent for >5 min after a follow-up push that addressed BLOCKING findings       | mt#1110-class webhook-miss-on-subsequent-push reliability gap. Distinct from CI not firing (which is a separate webhook/CI-trigger problem). Same-App-identity APPROVE block does NOT apply here — that's a structural gate; this is a reliability gate.                                          | (1) Confirm push reached GitHub: \`mcp__minsky__session_pr_get\`, check \`head.sha\`. (2) Try an empty commit to wake the webhook: \`mcp__minsky__session_commit\` with \`noFiles: true\` and \`noStage: true\`, then push. (3) If still silent, escalate via \`gh api PUT /repos/.../pulls/N/merge\` (\`merge_method=merge\`, never \`squash\`) — only after BLOCKING findings are addressed and remaining gap is the missing reviewer signal. (4) After bypass merge, manually clean up the session: \`mcp__minsky__session_delete\`. (5) Track the instance in the agent-memory file at \`~/.claude/projects/-Users-edobry-Projects-minsky/memory/project_mt1110_calibration_data.md\` (create if absent — see other \`project_*\` and \`feedback_*\` files in the same directory for the format). See \`/review-pr\` step 7a and \`feedback_gh_api_bypass\` (same directory). |
 
 ## Dependency graph navigation
 
@@ -182,9 +345,19 @@ to the appropriate phase skill.
 
 ## Post-merge deploy verification across an epic
 
-When an epic's subtasks land code that runs in a deployed service, the agent driving the epic should verify each merge's deploy succeeded — Railway redeploys are not "the build checks passed, we're done." A Dockerfile breakage, missing env var, or container-start crash shows up post-merge and won't be caught by pre-merge CI. Use the platform-neutral MCP tools that wrap the deployment platform (Railway is the v1 concrete adapter; v2 candidates: Vercel, Cloudflare Pages, Fly.io, etc.).
+When an epic's subtasks land code that runs in a deployed service, the agent driving the
+epic should verify each merge's deploy succeeded — Railway redeploys are not "the build
+checks passed, we're done." A Dockerfile breakage, missing env var, or container-start crash
+shows up post-merge and won't be caught by pre-merge CI. Use the platform-neutral MCP tools
+that wrap the deployment platform (Railway is the v1 concrete adapter; v2 candidates: Vercel,
+Cloudflare Pages, Fly.io, etc.).
 
-After any subtask merge that touches deployed code, call \`mcp__minsky__deployment_wait-for-latest\` to block on the auto-deploy and surface the terminal status. On FAILED / CRASHED, call \`mcp__minsky__deployment_logs\` for the failed deployment ID and surface the build/runtime failure to the user. See \`docs/deployment-platforms.md\` for the abstraction and \`/implement-task\` step 10 for the single-task variant.
+After any subtask merge that touches deployed code, call
+\`mcp__minsky__deployment_wait-for-latest\` to block on the auto-deploy and surface the
+terminal status. On FAILED / CRASHED, call \`mcp__minsky__deployment_logs\` for the failed
+deployment ID and surface the build/runtime failure to the user. See
+\`docs/deployment-platforms.md\` for the abstraction and \`/implement-task\` step 10 for the
+single-task variant.
 
 ## Key constraints
 
@@ -194,5 +367,6 @@ After any subtask merge that touches deployed code, call \`mcp__minsky__deployme
 - **Always sweep for parallel work before decomposing.** This is a mechanical pre-check, not optional.
 - **Always analyze file overlap before parallel dispatch.** Two agents on the same file produce conflicts.
 - **Decompose before dispatch.** Monolithic tasks dispatched to subagents hit turn limits.
+- **File DAGs wave-by-wave with \`dependsOn\` populated, never bulk-create-then-bulk-wire.** Two-phase filing leaves orphan-edge state on mid-flight failure; \`tasks_create\`'s \`dependsOn\` parameter is the right primitive. See §A.2.
 `,
 });
