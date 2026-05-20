@@ -61,6 +61,28 @@ import {
 import { handleOctokitError } from "./github-error-handler";
 import type { ReviewListEntry } from "./index";
 import { FallbackTokenProvider, type TokenProvider } from "../auth";
+import {
+  listWorkflowRuns as listWorkflowRunsImpl,
+  viewWorkflowRunLogs as viewWorkflowRunLogsImpl,
+  type WorkflowRun,
+  type ListWorkflowRunsOptions,
+} from "./github-workflow-runs";
+import {
+  getBranchProtection as getBranchProtectionImpl,
+  setBranchProtection as setBranchProtectionImpl,
+  type BranchProtection,
+} from "./github-branch-protection";
+import {
+  createLabel as createLabelImpl,
+  listLabels as listLabelsImpl,
+  updateLabel as updateLabelImpl,
+  deleteLabel as deleteLabelImpl,
+  type Label,
+  type CreateLabelParams,
+  type UpdateLabelParams,
+  type ListLabelsOptions,
+} from "./github-labels";
+import type { WorkflowRunsOperations, BranchProtectionOperations, LabelOperations } from "./index";
 
 const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
@@ -800,6 +822,74 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
         const result = await submitCheckRunImpl(gh, headSha, options);
         return { ...result, headSha };
+      },
+    };
+  }
+
+  get workflowRuns(): WorkflowRunsOperations {
+    return {
+      list: async (options?: ListWorkflowRunsOptions): Promise<WorkflowRun[]> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return listWorkflowRunsImpl(gh, options ?? {}, octokit);
+      },
+
+      viewLogs: async (runId: number): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return viewWorkflowRunLogsImpl(gh, runId, octokit);
+      },
+    };
+  }
+
+  get branchProtection(): BranchProtectionOperations {
+    return {
+      get: async (branch: string): Promise<BranchProtection> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return getBranchProtectionImpl(gh, branch, octokit);
+      },
+
+      set: async (branch: string, config: BranchProtection): Promise<BranchProtection> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return setBranchProtectionImpl(gh, branch, config, octokit);
+      },
+    };
+  }
+
+  get labels(): LabelOperations {
+    return {
+      create: async (params: CreateLabelParams): Promise<Label> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return createLabelImpl(gh, params, octokit);
+      },
+
+      list: async (options?: ListLabelsOptions): Promise<Label[]> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return listLabelsImpl(gh, options ?? {}, octokit);
+      },
+
+      update: async (currentName: string, params: UpdateLabelParams): Promise<Label> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return updateLabelImpl(gh, currentName, params, octokit);
+      },
+
+      delete: async (name: string): Promise<void> => {
+        const gh = this.requireGitHubContext();
+        const token = await this.tokenProvider.getServiceToken();
+        const octokit = createOctokit(token);
+        return deleteLabelImpl(gh, name, octokit);
       },
     };
   }
