@@ -92,7 +92,31 @@ The palette is grounded in cybernetic-ops register: near-black ground, near-whit
 - **Conversion tooling.** Use [`culori`](https://culori.js.org/) (`culori.formatHex(culori.oklch({ ... }))`) or [`colorjs.io`](https://colorjs.io/) (`new Color("oklch", [L, C, H]).to("srgb").toString({ format: "hex" })`). Both implement the CSS Color Level 4 spec and produce identical results within rounding tolerance.
 - **The values in the table above are starting points** rounded to 3 decimals (lightness/chroma) and integer hue, derived from the principal's anchor hex values listed in the same row. Downstream surfaces (mt#1934, mt#1935) may refine via measured conversion + display-gamut clipping; commit any refinement back to this table so all surfaces stay in sync.
 - **Gamut clipping.** Surfaces rendering on wide-gamut displays (P3, Rec.2020) may render OKLCH values that fall outside sRGB. The fallback hex is intentionally clipped to sRGB; if a surface targets P3, allow the OKLCH value to render directly.
-- **Browser support floor.** `oklch()` requires Chrome 111+, Safari 16.4+, Firefox 113+. Surfaces supporting older engines must ship sRGB hex (or HSL) fallback values via CSS custom properties — e.g., `color: var(--text-primary-hex, var(--text-primary-oklch));`.
+- **Browser support floor.** `oklch()` requires Chrome 111+, Safari 16.4+, Firefox 113+. Surfaces supporting older engines must ship sRGB hex (or HSL) fallback values. CSS's `var()` fallback **does not** apply when the resolved value is unsupported (it only applies when the variable itself is missing/invalid), so use one of:
+
+```css
+/* Pattern A — cascade duplicate declarations (older browsers take the last valid one) */
+.text-primary {
+  color: #eeeeee;
+  color: oklch(0.946 0 0);
+}
+
+/* Pattern B — gate with @supports */
+.text-primary {
+  color: #eeeeee;
+}
+@supports (color: oklch(0 0 0)) {
+  .text-primary {
+    color: oklch(0.946 0 0);
+  }
+}
+
+/* Pattern C — two custom-property declarations; OKLCH first, hex second, latter wins on unsupported engines */
+.text-primary {
+  color: var(--text-primary-oklch);
+  color: var(--text-primary-hex);
+}
+```
 
 ### Contrast targets (WCAG 2.2 AA)
 
