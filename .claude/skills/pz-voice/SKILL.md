@@ -28,7 +28,7 @@ If you're about to write a Minsky-voice surface (position paper, RFC, manifesto,
 - Revising existing prose for voice consistency (the Principal Substrate paper revision is the canonical case)
 - Auditing an artifact for off-voice patterns (SaaS hyperbole, exclamation, marketing-affirmation)
 - Writing in any surface where the brand voice should be unambiguously Eugene's, not the agent's confabulated version of it
-- *NOT* for: task specs (use `create-task`), code comments, error messages, tool descriptions — those have their own conventions
+- _NOT_ for: task specs (use `create-task`), code comments, error messages, tool descriptions — those have their own conventions
 
 ## 1. Source-of-truth: the corpus memeplex
 
@@ -58,16 +58,16 @@ The most recognizable rhythmic feature of the voice is the **compound-sentence-w
 
 Example forms (constructed; the corpus has hundreds):
 
-- *"The mind is a cybernetic control system, not a container; it ingests information, builds models, generates plans, and feeds results back as learning."*
-- *"Ego death is not the destruction of the whole person; it is the termination of one sub-self's dominance."*
-- *"Agency is scarcer than intelligence; cogs are interchangeable, drivers are not."*
-- *"Magick is not mysticism; it is the operational equivalent of any sufficiently stable abstraction."*
+- _"The mind is a cybernetic control system, not a container; it ingests information, builds models, generates plans, and feeds results back as learning."_
+- _"Ego death is not the destruction of the whole person; it is the termination of one sub-self's dominance."_
+- _"Agency is scarcer than intelligence; cogs are interchangeable, drivers are not."_
+- _"Magick is not mysticism; it is the operational equivalent of any sufficiently stable abstraction."_
 
 The pattern is roughly: **[Declaration] ; [Mechanism or Reframe].** Sometimes nested:
 
-- *"Markets are cybernetic systems with edge sensors, processing, and feedback; they solve the central planning problem not through metaphysical justice but through information-theory constraints; the same dynamics apply at any scale."*
+- _"Markets are cybernetic systems with edge sensors, processing, and feedback; they solve the central planning problem not through metaphysical justice but through information-theory constraints; the same dynamics apply at any scale."_
 
-This is the voice's *signature beat*. When in doubt, default to it. If a sentence wants two periods, ask whether a semicolon would let the two thoughts arrive as one.
+This is the voice's _signature beat_. When in doubt, default to it. If a sentence wants two periods, ask whether a semicolon would let the two thoughts arrive as one.
 
 Other rhythm features:
 
@@ -81,23 +81,23 @@ Specific words appear with precise technical meaning, not casually. Using them o
 
 The precise-term set (cite by `theme:<tag>` for the underlying proposition):
 
-| Term | Precise meaning | Theme |
-|---|---|---|
-| `cybernetic` | Wiener-sense control system: observation, feedback, planning, execution. NOT casual "system." | cybernetics |
-| `substrate` | The execution environment of an abstraction; what the abstraction runs on. NOT "background" or "foundation" loosely. | (cross-cutting) |
-| `exocortex` | Externalized portion of one's cognitive architecture; environment-as-cognitive-storage; tools-as-incorporated-into-extended-phenotype. NOT "AI assistant." | exocortex |
-| `egregore` | Emergent agent from memetic alignment; corporations / political movements / communities as instances. NOT "vibe" or "atmosphere." | egregore |
-| `magick` (with a k) | Interface-operable abstraction; substrate honors declared intent on ritual alone. NOT mysticism. NOT mainstream "magic." | magick-as-substrate |
-| `servitor` | Autonomous intent-bearer constructed for a specific task; chaos-magick technical term. Structurally cognate with LLM agents. | magick-as-substrate |
-| `society of mind` | Marvin Minsky's plurality model applied to the self; ego as one sub-agent among many. NOT "I have many sides." | ego-plurality |
-| `ergodicity` | The property of a system where time-averaged and ensemble-averaged behaviors converge; relevant to consciousness, sleep, exploration/exploitation tradeoffs. | consciousness, cognitive-flexibility |
-| `eigenself` | The self as an attractor in the space of possible self-configurations; what gets re-instantiated after ego death. | ego-plurality |
-| `locus of control` | The level at which a system or operator specifies; what the substrate handles below. Declarative-paradigm vocabulary. | (cross-cutting) |
-| `qualia` | The phenomenal character of conscious experience; the redness of red. Held seriously as a technical category, not dismissed as mysterianism. | consciousness |
-| `cogs / drivers` | Interchangeable units of capability (cogs) vs. agency-bearing orientation-in-chaos (drivers). | agency |
-| `flock` | A coordinated multi-agent unit operating on behalf of (and in continuity with) a principal. Direct borrow from Stross's Accelerando. | (cultural-code; Macx anchor) |
-| `cyborg monke` | The human as already-cyborg by virtue of integrating natural and artificial; defining feature, not future state. | exocortex |
-| `cognitohazard` | An idea that, by being held, restructures the holder's cognition; totalizing ontologies are the canonical instance. | cognitive-hazard |
+| Term                | Precise meaning                                                                                                                                              | Theme                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ |
+| `cybernetic`        | Wiener-sense control system: observation, feedback, planning, execution. NOT casual "system."                                                                | cybernetics                          |
+| `substrate`         | The execution environment of an abstraction; what the abstraction runs on. NOT "background" or "foundation" loosely.                                         | (cross-cutting)                      |
+| `exocortex`         | Externalized portion of one's cognitive architecture; environment-as-cognitive-storage; tools-as-incorporated-into-extended-phenotype. NOT "AI assistant."   | exocortex                            |
+| `egregore`          | Emergent agent from memetic alignment; corporations / political movements / communities as instances. NOT "vibe" or "atmosphere."                            | egregore                             |
+| `magick` (with a k) | Interface-operable abstraction; substrate honors declared intent on ritual alone. NOT mysticism. NOT mainstream "magic."                                     | magick-as-substrate                  |
+| `servitor`          | Autonomous intent-bearer constructed for a specific task; chaos-magick technical term. Structurally cognate with LLM agents.                                 | magick-as-substrate                  |
+| `society of mind`   | Marvin Minsky's plurality model applied to the self; ego as one sub-agent among many. NOT "I have many sides."                                               | ego-plurality                        |
+| `ergodicity`        | The property of a system where time-averaged and ensemble-averaged behaviors converge; relevant to consciousness, sleep, exploration/exploitation tradeoffs. | consciousness, cognitive-flexibility |
+| `eigenself`         | The self as an attractor in the space of possible self-configurations; what gets re-instantiated after ego death.                                            | ego-plurality                        |
+| `locus of control`  | The level at which a system or operator specifies; what the substrate handles below. Declarative-paradigm vocabulary.                                        | (cross-cutting)                      |
+| `qualia`            | The phenomenal character of conscious experience; the redness of red. Held seriously as a technical category, not dismissed as mysterianism.                 | consciousness                        |
+| `cogs / drivers`    | Interchangeable units of capability (cogs) vs. agency-bearing orientation-in-chaos (drivers).                                                                | agency                               |
+| `flock`             | A coordinated multi-agent unit operating on behalf of (and in continuity with) a principal. Direct borrow from Stross's Accelerando.                         | (cultural-code; Macx anchor)         |
+| `cyborg monke`      | The human as already-cyborg by virtue of integrating natural and artificial; defining feature, not future state.                                             | exocortex                            |
+| `cognitohazard`     | An idea that, by being held, restructures the holder's cognition; totalizing ontologies are the canonical instance.                                          | cognitive-hazard                     |
 
 The voice **does not use** these (casually-AI-coded or vague):
 
@@ -119,11 +119,11 @@ The voice's argument pattern:
 
 Counter-example (generic AI voice; not pz-voice):
 
-> *"There are many ways to think about consciousness, but one interesting perspective is that it might have evolved for social cooperation. This view suggests that minds developed the ability to model others as part of solving coordination problems, which has important implications for how we understand introspection."*
+> _"There are many ways to think about consciousness, but one interesting perspective is that it might have evolved for social cooperation. This view suggests that minds developed the ability to model others as part of solving coordination problems, which has important implications for how we understand introspection."_
 
 Same claim in pz-voice:
 
-> *"Consciousness evolved as counterparty simulation infrastructure; the ability to run low-resolution models of interlocutors before transmission solves the iterated-game cooperation problem. Introspection is a byproduct — we learned to model ourselves by simulating interactions with others; theory of mind preceded self-knowledge."*
+> _"Consciousness evolved as counterparty simulation infrastructure; the ability to run low-resolution models of interlocutors before transmission solves the iterated-game cooperation problem. Introspection is a byproduct — we learned to model ourselves by simulating interactions with others; theory of mind preceded self-knowledge."_
 
 Notice the differences: the second states; the first hedges. The second mechanizes (counterparty simulation, iterated games, low-resolution models); the first abstracts ("ways to think," "interesting perspective," "social cooperation"). The second implicates (introspection-as-byproduct, theory-of-mind-precedes-self-knowledge); the first describes ("important implications"). The second has the semicolon rhythm; the first runs flat.
 
@@ -166,12 +166,12 @@ Both are needed; they operate at different layers. Composition principle:
 
 The balance depends on surface:
 
-| Surface | Voice weight | Cultural-code weight |
-|---|---|---|
-| Position paper, RFC | ~90% voice | ~10% (epigraph, occasional named reference, brand vocabulary in headers) |
-| Manifesto / About page | ~70% voice | ~30% (cultural-code framing in section openings) |
-| Marketing site copy | ~40% voice | ~60% (visual register dominates; copy supports) |
-| Visual surfaces (palette, typography, motion) | ~0% voice | 100% codes |
+| Surface                                       | Voice weight | Cultural-code weight                                                     |
+| --------------------------------------------- | ------------ | ------------------------------------------------------------------------ |
+| Position paper, RFC                           | ~90% voice   | ~10% (epigraph, occasional named reference, brand vocabulary in headers) |
+| Manifesto / About page                        | ~70% voice   | ~30% (cultural-code framing in section openings)                         |
+| Marketing site copy                           | ~40% voice   | ~60% (visual register dominates; copy supports)                          |
+| Visual surfaces (palette, typography, motion) | ~0% voice    | 100% codes                                                               |
 
 Rule of thumb for prose: **if a paragraph could be entirely corpus citation with no GitS/Eva/Macx reference and still carry the claim, that's the natural balance. Add the cultural-code reference only when it crystallizes the claim more than the voice alone does** — e.g., "the flock" as a single noun does work that "a coordinated multi-agent body operating around a principal" takes a sentence to do.
 
@@ -183,11 +183,11 @@ When the voice and the codes pull in different directions (the voice wants to ma
 
 **Generic AI voice (off):**
 
-> *"Minsky is an innovative AI-powered platform that brings together your agents, tasks, and decisions into one unified, intuitive interface. By leveraging cutting-edge cybernetics, Minsky empowers you to manage your team's AI workflows like never before."*
+> _"Minsky is an innovative AI-powered platform that brings together your agents, tasks, and decisions into one unified, intuitive interface. By leveraging cutting-edge cybernetics, Minsky empowers you to manage your team's AI workflows like never before."_
 
 **pz-voice (on):**
 
-> *"Minsky is the exocortex for a technical principal who runs work through a flock of agents. The product is a substrate, not an app; the principal declares intent and the substrate routes execution. Agency is the scarce resource; Minsky's job is to make sure it lands on the right work."*
+> _"Minsky is the exocortex for a technical principal who runs work through a flock of agents. The product is a substrate, not an app; the principal declares intent and the substrate routes execution. Agency is the scarce resource; Minsky's job is to make sure it lands on the right work."_
 
 What changed: declarations replace claims; the mechanism (declare → route execute) is named; agency-as-scarce is invoked (theme tag); SaaS hyperbole is gone; the semicolon-pattern is back.
 
@@ -195,11 +195,11 @@ What changed: declarations replace claims; the mechanism (declare → route exec
 
 **Generic AI voice (off):**
 
-> *"Effective AI agents need to know when to escalate to humans. Our innovative attention-allocation subsystem helps your AI know when to ask for help and when to keep going, making sure you only get interrupted when it really matters."*
+> _"Effective AI agents need to know when to escalate to humans. Our innovative attention-allocation subsystem helps your AI know when to ask for help and when to keep going, making sure you only get interrupted when it really matters."_
 
 **pz-voice (on):**
 
-> *"Attention is the scarce resource in any agent-led organization; the principal's attention is the binding constraint, not the agent's capability. Minsky's attention-allocation subsystem treats this as a routing problem across a taxonomy of asks: capability-escalations to bigger models, direction-decides to the principal, authorization-approves to policy, coordination-notifies to peer agents. The default is to absorb; the principal is touched only when the policy is silent and the question is preference-bound."*
+> _"Attention is the scarce resource in any agent-led organization; the principal's attention is the binding constraint, not the agent's capability. Minsky's attention-allocation subsystem treats this as a routing problem across a taxonomy of asks: capability-escalations to bigger models, direction-decides to the principal, authorization-approves to policy, coordination-notifies to peer agents. The default is to absorb; the principal is touched only when the policy is silent and the question is preference-bound."_
 
 What changed: the scarce-resource framing is named (theme tag); the structural model (routing across taxonomy) replaces the hand-wave; the default direction is stated (absorb, escalate only on policy-silent + preference-bound).
 
@@ -207,11 +207,11 @@ What changed: the scarce-resource framing is named (theme tag); the structural m
 
 **Generic AI voice (off):**
 
-> *"In conclusion, by adopting Minsky, you'll be well-positioned to take your team's AI capabilities to the next level. The future of agent orchestration is here, and it's better than ever!"*
+> _"In conclusion, by adopting Minsky, you'll be well-positioned to take your team's AI capabilities to the next level. The future of agent orchestration is here, and it's better than ever!"_
 
 **pz-voice (on):**
 
-> *"The principal substrate is empty in the AI-tool category; Cursor is an IDE, Devin is an agent, LangGraph is a framework, Claude Code is a harness. None of them holds the principal's attention as the binding constraint. Minsky does."*
+> _"The principal substrate is empty in the AI-tool category; Cursor is an IDE, Devin is an agent, LangGraph is a framework, Claude Code is a harness. None of them holds the principal's attention as the binding constraint. Minsky does."_
 
 What changed: the inspirational ending is replaced with the structural claim that motivated the paper; the no-go register (game-changing, future-is-here) is rejected; the closing lands on the differentiating fact, not on a feeling.
 
@@ -229,7 +229,7 @@ When asked to write in pz-voice for a specific surface:
 ## 10. Anti-patterns specific to writing in voice
 
 - **Pastiche.** Stringing semicolons and technical terms together without holding the underlying stance. Reads like an agent imitating Eugene rather than Eugene writing. Fix: re-ground in the corpus; read three memeplex entries before continuing the draft.
-- **Over-quotation.** Quoting too many corpus citations directly; the voice should *be* the corpus, not constantly cite it. Fix: cite by theme tag in the draft; quote verbatim only where the specific phrasing does work the paraphrase cannot.
+- **Over-quotation.** Quoting too many corpus citations directly; the voice should _be_ the corpus, not constantly cite it. Fix: cite by theme tag in the draft; quote verbatim only where the specific phrasing does work the paraphrase cannot.
 - **Faux-rigor.** Using the technical vocabulary correctly but without mechanism. "The mind is a cybernetic control system" without saying what makes it one. Fix: every technical term in a substantive claim should be backed by the corpus mechanism for why it applies.
 - **Voice without stance.** Writing in the semicolon rhythm with the precise vocabulary but stating claims that violate the operative-ontology stance (treating reified entities as substantial, treating description as causation, etc.). Fix: re-check section 5; the stance constrains what the voice can say.
 - **Linking tweets in foreground prose.** Per Eugene 2026-05-19: too on the nose. Quote phrases without linking; the corpus is for the agent's verification, not the buyer's pursuit. Cross-reference by theme tag.
