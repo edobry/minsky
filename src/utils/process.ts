@@ -51,7 +51,11 @@ export function processCwd(): string {
 export function processChdir(directory: string): void {
   // Access chdir via bracket notation — it exists at runtime in Node.js and Bun
   // but is not in the @types/node process interface for all environments.
-  const chdir = (process as Record<string, unknown>)["chdir"] as (dir: string) => void;
+  // The `as unknown as Record<string, unknown>` shape is required by TS2352
+  // (Process lacks a string index signature); the eslint rule warns about
+  // the `as unknown` form generally but it's the canonical fix here.
+  // eslint-disable-next-line custom/no-excessive-as-unknown
+  const chdir = (process as unknown as Record<string, unknown>)["chdir"] as (dir: string) => void;
   chdir(directory);
 }
 

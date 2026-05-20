@@ -1410,7 +1410,11 @@ export function createStartCommand(
           }
         };
 
-        const proc = process as Record<string, unknown>;
+        // `as unknown as Record<string, unknown>` is required by TS2352 (Process
+        // lacks a string index signature). eslint warns about the `as unknown`
+        // form generally; suppression is the canonical fix here.
+        // eslint-disable-next-line custom/no-excessive-as-unknown
+        const proc = process as unknown as Record<string, unknown>;
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
         (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
