@@ -64,7 +64,7 @@ export interface CallMcpOptions {
    */
   logPrefix?: string;
   /**
-   * Logger function. Defaults to console.warn with structured JSON.
+   * Logger function. Defaults to `log.warn` (reviewer-local winston logger).
    * Used for transport/protocol-level warnings; tool-result content is never logged.
    */
   logger?: (event: Record<string, unknown>) => void;
@@ -167,7 +167,8 @@ export function resetMcpClientSessions(): void {
 // ---------------------------------------------------------------------------
 
 function defaultLogger(event: Record<string, unknown>): void {
-  console.warn(JSON.stringify(event));
+  const name = typeof event["event"] === "string" ? (event["event"] as string) : "mcp_client.event";
+  log.warn(name, event);
 }
 
 // ---------------------------------------------------------------------------
@@ -619,8 +620,13 @@ export async function callAuthorshipGet(
       timeoutMs: 10_000,
       logPrefix: "mcp_client.authorship_get",
       logger: (event) => {
-        // Re-route through winston so existing log inspection patterns hold.
-        log.error(`[mcp-client] ${JSON.stringify(event)}`);
+        // Route the event object directly through the structured logger so
+        // the `event` field stays at top level in STRUCTURED-mode output
+        // (downstream consumers parse on `parsed["event"]`). Mirrors the
+        // `defaultLogger` pattern at the top of this file.
+        const name =
+          typeof event["event"] === "string" ? (event["event"] as string) : "mcp_client.event";
+        log.error(name, event);
       },
     }
   );
@@ -675,7 +681,11 @@ export async function callTasksSpecGet(
       timeoutMs: 10_000,
       logPrefix: "mcp_client.tasks_spec_get",
       logger: (event) => {
-        log.error(`[mcp-client] ${JSON.stringify(event)}`);
+        // Route the event object directly through the structured logger so
+        // the `event` field stays at top level in STRUCTURED-mode output.
+        const name =
+          typeof event["event"] === "string" ? (event["event"] as string) : "mcp_client.event";
+        log.error(name, event);
       },
     }
   );

@@ -105,8 +105,9 @@ async function sendWebhook(
  * Capture lines written to process.stdout during a test.
  *
  * Winston's Console transport writes to process.stdout.write directly,
- * bypassing console.log. We intercept at the stream level so that both
- * the old console.log path and the new winston path are captured.
+ * bypassing the standard `console` global. We intercept at the stream
+ * level so the winston path is captured regardless of which logger API
+ * the code under test uses.
  */
 function captureConsoleLogs(): { logs: string[]; restore: () => void } {
   const logs: string[] = [];

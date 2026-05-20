@@ -17,6 +17,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import type { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
   detectMissingReview,
   listOpenPRs,
@@ -838,12 +839,7 @@ describe("startSweeper", () => {
   });
 
   test("emits sweeper.low_interval_warning when intervalMs < 300_000 (mt#1898 PR #1154 R1)", () => {
-    const warnings: unknown[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      warnings.push(args[0]);
-    };
-
+    const { logs, restore } = captureConsoleLogs();
     try {
       // 2 min cadence — below the 5-min safe threshold.
       const handle = startSweeper(BASE_CONFIG, {
@@ -853,36 +849,18 @@ describe("startSweeper", () => {
 
       // Stop the setInterval immediately — we only care about the boot-time log.
       if (handle) clearInterval(handle);
-
-      const events = warnings
-        .map((w) => {
-          try {
-            return JSON.parse(String(w));
-          } catch {
-            return null;
-          }
-        })
-        .filter((e): e is { event: string } => e !== null && typeof e === "object");
-
-      const lowIntervalWarning = events.find(
-        (e) => (e as { event?: string }).event === "sweeper.low_interval_warning"
-      ) as { event: string; intervalMs: number; safeThresholdMs: number } | undefined;
-
-      expect(lowIntervalWarning).toBeDefined();
-      expect(lowIntervalWarning?.intervalMs).toBe(120_000);
-      expect(lowIntervalWarning?.safeThresholdMs).toBe(300_000);
     } finally {
-      console.warn = originalWarn;
+      restore();
     }
+
+    const lowIntervalWarning = findLogEvent(logs, "sweeper.low_interval_warning");
+    expect(lowIntervalWarning).not.toBeNull();
+    expect(lowIntervalWarning?.intervalMs).toBe(120_000);
+    expect(lowIntervalWarning?.safeThresholdMs).toBe(300_000);
   });
 
   test("does NOT emit sweeper.low_interval_warning at the safe 10-min default (mt#1898 PR #1154 R1)", () => {
-    const warnings: unknown[] = [];
-    const originalWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      warnings.push(args[0]);
-    };
-
+    const { logs, restore } = captureConsoleLogs();
     try {
       const handle = startSweeper(BASE_CONFIG, {
         ...SWEEPER_CONFIG,
@@ -890,24 +868,10 @@ describe("startSweeper", () => {
       });
 
       if (handle) clearInterval(handle);
-
-      const events = warnings
-        .map((w) => {
-          try {
-            return JSON.parse(String(w));
-          } catch {
-            return null;
-          }
-        })
-        .filter((e): e is { event: string } => e !== null && typeof e === "object");
-
-      const lowIntervalWarning = events.find(
-        (e) => (e as { event?: string }).event === "sweeper.low_interval_warning"
-      );
-
-      expect(lowIntervalWarning).toBeUndefined();
     } finally {
-      console.warn = originalWarn;
+      restore();
     }
+
+    expect(findLogEvent(logs, "sweeper.low_interval_warning")).toBeNull();
   });
 });

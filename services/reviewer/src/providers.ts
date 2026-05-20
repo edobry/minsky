@@ -17,6 +17,7 @@ import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
 import { withTimeout } from "./with-timeout";
+import { log } from "./logger";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -295,18 +296,16 @@ async function forceConcludeReview(
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
   // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
-  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted on
-  // stdout (via console.log) for parity with all other reviewer.* JSON events
-  // so log-pipeline ingestion picks it up; the `severity: "error"` field is
-  // available for dashboards/alerts that want to escalate it.
+  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted via
+  // log.info for parity with all other reviewer.* JSON events so log-pipeline
+  // ingestion picks it up; the `severity: "error"` field is available for
+  // dashboards/alerts that want to escalate it.
   if (!CONCLUDE_REVIEW_TOOL_DEF) {
-    console.log(
-      JSON.stringify({
-        event: "reviewer.conclude_review_tool_def_missing",
-        provider: "openai",
-        severity: "error",
-      })
-    );
+    log.info("reviewer.conclude_review_tool_def_missing", {
+      event: "reviewer.conclude_review_tool_def_missing",
+      provider: "openai",
+      severity: "error",
+    });
     return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
   }
 
@@ -364,26 +363,22 @@ async function forceConcludeReview(
       // Observability parity with main-loop output tool calls: emit the same
       // shape so downstream metrics tracking `reviewer.output_tool_call`
       // counts include the forced-path conclude_review emission.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.output_tool_call",
-          provider: "openai",
-          tool: "conclude_review",
-          count: accumulatedToolCalls.length,
-        })
-      );
+      log.info("reviewer.output_tool_call", {
+        event: "reviewer.output_tool_call",
+        provider: "openai",
+        tool: "conclude_review",
+        count: accumulatedToolCalls.length,
+      });
       return { ...tokenUsage, emitted: true };
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.log(
-        JSON.stringify({
-          event: "reviewer.output_tool_call_parse_error",
-          provider: "openai",
-          tool: "conclude_review",
-          phase: "post_loop_forced",
-          error: errMsg,
-        })
-      );
+      log.info("reviewer.output_tool_call_parse_error", {
+        event: "reviewer.output_tool_call_parse_error",
+        provider: "openai",
+        tool: "conclude_review",
+        phase: "post_loop_forced",
+        error: errMsg,
+      });
       // Malformed forced call: do not append. Composition-side severity-derived
       // event recovery (mt#1413) handles the absent-conclude_review case.
       return { ...tokenUsage, emitted: false };
@@ -595,25 +590,21 @@ export async function callOpenAIWithClient(
           const parsed = parseToolCall(fnName, toolCall.function.arguments);
           accumulatedToolCalls.push(parsed);
           const count = accumulatedToolCalls.length;
-          console.log(
-            JSON.stringify({
-              event: "reviewer.output_tool_call",
-              provider: "openai",
-              tool: fnName,
-              count,
-            })
-          );
+          log.info("reviewer.output_tool_call", {
+            event: "reviewer.output_tool_call",
+            provider: "openai",
+            tool: fnName,
+            count,
+          });
           resultContent = JSON.stringify({ ok: true, recorded: true });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          console.log(
-            JSON.stringify({
-              event: "reviewer.output_tool_call_parse_error",
-              provider: "openai",
-              tool: fnName,
-              error: errMsg,
-            })
-          );
+          log.info("reviewer.output_tool_call_parse_error", {
+            event: "reviewer.output_tool_call_parse_error",
+            provider: "openai",
+            tool: fnName,
+            error: errMsg,
+          });
           // Malformed call: do NOT add to accumulatedToolCalls; return an error
           // envelope so the model can self-correct.
           resultContent = JSON.stringify({ ok: false, error: `parse_error: ${errMsg}` });
@@ -712,32 +703,28 @@ export async function callOpenAIWithClient(
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
 
-      console.log(
-        JSON.stringify({
-          event: "reviewer.conclude_review_reminder",
-          provider: "openai",
-          mode: "post_loop_forced",
-          fired_at_turn: totalRoundsUsed,
-          reminder_count: 1,
-          finally_emitted: forced.emitted,
-          gate_branch: gateBranch,
-        })
-      );
+      log.info("reviewer.conclude_review_reminder", {
+        event: "reviewer.conclude_review_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        reminder_count: 1,
+        finally_emitted: forced.emitted,
+        gate_branch: gateBranch,
+      });
     } catch (err: unknown) {
       // API error (network, rate limit, etc.) on the forced call. Log and
       // fall through; composition-side recovery handles the missing event.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.conclude_review_reminder",
-          provider: "openai",
-          mode: "post_loop_forced",
-          fired_at_turn: totalRoundsUsed,
-          reminder_count: 1,
-          finally_emitted: false,
-          gate_branch: gateBranch,
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
+      log.info("reviewer.conclude_review_reminder", {
+        event: "reviewer.conclude_review_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        reminder_count: 1,
+        finally_emitted: false,
+        gate_branch: gateBranch,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -785,7 +772,7 @@ async function callGoogle(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider google does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }
@@ -826,7 +813,7 @@ async function callAnthropic(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider anthropic does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }

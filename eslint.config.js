@@ -609,21 +609,6 @@ export default [
       "no-unused-vars": "off",
     },
   },
-  // === custom/no-raw-console — service-level excludes (mt#1960) ===
-  //
-  // services/reviewer/** ships its own winston logger (services/reviewer/src/logger.ts)
-  // but only 5 of 12 source files import the local `log` symbol (mt#1255 was deliberately
-  // narrow). The remaining ~127 raw console.* calls are tracked under mt#1982; when that
-  // task lands and migrates them, this block is removed.
-  //
-  // (services/site/** was previously excluded; mt#1983 shipped services/site/src/logger.ts
-  // and migrated the 2 server.ts calls, so the exclude is no longer needed.)
-  {
-    files: ["services/reviewer/**"],
-    rules: {
-      "custom/no-raw-console": "off",
-    },
-  },
   // === custom/no-raw-console — additional CLI / test-utility excludes (mt#1960) ===
   // Match the legacy `scripts/lint-console-usage.ts` allowlist. These files legitimately
   // emit to stdout (CLI tools, test runners, test utilities, naming-fixer scripts).
@@ -648,6 +633,15 @@ export default [
       // logger. Treated as scripts.
       "drizzle*.config.ts",
       "*-tool.ts",
+      // Reviewer-service operator scripts (smoke tests, replay harnesses,
+      // calibration measurements, benchmarks). These are CLI tools whose
+      // stdout output IS the operator-visible result — routing through the
+      // structured logger would inject JSON metadata into output the
+      // operator wants to read directly. The reviewer service's production
+      // code path under services/reviewer/src/ uses the local winston
+      // logger via `log.*` (mt#1255 + mt#1982); this exemption applies
+      // only to the operator-script subdirectory.
+      "services/reviewer/scripts/**",
     ],
     rules: {
       "custom/no-raw-console": "off",

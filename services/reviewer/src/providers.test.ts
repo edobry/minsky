@@ -8,6 +8,7 @@ import {
 import type OpenAI from "openai";
 import type { ReviewerToolContext } from "./tools";
 import type { ReviewToolCall } from "./output-tools";
+import { captureConsoleLogs } from "./test-helpers/log-capture";
 
 describe("isReasoningModel", () => {
   describe("o-series reasoning models", () => {
@@ -929,24 +930,28 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     listDirectory: mock(async () => null),
   };
 
-  /** Capture console.log calls for the duration of `fn`. */
+  /**
+   * Capture log lines emitted by the reviewer-local winston logger during
+   * `fn`, parse each line as JSON, and pass the resulting events array to the
+   * caller. Lines that fail JSON.parse are silently skipped.
+   */
   async function withCapturedLogs<T>(
     fn: (events: unknown[]) => Promise<T>
   ): Promise<{ events: unknown[]; result: T }> {
     const events: unknown[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => {
-      try {
-        events.push(JSON.parse(msg));
-      } catch {
-        originalLog(msg);
-      }
-    };
+    const { logs, restore } = captureConsoleLogs();
     try {
       const result = await fn(events);
+      for (const line of logs) {
+        try {
+          events.push(JSON.parse(line));
+        } catch {
+          // Non-JSON line — skip (consistent with prior behavior).
+        }
+      }
       return { events, result };
     } finally {
-      console.log = originalLog;
+      restore();
     }
   }
 
