@@ -100,11 +100,20 @@ export function captureConsoleLogs(): CapturedLogs {
  */
 export function silenceConsoleLogs(): { restore: () => void } {
   const originalWrite = process.stdout.write.bind(process.stdout);
+  // Invoke the optional write-completion callback synchronously so this
+  // helper mirrors `WriteStream.write` semantics. Callers (Winston's
+  // Console transport, etc.) that pass a callback expect to be notified
+  // once the write completes; without this, those callers could hang.
   process.stdout.write = ((
     _chunk: string | Uint8Array,
-    _encodingOrCb?: BufferEncoding | ((err?: Error) => void),
-    _cb?: (err?: Error) => void
+    encodingOrCb?: BufferEncoding | ((err?: Error) => void),
+    cb?: (err?: Error) => void
   ): boolean => {
+    if (typeof encodingOrCb === "function") {
+      encodingOrCb();
+    } else if (typeof cb === "function") {
+      cb();
+    }
     return true;
   }) as typeof process.stdout.write;
   return {
