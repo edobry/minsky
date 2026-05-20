@@ -1,0 +1,376 @@
+#!/usr/bin/env bun
+// PreToolUse hook (mt#1951): block agent-context `gh api PUT /repos/<O>/<R>/pulls/<N>/merge`
+// invocations when any branch-protection-required status check on the PR's base
+// branch is not currently concluded success.
+//
+// ## Why this hook exists
+//
+// mt#1938 shipped layer 1 of the three-layer main-red defense:
+// `.claude/hooks/require-review-before-merge.ts` enforces required-checks-status
+// on `mcp__minsky__session_pr_merge` invocations. But the agent's documented
+// bypass-merge convention (`gh api PUT /merge` via Bash / session_exec) goes
+// through a different invocation path and is NOT covered by layer 1's matcher.
+//
+// On 2026-05-19 the agent invoked the bypass twice under user authorization with
+// red CI, causing main to go red both times (mt#1927 12:29Z, mt#1944 17:55Z).
+// `feedback_verify_ci_fired_on_latest_commit_before_bypass_merging` (id 8bd30dc2)
+// documented the discipline as agent-facing behavioral; it didn't fire reliably
+// because it's memory-resident, not structurally enforced.
+//
+// This hook closes the structural gap by applying the same `evaluateRequiredChecksStatus`
+// logic from layer 1 to the bypass invocation surface (Bash + session_exec). The pure
+// helpers are imported from `./require-review-before-merge`, so the single source of
+// truth lives in one file.
+//
+// ## Detection
+//
+// Matches Bash + session_exec commands that contain a `gh api ... PUT ... /pulls/<N>/merge`
+// segment. The segment matcher is shared with `block-subagent-bypass-merge.ts` — both
+// hooks fire on the same surface but with different gates:
+//
+//   - `block-subagent-bypass-merge.ts` denies SUBAGENT invocations unconditionally
+//     (detected via `agent_id` field).
+//   - This hook denies MAIN-AGENT invocations when CI status is not green.
+//
+// Defense in depth: subagents hit the subagent block first; main-agent invocations
+// hit this hook. Both denials are possible from the same matcher.
+//
+// ## Repo / branch resolution
+//
+// The hook parses `owner/repo` directly out of the matched segment (covering
+// `repos/<O>/<R>/pulls/<N>/merge` and `/repos/<O>/<R>/pulls/<N>/merge` forms).
+// The PR's base branch is then fetched from `gh pr view <N> --repo <O>/<R> --json baseRefName`
+// and used for the branch-protection lookup. This avoids the hardcoded-repo/branch
+// gap that the reviewer-bot flagged in PR #1176 R1 — different bot-PRs against
+// different repos or branches now get accurate gating.
+//
+// ## Deny-on-failure posture
+//
+// Once a bypass-merge segment is detected, ANY failure to resolve the PR identity
+// (cannot parse owner/repo, PR number missing from segment, `gh pr view` fails)
+// results in DENY with an actionable reason, NOT a fail-open allow. This matches
+// layer 1's transport-failure posture in `evaluateRequiredChecksStatus`. The
+// reasoning: once we've detected bypass-merge intent, an unresolvable target
+// means we cannot guarantee CI is green — the gate must default to denial,
+// override is available via `MINSKY_SKIP_REQUIRED_CHECKS=1`.
+//
+// ## Override
+//
+// `MINSKY_SKIP_REQUIRED_CHECKS=1` (already registered in `HOOK_ONLY_ENV_VARS` for
+// layer 1) bypasses this hook with a stdout audit-log line. Same env var, same
+// shape as layer 1 — no new mechanism to remember.
+//
+// @see mt#1951 — tracking task
+// @see mt#1938 — layer 1 (session_pr_merge surface)
+// @see block-subagent-bypass-merge.ts — sibling hook (subagent denial)
+// @see feedback_verify_ci_fired_on_latest_commit_before_bypass_merging — the
+//      memory this hook makes structural
+
+import { readInput, writeOutput, execSync } from "./types";
+import type { ToolHookInput } from "./types";
+
+// types.ts's execSync returns this shape but doesn't export the type as named —
+// define an alias locally so callers can spell out the lookup-callback shape.
+export type ExecSyncResult = {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+};
+
+import {
+  parseBranchProtectionResponse,
+  parseAllCheckRunsResponse,
+  evaluateRequiredChecksStatus,
+  REQUIRED_CHECKS_OVERRIDE_ENV,
+} from "./require-review-before-merge";
+import { findGhApiPutMergeSegment } from "./block-subagent-bypass-merge";
+
+// ---------------------------------------------------------------------------
+// Merge-target extraction
+// ---------------------------------------------------------------------------
+
+export interface MergeTarget {
+  owner: string;
+  repo: string;
+  prNumber: string;
+}
+
+/**
+ * Parse `{owner, repo, prNumber}` from a `gh api PUT` segment that has already
+ * been validated by `findGhApiPutMergeSegment`. Accepts:
+ *
+ *   - absolute: `/repos/OWNER/REPO/pulls/N/merge`
+ *   - relative: `repos/OWNER/REPO/pulls/N/merge`
+ *
+ * Returns null when the segment is an env-var URL form (e.g. `$URL_BASE/pulls/N/merge`)
+ * — the owner/repo is hidden behind shell expansion and can't be resolved at
+ * parse time. The hook's deny-on-failure posture treats null returns as denial,
+ * not allow.
+ */
+export function extractMergeTarget(matchedSegment: string): MergeTarget | null {
+  // Strip surrounding quotes if any (the segment matcher passes through quoted tokens).
+  let s = matchedSegment;
+  if (
+    s.length >= 2 &&
+    ((s[0] === '"' && s[s.length - 1] === '"') || (s[0] === "'" && s[s.length - 1] === "'"))
+  ) {
+    s = s.slice(1, -1);
+  }
+  // Anchor before `repos/` on any non-path-segment boundary: start-of-string,
+  // whitespace, a `/`, or a `"`/`'` quote (the segment matcher's enclosing
+  // quote may still be present in some token shapes). Using a character class
+  // rather than `^|/` so the relative form `gh api ... repos/...` (preceded
+  // by a space) also matches.
+  const match = s.match(/(?:^|[\s/"'])repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)\/merge/);
+  if (!match) return null;
+  const [, owner, repo, prNumber] = match;
+  if (!owner || !repo || !prNumber) return null;
+  return { owner, repo, prNumber };
+}
+
+// ---------------------------------------------------------------------------
+// PR info lookup (HEAD sha + base branch)
+// ---------------------------------------------------------------------------
+
+export interface PrInfo {
+  headSha: string;
+  baseRefName: string;
+}
+
+export interface PrInfoLookupSuccess {
+  ok: true;
+  info: PrInfo;
+}
+export interface PrInfoLookupFailure {
+  ok: false;
+  error: string;
+}
+export type PrInfoLookupResult = PrInfoLookupSuccess | PrInfoLookupFailure;
+
+/**
+ * Pure parser for `gh pr view <N> --json headRefOid,baseRefName` output.
+ * Exported so the entry-point dispatcher can be unit-tested with mocked
+ * `gh pr view` results, addressing PR #1176 R1 testability concern.
+ */
+export function parsePrViewResponse(result: ExecSyncResult): PrInfoLookupResult {
+  if (result.timedOut) {
+    return { ok: false, error: `gh pr view timed out: ${result.stderr || "(no stderr)"}` };
+  }
+  if (result.exitCode !== 0) {
+    return {
+      ok: false,
+      error: `gh pr view exited ${result.exitCode}: ${result.stderr || "(no stderr)"}`,
+    };
+  }
+  const trimmed = result.stdout.trim();
+  if (!trimmed) {
+    return { ok: false, error: "gh pr view returned empty response" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (e) {
+    return {
+      ok: false,
+      error: `failed to parse gh pr view response as JSON: ${(e as Error).message}`,
+    };
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return { ok: false, error: "gh pr view response is not an object" };
+  }
+  const obj = parsed as { headRefOid?: unknown; baseRefName?: unknown };
+  if (typeof obj.headRefOid !== "string" || obj.headRefOid.length === 0) {
+    return { ok: false, error: "gh pr view response missing headRefOid" };
+  }
+  if (typeof obj.baseRefName !== "string" || obj.baseRefName.length === 0) {
+    return { ok: false, error: "gh pr view response missing baseRefName" };
+  }
+  return {
+    ok: true,
+    info: { headSha: obj.headRefOid, baseRefName: obj.baseRefName },
+  };
+}
+
+/**
+ * Fetch the PR's HEAD sha AND base branch via a single `gh pr view` call.
+ * Both fields are required; either being missing returns failure.
+ */
+export function fetchPrInfo(target: MergeTarget): PrInfoLookupResult {
+  const result = execSync(
+    [
+      "gh",
+      "pr",
+      "view",
+      target.prNumber,
+      "--repo",
+      `${target.owner}/${target.repo}`,
+      "--json",
+      "headRefOid,baseRefName",
+    ],
+    { timeout: 10000 }
+  );
+  return parsePrViewResponse(result);
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher — testable decision function
+// ---------------------------------------------------------------------------
+//
+// The entry-point's decision logic is extracted here so it can be unit-tested
+// with mocked lookups. The real entry point wires in execSync-based fetchers.
+
+export interface BypassDispatchInput {
+  toolName: string;
+  command: string;
+  agentId: string | null | undefined;
+  overrideEnvValue: string | undefined;
+  prInfoLookup: (target: MergeTarget) => PrInfoLookupResult;
+  branchProtectionFetch: (owner: string, repo: string, branch: string) => ExecSyncResult;
+  checkRunsFetch: (owner: string, repo: string, headSha: string) => ExecSyncResult;
+}
+
+export type BypassDispatchOutput =
+  | { kind: "skip" }
+  | { kind: "override"; auditLine: string }
+  | { kind: "deny"; reason: string };
+
+const DENIAL_PREFIX = "Bypass-merge denied:";
+const DENIAL_SUFFIX =
+  " (mt#1951 — agent-context gh api PUT /merge gated identically to session_pr_merge per mt#1938 layer 1; " +
+  "see feedback_verify_ci_fired_on_latest_commit_before_bypass_merging for the discipline this hook structuralizes).";
+
+function buildDenial(reason: string): string {
+  return `${DENIAL_PREFIX} ${reason}${DENIAL_SUFFIX}`;
+}
+
+/**
+ * Run the full hook-decision pipeline for a single invocation.
+ * Pure function modulo the injected lookups — testable with mocks.
+ *
+ * Returns one of:
+ *   - { kind: "skip" } — hook does nothing (wrong tool, subagent context,
+ *     non-matching command). Entry point exits 0 without writeOutput.
+ *   - { kind: "override", auditLine } — operator opted in via env var.
+ *     Entry point writes auditLine to stdout and exits 0.
+ *   - { kind: "deny", reason } — bypass should be denied. Entry point
+ *     writes a deny decision with reason to stdout via writeOutput.
+ */
+export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchOutput {
+  if (input.toolName !== "Bash" && input.toolName !== "mcp__minsky__session_exec") {
+    return { kind: "skip" };
+  }
+  // Subagent context is denied unconditionally by the sibling
+  // block-subagent-bypass-merge.ts hook (fires first per matcher order).
+  if (typeof input.agentId === "string" && input.agentId.length > 0) {
+    return { kind: "skip" };
+  }
+  const matchingSegment = findGhApiPutMergeSegment(input.command);
+  if (matchingSegment === null) {
+    return { kind: "skip" };
+  }
+  // Override honored AFTER segment detection (matches layer 1's posture).
+  //
+  // SECURITY NOTE (PR #1176 R2 BLOCKING): we do NOT echo the matched command
+  // segment into logs. The segment may contain `-H/--header` arguments or
+  // other inline flags carrying auth tokens; echoing even a truncated slice
+  // risks leaking secrets into stdout / agent transcripts / merge-gate audit
+  // artifacts. The audit line uses a safe parsed identifier (owner/repo#PR)
+  // when available, or a static `matcher: gh-api-put-merge` tag otherwise.
+  if (input.overrideEnvValue && /^(1|true|yes)$/i.test(input.overrideEnvValue)) {
+    const overrideTarget = extractMergeTarget(matchingSegment);
+    const safeIdentifier = overrideTarget
+      ? `${overrideTarget.owner}/${overrideTarget.repo}#${overrideTarget.prNumber}`
+      : "matcher:gh-api-put-merge (unparseable)";
+    return {
+      kind: "override",
+      auditLine:
+        `[require-checks-on-bypass-merge] required-checks gate skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV}=${input.overrideEnvValue} ` +
+        `(target: ${safeIdentifier}, ${new Date().toISOString()})\n`,
+    };
+  }
+  // Deny-on-failure: bypass-merge intent detected; if we can't resolve the
+  // target, default to denial (PR #1176 R1 BLOCKING #3).
+  const target = extractMergeTarget(matchingSegment);
+  if (target === null) {
+    return {
+      kind: "deny",
+      reason: buildDenial(
+        "could not parse owner/repo/PR-number from a matched bypass-merge segment " +
+          "(matcher: gh-api-put-merge). " +
+          `If the segment uses env-var URL substitution like "$URL_BASE/pulls/N/merge", expand it inline. ` +
+          `Override after manual verification: set ${REQUIRED_CHECKS_OVERRIDE_ENV}=1.`
+      ),
+    };
+  }
+  const prInfoResult = input.prInfoLookup(target);
+  if (!prInfoResult.ok) {
+    return {
+      kind: "deny",
+      reason: buildDenial(
+        `could not resolve PR info for ${target.owner}/${target.repo}#${target.prNumber}: ${prInfoResult.error}. ` +
+          "This may indicate the PR doesn't exist, the gh CLI is misconfigured, or a transport failure. " +
+          `Override after manual verification: set ${REQUIRED_CHECKS_OVERRIDE_ENV}=1.`
+      ),
+    };
+  }
+  const { headSha, baseRefName } = prInfoResult.info;
+  const protectionResp = input.branchProtectionFetch(target.owner, target.repo, baseRefName);
+  const protectionParseResult = parseBranchProtectionResponse(protectionResp);
+  const allRunsResp = input.checkRunsFetch(target.owner, target.repo, headSha);
+  const allRunsParseResult = parseAllCheckRunsResponse(allRunsResp);
+  const gateResult = evaluateRequiredChecksStatus(
+    protectionParseResult,
+    allRunsParseResult,
+    target.prNumber,
+    headSha
+  );
+  if (gateResult.deny && gateResult.reason) {
+    return {
+      kind: "deny",
+      reason: buildDenial(gateResult.reason),
+    };
+  }
+  return { kind: "skip" };
+}
+
+// ---------------------------------------------------------------------------
+// Hook entry point
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  const input = await readInput<ToolHookInput>();
+
+  const result = dispatchBypassCheck({
+    toolName: input.tool_name,
+    command: (input.tool_input.command as string | undefined) ?? "",
+    agentId: input.agent_id,
+    overrideEnvValue: process.env[REQUIRED_CHECKS_OVERRIDE_ENV],
+    prInfoLookup: fetchPrInfo,
+    branchProtectionFetch: (owner, repo, branch) =>
+      execSync(["gh", "api", `repos/${owner}/${repo}/branches/${branch}/protection`], {
+        timeout: 10000,
+      }),
+    checkRunsFetch: (owner, repo, headSha) =>
+      execSync(["gh", "api", `repos/${owner}/${repo}/commits/${headSha}/check-runs?per_page=100`], {
+        timeout: 10000,
+      }),
+  });
+
+  if (result.kind === "skip") {
+    process.exit(0);
+  }
+  if (result.kind === "override") {
+    process.stdout.write(result.auditLine);
+    process.exit(0);
+  }
+  // result.kind === "deny"
+  writeOutput({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: result.reason,
+    },
+  });
+  process.exit(0);
+}
