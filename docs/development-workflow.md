@@ -26,9 +26,9 @@ The pre-commit hooks run in a specific sequence, with each layer serving a disti
                       │ ✅ Formatting successful
 ┌─────────────────────▼───────────────────────────────────────┐
 │           2. 🧪 Unit Test Suite (Bun Test)                  │
-│  • Runs all 1,400+ unit tests                               │
+│  • Runs the full unit test suite (order of 1,400 tests)     │
 │  • Zero tolerance for failures                              │
-│  • Fast execution (~2 seconds)                              │
+│  • Fast execution (typically seconds, not minutes)          │
 │  • Blocks commit on any test failure                        │
 └─────────────────────┬───────────────────────────────────────┘
                       │ ✅ All tests passing

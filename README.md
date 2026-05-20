@@ -158,6 +158,8 @@ Minsky follows a clean architecture with domain logic separated from adapters an
 
 ## Brand & identity
 
+> Notion links below are in the Minsky workspace (private; request access). The agent-consumable skill surfaces and `docs/brand-system.md` are in this repo and require no external account.
+
 The brand thesis lives in [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1) — the unit-of-analysis distinction that names what Minsky is and what it deliberately is not.
 
 The agent-consumable brand foundation — locked myth, cultural code, layered references, vocabulary, bridge-as-affect discipline — lives in the [`minsky-brand`](./.claude/skills/minsky-brand/SKILL.md) skill.

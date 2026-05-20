@@ -1,6 +1,6 @@
 # Minsky architecture overview
 
-How Minsky is structured at the system level: command dispatch pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection, configuration hierarchy, repository backend, knowledge base integration. The five-organ cybernetic substrate is the conceptual frame; this doc is the code-level walk-through. For narrower topics, follow the links to the referenced ADRs. For the theoretical foundation (how the cybernetic theory maps to code modules), see [theory-of-operation.md](./theory-of-operation.md).
+How Minsky is structured at the system level: command dispatch pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection, configuration hierarchy, repository backend, knowledge base integration. The five-organ cybernetic substrate (VSM Systems 1–5 — operations, coordination, control, intelligence, identity) is the conceptual frame; this doc is the code-level walk-through. For narrower topics, follow the links to the referenced ADRs. For the theoretical foundation (how the cybernetic theory maps to code modules), see [theory-of-operation.md](./theory-of-operation.md).
 
 ---
 

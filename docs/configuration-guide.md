@@ -12,7 +12,7 @@ Minsky follows a strict configuration precedence order, where higher-priority so
 
 ```bash
 minsky tasks list --backend=github-issues
-minsky sessions start --sessiondb-backend=sqlite
+minsky session start --sessiondb-backend=sqlite
 ```
 
 ### 2. Environment Variables
