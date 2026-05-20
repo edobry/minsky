@@ -160,7 +160,14 @@ export default {
         const logMethod = LOG_METHOD_MAP[method];
         const suggestion = logMethod || "info";
 
-        const canAutofix = Boolean(logMethod) && logBindingInScope();
+        // Optional-chaining nodes (e.g., `console?.log("x")`, `console.log?.("x")`)
+        // are reported but NOT autofixed. The naive `replaceText(callee, "log.info")`
+        // would drop the `?.` operator, changing short-circuiting semantics or
+        // emitting invalid syntax. ESTree sets `optional: true` on the
+        // MemberExpression (for `console?.log`) and on the CallExpression
+        // (for `console.log?.()`).
+        const hasOptionalChaining = callee.optional === true || node.optional === true;
+        const canAutofix = Boolean(logMethod) && logBindingInScope() && !hasOptionalChaining;
 
         context.report({
           node,

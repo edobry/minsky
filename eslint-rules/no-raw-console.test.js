@@ -146,5 +146,33 @@ ruleTester.run("no-raw-console", rule, {
       errors: [{ messageId: RAW_CONSOLE }],
       output: null,
     },
+
+    // Optional-chaining cases: reported but NOT autofixed (mt#1960 reviewer feedback).
+    // The naive callee replacement would drop `?.` and change short-circuit semantics.
+
+    // Optional member access (`console?.log("x")`) — reported, no autofix
+    {
+      code: 'console?.log("hi");',
+      errors: [{ messageId: RAW_CONSOLE }],
+      output: null,
+    },
+    // Optional member access + `log` in scope — still no autofix (safety > convenience)
+    {
+      code: 'import { log } from "./logger";\nconsole?.log("hi");',
+      errors: [{ messageId: RAW_CONSOLE }],
+      output: null,
+    },
+    // Optional call (`console.log?.("x")`) — reported, no autofix
+    {
+      code: 'console.log?.("hi");',
+      errors: [{ messageId: RAW_CONSOLE }],
+      output: null,
+    },
+    // Optional call + `log` in scope — still no autofix
+    {
+      code: 'import { log } from "./logger";\nconsole.log?.("hi");',
+      errors: [{ messageId: RAW_CONSOLE }],
+      output: null,
+    },
   ],
 });

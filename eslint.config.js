@@ -559,6 +559,56 @@ export default [
       "custom/no-raw-console": "off",
     },
   },
+  // === custom/no-raw-console — TSX/JSX coverage parity with legacy script (mt#1960) ===
+  // The main config block above only registers rules for `**/*.ts` and `**/*.js`.
+  // The retired `scripts/lint-console-usage.ts` script also scanned `**/*.tsx` and
+  // `**/*.jsx`, so we add a focused block here that enables ONLY this rule on those
+  // file types — without bringing the other 30+ rules into TSX/JSX scope (which would
+  // be a scope creep beyond the migration intent).
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: {
+      custom: {
+        rules: {
+          "no-raw-console": noRawConsole,
+        },
+      },
+    },
+    rules: {
+      "custom/no-raw-console": [
+        "error",
+        {
+          allowedPatterns: [
+            'console.error("Failed to import test monitoring data"',
+            'console.warn("⚠️ Failed to load test monitoring data"',
+            'console.log("old"',
+            'console.log("new"',
+            "Mock cleanup for directory",
+            '"🔇 Global test setup"',
+            '"📊 Loaded existing test monitoring data"',
+          ],
+        },
+      ],
+      // `js.configs.recommended` (loaded at top of file with no `files` scope)
+      // would otherwise apply `no-undef` and `no-unused-vars` to these TSX/JSX
+      // files for the first time. TypeScript already covers `no-undef` and the
+      // `@typescript-eslint/no-unused-vars` rule (limited to .ts/.js above)
+      // covers unused-vars in the rest of the codebase. Keep this block narrow
+      // to the `no-raw-console` migration intent.
+      "no-undef": "off",
+      "no-unused-vars": "off",
+    },
+  },
   // === custom/no-raw-console — service-level excludes (mt#1960) ===
   //
   // services/reviewer/** ships its own winston logger (services/reviewer/src/logger.ts)
