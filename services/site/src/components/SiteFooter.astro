@@ -1,0 +1,99 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-cta">
+      <p class="eyebrow">Get started</p>
+      <h2 class="footer-headline">Read the substrate. Run a session.</h2>
+      <div class="footer-cta-row">
+        <a
+          href="https://github.com/edobry/minsky"
+          class="cta-link"
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          github.com/edobry/minsky ↗
+        </a>
+      </div>
+    </div>
+    <div class="footer-meta">
+      <p class="footer-tagline system-speaks">
+        Minsky — cyberbrain for software organizations led by a principal.
+      </p>
+      <p class="footer-copy">© {year} Minsky. The flock is autonomous.</p>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    padding: 5rem 1.5rem 4rem;
+    border-top: 1px solid color-mix(in oklch, var(--color-text-primary) 6%, transparent);
+  }
+  .footer-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 4rem;
+  }
+  @media (min-width: 760px) {
+    .footer-inner {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+  }
+  .footer-cta {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 32rem;
+  }
+  .footer-headline {
+    font-family: var(--font-sans);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .footer-cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  .cta-link {
+    font-family: var(--font-mono);
+    font-size: 0.875rem;
+    color: var(--color-signal);
+    letter-spacing: 0.01em;
+    line-height: 1.5;
+    padding: 0.5rem 0;
+    transition: color 160ms ease;
+  }
+  .cta-link:hover {
+    color: var(--color-text-primary);
+  }
+
+  .footer-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .footer-tagline {
+    font-size: 0.875rem;
+    margin: 0;
+  }
+  .footer-copy {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-text-subtle);
+    margin: 0;
+    letter-spacing: 0.02em;
+  }
+</style>

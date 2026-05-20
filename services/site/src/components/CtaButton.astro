@@ -1,0 +1,73 @@
+---
+interface Props {
+  href: string;
+  variant?: "primary" | "secondary";
+  external?: boolean;
+}
+
+const { href, variant = "primary", external = false } = Astro.props;
+const isPrimary = variant === "primary";
+const rel = external ? "noopener noreferrer" : undefined;
+const target = external ? "_blank" : undefined;
+---
+
+<a
+  href={href}
+  class:list={["cta", isPrimary ? "cta-primary" : "cta-secondary"]}
+  rel={rel}
+  target={target}
+>
+  <slot />
+  {
+    external && (
+      <span class="cta-arrow" aria-hidden="true">
+        ↗
+      </span>
+    )
+  }
+</a>
+
+<style>
+  .cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 500;
+    padding: 0.875rem 1.25rem;
+    border-radius: 4px;
+    transition: all 160ms ease;
+    line-height: 1;
+    min-height: 44px; /* WCAG tap target */
+    box-sizing: border-box;
+  }
+
+  .cta-primary {
+    background-color: var(--color-signal);
+    color: var(--color-bg-base);
+    border: 1px solid var(--color-signal);
+  }
+  .cta-primary:hover {
+    background-color: var(--color-signal-dim);
+    border-color: var(--color-signal-dim);
+  }
+
+  .cta-secondary {
+    background-color: transparent;
+    color: var(--color-text-primary);
+    border: 1px solid color-mix(in oklch, var(--color-text-primary) 18%, transparent);
+  }
+  .cta-secondary:hover {
+    border-color: color-mix(in oklch, var(--color-text-primary) 36%, transparent);
+    background-color: color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+
+  .cta-arrow {
+    font-family: var(--font-sans);
+    font-size: 0.9em;
+    opacity: 0.8;
+  }
+</style>
