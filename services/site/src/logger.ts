@@ -177,7 +177,14 @@ export function createLogger(modeOverride?: LogMode, levelOverride?: LogLevel): 
   const winstonLogger = winston.createLogger({
     level,
     format: activeFormat,
-    transports: [new transports.Console({ stderrLevels: [] })],
+    // Explicit stderrLevels: ["error"] so log.error preserves the stderr-emission
+    // semantic of the console.error call it replaces in server.ts. Winston's
+    // Console transport defaults to an empty stderr set when the option is
+    // omitted (see node_modules/winston/lib/winston/transports/console.js's
+    // _stringArrayToSet: undefined → {}). Diverges from
+    // services/reviewer/src/logger.ts (which forces everything to stdout via
+    // stderrLevels: []); that decision is owned by mt#1255 and not in scope here.
+    transports: [new transports.Console({ stderrLevels: ["error"] })],
     exitOnError: false,
   });
 
