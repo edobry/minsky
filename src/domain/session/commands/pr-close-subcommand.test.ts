@@ -1,11 +1,13 @@
 /**
  * Tests for sessionPrClose (mt#1955).
  *
- * Hermetic unit tests covering the validation paths. The GitHub state-flip
- * and already-closed/merged refusal paths live in `closePullRequest` itself
- * (called via `pr.close()`) and are covered indirectly via the
- * `createRepositoryBackendFromSession` indirection — exercising those paths
- * requires a real Octokit, so they are deferred to live verification.
+ * Hermetic unit tests covering validation paths and the prNumber addressing
+ * surface added in PR #1184 review R1.
+ *
+ * The GitHub state-flip and already-closed/merged refusal paths live in
+ * `closePullRequest` itself (called via `pr.close()`) and require a real
+ * Octokit; covered indirectly via the `createRepositoryBackendFromSession`
+ * indirection and deferred to live verification.
  */
 
 import { describe, test, expect, mock } from "bun:test";
@@ -27,8 +29,15 @@ function makeSessionDB(sessionRecord: unknown): SessionProviderInterface {
 }
 
 describe("sessionPrClose — validation", () => {
+  test("rejects call with no identifier (no task, sessionId, or prNumber) with ValidationError", async () => {
+    const sessionDB = makeSessionDB(null);
+    await expect(sessionPrClose({}, { sessionDB })).rejects.toBeInstanceOf(ValidationError);
+  });
+
   test("rejects an unresolvable session with ResourceNotFoundError", async () => {
     const sessionDB = makeSessionDB(null);
+    // resolveSessionContextWithFeedback throws ResourceNotFoundError when
+    // sessionId is provided but the session is not found.
     await expect(
       sessionPrClose({ sessionId: "nonexistent" }, { sessionDB })
     ).rejects.toBeInstanceOf(ResourceNotFoundError);
@@ -37,6 +46,7 @@ describe("sessionPrClose — validation", () => {
   test("rejects a session that is not GitHub-backed with ValidationError", async () => {
     const sessionDB = makeSessionDB({
       session: "s1",
+      sessionId: "s1",
       taskId: "mt#1",
       repoUrl: "https://example.com/repo",
       backendType: "local",
@@ -47,9 +57,10 @@ describe("sessionPrClose — validation", () => {
     );
   });
 
-  test("rejects a GitHub session with no PR with ValidationError", async () => {
+  test("rejects a GitHub session with no recorded PR (and no prNumber override) with ValidationError", async () => {
     const sessionDB = makeSessionDB({
       session: "s1",
+      sessionId: "s1",
       taskId: "mt#1",
       repoUrl: "https://github.com/owner/repo",
       backendType: "github",

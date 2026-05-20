@@ -17,6 +17,7 @@ export interface SessionPrCloseParams {
   sessionId?: string;
   task?: string;
   repo?: string;
+  prNumber?: string | number;
   comment?: string;
   json?: boolean;
   debug?: boolean;
@@ -99,6 +100,7 @@ export async function executeSessionPrClose(
         sessionId: params.sessionId,
         task: params.task,
         repo: params.repo,
+        prNumber: params.prNumber,
         comment: params.comment,
         debug: params.debug,
       },
@@ -115,6 +117,7 @@ export async function executeSessionPrClose(
       url: result.url,
       state: result.state,
       commentPosted: result.commentPosted,
+      sessionRecordUpdated: result.sessionRecordUpdated,
     };
   } catch (error) {
     throw handlePrCloseError(error, params);
