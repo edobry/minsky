@@ -49,10 +49,10 @@ export function processCwd(): string {
  * @param directory The directory to change to
  */
 export function processChdir(directory: string): void {
-  // Access chdir via bracket notation — it exists at runtime in Node.js and Bun
-  // but is not in the @types/node process interface for all environments.
-  const chdir = (process as Record<string, unknown>)["chdir"] as (dir: string) => void;
-  chdir(directory);
+  // process.chdir is on the modern NodeJS.Process type and available in both
+  // Node.js and Bun. Earlier versions of @types/node omitted it in some envs,
+  // hence prior bracket-notation workaround (retired per mt#1981).
+  process.chdir(directory);
 }
 
 /**

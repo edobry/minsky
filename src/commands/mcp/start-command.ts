@@ -1410,10 +1410,12 @@ export function createStartCommand(
           }
         };
 
-        const proc = process as Record<string, unknown>;
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
+        // process.on is on the NodeJS.Process EventEmitter API; direct call
+        // satisfies both TS and the no-excessive-as-unknown lint rule.
+        // Retired prior bracket-notation cast workaround per mt#1981.
+        process.on("SIGTERM", cleanup);
+        process.on("SIGINT", cleanup);
+        process.on("SIGHUP", cleanup);
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard
