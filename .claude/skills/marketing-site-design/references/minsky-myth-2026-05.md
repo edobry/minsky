@@ -218,7 +218,7 @@ These are downstream tasks not part of mt#1927; the umbrella will be filed after
 
 1. **Position paper** in Notion under Minsky home — _"Position: Minsky's brand register — cyberbrain symbiosis as operative frame"_. Strategic doc-of-record. Cites Barthes / Oswald / Peirce + the Operative Ontology corpus + Macx + the layered references. Outlives every implementation.
 2. **Brand-system doc** at `docs/brand-system.md` — operational reference with concrete tokens, type stack, color values, vocabulary inventory. Implementation-facing.
-3. **Brand-foundation skill** at `.claude/skills/minsky-brand/SKILL.md` — extracts the brand identity (cyberbrain code + layered references + register vocabulary) into a separately-consumable skill. `marketing-site-design` and `cockpit-design` then both reference this as their strategic anchor. Refactor existing skills to depend on it.
+3. **Brand-foundation skill** at `.claude/skills/minsky-brand/SKILL.md` — extracts the brand identity (cyberbrain code + layered references + register vocabulary) into a separately-consumable skill. `marketing-site-design` and `cockpit-design` both reference this as their strategic anchor. **Shipped 2026-05-20 via mt#1933.**
 4. **Minsky-site rebuild** at `~/Projects/minsky-site` — apply the locked brand to the actual marketing site. Phase-decomposed (foundation → hero → sections → polish).
 5. **Cockpit brand update** at `src/cockpit/web/**` — bring the cyberbrain register into cockpit visual decisions. Mission-control is one organ inside the larger frame; align accordingly.
 6. **README + docs refresh** — top-level Minsky README + key docs in `docs/` updated to the locked voice register.
