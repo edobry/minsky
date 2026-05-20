@@ -13,11 +13,13 @@
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { log } from "./logger";
+
 const PORT = Number(process.env.PORT ?? 4321);
 const DIST_DIR = resolve(import.meta.dir, "..", "dist");
 
 if (!existsSync(DIST_DIR)) {
-  console.error(`[site] dist directory missing: ${DIST_DIR}. Run \`bun run build\` first.`);
+  log.error("[site] dist directory missing", { dir: DIST_DIR });
   process.exit(1);
 }
 
@@ -70,4 +72,8 @@ const server = Bun.serve({
   },
 });
 
-console.log(`[site] serving ${DIST_DIR} on http://${server.hostname}:${server.port}`);
+log.info("[site] serving", {
+  dir: DIST_DIR,
+  host: server.hostname,
+  port: server.port,
+});

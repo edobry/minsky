@@ -616,11 +616,10 @@ export default [
   // narrow). The remaining ~127 raw console.* calls are tracked under mt#1982; when that
   // task lands and migrates them, this block is removed.
   //
-  // services/site/** has no logger module yet. Tracked under mt#1983 (add logger module +
-  // migrate the 2 calls in services/site/src/server.ts). When that task lands, this block
-  // is removed.
+  // (services/site/** was previously excluded; mt#1983 shipped services/site/src/logger.ts
+  // and migrated the 2 server.ts calls, so the exclude is no longer needed.)
   {
-    files: ["services/reviewer/**", "services/site/**"],
+    files: ["services/reviewer/**"],
     rules: {
       "custom/no-raw-console": "off",
     },
