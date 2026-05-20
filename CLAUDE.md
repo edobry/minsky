@@ -673,6 +673,119 @@ with `Buffer.indexOf(0)` — a single memchr-class O(n) pass.
   non-ASCII identifiers); same family of "what the tool layer does to
   your content."
 
+## Workspace-COPY Pre-Commit Guard
+
+A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between
+the NUL-byte check and the TypeScript type check) reads root
+`package.json`'s `workspaces` glob, enumerates workspace directories
+containing a `package.json`, and verifies the root `Dockerfile` has a
+`COPY <ws>/package.json ...` line for each one BEFORE the
+`RUN bun install --frozen-lockfile` step. Blocks the commit if any
+workspace is unaccounted for.
+
+**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
+`runWorkspaceCopyCheck()`. Pure-function implementation:
+`src/hooks/workspace-copy-detector.ts`.
+
+**Why this check exists.** mt#1977 / 2026-05-20T19:44Z. PR #1186
+(mt#1934, marketing-site rebuild) added `services/site/` as a new
+workspace declared by root `package.json`'s
+`workspaces: ["packages/*", "services/*"]`. The regenerated `bun.lock`
+referenced `services/site`'s deps. The Dockerfile's selective workspace-
+COPY block only copied `packages/shared/package.json` and
+`services/reviewer/package.json` — `services/site/package.json` was
+missed. Result: every Railway deploy from `57c2e868` onward failed at
+`RUN bun install --frozen-lockfile` with
+`error: lockfile had changes, but lockfile is frozen`. Production was
+stuck on the prior commit for ~75 minutes; three PRs (PR #1186 itself,
+PR #1188 / mt#1962, PR #1189 / mt#1963) landed before the fix landed
+and unblocked the deploy queue.
+
+The local `bun install` SUCCEEDS because the full repo is mounted;
+Railway's selective COPY produces an incomplete tree, so the failure
+mode only surfaces in the deploy environment. The pre-commit check is
+the commit-time complement that catches the failure at the cheapest
+authoring stage.
+
+**Trigger condition.** Always — the check runs on every commit
+regardless of which files are staged. The cost is ~5 fs reads + a single
+string scan on the Dockerfile (well under 10 ms in practice); always-
+on coverage matters because the contract can be violated by a commit
+that doesn't itself touch Dockerfile or package.json (e.g., the prior
+commit added a workspace, this commit is unrelated work — the broken
+state still blocks until someone notices).
+
+**On hit:** the step blocks with a structured message listing every
+missing workspace path and the literal `COPY <ws>/package.json ./<ws>/-
+package.json` line the operator must add to the Dockerfile, plus a "Why
+this is blocked" section pointing at mt#1984, mt#1977, and an
+explanation of the Railway-build invariant.
+
+**Allowlist (skipped from the check):**
+- Workspaces matched by the glob but lacking a `package.json` — these
+  aren't workspaces from bun's perspective (the glob walks for
+  `package.json`), so no COPY is required. The mt#1977 instance of this
+  is `services/minsky-mcp/`, a directory that matches `services/*` but
+  exists only as a service-config home (no package.json).
+- Dockerfiles with no `RUN bun install --frozen-lockfile` line —
+  signals "this isn't the root Dockerfile we protect" (could be a sub-
+  project Dockerfile or a different deploy strategy). Check short-
+  circuits with a no-op pass.
+- Repositories without a root `Dockerfile` or `package.json` — same
+  short-circuit. The check protects a specific contract; absent both
+  files there's no contract to protect.
+
+**Override mechanism:** Set `MINSKY_SKIP_WORKSPACE_COPY_CHECK=1` (or
+`true` / `yes`) in your environment before invoking the commit tool:
+
+```bash
+MINSKY_SKIP_WORKSPACE_COPY_CHECK=1 minsky session commit ...
+```
+
+The override emits an audit-log line to stdout naming the env-var value
+and the ISO timestamp. Use only when a COPY is genuinely omitted on
+purpose (very rare; the most likely justification is a workspace
+that doesn't ship in the runtime image AND is excluded from the
+production install by some other mechanism — in which case the better
+fix is to refactor the workspaces glob, not skip the check).
+
+**Env-var registration:** `MINSKY_SKIP_WORKSPACE_COPY_CHECK` is
+registered in `HOOK_ONLY_ENV_VARS` at
+`src/domain/configuration/sources/environment.ts` so the env-var-to-
+config dot-path parser skips it at boot (per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788).
+The override env-var name's source of truth lives in
+`src/hooks/workspace-copy-detector.ts` as the exported constant
+`WORKSPACE_COPY_CHECK_OVERRIDE_ENV` so the hook, the test, and the
+rule documentation cannot drift.
+
+**Glob-expander support.** The pure detector currently handles two
+glob forms: literal workspace paths (`packages/shared`) and single-`*`
+trailing globs (`packages/*`, `services/*`). Patterns with `**`,
+negations (`!packages/*-archived`), or character classes (`[abc]*`)
+are SKIPPED rather than mis-interpreted — the check is conservative
+and would prefer to under-flag than mis-flag. If Minsky's root
+`package.json` ever adopts those patterns the detector will need
+extension; a follow-up task should be filed at that time. The current
+patterns (`packages/*`, `services/*`) are fully covered.
+
+**Performance:** the check completes in well under 50 ms in practice
+(measured on an M1 Max workstation against the current repo: 3
+workspace package.json reads + 1 Dockerfile read + a single
+single-pass regex scan).
+
+**Cross-references:**
+- mt#1984 — this guard's tracking task
+- mt#1977 — originating incident; the 75-minute production outage
+- mt#1934 / PR #1186 — the merge that introduced the gap
+- mt#1610 / mt#1624 / mt#1626 — contract-propagation gap family
+- mt#1726 — original selective-COPY Dockerfile refactor (the contract
+  this guard protects)
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+  contract this guard's override env-var conforms to)
+- mt#1824 — NUL-byte pre-commit guard (sibling pre-commit-step
+  convention this guard mirrors)
+
 ## Drive-PR-To-Convergence Reminder
 
 A PostToolUse hook on `mcp__minsky__session_pr_create` injects an
