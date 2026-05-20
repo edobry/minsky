@@ -33,6 +33,14 @@ export function captureConsoleLogs(): CapturedLogs {
   const logs: string[] = [];
   const originalWrite = process.stdout.write.bind(process.stdout);
 
+  // Carry-over buffer for incomplete trailing lines. Winston's Console
+  // transport typically writes one whole JSON line at a time, but Node
+  // streams make no guarantee about chunk boundaries — a large JSON line
+  // could arrive across multiple chunks. The buffer holds the last
+  // newline-incomplete segment between writes; when a subsequent chunk
+  // arrives we prepend the buffer and re-split.
+  let carry = "";
+
   // Node's overloaded WriteStream.write signatures use `Error | undefined`
   // for the callback err parameter. Must match exactly (not `Error | null`)
   // or TS rejects the assignment with TS2322 — see PR #1017 CI fix from
@@ -43,7 +51,16 @@ export function captureConsoleLogs(): CapturedLogs {
     cb?: (err?: Error) => void
   ): boolean => {
     const text = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
-    for (const line of text.split("\n")) {
+    // Normalise `\r\n` → `\n` so a trailing CR on one chunk and LF on the
+    // next still produces a clean line break.
+    const combined = (carry + text).replace(/\r\n/g, "\n");
+    const parts = combined.split("\n");
+    // Last element is either an empty string (chunk ended on a newline) or
+    // an incomplete trailing segment — hold it for the next write.
+    carry = parts.pop() ?? "";
+    for (const line of parts) {
+      // Trim only whitespace at the line boundary — JSON lines never start
+      // or end with significant whitespace, so trim() is safe at this layer.
       const trimmed = line.trim();
       if (trimmed) logs.push(trimmed);
     }
@@ -62,6 +79,10 @@ export function captureConsoleLogs(): CapturedLogs {
   return {
     logs,
     restore: () => {
+      // Flush any pending newline-incomplete carry-over so tests can assert
+      // on the final write even when it lacks a trailing newline.
+      if (carry.trim()) logs.push(carry.trim());
+      carry = "";
       process.stdout.write = originalWrite;
     },
   };

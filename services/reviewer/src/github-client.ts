@@ -344,10 +344,12 @@ export async function fetchPriorReviews(
 
   let rawReviews = allReviews;
   if (rawReviews.length > MAX_REVIEWS_FETCHED) {
-    log.warn(
-      `[fetchPriorReviews] PR #${prNumber} has ${rawReviews.length} reviews, ` +
-        `exceeding the cap of ${MAX_REVIEWS_FETCHED}. Only the first ${MAX_REVIEWS_FETCHED} will be used.`
-    );
+    log.warn("reviewer.prior_reviews_cap_exceeded", {
+      event: "reviewer.prior_reviews_cap_exceeded",
+      pr: prNumber,
+      count: rawReviews.length,
+      cap: MAX_REVIEWS_FETCHED,
+    });
     rawReviews = rawReviews.slice(0, MAX_REVIEWS_FETCHED);
   }
 

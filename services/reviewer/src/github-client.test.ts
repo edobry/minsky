@@ -238,22 +238,21 @@ describe("fetchPriorReviews", () => {
     const octokit = buildFakeOctokit([manyReviews]);
 
     const { logs, restore } = captureConsoleLogs();
+    let results: Awaited<ReturnType<typeof fetchPriorReviews>>;
     try {
-      const results = await fetchPriorReviews(octokit, "owner", "repo", 1);
-
-      // Truncated to MAX_REVIEWS_FETCHED (500)
-      expect(results.length).toBeLessThanOrEqual(500);
+      results = await fetchPriorReviews(octokit, "owner", "repo", 1);
     } finally {
       restore();
     }
 
-    // Warning was emitted via log.warn; winston puts the string-only call
-    // into the `message` field. Find the line that mentions the cap.
-    const warnLine = logs.find(
-      (line) => line.includes("fetchPriorReviews") && line.includes("501")
-    );
-    expect(warnLine).toBeDefined();
-    expect(warnLine).toContain("500");
+    // Truncated to MAX_REVIEWS_FETCHED (500)
+    expect(results.length).toBeLessThanOrEqual(500);
+
+    const capLog = findLogEvent(logs, "reviewer.prior_reviews_cap_exceeded");
+    expect(capLog).not.toBeNull();
+    expect(capLog?.pr).toBe(1);
+    expect(capLog?.count).toBe(501);
+    expect(capLog?.cap).toBe(500);
   });
 });
 
