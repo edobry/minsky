@@ -51,6 +51,7 @@ export enum CommandCategory {
   DETECTORS = "DETECTORS",
   OBSERVABILITY = "OBSERVABILITY",
   PRINCIPAL_CORPUS = "PRINCIPAL_CORPUS",
+  FORGE = "FORGE",
 }
 
 /**

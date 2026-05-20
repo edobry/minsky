@@ -38,6 +38,9 @@ function fakeRunGitError(msg = "not a git repository"): (cmd: string) => string 
 /** Minsky MCP tool names referenced in denial reasons — hoisted to avoid magic-string duplication in tests. */
 const SESSION_COMMIT_TOOL = "mcp__minsky__session_commit";
 
+/** Reusable test fixture: a branch-protection endpoint path (mt#1957). */
+const BRANCH_PROTECTION_PATH = "/repos/owner/repo/branches/main/protection";
+
 // ---------------------------------------------------------------------------
 // toolContextFromName
 // ---------------------------------------------------------------------------
@@ -592,6 +595,98 @@ describe("checkDenial — gh", () => {
   it("denial reason for gh pr close references session_pr_close (mt#1955)", () => {
     const reason = denied("pr", "close");
     expect(reason).toContain("mcp__minsky__session_pr_close");
+  });
+
+  // mt#1957 — forge MCP tools (CI runs, check-runs, branch protection, labels)
+
+  it("denies gh run list (mt#1957)", () => {
+    expect(denied("run", "list")).not.toBeNull();
+  });
+
+  it("denies gh run view (mt#1957)", () => {
+    expect(denied("run", "view")).not.toBeNull();
+  });
+
+  it("denial reason for gh run list references forge_ci_run_list", () => {
+    const reason = denied("run", "list");
+    expect(reason).toContain("forge_ci_run_list");
+  });
+
+  it("denies gh label create (mt#1957)", () => {
+    expect(denied("label", "create")).not.toBeNull();
+  });
+
+  it("denies gh label list (mt#1957)", () => {
+    expect(denied("label", "list")).not.toBeNull();
+  });
+
+  it("denies gh label edit (mt#1957)", () => {
+    expect(denied("label", "edit")).not.toBeNull();
+  });
+
+  it("denies gh label delete (mt#1957)", () => {
+    expect(denied("label", "delete")).not.toBeNull();
+  });
+
+  it("denial reason for gh label create references forge_label_create", () => {
+    const reason = denied("label", "create");
+    expect(reason).toContain("forge_label_create");
+  });
+
+  it("denies gh api branches/main/protection (mt#1957)", () => {
+    expect(denied("api", BRANCH_PROTECTION_PATH)).not.toBeNull();
+  });
+
+  it("denies gh api -X PUT branches/main/protection (mt#1957)", () => {
+    expect(denied("api", "-X", "PUT", BRANCH_PROTECTION_PATH)).not.toBeNull();
+  });
+
+  it("denial reason for gh api branches/.../protection references forge_branch_protection", () => {
+    const reason = denied("api", BRANCH_PROTECTION_PATH);
+    expect(reason).toContain("forge_branch_protection_get");
+  });
+
+  it("denies gh api commits/<sha>/check-runs (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/commits/7af90f48/check-runs")).not.toBeNull();
+  });
+
+  it("denial reason for check-runs references forge_check_runs_list", () => {
+    const reason = denied("api", "/repos/owner/repo/commits/7af90f48/check-runs");
+    expect(reason).toContain("forge_check_runs_list");
+  });
+
+  it("denies gh api actions/runs/<id> (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/actions/runs/12345")).not.toBeNull();
+  });
+
+  it("denies gh api actions/workflows/<name>/runs (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/actions/workflows/ci.yml/runs")).not.toBeNull();
+  });
+
+  it("denies gh api -X POST labels (mt#1957)", () => {
+    expect(denied("api", "-X", "POST", "/repos/owner/repo/labels")).not.toBeNull();
+  });
+
+  it("denies gh api labels/<name> (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/labels/p0")).not.toBeNull();
+  });
+
+  it("denial reason for gh api labels references forge_label_create", () => {
+    const reason = denied("api", "-X", "POST", "/repos/owner/repo/labels");
+    expect(reason).toContain("forge_label_create");
+  });
+
+  it("does NOT block issue-scoped labels endpoint (PR #1185 review fix)", () => {
+    // Regression: pre-fix regex /\/labels(\/|$)/ also matched
+    // /repos/.../issues/<N>/labels, which is for applying labels to an issue —
+    // served by `mcp__github__issue_write`, NOT forge_label_*. The narrowed
+    // regex /\/repos\/[^/]+\/[^/]+\/labels(\/|$)/ now allows this path through.
+    expect(denied("api", "/repos/owner/repo/issues/123/labels")).toBeNull();
+    expect(denied("api", "-X", "POST", "/repos/owner/repo/issues/123/labels")).toBeNull();
+  });
+
+  it("still allows non-forge gh api endpoints (e.g. /user)", () => {
+    expect(denied("api", "/user")).toBeNull();
   });
 });
 

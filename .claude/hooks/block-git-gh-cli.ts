@@ -312,6 +312,61 @@ export const ghDenials: DenialRule[] = [
     reason: "Use `mcp__github__issue_write` / `mcp__github__issue_read` instead of `gh issue`.",
   },
   {
+    match: (args) => args[0] === "run" && (args[1] === "list" || args[1] === "view"),
+    reason:
+      "Use `mcp__minsky__forge_ci_run_list` (for listing) or `mcp__minsky__forge_ci_run_view_log` (for logs) instead of `gh run list` / `gh run view`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
+  },
+  {
+    match: (args) =>
+      args[0] === "label" &&
+      (args[1] === "create" || args[1] === "list" || args[1] === "edit" || args[1] === "delete"),
+    reason:
+      "Use `mcp__minsky__forge_label_create` / `mcp__minsky__forge_label_list` / `mcp__minsky__forge_label_update` / `mcp__minsky__forge_label_delete` instead of `gh label`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
+  },
+  {
+    // Block `gh api .../branches/<branch>/protection` reads/writes — use forge_branch_protection_get/set.
+    match: (args) => {
+      if (args[0] !== "api") return false;
+      return args.some((a) => /\/branches\/[^/]+\/protection/.test(a));
+    },
+    reason:
+      "Use `mcp__minsky__forge_branch_protection_get` or `mcp__minsky__forge_branch_protection_set` instead of `gh api .../branches/.../protection`. The Minsky tools route through the configured ForgeBackend (mt#1957). Note: the operator-facing `scripts/set-branch-protection.ts` remains the canonical audit-logged write path.",
+  },
+  {
+    // Block `gh api .../commits/<sha>/check-runs` — use forge_check_runs_list.
+    match: (args) => {
+      if (args[0] !== "api") return false;
+      return args.some((a) => /\/commits\/[^/]+\/check-runs/.test(a));
+    },
+    reason:
+      "Use `mcp__minsky__forge_check_runs_list` instead of `gh api .../commits/.../check-runs`. The Minsky tool exposes the existing `ci.getChecksForRef` capability at the MCP surface (mt#1957). For PR-level checks, use `mcp__minsky__session_pr_checks` instead.",
+  },
+  {
+    // Block `gh api .../actions/runs/...` and `.../actions/workflows/.../runs` — use forge_ci_run_list/view_log.
+    match: (args) => {
+      if (args[0] !== "api") return false;
+      return args.some(
+        (a) => /\/actions\/runs(\/|$)/.test(a) || /\/actions\/workflows\/.+\/runs/.test(a)
+      );
+    },
+    reason:
+      "Use `mcp__minsky__forge_ci_run_list` or `mcp__minsky__forge_ci_run_view_log` instead of `gh api .../actions/runs/...`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
+  },
+  {
+    // Block `gh api .../labels` and `.../labels/<name>` for REPO-level label
+    // management — use forge_label_* tools. Narrowed regex to match only the
+    // repo-level path shape `/repos/<owner>/<repo>/labels[/...]`, NOT the
+    // issue/PR-scoped `/repos/<owner>/<repo>/issues/<N>/labels` (which is
+    // label application to an issue, served by `mcp__github__issue_write`, not
+    // `forge_label_*`). mt#1957 PR #1185 reviewer-bot finding.
+    match: (args) => {
+      if (args[0] !== "api") return false;
+      return args.some((a) => /\/repos\/[^/]+\/[^/]+\/labels(\/|$)/.test(a));
+    },
+    reason:
+      "Use `mcp__minsky__forge_label_create` / `mcp__minsky__forge_label_list` / `mcp__minsky__forge_label_update` / `mcp__minsky__forge_label_delete` instead of `gh api /repos/.../labels`. The Minsky tools route through the configured ForgeBackend (mt#1957). (For applying labels to an issue or PR — `/repos/.../issues/<N>/labels` — use `mcp__github__issue_write` instead.)",
+  },
+  {
     // Minsky policy: the PR-merge bypass (feedback_gh_api_bypass.md) and
     // the documented workflow (docs/pr-workflow.md) BOTH require
     // merge_method=merge — we preserve merge commits for the linear-history-

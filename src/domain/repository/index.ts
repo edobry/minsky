@@ -21,6 +21,25 @@ export type { RepositoryStatus };
 // Re-export check types so consumers don't need to import from github-pr-checks directly
 export type { ChecksResult, CheckRunResult } from "./github-pr-checks";
 
+// Re-export workflow-run types
+export type { WorkflowRun, ListWorkflowRunsOptions } from "./github-workflow-runs";
+
+// Re-export branch-protection types
+export type {
+  BranchProtection,
+  RequiredStatusChecks,
+  RequiredPullRequestReviews,
+  BranchRestrictions,
+} from "./github-branch-protection";
+
+// Re-export label types
+export type {
+  Label,
+  CreateLabelParams,
+  UpdateLabelParams,
+  ListLabelsOptions,
+} from "./github-labels";
+
 // Define ValidationResult with compatibility for both interfaces
 export interface ValidationResult {
   valid: boolean;
@@ -275,6 +294,59 @@ export interface CIStatusOperations {
   getChecksForPR(prNumber: number): Promise<ChecksResult>;
 }
 
+export interface WorkflowRunsOperations {
+  /**
+   * List workflow runs for the configured repository, with optional filters.
+   */
+  list(
+    options?: import("./github-workflow-runs").ListWorkflowRunsOptions
+  ): Promise<import("./github-workflow-runs").WorkflowRun[]>;
+  /**
+   * Download and return the logs for a specific workflow run as a text string.
+   */
+  viewLogs(runId: number): Promise<string>;
+}
+
+export interface BranchProtectionOperations {
+  /**
+   * Get the current branch protection configuration for the given branch.
+   */
+  get(branch: string): Promise<import("./github-branch-protection").BranchProtection>;
+  /**
+   * Replace the branch protection configuration for the given branch.
+   */
+  set(
+    branch: string,
+    config: import("./github-branch-protection").BranchProtection
+  ): Promise<import("./github-branch-protection").BranchProtection>;
+}
+
+export interface LabelOperations {
+  /**
+   * Create a new label on the repository.
+   */
+  create(
+    params: import("./github-labels").CreateLabelParams
+  ): Promise<import("./github-labels").Label>;
+  /**
+   * List all labels on the repository (collects all pages).
+   */
+  list(
+    options?: import("./github-labels").ListLabelsOptions
+  ): Promise<import("./github-labels").Label[]>;
+  /**
+   * Update an existing label (rename, recolor, or change description).
+   */
+  update(
+    currentName: string,
+    params: import("./github-labels").UpdateLabelParams
+  ): Promise<import("./github-labels").Label>;
+  /**
+   * Delete a label from the repository.
+   */
+  delete(name: string): Promise<void>;
+}
+
 export interface ReviewOperations {
   approve(prIdentifier: string | number, reviewComment?: string): Promise<ApprovalInfo>;
   getApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus>;
@@ -410,6 +482,12 @@ export type ForgeType = "github" | "gitlab" | "bitbucket";
 
 export interface ForgeBackend extends RepositoryBackend {
   readonly forgeType: ForgeType;
+  /** Grouped workflow-run operations (list, view logs) */
+  readonly workflowRuns: WorkflowRunsOperations;
+  /** Grouped branch-protection operations (get, set) */
+  readonly branchProtection: BranchProtectionOperations;
+  /** Grouped label operations (create, list, update, delete) */
+  readonly labels: LabelOperations;
 }
 
 /**
