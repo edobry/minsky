@@ -134,6 +134,74 @@ This pattern reproducibly distinguishes "GitHub never sent" (no delivery) from
 "GitHub sent but we 5xx'd" (delivery with 5xx status) from "we ACKed 200 but lost the
 work" (delivery with 200 status).
 
+## Evidence sources
+
+**Disclaimer.** This memo's findings are derived from runtime observability surfaces
+external to the repository (Railway service logs and the GitHub App's webhook delivery
+log). The log retention windows are limited (Railway: ~24h visible from CLI; GitHub
+App: 30 days). Assertions about specific log events below were extracted at the time of
+investigation (2026-05-20); future readers reproducing the same query against the same
+deployment may encounter log rotation. For long-lived evidence, consult the `mt#1963`
+spec's `## Findings` section and the four filed subtask specs, which capture the
+salient log shapes verbatim.
+
+### Railway log source
+
+- **Service:** `minsky-reviewer-webhook` (Railway service ID
+  `3913e8a4-81ab-465a-aad8-b76b5e3f66ed`, project ID
+  `41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b`, environment ID
+  `b3ea3f5d-8560-40ea-8824-17fe3ca0b32a`).
+- **Deployment under investigation:** `feda989a-fcde-4b52-bb03-94646462eeca`
+  (SUCCESS, deployed 2026-05-20T18:00:24Z UTC).
+- **Query commands used:**
+  - `railway logs --deployment feda989a-fcde-4b52-bb03-94646462eeca`
+  - `railway logs --deployment feda989a-fcde-4b52-bb03-94646462eeca | grep -cE "marker_lookup_failed|marker_acquire_failed|webhook_event_record_failed"`
+    → returned `33` (basis for the "33 DB query failures" claim).
+
+### GitHub App webhook delivery log
+
+- **Endpoint:** `GET /app/hook/deliveries?per_page=30` (App-JWT authenticated;
+  user-token `gh` CLI returns 404).
+- **App ID:** `3470137` (`minsky-reviewer`, declared in
+  `services/reviewer/railway.config.ts`).
+- **Reproducer:** see project-scope memory id `a154d19f-5f15-41ee-bf47-0176b1367675`
+  ("How to read minsky-reviewer GitHub App's webhook delivery log via App JWT") for
+  the JWT-mint + curl recipe used to verify the 6 deliveries for PRs #1185/#1186/#1187
+  returned status=200 in 0.21–0.24s.
+
+### Specific log events cited
+
+The discriminating events extracted from Railway logs for the incident window:
+
+| Time (UTC)    | Event name                                  | Verbatim signal                                                                                                                                                                                    |
+| ------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 18:45:05.351Z | `migrations_applied`                        | `event="migrations_applied" timestamp="2026-05-20T18:45:05.016Z"` (drizzle migrator claims success)                                                                                                |
+| 18:45:05.352Z | `server_started`                            | Container ready, post-restart                                                                                                                                                                      |
+| 18:55:05.658Z | `merge_state_sweeper.cycle_end`             | DB was healthy at this moment (sessionsScanned=20, errors=[])                                                                                                                                      |
+| 18:55:06.547Z | `sweeper.missing_review`                    | `pr=1186 headSha="66073de39d4607955106541ddda71792ad0b8610" reason="no_review_by_bot"`                                                                                                             |
+| 18:55:16.623Z | `sweeper.marker_lookup_failed_proceeding`   | DB SELECT failed on `reviewer_inflight_reviews`                                                                                                                                                    |
+| 18:55:16.623Z | `sweeper.primary_webhook_failing`           | `missingPrNumbers=[1187,1186,1185]`                                                                                                                                                                |
+| 18:55:17.533Z | `runReview.marker_acquire_failed_fail_open` | DB INSERT failed on `reviewer_inflight_reviews`                                                                                                                                                    |
+| 18:56:08.703Z | `webhook_event_record_failed`               | **`error_code="42P01" error_detail="relation \"reviewer_webhook_events\" does not exist" error_severity="ERROR"`** (the load-bearing finding — the one log site that uses `extractPgErrorContext`) |
+| 18:57:23.007Z | `sweeper.retrigger_failed`                  | `pr=1186 error="Operation timed out after 120000ms: openai.chat.completions.create.toolloop"`                                                                                                      |
+| 18:58:53.108Z | `sweeper.retrigger_failed`                  | `pr=1185` (same toolloop timeout)                                                                                                                                                                  |
+| 18:59:23.114Z | `sweeper.retrigger_failed`                  | `pr=1187` (same toolloop timeout — **tiny diff**, disconfirms diff-size hypothesis)                                                                                                                |
+
+### Failure-count methodology
+
+The "33 DB query failures" claim came from running:
+
+```bash
+railway logs --deployment feda989a-fcde-4b52-bb03-94646462eeca \
+  | grep -cE "marker_lookup_failed|marker_acquire_failed|webhook_event_record_failed"
+```
+
+The count covers the visible log window (from `server_started` at 18:45:05Z through
+the time of investigation ~19:55Z, ~1h10m). Time-bucket distribution shows clustering
+at every sweeper cycle (10-min cadence: 18:55, 19:05, 19:09) plus on every webhook
+receipt (`webhook_event_record_failed` fires from `recordWebhookReceipt` for each
+inbound delivery).
+
 ## Cross-references
 
 - mt#1963 — investigation umbrella (this incident)
