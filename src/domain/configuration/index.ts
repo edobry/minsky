@@ -8,7 +8,6 @@
 
 import type { Configuration, PartialConfiguration } from "./schemas";
 import type { ConfigurationLoadResult, ConfigurationLoaderOptions } from "./loader";
-import { log } from "../../utils/logger";
 import { deepMergeConfigs } from "./deep-merge";
 export type { Configuration, PartialConfiguration } from "./schemas";
 export { configurationSchema } from "./schemas";
@@ -122,42 +121,40 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
 
   async initialize(): Promise<void> {
     const { loadConfiguration } = await import("./loader");
-    try {
-      this.configResult = await loadConfiguration(this.options);
-      // Validate that we got a proper result
-      if (!this.configResult || !this.configResult.sources) {
-        throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
-      }
+    // Errors propagate to the CLI boundary catch in cli.ts (mt#1801). No
+    // log-then-rethrow here — that pattern double-printed in HUMAN mode AND,
+    // per PR #1090 R1, leaked through the agentLogger Console transport in
+    // STRUCTURED mode when log level allowed it. The boundary catch has all
+    // the diagnostic info needed.
+    this.configResult = await loadConfiguration(this.options);
 
-      // Apply overrides if provided
-      if (this.options.overrideSource) {
-        this.configResult = {
-          ...this.configResult,
-          config: deepMergeConfigs(
-            this.configResult.config as Record<string, unknown>,
-            this.options.overrideSource as Record<string, unknown>
-          ) as Configuration,
-        };
-      }
-
-      // Provide stable defaults for tests and consumers
-      // Ensure modern tasks backend property exists
-      // Deep config traversal requires flexible typing as config is partially validated at this stage
-      const cfg = (this.configResult.config || {}) as Record<string, unknown> & {
-        tasks?: { backend?: string };
-      };
-      cfg.tasks = cfg.tasks || {};
-      if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
-        cfg.tasks.backend = "minsky";
-      }
-      this.configResult = { ...this.configResult, config: cfg as Configuration };
-    } catch (error) {
-      log.error(
-        "Configuration loading failed:",
-        error instanceof Error ? error : { error: String(error) }
-      );
-      throw error;
+    // Validate that we got a proper result
+    if (!this.configResult || !this.configResult.sources) {
+      throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
     }
+
+    // Apply overrides if provided
+    if (this.options.overrideSource) {
+      this.configResult = {
+        ...this.configResult,
+        config: deepMergeConfigs(
+          this.configResult.config as Record<string, unknown>,
+          this.options.overrideSource as Record<string, unknown>
+        ) as Configuration,
+      };
+    }
+
+    // Provide stable defaults for tests and consumers
+    // Ensure modern tasks backend property exists
+    // Deep config traversal requires flexible typing as config is partially validated at this stage
+    const cfg = (this.configResult.config || {}) as Record<string, unknown> & {
+      tasks?: { backend?: string };
+    };
+    cfg.tasks = cfg.tasks || {};
+    if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
+      cfg.tasks.backend = "minsky";
+    }
+    this.configResult = { ...this.configResult, config: cfg as Configuration };
   }
 
   getConfig(): Configuration {

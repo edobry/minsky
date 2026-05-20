@@ -325,8 +325,10 @@ Minimum env the client needs:
 
 ```
 MINSKY_MCP_URL=https://<railway-domain>/mcp
-MINSKY_MCP_TOKEN=<same-token-as-MINSKY_MCP_AUTH_TOKEN>
+MINSKY_MCP_AUTH_TOKEN=<bearer-token-from-server>
 ```
+
+The client and server both use the name `MINSKY_MCP_AUTH_TOKEN`.
 
 ## Troubleshooting
 
@@ -353,6 +355,29 @@ This is the network primitive the rest of the agentic-infrastructure roadmap dep
 - **Webhook-driven integrations** following the reviewer pattern
 
 See mt#1129 for the scope boundary between this (transport + deploy + auth) and those downstream tasks (which own their own consumer-side wiring).
+
+## Deployment-platform MCP tools
+
+Agents observe Railway deploys via the platform-neutral MCP tools `deployment_wait-for-latest`,
+`deployment_status`, and `deployment_logs`. These wrap the same Railway GraphQL primitives
+used by `scripts/railway/{status,logs}.ts` but expose them through the agent-facing surface.
+The platform-agnostic abstraction (adapter interface, registry, configuration shape) lives in
+[`docs/deployment-platforms.md`](./deployment-platforms.md); this section covers Railway-specific
+details only.
+
+**Service declaration.** Each Railway service declares its deployment target in
+`services/<svc>/deploy.config.ts` (see the platform-agnostic doc for the schema). For Railway
+services the file imports project/environment/service IDs from the existing `railway.config.ts`
+env-var manifest, avoiding duplication.
+
+**Underlying calls.** The Railway adapter uses the same GraphQL endpoint and auth pattern as
+the existing scripts: `https://backboard.railway.com/graphql/v2` with bearer token from
+`~/.railway/config.json`. No fresh shell-out to the `railway` CLI is introduced. The
+`waitForLatestDeployment` operation polls the `SERVICE_DEPLOYMENTS_QUERY` until the latest
+deployment's status is in the terminal set (`SUCCESS / FAILED / CRASHED / CANCELLED / REMOVED / ERROR`).
+
+**Default cadence.** 10-second poll interval, 10-minute timeout. Tune via the tool's
+`timeoutSeconds` argument when calling.
 
 ## Auth notes
 

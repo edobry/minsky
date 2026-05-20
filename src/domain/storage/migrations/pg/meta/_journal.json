@@ -232,6 +232,48 @@
       "when": 1778284800000,
       "tag": "0032_wake_pending",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1778889600000,
+      "tag": "0033_subagent_invocations",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1779328800000,
+      "tag": "0034_pr_watches_parent_session_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1779328900000,
+      "tag": "0035_oauth_payload_jsonb",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1779415200000,
+      "tag": "0036_add_task_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1779417000000,
+      "tag": "0037_add_completed_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1779696000000,
+      "tag": "0038_principal_corpus_embeddings",
+      "breakpoints": true
     }
   ]
 }

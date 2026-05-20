@@ -15,6 +15,13 @@
       "when": 1746922800000,
       "tag": "0001_webhook_events",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1747526400000,
+      "tag": "0002_inflight_reviews",
+      "breakpoints": true
     }
   ]
 }

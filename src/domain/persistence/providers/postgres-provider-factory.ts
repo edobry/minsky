@@ -6,6 +6,7 @@
 
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
+import { logPostgresNotice } from "../postgres-notice-handler";
 import { PersistenceConfig } from "../types";
 import {
   PostgresPersistenceProvider,
@@ -29,10 +30,13 @@ export class PostgresProviderFactory {
 
     const pgConfig = config.postgres;
 
-    // Test connection and check for pgvector extension
+    // Test connection and check for pgvector extension. `onnotice` routes
+    // through the shared logger so the cold-path probe doesn't leak Postgres
+    // NOTICEs to stdout (mt#1828; pairs with mt#1827's main-pool fix).
     const testSql = postgres(pgConfig.connectionString, {
       max: 1, // Just need one connection for testing
       connect_timeout: pgConfig.connectTimeout || 10,
+      onnotice: logPostgresNotice,
     });
 
     try {

@@ -11,6 +11,7 @@ export default defineSkill({
 Step-by-step implementation lifecycle for a task within a Minsky session. Covers status-gating, session creation through PR creation.
 
 **Owned lifecycle transitions:**
+
 - READY → IN-PROGRESS: this skill owns this transition via \`session_start\`
 - IN-PROGRESS → IN-REVIEW: this skill owns this transition via \`session_pr_create\`
 
@@ -100,6 +101,7 @@ Call \`memory_search\` with the task ID and domain area:
 **This step owns the READY → IN-PROGRESS transition.**
 
 Call \`mcp__minsky__session_start\` with the task ID. This:
+
 - Creates an isolated session workspace
 - Sets task status to IN-PROGRESS
 
@@ -158,13 +160,35 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
 2. **Portable defaults.** No defaults bind to a specific user, machine, or host. No \`homedir()\`-derived absolutes baked into defaults; no user-specific paths embedded as constants. Mental model: "would this work on a fresh machine for a new user?"
 
+3. **Probe-before-defer (mt#1819).** Scan the draft PR body, the spec's \`## Outcome\` section (if you've added one this session), and any "Live verification" / "Operator follow-up" subsections you're about to ship for the trigger-phrase patterns below. If any pattern matches, run the canonical tooling probe BEFORE the PR is created — don't post a deferral you haven't probed.
+
+   **Trigger-phrase patterns** (match as patterns, not literal strings — \`X\` stands for any service/tool/account name):
+
+   - "deferred to operator" / "deferred to user"
+   - "requires X access" — e.g., "requires Railway access", "requires GitHub access", "requires admin token", "requires production access"
+   - "user must do this" / "operator follow-up"
+   - "outside agent context" / "not available from agent context"
+
+   **Canonical probe sequence:**
+
+   - CLI probe — \`which <cli> && <cli> whoami\` for the relevant tool (~5 sec).
+   - Skill probe — search the available-skills system-reminder for \`<service>:*\` (e.g., \`railway:use-railway\`, \`cloudflare:wrangler\`).
+   - Repo probe — check \`scripts/<service>/\`, \`services/<service>/<service>.config.ts\`, or similar.
+   - Memory probe — \`mcp__minsky__memory_search\` for the service keyword.
+
+   **If a probe returns "tooling is available"**, proceed with the action ONLY when it's in-scope under the current task's acceptance criteria AND safe (no destructive side-effects the spec hasn't authorized, no scope-expansion beyond what was planned). The probe just unblocks the assumption-of-unavailability; it doesn't override scope/safety gates.
+
+   **If all probes fail OR the action is out-of-scope/unsafe even with tooling available**, replace the bare deferral with one that names the probe results AND the scope/safety basis inline: e.g., \`"Probed: which gh → not on PATH; no GitHub-org-admin skill; no scripts/gh-admin/; no memory matches. Deferred — requires user with GitHub org-admin access."\` or \`"Probed: railway CLI available and authenticated. Action out-of-scope for this task (spec §Out of scope explicitly lists Railway env-var changes as a separate concern). Deferred."\`. A bare deferral without inline probe results AND scope/safety basis fails this check.
+
+   Origin: mt#1811 (2026-05-13) — PR #1100 body and the mt#1811 spec's \`## Outcome\` section both declared "deferred — requires Railway access" while the \`railway\` CLI was on PATH, the \`railway:use-railway\` skill was loaded, and the relevant memory was injected mid-session. User pushback ("Are you sure you need me for that?") triggered the probe; total fix time was <5 minutes. This step is the implement-task-pipeline enforcement of the broader \`User Preferences §Probe before deferring\` rule.
+
 **Reactive phase (when iterating on reviewer findings):**
 
-3. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+4. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
 
-4. **Class-not-instance.** When the reviewer flags one specific site (e.g., "\`glob\` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like \`fs.readFile\`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+5. **Class-not-instance.** When the reviewer flags one specific site (e.g., "\`glob\` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like \`fs.readFile\`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
 
-Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds). See \`feedback_cascade_defense_in_implementer_prompt.md\` for the pattern history.
+Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds), plus mt#1811 (PR #1100 deferred-without-probing) for the probe-before-defer step. See \`feedback_cascade_defense_in_implementer_prompt.md\` and \`feedback_probe_before_defer_at_action_time\` for the pattern history.
 
 ### 7a. Ship verification artifact for structural changes (when in scope)
 
@@ -224,9 +248,62 @@ Use \`mcp__minsky__session_pr_create\` to create the pull request:
 After PR creation, **stop working on the session**. Do not continue committing.
 
 Suggest to the user:
+
 > "PR created. Run \`/verify-task mt#X\` to verify the implementation against all success criteria before merging."
 
 **Do NOT** auto-run \`/verify-task\`, do NOT attempt to merge. Verification and merge are owned by the \`/verify-task\` skill and the review process.
+
+### 10. Post-merge deploy verification (when the task touches a deployed service)
+
+When the merged PR changes code that runs in a deployed service (anything under
+\`services/<svc>/\` that has a \`deploy.config.ts\`, or any source that the deploy
+image bundles via the project Dockerfile), do NOT stop at merge. The merge
+triggers an auto-deploy on Railway (or whatever platform the service declares);
+that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
+missing env var, schema migration error, container crash on start. Verify the
+post-merge deploy succeeded before reporting the task done.
+
+**Primary mechanism: \`mcp__minsky__deployment_wait-for-latest\`.**
+
+\`\`\`
+deployment_wait-for-latest(service?: string, timeoutSeconds?: number)
+\`\`\`
+
+Block-and-return on the latest deployment for the configured service.
+Returns the terminal \`DeploymentRecord\` (SUCCESS / FAILED / CANCELLED /
+CRASHED). Platform-neutral; the tool routes to the platform declared in
+\`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter; v2
+candidates: Vercel, Cloudflare Pages, etc.). See
+\`docs/deployment-platforms.md\` for the abstraction.
+
+**Follow-ups for inspection (not for waiting):**
+
+- \`mcp__minsky__deployment_status(service?)\` — snapshot of the latest
+  deployment without blocking. Useful for "is something already running?"
+  checks.
+- \`mcp__minsky__deployment_logs(deploymentId, type?, lines?, service?)\` —
+  fetch build (\`type: "build"\`) or runtime (\`type: "deploy"\`) logs for a
+  specific deployment. Block-and-return; streaming is out of scope for v1
+  (see mt#1725 for the notification path).
+
+**Anti-patterns to avoid:**
+
+- Polling the application's HTTP endpoint in a Bash loop. Correctness-by-
+  eventual-consistency; no failure signal until timeout.
+- \`ScheduleWakeup\` with a guessed interval. Latency model is wrong by
+  default (see \`feedback_reviewer_bot_actual_latency_calibration_data\`
+  for the sibling lesson on reviewer-bot timing).
+- Shelling out to \`railway logs --build\` from Bash. The MCP tool wraps the
+  same underlying Railway GraphQL; the platform-neutral surface keeps the
+  agent's reach platform-aware without memorizing CLI flags.
+
+**When the deploy fails:** call \`deployment_logs(deploymentId, type: "build")\`
+on the failed deployment ID, inspect the failure, and either fix-forward
+in a new PR or surface to the user with the logs attached.
+
+This step does NOT change the task's DONE status — that's still owned by
+the at-merge handler. Post-merge deploy verification is a quality gate on
+the deploy itself, not the task lifecycle.
 
 ## Constraints
 

@@ -1,0 +1,91 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Path of the current page (e.g. "/", "/why"). Combined with site origin for canonical + og:url. */
+  pathname?: string;
+  /** OG/Twitter image path (relative to site root). Defaults to /og-cover.png. */
+  ogImage?: string;
+  /** When true, robots are told not to index (preview / draft pages). */
+  noindex?: boolean;
+}
+
+const {
+  title,
+  description,
+  pathname = Astro.url.pathname,
+  ogImage = "/og-cover.png",
+  noindex = false,
+} = Astro.props;
+
+const siteUrl = Astro.site ?? new URL("https://minsky.dev");
+const canonical = new URL(pathname, siteUrl).toString();
+const ogImageUrl = new URL(ogImage, siteUrl).toString();
+const ogTitle = title;
+const ogDescription = description;
+
+const orgSchema = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "Minsky",
+  description,
+  url: siteUrl.toString(),
+  applicationCategory: "DeveloperApplication",
+  operatingSystem: "macOS, Linux",
+  offers: { "@type": "Offer", price: "0" },
+};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="theme-color" content="#020202" />
+    <meta name="color-scheme" content="dark" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+
+    {/* Favicon */}
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    {/* Open Graph */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Minsky" />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={ogDescription} />
+    <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    {/* Twitter Card */}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={ogTitle} />
+    <meta name="twitter:description" content={ogDescription} />
+    <meta name="twitter:image" content={ogImageUrl} />
+
+    {/* Fonts — preconnect first, then load. Geist + JetBrains Mono + IBM Plex Mono italic. */}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=IBM+Plex+Mono:ital@1&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+
+    {/* JSON-LD structured data */}
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify(orgSchema)}
+    />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

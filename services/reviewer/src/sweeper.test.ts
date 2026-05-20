@@ -17,6 +17,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import type { Octokit } from "@octokit/rest";
 import type { ReviewerConfig } from "./config";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 import {
   detectMissingReview,
   listOpenPRs,
@@ -53,6 +54,8 @@ const SWEEPER_CONFIG: SweeperConfig = {
   repo: "minsky",
   intervalMs: 600000,
   enabled: true,
+  ownerDefaulted: false,
+  repoDefaulted: false,
 };
 
 const BOT_LOGIN = "minsky-reviewer[bot]";
@@ -584,13 +587,28 @@ describe("runSweep", () => {
     expect(result.retriggeredCount).toBe(1);
     // runReview should have been called with the right args
     expect(runReviewFn).toHaveBeenCalledTimes(1);
-    expect(runReviewFn).toHaveBeenCalledWith(
-      BASE_CONFIG,
-      SWEEPER_CONFIG.owner,
-      SWEEPER_CONFIG.repo,
-      prNumber,
-      PR_AUTHOR
-    );
+    // runReview is called with (config, owner, repo, prNumber, authorLogin, deliveryId,
+    // headSha, deps). deliveryId is "sweeper-{timestamp}", headSha comes from the PR,
+    // and deps is undefined when no db is available.
+    const [
+      callConfig,
+      callOwner,
+      callRepo,
+      callPrNumber,
+      callAuthor,
+      callDeliveryId,
+      callSha,
+      callDeps,
+    ] = runReviewFn.mock.calls[0] as unknown[];
+    expect(callConfig).toBe(BASE_CONFIG);
+    expect(callOwner).toBe(SWEEPER_CONFIG.owner);
+    expect(callRepo).toBe(SWEEPER_CONFIG.repo);
+    expect(callPrNumber).toBe(prNumber);
+    expect(callAuthor).toBe(PR_AUTHOR);
+    expect(typeof callDeliveryId).toBe("string");
+    expect((callDeliveryId as string).startsWith("sweeper-")).toBe(true);
+    expect(callSha).toBe(HEAD_SHA);
+    expect(callDeps).toBeUndefined();
   });
 
   test("no open PRs: prsScanned=0, missing=[], retriggeredCount=0", async () => {
@@ -818,5 +836,42 @@ describe("startSweeper", () => {
   test("startSweeper returns null when disabled", () => {
     const handle = startSweeper(BASE_CONFIG, { ...SWEEPER_CONFIG, enabled: false });
     expect(handle).toBeNull();
+  });
+
+  test("emits sweeper.low_interval_warning when intervalMs < 300_000 (mt#1898 PR #1154 R1)", () => {
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      // 2 min cadence — below the 5-min safe threshold.
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 120_000,
+      });
+
+      // Stop the setInterval immediately — we only care about the boot-time log.
+      if (handle) clearInterval(handle);
+    } finally {
+      restore();
+    }
+
+    const lowIntervalWarning = findLogEvent(logs, "sweeper.low_interval_warning");
+    expect(lowIntervalWarning).not.toBeNull();
+    expect(lowIntervalWarning?.intervalMs).toBe(120_000);
+    expect(lowIntervalWarning?.safeThresholdMs).toBe(300_000);
+  });
+
+  test("does NOT emit sweeper.low_interval_warning at the safe 10-min default (mt#1898 PR #1154 R1)", () => {
+    const { logs, restore } = captureConsoleLogs();
+    try {
+      const handle = startSweeper(BASE_CONFIG, {
+        ...SWEEPER_CONFIG,
+        intervalMs: 600_000,
+      });
+
+      if (handle) clearInterval(handle);
+    } finally {
+      restore();
+    }
+
+    expect(findLogEvent(logs, "sweeper.low_interval_warning")).toBeNull();
   });
 });

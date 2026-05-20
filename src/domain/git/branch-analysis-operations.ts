@@ -4,7 +4,7 @@
  * Operations for analyzing branch divergence and branch switching conflicts.
  * Extracted from ConflictDetectionService for focused responsibility.
  */
-import { execAsync as defaultExecAsync } from "../../utils/exec";
+import { execAsync as defaultExecAsync, safeShellQuote } from "../../utils/exec";
 import { log as defaultLog } from "../../utils/logger";
 import {
   checkSessionChangesInBase,
@@ -44,10 +44,12 @@ export async function analyzeBranchDivergenceImpl(
     baseBranch,
   });
 
+  const qRepoPath = safeShellQuote(repoPath);
+
   try {
     // Get commit counts
     const result = await deps.execAsync(
-      `git -C ${repoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
+      `git -C ${qRepoPath} rev-list --left-right --count ${baseBranch}...${sessionBranch}`
     );
 
     // Check if result is valid before destructuring
@@ -77,7 +79,7 @@ export async function analyzeBranchDivergenceImpl(
 
     // Get last common commit
     const commonCommitResult = await deps.execAsync(
-      `git -C ${repoPath} merge-base ${baseBranch} ${sessionBranch}`
+      `git -C ${qRepoPath} merge-base ${baseBranch} ${sessionBranch}`
     );
 
     const commonCommit = commonCommitResult?.stdout?.toString().trim() || "";
@@ -139,9 +141,11 @@ export async function checkBranchSwitchConflictsImpl(
 ): Promise<BranchSwitchWarning> {
   deps.log.debug("Checking branch switch conflicts", { repoPath, targetBranch });
 
+  const qRepoPath = safeShellQuote(repoPath);
+
   try {
     const { stdout: currentBranch } = await deps.execAsync(
-      `git -C ${repoPath} rev-parse --abbrev-ref HEAD`
+      `git -C ${qRepoPath} rev-parse --abbrev-ref HEAD`
     );
     const fromBranch = currentBranch.toString().trim();
 
@@ -156,7 +160,7 @@ export async function checkBranchSwitchConflictsImpl(
       };
     }
 
-    const statusOutputResult = await deps.execAsync(`git -C ${repoPath} status --porcelain`);
+    const statusOutputResult = await deps.execAsync(`git -C ${qRepoPath} status --porcelain`);
     const statusOutput = statusOutputResult?.stdout || "";
     const uncommittedChanges = statusOutput.toString().trim().split("\n").filter(Boolean);
 
@@ -167,7 +171,7 @@ export async function checkBranchSwitchConflictsImpl(
     if (uncommittedChanges.length > 0) {
       try {
         await deps.execAsync(
-          `git -C ${repoPath} merge-tree $(git -C ${repoPath} write-tree) HEAD ${targetBranch}`
+          `git -C ${qRepoPath} merge-tree $(git -C ${qRepoPath} write-tree) HEAD ${targetBranch}`
         );
       } catch (error) {
         wouldLoseChanges = true;

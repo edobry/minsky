@@ -133,6 +133,49 @@ export interface McpSharedCommandConfig {
       spec?: string;
       /** Hide command from MCP */
       hidden?: boolean;
+      /**
+       * Per-argument defaults applied at the MCP layer only (mt#1786).
+       *
+       * Merged into the caller's args before parameter conversion: any key in
+       * `argDefaults` whose value the caller did not provide is filled in from
+       * here. Explicit caller values always win. This is how MCP-only defaults
+       * are expressed without changing the underlying shared command's CLI
+       * behavior (which doesn't read this field).
+       *
+       * Each entry may be either:
+       *
+       * - **A literal value** — applied unconditionally when the caller omits
+       *   the key.
+       * - **A function** `(args) => unknown | undefined` — invoked with the
+       *   caller's args. Returning a value applies it as the default; returning
+       *   `undefined` skips the default entirely. This lets a default react to
+       *   OTHER caller args (PR R2): e.g., `tasks.list` skips the `limit: 50`
+       *   default when the caller passes `all: true`, so the full-history view
+       *   is not capped.
+       *
+       * **Registration-time validation (PR R1):**
+       * - Unknown parameter keys throw with a list of known keys.
+       * - **Literal values** are `safeParse`-validated against the parameter's
+       *   Zod schema at registration. A misconfigured override (e.g.,
+       *   `{ limit: "50" }` where the schema requires `z.number()`) throws at
+       *   startup, before any tool call runs.
+       * - **Function values** are validated probe-style: the function is
+       *   invoked with `{}` and (when applicable) `{ all: true }` so the
+       *   common branches return values that match the schema. A function that
+       *   returns the wrong type on the empty-args branch will fail at
+       *   registration. Functions whose behavior depends on yet-unmodeled args
+       *   may return unvalidated values at runtime — document the conditional
+       *   in the override and add tests at the override's call site.
+       * - Plain-object (non-Zod) schemas fall through unchecked, matching
+       *   `convertParametersToZodSchema`'s tolerance for legacy definitions.
+       *
+       * Used by `tasks.list` to default `limit: 50` so a default MCP call
+       * returns a digestible result instead of the full active-task list.
+       */
+      argDefaults?: Record<
+        string,
+        unknown | ((args: Record<string, unknown>) => unknown | undefined)
+      >;
     }
   >;
   /** Whether to enable debug logging */
@@ -260,6 +303,79 @@ export function registerSharedCommandsWithMcp(
 
       const description = overrides?.description || command.description;
 
+      // Registration-time validation of argDefaults (mt#1786 PR R1 + R2).
+      // argDefaults are merged into caller args AFTER the MCP framework's
+      // Zod-validation step on inbound args, which means a misconfigured
+      // override (e.g., a string where the schema requires a number) would
+      // otherwise reach command.execute() unvalidated. Since argDefaults are
+      // statically declared at startup, validating each value against its
+      // parameter's schema here makes the misconfiguration a fail-fast
+      // registration error rather than a runtime hazard.
+      //
+      // For function-form defaults (PR R2): we probe-call the function with
+      // both `{}` and `{ all: true }` (the most common conditional pivot)
+      // and validate any non-undefined return value. This catches the common
+      // misconfiguration where the function returns a wrong-type value on
+      // its empty-args branch.
+      if (overrides?.argDefaults) {
+        const probeInputs: Record<string, unknown>[] = [{}, { all: true }];
+        for (const [key, valueOrFn] of Object.entries(overrides.argDefaults)) {
+          const paramDef = command.parameters?.[key];
+          if (!paramDef) {
+            const known = Object.keys(command.parameters ?? {}).join(", ") || "(none)";
+            throw new Error(
+              `[MCP] argDefaults misconfigured for "${command.id}": ` +
+                `unknown parameter "${key}". Known parameters: ${known}.`
+            );
+          }
+          const schema = paramDef.schema as z.ZodTypeAny;
+          if (typeof schema?.safeParse !== "function") {
+            // Non-Zod (plain-object) schemas fall through unchecked; this
+            // mirrors convertParametersToZodSchema's tolerance for legacy
+            // command definitions and is intentional (no schema to validate
+            // against). The plain-object schema regression guard test
+            // covers this code path.
+            continue;
+          }
+
+          const validateValue = (value: unknown, label: string): void => {
+            const result = schema.safeParse(value);
+            if (!result.success) {
+              const issues = result.error.issues
+                .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+                .join("; ");
+              throw new Error(
+                `[MCP] argDefaults misconfigured for "${command.id}.${key}"${label}: ` +
+                  `value ${JSON.stringify(value)} does not satisfy parameter schema. ` +
+                  `Issues: ${issues}`
+              );
+            }
+          };
+
+          if (typeof valueOrFn === "function") {
+            // Function-form default — probe-call with common inputs.
+            const fn = valueOrFn as (args: Record<string, unknown>) => unknown | undefined;
+            for (const probe of probeInputs) {
+              let probed: unknown;
+              try {
+                probed = fn(probe);
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                throw new Error(
+                  `[MCP] argDefaults function for "${command.id}.${key}" threw when probed with ${JSON.stringify(probe)}: ${msg}`
+                );
+              }
+              // undefined means "no default for this branch" — skip validation.
+              if (probed !== undefined) {
+                validateValue(probed, ` (probe input ${JSON.stringify(probe)})`);
+              }
+            }
+          } else {
+            validateValue(valueOrFn, "");
+          }
+        }
+      }
+
       log.debug(`Registering command ${command.id} with MCP`, {
         category,
         description,
@@ -294,8 +410,36 @@ export function registerSharedCommandsWithMcp(
               context: redact(safeCtx),
             });
 
-            // Convert MCP args to expected parameter format
-            const filteredArgs = { ...args };
+            // Convert MCP args to expected parameter format.
+            //
+            // Apply MCP-only argDefaults (mt#1786 PR R1 + R2) BEFORE conversion:
+            // each key from the override's argDefaults is filled in only when
+            // the caller omitted it. Explicit caller values always win. This
+            // lets the MCP adapter shape default behavior (e.g., default
+            // `tasks.list` to `limit: 50`) without affecting CLI defaults
+            // defined on the underlying shared command.
+            //
+            // Function-form defaults (PR R2): when the entry is a function,
+            // call it with the caller's args. Returning `undefined` skips the
+            // default for that branch — used by `tasks.list` to skip the
+            // `limit: 50` default when `all: true` is set so the full-history
+            // view is uncapped.
+            const filteredArgs: Record<string, unknown> = { ...args };
+            const argDefaults = overrides?.argDefaults;
+            if (argDefaults) {
+              for (const [key, valueOrFn] of Object.entries(argDefaults)) {
+                if (filteredArgs[key] !== undefined) continue;
+                const resolved =
+                  typeof valueOrFn === "function"
+                    ? (valueOrFn as (a: Record<string, unknown>) => unknown | undefined)(
+                        filteredArgs
+                      )
+                    : valueOrFn;
+                if (resolved !== undefined) {
+                  filteredArgs[key] = resolved;
+                }
+              }
+            }
             log.debug(`[MCP] Processing args: ${command.id}`, {
               filteredArgs: redact(filteredArgs),
             });
@@ -602,6 +746,42 @@ export function registerMemoryCommandsWithMcp(
 }
 
 /**
+ * Register detector commands with MCP (attention-allocation noticer family —
+ * `unasked-direction.*` per mt#1543 / Surface 4, `epic-decomposition.audit`
+ * per mt#1710 / Shape C, and future System 3* detector surfaces).
+ *
+ * Follows the MEMORY single-path model — invoked once via the per-category
+ * adapter `registerDetectorsTools` in `start-command.ts`; intentionally NOT
+ * listed in `registerAllMainCommandsWithMcp`'s category set, pending the
+ * mt#1521 source-of-truth resolution.
+ */
+export function registerDetectorsCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.DETECTORS],
+    ...config,
+  });
+}
+
+/**
+ * Register principal-corpus commands with MCP (mt#1930 — `principal_corpus.*`).
+ *
+ * Follows the MEMORY single-path model — invoked once via the per-category
+ * adapter `registerPrincipalCorpusTools` in `start-command.ts`.
+ */
+export function registerPrincipalCorpusCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.PRINCIPAL_CORPUS],
+    ...config,
+  });
+}
+
+/**
  * Register authorship commands with MCP.
  *
  * This is the **least-privilege MCP entry point** for the authorship namespace.
@@ -658,14 +838,14 @@ export function registerProvenanceCommandsWithMcp(
 /**
  * Register all main command categories with MCP.
  *
- * MEMORY is intentionally NOT in this list. Memory commands are registered
- * solely via the per-category adapter `registerMemoryTools` invoked by
- * `start-command.ts`. The dual-registration shape that other categories
- * exhibit (listed here AND independently registered in start-command) is a
- * latent silent-overwrite hazard via `MinskyMCPServer.addTool()`'s Map
- * semantics; mt#1521 owns the structural source-of-truth resolution that
- * may apply this same exclusion to the other categories. Until then, MEMORY
- * is the model.
+ * MEMORY and DETECTORS are intentionally NOT in this list. Their commands are
+ * registered solely via the per-category adapters (`registerMemoryTools`,
+ * `registerDetectorsTools`) invoked by `start-command.ts`. The dual-registration
+ * shape that other categories exhibit (listed here AND independently registered
+ * in start-command) is a latent silent-overwrite hazard via
+ * `MinskyMCPServer.addTool()`'s Map semantics; mt#1521 owns the structural
+ * source-of-truth resolution that may apply this same exclusion to the other
+ * categories. Until then, MEMORY and DETECTORS are the model.
  */
 export function registerAllMainCommandsWithMcp(
   commandMapper: CommandMapper,

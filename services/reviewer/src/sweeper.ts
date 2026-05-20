@@ -29,13 +29,35 @@
  * sweeper shares the same octokit / config the server already has. The
  * interval (10 min) is configurable via SWEEPER_INTERVAL_MS. To disable the
  * sweeper entirely, set SWEEPER_ENABLED=false.
+ *
+ * ## Cadence rationale (mt#1898)
+ *
+ * The 10-minute default was set as the upper bound of mt#1260's spec range
+ * ("every 5-10 minutes"), defensively rather than calibrated against measured
+ * cost. mt#1898 investigated four candidate cadences (1 / 2 / 5 / 10 min) and
+ * recommended keeping 10 min. The binding constraint is NOT GitHub API
+ * rate-limit (even 1-min cadence stays under 20% of the 5000 req/hr App
+ * installation budget) — it is a sweeper-vs-webhook double-trigger race:
+ * `detectMissingReview` cannot distinguish "no review yet because runReview
+ * is in-flight from a webhook" from "no review yet because a prior runReview
+ * failed". At 1-2 min cadence the race fires on ~75-100% of pushes, paying
+ * an OpenAI cycle AND a duplicate review comment per race. Tighter cadence
+ * is safe only once mt#1907 lands an in-flight marker. See mt#1898's
+ * `## Findings` for the full table and reasoning. Operators who want
+ * temporary faster recovery during the mt#1897 (OpenAI timeout) investigation
+ * window can set SWEEPER_INTERVAL_MS=300000 (5 min) at the Railway env-var
+ * layer; revert after mt#1897 ships.
  */
 
 import type { ReviewerConfig } from "./config";
+import { parsePositiveIntEnv } from "./config";
 import { createOctokit, getAppIdentity } from "./github-client";
 import { runReview } from "./review-worker";
 import { decideRouting, extractTierFromPRBody } from "./tier-routing";
 import type { Octokit } from "@octokit/rest";
+import type { ReviewerDb } from "./db/client";
+import { pruneStaleMarkers, listActiveMarkersForPRs, markerKey } from "./inflight-marker";
+import { log } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -50,14 +72,40 @@ export interface SweeperConfig {
   intervalMs: number;
   /** Whether the sweeper is enabled. */
   enabled: boolean;
+  /**
+   * True when `owner` was not explicitly set in the env and the default was used.
+   * Surfaced in the `sweeper.started` log so operators can audit silent mis-targeting
+   * risk in non-Minsky deployments. PR #1116 R1 cascade-defense (mirrors
+   * merge-state-sweeper.ts).
+   */
+  ownerDefaulted: boolean;
+  /**
+   * True when `repo` was not explicitly set in the env and the default was used.
+   * PR #1116 R1 cascade-defense.
+   */
+  repoDefaulted: boolean;
 }
 
 export function loadSweeperConfig(): SweeperConfig {
+  const ownerEnv = process.env["SWEEPER_REPO_OWNER"];
+  const repoEnv = process.env["SWEEPER_REPO_NAME"];
   return {
-    owner: process.env["SWEEPER_REPO_OWNER"] ?? "edobry",
-    repo: process.env["SWEEPER_REPO_NAME"] ?? "minsky",
-    intervalMs: parseInt(process.env["SWEEPER_INTERVAL_MS"] ?? "600000", 10),
+    owner: ownerEnv ?? "edobry",
+    repo: repoEnv ?? "minsky",
+    // Strict-positive parse (mt#1811 cascade-defense): malformed values
+    // would feed NaN to setInterval. parsePositiveIntEnv throws at boot
+    // time on any non-positive-integer value.
+    //
+    // 600_000 ms (10 min) default: see module-header "Cadence rationale" and
+    // mt#1898's `## Findings`. Do not lower below 5 min without first
+    // landing mt#1907 (in-flight marker) — the sweeper-vs-webhook race rate
+    // climbs sharply below that cadence.
+    intervalMs: parsePositiveIntEnv("SWEEPER_INTERVAL_MS", 600_000),
     enabled: (process.env["SWEEPER_ENABLED"] ?? "false") === "true",
+    // PR #1116 R1 cascade-defense: surface when defaults are in effect so silent
+    // mis-targeting in non-Minsky deployments produces an operator-visible signal.
+    ownerDefaulted: ownerEnv === undefined,
+    repoDefaulted: repoEnv === undefined,
   };
 }
 
@@ -208,43 +256,47 @@ export async function retriggerViaRunReview(
   owner: string,
   repo: string,
   pr: MissingReviewPR,
-  runReviewFn: RunReviewFn = runReview
+  runReviewFn: RunReviewFn = runReview,
+  db?: ReviewerDb
 ): Promise<void> {
   const deliveryId = `sweeper-${Date.now()}`;
-  console.log(
-    JSON.stringify({
-      event: "sweeper.retrigger_start",
+  log.info("sweeper.retrigger_start", {
+    event: "sweeper.retrigger_start",
+    deliveryId,
+    pr: pr.number,
+    headSha: pr.headSha,
+    owner,
+    repo,
+  });
+
+  try {
+    const result = await runReviewFn(
+      config,
+      owner,
+      repo,
+      pr.number,
+      pr.authorLogin,
+      deliveryId,
+      pr.headSha,
+      db !== undefined ? { db } : undefined
+    );
+    log.info("sweeper.retrigger_success", {
+      event: "sweeper.retrigger_success",
       deliveryId,
       pr: pr.number,
       headSha: pr.headSha,
-      owner,
-      repo,
-    })
-  );
-
-  try {
-    const result = await runReviewFn(config, owner, repo, pr.number, pr.authorLogin);
-    console.log(
-      JSON.stringify({
-        event: "sweeper.retrigger_success",
-        deliveryId,
-        pr: pr.number,
-        headSha: pr.headSha,
-        status: result.status,
-        reason: result.reason,
-      })
-    );
+      status: result.status,
+      reason: result.reason,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      JSON.stringify({
-        event: "sweeper.retrigger_failed",
-        deliveryId,
-        pr: pr.number,
-        headSha: pr.headSha,
-        error: message,
-      })
-    );
+    log.warn("sweeper.retrigger_failed", {
+      event: "sweeper.retrigger_failed",
+      deliveryId,
+      pr: pr.number,
+      headSha: pr.headSha,
+      error: message,
+    });
   }
 }
 
@@ -258,16 +310,27 @@ export interface SweeperDeps {
   botLogin: string;
   /** Optional runReview override for tests. Defaults to the real runReview. */
   runReviewFn?: RunReviewFn;
+  /**
+   * Optional DB instance for in-flight marker integration (mt#1907).
+   * When absent, marker lookup is skipped (graceful degradation for tests
+   * that don't need it).
+   */
+  db?: ReviewerDb;
 }
 
 /**
  * Build the real SweeperDeps from config (used in production).
  * Exported so server.ts can call it and tests can bypass it.
+ *
+ * Accepts an optional db parameter (mt#1907) for in-flight marker integration.
  */
-export async function buildSweeperDeps(config: ReviewerConfig): Promise<SweeperDeps> {
+export async function buildSweeperDeps(
+  config: ReviewerConfig,
+  db?: ReviewerDb
+): Promise<SweeperDeps> {
   const octokit = await createOctokit(config);
   const botIdentity = await getAppIdentity(config);
-  return { octokit, botLogin: botIdentity.login };
+  return { octokit, botLogin: botIdentity.login, db };
 }
 
 /**
@@ -294,6 +357,23 @@ export async function buildSweeperDeps(config: ReviewerConfig): Promise<SweeperD
  */
 const SWEEP_CONCURRENCY = 3;
 
+/**
+ * Boot-time warning threshold for the sweeper cadence (mt#1898 PR #1154 R1).
+ *
+ * When `SWEEPER_INTERVAL_MS` resolves to less than this value, `startSweeper`
+ * emits a structured warning naming the configured interval, the safe
+ * threshold, and mt#1907 as the structural prerequisite. The threshold is the
+ * floor of the "safe without an in-flight marker" band documented in mt#1898's
+ * `## Findings §3`: below 5 min the sweeper-vs-webhook double-trigger race
+ * rate climbs above ~30% per push.
+ *
+ * The warning does NOT block startup — operators can still opt into a tighter
+ * cadence (e.g., during the mt#1897 OpenAI-timeout investigation window),
+ * but the choice produces an operator-visible log line. This mirrors the
+ * PR #1116 R1 cascade-defense convention for silent mis-targeting.
+ */
+const SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS = 300_000;
+
 export async function runSweep(
   config: ReviewerConfig,
   sweeperConfig: SweeperConfig,
@@ -302,17 +382,36 @@ export async function runSweep(
   const startedAt = new Date().toISOString();
   const { owner, repo } = sweeperConfig;
 
-  const { octokit, botLogin, runReviewFn } = depsOverride ?? (await buildSweeperDeps(config));
+  const { octokit, botLogin, runReviewFn, db } = depsOverride ?? (await buildSweeperDeps(config));
 
-  console.log(
-    JSON.stringify({
-      event: "sweeper.cycle_start",
-      timestamp: startedAt,
-      owner,
-      repo,
-      botLogin,
-    })
-  );
+  log.info("sweeper.cycle_start", {
+    event: "sweeper.cycle_start",
+    timestamp: startedAt,
+    owner,
+    repo,
+    botLogin,
+  });
+
+  // 0. Prune stale inflight markers (mt#1907 defense in depth).
+  // Clears markers left by crashed runReview calls that never released.
+  // When db is absent (tests or DB-less environments), skip gracefully.
+  if (db !== undefined) {
+    try {
+      const pruned = await pruneStaleMarkers(db);
+      if (pruned > 0) {
+        log.info("sweeper.pruned_stale_markers", {
+          event: "sweeper.pruned_stale_markers",
+          count: pruned,
+        });
+      }
+    } catch (pruneErr: unknown) {
+      const message = pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
+      log.warn("sweeper.prune_stale_markers_failed", {
+        event: "sweeper.prune_stale_markers_failed",
+        error: message,
+      });
+    }
+  }
 
   // 1. List all open PRs.
   const openPRs = await listOpenPRs(octokit, owner, repo);
@@ -324,14 +423,12 @@ export async function runSweep(
   for (const pr of openPRs) {
     // Skip draft PRs — mirrors the webhook handler's skip_draft policy.
     if (pr.draft) {
-      console.log(
-        JSON.stringify({
-          event: "skip_draft_sweeper",
-          pr: pr.number,
-          owner,
-          repo,
-        })
-      );
+      log.info("skip_draft_sweeper", {
+        event: "skip_draft_sweeper",
+        pr: pr.number,
+        owner,
+        repo,
+      });
       continue;
     }
 
@@ -359,35 +456,70 @@ export async function runSweep(
 
     if (detected !== null) {
       missing.push(detected);
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.missing_review",
-          pr: detected.number,
-          headSha: detected.headSha,
-          reason: detected.reason,
-        })
-      );
+      log.warn("sweeper.missing_review", {
+        event: "sweeper.missing_review",
+        pr: detected.number,
+        headSha: detected.headSha,
+        reason: detected.reason,
+      });
     }
   }
 
-  if (missing.length > 0) {
-    console.warn(
-      JSON.stringify({
-        event: "sweeper.primary_webhook_failing",
-        message: `${missing.length} PR(s) are missing a minsky-reviewer review — the primary webhook path may be failing.`,
-        missingPrNumbers: missing.map((m) => m.number),
-      })
-    );
+  // 2b. Filter out PRs whose inflight marker is fresh (mt#1907).
+  // A fresh marker means runReview is currently in flight from a webhook —
+  // retriggering would produce a duplicate review. Skip them; they'll be
+  // cleaned up by the next sweep cycle after the webhook completes.
+  let filteredMissing = missing;
+  if (db !== undefined && missing.length > 0) {
+    try {
+      const markerLookup = await listActiveMarkersForPRs(
+        db,
+        missing.map((m) => ({ owner, repo, prNumber: m.number, headSha: m.headSha }))
+      );
+
+      filteredMissing = missing.filter((m) => {
+        const key = markerKey(owner, repo, m.number, m.headSha);
+        const marker = markerLookup.get(key);
+        if (marker !== undefined) {
+          log.info("sweeper.skipped_inflight", {
+            event: "sweeper.skipped_inflight",
+            pr: m.number,
+            headSha: m.headSha,
+            acquired_by: marker.acquiredBy,
+            delivery_id: marker.deliveryId,
+            expires_at: marker.expiresAt.toISOString(),
+          });
+          return false;
+        }
+        return true;
+      });
+    } catch (lookupErr: unknown) {
+      const message = lookupErr instanceof Error ? lookupErr.message : String(lookupErr);
+      log.warn("sweeper.marker_lookup_failed_proceeding", {
+        event: "sweeper.marker_lookup_failed_proceeding",
+        error: message,
+        missing_count: missing.length,
+      });
+      // Fail-open: proceed with all missing PRs if lookup fails.
+    }
+  }
+
+  if (filteredMissing.length > 0) {
+    log.warn("sweeper.primary_webhook_failing", {
+      event: "sweeper.primary_webhook_failing",
+      message: `${filteredMissing.length} PR(s) are missing a minsky-reviewer review — the primary webhook path may be failing.`,
+      missingPrNumbers: filteredMissing.map((m) => m.number),
+    });
   }
 
   // 3. Retrigger missing reviews via in-process runReview, capped at SWEEP_CONCURRENCY.
   let retriggeredCount = 0;
-  for (let i = 0; i < missing.length; i += SWEEP_CONCURRENCY) {
-    const batch = missing.slice(i, i + SWEEP_CONCURRENCY);
+  for (let i = 0; i < filteredMissing.length; i += SWEEP_CONCURRENCY) {
+    const batch = filteredMissing.slice(i, i + SWEEP_CONCURRENCY);
     // Schedule each in the batch. retriggerViaRunReview never throws (it
     // catch-logs internally), so we can safely await all in parallel.
     await Promise.all(
-      batch.map((pr) => retriggerViaRunReview(config, owner, repo, pr, runReviewFn))
+      batch.map((pr) => retriggerViaRunReview(config, owner, repo, pr, runReviewFn, db))
     );
     retriggeredCount += batch.length;
   }
@@ -395,17 +527,15 @@ export async function runSweep(
   const result: SweepResult = {
     startedAt,
     prsScanned,
-    missing,
+    missing: filteredMissing,
     retriggeredCount,
   };
 
-  console.log(
-    JSON.stringify({
-      event: "sweeper.cycle_end",
-      ...result,
-      missingCount: missing.length,
-    })
-  );
+  log.info("sweeper.cycle_end", {
+    event: "sweeper.cycle_end",
+    ...result,
+    missingCount: filteredMissing.length,
+  });
 
   return result;
 }
@@ -432,49 +562,96 @@ export async function runSweep(
  */
 export function startSweeper(
   config: ReviewerConfig,
-  sweeperConfig: SweeperConfig
+  sweeperConfig: SweeperConfig,
+  db?: ReviewerDb
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "sweeper.disabled",
-        message: "Sweeper is disabled (SWEEPER_ENABLED=false).",
-      })
-    );
+    log.info("sweeper.disabled", {
+      event: "sweeper.disabled",
+      message: "Sweeper is disabled (SWEEPER_ENABLED=false).",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "sweeper.started",
-      intervalMs: sweeperConfig.intervalMs,
+  log.info("sweeper.started", {
+    event: "sweeper.started",
+    intervalMs: sweeperConfig.intervalMs,
+    owner: sweeperConfig.owner,
+    repo: sweeperConfig.repo,
+    ownerDefaulted: sweeperConfig.ownerDefaulted,
+    repoDefaulted: sweeperConfig.repoDefaulted,
+  });
+
+  // PR #1116 R1 cascade-defense: when owner/repo were silently defaulted,
+  // emit a structured warning at boot. In non-Minsky deployments this would
+  // otherwise silently target edobry/minsky and never produce a high-signal
+  // log line. Mirrors merge-state-sweeper.ts.
+  if (sweeperConfig.ownerDefaulted || sweeperConfig.repoDefaulted) {
+    log.warn("sweeper.using_default_repo_coordinates", {
+      event: "sweeper.using_default_repo_coordinates",
       owner: sweeperConfig.owner,
       repo: sweeperConfig.repo,
-    })
-  );
+      ownerDefaulted: sweeperConfig.ownerDefaulted,
+      repoDefaulted: sweeperConfig.repoDefaulted,
+      message:
+        "missed-review sweeper is using default repo coordinates. " +
+        "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
+        "to avoid silently sweeping the wrong repository.",
+    });
+  }
+
+  // mt#1898 PR #1154 R1 cascade-defense: warn when the configured cadence is
+  // below the "safe without an in-flight marker" threshold. Below ~5 min the
+  // sweeper-vs-webhook double-trigger race rate climbs above ~30% per push
+  // (mt#1898 `## Findings §3`); the cost is silent (wasted OpenAI cycles +
+  // duplicate review comments on PRs). The warning makes the choice
+  // operator-visible at boot. Non-blocking by design — operators may want a
+  // tighter cadence during the mt#1897 (OpenAI timeout) investigation window.
+  if (sweeperConfig.intervalMs < SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS) {
+    log.warn("sweeper.low_interval_warning", {
+      event: "sweeper.low_interval_warning",
+      intervalMs: sweeperConfig.intervalMs,
+      safeThresholdMs: SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS,
+      message:
+        `SWEEPER_INTERVAL_MS=${sweeperConfig.intervalMs} is below the ` +
+        `${SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS} ms (5 min) safe threshold. ` +
+        "Below this threshold the sweeper-vs-webhook double-trigger race " +
+        "(no in-flight marker; see mt#1898 `## Findings §4`) fires on a " +
+        "significant fraction of pushes, paying an OpenAI cycle AND a " +
+        "duplicate review comment per race. Land mt#1907 (in-flight " +
+        "marker) before tuning the cadence below this threshold.",
+    });
+  }
 
   let isSweeping = false;
 
+  // Cache a deps promise so we build octokit + botLogin once and reuse across
+  // sweep cycles. The db is forwarded so runSweep can use the inflight marker.
+  let cachedDeps: Promise<SweeperDeps> | null = null;
+
   const handle = setInterval(() => {
     if (isSweeping) {
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.skip_reentrant",
-          message: "Previous sweep still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("sweeper.skip_reentrant", {
+        event: "sweeper.skip_reentrant",
+        message: "Previous sweep still in progress; skipping this interval tick.",
+      });
       return;
     }
     isSweeping = true;
-    runSweep(config, sweeperConfig)
+    // Lazily build deps on first cycle; reuse on subsequent cycles.
+    if (cachedDeps === null) {
+      cachedDeps = buildSweeperDeps(config, db);
+    }
+    cachedDeps
+      .then((deps) => runSweep(config, sweeperConfig, deps))
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "sweeper.cycle_error",
-            error: message,
-          })
-        );
+        log.error("sweeper.cycle_error", {
+          event: "sweeper.cycle_error",
+          error: message,
+        });
+        // Clear cached deps on error so next cycle retries building them.
+        cachedDeps = null;
       })
       .finally(() => {
         isSweeping = false;

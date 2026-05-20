@@ -1,4 +1,4 @@
-import { Card, CardHeader, CardTitle, CardContent } from "../components/Card";
+import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 
 type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"; reason: string };
 
@@ -21,29 +21,31 @@ interface Props {
 export function BasicHealth({ data }: Props) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>System Health</CardTitle>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base font-semibold">System Health</CardTitle>
       </CardHeader>
-      <CardContent>
-        {data.state === "ok" ? (
-          <dl className="space-y-1 text-sm">
-            <div className="flex justify-between">
+      {data.state === "ok" ? (
+        <CardContent>
+          <dl>
+            <div className="flex items-center justify-between py-1.5 border-b border-border last:border-0 text-sm">
               <dt className="text-muted-foreground">Uptime</dt>
-              <dd>{formatUptime((data.payload as HealthPayload).uptimeSec)}</dd>
+              <dd className="tabular-nums">{formatUptime((data.payload as HealthPayload).uptimeSec)}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between py-1.5 border-b border-border last:border-0 text-sm">
               <dt className="text-muted-foreground">Version</dt>
-              <dd>{(data.payload as HealthPayload).version}</dd>
+              <dd className="tabular-nums">{(data.payload as HealthPayload).version}</dd>
             </div>
-            <div className="flex justify-between">
+            <div className="flex items-center justify-between py-1.5 border-b border-border last:border-0 text-sm">
               <dt className="text-muted-foreground">Widgets loaded</dt>
-              <dd>{(data.payload as HealthPayload).loadedWidgetCount}</dd>
+              <dd className="tabular-nums">{(data.payload as HealthPayload).loadedWidgetCount}</dd>
             </div>
           </dl>
-        ) : (
-          <p className="text-muted-foreground">{data.reason}</p>
-        )}
-      </CardContent>
+        </CardContent>
+      ) : (
+        <CardContent className="text-sm text-muted-foreground">
+          <p>{data.reason}</p>
+        </CardContent>
+      )}
     </Card>
   );
 }

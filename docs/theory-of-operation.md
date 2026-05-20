@@ -286,16 +286,50 @@ own blind spots.
 
 ---
 
+## The Operator Surface: Cockpit
+
+The cockpit (mt#1143) is the operator-facing surface for Minsky's own system state — a local
+web server externalizing, into infrastructure, the cognitive functions that otherwise live in
+operator working memory. It is the first concrete instantiation of a more general theoretical
+frame called **Locus**: the surface that holds and renders orientation for a one-person
+organization running many parallel agents.
+
+VSM placement: the cockpit is the operator-facing **externalization of Systems 2, 3, and 4**.
+The Agents widget surfaces System 2 (parallel-worker coordination); the Workstreams and
+TaskGraph widgets surface System 3 (operational feedback over the task graph); and the
+Attention widget is the **algedonic channel** — the path by which signals routed to the
+principal bypass the normal feedback hierarchy and reach System 5 (the operator) directly.
+System 1 (the underlying work — sessions, tasks, code changes) is what the cockpit renders,
+not what it owns.
+
+The cockpit is **operator-facing, not agent-facing**. Agents already have rich orientation
+infrastructure (context generation, rules compilation, MCP introspection); the cockpit's user
+is the human running the system, and its design decisions (web rendering, dark-mode density,
+low-latency polling) reflect operator ergonomics. Architecturally it is a **shell + pluggable
+widgets**: the shell is stable, the widgets are independent. Adding a new dial as Minsky gains
+observable capability is implementing a widget contract + registering in config — no shell
+rewrite.
+
+For the full architectural treatment, see [`docs/architecture/cockpit.md`](architecture/cockpit.md).
+For the philosophical motivation see the Notion essay
+["The cockpit problem: from Locus theory to first instantiation"](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8).
+
+---
+
 ## Further Reading
 
 - [`docs/architecture.md`](architecture.md) — implementation architecture: command registry,
   domain model, persistence, session lifecycle, rules compilation, DI, configuration, repository
   backends
+- [`docs/architecture/cockpit.md`](architecture/cockpit.md) — cockpit subsystem architecture:
+  Locus distinction, VSM placement, widget contract, subsystem map
 - [Notion: Vision & theory](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355) — full
   theoretical treatment: Ashby, Beer, Boyd, Minsky; cybernetic foundations; design philosophy
 - [Notion: Architecture map](https://www.notion.so/33a937f03cb481e0ae6deb3c37af6ae9) — VSM organ
   analysis, capability inventory, gap analysis
 - [Notion: Mesh RFC](https://www.notion.so/33a937f03cb4814f8603ff6faa52ec6b) — design proposal
   for System 2 (cross-session coordination signals and reasoning stream)
+- [Notion: The cockpit problem](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8) —
+  founding essay on the cockpit / Locus distinction
 - `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI
   handling

@@ -1,10 +1,15 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   AFFIRMATIVE_WORDS,
   buildInjection,
+  DEFAULT_K,
+  DEFAULT_TOKEN_BUDGET,
+  deriveVariantTag,
+  emitBraintrust,
   estimateTokens,
   HOOK_VERSION,
   isTrivialPrompt,
+  MIN_PROMPT_LENGTH,
   parseSearchOutput,
   renderResult,
   rotateLogIfNeeded,
@@ -12,8 +17,11 @@ import {
   writeLog,
   type LogFsDeps,
   type MemorySearchResultLite,
-  DEFAULT_TOKEN_BUDGET,
 } from "./memory-search";
+// mt#1778 R1 NON-BLOCKING #1: read shared-emitter API directly from its
+// canonical module rather than through the hook's re-export, which was
+// fragile coupling per reviewer feedback.
+import { readBraintrustConfig } from "../../src/domain/observability/braintrust";
 
 const TRUNCATION_MARKER_TEXT = TRUNCATION_MARKER.trim();
 
@@ -69,9 +77,14 @@ describe("isTrivialPrompt", () => {
     expect(isTrivialPrompt("   \n\t ")).toBe(true);
   });
 
-  it("returns true for short prompts under 20 chars", () => {
+  it("returns true for short prompts under 50 chars", () => {
     expect(isTrivialPrompt("hello there")).toBe(true);
     expect(isTrivialPrompt("what?")).toBe(true);
+  });
+
+  it("treats 49 chars as trivial and 50 chars as non-trivial (MIN_PROMPT_LENGTH boundary)", () => {
+    expect(isTrivialPrompt("a".repeat(49))).toBe(true);
+    expect(isTrivialPrompt("a".repeat(50))).toBe(false);
   });
 
   it("returns true for single-word affirmatives", () => {
@@ -144,9 +157,9 @@ describe("isTrivialPrompt", () => {
     }
   });
 
-  it("returns false for prompts at or over the 20-char threshold that aren't affirmatives", () => {
-    // exactly 20 chars
-    expect(isTrivialPrompt("twenty char prompts!")).toBe(false);
+  it("returns false for prompts at or over the 50-char threshold that aren't affirmatives", () => {
+    // exactly 50 chars
+    expect(isTrivialPrompt("fifty character test prompt for the threshold limt")).toBe(false);
     expect(isTrivialPrompt("what does the user prefer for testing in this project?")).toBe(false);
     expect(isTrivialPrompt("how do I run validation across all source files in this repo")).toBe(
       false
@@ -154,9 +167,9 @@ describe("isTrivialPrompt", () => {
   });
 
   it("returns false for multi-word prompts even if they start with an affirmative", () => {
-    // multi-word "yes please continue" — long enough and the affirmative-skip
+    // multi-word — long enough to clear 50-char floor and the affirmative-skip
     // only fires for single-word prompts
-    expect(isTrivialPrompt("yes please continue with the implementation")).toBe(false);
+    expect(isTrivialPrompt("yes please continue with the implementation we discussed")).toBe(false);
   });
 
   it("respects custom minLength", () => {
@@ -165,10 +178,12 @@ describe("isTrivialPrompt", () => {
   });
 
   it("respects custom affirmatives set", () => {
-    // Use single-word prompts long enough to clear the length floor so the
+    // Use prompts long enough to clear the default length floor so the
     // affirmatives-set membership is what's actually being tested.
     expect(
-      isTrivialPrompt("longwordnotinanydefaultset", { affirmatives: new Set(["customword"]) })
+      isTrivialPrompt("longwordnotinanydefaultset that exceeds fifty chars threshold here", {
+        affirmatives: new Set(["customword"]),
+      })
     ).toBe(false);
     expect(
       isTrivialPrompt("customword", { affirmatives: new Set(["customword"]), minLength: 1 })
@@ -233,6 +248,124 @@ describe("parseSearchOutput", () => {
     expect(parsed).not.toBe(null);
     expect(parsed?.results).toHaveLength(1);
     expect(parsed?.backend).toBe("lexical");
+  });
+
+  it("recovers from leading Postgres NOTICE blocks on stdout (drizzle migration init)", () => {
+    // Real-world repro (mt#1827): `minsky memory search` invokes the postgres
+    // client which (pre-mt#1827) emits NOTICE objects to stdout in JS-object-
+    // literal format (unquoted keys, trailing commas — NOT valid JSON) before
+    // the actual JSON response. The original walk-bottom-up-while-{ parser
+    // anchored on the inner `{` from `results[0]` and JSON.parse failed.
+    const drizzleNoticePrefix = `{
+  severity_local: "NOTICE",
+  severity: "NOTICE",
+  code: "42P06",
+  message: "schema \\"drizzle\\" already exists, skipping",
+  file: "schemacmds.c",
+  line: "132",
+  routine: "CreateSchemaCommand",
+}
+{
+  severity_local: "NOTICE",
+  severity: "NOTICE",
+  code: "42P07",
+  message: "relation \\"__drizzle_migrations\\" already exists, skipping",
+  file: "parse_utilcmd.c",
+  line: "207",
+  routine: "transformCreateStmt",
+}
+`;
+    // Use indented multi-line JSON (the real CLI output shape, not a single-
+    // line `JSON.stringify`), since the original bug only triggered on the
+    // indented form.
+    const responseJson = `{
+  "results": [
+    {
+      "record": {
+        "id": "${VALID_RECORD.id}",
+        "type": "${VALID_RECORD.type}",
+        "name": "${VALID_RECORD.name}",
+        "description": "${VALID_RECORD.description}",
+        "content": "${VALID_RECORD.content}"
+      },
+      "score": 0.42
+    }
+  ],
+  "backend": "embeddings",
+  "degraded": false
+}`;
+    const parsed = parseSearchOutput(drizzleNoticePrefix + responseJson);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.42);
+    expect(parsed?.results[0].record.id).toBe(VALID_RECORD.id);
+    expect(parsed?.backend).toBe("embeddings");
+    expect(parsed?.degraded).toBe(false);
+  });
+
+  it("recovers when the top-level response itself starts with leading whitespace (PR #1108 R1 NB#2)", () => {
+    // Defensive: if a future CLI formatter or wrapper script prepends spaces
+    // before the response's opening brace (e.g., `  {\n    "results": ...`),
+    // the parser should still find it. The original `lines[i][0] === "{"`
+    // predicate would have missed an indented top-level brace; trimStart()
+    // doesn't.
+    const indentedTopLevelResponse = `  {
+    "results": [
+      {
+        "record": {
+          "id": "${VALID_RECORD.id}",
+          "type": "${VALID_RECORD.type}",
+          "name": "${VALID_RECORD.name}",
+          "description": "${VALID_RECORD.description}",
+          "content": "${VALID_RECORD.content}"
+        },
+        "score": 0.55
+      }
+    ],
+    "backend": "embeddings",
+    "degraded": false
+  }`;
+    // Add a non-JSON prefix line to force the fallback path (without it,
+    // JSON.parse on the trimmed input would succeed via the happy path —
+    // trim() strips the leading whitespace and the brace lands at the start).
+    const stdout = `[memory.search] Search succeeded\n${indentedTopLevelResponse}`;
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.55);
+    expect(parsed?.backend).toBe("embeddings");
+  });
+
+  it("parses indented multi-line JSON response (regression: bottom-up walk would anchor on inner brace)", () => {
+    // The original parser's fallback walked lines from the bottom up while the
+    // line started with `{`, stopping at the first non-`{` line. For indented
+    // multi-line response shape (real CLI output), interior lines like
+    // `  "results": [` don't start with `{`, so the walk anchored on `    {`
+    // from `results[0]` and JSON.parse of the suffix failed. This test guards
+    // against that regression independently of the NOTICE-prefix case.
+    const indentedJson = `{
+  "results": [
+    {
+      "record": {
+        "id": "${VALID_RECORD.id}",
+        "type": "${VALID_RECORD.type}",
+        "name": "${VALID_RECORD.name}",
+        "description": "${VALID_RECORD.description}",
+        "content": "${VALID_RECORD.content}"
+      },
+      "score": 0.9
+    }
+  ],
+  "backend": "embeddings",
+  "degraded": false
+}`;
+    // Add prefix garbage to force the fallback path (otherwise JSON.parse on
+    // the trimmed input would succeed and the fallback wouldn't be exercised).
+    const stdout = `[memory.search] Search succeeded\n${indentedJson}`;
+    const parsed = parseSearchOutput(stdout);
+    expect(parsed).not.toBe(null);
+    expect(parsed?.results).toHaveLength(1);
+    expect(parsed?.results[0].score).toBe(0.9);
   });
 
   it("drops malformed result entries (missing fields) but keeps valid ones", () => {
@@ -576,5 +709,134 @@ describe("writeLog", () => {
         failingFs
       );
     }).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Braintrust integration (mt#1813 — Phase 1a)
+// ---------------------------------------------------------------------------
+
+describe("deriveVariantTag", () => {
+  it("encodes the three knobs as a single comma-separated string", () => {
+    expect(deriveVariantTag(5, 2000, 20)).toBe("K=5,B=2000,MIN=20");
+    expect(deriveVariantTag(3, 800, 50)).toBe("K=3,B=800,MIN=50");
+  });
+
+  it("uses the source-level defaults when called with no arguments", () => {
+    // The default-derived variant must match the source constants exactly;
+    // this asserts the function is wired to the live constants so changes to
+    // K/budget/MIN automatically reflect in the emitted tag without code edits.
+    const expected = `K=${DEFAULT_K},B=${DEFAULT_TOKEN_BUDGET},MIN=${MIN_PROMPT_LENGTH}`;
+    expect(deriveVariantTag()).toBe(expected);
+  });
+});
+
+describe("readBraintrustConfig", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    // Clear all the Braintrust env vars before each test so we test in isolation
+    delete process.env.BRAINTRUST_API_KEY;
+    delete process.env.BRAINTRUST_PROJECT_NAME;
+    delete process.env.BRAINTRUST_API_URL;
+  });
+
+  afterEach(() => {
+    // Restore original env so tests don't leak state
+    process.env = { ...originalEnv };
+  });
+
+  it("reads apiKey from BRAINTRUST_API_KEY env var", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test-from-env";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.apiKey).toBe("sk-test-from-env");
+  });
+
+  it("uses default projectName=minsky when not set in env", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.projectName).toBe("minsky");
+  });
+
+  it("uses default appUrl when not set in env", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.appUrl).toBe("https://api.braintrust.dev");
+  });
+
+  it("env vars override config-file values for projectName + appUrl", async () => {
+    process.env.BRAINTRUST_API_KEY = "sk-test";
+    process.env.BRAINTRUST_PROJECT_NAME = "override-project";
+    process.env.BRAINTRUST_API_URL = "https://override.example.com";
+    const cfg = await readBraintrustConfig();
+    expect(cfg?.projectName).toBe("override-project");
+    expect(cfg?.appUrl).toBe("https://override.example.com");
+  });
+
+  it("returns null when no apiKey is available anywhere", async () => {
+    // HOME pointed at a temp dir without a Minsky config file
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-12345";
+    const cfg = await readBraintrustConfig();
+    expect(cfg).toBeNull();
+    process.env.HOME = originalHome;
+  });
+});
+
+describe("emitBraintrust", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    delete process.env.BRAINTRUST_API_KEY;
+    delete process.env.BRAINTRUST_PROJECT_NAME;
+    delete process.env.BRAINTRUST_API_URL;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it("does not throw when no Braintrust config is available", async () => {
+    // No env var, HOME pointed at a path with no minsky config.
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-67890";
+
+    // Call should be a silent no-op; the absence of crash here verifies the
+    // graceful-degradation contract: the hook is on the critical path of every
+    // prompt and instrumentation must never propagate failures.
+    await expect(
+      emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId: "test-session",
+        promptPrefix: "test prompt",
+        promptLength: 100,
+        skipped: false,
+        injectedTokens: 500,
+        injectedCount: 3,
+        backend: "embeddings",
+        latencyMs: 1234,
+      })
+    ).resolves.toBeUndefined();
+
+    process.env.HOME = originalHome;
+  });
+
+  it("does not throw on malformed entry (only required fields)", async () => {
+    const originalHome = process.env.HOME;
+    process.env.HOME = "/tmp/definitely-not-a-real-minsky-home-99999";
+
+    // Minimum-viable LogEntry shape — no optional fields. Should not crash.
+    await expect(
+      emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId: "test",
+        promptPrefix: "x",
+        promptLength: 1,
+        skipped: true,
+        skipReason: "trivial",
+      })
+    ).resolves.toBeUndefined();
+
+    process.env.HOME = originalHome;
   });
 });

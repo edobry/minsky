@@ -49,9 +49,14 @@ export class WorkingDirectoryCleanup {
    */
   mockWorkingDirectory(mockPath: string): void {
     const originalCwd = process.cwd;
-    (process as Record<string, unknown>)["cwd"] = () => mockPath;
+    // `as unknown as Record<string, unknown>` is required by TS2352 (Process
+    // lacks a string index signature). The eslint suppression matches the
+    // pattern used at src/utils/process.ts and src/commands/mcp/start-command.ts.
+    // eslint-disable-next-line custom/no-excessive-as-unknown
+    (process as unknown as Record<string, unknown>)["cwd"] = () => mockPath;
     this.cwdMockRestore = () => {
-      (process as Record<string, unknown>)["cwd"] = originalCwd;
+      // eslint-disable-next-line custom/no-excessive-as-unknown
+      (process as unknown as Record<string, unknown>)["cwd"] = originalCwd;
     };
   }
 

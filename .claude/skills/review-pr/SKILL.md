@@ -2,8 +2,8 @@
 name: review-pr
 description: >-
   Review a pull request with codebase-verified findings and spec verification,
-  posted as an actual GitHub PR review.
-  Use when asked to review a PR, or when a PR is ready for review after subagent work.
+  posted as an actual GitHub PR review. Use when asked to review a PR, or when a
+  PR is ready for review after subagent work.
 user-invocable: true
 ---
 

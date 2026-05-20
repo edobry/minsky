@@ -1,3 +1,6 @@
+// tsyringe (transitively imported via schema chain → configuration/backend-detection)
+// requires reflect-metadata to be loaded at the drizzle-kit subprocess entry point.
+import "reflect-metadata";
 import type { Config } from "drizzle-kit";
 import { execSync } from "child_process";
 
@@ -56,6 +59,13 @@ export default {
     "./src/domain/storage/schemas/minsky-session-links-schema.ts",
     "./src/domain/storage/schemas/ask-schema.ts",
     "./src/domain/storage/schemas/pr-watch-schema.ts",
+    "./src/domain/storage/schemas/subagent-invocations-schema.ts",
+    "./src/domain/storage/schemas/knowledge-embeddings.ts",
+    "./src/domain/storage/schemas/memory-embeddings.ts",
+    "./src/domain/storage/schemas/oauth-schema.ts",
+    "./src/domain/storage/schemas/tool-embeddings.ts",
+    "./src/domain/storage/schemas/wake-pending-schema.ts",
+    "./src/domain/detectors/dismissal-store.ts",
   ],
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",

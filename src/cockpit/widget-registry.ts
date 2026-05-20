@@ -9,12 +9,23 @@
  * No shell code changes are needed.
  */
 import type { WidgetModule } from "./types";
-import { attentionStubWidget } from "./widgets/attention-stub";
+import { agentsWidget } from "./widgets/agents";
+import { attentionWidget } from "./widgets/attention";
 import { basicHealthWidget } from "./widgets/basic-health";
+import { credentialsWidget } from "./widgets/credentials";
+import { taskGraphWidget } from "./widgets/task-graph";
+import { workstreamsWidget } from "./widgets/workstreams";
 
 export type WidgetRegistry = Record<string, WidgetModule>;
 
+// The `attention-stub` widget was retired in mt#1147 once the real `attention`
+// widget shipped. Operator configs that still reference `attention-stub` will
+// see it disabled (not present in registry) — they should migrate to `attention`.
 export const WIDGET_REGISTRY: WidgetRegistry = {
-  "attention-stub": attentionStubWidget,
+  agents: agentsWidget,
+  attention: attentionWidget,
   "basic-health": basicHealthWidget,
+  credentials: credentialsWidget,
+  "task-graph": taskGraphWidget,
+  workstreams: workstreamsWidget,
 };

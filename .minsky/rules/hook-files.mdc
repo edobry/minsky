@@ -312,6 +312,21 @@ Use only when you have already reviewed main's new commits and confirmed no over
   - fresh branch (no upstream ref yet — typical of a brand-new session's first push)
   - detached HEAD (no current branch to compare against)
   - undetectable default branch (no `origin/main` or `origin/master` to compare to)
+- **Allows with audit-line on stdout** when a **merge / rebase / cherry-pick is in
+  progress** (mt#1739). Detected by `fs.existsSync` on five git transient-operation
+  markers under the **resolved** git directory: `MERGE_HEAD`, `REBASE_HEAD`,
+  `rebase-merge/`, `rebase-apply/`, or `CHERRY_PICK_HEAD`. The resolution step
+  honours git's `.git`-as-file indirection (`gitdir: <path>` redirect used by
+  `git worktree` checkouts and certain submodule layouts), so worktree-based
+  session workspaces are covered. The operator is finalising a commit that
+  *resolves* main-ahead-of-branch staleness (not introducing fresh work on a stale
+  branch); blocking would create a chicken-and-egg deadlock — the merge commit
+  pushed by the resolution is what advances `origin/<branch>` past the staleness
+  gap. The reason emits to stdout as
+  `[check-branch-fresh] merge-in-progress (.git/<MARKER>) — freshness check skipped`
+  so operators see that the hook recognised the merge state. Distinct from the four
+  routine silent paths above: those are "nothing to report"; this one IS reported
+  via the audit line, mirroring the `MINSKY_SKIP_FRESHNESS=1` override convention.
 - **Warnings always surface** even on silent paths. If the pre-check `git fetch`
   failed (network down, auth issue, slow remote), the resulting "comparison may be
   against STALE refs" warning IS emitted regardless of whether the path is silent.
@@ -360,3 +375,323 @@ with the same constraint. The `events` option (default
 The walker performs exact-or-suffix path-segment matching against the
 hook's basename — case-sensitive, separator-normalised so Windows-style
 backslash paths in settings.json work cross-platform.
+
+## Bundle-Boot Smoke Gate
+
+Extension to the merge-gate hook (`.claude/hooks/require-review-before-merge.ts`)
+that denies `mcp__minsky__session_pr_merge` when the bundle-boot smoke check
+did not fire and conclude `success` on the PR's HEAD commit. This is the
+structural fix (mt#1787) for the dev-vs-deployed divergence class: changes
+that look fine in `src/` but crash when the bundled `dist/minsky.js` boots
+under Railway. Originating incidents: mt#1681 (procedural OOB step),
+mt#1763 (`import.meta.url`-relative path resolution outside `/app`),
+mt#1785 (env-var-namespace conflict crashing the config loader).
+
+**Workflow file:** `.github/workflows/bundle-boot-smoke.yml` — runs
+`bun install --frozen-lockfile && bun run build && bun dist/minsky.js
+mcp start --http --host=127.0.0.1 --port=<random>`, then polls
+`GET /health` for up to 30s and fails if it does not respond 200.
+
+**Hook integration:** the merge gate queries
+`gh api repos/edobry/minsky/commits/<sha>/check-runs?check_name=bundle-boot-smoke`
+and feeds the response through `parseBundleBootSmokeResponse` +
+`evaluateBundleBootSmokePresence`. Four denial classes:
+
+1. **API/parse failure** — gh transport error or malformed response. Distinct
+   reason so operators investigate gh, not the workflow.
+2. **No matching check_run** — workflow never fired. Causes: PR predates the
+   workflow (rebase on main); webhook miss (push an empty commit to wake);
+   workflow file malformed.
+3. **Still in progress / queued** — wait for completion.
+4. **Completed but conclusion ≠ success** — the bundle did not boot cleanly.
+   The denial reason includes the run's `html_url` for triage.
+
+Pass: at least one matching check_run with `conclusion === "success"`.
+
+**Override mechanism:** Set `MINSKY_SKIP_BUNDLE_SMOKE=1` (or `true` / `yes`)
+in the environment before invoking the merge tool:
+
+```bash
+MINSKY_SKIP_BUNDLE_SMOKE=1 minsky session pr merge ...
+```
+
+The override is **logged to session stdout** (PR number, short HEAD sha, ISO
+timestamp). Use only when the operator has manually verified local boot
+(`bun run build && bun dist/minsky.js mcp start --http --host=127.0.0.1
+--port=<n>` then `curl http://127.0.0.1:<n>/health`) AND the workflow
+itself is what's broken on the PR being merged. Reaching for this override
+otherwise re-introduces the deploy-time-blind merge that mt#1787 fixed.
+
+**Env-var registration:** `MINSKY_SKIP_BUNDLE_SMOKE` is registered in
+`HOOK_ONLY_ENV_VARS` at `src/domain/configuration/sources/environment.ts`
+so it does not get auto-mapped to a config-key path by the env-var-to-config
+parser (mt#1785 incident class). The contract source-of-truth for both the
+check name (`bundle-boot-smoke`) and the override env var name lives in the
+hook file as exported constants `BUNDLE_BOOT_SMOKE_CHECK_NAME` and
+`BUNDLE_BOOT_SMOKE_OVERRIDE_ENV` so the workflow, the hook, and tests
+cannot drift.
+
+**Cross-references:**
+- mt#1681 / mt#1695 — procedural-step subset and its OOB-merge-text hook
+- mt#1763 / mt#1766 — bundle-path drift incident + revert
+- mt#1785 — env-var-namespace conflict (sibling class)
+- mt#1788 — ESLint rule for new `MINSKY_*` env-var registration (sibling
+  PR-time gate; this guard is the merge-time gate)
+
+## NUL-Byte Pre-Commit Guard
+
+A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between the
+Node-shim check and the TypeScript type check) scans staged text files for
+literal NUL bytes (0x00) and blocks the commit if any are present. Unlike
+the other guards in this file — which are Claude Code PreToolUse hooks
+under `.claude/hooks/` — this is a true git pre-commit step that runs from
+the `PreCommitHook` TypeScript class invoked by `.husky/pre-commit`. The
+override-with-audit convention is the same across both kinds.
+
+**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
+`runNulByteCheck()`. Pure-function implementation:
+`src/hooks/nul-byte-detector.ts`.
+
+**Why this check exists.** mt#1821 / PR #1107 R1 (2026-05-13): the agent
+called `session_write_file` with a `content` parameter containing the
+six-character JS escape `\u0000`. JSON parsing at the tool boundary
+collapsed the escape into the literal character U+0000 BEFORE writing,
+landing a single NUL byte mid-template-literal in a TypeScript source
+file. The file passed tsc (NULs are valid inside template literals),
+eslint, prettier, `bun test`, the CI build, and the CI bundle-boot-smoke.
+Only `git`'s binary-file detection and the reviewer-bot's diff renderer
+flagged it — at review time, not commit time. This guard catches the
+same class at the latest authoring stage where the fix is cheapest.
+
+**Allowlist (skipped from the check):**
+- Known-binary file extensions where NULs are expected by format design:
+  `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.ico`, `.bmp`, `.tiff`,
+  `.pdf`, `.zip`, `.tar`, `.gz`, `.tgz`, `.bz2`, `.xz`, `.7z`, `.woff`,
+  `.woff2`, `.ttf`, `.otf`, `.eot`, `.mp4`, `.mov`, `.webm`, `.wav`,
+  `.mp3`, `.ogg`, `.m4a`, `.so`, `.dylib`, `.dll`, `.bin`, `.exe`,
+  `.class`, `.jar`.
+- Path prefix `tests/fixtures/` — regression fixtures (including this
+  guard's own `tests/fixtures/nul-byte-source.ts`) may legitimately
+  contain NUL bytes. Without this exclusion the fixture would block its
+  own staging.
+
+**On hit:** the step blocks with a structured message listing every
+violating path and the byte offset of the first NUL byte in that file,
+plus a "Why this is blocked" section pointing at mt#1824, mt#1821 /
+PR #1107 R1, and the originating memory
+`feedback_json_tool_writes_interpret_unicode_escapes` (id `b7e2f8ef`).
+
+**Override mechanism:** Set `MINSKY_SKIP_NUL_CHECK=1` (or `true` / `yes`)
+in your environment before invoking the commit tool:
+
+```bash
+MINSKY_SKIP_NUL_CHECK=1 minsky session commit ...
+```
+
+The override emits an audit-log line to stdout naming the env-var value
+and the ISO timestamp. Use only when the NUL byte is genuinely intended
+(very rare; the most likely justification is a binary-format file that
+isn't covered by the extension allowlist — in which case the better fix
+is to extend `KNOWN_BINARY_EXTENSIONS` in `src/hooks/nul-byte-detector.ts`).
+
+**Env-var registration:** `MINSKY_SKIP_NUL_CHECK` is registered in
+`HOOK_ONLY_ENV_VARS` at `src/domain/configuration/sources/environment.ts`
+so the env-var-to-config dot-path parser skips it at boot (per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788). The
+override env-var name's source of truth lives in
+`src/hooks/nul-byte-detector.ts` as the exported constant
+`NUL_BYTE_CHECK_OVERRIDE_ENV` so the hook, the test, and the rule
+documentation cannot drift.
+
+**Performance:** the check completes in well under 200ms for ≤20 staged
+text files on an M1 Max workstation. Each staged blob is fetched via
+`git show :<path>` (one subprocess per non-allowlisted file) and scanned
+with `Buffer.indexOf(0)` — a single memchr-class O(n) pass.
+
+**Cross-references:**
+- mt#1824 — this guard's tracking task
+- mt#1821 / PR #1107 R1 — originating incident
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration)
+- `feedback_json_tool_writes_interpret_unicode_escapes` (id `b7e2f8ef`) —
+  user-level memory describing the JSON-tool-write gotcha that this
+  guard mechanically enforces.
+- CLAUDE.md `§Ensure ASCII Code Symbols` — adjacent discipline (no
+  non-ASCII identifiers); same family of "what the tool layer does to
+  your content."
+
+## Workspace-COPY Pre-Commit Guard
+
+A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between
+the NUL-byte check and the TypeScript type check) reads root
+`package.json`'s `workspaces` glob, enumerates workspace directories
+containing a `package.json`, and verifies the root `Dockerfile` has a
+`COPY <ws>/package.json ...` line for each one BEFORE the
+`RUN bun install --frozen-lockfile` step. Blocks the commit if any
+workspace is unaccounted for.
+
+**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
+`runWorkspaceCopyCheck()`. Pure-function implementation:
+`src/hooks/workspace-copy-detector.ts`.
+
+**Why this check exists.** mt#1977 / 2026-05-20T19:44Z. PR #1186
+(mt#1934, marketing-site rebuild) added `services/site/` as a new
+workspace declared by root `package.json`'s
+`workspaces: ["packages/*", "services/*"]`. The regenerated `bun.lock`
+referenced `services/site`'s deps. The Dockerfile's selective workspace-
+COPY block only copied `packages/shared/package.json` and
+`services/reviewer/package.json` — `services/site/package.json` was
+missed. Result: every Railway deploy from `57c2e868` onward failed at
+`RUN bun install --frozen-lockfile` with
+`error: lockfile had changes, but lockfile is frozen`. Production was
+stuck on the prior commit for ~75 minutes; three PRs (PR #1186 itself,
+PR #1188 / mt#1962, PR #1189 / mt#1963) landed before the fix landed
+and unblocked the deploy queue.
+
+The local `bun install` SUCCEEDS because the full repo is mounted;
+Railway's selective COPY produces an incomplete tree, so the failure
+mode only surfaces in the deploy environment. The pre-commit check is
+the commit-time complement that catches the failure at the cheapest
+authoring stage.
+
+**Trigger condition.** Always — the check runs on every commit
+regardless of which files are staged. The cost is ~5 fs reads + a single
+string scan on the Dockerfile (well under 10 ms in practice); always-
+on coverage matters because the contract can be violated by a commit
+that doesn't itself touch Dockerfile or package.json (e.g., the prior
+commit added a workspace, this commit is unrelated work — the broken
+state still blocks until someone notices).
+
+**On hit:** the step blocks with a structured message listing every
+missing workspace path and the literal `COPY <ws>/package.json ./<ws>/-
+package.json` line the operator must add to the Dockerfile, plus a "Why
+this is blocked" section pointing at mt#1984, mt#1977, and an
+explanation of the Railway-build invariant.
+
+**Allowlist (skipped from the check):**
+- Workspaces matched by the glob but lacking a `package.json` — these
+  aren't workspaces from bun's perspective (the glob walks for
+  `package.json`), so no COPY is required. The mt#1977 instance of this
+  is `services/minsky-mcp/`, a directory that matches `services/*` but
+  exists only as a service-config home (no package.json).
+- Dockerfiles with no `RUN bun install --frozen-lockfile` line —
+  signals "this isn't the root Dockerfile we protect" (could be a sub-
+  project Dockerfile or a different deploy strategy). Check short-
+  circuits with a no-op pass.
+- Repositories without a root `Dockerfile` or `package.json` — same
+  short-circuit. The check protects a specific contract; absent both
+  files there's no contract to protect.
+
+**Override mechanism:** Set `MINSKY_SKIP_WORKSPACE_COPY_CHECK=1` (or
+`true` / `yes`) in your environment before invoking the commit tool:
+
+```bash
+MINSKY_SKIP_WORKSPACE_COPY_CHECK=1 minsky session commit ...
+```
+
+The override emits an audit-log line to stdout naming the env-var value
+and the ISO timestamp. Use only when a COPY is genuinely omitted on
+purpose (very rare; the most likely justification is a workspace
+that doesn't ship in the runtime image AND is excluded from the
+production install by some other mechanism — in which case the better
+fix is to refactor the workspaces glob, not skip the check).
+
+**Env-var registration:** `MINSKY_SKIP_WORKSPACE_COPY_CHECK` is
+registered in `HOOK_ONLY_ENV_VARS` at
+`src/domain/configuration/sources/environment.ts` so the env-var-to-
+config dot-path parser skips it at boot (per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788).
+The override env-var name's source of truth lives in
+`src/hooks/workspace-copy-detector.ts` as the exported constant
+`WORKSPACE_COPY_CHECK_OVERRIDE_ENV` so the hook, the test, and the
+rule documentation cannot drift.
+
+**Glob-expander support.** The pure detector currently handles two
+glob forms: literal workspace paths (`packages/shared`) and single-`*`
+trailing globs (`packages/*`, `services/*`). Patterns with `**`,
+negations (`!packages/*-archived`), or character classes (`[abc]*`)
+are SKIPPED rather than mis-interpreted — the check is conservative
+and would prefer to under-flag than mis-flag. If Minsky's root
+`package.json` ever adopts those patterns the detector will need
+extension; a follow-up task should be filed at that time. The current
+patterns (`packages/*`, `services/*`) are fully covered.
+
+**Performance:** the check completes in well under 50 ms in practice
+(measured on an M1 Max workstation against the current repo: 3
+workspace package.json reads + 1 Dockerfile read + a single
+single-pass regex scan).
+
+**Cross-references:**
+- mt#1984 — this guard's tracking task
+- mt#1977 — originating incident; the 75-minute production outage
+- mt#1934 / PR #1186 — the merge that introduced the gap
+- mt#1610 / mt#1624 / mt#1626 — contract-propagation gap family
+- mt#1726 — original selective-COPY Dockerfile refactor (the contract
+  this guard protects)
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+  contract this guard's override env-var conforms to)
+- mt#1824 — NUL-byte pre-commit guard (sibling pre-commit-step
+  convention this guard mirrors)
+
+## Drive-PR-To-Convergence Reminder
+
+A PostToolUse hook on `mcp__minsky__session_pr_create` injects an
+`additionalContext` system-reminder when PR creation succeeds, instructing
+the agent to drive the PR to convergence (via `session_pr_wait-for-review`
+or a Chinese-wall reviewer subagent on webhook-miss) and explicitly
+forbidding deferral language ("ping me when done", "let me know when
+merged", "ready for your review/merge") as turn-closing. This is the
+structural escalation (mt#1793) of two adjacent corpus rules — the
+`§User does not review PRs in the loop` rule and its "Slow-ask variant"
+sub-section — both of which failed memory-tier and corpus-tier
+enforcement in originating incidents.
+
+**Hook file:** `.claude/hooks/drive-pr-to-convergence.ts`
+
+**Behavior:**
+
+- Fires on PostToolUse for `mcp__minsky__session_pr_create` only.
+- Inspects `tool_result.success`; emits the reminder when strictly `true`.
+- Silent on failure paths (the agent gets the error from the tool surface
+  itself, no need to add noise) and non-matching tools (defensive).
+- Reminder text names: the required next action
+  (`session_pr_wait-for-review`), the webhook-miss fallback (`/review-pr`
+  Chinese-wall reviewer), the success branches (APPROVE → merge,
+  CHANGES_REQUESTED → fix per §7 Convergence Checklist), and the
+  forbidden deferral phrases verbatim.
+
+**Originating incidents:**
+
+- 2026-05-12 PR #1076 (mt#1791) — agent created PR and ended turn with
+  "ping me to wire the SDK once merged and you've set the key." User
+  had to poke: "so you just sat there." This is the canonical
+  slow-ask-variant incident.
+- 2026-04-22 PR #677 (mt#1057) — agent created PR and ended turn without
+  invoking `/review-pr`; required user-initiated correction. Originated
+  mt#1066's `require-review-after-pr-create.ts` proposal (PR #684); this
+  hook supersedes mt#1066's narrower /review-pr-only slice.
+
+**Always exit 0.** The hook is informational; it must never block the tool
+call's success surfacing. Reads `ToolHookInput` from stdin; emits
+`HookOutput` JSON with `hookSpecificOutput.additionalContext` when firing,
+silent otherwise.
+
+**No override mechanism.** Unlike block-class hooks, this hook only
+injects context — never denies. There's nothing to override; the agent
+can ignore the reminder, but doing so re-creates the very failure pattern
+the hook exists to prevent.
+
+**Tracking task:** mt#1793. **Supersedes:** mt#1066 / PR #684
+(`require-review-after-pr-create.ts`, task CLOSED).
+
+**Cross-references:**
+
+- `decision-defaults.mdc §User does not review PRs in the loop` — the
+  corpus rule this hook enforces, including the "Slow-ask variant"
+  sub-section added 2026-05-12 R4.
+- `feedback_drive_pr_to_convergence_dont_end_on_ping_me` — bridge memory
+  (retire when this hook ships).
+- `feedback_user_does_not_review` — sibling memory at the same surface.
+- `feedback_self_authored_pr_merge_constraints` — diagnostic ladder for
+  the webhook-miss fallback referenced in the reminder.
+- `feedback_bot_authored_pr_convergence` — bypass-merge mechanism the
+  reminder points at on convergence.

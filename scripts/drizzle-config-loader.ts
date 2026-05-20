@@ -5,6 +5,9 @@
  * Used to work around drizzle-kit's lack of top-level await support
  */
 
+// tsyringe (transitively imported via configuration/backend-detection) requires
+// reflect-metadata to be loaded at the entry point.
+import "reflect-metadata";
 import { loadConfiguration } from "../src/domain/configuration/loader.js";
 
 async function main() {

@@ -28,7 +28,12 @@
 
 import { describe, test, expect } from "bun:test";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { InProcessOAuthProvider } from "./in-process";
+import {
+  InProcessOAuthProvider,
+  OPERATOR_AGENT_ID,
+  OPERATOR_SUB,
+  composeOperatorAccount,
+} from "./in-process";
 
 // ---------------------------------------------------------------------------
 // Minimal stub DB — satisfies the PostgresJsDatabase type at the boundaries
@@ -118,5 +123,179 @@ describe("InProcessOAuthProvider — Provider construction regression (mt#1703)"
     expect(
       cibaErrorPattern.test("ttl.BackchannelAuthenticationRequest must be a positive integer")
     ).toBe(true);
+  });
+
+  test("discoveryMetadata advertises only token_endpoint_auth_methods_supported=['none'] (mt#1746)", async () => {
+    const provider = new InProcessOAuthProvider({
+      db: makeStubDb(),
+      issuer: "https://auth.example.com",
+    });
+
+    const metadata = await provider.discoveryMetadata(mockReq());
+
+    // v1 supports public PKCE clients only. Advertising client_secret_basic or
+    // client_secret_post would mislead clients into sending methods we can't serve.
+    expect(metadata.token_endpoint_auth_methods_supported).toEqual(["none"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DCR token_endpoint_auth_method regression tests — mt#1746
+// ---------------------------------------------------------------------------
+//
+// Root cause: the previous default was "client_secret_basic", which caused
+// oidc-provider to reject clients at authorize time with
+// "invalid_client_metadata: client_secret is mandatory property" because
+// ClientAdapter.find() never returns the raw client_secret (only stores a hash).
+//
+// The fix: default to "none" (public PKCE clients) and reject any other value.
+
+/**
+ * Minimal stub DB for registerClient tests.
+ * Stubs the insert chain used by ClientAdapter.upsert():
+ *   db.insert(table).values({...}).onConflictDoUpdate({...})
+ */
+function makeRegisterClientStubDb(): PostgresJsDatabase {
+  const onConflictDoUpdate = () => Promise.resolve();
+  const values = () => ({ onConflictDoUpdate });
+  const insert = () => ({ values });
+  return { insert } as unknown as PostgresJsDatabase;
+}
+
+describe("InProcessOAuthProvider.registerClient — DCR token_endpoint_auth_method (mt#1746)", () => {
+  test("DCR with no token_endpoint_auth_method defaults to 'none' and omits client_secret", async () => {
+    const provider = new InProcessOAuthProvider({
+      db: makeRegisterClientStubDb(),
+      issuer: "https://auth.example.com",
+    });
+
+    const result = await provider.registerClient({
+      redirect_uris: ["https://claude.ai/callback"],
+    });
+
+    // Default must be "none" for public PKCE clients
+    expect(result.token_endpoint_auth_method).toBe("none");
+
+    // Public clients MUST NOT have a client_secret in the registration response
+    expect("client_secret" in result).toBe(false);
+
+    // Standard fields must still be present
+    expect(result.client_id).toBeTruthy();
+    expect(result.redirect_uris).toEqual(["https://claude.ai/callback"]);
+    expect(result.grant_types).toContain("authorization_code");
+  });
+
+  test("DCR with explicit token_endpoint_auth_method='none' omits client_secret", async () => {
+    const provider = new InProcessOAuthProvider({
+      db: makeRegisterClientStubDb(),
+      issuer: "https://auth.example.com",
+    });
+
+    const result = await provider.registerClient({
+      redirect_uris: ["https://claude.ai/callback"],
+      token_endpoint_auth_method: "none",
+    });
+
+    expect(result.token_endpoint_auth_method).toBe("none");
+    expect("client_secret" in result).toBe(false);
+    expect(result.client_id).toBeTruthy();
+  });
+
+  test("DCR with token_endpoint_auth_method='client_secret_basic' throws RFC 7591 error", async () => {
+    const provider = new InProcessOAuthProvider({
+      // Note: the error is thrown before any DB call, so the stub DB is not needed here.
+      db: makeStubDb(),
+      issuer: "https://auth.example.com",
+    });
+
+    let thrownError: unknown = null;
+    try {
+      await provider.registerClient({
+        redirect_uris: ["https://example.com/callback"],
+        token_endpoint_auth_method: "client_secret_basic",
+      });
+    } catch (err) {
+      thrownError = err;
+    }
+
+    // The error must be thrown (not null)
+    expect(thrownError).not.toBeNull();
+    const message = thrownError instanceof Error ? thrownError.message : String(thrownError);
+
+    // The error message must identify the unsupported auth method and reference
+    // RFC 7591 error shape (start-command.ts wraps this in invalid_client_metadata)
+    expect(message).toContain("none");
+    expect(message).toContain("client_secret_basic");
+  });
+
+  test("DCR with token_endpoint_auth_method='client_secret_post' throws RFC 7591 error", async () => {
+    const provider = new InProcessOAuthProvider({
+      db: makeStubDb(),
+      issuer: "https://auth.example.com",
+    });
+
+    let thrownError: unknown = null;
+    try {
+      await provider.registerClient({
+        redirect_uris: ["https://example.com/callback"],
+        token_endpoint_auth_method: "client_secret_post",
+      });
+    } catch (err) {
+      thrownError = err;
+    }
+
+    expect(thrownError).not.toBeNull();
+    const message = thrownError instanceof Error ? thrownError.message : String(thrownError);
+    expect(message).toContain("none");
+    expect(message).toContain("client_secret_post");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// composeOperatorAccount — mt#1764
+// ---------------------------------------------------------------------------
+//
+// Two-axis behavior of single-tenant findAccount:
+//   1. Echo input id into accountId (oidc-provider's contract — accountId
+//      mismatch with the Session-stored value throws at token-exchange).
+//   2. Hardcode sub: "operator" in claims (security — devInteractions
+//      input must NOT propagate into authorization decisions).
+//
+// These tests assert both axes independently for any input id, including
+// edge cases (operator-typed-as-input, empty string, arbitrary user value).
+
+describe("composeOperatorAccount (mt#1764)", () => {
+  test("accountId echoes the input id for an arbitrary user-typed value", () => {
+    const account = composeOperatorAccount("alice");
+    expect(account.accountId).toBe("alice");
+  });
+
+  test("accountId echoes the input id for the operator-typed value", () => {
+    const account = composeOperatorAccount("operator");
+    expect(account.accountId).toBe("operator");
+  });
+
+  test("accountId echoes the input id even for the empty string", () => {
+    // oidc-provider may pass an empty/undefined id in some flows; the contract
+    // is to echo whatever was given, not to substitute a default.
+    const account = composeOperatorAccount("");
+    expect(account.accountId).toBe("");
+  });
+
+  test("claims() returns the hardcoded operator sub regardless of input id", async () => {
+    for (const input of ["alice", "operator", "", "EVE-malicious-attempt"]) {
+      const account = composeOperatorAccount(input);
+      const claims = await account.claims();
+      expect(claims.sub).toBe(OPERATOR_SUB);
+      expect(claims.sub).toBe("operator");
+    }
+  });
+
+  test("OPERATOR_AGENT_ID has the ADR-006 Decision B shape oauth:claude-ai:user-operator", () => {
+    // The agentId is what reaches /mcp's principal context. It must always be
+    // the operator's, even if a stored token row's `sub` column says otherwise
+    // (which it might if devInteractions captured arbitrary user input).
+    expect(OPERATOR_AGENT_ID).toBe("oauth:claude-ai:user-operator");
+    expect(OPERATOR_AGENT_ID).toMatch(/^oauth:claude-ai:user-/);
   });
 });

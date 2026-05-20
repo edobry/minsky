@@ -1,0 +1,14 @@
+# Astro
+.astro/
+dist/
+
+# Build artifacts
+.output/
+
+# Dependencies (workspaces share root node_modules; this guards a local install if anyone runs `bun install` inside this dir)
+node_modules/
+
+# Env
+.env
+.env.local
+.env.*.local

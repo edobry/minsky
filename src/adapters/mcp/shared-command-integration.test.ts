@@ -382,6 +382,462 @@ describe("MCP shared-command bridge", () => {
     expect(captured.handler).toBeUndefined();
   });
 
+  test("registerAllMainCommandsWithMcp does NOT include DETECTORS (mt#1721 regression guard)", async () => {
+    // PR #1037 (mt#1721): DETECTORS commands are registered solely via the
+    // per-category adapter `registerDetectorsTools` invoked from
+    // start-command.ts, matching the MEMORY single-path model. Including
+    // them in the all-in-one helper would create the same silent-overwrite
+    // hazard via MinskyMCPServer.addTool()'s Map semantics. This test locks
+    // the DETECTORS exclusion until mt#1521's structural source-of-truth
+    // refactor lands.
+    const id = "detectors.__mcp_bridge_exclusion_test__";
+
+    registerTestCommand({
+      id,
+      name: id,
+      category: CommandCategory.DETECTORS,
+      description: "DETECTORS exclusion regression test",
+      requiresSetup: false,
+      parameters: {},
+      execute: async () => ({ success: true }),
+    });
+
+    const { mapper, captured } = makeMockMapper(id);
+    registerAllMainCommandsWithMcp(mapper as never);
+
+    expect(captured.handler).toBeUndefined();
+  });
+
+  // mt#1786: argDefaults — MCP-only per-argument defaults from commandOverrides
+  describe("argDefaults (mt#1786)", () => {
+    test("applies override.argDefaults when the caller omits the key", async () => {
+      const id = "tasks.__mcp_bridge_argdefaults_omit__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults test: caller omits limit",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: { [id]: { argDefaults: { limit: 50 } } },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.limit).toBe(50);
+    });
+
+    test("does NOT override an explicit caller value", async () => {
+      const id = "tasks.__mcp_bridge_argdefaults_override__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults test: caller wins",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: { [id]: { argDefaults: { limit: 50 } } },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({ limit: 5 });
+      expect(calls[0]?.params.limit).toBe(5);
+    });
+
+    test("preserves caller-set falsy values (0, false, '') against argDefaults", async () => {
+      // Regression guard: the merge must use `=== undefined` rather than
+      // falsy-check so callers can intentionally pass 0 / false / "" without
+      // being silently overridden by the default.
+      const id = "tasks.__mcp_bridge_argdefaults_falsy__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults test: falsy caller values",
+        requiresSetup: false,
+        parameters: {
+          all: { schema: z.boolean(), description: "all", required: false },
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: {
+          [id]: { argDefaults: { all: true, limit: 50 } },
+        },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({ all: false, limit: 0 });
+      expect(calls[0]?.params.all).toBe(false);
+      expect(calls[0]?.params.limit).toBe(0);
+    });
+
+    test("merges argDefaults for multiple keys independently", async () => {
+      const id = "tasks.__mcp_bridge_argdefaults_multi__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults test: multi-key",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+          status: { schema: z.string(), description: "status", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: {
+          [id]: { argDefaults: { limit: 50, status: "TODO" } },
+        },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({ status: "DONE" });
+      expect(calls[0]?.params.limit).toBe(50);
+      expect(calls[0]?.params.status).toBe("DONE");
+    });
+
+    test("throws at registration time when an argDefault value fails its schema (PR R1)", () => {
+      // Reviewer concern: argDefaults are merged AFTER the MCP framework's
+      // Zod validation, so a misconfigured override (e.g., string for a
+      // numeric param) would reach command.execute unvalidated. The fix
+      // is registration-time safeParse — misconfiguration fails fast at
+      // startup, before any tool call runs.
+      const id = "tasks.__mcp_bridge_argdefaults_typecheck__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults registration-time validation",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { limit: "fifty" as unknown as number } },
+          },
+        });
+      }).toThrow(/argDefaults misconfigured.*limit/i);
+    });
+
+    test("throws at registration time when an argDefault names an unknown parameter (PR R1)", () => {
+      const id = "tasks.__mcp_bridge_argdefaults_unknown_key__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults registration-time validation: unknown key",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { not_a_param: 1 } },
+          },
+        });
+      }).toThrow(/argDefaults misconfigured.*unknown parameter.*not_a_param/i);
+    });
+
+    test("does not throw at registration time for valid argDefault values (PR R1)", () => {
+      // Regression guard: the validation check must not throw on the
+      // happy path, including for parameters with optional/default-wrapped
+      // schemas like the ones in real production overrides.
+      const id = "tasks.__mcp_bridge_argdefaults_valid__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults registration-time validation: happy path",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+          all: { schema: z.boolean(), description: "all", required: false },
+          status: { schema: z.string(), description: "status", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { limit: 50, all: false, status: "TODO" } },
+          },
+        });
+      }).not.toThrow();
+    });
+
+    test("function-form default returns a value → value is applied (PR R2)", async () => {
+      const id = "tasks.__mcp_bridge_argdefaults_fn_value__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults function form: returns value",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: {
+          [id]: { argDefaults: { limit: (_args: Record<string, unknown>) => 50 } },
+        },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      expect(calls[0]?.params.limit).toBe(50);
+    });
+
+    test("function-form default returns undefined → default is skipped (PR R2)", async () => {
+      // The conditional pattern used by tasks.list: when `all: true` is set,
+      // the limit default is skipped entirely so the historical full-history
+      // view is uncapped (spec criterion #2).
+      const id = "tasks.__mcp_bridge_argdefaults_fn_skip__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults function form: returns undefined",
+        requiresSetup: false,
+        parameters: {
+          all: { schema: z.boolean(), description: "all", required: false },
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: {
+          [id]: {
+            argDefaults: {
+              limit: (args: Record<string, unknown>) => (args.all === true ? undefined : 50),
+            },
+          },
+        },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      // Without all: defaults to 50
+      await handler({});
+      expect(calls[0]?.params.limit).toBe(50);
+
+      // With all: true — default is skipped, limit is NOT injected
+      calls.length = 0;
+      await handler({ all: true });
+      expect(calls[0]?.params.limit).toBeUndefined();
+      expect(calls[0]?.params.all).toBe(true);
+    });
+
+    test("function-form default is invoked with the caller's args (PR R2)", async () => {
+      // Verify the function receives caller args so it can branch on them.
+      const id = "tasks.__mcp_bridge_argdefaults_fn_sees_args__";
+      let observedArgs: Record<string, unknown> | undefined;
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults function form: receives args",
+        requiresSetup: false,
+        parameters: {
+          mode: { schema: z.string(), description: "mode", required: false },
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: {
+          [id]: {
+            argDefaults: {
+              limit: (args: Record<string, unknown>) => {
+                observedArgs = args;
+                return args.mode === "small" ? 5 : 50;
+              },
+            },
+          },
+        },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({ mode: "small" });
+      expect(calls[0]?.params.limit).toBe(5);
+      expect(observedArgs?.mode).toBe("small");
+    });
+
+    test("throws at registration when function-form default returns a bad type (PR R2)", () => {
+      // Probe-call at registration catches the most common misconfiguration:
+      // function returns a wrong-type value on its empty-args branch.
+      const id = "tasks.__mcp_bridge_argdefaults_fn_bad_type__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults function form: bad return type",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: {
+              argDefaults: { limit: (_args: Record<string, unknown>) => "fifty" as unknown },
+            },
+          },
+        });
+      }).toThrow(/argDefaults misconfigured.*limit/i);
+    });
+
+    test("function-form default that returns undefined for both probes registers without error (PR R2)", () => {
+      // The function may legitimately decline to provide a default for the
+      // probed branches. That's not a misconfiguration — just register and
+      // let the runtime see the actual caller args.
+      const id = "tasks.__mcp_bridge_argdefaults_fn_undef_probes__";
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults function form: undefined for probes",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async () => ({ success: true }),
+      });
+      const { mapper } = makeMockMapper(id);
+
+      expect(() => {
+        registerSharedCommandsWithMcp(mapper as never, {
+          categories: [CommandCategory.TASKS],
+          commandOverrides: {
+            [id]: { argDefaults: { limit: (_args: Record<string, unknown>) => undefined } },
+          },
+        });
+      }).not.toThrow();
+    });
+
+    test("no-op when override has no argDefaults field", async () => {
+      const id = "tasks.__mcp_bridge_argdefaults_absent__";
+      const calls: CapturedCall[] = [];
+      registerTestCommand({
+        id,
+        name: id,
+        category: CommandCategory.TASKS,
+        description: "argDefaults test: absent",
+        requiresSetup: false,
+        parameters: {
+          limit: { schema: z.number(), description: "limit", required: false },
+        },
+        execute: async (params, context) => {
+          calls.push({ params: params as Record<string, unknown>, context });
+          return { success: true };
+        },
+      });
+      const { mapper, captured } = makeMockMapper(id);
+      registerSharedCommandsWithMcp(mapper as never, {
+        categories: [CommandCategory.TASKS],
+        commandOverrides: { [id]: { description: "no argDefaults" } },
+      });
+      const handler = captured.handler;
+      expect(handler).toBeDefined();
+      if (!handler) return;
+
+      await handler({});
+      // No default was specified, so limit stays absent (the converter only
+      // copies values that are present or have a `defaultValue` on the param).
+      expect(calls[0]?.params.limit).toBeUndefined();
+    });
+  });
+
   test("does not throw when a TASKS command has a non-Zod plain-object schema", () => {
     // Regression guard for the CI-only failure where schema.optional() threw
     // "TypeError: schema.optional is not a function" because a command was

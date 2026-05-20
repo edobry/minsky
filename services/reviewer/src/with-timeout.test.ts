@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { TimeoutError, withTimeout } from "./with-timeout";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 describe("withTimeout", () => {
   test("returns the inner promise's resolved value when it completes before the timeout", async () => {
@@ -65,12 +66,8 @@ describe("withTimeout", () => {
     expect(caught).toBeDefined();
   });
 
-  test("emits a structured-shape JSON timeout log to stderr on timeout", async () => {
-    const captured: string[] = [];
-    const originalErr = console.error;
-    console.error = (msg?: unknown, ..._rest: unknown[]) => {
-      if (typeof msg === "string") captured.push(msg);
-    };
+  test("emits a structured-shape JSON timeout log on timeout", async () => {
+    const { logs, restore } = captureConsoleLogs();
     try {
       try {
         await withTimeout("test.log", 15, () => new Promise(() => {}));
@@ -78,14 +75,12 @@ describe("withTimeout", () => {
         // expected TimeoutError
       }
     } finally {
-      console.error = originalErr;
+      restore();
     }
 
-    expect(captured.length).toBe(1);
-    const [firstLog] = captured;
-    if (firstLog === undefined) throw new Error("expected captured to have length 1");
-    const parsed = JSON.parse(firstLog) as Record<string, unknown>;
-    expect(parsed.event).toBe("timeout");
+    const parsed = findLogEvent(logs, "timeout");
+    expect(parsed).not.toBeNull();
+    if (parsed === null) throw new Error("expected a 'timeout' event to be logged");
     expect(parsed.op).toBe("test.log");
     expect(parsed.timeoutMs).toBe(15);
     expect(typeof parsed.durationMs).toBe("number");
@@ -95,18 +90,14 @@ describe("withTimeout", () => {
   });
 
   test("does NOT log a timeout when the inner promise completes in time", async () => {
-    const captured: string[] = [];
-    const originalErr = console.error;
-    console.error = (msg?: unknown, ..._rest: unknown[]) => {
-      if (typeof msg === "string") captured.push(msg);
-    };
+    const { logs, restore } = captureConsoleLogs();
     try {
       const result = await withTimeout("test.no-log", 100, async () => 42);
       expect(result).toBe(42);
     } finally {
-      console.error = originalErr;
+      restore();
     }
-    expect(captured.length).toBe(0);
+    expect(findLogEvent(logs, "timeout")).toBeNull();
   });
 
   test("clears the timer when inner resolves to avoid pending timer leaks", async () => {

@@ -10,6 +10,8 @@
 
 import type { ReviewerDb } from "./db/client";
 import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
+import { extractPgErrorContext } from "./webhook-events";
+import { log } from "./logger";
 
 /**
  * Input shape for recording a convergence metric.
@@ -51,17 +53,14 @@ export async function recordConvergenceMetric(
       acknowledgedAddressedCount: input.acknowledgedAddressedCount,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(
-      JSON.stringify({
-        event: "metric_write_error",
-        error: message,
-        prOwner: input.prOwner,
-        prRepo: input.prRepo,
-        prNumber: input.prNumber,
-        iterationIndex: input.iterationIndex,
-      })
-    );
+    log.error("metric_write_error", {
+      event: "metric_write_error",
+      ...extractPgErrorContext(err),
+      prOwner: input.prOwner,
+      prRepo: input.prRepo,
+      prNumber: input.prNumber,
+      iterationIndex: input.iterationIndex,
+    });
     // Intentionally swallow — reviews proceed regardless of metric write failures.
   }
 }

@@ -18,7 +18,7 @@
  *    when idempotent, the safe default for CI is to skip.
  *
  * This is a live-verification artifact per implement-task §7a. The script
- * gates on `GITHUB_TOKEN` + `MINSKY_MCP_URL` + `MINSKY_MCP_TOKEN` env vars;
+ * gates on `GITHUB_TOKEN` + `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` env vars;
  * it skips gracefully when any are absent, so it is safe to ship in CI
  * without live credentials.
  *
@@ -40,7 +40,7 @@
  * Usage:
  *   GITHUB_TOKEN=ghp_xxx \
  *   MINSKY_MCP_URL=https://... \
- *   MINSKY_MCP_TOKEN=mcp_xxx \
+ *   MINSKY_MCP_AUTH_TOKEN=mcp_xxx \
  *     bun services/reviewer/scripts/smoke-at-merge-state-sync.ts
  *
  *   # Optional: actually round-trip a state-sync call (idempotent, but
@@ -58,14 +58,14 @@ import { Octokit } from "@octokit/rest";
 
 const githubToken = process.env["GITHUB_TOKEN"];
 const mcpUrl = process.env["MINSKY_MCP_URL"];
-const mcpToken = process.env["MINSKY_MCP_TOKEN"];
+const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"];
 
 if (!githubToken) {
   console.log("SKIP: GITHUB_TOKEN not set; skipping live smoke test.");
   process.exit(0);
 }
 if (!mcpUrl || !mcpToken) {
-  console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_TOKEN not set; skipping live smoke test.");
+  console.log("SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping live smoke test.");
   process.exit(0);
 }
 

@@ -17,6 +17,7 @@ import {
   updateOutcome,
   pruneOldRows,
   extractPersistedHeaders,
+  extractPgErrorContext,
 } from "./webhook-events";
 import type { PersistedHeaders } from "./webhook-events";
 
@@ -32,6 +33,11 @@ const HDR_USER_AGENT = "user-agent";
 
 // Outcome constant used in multiple tests
 const OUTCOME_REVIEW_SUBMITTED = "review_submitted";
+
+// Magic-string constants extracted to satisfy custom/no-magic-string-duplication
+const TABLE_NAME_REVIEWER_WEBHOOK_EVENTS = "reviewer_webhook_events";
+const ERR_CONNECTION_REFUSED = "connection refused";
+const ERR_FAILED_QUERY_INSERT = "Failed query: insert into ...";
 
 // ---------------------------------------------------------------------------
 // Stub DB factory
@@ -209,7 +215,7 @@ describe("recordWebhookReceipt", () => {
   });
 
   test("does not throw when DB insert fails", async () => {
-    const db = buildStubDb({ insertThrow: new Error("connection refused") });
+    const db = buildStubDb({ insertThrow: new Error(ERR_CONNECTION_REFUSED) });
 
     // Must not throw — persistence errors are swallowed
     await expect(
@@ -401,6 +407,34 @@ describe("pruneOldRows", () => {
     expect(count).toBe(-1);
   });
 
+  test("returns -1 when DB delete throws a postgres-like error with .cause (mt#1850)", async () => {
+    // Regression test for mt#1850: pruneOldRows catch block now uses
+    // extractPgErrorContext to surface postgres error code/cause in the log
+    // payload (same shape as recordWebhookReceipt and updateOutcome). This test
+    // exercises the cause-bearing-error code path to confirm the catch block
+    // doesn't break when err.cause is present. The structured-field surfacing
+    // itself is independently covered by the extractPgErrorContext describe
+    // block at the bottom of this file.
+    const pgError = Object.assign(
+      new Error(`permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`),
+      {
+        code: "42501",
+        severity: "ERROR",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const wrapped = new Error(
+      `Failed query: delete from "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" ...`
+    );
+    Object.defineProperty(wrapped, "cause", { value: pgError, enumerable: false });
+
+    const db = buildStubDb({ deleteThrow: wrapped });
+
+    const count = await pruneOldRows(db as unknown as Parameters<typeof pruneOldRows>[0], 90);
+
+    expect(count).toBe(-1);
+  });
+
   test("returns 0 when no rows are deleted", async () => {
     const db = buildStubDb({ deleteRows: [] });
 
@@ -416,5 +450,188 @@ describe("pruneOldRows", () => {
     await expect(pruneOldRows(db as unknown as Parameters<typeof pruneOldRows>[0])).resolves.toBe(
       0
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractPgErrorContext (mt#1849 — diagnostic instrumentation)
+// ---------------------------------------------------------------------------
+//
+// Bug mt#1849: webhook_event_record_failed and webhook_outcome_update_failed
+// log only the wrapped drizzle error message ("Failed query: insert into ...").
+// The underlying postgres error (with .code, .severity, .detail, .constraint,
+// .table, .column, .schema fields) is silently dropped because the catch
+// blocks call `err.message` directly and ignore `err.cause`.
+//
+// This made it impossible to diagnose 6+ days of silent webhook-event-record
+// failures in production — the actual postgres error code (e.g., 42P01
+// "relation does not exist", or 42501 "permission denied") never reached the
+// logs. extractPgErrorContext is the pure helper that walks `err.cause` and
+// surfaces the structured fields.
+
+describe("extractPgErrorContext", () => {
+  test("postgres-like error with .cause containing code/severity/message produces structured fields", () => {
+    // Simulates what drizzle wraps around a postgres-js error. postgres-js
+    // raises an Error subclass with code/severity/message at the top level;
+    // drizzle wraps it as `cause` on its own Error instance.
+    const pgError = Object.assign(
+      new Error(`relation "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" does not exist`),
+      {
+        code: "42P01",
+        severity: "ERROR",
+        schema_name: "public",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const drizzleErr = new Error(
+      `Failed query: insert into "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" ...`
+    );
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error"]).toBe(
+      `Failed query: insert into "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" ...`
+    );
+    expect(ctx["error_code"]).toBe("42P01");
+    expect(ctx["error_severity"]).toBe("ERROR");
+    expect(ctx["error_detail"]).toBe(
+      `relation "${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}" does not exist`
+    );
+    expect(ctx["error_table"]).toBe(TABLE_NAME_REVIEWER_WEBHOOK_EVENTS);
+    expect(ctx["error_schema"]).toBe("public");
+  });
+
+  test("error without .cause still produces the original `error` field (backward compat)", () => {
+    const plainErr = new Error(ERR_CONNECTION_REFUSED);
+
+    const ctx = extractPgErrorContext(plainErr);
+
+    expect(ctx["error"]).toBe(ERR_CONNECTION_REFUSED);
+    expect(ctx["error_code"]).toBeUndefined();
+    expect(ctx["error_severity"]).toBeUndefined();
+    expect(ctx["error_detail"]).toBeUndefined();
+  });
+
+  test("non-Error thrown value (string) still produces a sensible payload", () => {
+    const ctx = extractPgErrorContext("plain string error");
+
+    expect(ctx["error"]).toBe("plain string error");
+    expect(ctx["error_code"]).toBeUndefined();
+  });
+
+  test("constraint-violation error surfaces constraint and column names", () => {
+    const pgError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "reviewer_webhook_events_delivery_id_unique"'
+      ),
+      {
+        code: "23505",
+        severity: "ERROR",
+        constraint_name: "reviewer_webhook_events_delivery_id_unique",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error_code"]).toBe("23505");
+    expect(ctx["error_constraint"]).toBe("reviewer_webhook_events_delivery_id_unique");
+    expect(ctx["error_table"]).toBe(TABLE_NAME_REVIEWER_WEBHOOK_EVENTS);
+  });
+
+  test("permission-denied error (42501) surfaces code so it's distinguishable from missing-table", () => {
+    const pgError = Object.assign(
+      new Error(`permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`),
+      {
+        code: "42501",
+        severity: "ERROR",
+        table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+      }
+    );
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error_code"]).toBe("42501");
+    expect(ctx["error_detail"]).toBe(
+      `permission denied for table ${TABLE_NAME_REVIEWER_WEBHOOK_EVENTS}`
+    );
+  });
+
+  test("cause exists but lacks standard fields — keys + truncated JSON surface (mt#1851)", () => {
+    // Phase 2: when the helper doesn't recognize the cause's shape (no .code as
+    // string), surface diagnostic info so production observability isn't a
+    // dead-end. PR #1130's webhook (delivery fc841420-...) revealed this case
+    // in production — cause IS present (drizzle wraps), just not with the
+    // postgres-js fields the Phase 1 check expected.
+    const opaqueCause = { random_field: "x", another: 42, nested: { deep: true } };
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
+    Object.defineProperty(drizzleErr, "cause", { value: opaqueCause, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    // Keys array sorted for stable test output
+    expect(ctx["error_cause_keys"]).toEqual(["another", "nested", "random_field"]);
+    // JSON preview present and contains the data
+    expect(typeof ctx["error_cause_json"]).toBe("string");
+    expect(ctx["error_cause_json"] as string).toContain("random_field");
+    expect(ctx["error_cause_json"] as string).toContain("42");
+    // Length cap honored
+    expect((ctx["error_cause_json"] as string).length).toBeLessThanOrEqual(500);
+  });
+
+  test("postgres-like fields directly on err itself (no .cause wrapping) — surface them (mt#1851)", () => {
+    // When the thrown error IS the postgres-js PostgresError (not wrapped by
+    // drizzle), fields are at the top level. Phase 1 only walked .cause; this
+    // case was a hole.
+    const directPgError = Object.assign(new Error("connection terminated unexpectedly"), {
+      code: "57P01",
+      severity: "FATAL",
+      table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+    });
+
+    const ctx = extractPgErrorContext(directPgError);
+
+    expect(ctx["error_code"]).toBe("57P01");
+    expect(ctx["error_severity"]).toBe("FATAL");
+    expect(ctx["error_table"]).toBe(TABLE_NAME_REVIEWER_WEBHOOK_EVENTS);
+  });
+
+  test("standard-cause-fields case does NOT also emit error_cause_keys (avoid double-emission noise)", () => {
+    // Backward-compat: when standard fields ARE recognized on cause, the new
+    // fallback (error_cause_keys / error_cause_json) MUST NOT also fire — that
+    // would double the log payload size for every well-behaved postgres error.
+    const pgError = Object.assign(new Error("relation does not exist"), {
+      code: "42P01",
+      severity: "ERROR",
+      table_name: TABLE_NAME_REVIEWER_WEBHOOK_EVENTS,
+    });
+    const drizzleErr = new Error(ERR_FAILED_QUERY_INSERT);
+    Object.defineProperty(drizzleErr, "cause", { value: pgError, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(ctx["error_code"]).toBe("42P01");
+    // Fallback fields MUST be absent when standard fields fired
+    expect(ctx["error_cause_keys"]).toBeUndefined();
+    expect(ctx["error_cause_json"]).toBeUndefined();
+  });
+
+  test("error_cause_json is truncated to <=500 chars even when cause is enormous", () => {
+    // Belt-and-suspenders for the length cap: if cause is huge (e.g., a webhook
+    // payload accidentally got attached as cause), don't blow up the log line.
+    const huge: Record<string, string> = {};
+    for (let i = 0; i < 100; i++) huge[`field_${i}`] = `value_${i}_${"x".repeat(50)}`;
+    const drizzleErr = new Error("Failed query: ...");
+    Object.defineProperty(drizzleErr, "cause", { value: huge, enumerable: false });
+
+    const ctx = extractPgErrorContext(drizzleErr);
+
+    expect(typeof ctx["error_cause_json"]).toBe("string");
+    expect((ctx["error_cause_json"] as string).length).toBeLessThanOrEqual(500);
   });
 });

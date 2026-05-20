@@ -53,6 +53,8 @@ export interface Task {
   id: string;
   title: string;
   status: string;
+  /** Task workflow kind. Determines which state machine applies. Default: "implementation" */
+  kind?: string;
   backend?: string;
   /** Parent task ID if this is a subtask (populated from task graph, not stored in backend) */
   parentTaskId?: string;
@@ -91,6 +93,8 @@ export interface TaskBackend {
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
   // updateTags: replace all tags on a task; only tag-capable backends implement it
   updateTags?(id: string, tags: string[]): Promise<void>;
+  // setTaskKind: set the workflow kind on a task; only database-backed backends implement it
+  setTaskKind?(id: string, kind: string): Promise<void>;
 }
 
 /**
@@ -113,6 +117,7 @@ export interface CreateTaskOptions {
   id?: string; // Specific ID to use instead of generating one
   status?: string; // Specific status to use instead of defaulting to TODO
   tags?: string[]; // Tags/labels for thematic batching
+  kind?: string; // Workflow kind: "implementation" | "umbrella" (defaults to "implementation")
 }
 
 /**

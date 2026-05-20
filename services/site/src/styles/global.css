@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/*
+ * Brand tokens — Minsky Cyberbrain / Section 9 register.
+ * Source of truth: docs/brand-system.md (mt#1932). OKLCH is canonical; hex fallbacks
+ * are derived for sRGB cascade. Do not edit values without re-syncing brand-system.md.
+ */
+
+@theme inline {
+  /* Color — OKLCH canonical */
+  --color-bg-base: oklch(0.078 0 0);
+  --color-bg-warm: oklch(0.142 0.012 95);
+  --color-bg-elevated: oklch(0.155 0 0);
+  --color-text-primary: oklch(0.946 0 0);
+  --color-text-muted: oklch(0.717 0 0);
+  --color-text-subtle: oklch(0.517 0 0);
+  --color-signal: oklch(0.745 0.124 215);
+  --color-signal-dim: oklch(0.560 0.092 220);
+  --color-warn-amber: oklch(0.756 0.180 70);
+  --color-warn-red: oklch(0.585 0.219 27);
+  --color-iso-pastel: oklch(0.911 0.030 75);
+
+  /* Typography stacks */
+  --font-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --font-warm-mono:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+
+  /* Type scale */
+  --text-display: 4.5rem;
+  --text-display--line-height: 1.05;
+  --text-display--letter-spacing: -0.03em;
+  --text-h1: 2.625rem;
+  --text-h1--line-height: 1.1;
+  --text-h1--letter-spacing: -0.02em;
+  --text-h2: 1.875rem;
+  --text-h2--line-height: 1.2;
+  --text-h2--letter-spacing: -0.01em;
+  --text-h3: 1.25rem;
+  --text-h3--line-height: 1.35;
+  --text-body: 1rem;
+  --text-body--line-height: 1.55;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.5;
+  --text-eyebrow: 0.75rem;
+  --text-eyebrow--line-height: 1.4;
+  --text-eyebrow--letter-spacing: 0.06em;
+  --text-code: 0.875rem;
+  --text-code--line-height: 1.55;
+}
+
+/*
+ * Legacy-engine fallback layer.
+ * Engines that don't support oklch() (<Chrome 111 / Safari 16.4 / Firefox 113)
+ * read the hex declarations and discard the OKLCH ones. The cascade order
+ * matches the pattern in docs/brand-system.md §2 (Pattern A).
+ */
+@supports not (color: oklch(0 0 0)) {
+  :root {
+    --color-bg-base: #020202;
+    --color-bg-warm: #14120b;
+    --color-bg-elevated: #0e0e0e;
+    --color-text-primary: #eeeeee;
+    --color-text-muted: #a3a3a3;
+    --color-text-subtle: #6b6b6b;
+    --color-signal: #00bfd8;
+    --color-signal-dim: #0080a0;
+    --color-warn-amber: #f59e0b;
+    --color-warn-red: #dc2626;
+    --color-iso-pastel: #f5e6d3;
+  }
+}
+
+:root {
+  color-scheme: dark;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+}
+
+html {
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "ss02", "cv01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+
+/* Eyebrow utility — caps + tight tracking, JetBrains Mono */
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-eyebrow);
+  letter-spacing: var(--text-eyebrow--letter-spacing);
+  line-height: var(--text-eyebrow--line-height);
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+/* System-speaks utility — slightly warmer mono, italic */
+.system-speaks {
+  font-family: var(--font-warm-mono);
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+/* Tracking helpers for display headlines */
+.tracking-display {
+  letter-spacing: var(--text-display--letter-spacing);
+}
+
+/* Reduced motion — collapse all animation per brand-system.md §3 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

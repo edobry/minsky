@@ -19,6 +19,7 @@ import {
   startAsksReconcileScheduler,
   type AsksReconcileSchedulerConfig,
 } from "./asks-reconcile-scheduler";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
 
 // ---------------------------------------------------------------------------
 // Shared test fixtures
@@ -59,21 +60,27 @@ const DISABLED_SCHEDULER_CONFIG: AsksReconcileSchedulerConfig = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Capture console output for a synchronous callback, then restore. */
+/**
+ * Capture log lines emitted by the reviewer-local winston logger (`./logger`)
+ * during a synchronous callback, then restore. Lines are split on newlines
+ * before being returned; callers parse each line as JSON when needed.
+ *
+ * Wraps the shared `captureConsoleLogs()` helper to keep the existing
+ * call-site shape (single `logs` array per capture).
+ */
 function captureConsole(fn: () => void): { logs: string[]; warns: string[] } {
-  const logs: string[] = [];
-  const warns: string[] = [];
-  const origLog = console.log;
-  const origWarn = console.warn;
-  console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
-  console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
+  const { logs, restore } = captureConsoleLogs();
   try {
     fn();
   } finally {
-    console.log = origLog;
-    console.warn = origWarn;
+    restore();
   }
-  return { logs, warns };
+  // The winston logger writes all levels to stdout (the reviewer-local logger
+  // sets `stderrLevels: []`), so warn-level events land in the same captured
+  // stream as info-level events. Tests that previously inspected `warns`
+  // separately can either keep that name (we return the same array) or
+  // switch to inspecting `logs` directly.
+  return { logs, warns: logs };
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +90,7 @@ function captureConsole(fn: () => void): { logs: string[]; warns: string[] } {
 const ENV_ASKS_RECONCILE_ENABLED = "ASKS_RECONCILE_ENABLED";
 const ENV_ASKS_RECONCILE_POLL_INTERVAL_MS = "ASKS_RECONCILE_POLL_INTERVAL_MS";
 const ENV_MINSKY_MCP_URL = "MINSKY_MCP_URL";
-const ENV_MINSKY_MCP_TOKEN = "MINSKY_MCP_TOKEN";
+const ENV_MINSKY_MCP_AUTH_TOKEN = "MINSKY_MCP_AUTH_TOKEN";
 
 // ---------------------------------------------------------------------------
 // loadAsksReconcileSchedulerConfig
@@ -102,7 +109,7 @@ describe("loadAsksReconcileSchedulerConfig", () => {
       ENV_ASKS_RECONCILE_ENABLED,
       ENV_ASKS_RECONCILE_POLL_INTERVAL_MS,
       ENV_MINSKY_MCP_URL,
-      ENV_MINSKY_MCP_TOKEN,
+      ENV_MINSKY_MCP_AUTH_TOKEN,
     ]) {
       if (key in originalEnv) {
         process.env[key] = originalEnv[key];
@@ -116,7 +123,7 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     delete process.env[ENV_ASKS_RECONCILE_ENABLED];
     delete process.env[ENV_ASKS_RECONCILE_POLL_INTERVAL_MS];
     delete process.env[ENV_MINSKY_MCP_URL];
-    delete process.env[ENV_MINSKY_MCP_TOKEN];
+    delete process.env[ENV_MINSKY_MCP_AUTH_TOKEN];
 
     const cfg = loadAsksReconcileSchedulerConfig();
 
@@ -138,9 +145,9 @@ describe("loadAsksReconcileSchedulerConfig", () => {
     expect(cfg.intervalMs).toBe(60_000);
   });
 
-  test("reads MINSKY_MCP_URL and MINSKY_MCP_TOKEN", () => {
+  test("reads MINSKY_MCP_URL and MINSKY_MCP_AUTH_TOKEN", () => {
     process.env[ENV_MINSKY_MCP_URL] = "http://mcp.example.com";
-    process.env[ENV_MINSKY_MCP_TOKEN] = "my-token";
+    process.env[ENV_MINSKY_MCP_AUTH_TOKEN] = "my-token";
     const cfg = loadAsksReconcileSchedulerConfig();
     expect(cfg.mcpUrl).toBe("http://mcp.example.com");
     expect(cfg.mcpToken).toBe("my-token");
@@ -183,18 +190,15 @@ describe("startAsksReconcileScheduler — missing credentials", () => {
       mcpToken: "",
     };
 
-    const warns: string[] = [];
-    const origWarn = console.warn;
-    console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
+    const { logs, restore } = captureConsoleLogs();
     try {
       handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, noCredsCfg);
       expect(handle).toBeNull();
     } finally {
-      console.warn = origWarn;
+      restore();
     }
 
-    const credWarn = warns.find((w) => w.includes("asks_reconcile_scheduler.missing_credentials"));
-    expect(credWarn).toBeDefined();
+    expect(findLogEvent(logs, "asks_reconcile_scheduler.missing_credentials")).not.toBeNull();
   });
 });
 
@@ -235,36 +239,29 @@ describe("startAsksReconcileScheduler — enabled", () => {
   });
 
   test("returns a non-null interval handle when enabled with credentials", () => {
-    const logs: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    const { logs, restore } = captureConsoleLogs();
     try {
       handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, ENABLED_SCHEDULER_CONFIG);
       expect(handle).not.toBeNull();
     } finally {
-      console.log = origLog;
+      restore();
     }
 
-    const enabledLog = logs.find((l) => l.includes("asks_reconcile_scheduler.enabled"));
-    expect(enabledLog).toBeDefined();
+    expect(findLogEvent(logs, "asks_reconcile_scheduler.enabled")).not.toBeNull();
   });
 
   test("logs enabled event with intervalMs and mcpUrl", () => {
-    const logs: string[] = [];
-    const origLog = console.log;
-    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    const { logs, restore } = captureConsoleLogs();
     try {
       handle = startAsksReconcileScheduler(BASE_REVIEWER_CONFIG, ENABLED_SCHEDULER_CONFIG);
     } finally {
-      console.log = origLog;
+      restore();
     }
 
-    const enabledLog = logs.find((l) => l.includes("asks_reconcile_scheduler.enabled"));
-    expect(enabledLog).toBeDefined();
-
-    const parsed = JSON.parse(enabledLog ?? "{}") as { intervalMs?: number; mcpUrl?: string };
-    expect(parsed.intervalMs).toBe(30_000);
-    expect(parsed.mcpUrl).toBe("http://localhost:4000");
+    const parsed = findLogEvent(logs, "asks_reconcile_scheduler.enabled");
+    expect(parsed).not.toBeNull();
+    expect(parsed?.intervalMs).toBe(30_000);
+    expect(parsed?.mcpUrl).toBe("http://localhost:4000");
   });
 });
 
@@ -302,12 +299,7 @@ describe("startAsksReconcileScheduler — reentrancy guard", () => {
       });
     }) as unknown as typeof globalThis.fetch;
 
-    const warns: string[] = [];
-    const logs: string[] = [];
-    const origWarn = console.warn;
-    const origLog = console.log;
-    console.warn = (...args: unknown[]) => warns.push(args.map(String).join(" "));
-    console.log = (...args: unknown[]) => logs.push(args.map(String).join(" "));
+    const { logs, restore } = captureConsoleLogs();
 
     // Use a very short interval so the second tick fires quickly.
     const fastCfg: AsksReconcileSchedulerConfig = {
@@ -323,13 +315,9 @@ describe("startAsksReconcileScheduler — reentrancy guard", () => {
 
       // The second (and subsequent) ticks should be skipped because the first
       // tick's fetch is still "running" (fetchResolve is not yet called).
-      const skippedLog = warns.find((w) =>
-        w.includes("asks_reconcile_scheduler.tick.skipped_overlap")
-      );
-      expect(skippedLog).toBeDefined();
+      expect(findLogEvent(logs, "asks_reconcile_scheduler.tick.skipped_overlap")).not.toBeNull();
     } finally {
-      console.warn = origWarn;
-      console.log = origLog;
+      restore();
       // Resolve the pending fetch to let the scheduler clean up.
       if (fetchResolve) (fetchResolve as () => void)();
     }

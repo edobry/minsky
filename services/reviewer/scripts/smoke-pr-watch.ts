@@ -16,7 +16,8 @@
  *
  * The full acceptance test (register a watch, post a review, observe fire
  * within 1 polling interval without manual operator action) requires:
- *   (a) A running Minsky instance with `PR_WATCH_ENABLED=true`
+ *   (a) A running Minsky instance with the PR-watch scheduler enabled
+ *       (default ON post-mt#1899; set PR_WATCH_ENABLED=false to disable)
  *   (b) A running reviewer service with `PR_WATCH_POLL_INTERVAL_MS` set low
  *   (c) A GitHub token with PR read + review-post permissions
  *
@@ -162,9 +163,12 @@ async function testGithubPrClientListCheckRuns(): Promise<{ pass: boolean; detai
 
 async function testMcpPrWatchRun(): Promise<{ pass: boolean; detail: string } | null> {
   const mcpUrl = process.env["MINSKY_MCP_URL"];
-  const mcpToken = process.env["MINSKY_MCP_TOKEN"];
+  const mcpToken = process.env["MINSKY_MCP_AUTH_TOKEN"];
 
   if (!mcpUrl || !mcpToken) {
+    console.log(
+      "SKIP: MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set; skipping MCP pr_watch_run test."
+    );
     return null; // Skip — MCP not configured
   }
 
@@ -280,7 +284,7 @@ async function main(): Promise<void> {
         "The production GithubPrClient can reach the real GitHub API. " +
         "To verify the full end-to-end fire path (watch registers → event fires → " +
         "operator-notify fires without manual action), run against a deployed instance " +
-        "with PR_WATCH_ENABLED=true and PR_WATCH_POLL_INTERVAL_MS=10000."
+        "with PR_WATCH_POLL_INTERVAL_MS=10000 (scheduler is enabled by default post-mt#1899)."
     );
     process.exit(0);
   }

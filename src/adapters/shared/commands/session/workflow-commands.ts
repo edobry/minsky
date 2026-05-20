@@ -80,6 +80,7 @@ type MergeDepContainer = { has(key: string): boolean; get(key: string): unknown 
 // from workflow-commands.
 export { createSessionPrCreateCommand } from "./pr-create-command";
 export { createSessionPrEditCommand } from "./pr-edit-command";
+export { createSessionPrCloseCommand } from "./pr-close-command";
 export { createSessionPrListCommand } from "./pr-list-command";
 export { createSessionPrGetCommand } from "./pr-get-command";
 export { createSessionPrOpenCommand } from "./pr-open-command";

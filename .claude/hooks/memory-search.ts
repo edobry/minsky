@@ -8,11 +8,11 @@
 // closes the gap on Claude Code specifically; mt#1588 generalizes to all harnesses.
 //
 // Behaviour:
-//   - Skips trivial prompts (length < 20 chars, or single-word affirmatives).
-//   - Invokes `minsky memory search "<prompt>" --limit K` (K=5 default).
+//   - Skips trivial prompts (length < 50 chars, or single-word affirmatives).
+//   - Invokes `minsky memory search "<prompt>" --limit K` (K=3 default).
 //   - Skips silently when the CLI returns degraded results, empty results, or fails.
 //   - Token-budgets injection: rank results by score desc, accumulate greedily up
-//     to ~2000 tokens, stop on overflow. Single oversized hit gets truncated with
+//     to ~800 tokens, stop on overflow. Single oversized hit gets truncated with
 //     a marker. (See `buildInjection` for full algorithm + what it does NOT do.)
 //   - Wraps results in a <system-reminder> block injected via additionalContext.
 //   - Logs every invocation to a rotated debug file so we can observe load-bearingness.
@@ -33,6 +33,7 @@
 
 import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
+import { emitBraintrustEvent } from "../../src/domain/observability/braintrust";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
@@ -75,13 +76,13 @@ export interface MemorySearchResponseLite {
 // ---------------------------------------------------------------------------
 
 /** Default K (top-K results returned by memory_search). */
-export const DEFAULT_K = 5;
+export const DEFAULT_K = 3;
 
 /** Default total token budget for the injected context (envelope + results). */
-export const DEFAULT_TOKEN_BUDGET = 2000;
+export const DEFAULT_TOKEN_BUDGET = 800;
 
 /** Minimum prompt length below which we skip search (trivial-prompt heuristic). */
-export const MIN_PROMPT_LENGTH = 20;
+export const MIN_PROMPT_LENGTH = 50;
 
 /** Hard cap on prompt length sent to memory_search — embeddings get noisy past a few hundred chars. */
 const MAX_QUERY_LENGTH = 500;
@@ -149,7 +150,7 @@ const LOG_ROTATE_BYTES = 1_000_000;
  * load-bearingness budget signal in the spec) to the correct hook version.
  * Pure cosmetic for log readers — runtime behavior is unaffected.
  */
-export const HOOK_VERSION = "1";
+export const HOOK_VERSION = "2";
 
 // ---------------------------------------------------------------------------
 // Trivial-prompt heuristic
@@ -159,7 +160,7 @@ export const HOOK_VERSION = "1";
  * Decide whether a prompt is too trivial to warrant a memory search.
  *
  * Two criteria (either fires):
- *   1. Prompt length below `minLength` (default 20 chars, ignoring whitespace).
+ *   1. Prompt length below `minLength` (default 50 chars, ignoring whitespace).
  *   2. Single-word affirmative — strips trailing punctuation and matches against
  *      `AFFIRMATIVE_WORDS`.
  *
@@ -181,7 +182,7 @@ export function isTrivialPrompt(
   }
 
   // Length-based skip: trimmed.length strictly less than `minLength` (default
-  // 20) is trivial; `minLength` and longer is non-trivial. Even short prompts
+  // 50) is trivial; `minLength` and longer is non-trivial. Even short prompts
   // can be questions ("why?"), but the spec calls for a simple length floor;
   // keep it simple per "iterate later if too aggressive".
   if (trimmed.length < minLength) {
@@ -226,29 +227,40 @@ export function parseSearchOutput(stdout: string): MemorySearchResponseLite | nu
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    // Some CLI surfaces may prepend non-JSON text (e.g., warnings on stderr
-    // that bleed into stdout, or progress logs). Fall back to scanning lines
-    // from the bottom for the first line that starts with `{`, then parsing
-    // the joined remainder. lastIndexOf("{") would catch a nested brace and
-    // produce unparseable output.
+    // Fallback: stdout has non-JSON garbage before the real response. Two
+    // observed classes — plain warning lines (`[memory.search] ...`) and, more
+    // troubling, Postgres NOTICE objects emitted by drizzle migration init that
+    // print to stdout in JS-object-literal format (unquoted keys, trailing
+    // commas — NOT valid JSON). The original walk-bottom-up-while-{ logic broke
+    // on multi-line indented JSON because interior lines (`  "results": [`,
+    // `    {`, etc.) don't all start with `{`, so it anchored on a nested brace
+    // and produced "unparseable output". Replacement: scan top-down for lines
+    // that begin with `{` after stripping leading whitespace, then try parsing
+    // last-to-first (the real response follows any noise). Interior `{` lines
+    // become candidates too but fail JSON.parse on their truncated suffix and
+    // the algorithm falls through to the real top-level brace. PR #1108 R1 NB#1:
+    // use trimStart() rather than `lines[i][0] === "{"` so future formatters
+    // that emit indented top-level JSON still parse.
     const lines = trimmed.split("\n");
-    let startLine = -1;
-    for (let i = lines.length - 1; i >= 0; i--) {
+    const candidateStarts: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
       if (lines[i].trimStart().startsWith("{")) {
-        startLine = i;
-      } else if (startLine !== -1 && lines[i].trim() !== "") {
-        // Hit a non-JSON line above the start — stop walking up
-        break;
+        candidateStarts.push(i);
       }
     }
-    if (startLine < 0) {
+    let fallbackParsed: unknown = null;
+    for (let i = candidateStarts.length - 1; i >= 0; i--) {
+      try {
+        fallbackParsed = JSON.parse(lines.slice(candidateStarts[i]).join("\n"));
+        break;
+      } catch {
+        // Try the next-earlier candidate
+      }
+    }
+    if (fallbackParsed === null) {
       return null;
     }
-    try {
-      parsed = JSON.parse(lines.slice(startLine).join("\n"));
-    } catch {
-      return null;
-    }
+    parsed = fallbackParsed;
   }
 
   if (!parsed || typeof parsed !== "object") {
@@ -515,6 +527,77 @@ export function writeLog(
 }
 
 // ---------------------------------------------------------------------------
+// Braintrust emission (mt#1813 — Phase 1a of the trace-shape RFC)
+//
+// Each hook invocation emits a Braintrust log event with K/budget/MIN/
+// sessionId/variant/injectedTokens/latencyMs metadata, so we can compare hook-
+// tuning intervention variants (mt#1783) in the Braintrust dashboard.
+//
+// The SDK interaction lives in the shared module at
+// `src/domain/observability/braintrust.ts` (extracted in mt#1778); this hook
+// owns the memory-search-specific event shape and variant derivation.
+//
+// Emission is graceful-degradation: missing/invalid config → silent skip;
+// SDK or network failure → silent skip; we never block the hook on
+// instrumentation. The local JSONL log at `/tmp/claude-memory-search-hook.log`
+// remains the source of truth.
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the variant tag from the current K/budget/MIN constants.
+ * Auto-updates when the constants change in source; lets pre/post comparison
+ * happen via filtering on `metadata.variant` in Braintrust's UI.
+ */
+export function deriveVariantTag(
+  k: number = DEFAULT_K,
+  budget: number = DEFAULT_TOKEN_BUDGET,
+  minLen: number = MIN_PROMPT_LENGTH
+): string {
+  return `K=${k},B=${budget},MIN=${minLen}`;
+}
+
+/**
+ * Emit a hook-fire event to Braintrust. Builds the memory-search-specific
+ * input/output/metadata shape, then delegates the SDK interaction to the
+ * shared emitter at `src/domain/observability/braintrust.ts`.
+ *
+ * Always awaitable; never throws — see `emitBraintrustEvent` for the
+ * graceful-degradation contract. Callers `await emitBraintrust(entry)`
+ * before `process.exit(0)` so the event lands before the hook subprocess exits.
+ */
+export async function emitBraintrust(entry: LogEntry): Promise<void> {
+  const variant = deriveVariantTag();
+  const output = entry.skipped
+    ? { skipped: true, skipReason: entry.skipReason ?? "unknown" }
+    : {
+        skipped: false,
+        injectedTokens: entry.injectedTokens,
+        injectedCount: entry.injectedCount,
+        backend: entry.backend,
+        latencyMs: entry.latencyMs,
+      };
+
+  await emitBraintrustEvent({
+    input: {
+      prompt_prefix: entry.promptPrefix,
+      prompt_length: entry.promptLength,
+    },
+    output,
+    metadata: {
+      sessionId: entry.sessionId,
+      variant,
+      k: DEFAULT_K,
+      tokenBudget: DEFAULT_TOKEN_BUDGET,
+      minPromptLength: MIN_PROMPT_LENGTH,
+      latencyMs: entry.latencyMs,
+      hookVersion: HOOK_VERSION,
+      warning: entry.warning,
+      source: "minsky.hooks.memory-search",
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Search invocation
 // ---------------------------------------------------------------------------
 
@@ -625,9 +708,18 @@ if (import.meta.main) {
   const prompt = input.prompt ?? "";
   const promptPrefix = prompt.slice(0, 80).replace(/\s+/g, " ").trim();
 
+  // Helper: write to both the local JSONL log and Braintrust, then exit.
+  // Braintrust emission is fire-and-await with internal failure swallowed; the
+  // local log is the source of truth and is never blocked by instrumentation.
+  const recordAndExit = async (entry: LogEntry): Promise<never> => {
+    writeLog(entry);
+    await emitBraintrust(entry);
+    process.exit(0);
+  };
+
   // Trivial-prompt skip
   if (isTrivialPrompt(prompt)) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -635,7 +727,6 @@ if (import.meta.main) {
       skipped: true,
       skipReason: "trivial",
     });
-    process.exit(0);
   }
 
   // Run search. The warning carries any host-cap fallback signal so operators
@@ -644,7 +735,7 @@ if (import.meta.main) {
   const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
 
   if (!response) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -654,12 +745,11 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Degraded backend → skip injection but record the signal
   if (response.degraded) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -671,12 +761,11 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Empty results → nothing useful to inject
   if (response.results.length === 0) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -687,13 +776,12 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Build the injected text within budget
   const injection = buildInjection(response.results);
   if (!injection) {
-    writeLog({
+    await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
@@ -704,7 +792,6 @@ if (import.meta.main) {
       latencyMs,
       warning,
     });
-    process.exit(0);
   }
 
   // Emit via the shared writer so any future schema changes / instrumentation
@@ -717,7 +804,7 @@ if (import.meta.main) {
   };
   writeOutput(output);
 
-  writeLog({
+  await recordAndExit({
     ts: new Date().toISOString(),
     sessionId,
     promptPrefix,
@@ -730,6 +817,4 @@ if (import.meta.main) {
     latencyMs,
     warning,
   });
-
-  process.exit(0);
 }

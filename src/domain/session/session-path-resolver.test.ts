@@ -142,4 +142,91 @@ describe("SessionPathResolver Domain Logic", () => {
       expect(result).toBe(".");
     });
   });
+
+  describe("lazy sessionProvider DI (mt#1799)", () => {
+    test("thunk constructor: thunk is NOT invoked at construction time", () => {
+      let thunkInvocations = 0;
+      // Construct with a thunk; the bug pattern would resolve the provider eagerly.
+      const _r = new SessionPathResolver(() => {
+        thunkInvocations++;
+        return undefined;
+      });
+      expect(thunkInvocations).toBe(0);
+    });
+
+    test("thunk constructor: thunk IS invoked when getSessionWorkspacePath is called", async () => {
+      let thunkInvocations = 0;
+      const lazyResolver = new SessionPathResolver(() => {
+        thunkInvocations++;
+        return undefined;
+      });
+      await expect(lazyResolver.getSessionWorkspacePath("any-session-id")).rejects.toThrow();
+      expect(thunkInvocations).toBe(1);
+    });
+
+    test("error message distinguishes thunk-returns-undefined from constructor-undefined", async () => {
+      const thunkResolver = new SessionPathResolver(() => undefined);
+      const constructorResolver = new SessionPathResolver();
+
+      let thunkError: Error | undefined;
+      let constructorError: Error | undefined;
+      try {
+        await thunkResolver.getSessionWorkspacePath("x");
+      } catch (e) {
+        thunkError = e as Error;
+      }
+      try {
+        await constructorResolver.getSessionWorkspacePath("x");
+      } catch (e) {
+        constructorError = e as Error;
+      }
+
+      // Both throw the same top-level message, but the diagnostic Cause: section
+      // distinguishes the two DI failure modes so an operator can pinpoint
+      // which call site is at fault.
+      expect(thunkError?.message).toContain("stored provider thunk returned undefined");
+      // Both sub-causes are named in the thunk-case wording so the operator
+      // doesn't have to guess which DI site is at fault. The wording was
+      // softened in PR #1088 R1 — the prior text asserted has()===false even
+      // when the container itself was missing.
+      expect(thunkError?.message).toContain("no DI container was passed");
+      expect(thunkError?.message).toContain("did not have 'sessionProvider' bound");
+      expect(constructorError?.message).toContain("constructor was called without a provider");
+    });
+
+    test("thunk is invoked on each call (no stale-undefined caching)", async () => {
+      let thunkInvocations = 0;
+      const lazyResolver = new SessionPathResolver(() => {
+        thunkInvocations++;
+        return undefined;
+      });
+      await expect(lazyResolver.getSessionWorkspacePath("x")).rejects.toThrow();
+      await expect(lazyResolver.getSessionWorkspacePath("y")).rejects.toThrow();
+      // If the resolver cached the first thunk result, the second call would
+      // skip the lookup. The fix's intent is to re-query the container each
+      // time so a late initialization is observable.
+      expect(thunkInvocations).toBe(2);
+    });
+
+    test("per-call sessionProvider arg still wins over the stored thunk", async () => {
+      // The getSessionWorkspacePath(_, sessionProvider?) overload retains its
+      // existing semantics: the per-call arg is preferred when present.
+      // Pass a thunk that would error if invoked, plus an explicit provider
+      // arg — but the provider would route to resolveSessionDirectory which
+      // we don't want to actually invoke here. Easiest verification: the
+      // stored thunk is NOT invoked when a per-call arg is passed.
+      let thunkInvocations = 0;
+      const lazyResolver = new SessionPathResolver(() => {
+        thunkInvocations++;
+        return undefined;
+      });
+      // Per-call provider is non-null, so the throw branch is not taken; the
+      // call falls through to resolveSessionDirectory which will likely fail
+      // for an unknown sessionId, but the stored thunk should not be touched.
+      await expect(
+        lazyResolver.getSessionWorkspacePath("nonexistent", {} as never)
+      ).rejects.toThrow();
+      expect(thunkInvocations).toBe(0);
+    });
+  });
 });

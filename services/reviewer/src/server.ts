@@ -9,7 +9,7 @@
 
 import { Webhooks } from "@octokit/webhooks";
 import type { ReviewerConfig } from "./config";
-import { loadConfig } from "./config";
+import { loadConfig, parsePositiveIntEnv } from "./config";
 import { log } from "./logger";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
@@ -20,7 +20,9 @@ import {
   startAsksReconcileScheduler,
 } from "./asks-reconcile-scheduler";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { callMcp } from "./mcp-client";
 import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-state-sweeper";
+import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
 import {
@@ -130,9 +132,24 @@ export function createApp(
   const inflight: Set<Promise<unknown>> = new Set();
 
   /**
-   * Minimal MCP tool caller for server.ts internal use.
-   * Same pattern as pr-watch-scheduler.ts callPrWatchRun.
-   * Returns the concatenated text content from the result, or null on error.
+   * MCP tool caller for the at-merge webhook handler.
+   *
+   * Thin adapter over the shared {@link callMcp} helper (mt#1821) — preserves
+   * the legacy `string | null` return shape so the at-merge handler callsites
+   * don't change. The shared helper performs the MCP initialize handshake
+   * and caches the session id; without it the server rejected every
+   * `tools/call` with `-32600 "first request must be initialize"` and the
+   * at-merge state-sync silently no-op'd.
+   *
+   * Timeout: 15s, matching the prior in-file `AbortController` + `setTimeout`
+   * implementation (per PR #1010 R1 — without a timeout, a hung MCP call
+   * kept the detached promise in `inflight` indefinitely). Passed explicitly
+   * so any future change to the helper's default does not silently regress
+   * the inflight-drain behavior on shutdown.
+   *
+   * Observability: `callMcp` emits structured `log.warn` events with the
+   * `at_merge_handler.mcp` prefix; the legacy
+   * `at_merge_handler.mcp_fetch_error` event is preserved.
    */
   async function callMcpToolLocal(
     mcpUrl: string,
@@ -140,91 +157,13 @@ export function createApp(
     toolName: string,
     args: Record<string, unknown>
   ): Promise<string | null> {
-    // 15s timeout matches the sweeper pattern in merge-state-sweeper.ts.
-    // PR #1010 R1: without this, a hung MCP call kept the detached promise
-    // in `inflight` indefinitely, leaking memory and blocking graceful shutdown.
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
-
-    try {
-      let response: Response;
-      try {
-        response = await fetch(mcpUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${mcpToken}`,
-          },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: `at-merge-handler-${Date.now()}`,
-            method: "tools/call",
-            params: { name: toolName, arguments: args },
-          }),
-          signal: controller.signal,
-        });
-      } catch (fetchErr) {
-        const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        const aborted = controller.signal.aborted;
-        console.warn(
-          JSON.stringify({
-            event: "at_merge_handler.mcp_fetch_error",
-            tool: toolName,
-            error: msg,
-            timed_out: aborted,
-          })
-        );
-        return null;
-      }
-
-      if (!response.ok) {
-        await response.text().catch(() => undefined);
-        return null;
-      }
-
-      const raw = await response.text().catch(() => null);
-      if (!raw) return null;
-
-      const trimmed = raw.trim();
-      let jsonText: string | null = null;
-      if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-        jsonText = trimmed;
-      } else {
-        let last: string | null = null;
-        for (const line of trimmed.split("\n")) {
-          const stripped = line.trim();
-          if (stripped.startsWith("data:")) {
-            const payload = stripped.slice("data:".length).trim();
-            if (payload.startsWith("{") || payload.startsWith("[")) {
-              last = payload;
-            }
-          }
-        }
-        jsonText = last;
-      }
-
-      if (!jsonText) return null;
-
-      const parsed = JSON.parse(jsonText) as {
-        result?: { content?: Array<{ type?: string; text?: string }> };
-        error?: { message?: string };
-      };
-
-      if (parsed.error) return null;
-
-      const chunks = (parsed.result?.content ?? [])
-        .filter(
-          (c): c is { type: string; text: string } =>
-            c?.type === "text" && typeof c.text === "string"
-        )
-        .map((c) => c.text);
-
-      return chunks.length > 0 ? chunks.join("") : null;
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const result = await callMcp(
+      toolName,
+      args,
+      { mcpUrl, mcpToken },
+      { logPrefix: "at_merge_handler.mcp", timeoutMs: 15_000 }
+    );
+    return result.ok ? result.contentText : null;
   }
 
   /**
@@ -385,14 +324,12 @@ export function createApp(
     });
 
     if (!sessionLookupText) {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.session_lookup_failed",
-          delivery_id: deliveryId,
-          taskId,
-          reason: "no_content",
-        })
-      );
+      log.warn("at_merge_handler.session_lookup_failed", {
+        event: "at_merge_handler.session_lookup_failed",
+        delivery_id: deliveryId,
+        taskId,
+        reason: "no_content",
+      });
       return;
     }
 
@@ -405,24 +342,20 @@ export function createApp(
       };
       sessionId = parsed.session?.sessionId ?? parsed.sessionId ?? null;
     } catch {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.session_lookup_parse_error",
-          delivery_id: deliveryId,
-          taskId,
-        })
-      );
+      log.warn("at_merge_handler.session_lookup_parse_error", {
+        event: "at_merge_handler.session_lookup_parse_error",
+        delivery_id: deliveryId,
+        taskId,
+      });
       return;
     }
 
     if (!sessionId) {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.session_not_found",
-          delivery_id: deliveryId,
-          taskId,
-        })
-      );
+      log.warn("at_merge_handler.session_not_found", {
+        event: "at_merge_handler.session_not_found",
+        delivery_id: deliveryId,
+        taskId,
+      });
       return;
     }
 
@@ -436,36 +369,137 @@ export function createApp(
     if (mergeSha) syncArgs["mergeSha"] = mergeSha;
     if (mergedAt) syncArgs["mergedAt"] = mergedAt;
 
-    const syncText = await callMcpToolLocal(
-      mcpUrl,
-      mcpToken,
-      "session.apply_post_merge_state_sync",
-      syncArgs
-    );
+    // PR #1121 R1 BLOCKING #1: spec requires fix-or-retry, not observability
+    // alone. Retry the apply_post_merge_state_sync MCP call with bounded
+    // backoff when it reports partial failure. The function is idempotent, so
+    // retries are safe; success-path semantics are unchanged (no retry when
+    // the first call succeeds). Max wall-clock ~13s (1+3+9), well under
+    // Railway's webhook-response budget.
+    //
+    // The sweeper (mt#1752) still backstops within 10 min if all retries are
+    // exhausted; the in-band retry covers the immediate window so the missed
+    // sync doesn't accumulate operator-visible drift.
+    const RETRY_DELAYS_MS = [1_000, 3_000, 9_000];
+    const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 
-    if (syncText) {
-      console.log(
-        JSON.stringify({
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const syncText = await callMcpToolLocal(
+        mcpUrl,
+        mcpToken,
+        "session.apply_post_merge_state_sync",
+        syncArgs
+      );
+
+      if (!syncText) {
+        // Tool unavailable on every attempt would be the same outcome; no
+        // point retrying. The sweeper picks this up.
+        log.warn("at_merge_handler.sync_tool_unavailable", {
+          event: "at_merge_handler.sync_tool_unavailable",
+          delivery_id: deliveryId,
+          taskId,
+          sessionId,
+          attempt,
+          message:
+            "session.apply_post_merge_state_sync returned no content. " +
+            "The merge-state sweeper will catch this.",
+        });
+        return;
+      }
+
+      // PR #1121 R1 BLOCKING #2: treat JSON parse failure as indeterminate, NOT
+      // success. The handler's decision gate is sensitive to strict JSON; a
+      // non-JSON response (or unexpected shape) must not silently emit
+      // sync_complete.
+      let parsedSync: Record<string, unknown> | null = null;
+      try {
+        parsedSync = JSON.parse(syncText) as Record<string, unknown>;
+      } catch (parseErr) {
+        const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+        log.warn("at_merge_handler.sync_parse_error", {
+          event: "at_merge_handler.sync_parse_error",
+          delivery_id: deliveryId,
+          taskId,
+          sessionId,
+          attempt,
+          error: errMsg,
+          message:
+            "apply_post_merge_state_sync returned non-JSON or malformed response. " +
+            "Treating as indeterminate (not success). The merge-state sweeper will backstop.",
+        });
+        return;
+      }
+
+      // Extract partial-failure signals. Prefer the top-level `partialFailure`
+      // boolean (PR #1121); fall back to the individual error fields when
+      // older MCP responses don't yet include the boolean.
+      const sessionUpdateError =
+        typeof parsedSync.sessionUpdateError === "string"
+          ? parsedSync.sessionUpdateError
+          : undefined;
+      const taskUpdateError =
+        typeof parsedSync.taskUpdateError === "string" ? parsedSync.taskUpdateError : undefined;
+      const partialFailure =
+        parsedSync.partialFailure === true ||
+        sessionUpdateError !== undefined ||
+        taskUpdateError !== undefined;
+
+      // Also require an affirmative `success: true` for sync_complete — if the
+      // response lacks the field entirely (e.g., a schema-drift response shape),
+      // treat as indeterminate rather than implicit success.
+      const success = parsedSync.success === true;
+
+      if (!partialFailure && success) {
+        log.info("at_merge_handler.sync_complete", {
           event: "at_merge_handler.sync_complete",
           delivery_id: deliveryId,
           taskId,
           sessionId,
           mergeSha,
           mergedAt,
-        })
-      );
-    } else {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.sync_tool_unavailable",
+          attempt,
+        });
+        return;
+      }
+
+      // Partial failure or missing success affirmation. Retry if attempts remain.
+      const attemptsRemaining = MAX_ATTEMPTS - 1 - attempt;
+      if (attemptsRemaining > 0) {
+        const delayMs = RETRY_DELAYS_MS[attempt] ?? 0;
+        log.warn("at_merge_handler.sync_partial_failure_retry", {
+          event: "at_merge_handler.sync_partial_failure_retry",
           delivery_id: deliveryId,
           taskId,
           sessionId,
-          message:
-            "session.apply_post_merge_state_sync returned no content. " +
-            "The merge-state sweeper will catch this.",
-        })
-      );
+          mergeSha,
+          mergedAt,
+          attempt,
+          attemptsRemaining,
+          delayMs,
+          sessionUpdateError,
+          taskUpdateError,
+          missingSuccess: !success,
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // All attempts exhausted. The sweeper (mt#1752) still backstops.
+      log.error("at_merge_handler.sync_retry_exhausted", {
+        event: "at_merge_handler.sync_retry_exhausted",
+        delivery_id: deliveryId,
+        taskId,
+        sessionId,
+        mergeSha,
+        mergedAt,
+        attempts: MAX_ATTEMPTS,
+        sessionUpdateError,
+        taskUpdateError,
+        missingSuccess: !success,
+        message:
+          "apply_post_merge_state_sync reported partial failure on every retry. " +
+          "The merge-state sweeper will backstop on its next cycle (mt#1752).",
+      });
+      return;
     }
   }
 
@@ -514,17 +548,15 @@ export function createApp(
     // pull_request.merged at the webhook dispatch layer, so we guard here.
     if (!isMergedClosedPayload(payload)) {
       // Closed without merge — not a state-sync trigger.
-      console.log(
-        JSON.stringify({
-          event: "at_merge_handler.skip_not_merged",
-          delivery_id: deliveryId,
-          pr: (payload as Record<string, unknown>)["pull_request"]
-            ? ((payload as Record<string, unknown>)["pull_request"] as Record<string, unknown>)[
-                "number"
-              ]
-            : null,
-        })
-      );
+      log.info("at_merge_handler.skip_not_merged", {
+        event: "at_merge_handler.skip_not_merged",
+        delivery_id: deliveryId,
+        pr: (payload as Record<string, unknown>)["pull_request"]
+          ? ((payload as Record<string, unknown>)["pull_request"] as Record<string, unknown>)[
+              "number"
+            ]
+          : null,
+      });
       return;
     }
 
@@ -537,45 +569,39 @@ export function createApp(
     // Attempt to extract taskId from the head branch name.
     const taskId = extractTaskIdFromBranch(headRef);
 
-    console.log(
-      JSON.stringify({
-        event: "at_merge_handler.received",
-        delivery_id: deliveryId,
-        pr: prNumber,
-        headRef,
-        taskId,
-        mergeSha,
-        mergedAt,
-      })
-    );
+    log.info("at_merge_handler.received", {
+      event: "at_merge_handler.received",
+      delivery_id: deliveryId,
+      pr: prNumber,
+      headRef,
+      taskId,
+      mergeSha,
+      mergedAt,
+    });
 
     if (!taskId) {
       // Not a Minsky task branch — skip silently. Non-Minsky PRs are expected.
-      console.log(
-        JSON.stringify({
-          event: "at_merge_handler.skip_non_task_branch",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          headRef,
-        })
-      );
+      log.info("at_merge_handler.skip_non_task_branch", {
+        event: "at_merge_handler.skip_non_task_branch",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        headRef,
+      });
       return;
     }
 
     // Call applyPostMergeStateSync via Minsky MCP (fire-and-forget, detached).
     // The MCP path keeps the domain logic in Minsky core, not the reviewer service.
     if (!cfg.mcpUrl || !cfg.mcpToken) {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.mcp_not_configured",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          taskId,
-          message:
-            "MINSKY_MCP_URL or MINSKY_MCP_TOKEN not set — cannot call apply_post_merge_state_sync. " +
-            "The merge-state sweeper will catch this when it next runs.",
-        })
-      );
+      log.warn("at_merge_handler.mcp_not_configured", {
+        event: "at_merge_handler.mcp_not_configured",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        taskId,
+        message:
+          "MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set — cannot call apply_post_merge_state_sync. " +
+          "The merge-state sweeper will catch this when it next runs.",
+      });
       return;
     }
 
@@ -588,15 +614,13 @@ export function createApp(
       deliveryId
     ).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        JSON.stringify({
-          event: "at_merge_handler.sync_error",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          taskId,
-          error: message,
-        })
-      );
+      log.error("at_merge_handler.sync_error", {
+        event: "at_merge_handler.sync_error",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        taskId,
+        error: message,
+      });
     });
 
     inflight.add(syncPromise);
@@ -838,14 +862,16 @@ if (import.meta.main) {
   // Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
   // SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
-  startSweeper(config, loadSweeperConfig());
+  startSweeper(config, loadSweeperConfig(), db);
 
-  // Start the PR-watch scheduler (mt#1618).
+  // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
   // that registered PR watches fire automatically without manual operator action.
   // Configurable via PR_WATCH_ENABLED, PR_WATCH_POLL_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
-  // Opt-in: disabled by default; set PR_WATCH_ENABLED=true to activate.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
+  // Enabled by default post-mt#1899 (was opt-in pre-mt#1725 because the
+  // agent-context delivery path wasn't wired yet); set PR_WATCH_ENABLED=false
+  // to disable (e.g., local dev to avoid polling GitHub from a workstation).
   startPrWatchScheduler(config, loadPrWatchSchedulerConfig());
 
   // Start the Asks-reconcile scheduler (mt#1636).
@@ -853,7 +879,7 @@ if (import.meta.main) {
   // that quality.review Asks transition to `responded` automatically when a review
   // is posted on the watched PR — without requiring manual operator action.
   // Configurable via ASKS_RECONCILE_ENABLED, ASKS_RECONCILE_POLL_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
   // Opt-in: disabled by default; set ASKS_RECONCILE_ENABLED=true to activate.
   startAsksReconcileScheduler(config, loadAsksReconcileSchedulerConfig());
 
@@ -861,18 +887,33 @@ if (import.meta.main) {
   // Catches sessions stuck in PR_OPEN with closed-merged PRs — the safety net
   // for when the pull_request.closed webhook handler misses an event.
   // Configurable via MERGE_STATE_SWEEPER_ENABLED, MERGE_STATE_SWEEPER_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_TOKEN to be set.
-  // Opt-in: disabled by default; set MERGE_STATE_SWEEPER_ENABLED=true to activate.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set on the deployed service.
+  // **Enabled by default (mt#1811)**: set MERGE_STATE_SWEEPER_ENABLED=false to opt out.
+  // If MCP credentials are absent the sweeper logs "missing_credentials" and refuses
+  // to start — operators see a clear log line instead of a silent disable.
   startMergeStateSweeper(config, loadMergeStateSweeperConfig());
+
+  // Start the adoption sweeper (mt#1630).
+  // Post-merge adoption verification: picks up recently-DONE tasks, extracts
+  // adoption signals from specs, greps production callsites, and files
+  // mt#X-adoption follow-up tasks for gaps.
+  // Configurable via ADOPTION_SWEEPER_ENABLED, ADOPTION_SWEEPER_INTERVAL_MS,
+  // ADOPTION_SWEEPER_LOOKBACK_DAYS.
+  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
+  // DEFAULT DISABLED until mt#1711 (env-var wiring) ships.
+  // Set ADOPTION_SWEEPER_ENABLED=true to activate.
+  startAdoptionSweeper(config, loadAdoptionSweeperConfig());
 
   // Start the webhook-event retention pruner (mt#1372).
   // Deletes reviewer_webhook_events rows older than MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS
   // (default: 90 days). Runs once every 24 hours. The first prune fires after
   // the first interval to avoid competing with service startup.
   // Configurable via MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS (default: 90).
-  const webhookRetentionDays = parseInt(
-    process.env["MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS"] ?? "90",
-    10
+  // Strict-positive parse (mt#1811 cascade-defense): NaN flowing into
+  // pruneOldRows would yield unpredictable retention behavior.
+  const webhookRetentionDays = parsePositiveIntEnv(
+    "MINSKY_REVIEWER_WEBHOOK_EVENT_RETENTION_DAYS",
+    90
   );
   const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
   log.info("webhook_retention_pruner_started", {

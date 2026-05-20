@@ -48,6 +48,14 @@ import {
   type OAuthProvider,
 } from "./oauth";
 
+import {
+  observabilityConfigSchema,
+  type ObservabilityConfig,
+  type BraintrustConfig,
+  type ObservabilityProviderConfig,
+  type ObservabilityProvidersConfig,
+} from "./observability";
+
 /**
  * Complete application configuration schema
  *
@@ -114,6 +122,9 @@ export const configurationSchema = z.strictObject({
 
   // OAuth identity provider configuration (mt#1634 / mt#1662)
   oauth: oauthConfigSchema,
+
+  // Observability provider configuration (mt#1791 — Braintrust + future providers)
+  observability: observabilityConfigSchema,
 });
 // strictObject: unknown top-level keys are rejected with an `unrecognized_keys`
 // ZodError. Catches typos (e.g. `persistance:` for `persistence:`) and stale
@@ -161,6 +172,10 @@ export type {
   SupabaseConfig,
   OAuthConfig,
   OAuthProvider,
+  ObservabilityConfig,
+  BraintrustConfig,
+  ObservabilityProviderConfig,
+  ObservabilityProvidersConfig,
 };
 
 // Re-export schemas for external use
@@ -183,6 +198,7 @@ export {
   supabaseConfigSchema,
   oauthConfigSchema,
   oauthProviderSchema,
+  observabilityConfigSchema,
 };
 
 // Export the main schema as default

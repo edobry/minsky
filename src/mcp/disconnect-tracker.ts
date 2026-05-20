@@ -21,7 +21,7 @@
  *   real-world classes. We now distinguish them so operators can pick the
  *   right intervention:
  *
- *   1. Harness-driven cycling (subagent / hook / probe connections). Tagged
+ *   1. Harness-driven cycling (hook / probe connections). Tagged
  *      `stdin_close`. Filtered from escalation when uptimeMs < 5s.
  *   2. Server-initiated `staleness_exit` (mt#1315 mechanism). Tagged
  *      `staleness_exit`. Excluded from escalation by cause.
@@ -31,22 +31,44 @@
  *   4. Signal-driven shutdowns. Tagged `signal_sigterm` / `signal_sigint` /
  *      `signal_sighup`. Excluded from escalation by cause.
  *
+ * Process-role classification (mt#1705):
+ *   Even after filtering class 1 (uptimeMs < 5s), some "helper" processes
+ *   (hooks spawning `minsky` CLI, /mcp reconnect probes, pre-flight harness
+ *   checks) linger 33s–300s before closing. These show up as class 3 today
+ *   and inflate the escalation count. The tool-call count is the discriminating
+ *   signal:
+ *
+ *   - `"helper"`:     0 tool calls before disconnect → harness helper that
+ *                     connected but never invoked a tool (hook spawner, probe,
+ *                     pre-flight check). Excluded from escalation regardless of
+ *                     uptime.
+ *   - `"main_session"`: 1+ tool calls before disconnect → substantive working
+ *                       session. Still subject to cause-based and uptime-based
+ *                       escalation filters (class 2 and 4 exclusions remain).
+ *
+ *   Legacy events without `processRole` (from pre-mt#1705 logs) are treated
+ *   conservatively as `"main_session"` — the existing uptime + cause filters
+ *   still apply so escalation eligibility is unchanged for those events.
+ *
  * Recurrence-threshold escalation rule:
  *   > 1 escalation-eligible disconnect per active session  → file a structural-fix task
  *   > 3 escalation-eligible disconnects per active day     → file a structural-fix task
  *
- *   "Escalation-eligible" excludes server-initiated causes (class 2 and 4) and
- *   short-lived probe connections (class 1, uptimeMs < 5s). Class 3 is the
- *   only class that contributes.
+ *   "Escalation-eligible" excludes:
+ *   - Server-initiated causes (class 2 and 4, cause-based exclusion).
+ *   - Short-lived probe connections (class 1, uptimeMs < 5s).
+ *   - Helper sessions (class per mt#1705, processRole === "helper").
  *
  * @see mt#1645 — measurement layer (parent task)
  * @see mt#1682 — cause classification + append-only log (this task)
+ * @see mt#1705 — process-role classification to exclude helper sessions
  */
 
 import fs from "fs";
 import path from "path";
 import os from "os";
 import { log } from "../utils/logger";
+import { emitBraintrustEvent } from "../domain/observability/braintrust";
 
 /**
  * The kind of event recorded.
@@ -90,6 +112,27 @@ export type McpDisconnectCause =
   | "unknown";
 
 /**
+ * Process role — classifies the MCP server process based on observed behavior
+ * at disconnect time (mt#1705).
+ *
+ * - `"helper"`:      The process made 0 tool calls before disconnecting.
+ *                    These are harness helpers (hook spawners, /mcp reconnect
+ *                    probes, pre-flight checks) that connect but never do
+ *                    substantive work. Excluded from escalation eligibility.
+ * - `"main_session"`: The process made 1 or more tool calls before disconnecting.
+ *                    These are substantive working sessions. Escalation filters
+ *                    still apply (cause-based and uptime-based exclusions remain).
+ *
+ * Signal choice: tool-call count is the discriminating signal because helper
+ * processes characteristically connect but never invoke a tool (they may
+ * simply probe the server's availability). Using uptime alone is insufficient
+ * because some helpers linger 33s–300s before closing (empirically observed
+ * in ~/.local/state/minsky/mcp-disconnect-log.json), which overlaps with
+ * short working sessions. Tool-call count has no such overlap.
+ */
+export type McpProcessRole = "helper" | "main_session" | "legacy";
+
+/**
  * A single recorded event. Used for `disconnect`, `reconnect`,
  * `transport_error`, and `process_start` kinds.
  */
@@ -121,6 +164,16 @@ export interface McpDisconnectEvent {
    * class 1) from genuine long-lived-session closures (class 3).
    */
   uptimeMs?: number;
+  /**
+   * Process role classification (mt#1705). Populated on `disconnect` events
+   * using the tool-call count at disconnect time: 0 calls → `"helper"`,
+   * 1+ calls → `"main_session"`. Absent on `process_start`, `reconnect`, and
+   * `transport_error` events (role classification is not meaningful there).
+   *
+   * Legacy events without this field (from pre-mt#1705 logs) are treated
+   * conservatively as `"main_session"` for escalation eligibility.
+   */
+  processRole?: McpProcessRole;
 }
 
 /**
@@ -137,6 +190,17 @@ export interface McpDisconnectSummary {
   byKind: Record<McpEventKind, number>;
   /** Breakdown by cause (all events combined). Lets operators see the cause distribution at a glance. */
   byCause: Record<string, number>;
+  /**
+   * Breakdown by process role (disconnect events only, last 24h). Populated from
+   * `McpDisconnectEvent.processRole` (mt#1705).
+   * - `"helper"`: harness helper sessions (0 tool calls) — excluded from escalation.
+   * - `"main_session"`: substantive working sessions (1+ tool calls) — escalation-eligible.
+   * - `"legacy"`: events from pre-mt#1705 logs without a `processRole` field. Treated
+   *   conservatively as escalation-eligible (same as `main_session`) but counted
+   *   separately so operators can see the fraction of the log still in the old format.
+   *   The `legacy` count should shrink toward 0 as new-format events saturate the log.
+   */
+  byRole: Record<McpProcessRole, number>;
   /** The most recent event, or null if no events recorded. */
   last: McpDisconnectEvent | null;
   /**
@@ -149,7 +213,10 @@ export interface McpDisconnectSummary {
    * Escalation-eligible = `disconnect` events whose cause is NOT in
    * `SERVER_INITIATED_CAUSES` AND whose `uptimeMs` is >= `SHORT_LIVED_THRESHOLD_MS`
    * (or absent — legacy events without uptimeMs from mt#1645 are counted to
-   * stay conservative on backward compat).
+   * stay conservative on backward compat) AND whose `processRole` is NOT
+   * `"helper"` (mt#1705 — helper sessions never count toward escalation).
+   *
+   * Legacy events without `processRole` are treated as `"main_session"` (counted).
    *
    * When set to `session` or `daily`, a structural-fix task should be filed.
    */
@@ -171,6 +238,20 @@ const ESCALATION_THRESHOLD_24H = 3;
  * the 1.8–2.1s typical handshake time observed in Claude Code's MCP logs.
  */
 const SHORT_LIVED_THRESHOLD_MS = 5000;
+
+/**
+ * Fixed `sessionKey` used in stdio mode. A stdio MCP server process has
+ * exactly one Server instance for its lifetime, so a constant key is correct.
+ * mt#1705.
+ */
+export const STDIO_SESSION_KEY = "stdio";
+
+/**
+ * Fallback `sessionKey` used when an explicit key is not provided. Preserves
+ * back-compat for `incrementToolCallCount()` / `recordDisconnect()` callers
+ * that pre-date the per-session API. mt#1705.
+ */
+export const DEFAULT_SESSION_KEY = "_default";
 
 /**
  * Causes whose disconnect events are server-initiated by design and excluded
@@ -240,6 +321,21 @@ export class DisconnectTracker {
   private processStartTime: number;
   private processPid: number;
   /**
+   * Per-session tool-call counts (mt#1705). Keyed by `sessionKey`:
+   *
+   * - Stdio mode: a single fixed key (`STDIO_SESSION_KEY`) is used because
+   *   one stdio process binds 1:1 with one Server instance for its lifetime.
+   * - HTTP mode: each per-session Server generates a unique `sessionKey` at
+   *   `createConfiguredServer()` time. Multiple HTTP sessions coexist in one
+   *   process, so a process-wide counter would misclassify other sessions'
+   *   disconnects (caught by minsky-reviewer[bot] R1 on PR #1027). Per-session
+   *   counts are the only correct shape.
+   *
+   * Entries are evicted in `recordDisconnect()` after the role is computed,
+   * bounding map size to live sessions.
+   */
+  private toolCallCounts: Map<string, number> = new Map();
+  /**
    * Set to true when a server-initiated disconnect cause has been recorded
    * (staleness_exit, signal_*, server_close). The SDK's `Server.onclose`
    * fires during stdio teardown after these events; the wireDisconnectHooks
@@ -300,6 +396,38 @@ export class DisconnectTracker {
   }
 
   /**
+   * Increment the tool-call counter for the given session (mt#1705).
+   * Called from the `CallToolRequestSchema` handler in `server.ts` on each
+   * tool invocation (before the handler runs, so the count is accurate even
+   * if the tool throws). The count is read at `recordDisconnect(cause, { sessionKey })`
+   * time to classify the session as `"helper"` (0 calls) or `"main_session"`
+   * (1+ calls).
+   *
+   * `sessionKey` is `STDIO_SESSION_KEY` for stdio mode (one server per process)
+   * or a per-session UUID for HTTP mode (multiple per-session Servers in one
+   * process). Defaults to `DEFAULT_SESSION_KEY` for back-compat with callers
+   * that don't yet pass a key (legacy tests, ad-hoc callers).
+   */
+  incrementToolCallCount(sessionKey: string = DEFAULT_SESSION_KEY): void {
+    this.toolCallCounts.set(sessionKey, (this.toolCallCounts.get(sessionKey) ?? 0) + 1);
+  }
+
+  /**
+   * Return the current tool-call count for a session. For use by tests and
+   * diagnostics. If `sessionKey` is omitted, returns the sum across all
+   * tracked sessions (useful for "did this process see any work at all"
+   * diagnostics).
+   */
+  getToolCallCount(sessionKey?: string): number {
+    if (sessionKey !== undefined) {
+      return this.toolCallCounts.get(sessionKey) ?? 0;
+    }
+    let total = 0;
+    for (const n of this.toolCallCounts.values()) total += n;
+    return total;
+  }
+
+  /**
    * Record the start of this MCP server process. Called from the
    * `MinskyMCPServer` constructor before any tool can be invoked. The
    * `process_start` lifecycle marker lets log readers count actual server
@@ -327,15 +455,57 @@ export class DisconnectTracker {
   /**
    * Record a disconnect event. Emits a structured log line and durably
    * appends to disk before returning.
+   *
+   * Process role classification (mt#1705): at disconnect time, the tool-call
+   * count is read from `this.toolCallCounts.get(sessionKey)` (incremented by
+   * `incrementToolCallCount(sessionKey)` on each tool invocation in that
+   * session). 0 calls → "helper", 1+ calls → "main_session". Helper sessions
+   * are excluded from escalation eligibility regardless of uptime.
+   *
+   * The map entry for `sessionKey` is evicted after the role is computed,
+   * keeping `toolCallCounts` bounded to live sessions only.
+   *
+   * Backward-compat: callers may pass `errorMessage` as the second positional
+   * argument (legacy two-arg form) or the new `{ sessionKey?, errorMessage? }`
+   * options object. The legacy form falls back to `DEFAULT_SESSION_KEY`,
+   * matching the pre-mt#1705-per-session-counter behavior.
    */
-  recordDisconnect(cause: McpDisconnectCause, errorMessage?: string): McpDisconnectEvent {
+  recordDisconnect(
+    cause: McpDisconnectCause,
+    errorMessageOrOptions?: string | { sessionKey?: string; errorMessage?: string }
+  ): McpDisconnectEvent {
+    // Normalize the two call shapes.
+    let sessionKey: string;
+    let errorMessage: string | undefined;
+    if (typeof errorMessageOrOptions === "string") {
+      sessionKey = DEFAULT_SESSION_KEY;
+      errorMessage = errorMessageOrOptions;
+    } else if (errorMessageOrOptions) {
+      sessionKey = errorMessageOrOptions.sessionKey ?? DEFAULT_SESSION_KEY;
+      errorMessage = errorMessageOrOptions.errorMessage;
+    } else {
+      sessionKey = DEFAULT_SESSION_KEY;
+      errorMessage = undefined;
+    }
+
     const uptimeMs = Date.now() - this.processStartTime;
+    // mt#1705: classify process role from PER-SESSION tool-call count at
+    // disconnect time. Reading the process-wide counter (the original mt#1705
+    // approach) misclassified HTTP per-session disconnects when any session
+    // in the process had made a tool call — see R1 review on PR #1027.
+    // 0 calls → "helper" (harness helper: hook spawner, probe, pre-flight check).
+    // 1+ calls → "main_session" (substantive working session).
+    const sessionToolCalls = this.toolCallCounts.get(sessionKey) ?? 0;
+    const processRole: McpProcessRole = sessionToolCalls === 0 ? "helper" : "main_session";
+    // Evict the entry — the session is closing and we've captured what we need.
+    this.toolCallCounts.delete(sessionKey);
     const event: McpDisconnectEvent = {
       timestamp: new Date().toISOString(),
       serverName: this.serverName,
       kind: "disconnect",
       cause,
       uptimeMs,
+      processRole,
       ...(errorMessage ? { error: errorMessage } : {}),
     };
     this.push(event);
@@ -353,9 +523,42 @@ export class DisconnectTracker {
       kind: event.kind,
       cause: event.cause,
       uptimeMs: event.uptimeMs,
+      processRole: event.processRole,
       ...(event.error ? { error: event.error } : {}),
     });
     this.appendEvent(event);
+    // mt#1778: emit a Braintrust log event alongside the JSONL append so the
+    // disconnect cause distribution is queryable in the Braintrust dashboard.
+    //
+    // Delivery semantics (at-most-once, intentional per mt#1778 R1 NON-BLOCKING #2):
+    // - Fire-and-forget (`void`) so the synchronous `recordDisconnect()` signature is
+    //   preserved — callers may invoke this from signal handlers or stdio teardown
+    //   where async-await isn't safe.
+    // - On abrupt process exit (kill -9, OOM, parent dropping stdio), the in-flight
+    //   `logger.log` HTTP request may not complete before the process dies. Up to one
+    //   disconnect event per process lifetime can be dropped at the very tail. Acceptable
+    //   for observability signal: the JSONL log at
+    //   `~/.local/state/minsky/mcp-disconnect-log.json` remains the source of truth and
+    //   captures the same event durably before this fire-and-forget call.
+    // - `asyncFlush: false` in the shared emitter (`src/domain/observability/braintrust.ts`)
+    //   forces a synchronous flush on each `logger.log`, so under normal teardown paths
+    //   the event lands before the next event-loop tick.
+    // - Failures inside the emitter (network, SDK, config) are silently swallowed per the
+    //   shared module's graceful-degradation contract.
+    void emitBraintrustEvent({
+      output: {
+        cause: event.cause,
+        uptimeMs: event.uptimeMs,
+        processRole: event.processRole,
+        ...(event.error ? { error: event.error } : {}),
+      },
+      metadata: {
+        serverName: event.serverName,
+        kind: event.kind,
+        timestamp: event.timestamp,
+        source: "minsky.mcp.disconnect-tracker",
+      },
+    });
     return event;
   }
 
@@ -419,8 +622,9 @@ export class DisconnectTracker {
    *
    * Includes the escalation signal based on session and daily thresholds.
    * The escalation count excludes server-initiated causes (staleness_exit,
-   * signal_*, server_close, idle_timeout) and short-lived harness probes
-   * (uptimeMs < SHORT_LIVED_THRESHOLD_MS).
+   * signal_*, server_close, idle_timeout), short-lived harness probes
+   * (uptimeMs < SHORT_LIVED_THRESHOLD_MS), and helper sessions (processRole
+   * === "helper", mt#1705).
    */
   getSummary(): McpDisconnectSummary {
     const now = Date.now();
@@ -439,11 +643,28 @@ export class DisconnectTracker {
       transport_error: 0,
     };
     const byCause: Record<string, number> = {};
+    const byRole: Record<McpProcessRole, number> = {
+      helper: 0,
+      main_session: 0,
+      legacy: 0,
+    };
 
     for (const e of recent) {
       byServer[e.serverName] = (byServer[e.serverName] ?? 0) + 1;
       byKind[e.kind] = (byKind[e.kind] ?? 0) + 1;
       byCause[e.cause] = (byCause[e.cause] ?? 0) + 1;
+      // byRole only counts disconnect events; role classification is only
+      // meaningful at disconnect time. Events without processRole come from
+      // pre-mt#1705 logs and are counted in the explicit "legacy" bucket so
+      // operators can see the fraction of the log still in the old format
+      // (it should shrink toward 0 as new-format events saturate the log).
+      // Note: `isEscalationEligible` still treats legacy/undefined events as
+      // eligible (conservative) — only the aggregate breakdown shows them
+      // separately.
+      if (e.kind === "disconnect") {
+        const role = e.processRole ?? "legacy";
+        byRole[role] = (byRole[role] ?? 0) + 1;
+      }
     }
 
     const last = this.events.length > 0 ? this.events[this.events.length - 1] : null;
@@ -463,6 +684,7 @@ export class DisconnectTracker {
       byServer,
       byKind,
       byCause,
+      byRole,
       last: last ?? null,
       escalation,
     };
@@ -500,6 +722,11 @@ export class DisconnectTracker {
     // Legacy events without uptimeMs (from mt#1645 logs) are counted as
     // eligible — we have no way to know whether they were short-lived.
     if (event.uptimeMs !== undefined && event.uptimeMs < SHORT_LIVED_THRESHOLD_MS) return false;
+    // mt#1705: helper sessions (0 tool calls before disconnect) are excluded
+    // from escalation regardless of uptime. Legacy events without processRole
+    // are treated conservatively as "main_session" (eligible) — we have no
+    // tool-call count to discriminate them.
+    if (event.processRole === "helper") return false;
     return true;
   }
 

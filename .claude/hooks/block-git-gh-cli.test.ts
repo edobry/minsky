@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   checkDenial,
+  extractGitAddPaths,
+  getUnmergedPaths,
+  isConflictResolutionAdd,
   ghDenials,
   gitDenials,
   parseCommands,
@@ -16,8 +19,27 @@ import {
   SESSION_EXEC_TOOL_NAME,
 } from "./block-git-gh-cli";
 
+// ---------------------------------------------------------------------------
+// Helpers: injectable runGit implementations for carve-out tests
+// ---------------------------------------------------------------------------
+
+/** Returns a runGit that simulates `git diff --name-only --diff-filter=U` output. */
+function fakeRunGitWithUnmerged(unmergedPaths: string[]): (cmd: string) => string {
+  return (_cmd: string) => unmergedPaths.join("\n") + (unmergedPaths.length > 0 ? "\n" : "");
+}
+
+/** Returns a runGit that throws (simulates not in a git repo or git unavailable). */
+function fakeRunGitError(msg = "not a git repository"): (cmd: string) => string {
+  return (_cmd: string) => {
+    throw new Error(msg);
+  };
+}
+
 /** Minsky MCP tool names referenced in denial reasons — hoisted to avoid magic-string duplication in tests. */
 const SESSION_COMMIT_TOOL = "mcp__minsky__session_commit";
+
+/** Reusable test fixture: a branch-protection endpoint path (mt#1957). */
+const BRANCH_PROTECTION_PATH = "/repos/owner/repo/branches/main/protection";
 
 // ---------------------------------------------------------------------------
 // toolContextFromName
@@ -516,6 +538,10 @@ describe("checkDenial — gh", () => {
     expect(denied("pr", "get")).not.toBeNull();
   });
 
+  it("denies gh pr close", () => {
+    expect(denied("pr", "close")).not.toBeNull();
+  });
+
   it("denies gh pr merge", () => {
     expect(denied("pr", "merge")).not.toBeNull();
   });
@@ -564,6 +590,103 @@ describe("checkDenial — gh", () => {
   it("denial reason for gh issue references mcp__github__issue", () => {
     const reason = denied("issue", "create");
     expect(reason).toContain("mcp__github__issue_write");
+  });
+
+  it("denial reason for gh pr close references session_pr_close (mt#1955)", () => {
+    const reason = denied("pr", "close");
+    expect(reason).toContain("mcp__minsky__session_pr_close");
+  });
+
+  // mt#1957 — forge MCP tools (CI runs, check-runs, branch protection, labels)
+
+  it("denies gh run list (mt#1957)", () => {
+    expect(denied("run", "list")).not.toBeNull();
+  });
+
+  it("denies gh run view (mt#1957)", () => {
+    expect(denied("run", "view")).not.toBeNull();
+  });
+
+  it("denial reason for gh run list references forge_ci_run_list", () => {
+    const reason = denied("run", "list");
+    expect(reason).toContain("forge_ci_run_list");
+  });
+
+  it("denies gh label create (mt#1957)", () => {
+    expect(denied("label", "create")).not.toBeNull();
+  });
+
+  it("denies gh label list (mt#1957)", () => {
+    expect(denied("label", "list")).not.toBeNull();
+  });
+
+  it("denies gh label edit (mt#1957)", () => {
+    expect(denied("label", "edit")).not.toBeNull();
+  });
+
+  it("denies gh label delete (mt#1957)", () => {
+    expect(denied("label", "delete")).not.toBeNull();
+  });
+
+  it("denial reason for gh label create references forge_label_create", () => {
+    const reason = denied("label", "create");
+    expect(reason).toContain("forge_label_create");
+  });
+
+  it("denies gh api branches/main/protection (mt#1957)", () => {
+    expect(denied("api", BRANCH_PROTECTION_PATH)).not.toBeNull();
+  });
+
+  it("denies gh api -X PUT branches/main/protection (mt#1957)", () => {
+    expect(denied("api", "-X", "PUT", BRANCH_PROTECTION_PATH)).not.toBeNull();
+  });
+
+  it("denial reason for gh api branches/.../protection references forge_branch_protection", () => {
+    const reason = denied("api", BRANCH_PROTECTION_PATH);
+    expect(reason).toContain("forge_branch_protection_get");
+  });
+
+  it("denies gh api commits/<sha>/check-runs (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/commits/7af90f48/check-runs")).not.toBeNull();
+  });
+
+  it("denial reason for check-runs references forge_check_runs_list", () => {
+    const reason = denied("api", "/repos/owner/repo/commits/7af90f48/check-runs");
+    expect(reason).toContain("forge_check_runs_list");
+  });
+
+  it("denies gh api actions/runs/<id> (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/actions/runs/12345")).not.toBeNull();
+  });
+
+  it("denies gh api actions/workflows/<name>/runs (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/actions/workflows/ci.yml/runs")).not.toBeNull();
+  });
+
+  it("denies gh api -X POST labels (mt#1957)", () => {
+    expect(denied("api", "-X", "POST", "/repos/owner/repo/labels")).not.toBeNull();
+  });
+
+  it("denies gh api labels/<name> (mt#1957)", () => {
+    expect(denied("api", "/repos/owner/repo/labels/p0")).not.toBeNull();
+  });
+
+  it("denial reason for gh api labels references forge_label_create", () => {
+    const reason = denied("api", "-X", "POST", "/repos/owner/repo/labels");
+    expect(reason).toContain("forge_label_create");
+  });
+
+  it("does NOT block issue-scoped labels endpoint (PR #1185 review fix)", () => {
+    // Regression: pre-fix regex /\/labels(\/|$)/ also matched
+    // /repos/.../issues/<N>/labels, which is for applying labels to an issue —
+    // served by `mcp__github__issue_write`, NOT forge_label_*. The narrowed
+    // regex /\/repos\/[^/]+\/[^/]+\/labels(\/|$)/ now allows this path through.
+    expect(denied("api", "/repos/owner/repo/issues/123/labels")).toBeNull();
+    expect(denied("api", "-X", "POST", "/repos/owner/repo/issues/123/labels")).toBeNull();
+  });
+
+  it("still allows non-forge gh api endpoints (e.g. /user)", () => {
+    expect(denied("api", "/user")).toBeNull();
   });
 });
 
@@ -1045,5 +1168,208 @@ describe("checkDenial — gh api PR-merge hardening (PR #761 round 1)", () => {
     const reason = ghApi("api -X PUT repos/o/r/pulls/42/merge -f merge_method=squash");
     expect(reason).not.toContain("feedback_gh_api_bypass.md");
     expect(reason).toContain("pr-workflow.md");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractGitAddPaths (mt#1806)
+// ---------------------------------------------------------------------------
+
+describe("extractGitAddPaths", () => {
+  it("returns paths for explicit file arguments", () => {
+    expect(extractGitAddPaths(["add", "src/foo.ts"])).toEqual(["src/foo.ts"]);
+  });
+
+  it("returns multiple paths", () => {
+    expect(extractGitAddPaths(["add", "a.ts", "b.ts"])).toEqual(["a.ts", "b.ts"]);
+  });
+
+  it("returns null for bare `git add` (no paths)", () => {
+    expect(extractGitAddPaths(["add"])).toBeNull();
+  });
+
+  it("returns null when -A flag is present (broad staging)", () => {
+    expect(extractGitAddPaths(["add", "-A"])).toBeNull();
+  });
+
+  it("returns null when -u flag is present", () => {
+    expect(extractGitAddPaths(["add", "-u"])).toBeNull();
+  });
+
+  it("returns null when --all flag is present", () => {
+    expect(extractGitAddPaths(["add", "--all"])).toBeNull();
+  });
+
+  it("returns null when -p flag is present (interactive)", () => {
+    expect(extractGitAddPaths(["add", "-p"])).toBeNull();
+  });
+
+  it("returns null when `.` is provided (glob-all)", () => {
+    expect(extractGitAddPaths(["add", "."])).toBeNull();
+  });
+
+  // -- pathspec-separator cases (mt#1806 R1 — `git add -- <path>` should be carved out)
+  it("returns paths after the `--` pathspec separator", () => {
+    expect(extractGitAddPaths(["add", "--", "file.ts"])).toEqual(["file.ts"]);
+  });
+
+  it("returns multiple paths after the `--` separator", () => {
+    expect(extractGitAddPaths(["add", "--", "a.ts", "b.ts"])).toEqual(["a.ts", "b.ts"]);
+  });
+
+  it("returns paths both before and after the `--` separator", () => {
+    expect(extractGitAddPaths(["add", "foo.ts", "--", "bar.ts"])).toEqual(["foo.ts", "bar.ts"]);
+  });
+
+  it("returns null when a flag appears BEFORE the `--` separator", () => {
+    expect(extractGitAddPaths(["add", "-A", "--", "file.ts"])).toBeNull();
+  });
+
+  it("returns null when `.` appears AFTER the `--` separator (still glob-all)", () => {
+    expect(extractGitAddPaths(["add", "--", "."])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getUnmergedPaths (mt#1806)
+// ---------------------------------------------------------------------------
+
+describe("getUnmergedPaths", () => {
+  it("returns a set of unmerged paths from git output", () => {
+    const runGit = fakeRunGitWithUnmerged(["src/foo.ts", "src/bar.ts"]);
+    const result = getUnmergedPaths(runGit);
+    expect(result).not.toBeNull();
+    expect(result?.has("src/foo.ts")).toBe(true);
+    expect(result?.has("src/bar.ts")).toBe(true);
+  });
+
+  it("returns an empty set when no unmerged paths", () => {
+    const runGit = fakeRunGitWithUnmerged([]);
+    const result = getUnmergedPaths(runGit);
+    expect(result).not.toBeNull();
+    expect(result?.size).toBe(0);
+  });
+
+  it("returns null (fail-closed) when git fails", () => {
+    const result = getUnmergedPaths(fakeRunGitError());
+    expect(result).toBeNull();
+  });
+
+  // CRLF cross-platform robustness (mt#1806 R1 — Windows git output may emit \r\n)
+  it("parses CRLF output without leaving \\r artifacts in paths", () => {
+    const runGit = () => "src/foo.ts\r\nsrc/bar.ts\r\n";
+    const result = getUnmergedPaths(runGit);
+    expect(result).not.toBeNull();
+    expect(result?.has("src/foo.ts")).toBe(true);
+    expect(result?.has("src/bar.ts")).toBe(true);
+    expect(result?.has("src/foo.ts\r")).toBe(false);
+    expect(result?.has("src/bar.ts\r")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isConflictResolutionAdd (mt#1806)
+// ---------------------------------------------------------------------------
+
+describe("isConflictResolutionAdd", () => {
+  it("returns true when the path is in the unmerged set", () => {
+    const runGit = fakeRunGitWithUnmerged(["src/conflict.ts"]);
+    expect(isConflictResolutionAdd(["add", "src/conflict.ts"], runGit)).toBe(true);
+  });
+
+  it("returns true when all multiple paths are in the unmerged set", () => {
+    const runGit = fakeRunGitWithUnmerged(["a.ts", "b.ts"]);
+    expect(isConflictResolutionAdd(["add", "a.ts", "b.ts"], runGit)).toBe(true);
+  });
+
+  it("returns false when the path is NOT in the unmerged set (acceptance test #4)", () => {
+    const runGit = fakeRunGitWithUnmerged(["other.ts"]);
+    expect(isConflictResolutionAdd(["add", "clean.ts"], runGit)).toBe(false);
+  });
+
+  it("returns false when some paths are conflicted but not all", () => {
+    const runGit = fakeRunGitWithUnmerged(["conflicted.ts"]);
+    expect(isConflictResolutionAdd(["add", "conflicted.ts", "clean.ts"], runGit)).toBe(false);
+  });
+
+  it("returns false for bare `git add` (null paths → no carve-out)", () => {
+    const runGit = fakeRunGitWithUnmerged(["foo.ts"]);
+    expect(isConflictResolutionAdd(["add"], runGit)).toBe(false);
+  });
+
+  it("returns false for `git add -A` (broad flag → no carve-out)", () => {
+    const runGit = fakeRunGitWithUnmerged(["foo.ts"]);
+    expect(isConflictResolutionAdd(["add", "-A"], runGit)).toBe(false);
+  });
+
+  it("returns false (fail-closed) when git is unavailable", () => {
+    expect(isConflictResolutionAdd(["add", "foo.ts"], fakeRunGitError())).toBe(false);
+  });
+
+  it("returns true for the `--` form when path is in unmerged set", () => {
+    const runGit = fakeRunGitWithUnmerged(["src/conflict.ts"]);
+    expect(isConflictResolutionAdd(["add", "--", "src/conflict.ts"], runGit)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkDenial — git add conflict-resolution carve-out integration (mt#1806)
+// ---------------------------------------------------------------------------
+
+describe("checkDenial — git add conflict-resolution carve-out", () => {
+  it("permits `git add <conflicted-path>` when path is in unmerged set", () => {
+    const runGit = fakeRunGitWithUnmerged(["src/conflict.ts"]);
+    const result = checkDenial({ binary: "git", args: ["add", "src/conflict.ts"] }, "bash", runGit);
+    expect(result).toBeNull();
+  });
+
+  it("permits `git add` of multiple conflicted paths", () => {
+    const runGit = fakeRunGitWithUnmerged(["a.ts", "b.ts"]);
+    const result = checkDenial({ binary: "git", args: ["add", "a.ts", "b.ts"] }, "bash", runGit);
+    expect(result).toBeNull();
+  });
+
+  it("denies `git add <non-conflicted-path>` (acceptance test #4)", () => {
+    const runGit = fakeRunGitWithUnmerged(["other.ts"]);
+    const result = checkDenial({ binary: "git", args: ["add", "clean.ts"] }, "bash", runGit);
+    expect(result).not.toBeNull();
+    expect(result).toContain("session_commit");
+  });
+
+  it("denies `git add` with no paths (broad staging)", () => {
+    const runGit = fakeRunGitWithUnmerged(["foo.ts"]);
+    const result = checkDenial({ binary: "git", args: ["add"] }, "bash", runGit);
+    expect(result).not.toBeNull();
+  });
+
+  it("denies `git add -A` (broad flag, no carve-out even if files are conflicted)", () => {
+    const runGit = fakeRunGitWithUnmerged(["foo.ts"]);
+    const result = checkDenial({ binary: "git", args: ["add", "-A"] }, "bash", runGit);
+    expect(result).not.toBeNull();
+  });
+
+  it("denies `git add .` (broad glob, no carve-out)", () => {
+    const runGit = fakeRunGitWithUnmerged(["foo.ts"]);
+    const result = checkDenial({ binary: "git", args: ["add", "."] }, "bash", runGit);
+    expect(result).not.toBeNull();
+  });
+
+  it("denies (fail-closed) when git is not in a repo", () => {
+    const result = checkDenial(
+      { binary: "git", args: ["add", "src/conflict.ts"] },
+      "bash",
+      fakeRunGitError()
+    );
+    expect(result).not.toBeNull();
+  });
+
+  it("permits via session_exec context when path is conflicted", () => {
+    const runGit = fakeRunGitWithUnmerged(["src/conflict.ts"]);
+    const result = checkDenial(
+      { binary: "git", args: ["add", "src/conflict.ts"] },
+      "session_exec",
+      runGit
+    );
+    expect(result).toBeNull();
   });
 });

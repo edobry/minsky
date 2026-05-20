@@ -83,6 +83,16 @@ export const EMBEDDINGS_CONFIGS = {
     vectorColumn: "vector",
     indexedAtColumn: "indexed_at",
   },
+  // principal-corpus domain: principal_corpus_embeddings table (migration 0038)
+  // with tweet_id as the id column. Stores the principal's personal corpus
+  // (Twitter archive originals) for principal-scoped semantic search, exposed
+  // via principal_corpus_search / principal_corpus_similar tools (mt#1930).
+  "principal-corpus": {
+    tableName: "principal_corpus_embeddings",
+    idColumn: "tweet_id",
+    vectorColumn: "vector",
+    indexedAtColumn: "indexed_at",
+  },
 } as const;
 
 /**

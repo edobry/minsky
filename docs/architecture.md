@@ -1,9 +1,6 @@
-# Minsky Architecture Overview
+# Minsky architecture overview
 
-This document describes how Minsky is structured at the system level. It covers the command dispatch
-pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection,
-configuration hierarchy, repository backend system, and the knowledge base integration. For narrower
-topics, follow the links to the referenced ADRs.
+How Minsky is structured at the system level: command dispatch pipeline, domain model, persistence layer, session lifecycle, rules compilation, dependency injection, configuration hierarchy, repository backend, knowledge base integration. The five-organ cybernetic substrate (VSM Systems 1–5 — operations, coordination, control, intelligence, identity) is the conceptual frame; this doc is the code-level walk-through. For narrower topics, follow the links to the referenced ADRs. For the theoretical foundation (how the cybernetic theory maps to code modules), see [theory-of-operation.md](./theory-of-operation.md).
 
 ---
 
@@ -708,6 +705,8 @@ account auth. At least one auth method must be set.
 
 Additional architectural context:
 
+- `docs/architecture/cockpit.md` — cockpit subsystem architecture: Locus distinction, VSM placement, widget contract, subsystem map
 - `docs/architecture/interface-agnostic-commands.md` — CLI/MCP command unification design
 - `docs/architecture/multi-backend-task-system-design.md` — task backend routing design
+- `docs/architecture/stdio-proxy.md` — Minsky stdio respawn proxy (supervisor-below pattern): opt-in via `minsky mcp proxy`; transparently absorbs the inner server's staleness-exit (mt#1322) and respawns the child without Claude Code observing a disconnect
 - `src/domain/concepts.md` — formal definitions for Repository, Session, Workspace, and URI handling

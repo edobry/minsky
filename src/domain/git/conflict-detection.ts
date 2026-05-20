@@ -5,7 +5,7 @@
  * analysis, resolution strategies, merge simulation, and rebase prediction.
  */
 import { injectable } from "tsyringe";
-import { execAsync as defaultExecAsync } from "../../utils/exec";
+import { execAsync as defaultExecAsync, safeShellQuote } from "../../utils/exec";
 import { log as defaultLog } from "../../utils/logger";
 import { gitFetchWithTimeout as defaultGitFetchWithTimeout } from "../../utils/git-exec";
 import { predictRebaseConflictsImpl } from "./rebase-conflict-prediction";
@@ -303,13 +303,15 @@ export class ConflictDetectionService {
 
       // Step 2: Perform actual merge if not dry run
       if (!options?.dryRun) {
-        const beforeHashResult = await this.deps.execAsync(`git -C ${repoPath} rev-parse HEAD`);
+        const qRepoPath = safeShellQuote(repoPath);
+        const beforeHashResult = await this.deps.execAsync(`git -C ${qRepoPath} rev-parse HEAD`);
         const beforeHash = beforeHashResult?.stdout?.toString().trim() || "";
 
         try {
-          await this.deps.execAsync(`git -C ${repoPath} merge ${sourceBranch}`);
+          // mt#1829: sourceBranch is operator/PR-controlled; quote it.
+          await this.deps.execAsync(`git -C ${qRepoPath} merge ${safeShellQuote(sourceBranch)}`);
 
-          const afterHashResult = await this.deps.execAsync(`git -C ${repoPath} rev-parse HEAD`);
+          const afterHashResult = await this.deps.execAsync(`git -C ${qRepoPath} rev-parse HEAD`);
           const afterHash = afterHashResult?.stdout?.toString().trim() || "";
           const merged = beforeHash.toString().trim() !== afterHash.toString().trim();
 
@@ -324,7 +326,7 @@ export class ConflictDetectionService {
           // porcelain v1 can quote paths with spaces (surrounding double-quotes)
           // and uses "old -> new" notation for renames. We strip quotes and take
           // the destination path for renames so callers get a clean file list.
-          const statusResult = await this.deps.execAsync(`git -C ${repoPath} status --porcelain`);
+          const statusResult = await this.deps.execAsync(`git -C ${qRepoPath} status --porcelain`);
           const status = String(statusResult?.stdout || "");
 
           // Collect the list of conflicted file paths from git status output.
@@ -446,7 +448,11 @@ export class ConflictDetectionService {
       // Perform update based on divergence analysis
       if (divergence.recommendedAction === "fast_forward") {
         // Base branch already fetched above; just fast-forward merge.
-        await this.deps.execAsync(`git -C ${repoPath} merge --ff-only ${remoteBranch}`);
+        // mt#1829: remoteBranch is operator-controlled (e.g., "origin/main"
+        // but can be operator-passed); quote per mt#1742 pattern.
+        await this.deps.execAsync(
+          `git -C ${safeShellQuote(repoPath)} merge --ff-only ${safeShellQuote(remoteBranch)}`
+        );
 
         return {
           workdir: repoPath,

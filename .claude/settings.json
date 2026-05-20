@@ -50,6 +50,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-checks-on-bypass-merge.ts",
+            "timeout": 30,
+            "statusMessage": "Checking required CI status before bypass-merge..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-git-gh-cli.ts",
             "timeout": 5,
             "statusMessage": "Checking for git/gh CLI..."
@@ -176,6 +182,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/typecheck-on-stop.ts",
             "timeout": 60,
             "statusMessage": "Subagent type check..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/record-subagent-invocation.ts",
+            "timeout": 30,
+            "statusMessage": "Recording subagent invocation..."
           }
         ]
       }
@@ -232,6 +244,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__session_pr_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/drive-pr-to-convergence.ts",
+            "timeout": 5,
+            "statusMessage": "Reminding agent to drive PR to convergence..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|Write|Read|Grep|Glob|mcp__.*",
         "hooks": [
           {
@@ -263,6 +286,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/skill-staleness-detector.ts",
             "timeout": 5,
             "statusMessage": "Checking for skill/agent/rule staleness..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/mcp-daemon-staleness-detector.ts",
+            "timeout": 5,
+            "statusMessage": "Checking for MCP daemon staleness..."
           }
         ]
       }

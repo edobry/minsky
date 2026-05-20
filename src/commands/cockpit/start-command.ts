@@ -2,7 +2,11 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { Command } from "commander";
-import { createCockpitServer } from "../../cockpit/server";
+import type { Server } from "http";
+import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
+import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
+import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
+import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
 
 const DEFAULT_PORT = 3737;
 
@@ -11,6 +15,35 @@ const DEFAULT_PORT = 3737;
 // fileURLToPath rather than the brittle bun-specific `import.meta.dir`).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const COCKPIT_INDEX_HTML = path.join(__dirname, "..", "..", "cockpit", "web", "dist", "index.html");
+
+type ListenAttempt =
+  | { kind: "ok"; server: Server }
+  | { kind: "in-use" }
+  | { kind: "error"; err: Error };
+
+/**
+ * Bind-or-fail: race the 'listening' event against 'error'. EADDRINUSE is
+ * classified separately from other errors so the caller can attempt recovery.
+ */
+async function attemptListen(port: number): Promise<ListenAttempt> {
+  const app = createCockpitServer();
+  const server = app.listen(port);
+  return new Promise<ListenAttempt>((resolve) => {
+    server.once("listening", () => resolve({ kind: "ok", server }));
+    server.once("error", (err: NodeJS.ErrnoException) => {
+      try {
+        server.close();
+      } catch {
+        // Already torn down by the failed bind.
+      }
+      if (err.code === "EADDRINUSE") {
+        resolve({ kind: "in-use" });
+      } else {
+        resolve({ kind: "error", err });
+      }
+    });
+  });
+}
 
 /**
  * Create the cockpit "start" subcommand.
@@ -24,7 +57,18 @@ export function createStartCommand(): Command {
       `Port to listen on (default: ${DEFAULT_PORT})`,
       DEFAULT_PORT.toString()
     )
-    .action((options) => {
+    .option(
+      "--force",
+      "If a previous cockpit instance is holding the port, terminate it and retry. " +
+        "Never terminates unrecognized processes."
+    )
+    .option("--open", "After the server starts, open the cockpit URL in the default browser.")
+    .option(
+      "--no-dev-chromium",
+      "Skip launching the dedicated dev chromium (used by chrome-devtools-mcp " +
+        "for agent-driven UI inspection). Useful for headless / CI contexts."
+    )
+    .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
         console.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
@@ -37,11 +81,160 @@ export function createStartCommand(): Command {
         process.exit(1);
       }
 
-      const app = createCockpitServer();
+      // Eagerly initialise the SSE broker so all canonical channels are
+      // pre-subscribed before the first /api/events client connects.
+      // initServerSseBroker() is idempotent — subsequent calls are no-ops.
+      await initServerSseBroker();
 
-      app.listen(port, () => {
-        console.log(`Cockpit running at http://localhost:${port}`);
+      let attempt = await attemptListen(port);
+
+      // EADDRINUSE: classify and (with --force) recover.
+      if (attempt.kind === "in-use") {
+        const classification = classifyPortHolder(port);
+        switch (classification.kind) {
+          case "free":
+            // Holder vanished between bind and lsof. Retry once.
+            attempt = await attemptListen(port);
+            break;
+          case "recognized-zombie":
+            if (!options.force) {
+              console.error(
+                `Port ${port} is held by a previous cockpit instance ` +
+                  `(PID ${classification.pid}: ${classification.command}).`
+              );
+              console.error(`Run with --force to terminate it and start a new instance.`);
+              process.exit(1);
+            }
+            console.log(
+              `Port ${port} held by previous cockpit (PID ${classification.pid}); terminating...`
+            );
+            await killZombie(classification.pid);
+            attempt = await attemptListen(port);
+            break;
+          case "unrecognized":
+            console.error(
+              `Port ${port} is in use by PID ${classification.pid} (${classification.command}).`
+            );
+            console.error(`This is not a recognized cockpit instance; refusing to terminate it.`);
+            console.error(
+              `Kill PID ${classification.pid} manually, or pass --port to use a different port.`
+            );
+            process.exit(1);
+        }
+      }
+
+      if (attempt.kind === "error") {
+        console.error(`Failed to start Cockpit on port ${port}: ${attempt.err.message}`);
+        process.exit(1);
+      }
+
+      if (attempt.kind === "in-use") {
+        console.error(
+          `Port ${port} is still in use after recovery attempt. ` +
+            `Pass --port to use a different port.`
+        );
+        process.exit(1);
+      }
+
+      const server = attempt.server;
+
+      try {
+        writeCurrentCockpitState({
+          pid: process.pid,
+          port,
+          url: `http://localhost:${port}`,
+        });
+      } catch (err) {
+        const e = err as Error;
+        console.warn(`Warning: could not write cockpit state file: ${e.message}`);
+      }
+
+      // Cleanup on shutdown. Idempotent against double-fire across multiple
+      // signal sources AND the process-exit path. Per PR #1151 R1 (mt#1887)
+      // BLOCKING #2 — signal-only cleanup left stale state files on non-signal
+      // shutdown paths (process.exit() called elsewhere, uncaughtException,
+      // unhandledRejection, normal event-loop drain). All paths now route
+      // through `cleanupSync` which removes the state file unconditionally
+      // before exit. State file moved from a single-global path to the
+      // per-workspace lifecycle module in mt#1904.
+      let shuttingDown = false;
+      const cleanupSync = () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        removeCurrentCockpitState();
+      };
+      const cleanupAndExit = () => {
+        cleanupSync();
+        server.close(() => process.exit(0));
+        // Force-exit if server.close() hangs on long-lived SSE clients.
+        setTimeout(() => process.exit(0), 1000).unref();
+      };
+
+      // The project's narrowed `process` type omits EventEmitter methods.
+      // Cast to a Node-shaped surface for `on` — mirrors `src/mcp/server.ts:1340-1345`.
+      // eslint-disable-next-line custom/no-excessive-as-unknown
+      const proc = process as unknown as {
+        on(
+          event: NodeJS.Signals | "exit" | "uncaughtException" | "unhandledRejection",
+          listener: (...args: unknown[]) => void
+        ): void;
+      };
+      proc.on("SIGINT", cleanupAndExit);
+      proc.on("SIGTERM", cleanupAndExit);
+      proc.on("SIGHUP", cleanupAndExit);
+
+      // Synchronous-only path: fires on any non-signal exit (normal exit,
+      // process.exit() called elsewhere, event-loop drain). `cleanupSync` uses
+      // fs.unlinkSync inside removeCockpitPidFile, which is safe here.
+      proc.on("exit", cleanupSync);
+
+      // Uncaught error paths: clean up best-effort, then exit non-zero so the
+      // failure isn't silently swallowed. The `exit` listener above fires
+      // after process.exit(1) and is the second line of defence.
+      proc.on("uncaughtException", (err: unknown) => {
+        cleanupSync();
+        const e = err instanceof Error ? err : new Error(String(err));
+        console.error(`Cockpit: uncaught exception: ${e.message}`);
+        process.exit(1);
       });
+      proc.on("unhandledRejection", (reason: unknown) => {
+        cleanupSync();
+        const r = reason instanceof Error ? reason.message : String(reason);
+        console.error(`Cockpit: unhandled rejection: ${r}`);
+        process.exit(1);
+      });
+
+      console.log(`Cockpit running at http://localhost:${port}`);
+      console.log("Press Ctrl+C to stop");
+
+      if (options.open) {
+        openInBrowser(`http://localhost:${port}`);
+      }
+
+      // Launch the shared dev chromium for chrome-devtools-mcp attachment
+      // (mt#1904). Idempotent — reuses an already-running instance. Best-effort:
+      // failures don't block cockpit. Commander negates --no-* flags into
+      // `options.devChromium === false`.
+      if (options.devChromium !== false) {
+        try {
+          const devChromium = await ensureDevChromiumRunning();
+          if (devChromium) {
+            console.log(
+              `Dev chromium running at http://127.0.0.1:${devChromium.debuggingPort} ` +
+                `(PID ${devChromium.pid}) — attach chrome-devtools-mcp via ` +
+                `--browser-url=http://127.0.0.1:${devChromium.debuggingPort}`
+            );
+          }
+        } catch (err) {
+          const e = err as Error;
+          console.warn(`Warning: dev chromium launch failed: ${e.message}`);
+        }
+      }
+
+      // Keep the action handler awaiting indefinitely so the top-level CLI
+      // doesn't fall through to its `exit(0)` after parseAsync resolves.
+      // Mirrors `src/commands/mcp/start-command.ts:1101`.
+      await new Promise<never>(() => {});
     });
 
   return startCommand;

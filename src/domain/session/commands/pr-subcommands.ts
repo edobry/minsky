@@ -7,6 +7,7 @@
 
 export { sessionPrCreate } from "./pr-create-subcommand";
 export { sessionPrEdit } from "./pr-edit-subcommand";
+export { sessionPrClose } from "./pr-close-subcommand";
 export { sessionPrList } from "./pr-list-subcommand";
 export { sessionPrGet } from "./pr-get-subcommand";
 export { sessionPrOpen } from "./pr-open-subcommand";

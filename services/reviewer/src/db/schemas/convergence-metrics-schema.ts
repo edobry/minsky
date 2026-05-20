@@ -36,8 +36,13 @@ export const convergenceMetricsTable = pgTable(
     headSha: text("head_sha").notNull(),
 
     /**
-     * 0-indexed iteration count at time of review.
-     * 0 = first review, 1 = first re-review, etc.
+     * 1-indexed iteration count at time of review.
+     * 1 = first review, 2 = first re-review, etc.
+     *
+     * Written as `priorReviewIngestion.iterationCount + 1` in review-worker.ts,
+     * where `iterationCount` is the count of prior reviews (0 for first review).
+     * This is 1-based, NOT 0-based — the field name "iteration_index" is a
+     * misnomer; think of it as "iteration number."
      */
     iterationIndex: integer("iteration_index").notNull(),
 

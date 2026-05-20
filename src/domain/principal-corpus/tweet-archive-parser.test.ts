@@ -1,0 +1,81 @@
+import { describe, test, expect } from "bun:test";
+import { parseTweetsJs } from "./tweet-archive-parser";
+
+describe("parseTweetsJs", () => {
+  test("strips the window.YTD.tweets.part0 prefix and returns the inner tweet objects", () => {
+    const body = `window.YTD.tweets.part0 = [
+      {
+        "tweet": {
+          "id": "1",
+          "id_str": "1",
+          "full_text": "first tweet",
+          "created_at": "Wed Sep 10 14:45:55 +0000 2025",
+          "favorite_count": "3",
+          "retweet_count": "0"
+        }
+      },
+      {
+        "tweet": {
+          "id": "2",
+          "id_str": "2",
+          "full_text": "RT @other: a retweet body",
+          "created_at": "Wed Sep 10 15:00:00 +0000 2025",
+          "favorite_count": "0",
+          "retweet_count": "5"
+        }
+      }
+    ]`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(2);
+    expect(tweets[0]?.id).toBe("1");
+    expect(tweets[0]?.full_text).toBe("first tweet");
+    expect(tweets[1]?.full_text.startsWith("RT @")).toBe(true);
+  });
+
+  test("throws on missing assignment", () => {
+    expect(() => parseTweetsJs('[{"tweet": {}}]')).toThrow();
+  });
+
+  test("throws on non-array body", () => {
+    expect(() => parseTweetsJs('window.YTD.tweets.part0 = {"foo": "bar"}')).toThrow();
+  });
+
+  test("skips malformed entries (missing tweet field)", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "valid", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } },
+      { "not_a_tweet": true }
+    ]`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(1);
+    expect(tweets[0]?.id).toBe("1");
+  });
+
+  test("handles trailing semicolon (Twitter export style)", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "ok", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } }
+    ];`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(1);
+    expect(tweets[0]?.id).toBe("1");
+  });
+
+  test("handles trailing semicolon + whitespace + footer prose", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "ok", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } }
+    ] ;\n\n// end of exports\n`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(1);
+    expect(tweets[0]?.id).toBe("1");
+  });
+
+  test("handles bracket-like characters in tweet text without false-closing the array", () => {
+    const body = `window.YTD.tweets.part0 = [
+      { "tweet": { "id": "1", "full_text": "an [array]-shaped] string ]] with ]] brackets", "created_at": "Wed Sep 10 14:45:55 +0000 2025" } },
+      { "tweet": { "id": "2", "full_text": "another", "created_at": "Wed Sep 10 14:46:55 +0000 2025" } }
+    ];`;
+    const tweets = parseTweetsJs(body);
+    expect(tweets).toHaveLength(2);
+    expect(tweets[0]?.full_text).toContain("[array]");
+    expect(tweets[1]?.id).toBe("2");
+  });
+});

@@ -2,14 +2,149 @@
 @tailwind components;
 @tailwind utilities;
 
+/* -----------------------------------------------------------------------------
+ * Brand tokens (mt#1935)
+ *
+ * Migration HSL -> OKLCH per docs/brand-system.md §7. Tokens are stored as raw
+ * OKLCH component triplets (lightness chroma hue); tailwind.config.ts wraps
+ * each var with `oklch(... / <alpha-value>)`. Hex starting points and the
+ * source-of-truth conversions live in docs/brand-system.md §2.
+ *
+ * Browser-support floor: Chrome 111+, Safari 16.4+, Firefox 113+ (per
+ * docs/brand-system.md §2). Cockpit is local-only v0 (single principal);
+ * a sRGB-hex fallback shim is documented for public surfaces but is not
+ * shipped here.
+ * --------------------------------------------------------------------------- */
+
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --border: 214.3 31.8% 91.4%;
+  /* Light theme — placeholders; cockpit ships dark-first via <html class="dark"> */
+  --background: 1 0 0;
+  --foreground: 0.078 0 0;
+  --card: 1 0 0;
+  --card-foreground: 0.078 0 0;
+  --popover: 1 0 0;
+  --popover-foreground: 0.078 0 0;
+  --primary: 0.078 0 0;
+  --primary-foreground: 0.946 0 0;
+  --secondary: 0.945 0 0;
+  --secondary-foreground: 0.078 0 0;
+  --muted: 0.945 0 0;
+  --muted-foreground: 0.717 0 0;
+  --accent: 0.945 0 0;
+  --accent-foreground: 0.078 0 0;
+  --destructive: 0.585 0.219 27;
+  --destructive-foreground: 0.946 0 0;
+  --border: 0.910 0 0;
+  --input: 0.910 0 0;
+  --ring: 0.745 0.124 215;
+  --radius: 0.5rem;
+
+  /* Brand palette additions (mt#1935; docs/brand-system.md §2) */
+  --signal-cyan: 0.745 0.124 215;
+  --signal-cyan-dim: 0.560 0.092 220;
+  --warn-amber: 0.756 0.180 70;
+  --warn-red: 0.585 0.219 27;
+  --iso-pastel: 0.911 0.030 75;
+  --text-subtle: 0.517 0 0;
+  --bg-warm: 0.142 0.012 95;
+
+  /* Note: the light-theme :root block is placeholder-only; cockpit ships
+     dark-first via <html class="dark">. The light-theme --muted-foreground
+     should remain text.muted (0.717), distinct from --text-subtle (0.517). */
+
+  /* Typography stacks (docs/brand-system.md §1; fonts loaded in index.html) */
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --font-warm-mono: "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    monospace;
+
+  /* Liveness status sub-tokens — cockpit-local per docs/brand-system.md §7.
+     Preserve green/amber/red/gray semantic for operator legibility. */
+  --liveness-healthy: 0.638 0.150 145;
+  --liveness-idle: 0.756 0.180 70;
+  --liveness-stale: 0.585 0.219 27;
+  --liveness-orphaned: 0.560 0.020 240;
+}
+
+.dark {
+  --background: 0.078 0 0;
+  --foreground: 0.946 0 0;
+  --card: 0.155 0 0;
+  --card-foreground: 0.946 0 0;
+  --popover: 0.200 0 0;
+  --popover-foreground: 0.946 0 0;
+  --primary: 0.745 0.124 215;
+  --primary-foreground: 0.078 0 0;
+  --secondary: 0.200 0 0;
+  --secondary-foreground: 0.946 0 0;
+  --muted: 0.200 0 0;
+  --muted-foreground: 0.717 0 0;
+  --accent: 0.200 0 0;
+  --accent-foreground: 0.946 0 0;
+  --destructive: 0.585 0.219 27;
+  --destructive-foreground: 0.946 0 0;
+  --border: 0.270 0 0;
+  --input: 0.270 0 0;
+  --ring: 0.745 0.124 215;
+
+  /* Liveness — tuned slightly down for dark elevation */
+  --liveness-healthy: 0.580 0.140 145;
+  --liveness-idle: 0.720 0.175 70;
+  --liveness-stale: 0.560 0.215 27;
+  --liveness-orphaned: 0.470 0.020 240;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+}
+
+/* -----------------------------------------------------------------------------
+ * Motion budget (mt#1935; docs/brand-system.md §3)
+ *
+ * status-dot-pulse — for live indicators that reflect real product state.
+ * hook-denial-flash — one-shot signal on a blocked or denied action.
+ * Both honor `prefers-reduced-motion: reduce` per §3.
+ * --------------------------------------------------------------------------- */
+
+@keyframes status-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes hook-denial-flash {
+  0% {
+    background-color: oklch(var(--warn-amber) / 0.4);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
 }

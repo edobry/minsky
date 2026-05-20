@@ -478,6 +478,40 @@ export const sessionPrEditCommandParams = {
 };
 
 /**
+ * Session PR Close Command Parameters (mt#1955)
+ *
+ * Closes a session's PR without merging, optionally posting a comment
+ * before the state flip. The per-tool behavioral spec lives in the tool's
+ * `description` field on `createSessionPrCloseCommand`; banned-tool
+ * mappings live in the `.claude/hooks/block-git-gh-cli.ts` and
+ * `block-github-mcp-pr-writes.ts` denial messages.
+ */
+export const sessionPrCloseCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  prNumber: {
+    schema: z.union([z.number().int().positive(), z.string()]),
+    description:
+      "PR number to close (alternative to identifying via session). Required when " +
+      "no `task`/`sessionId` is provided. When both are passed, `prNumber` wins as the " +
+      "address and the session backend is reused; the session DB is updated only if the " +
+      "closed PR matches the session's recorded PR.",
+    required: false,
+  },
+  comment: {
+    schema: z.string(),
+    description:
+      "Optional comment to post on the PR before closing. Useful for absorb-and-close: " +
+      "name the PR that subsumes this work. Posted as a regular PR comment (not a review) " +
+      "so it appears chronologically before the close event.",
+    required: false,
+  },
+  json: commonSessionParams.json,
+  debug: commonSessionParams.debug,
+};
+
+/**
  * Session PR List command parameters
  * Lists all PRs associated with sessions
  */
@@ -667,8 +701,15 @@ export const sessionPrWaitForReviewCommandParams = {
   reviewer: {
     schema: z.string(),
     description:
-      "Only match reviews from this GitHub login (e.g., minsky-reviewer[bot]). " +
-      "Case-insensitive. Defaults to any reviewer.",
+      "Only match reviews from this reviewer. Accepts either: " +
+      '(1) a TokenRole identifier ("reviewer" or "implementer", ' +
+      "case-insensitive) — resolved at call setup against the configured GitHub " +
+      "App identity; throws a typed error if the role's service account is not " +
+      "configured. (2) a literal GitHub login (e.g., minsky-reviewer[bot] or " +
+      "the bare minsky-reviewer form, or any human reviewer's login) — " +
+      "case-insensitive with optional trailing [bot] suffix on either side. " +
+      "Role identifiers shadow literal logins of the same name; pass the " +
+      "[bot]-suffixed form to disambiguate. Defaults to any reviewer.",
     required: false,
   },
   since: {
@@ -712,6 +753,17 @@ export const sessionPrReviewSubmitCommandParams = {
           .optional()
           .describe(
             "Replacement code for a GitHub suggestion block. Line count must match the anchored range."
+          ),
+        inReplyTo: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "When present, this comment is a REPLY to the existing review comment with this " +
+              "database ID. Obtain the ID from reviewThreads[].comments[].databaseId in " +
+              "session_pr_review_context. When inReplyTo is set, path/line/side are ignored " +
+              "by GitHub — the reply is anchored to the parent comment's location."
           ),
       })
     ),

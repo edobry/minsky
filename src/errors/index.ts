@@ -12,6 +12,8 @@ export { MinskyError, ensureError };
 // Re-export canonical error utilities from schemas/error
 export {
   getErrorMessage,
+  getErrorMessageWithCause,
+  getCauseChain,
   getErrorStack,
   getErrorCode,
   isErrorLike,

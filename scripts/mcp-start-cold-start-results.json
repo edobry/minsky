@@ -1,0 +1,400 @@
+{
+  "timestamp": "2026-05-12T16:19:19.706Z",
+  "iterations": 10,
+  "timeoutMs": 15000,
+  "speedupInitialize": 1.0623754936573948,
+  "speedupToolsList": 1.0623939758348222,
+  "source": {
+    "label": "source",
+    "entry": "/Users/edobry/.local/state/minsky/sessions/ca0fee68-fd3b-4a5f-bbfa-cb85a57d1c61/src/cli.ts",
+    "iterations": 10,
+    "initializeWallClock": {
+      "count": 10,
+      "median": 368.7964375,
+      "p95": 382.603666,
+      "min": 365.3113750000002,
+      "max": 382.603666,
+      "raw": [
+        369.27033400000005, 366.4745839999998, 368.322541, 365.80266699999993, 365.3113750000002,
+        373.05654200000026, 374.3977500000001, 366.8557499999997, 375.9880409999996, 382.603666
+      ]
+    },
+    "toolsListWallClock": {
+      "count": 10,
+      "median": 372.3001875,
+      "p95": 386.1364999999996,
+      "min": 368.7109169999999,
+      "max": 386.1364999999996,
+      "raw": [
+        372.57158400000003, 370.0369999999998, 372.02879099999996, 369.4417089999997,
+        368.7109169999999, 376.25562500000024, 377.76345900000024, 370.5937079999994,
+        379.60699999999997, 386.1364999999996
+      ]
+    },
+    "checkpoints": [
+      {
+        "name": "cli_top",
+        "count": 10,
+        "median": 9.325,
+        "p95": 9.69,
+        "min": 9.05,
+        "max": 9.69
+      },
+      {
+        "name": "config_setup_complete",
+        "count": 10,
+        "median": 40.425,
+        "p95": 43.2,
+        "min": 38.74,
+        "max": 43.2
+      },
+      {
+        "name": "cli_imports_complete",
+        "count": 10,
+        "median": 40.45,
+        "p95": 43.23,
+        "min": 38.76,
+        "max": 43.23
+      },
+      {
+        "name": "before_shared_commands_load",
+        "count": 10,
+        "median": 45.144999999999996,
+        "p95": 47.94,
+        "min": 43.21,
+        "max": 47.94
+      },
+      {
+        "name": "shared_commands_module_loaded",
+        "count": 10,
+        "median": 185.56,
+        "p95": 194.46,
+        "min": 181.95,
+        "max": 194.46
+      },
+      {
+        "name": "shared_commands_registered",
+        "count": 10,
+        "median": 192.39,
+        "p95": 200.96,
+        "min": 188.86,
+        "max": 200.96
+      },
+      {
+        "name": "cli_factory_registered",
+        "count": 10,
+        "median": 197.78,
+        "p95": 206.83,
+        "min": 194.37,
+        "max": 206.83
+      },
+      {
+        "name": "before_mcp_command_load",
+        "count": 10,
+        "median": 197.8,
+        "p95": 206.85,
+        "min": 194.39,
+        "max": 206.85
+      },
+      {
+        "name": "mcp_command_module_loaded",
+        "count": 10,
+        "median": 249.105,
+        "p95": 257.88,
+        "min": 244.5,
+        "max": 257.88
+      },
+      {
+        "name": "mcp_command_added",
+        "count": 10,
+        "median": 249.465,
+        "p95": 258.36,
+        "min": 244.83,
+        "max": 258.36
+      },
+      {
+        "name": "preaction_skipped_for_mcp_stdio",
+        "count": 10,
+        "median": 250.28500000000003,
+        "p95": 259.29,
+        "min": 245.59,
+        "max": 259.29
+      },
+      {
+        "name": "action_entry",
+        "count": 10,
+        "median": 250.765,
+        "p95": 259.82,
+        "min": 246.05,
+        "max": 259.82
+      },
+      {
+        "name": "server_constructed",
+        "count": 10,
+        "median": 269.365,
+        "p95": 277.35,
+        "min": 262.96,
+        "max": 277.35
+      },
+      {
+        "name": "mapper_constructed",
+        "count": 10,
+        "median": 270.885,
+        "p95": 277.39,
+        "min": 263,
+        "max": 277.39
+      },
+      {
+        "name": "tools_registered",
+        "count": 10,
+        "median": 281.93,
+        "p95": 290.62,
+        "min": 274.71,
+        "max": 290.62
+      },
+      {
+        "name": "background_init_kicked_off",
+        "count": 10,
+        "median": 282.105,
+        "p95": 290.79,
+        "min": 274.86,
+        "max": 290.79
+      },
+      {
+        "name": "knowledge_resources_registered",
+        "count": 10,
+        "median": 282.33500000000004,
+        "p95": 291.02,
+        "min": 275.1,
+        "max": 291.02
+      },
+      {
+        "name": "server_started",
+        "count": 10,
+        "median": 295.44500000000005,
+        "p95": 304.15,
+        "min": 287.99,
+        "max": 304.15
+      }
+    ],
+    "topStageCosts": [
+      {
+        "stage": "before_shared_commands_load → shared_commands_module_loaded",
+        "medianMs": 140.41500000000002
+      },
+      {
+        "stage": "server_started → initialize_response (SDK handshake)",
+        "medianMs": 73.35143749999997
+      },
+      {
+        "stage": "before_mcp_command_load → mcp_command_module_loaded",
+        "medianMs": 51.30499999999998
+      },
+      {
+        "stage": "cli_top → config_setup_complete",
+        "medianMs": 31.099999999999998
+      },
+      {
+        "stage": "action_entry → server_constructed",
+        "medianMs": 18.600000000000023
+      }
+    ]
+  },
+  "bundle": {
+    "label": "bundle",
+    "entry": "/Users/edobry/.local/state/minsky/sessions/ca0fee68-fd3b-4a5f-bbfa-cb85a57d1c61/dist/minsky.js",
+    "iterations": 10,
+    "initializeWallClock": {
+      "count": 10,
+      "median": 347.1432085000006,
+      "p95": 359.06525000000147,
+      "min": 342.32141599999886,
+      "max": 359.06525000000147,
+      "raw": [
+        350.03399999999965, 347.1949999999997, 352.22712499999943, 344.1486249999998,
+        344.42966700000034, 349.7331670000003, 342.32141599999886, 347.09141700000146,
+        359.06525000000147, 345.83087499999965
+      ]
+    },
+    "toolsListWallClock": {
+      "count": 10,
+      "median": 350.43514550000054,
+      "p95": 362.5726250000007,
+      "min": 345.41420800000014,
+      "max": 362.5726250000007,
+      "raw": [
+        353.2928329999995, 350.58358299999963, 355.4574169999996, 347.26866599999994,
+        347.5786250000001, 353.28162500000144, 345.41420800000014, 350.28670800000145,
+        362.5726250000007, 348.97491699999955
+      ]
+    },
+    "checkpoints": [
+      {
+        "name": "cli_top",
+        "count": 10,
+        "median": 14.91,
+        "p95": 15.96,
+        "min": 14.78,
+        "max": 15.96
+      },
+      {
+        "name": "config_setup_complete",
+        "count": 10,
+        "median": 28.665,
+        "p95": 30.66,
+        "min": 28.39,
+        "max": 30.66
+      },
+      {
+        "name": "cli_imports_complete",
+        "count": 10,
+        "median": 28.68,
+        "p95": 30.68,
+        "min": 28.41,
+        "max": 30.68
+      },
+      {
+        "name": "before_shared_commands_load",
+        "count": 10,
+        "median": 29.64,
+        "p95": 31.98,
+        "min": 29.37,
+        "max": 31.98
+      },
+      {
+        "name": "shared_commands_module_loaded",
+        "count": 10,
+        "median": 69.535,
+        "p95": 73.92,
+        "min": 68.29,
+        "max": 73.92
+      },
+      {
+        "name": "shared_commands_registered",
+        "count": 10,
+        "median": 74.36,
+        "p95": 78.87,
+        "min": 72.99,
+        "max": 78.87
+      },
+      {
+        "name": "cli_factory_registered",
+        "count": 10,
+        "median": 78.815,
+        "p95": 83.64,
+        "min": 77.64,
+        "max": 83.64
+      },
+      {
+        "name": "before_mcp_command_load",
+        "count": 10,
+        "median": 78.82499999999999,
+        "p95": 83.67,
+        "min": 77.66,
+        "max": 83.67
+      },
+      {
+        "name": "mcp_command_module_loaded",
+        "count": 10,
+        "median": 86.885,
+        "p95": 92.4,
+        "min": 85.3,
+        "max": 92.4
+      },
+      {
+        "name": "mcp_command_added",
+        "count": 10,
+        "median": 87.175,
+        "p95": 92.75,
+        "min": 85.59,
+        "max": 92.75
+      },
+      {
+        "name": "preaction_skipped_for_mcp_stdio",
+        "count": 10,
+        "median": 87.925,
+        "p95": 93.59,
+        "min": 86.35,
+        "max": 93.59
+      },
+      {
+        "name": "action_entry",
+        "count": 10,
+        "median": 88.42500000000001,
+        "p95": 94.15,
+        "min": 86.86,
+        "max": 94.15
+      },
+      {
+        "name": "server_constructed",
+        "count": 10,
+        "median": 110.08500000000001,
+        "p95": 112.78,
+        "min": 102.43,
+        "max": 112.78
+      },
+      {
+        "name": "mapper_constructed",
+        "count": 10,
+        "median": 110.115,
+        "p95": 112.82,
+        "min": 102.47,
+        "max": 112.82
+      },
+      {
+        "name": "tools_registered",
+        "count": 10,
+        "median": 119.315,
+        "p95": 122.29,
+        "min": 111.27,
+        "max": 122.29
+      },
+      {
+        "name": "background_init_kicked_off",
+        "count": 10,
+        "median": 119.44999999999999,
+        "p95": 122.43,
+        "min": 111.39,
+        "max": 122.43
+      },
+      {
+        "name": "knowledge_resources_registered",
+        "count": 10,
+        "median": 119.69999999999999,
+        "p95": 122.7,
+        "min": 111.64,
+        "max": 122.7
+      },
+      {
+        "name": "server_started",
+        "count": 10,
+        "median": 132.81,
+        "p95": 135.77,
+        "min": 124.22,
+        "max": 135.77
+      }
+    ],
+    "topStageCosts": [
+      {
+        "stage": "server_started → initialize_response (SDK handshake)",
+        "medianMs": 214.33320850000058
+      },
+      {
+        "stage": "before_shared_commands_load → shared_commands_module_loaded",
+        "medianMs": 39.894999999999996
+      },
+      {
+        "stage": "action_entry → server_constructed",
+        "medianMs": 21.659999999999997
+      },
+      {
+        "stage": "spawn → cli_top (bun startup + reflect-metadata)",
+        "medianMs": 14.91
+      },
+      {
+        "stage": "cli_top → config_setup_complete",
+        "medianMs": 13.754999999999999
+      }
+    ]
+  }
+}
