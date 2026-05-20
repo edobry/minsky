@@ -30,7 +30,7 @@ If you are pattern-matching against "what other AI startup sites look like" befo
 - Auditing an existing marketing surface against the locked brand register
 - Workshopping a brand-positioning myth for a _new_ marketing surface (the locked Minsky myth is in `minsky-brand` §1 — don't re-derive)
 - Reviewing a design proposal that arrived without explicit myth-statement
-- _(For analyzing an adjacent product's marketing site, use the sibling skill `analyze-adjacent-product` instead — this skill consumes that one's output during §6 workshop Step 4.)_
+- _(For analyzing an adjacent product's marketing site, use the sibling skill `analyze-adjacent-product` instead — this skill consumes that one's output during §7 workshop Step 4.)_
 
 ## 1. Load the brand foundation first
 
@@ -74,7 +74,7 @@ The marketing-site-design umbrella complements these skills (already present in 
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `minsky-brand`                        | Brand foundation — locked myth, cultural code, layered references, vocabulary, bridge-as-affect                | **Always — load first**. Strategic anchor for every marketing-surface decision.            |
 | `pz-voice`                            | Principal's literary voice — semicolon rhythm, vocabulary precision, no-go register, operative-ontology stance | When drafting any marketing copy or section text — the signal layer per `minsky-brand` §8. |
-| `analyze-adjacent-product`            | Semiotic analysis methodology (Peirce-Barthes-Oswald + Chrome DevTools capture + per-analysis template)        | When reading a competitor's surface to inform positioning decisions (workshop §6 Step 4)   |
+| `analyze-adjacent-product`            | Semiotic analysis methodology (Peirce-Barthes-Oswald + Chrome DevTools capture + per-analysis template)        | When reading a competitor's surface to inform positioning decisions (workshop §7 Step 4)   |
 | `impeccable`                          | Visual quality audit, design polish, anti-patterns                                                             | After draft, before commit — does this read as production-grade?                           |
 | `frontend-design` (Anthropic)         | Distinctive frontend interfaces, anti-AI-slop                                                                  | When generating marketing-page React/Astro components                                      |
 | `web-design-guidelines`               | Web Interface Guidelines, accessibility, UX                                                                    | Always — accessibility floor for any public surface                                        |
@@ -182,7 +182,7 @@ Each step produces a written artifact; together they constitute the brief.
 For each candidate myth:
 
 - Is it _contestable_? (Would a buyer disagree before encountering the site? Would a competitor find it awkward to claim?)
-- Is it _carried by the actual product_? (Can the product surfaces in §6 instantiate this myth?)
+- Is it _carried by the actual product_? (Can the product surfaces in the "Product surfaces to show" subsection of §6 instantiate this myth?)
 - Is it _durable_? (Will it still be true and important in 2-3 years?)
 - Is it _aligned with the principal's investment_? (Does the operator want to spend years naturalizing this proposition?)
 

@@ -8,7 +8,8 @@ description: >-
   vocabulary inventory. The agent-consumable tier of the brand foundation:
   position paper (Notion) is the *strategic* tier, `docs/brand-system.md` is
   the *operational* tier, this skill is the *agent-consumable* tier. Composes
-  with `pz-voice` (signal — what is claimed) as the channel (how it feels).
+  with `pz-voice` (signal — what is claimed); this skill is the channel
+  (how it feels to the audience).
   Invoke as the strategic anchor for any Minsky-surface design work
   (`marketing-site-design`, `cockpit-design`) or any artifact that needs to
   carry the cyberbrain register without re-deriving the workshop output.
@@ -27,7 +28,7 @@ If you are pattern-matching against "what other AI startup sites look like" befo
 
 - Authoring or auditing **any** Minsky-surface artifact that should read as Minsky brand (site, cockpit, README, blog post, manifesto, position paper, talk deck, social, microsite)
 - When a sibling skill (`marketing-site-design`, `cockpit-design`) is missing strategic context and you need the foundation it depends on
-- Workshopping a brand-positioning myth for a new Minsky-surface (the workshop process lives in `marketing-site-design/SKILL.md` §9 — invoke that there; this skill carries the locked output)
+- Workshopping a brand-positioning myth for a new Minsky-surface (the workshop process lives in `marketing-site-design/SKILL.md` §7 — invoke that there; this skill carries the locked output)
 - Auditing whether a proposed visual or copy choice carries the locked register or violates it
 
 ## 1. The locked myth

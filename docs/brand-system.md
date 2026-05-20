@@ -16,7 +16,7 @@ The cited franchises and works (Ghost in the Shell, Stand Alone Complex, Neon Ge
 
 - **Thesis:** [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1) — why Minsky is a recursive principal-substrate, not a team tool.
 - **Corpus:** mt#1930 — pee_zombie principal-corpus indexed under the `principal-corpus` namespace. Query with `mcp__minsky__principal_corpus_search` / `principal_corpus_similar`. Synthesized memeplex memories tagged `principal-thinking`, `principal-corpus`, `theme:*` (exocortex, cybernetics, ego-plurality, egregore, magick-as-substrate, agency, decentralization, memetics, consciousness-as-infrastructure, cognitive-economics, cognitive-flexibility, cognitive-hazard, process-ontology, consciousness). Queryable via `mcp__minsky__memory_search`.
-- **Workshop:** [`.claude/skills/marketing-site-design/`](../.claude/skills/marketing-site-design/) — myth-first methodology + §8 (Minsky-specific layer) + worked example in `references/minsky-myth-2026-05.md`.
+- **Workshop:** [`.claude/skills/marketing-site-design/`](../.claude/skills/marketing-site-design/) — myth-first methodology + §6 (marketing-specific layer over the brand foundation) + worked example in `references/minsky-myth-2026-05.md`. Brand-foundation content (the locked myth, cultural code, layered references, vocabulary) lives in [`.claude/skills/minsky-brand/SKILL.md`](../.claude/skills/minsky-brand/SKILL.md) post-mt#1933 extraction.
 - **Voice:** [`.claude/skills/pz-voice/SKILL.md`](../.claude/skills/pz-voice/SKILL.md) — the principal's literary voice as the signal layer of the brand identity.
 
 **Access and archival.** The Notion page (Minsky workspace) is private; principals with workspace access can read directly, others should request export. The `~/Projects/minsky-site` path in §7 is a local-only working tree until mt#1934 ships the public site; treat it as an out-of-repo reference, not a clonable URL.
@@ -286,11 +286,12 @@ The cockpit currently uses shadcn-style HSL custom properties (`src/cockpit/web/
 | `--liveness-orphaned` | (new) `liveness.orphaned`                      | Map onto `text.subtle` range.                                                                                                    |
 | —                     | `signal.cyan`, `signal.cyan.dim`, `iso.pastel` | **New**: add to cockpit during mt#1935 — used for active-status indicators, agent-identity surfaces, and sync-gauge instruments. |
 
-For agent-consumable brand discipline, see the `minsky-brand` skill (filed under mt#1933) once it ships. Until then, the marketing-site-design skill's §8 plus this doc are the agent-facing surfaces.
+For agent-consumable brand discipline, see the [`minsky-brand`](../.claude/skills/minsky-brand/SKILL.md) skill (mt#1933) — it is the canonical agent-facing surface for the locked myth, cultural code, layered references, vocabulary, and bridge-as-affect discipline. The marketing-site-design skill (§6 marketing-specific layer over the foundation) and this doc (operational tokens) compose on top.
 
 ## Cross-references
 
-- **Skill:** [`.claude/skills/marketing-site-design/SKILL.md`](../.claude/skills/marketing-site-design/SKILL.md) §8 — concrete decisions from the locked code (the upstream of this doc's tokens).
+- **Skill (brand foundation):** [`.claude/skills/minsky-brand/SKILL.md`](../.claude/skills/minsky-brand/SKILL.md) — locked myth, cultural code, five-layer reference architecture, vocabulary, bridge-as-affect discipline. The agent-consumable upstream of this doc's tokens (mt#1933).
+- **Skill (marketing-surface layer):** [`.claude/skills/marketing-site-design/SKILL.md`](../.claude/skills/marketing-site-design/SKILL.md) §6 — marketing-specific decisions layered over the brand foundation (idiom selection, layout, product surfaces to show, customer-logo strategy).
 - **Workshop:** [`.claude/skills/marketing-site-design/references/minsky-myth-2026-05.md`](../.claude/skills/marketing-site-design/references/minsky-myth-2026-05.md) — Steps 1–5 worked example with the five-layer reference architecture.
 - **Voice skill:** [`.claude/skills/pz-voice/SKILL.md`](../.claude/skills/pz-voice/SKILL.md) — the principal's literary voice as the brand signal layer.
 - **Position paper:** [Principal Substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1).
