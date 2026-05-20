@@ -99,6 +99,7 @@ import {
 } from "./diff-scoper";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { log } from "./logger";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -786,8 +787,9 @@ export async function runReview(
   headSha?: string,
   deps: RunReviewDeps = {}
 ): Promise<ReviewResult> {
-  console.log(
-    JSON.stringify(buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown"))
+  log.info(
+    "runReview_start",
+    buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown")
   );
 
   const octokit = await createOctokit(config);
@@ -807,15 +809,13 @@ export async function runReview(
   // Emit a structured log when the minsky:trivial marker overrides the scope.
   // Makes marker usage visible in metrics so we can track opt-out frequency.
   if (prScope === "trivial" && pr.body.includes("<!-- minsky:trivial -->")) {
-    console.log(
-      JSON.stringify({
-        event: "pr_scope_marker_override",
-        owner,
-        repo,
-        pr: prNumber,
-        sha: pr.headSha,
-      })
-    );
+    log.info("pr_scope_marker_override", {
+      event: "pr_scope_marker_override",
+      owner,
+      repo,
+      pr: prNumber,
+      sha: pr.headSha,
+    });
   }
 
   const scopeBucket = scopeBucketFor(prScope);
@@ -849,17 +849,15 @@ export async function runReview(
 
       if (!markerResult.acquired) {
         // Another caller holds the marker — skip to avoid duplicate review.
-        console.log(
-          JSON.stringify({
-            event: "runReview.skipped_concurrent_inflight",
-            pr_owner: owner,
-            pr_repo: repo,
-            pr_number: prNumber,
-            head_sha: pr.headSha,
-            acquired_by: markerResult.heldBy,
-            delivery_id: deliveryId,
-          })
-        );
+        log.info("runReview.skipped_concurrent_inflight", {
+          event: "runReview.skipped_concurrent_inflight",
+          pr_owner: owner,
+          pr_repo: repo,
+          pr_number: prNumber,
+          head_sha: pr.headSha,
+          acquired_by: markerResult.heldBy,
+          delivery_id: deliveryId,
+        });
         return {
           status: "skipped",
           reason: "concurrent_inflight",
@@ -871,17 +869,15 @@ export async function runReview(
     } catch (markerErr: unknown) {
       // DB error — fail open: proceed without marker guarantee.
       const errorMessage = markerErr instanceof Error ? markerErr.message : String(markerErr);
-      console.log(
-        JSON.stringify({
-          event: "runReview.marker_acquire_failed_fail_open",
-          pr_owner: owner,
-          pr_repo: repo,
-          pr_number: prNumber,
-          head_sha: pr.headSha,
-          delivery_id: deliveryId,
-          error: errorMessage,
-        })
-      );
+      log.info("runReview.marker_acquire_failed_fail_open", {
+        event: "runReview.marker_acquire_failed_fail_open",
+        pr_owner: owner,
+        pr_repo: repo,
+        pr_number: prNumber,
+        head_sha: pr.headSha,
+        delivery_id: deliveryId,
+        error: errorMessage,
+      });
     }
   }
 
@@ -908,17 +904,15 @@ export async function runReview(
     if (markerId !== null && deps.db !== undefined) {
       await releaseMarker(deps.db, markerId).catch((releaseErr: unknown) => {
         const message = releaseErr instanceof Error ? releaseErr.message : String(releaseErr);
-        console.warn(
-          JSON.stringify({
-            event: "runReview.marker_release_failed",
-            pr_owner: owner,
-            pr_repo: repo,
-            pr_number: prNumber,
-            head_sha: pr.headSha,
-            marker_id: markerId,
-            error: message,
-          })
-        );
+        log.warn("runReview.marker_release_failed", {
+          event: "runReview.marker_release_failed",
+          pr_owner: owner,
+          pr_repo: repo,
+          pr_number: prNumber,
+          head_sha: pr.headSha,
+          marker_id: markerId,
+          error: message,
+        });
       });
     }
   }
@@ -1004,9 +998,7 @@ async function runReviewBody(
     priorFlatFindings = parsePriorReviewFindings(priorReviews.map((r) => r.body));
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[mt#1189] Prior-review fetch failed, continuing without context: ${errorMessage}`
-    );
+    log.warn(`[mt#1189] Prior-review fetch failed, continuing without context: ${errorMessage}`);
     priorReviewIngestion = {
       iterationCount: 0,
       staleCount: 0,
@@ -1028,9 +1020,7 @@ async function runReviewBody(
     // fetchReviewThreads already degrades gracefully internally; this outer
     // catch is a safety net for any unexpected throw from the wiring.
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[mt#1345] Review-thread fetch failed, continuing without thread context: ${message}`
-    );
+    log.warn(`[mt#1345] Review-thread fetch failed, continuing without thread context: ${message}`);
   }
 
   // mt#1875 SC2: when diff-scope-bounded is enabled AND prior reviews exist (R≥2),
@@ -1066,7 +1056,7 @@ async function runReviewBody(
       sharedFixCommitLineRange = fixCommitResult.lineRange;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.warn(
+      log.warn(
         `[mt#1875] Fix-commit diff extraction failed for prompt routing, using full PR diff: ${message}`
       );
       // promptDiff remains pr.diff (full diff fallback)
@@ -1149,7 +1139,7 @@ async function runReviewBody(
   // Log why tools are off when they're off, so operators can see it in the
   // service logs rather than silently losing tool support.
   if (!toolsActive && reason) {
-    console.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
+    log.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
   }
 
   // Only pass toolContext when tools are actually active — otherwise the
@@ -1197,16 +1187,15 @@ async function runReviewBody(
         config.githubTimeoutMs
       );
     } catch (submitErr) {
-      console.log(
-        JSON.stringify(
-          buildSubmitFailureLog("reviewer.submit_skip_notice_failed", {
-            prCoords: { owner, repo, prNumber, sha: pr.headSha },
-            primaryReason: validation.reason,
-            submitErr,
-            provider: output.provider,
-            model: output.model,
-          })
-        )
+      log.info(
+        "reviewer.submit_skip_notice_failed",
+        buildSubmitFailureLog("reviewer.submit_skip_notice_failed", {
+          prCoords: { owner, repo, prNumber, sha: pr.headSha },
+          primaryReason: validation.reason,
+          submitErr,
+          provider: output.provider,
+          model: output.model,
+        })
       );
     }
     return {
@@ -1293,29 +1282,25 @@ async function runReviewBody(
       );
       if (dbCounts.length > 0) {
         priorBlockingCountsForConvergence = dbCounts;
-        console.log(
-          JSON.stringify({
-            event: "reviewer.composition_convergence_counts_source",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            source: "db_substrate",
-            count: dbCounts.length,
-            iterationIndex: currentIterationIndex,
-          })
-        );
+        log.info("reviewer.composition_convergence_counts_source", {
+          event: "reviewer.composition_convergence_counts_source",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          source: "db_substrate",
+          count: dbCounts.length,
+          iterationIndex: currentIterationIndex,
+        });
       } else {
-        console.log(
-          JSON.stringify({
-            event: "reviewer.composition_convergence_counts_source",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            source: "review_body_fallback",
-            reason:
-              "DB returned no rows (PR may predate mt#1306 substrate or first review); using parsed review body counts",
-            count: priorReviewIngestion.priorBlockingCounts.length,
-            iterationIndex: currentIterationIndex,
-          })
-        );
+        log.info("reviewer.composition_convergence_counts_source", {
+          event: "reviewer.composition_convergence_counts_source",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          source: "review_body_fallback",
+          reason:
+            "DB returned no rows (PR may predate mt#1306 substrate or first review); using parsed review body counts",
+          count: priorReviewIngestion.priorBlockingCounts.length,
+          iterationIndex: currentIterationIndex,
+        });
       }
     }
 
@@ -1328,16 +1313,14 @@ async function runReviewBody(
     // (conservative behavior: preserve all findings on R1 reviews).
     const fixCommitLineRange: FixCommitLineRangeMap = sharedFixCommitLineRange;
     if (diffScopeBoundedEnabled && priorReviewsPresent) {
-      console.log(
-        JSON.stringify({
-          event: "reviewer.diff_scope_bounded_extracted",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
-          iterationIndex: currentIterationIndex,
-          diff_scope: "fix_commit",
-          filesInScope: fixCommitLineRange.size,
-        })
-      );
+      log.info("reviewer.diff_scope_bounded_extracted", {
+        event: "reviewer.diff_scope_bounded_extracted",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        iterationIndex: currentIterationIndex,
+        diff_scope: "fix_commit",
+        filesInScope: fixCommitLineRange.size,
+      });
     }
 
     // Delegate the recovery + reconciliation + convergence + composition to the
@@ -1370,20 +1353,18 @@ async function runReviewBody(
     // layer's decisions and identify false positives. Aggregated count is
     // also useful for dashboards.
     for (const d of recoveryResult.downgrades) {
-      console.log(
-        JSON.stringify({
-          event: "reviewer.severity_downgrade",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
-          file: d.file,
-          line: d.line,
-          ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
-          fromSeverity: d.fromSeverity,
-          toSeverity: d.toSeverity,
-          matchingPriorSeverity: d.matchingPriorSeverity,
-          reason: d.reason,
-        })
-      );
+      log.info("reviewer.severity_downgrade", {
+        event: "reviewer.severity_downgrade",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        file: d.file,
+        line: d.line,
+        ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+        fromSeverity: d.fromSeverity,
+        toSeverity: d.toSeverity,
+        matchingPriorSeverity: d.matchingPriorSeverity,
+        reason: d.reason,
+      });
     }
     if (monotonicityRecoveryEnabled) {
       // Emit summary on EVERY review when recovery is enabled, even with
@@ -1410,31 +1391,29 @@ async function runReviewBody(
       const postRecoveryPreExistingCount = postRecoveryFindings.filter(
         (tc) => tc.name === "submit_finding" && tc.args.severity === "PRE-EXISTING"
       ).length;
-      console.log(
-        JSON.stringify({
-          event: "reviewer.severity_downgrade_summary",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
-          downgradeCount: recoveryResult.downgrades.length,
-          totalFindingCount,
-          originalBlockingCount: recoveryResult.originalBlockingCount,
-          postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
-          // Pre- and post-recovery breakdowns for the non-BLOCKING tiers
-          // so dashboards can distinguish "downgraded from BLOCKING" vs.
-          // "originally non-blocking" without reconstructing from logs
-          // (PR #922 R24#3).
-          preRecoveryNonBlockingCount,
-          preRecoveryPreExistingCount,
-          postRecoveryNonBlockingCount,
-          postRecoveryPreExistingCount,
-          // True when the recovery moved the count past zero, signaling the
-          // composed event will likely change from REQUEST_CHANGES to
-          // COMMENT/APPROVE downstream.
-          crossedZero:
-            recoveryResult.originalBlockingCount > 0 &&
-            recoveryResult.postRecoveryBlockingCount === 0,
-        })
-      );
+      log.info("reviewer.severity_downgrade_summary", {
+        event: "reviewer.severity_downgrade_summary",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        downgradeCount: recoveryResult.downgrades.length,
+        totalFindingCount,
+        originalBlockingCount: recoveryResult.originalBlockingCount,
+        postRecoveryBlockingCount: recoveryResult.postRecoveryBlockingCount,
+        // Pre- and post-recovery breakdowns for the non-BLOCKING tiers
+        // so dashboards can distinguish "downgraded from BLOCKING" vs.
+        // "originally non-blocking" without reconstructing from logs
+        // (PR #922 R24#3).
+        preRecoveryNonBlockingCount,
+        preRecoveryPreExistingCount,
+        postRecoveryNonBlockingCount,
+        postRecoveryPreExistingCount,
+        // True when the recovery moved the count past zero, signaling the
+        // composed event will likely change from REQUEST_CHANGES to
+        // COMMENT/APPROVE downstream.
+        crossedZero:
+          recoveryResult.originalBlockingCount > 0 &&
+          recoveryResult.postRecoveryBlockingCount === 0,
+      });
     }
 
     // mt#1867 convergence detection logging: emit one structured event per
@@ -1446,39 +1425,35 @@ async function runReviewBody(
       const convDetection = recoveryResult.convergenceDetection;
       // Per-finding downgrade events
       for (const d of recoveryResult.convergenceDowngrades) {
-        console.log(
-          JSON.stringify({
-            event: "reviewer.composition_convergence_downgrade",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            file: d.file,
-            ...(d.line !== undefined ? { line: d.line } : {}),
-            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
-            fromSeverity: d.fromSeverity,
-            toSeverity: d.toSeverity,
-            reason: d.reason,
-          })
-        );
+        log.info("reviewer.composition_convergence_downgrade", {
+          event: "reviewer.composition_convergence_downgrade",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          file: d.file,
+          ...(d.line !== undefined ? { line: d.line } : {}),
+          ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+          fromSeverity: d.fromSeverity,
+          toSeverity: d.toSeverity,
+          reason: d.reason,
+        });
       }
       // Summary event — always emitted when enabled so dashboards see one entry
       // per review regardless of whether the downgrade fired.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.composition_convergence_summary",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
-          iterationIndex: currentIterationIndex,
-          downgradeApplied: convDetection.downgradeApplied,
-          downgradeCount: recoveryResult.convergenceDowngrades.length,
-          currentBlockingCount: convDetection.currentBlockingCount,
-          priorBlockingCounts: convDetection.priorBlockingCounts,
-          isCountDecreasing: convDetection.isCountDecreasing,
-          hasAnyNewEvidence: convDetection.hasAnyNewEvidence,
-          reason: convDetection.reason,
-          // Evidence verdicts per BLOCKING (populated when downgradeApplied=true)
-          evidenceVerdicts: convDetection.downgradeApplied ? convDetection.evidenceVerdicts : [],
-        })
-      );
+      log.info("reviewer.composition_convergence_summary", {
+        event: "reviewer.composition_convergence_summary",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        iterationIndex: currentIterationIndex,
+        downgradeApplied: convDetection.downgradeApplied,
+        downgradeCount: recoveryResult.convergenceDowngrades.length,
+        currentBlockingCount: convDetection.currentBlockingCount,
+        priorBlockingCounts: convDetection.priorBlockingCounts,
+        isCountDecreasing: convDetection.isCountDecreasing,
+        hasAnyNewEvidence: convDetection.hasAnyNewEvidence,
+        reason: convDetection.reason,
+        // Evidence verdicts per BLOCKING (populated when downgradeApplied=true)
+        evidenceVerdicts: convDetection.downgradeApplied ? convDetection.evidenceVerdicts : [],
+      });
     }
 
     // mt#1875 diff-scope-bounded downgrade logging: emit one structured event per
@@ -1489,35 +1464,31 @@ async function runReviewBody(
     if (diffScopeBoundedEnabled) {
       // Per-finding downgrade events
       for (const d of recoveryResult.diffScopeBoundedDowngrades) {
-        console.log(
-          JSON.stringify({
-            event: "reviewer.diff_scope_bounded_downgrade",
-            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-            sha: pr.headSha,
-            file: d.file,
-            ...(d.line !== undefined ? { line: d.line } : {}),
-            ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
-            fromSeverity: d.fromSeverity,
-            toSeverity: d.toSeverity,
-            reason: d.reason,
-          })
-        );
+        log.info("reviewer.diff_scope_bounded_downgrade", {
+          event: "reviewer.diff_scope_bounded_downgrade",
+          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+          sha: pr.headSha,
+          file: d.file,
+          ...(d.line !== undefined ? { line: d.line } : {}),
+          ...(d.lineEnd !== undefined ? { lineEnd: d.lineEnd } : {}),
+          fromSeverity: d.fromSeverity,
+          toSeverity: d.toSeverity,
+          reason: d.reason,
+        });
       }
       // Summary event — always emitted when enabled so dashboards see one entry
       // per review regardless of whether the downgrade fired.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.diff_scope_bounded_summary",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
-          iterationIndex: currentIterationIndex,
-          priorReviewsPresent,
-          diff_scope: priorReviewsPresent ? "fix_commit" : "full_pr",
-          filesInScope: fixCommitLineRange.size,
-          downgradeApplied: recoveryResult.diffScopeBoundedDowngrades.length > 0,
-          downgradeCount: recoveryResult.diffScopeBoundedDowngrades.length,
-        })
-      );
+      log.info("reviewer.diff_scope_bounded_summary", {
+        event: "reviewer.diff_scope_bounded_summary",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        iterationIndex: currentIterationIndex,
+        priorReviewsPresent,
+        diff_scope: priorReviewsPresent ? "fix_commit" : "full_pr",
+        filesInScope: fixCommitLineRange.size,
+        downgradeApplied: recoveryResult.diffScopeBoundedDowngrades.length > 0,
+        downgradeCount: recoveryResult.diffScopeBoundedDowngrades.length,
+      });
     }
 
     // Self-review override: structural event from composeReviewBody (already
@@ -1533,18 +1504,16 @@ async function runReviewBody(
     // the authoritative output on this path.
     const scratchSanitized = sanitizeReviewBody(output.text);
     if (scratchSanitized.action !== "passthrough") {
-      console.log(
-        JSON.stringify({
-          event: "reviewer.cot_leak_detected_in_scratch",
-          prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-          sha: pr.headSha,
-          originalLength: scratchSanitized.meta.originalLength,
-          cleanedLength: scratchSanitized.meta.cleanedLength,
-          reason: scratchSanitized.meta.reason,
-          provider: output.provider,
-          model: output.model,
-        })
-      );
+      log.info("reviewer.cot_leak_detected_in_scratch", {
+        event: "reviewer.cot_leak_detected_in_scratch",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        originalLength: scratchSanitized.meta.originalLength,
+        cleanedLength: scratchSanitized.meta.cleanedLength,
+        reason: scratchSanitized.meta.reason,
+        provider: output.provider,
+        model: output.model,
+      });
     }
 
     const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
@@ -1589,41 +1558,35 @@ async function runReviewBody(
         const firstAuthor = threadAuthorMap.get(entry.threadId);
         // Allow resolve only when the first comment is ours.
         if (firstAuthor !== reviewerBotLogin) {
-          console.log(
-            JSON.stringify({
-              event: "reviewer.thread_resolve_skipped",
-              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-              sha: pr.headSha,
-              threadId: entry.threadId,
-              firstAuthor,
-              reason: "human-thread guard: first comment not from reviewer bot",
-            })
-          );
+          log.info("reviewer.thread_resolve_skipped", {
+            event: "reviewer.thread_resolve_skipped",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            threadId: entry.threadId,
+            firstAuthor,
+            reason: "human-thread guard: first comment not from reviewer bot",
+          });
           continue;
         }
 
         try {
           await resolveThread(octokit, entry.threadId);
-          console.log(
-            JSON.stringify({
-              event: "reviewer.thread_resolved",
-              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-              sha: pr.headSha,
-              threadId: entry.threadId,
-              modelReason: entry.reason,
-            })
-          );
+          log.info("reviewer.thread_resolved", {
+            event: "reviewer.thread_resolved",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            threadId: entry.threadId,
+            modelReason: entry.reason,
+          });
         } catch (resolveErr: unknown) {
           const message = resolveErr instanceof Error ? resolveErr.message : String(resolveErr);
-          console.log(
-            JSON.stringify({
-              event: "reviewer.thread_resolve_failed",
-              prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-              sha: pr.headSha,
-              threadId: entry.threadId,
-              error: message,
-            })
-          );
+          log.info("reviewer.thread_resolve_failed", {
+            event: "reviewer.thread_resolve_failed",
+            prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+            sha: pr.headSha,
+            threadId: entry.threadId,
+            error: message,
+          });
           // Non-fatal: resolve failure should not abort the review result.
         }
       }
@@ -1634,16 +1597,15 @@ async function runReviewBody(
       0
     );
     const acknowledgedCount = countAcknowledgedFindings(composed.body);
-    console.log(
-      JSON.stringify(
-        buildConvergenceMetricLog(
-          pr.number,
-          pr.headSha,
-          priorReviewIngestion.iterationCount + 1,
-          priorBlockerTotal,
-          blockingCount,
-          acknowledgedCount
-        )
+    log.info(
+      "reviewer.convergence_metric",
+      buildConvergenceMetricLog(
+        pr.number,
+        pr.headSha,
+        priorReviewIngestion.iterationCount + 1,
+        priorBlockerTotal,
+        blockingCount,
+        acknowledgedCount
       )
     );
 
@@ -1677,21 +1639,19 @@ async function runReviewBody(
   // structured service-error notice (when the leak is the entire body).
   const sanitized = sanitizeReviewBody(output.text);
   if (sanitized.action !== "passthrough") {
-    console.log(
-      JSON.stringify({
-        event: "reviewer.cot_leak_detected",
-        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
-        sha: pr.headSha, // canonical field name (aligned with review_result log)
-        commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
-        originalLength: sanitized.meta.originalLength,
-        cleanedLength: sanitized.meta.cleanedLength,
-        action: sanitized.action,
-        reason: sanitized.meta.reason,
-        prefixSnippet: redactForLog(output.text), // mt#1264: redacted first ~200 chars for FP/TP calibration
-        provider: output.provider,
-        model: output.model,
-      })
-    );
+    log.info("reviewer.cot_leak_detected", {
+      event: "reviewer.cot_leak_detected",
+      prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+      sha: pr.headSha, // canonical field name (aligned with review_result log)
+      commitSha: pr.headSha, // deprecated: kept for Railway log-filter backward compatibility; remove after consumers migrate to `sha`
+      originalLength: sanitized.meta.originalLength,
+      cleanedLength: sanitized.meta.cleanedLength,
+      action: sanitized.action,
+      reason: sanitized.meta.reason,
+      prefixSnippet: redactForLog(output.text), // mt#1264: redacted first ~200 chars for FP/TP calibration
+      provider: output.provider,
+      model: output.model,
+    });
   }
 
   const outcome = decidePostSanitizeOutcome(sanitized, isSelfReview, {
@@ -1726,17 +1686,16 @@ async function runReviewBody(
       // primary outcome.reason in Railway logs — operators cannot tell whether
       // the bot tried-and-failed or never tried at all. Symptom case: PR #830
       // 2026-04-27, second commit 7e7be76a9 silent for 11+ minutes.
-      console.log(
-        JSON.stringify(
-          buildSubmitFailureLog("reviewer.submit_error_notice_failed", {
-            prCoords: { owner, repo, prNumber, sha: pr.headSha },
-            primaryReason: outcome.reason,
-            sanitizeReason: sanitized.meta.reason,
-            submitErr,
-            provider: output.provider,
-            model: output.model,
-          })
-        )
+      log.info(
+        "reviewer.submit_error_notice_failed",
+        buildSubmitFailureLog("reviewer.submit_error_notice_failed", {
+          prCoords: { owner, repo, prNumber, sha: pr.headSha },
+          primaryReason: outcome.reason,
+          sanitizeReason: sanitized.meta.reason,
+          submitErr,
+          provider: output.provider,
+          model: output.model,
+        })
       );
     }
     return {
@@ -1777,16 +1736,15 @@ async function runReviewBody(
   const priorBlockerTotal = priorReviewIngestion.priorBlockingCounts.reduce((acc, n) => acc + n, 0);
   const acknowledgedCount = countAcknowledgedFindings(sanitized.body);
   const iterationIndex = priorReviewIngestion.iterationCount + 1;
-  console.log(
-    JSON.stringify(
-      buildConvergenceMetricLog(
-        pr.number,
-        pr.headSha,
-        iterationIndex,
-        priorBlockerTotal,
-        blockingCount,
-        acknowledgedCount
-      )
+  log.info(
+    "reviewer.convergence_metric",
+    buildConvergenceMetricLog(
+      pr.number,
+      pr.headSha,
+      iterationIndex,
+      priorBlockerTotal,
+      blockingCount,
+      acknowledgedCount
     )
   );
 
@@ -1878,8 +1836,8 @@ function annotateReviewBody(
  * the sanitizer). Pass `sanitizeReason` only in that case.
  *
  * Both catch blocks call this builder and pass the returned payload to
- * `JSON.stringify` + `console.log` (stdout, matching reviewer.cot_leak_detected
- * and reviewer.convergence_metric in the same file).
+ * `log.info` (matching reviewer.cot_leak_detected and reviewer.convergence_metric
+ * in the same file).
  *
  * Exported so the payload shape is unit-testable independent of the catch
  * blocks themselves (round-4 review BLOCKING).

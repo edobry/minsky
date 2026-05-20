@@ -3,9 +3,9 @@
  * winston logger (`./logger`).
  *
  * Winston's Console transport writes to `process.stdout.write` directly,
- * bypassing `console.log`. Tests that previously intercepted `console.log` /
- * `console.warn` / `console.error` to capture production output must instead
- * intercept at the stream level so the winston path is captured.
+ * bypassing the standard `console` global. Tests that previously intercepted
+ * the standard logger to capture production output must instead intercept at
+ * the stream level so the winston path is captured.
  *
  * This module factors out the helper originally inlined in `server.test.ts`
  * (mt#1255) so tests across the reviewer service share one canonical capture
