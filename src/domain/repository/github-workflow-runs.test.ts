@@ -201,6 +201,34 @@ describe("viewWorkflowRunLogs", () => {
     expect(result).toContain("hello");
   });
 
+  test("handles ≥200KB ZIP bodies without RangeError (PR #1185 review fix)", async () => {
+    // Regression: pre-fix code used `btoa(String.fromCharCode(...bytes))` which
+    // overflows V8's call stack for buffers ≥ ~100KB. Real GitHub Actions log
+    // ZIPs are routinely 200KB–10MB, so the base64 fallback path was effectively
+    // broken in production. The fix uses chunked encoding (32KB chunks via
+    // String.fromCharCode.apply). This test exercises the path with a 200KB
+    // buffer that does NOT start with a ZIP local-header signature, forcing
+    // extractZipText() to throw and the outer base64 fallback to fire.
+    const largeNonZipPayload = new Uint8Array(200 * 1024).fill(0x42);
+    const oct = {
+      rest: {
+        actions: {
+          downloadWorkflowRunLogs: mock(async () => ({ data: largeNonZipPayload })),
+        },
+      },
+    };
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    // The fallback path returns the base64 wrapper.
+    expect(result).toContain("[base64-encoded ZIP");
+    // Sanity-check encoding: 200KB of 0x42 → "Q" repeated in base64.
+    expect(result).toContain("Q");
+    // No stack overflow — getting this far is the regression assertion.
+  });
+
   test("throws MinskyError when runId is 0 or negative", async () => {
     const oct = buildMockOctokit();
     await expect(

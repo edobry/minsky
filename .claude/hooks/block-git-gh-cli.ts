@@ -353,13 +353,18 @@ export const ghDenials: DenialRule[] = [
       "Use `mcp__minsky__forge_ci_run_list` or `mcp__minsky__forge_ci_run_view_log` instead of `gh api .../actions/runs/...`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
   },
   {
-    // Block `gh api .../labels` and `.../labels/<name>` — use forge_label_* tools.
+    // Block `gh api .../labels` and `.../labels/<name>` for REPO-level label
+    // management — use forge_label_* tools. Narrowed regex to match only the
+    // repo-level path shape `/repos/<owner>/<repo>/labels[/...]`, NOT the
+    // issue/PR-scoped `/repos/<owner>/<repo>/issues/<N>/labels` (which is
+    // label application to an issue, served by `mcp__github__issue_write`, not
+    // `forge_label_*`). mt#1957 PR #1185 reviewer-bot finding.
     match: (args) => {
       if (args[0] !== "api") return false;
-      return args.some((a) => /\/labels(\/|$)/.test(a));
+      return args.some((a) => /\/repos\/[^/]+\/[^/]+\/labels(\/|$)/.test(a));
     },
     reason:
-      "Use `mcp__minsky__forge_label_create` / `forge_label_list` / `forge_label_update` / `forge_label_delete` instead of `gh api .../labels/...`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
+      "Use `mcp__minsky__forge_label_create` / `forge_label_list` / `forge_label_update` / `forge_label_delete` instead of `gh api /repos/.../labels`. The Minsky tools route through the configured ForgeBackend (mt#1957). (For applying labels to an issue or PR — `/repos/.../issues/<N>/labels` — use `mcp__github__issue_write` instead.)",
   },
   {
     // Minsky policy: the PR-merge bypass (feedback_gh_api_bypass.md) and

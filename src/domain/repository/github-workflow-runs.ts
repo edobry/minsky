@@ -256,7 +256,12 @@ export async function viewWorkflowRunLogs(
         error: unzipErr instanceof Error ? unzipErr.message : String(unzipErr),
       });
       // Consumer-side decode: return as base64 so the content isn't lost.
-      const base64 = btoa(String.fromCharCode(...bytes));
+      // Use Buffer.from(uint8Array).toString("base64") rather than
+      // btoa(String.fromCharCode(...)) — the spread-based form throws RangeError
+      // ("Maximum call stack size exceeded") for Uint8Arrays larger than
+      // ~65k–100k bytes, and real Actions log ZIPs are routinely 200KB–10MB.
+      // mt#1957 PR #1185 reviewer-bot finding.
+      const base64 = uint8ArrayToBase64(bytes);
       return `[base64-encoded ZIP — decode with: Buffer.from(data, 'base64')]\n${base64}`;
     }
   } catch (error) {
@@ -271,6 +276,31 @@ export async function viewWorkflowRunLogs(
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────
+
+/**
+ * Convert a Uint8Array to a base64-encoded string without spread-stack overflow.
+ *
+ * Replaces the `btoa(String.fromCharCode(...bytes))` pattern, which throws
+ * `RangeError: Maximum call stack size exceeded` when the byte array exceeds
+ * ~65k–100k bytes — fatal for real Actions log ZIPs (200KB–10MB).
+ *
+ * Strategy: build the binary-string in 32KB chunks using
+ * `String.fromCharCode.apply(null, slice)` — keeps the per-call argument count
+ * bounded under V8's apply limit (~120K args), then base64-encode the full
+ * binary string with `btoa`. Linear time, no recursion, no `Buffer` required
+ * (the project's TypeScript Buffer signature does not accept Uint8Array).
+ *
+ * mt#1957 PR #1185 reviewer-bot finding.
+ */
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const slice = bytes.subarray(i, Math.min(i + CHUNK, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(slice));
+  }
+  return btoa(binary);
+}
 
 /**
  * Extract text content from a ZIP Uint8Array.
@@ -325,7 +355,10 @@ function extractZipText(bytes: Uint8Array): string {
     } else if (compressionMethod === 8) {
       // DEFLATE — native decompression not available without a ZIP library.
       // Return raw bytes as base64 for this entry so the content isn't lost.
-      const base64 = btoa(String.fromCharCode(...compressedData));
+      // Use uint8ArrayToBase64 (Buffer-based) rather than btoa(String.fromCharCode(...))
+      // — the spread-based form throws RangeError for buffers > ~65k bytes, and
+      // GitHub Actions log entries routinely exceed that.
+      const base64 = uint8ArrayToBase64(compressedData);
       entryText = `[DEFLATE-compressed — decode: base64 then inflate-raw]\n${base64}`;
     } else {
       entryText = `[unsupported compression method ${compressionMethod}]`;

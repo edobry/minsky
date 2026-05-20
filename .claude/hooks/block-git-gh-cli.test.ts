@@ -676,6 +676,15 @@ describe("checkDenial — gh", () => {
     expect(reason).toContain("forge_label_create");
   });
 
+  it("does NOT block issue-scoped labels endpoint (PR #1185 review fix)", () => {
+    // Regression: pre-fix regex /\/labels(\/|$)/ also matched
+    // /repos/.../issues/<N>/labels, which is for applying labels to an issue —
+    // served by `mcp__github__issue_write`, NOT forge_label_*. The narrowed
+    // regex /\/repos\/[^/]+\/[^/]+\/labels(\/|$)/ now allows this path through.
+    expect(denied("api", "/repos/owner/repo/issues/123/labels")).toBeNull();
+    expect(denied("api", "-X", "POST", "/repos/owner/repo/issues/123/labels")).toBeNull();
+  });
+
   it("still allows non-forge gh api endpoints (e.g. /user)", () => {
     expect(denied("api", "/user")).toBeNull();
   });
