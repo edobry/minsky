@@ -73,6 +73,7 @@
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { callMcp } from "./mcp-client";
+import { log } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -148,7 +149,7 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
   // future change to the helper's default does not silently regress scheduler
   // behavior.
   //
-  // Observability: `callMcp` emits structured `console.warn` events with the
+  // Observability: `callMcp` emits structured `log.warn` events with the
   // `pr_watch_scheduler.mcp` prefix; the legacy
   // `pr_watch_scheduler.mcp_{http_error,rpc_error}` events are preserved at
   // the same prefix. The legacy `pr_watch_scheduler.call_failed` event
@@ -216,34 +217,28 @@ export function startPrWatchScheduler(
   schedulerConfig: PrWatchSchedulerConfig
 ): ReturnType<typeof setInterval> | null {
   if (!schedulerConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "pr_watch_scheduler.disabled",
-        message: "PR-watch scheduler is disabled (PR_WATCH_ENABLED=false).",
-      })
-    );
+    log.info("pr_watch_scheduler.disabled", {
+      event: "pr_watch_scheduler.disabled",
+      message: "PR-watch scheduler is disabled (PR_WATCH_ENABLED=false).",
+    });
     return null;
   }
 
   if (!schedulerConfig.mcpUrl || !schedulerConfig.mcpToken) {
-    console.warn(
-      JSON.stringify({
-        event: "pr_watch_scheduler.missing_credentials",
-        message:
-          "PR-watch scheduler is enabled but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
-          "PR-watch scheduler will not start. Set PR_WATCH_ENABLED=false to silence this warning.",
-      })
-    );
+    log.warn("pr_watch_scheduler.missing_credentials", {
+      event: "pr_watch_scheduler.missing_credentials",
+      message:
+        "PR-watch scheduler is enabled but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+        "PR-watch scheduler will not start. Set PR_WATCH_ENABLED=false to silence this warning.",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "pr_watch_scheduler.started",
-      intervalMs: schedulerConfig.intervalMs,
-      mcpUrl: schedulerConfig.mcpUrl,
-    })
-  );
+  log.info("pr_watch_scheduler.started", {
+    event: "pr_watch_scheduler.started",
+    intervalMs: schedulerConfig.intervalMs,
+    mcpUrl: schedulerConfig.mcpUrl,
+  });
 
   // Suppress unused variable warning — config is held for future use
   void config;
@@ -262,12 +257,10 @@ export function startPrWatchScheduler(
 
   const handle = setInterval(() => {
     if (isRunning) {
-      console.warn(
-        JSON.stringify({
-          event: "pr_watch_scheduler.skip_reentrant",
-          message: "Previous PR-watch poll still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("pr_watch_scheduler.skip_reentrant", {
+        event: "pr_watch_scheduler.skip_reentrant",
+        message: "Previous PR-watch poll still in progress; skipping this interval tick.",
+      });
       return;
     }
     isRunning = true;
@@ -275,25 +268,21 @@ export function startPrWatchScheduler(
     callPrWatchRun(schedulerConfig.mcpUrl, schedulerConfig.mcpToken)
       .then((result) => {
         if (result.success) {
-          console.log(
-            JSON.stringify({
-              event: "pr_watch_scheduler.poll_complete",
-              inspected: result.inspected ?? 0,
-              fired: result.fired ?? 0,
-            })
-          );
+          log.info("pr_watch_scheduler.poll_complete", {
+            event: "pr_watch_scheduler.poll_complete",
+            inspected: result.inspected ?? 0,
+            fired: result.fired ?? 0,
+          });
         }
         // Errors are already logged inside callPrWatchRun.
       })
       .catch((err: unknown) => {
         // Unreachable: callPrWatchRun catches internally. Belt-and-suspenders.
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "pr_watch_scheduler.unexpected_error",
-            error: message,
-          })
-        );
+        log.error("pr_watch_scheduler.unexpected_error", {
+          event: "pr_watch_scheduler.unexpected_error",
+          error: message,
+        });
       })
       .finally(() => {
         isRunning = false;
