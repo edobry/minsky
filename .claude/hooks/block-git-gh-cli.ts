@@ -292,6 +292,11 @@ export const ghDenials: DenialRule[] = [
     reason: 'Use `mcp__github__pull_request_read` (method: "get") instead of `gh pr view`.',
   },
   {
+    match: (args) => args[0] === "pr" && args[1] === "close",
+    reason:
+      "Use `mcp__minsky__session_pr_close` instead of `gh pr close`. The Minsky tool routes through TokenProvider (bot identity), supports posting an optional closure comment before the state flip, and refuses already-closed/merged PRs with a clear error. See mt#1955.",
+  },
+  {
     match: (args) => args[0] === "pr" && args[1] === "merge",
     reason:
       "Use `mcp__minsky__session_pr_merge` or `mcp__github__merge_pull_request` instead of `gh pr merge`.",

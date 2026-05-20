@@ -478,6 +478,29 @@ export const sessionPrEditCommandParams = {
 };
 
 /**
+ * Session PR Close Command Parameters (mt#1955)
+ *
+ * Closes a session's PR without merging, optionally posting a comment
+ * before the state flip. See the GitHub-MCP-banned mapping in
+ * `.minsky/rules/mcp-tools.mdc` for context.
+ */
+export const sessionPrCloseCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  comment: {
+    schema: z.string(),
+    description:
+      "Optional comment to post on the PR before closing. Useful for absorb-and-close: " +
+      "name the PR that subsumes this work. Posted as a regular PR comment (not a review) " +
+      "so it appears chronologically before the close event.",
+    required: false,
+  },
+  json: commonSessionParams.json,
+  debug: commonSessionParams.debug,
+};
+
+/**
  * Session PR List command parameters
  * Lists all PRs associated with sessions
  */

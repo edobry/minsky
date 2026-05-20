@@ -31,7 +31,7 @@ export const toolDenials: ToolDenialRule[] = [
   {
     toolName: "mcp__github__update_pull_request",
     reason:
-      "Use `mcp__minsky__session_pr_edit` instead. The Minsky tool routes through TokenProvider and keeps provenance state consistent. See mt#1030.",
+      "Use `mcp__minsky__session_pr_edit` (for title / body updates) or `mcp__minsky__session_pr_close` (for state-flip to closed; mt#1955) instead. The Minsky tools route through TokenProvider and keep provenance state consistent. See mt#1030.",
   },
   {
     toolName: "mcp__github__merge_pull_request",
