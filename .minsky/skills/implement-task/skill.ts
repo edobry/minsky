@@ -11,6 +11,7 @@ export default defineSkill({
 Step-by-step implementation lifecycle for a task within a Minsky session. Covers status-gating, session creation through PR creation.
 
 **Owned lifecycle transitions:**
+
 - READY → IN-PROGRESS: this skill owns this transition via \`session_start\`
 - IN-PROGRESS → IN-REVIEW: this skill owns this transition via \`session_pr_create\`
 
@@ -100,6 +101,7 @@ Call \`memory_search\` with the task ID and domain area:
 **This step owns the READY → IN-PROGRESS transition.**
 
 Call \`mcp__minsky__session_start\` with the task ID. This:
+
 - Creates an isolated session workspace
 - Sets task status to IN-PROGRESS
 
@@ -161,12 +163,14 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 3. **Probe-before-defer (mt#1819).** Scan the draft PR body, the spec's \`## Outcome\` section (if you've added one this session), and any "Live verification" / "Operator follow-up" subsections you're about to ship for the trigger-phrase patterns below. If any pattern matches, run the canonical tooling probe BEFORE the PR is created — don't post a deferral you haven't probed.
 
    **Trigger-phrase patterns** (match as patterns, not literal strings — \`X\` stands for any service/tool/account name):
+
    - "deferred to operator" / "deferred to user"
    - "requires X access" — e.g., "requires Railway access", "requires GitHub access", "requires admin token", "requires production access"
    - "user must do this" / "operator follow-up"
    - "outside agent context" / "not available from agent context"
 
    **Canonical probe sequence:**
+
    - CLI probe — \`which <cli> && <cli> whoami\` for the relevant tool (~5 sec).
    - Skill probe — search the available-skills system-reminder for \`<service>:*\` (e.g., \`railway:use-railway\`, \`cloudflare:wrangler\`).
    - Repo probe — check \`scripts/<service>/\`, \`services/<service>/<service>.config.ts\`, or similar.
@@ -244,30 +248,62 @@ Use \`mcp__minsky__session_pr_create\` to create the pull request:
 After PR creation, **stop working on the session**. Do not continue committing.
 
 Suggest to the user:
+
 > "PR created. Run \`/verify-task mt#X\` to verify the implementation against all success criteria before merging."
 
 **Do NOT** auto-run \`/verify-task\`, do NOT attempt to merge. Verification and merge are owned by the \`/verify-task\` skill and the review process.
 
 ### 10. Post-merge deploy verification (when the task touches a deployed service)
 
-When the merged PR changes code that runs in a deployed service (anything under \`services/<svc>/\` that has a \`deploy.config.ts\`, or any source that the deploy image bundles via the project Dockerfile), do NOT stop at merge. The merge triggers an auto-deploy on Railway (or whatever platform the service declares); that deploy can fail in ways no pre-merge check catches — Dockerfile breakage, missing env var, schema migration error, container crash on start. Verify the post-merge deploy succeeded before reporting the task done.
+When the merged PR changes code that runs in a deployed service (anything under
+\`services/<svc>/\` that has a \`deploy.config.ts\`, or any source that the deploy
+image bundles via the project Dockerfile), do NOT stop at merge. The merge
+triggers an auto-deploy on Railway (or whatever platform the service declares);
+that deploy can fail in ways no pre-merge check catches — Dockerfile breakage,
+missing env var, schema migration error, container crash on start. Verify the
+post-merge deploy succeeded before reporting the task done.
 
-**Primary mechanism: \`mcp__minsky__deployment_wait-for-latest\`.** Block-and-return on the latest deployment for the configured service. Returns the terminal \`DeploymentRecord\` (SUCCESS / FAILED / CANCELLED / CRASHED). Platform-neutral; the tool routes to the platform declared in \`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter). See \`docs/deployment-platforms.md\` for the abstraction.
+**Primary mechanism: \`mcp__minsky__deployment_wait-for-latest\`.**
+
+\`\`\`
+deployment_wait-for-latest(service?: string, timeoutSeconds?: number)
+\`\`\`
+
+Block-and-return on the latest deployment for the configured service.
+Returns the terminal \`DeploymentRecord\` (SUCCESS / FAILED / CANCELLED /
+CRASHED). Platform-neutral; the tool routes to the platform declared in
+\`services/<svc>/deploy.config.ts\` (Railway is the v1 concrete adapter; v2
+candidates: Vercel, Cloudflare Pages, etc.). See
+\`docs/deployment-platforms.md\` for the abstraction.
 
 **Follow-ups for inspection (not for waiting):**
 
-- \`mcp__minsky__deployment_status(service?)\` — snapshot of the latest deployment without blocking.
-- \`mcp__minsky__deployment_logs(deploymentId, type?, lines?, service?)\` — fetch build or runtime logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725).
+- \`mcp__minsky__deployment_status(service?)\` — snapshot of the latest
+  deployment without blocking. Useful for "is something already running?"
+  checks.
+- \`mcp__minsky__deployment_logs(deploymentId, type?, lines?, service?)\` —
+  fetch build (\`type: "build"\`) or runtime (\`type: "deploy"\`) logs for a
+  specific deployment. Block-and-return; streaming is out of scope for v1
+  (see mt#1725 for the notification path).
 
 **Anti-patterns to avoid:**
 
-- Polling the application's HTTP endpoint in a Bash loop.
-- \`ScheduleWakeup\` with a guessed interval.
-- Shelling out to \`railway logs --build\` from Bash — use the MCP tool.
+- Polling the application's HTTP endpoint in a Bash loop. Correctness-by-
+  eventual-consistency; no failure signal until timeout.
+- \`ScheduleWakeup\` with a guessed interval. Latency model is wrong by
+  default (see \`feedback_reviewer_bot_actual_latency_calibration_data\`
+  for the sibling lesson on reviewer-bot timing).
+- Shelling out to \`railway logs --build\` from Bash. The MCP tool wraps the
+  same underlying Railway GraphQL; the platform-neutral surface keeps the
+  agent's reach platform-aware without memorizing CLI flags.
 
-**When the deploy fails:** call \`deployment_logs(deploymentId, type: "build")\` on the failed deployment ID, inspect the failure, and either fix-forward in a new PR or surface to the user with the logs attached.
+**When the deploy fails:** call \`deployment_logs(deploymentId, type: "build")\`
+on the failed deployment ID, inspect the failure, and either fix-forward
+in a new PR or surface to the user with the logs attached.
 
-This step does NOT change the task's DONE status — that's still owned by the at-merge handler. Post-merge deploy verification is a quality gate on the deploy itself, not the task lifecycle.
+This step does NOT change the task's DONE status — that's still owned by
+the at-merge handler. Post-merge deploy verification is a quality gate on
+the deploy itself, not the task lifecycle.
 
 ## Constraints
 
