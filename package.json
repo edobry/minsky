@@ -23,8 +23,9 @@
   ],
   "scripts": {
     "start": "bun run src/cli.ts",
-    "build": "bun run build:completion-manifest && bun build --target=bun --outfile=dist/minsky.js src/cli.ts",
+    "build": "bun run build:completion-manifest && bun build --target=bun --outfile=dist/minsky.js src/cli.ts && bun run build:copy-migrations",
     "build:completion-manifest": "bun run scripts/build-completion-manifest.ts",
+    "build:copy-migrations": "mkdir -p dist/storage/migrations && rm -rf dist/storage/migrations/pg && cp -r src/domain/storage/migrations/pg dist/storage/migrations/pg",
     "prepublishOnly": "bun run build",
     "lint": "eslint .",
     "lint:strict": "eslint . --max-warnings=0",
