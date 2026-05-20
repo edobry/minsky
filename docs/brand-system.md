@@ -8,12 +8,18 @@ The _why_ lives in the position paper — [Principal Substrate: Minsky as a recu
 
 **Cyberbrain / Section 9.** Autonomous-flock cybernetic substrate that extends a principal's cognition, rendered as a serious operational profession. Five-layer reference architecture (none literal): GitS SAC (primary) + Evangelion (backline) + Mitsuo Iso (texture) + Magilumière Magical Girls Inc. (tonal lock) + Stross _Accelerando_ / Manfred Macx (literary). Worked example: [`.claude/skills/marketing-site-design/references/minsky-myth-2026-05.md`](../.claude/skills/marketing-site-design/references/minsky-myth-2026-05.md). Strategic framing: [Principal Substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1).
 
+## Reference use and trademarks
+
+The cited franchises and works (Ghost in the Shell, Stand Alone Complex, Neon Genesis Evangelion, Mitsuo Iso's _Orbital Children_ and _Dennō Coil_, Magilumière Magical Girls Inc., Stross's _Accelerando_, and others) are referenced nominatively for cultural-code recognition only. No affiliation, sponsorship, or endorsement is claimed. All trademarks belong to their respective owners. Surface implementations must follow the bridge-as-affect discipline in §5 — atmospheric register, never literal depiction.
+
 ## Upstream sources
 
 - **Thesis:** [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1) — why Minsky is a recursive principal-substrate, not a team tool.
 - **Corpus:** mt#1930 — pee_zombie principal-corpus indexed under the `principal-corpus` namespace. Query with `mcp__minsky__principal_corpus_search` / `principal_corpus_similar`. Synthesized memeplex memories tagged `principal-thinking`, `principal-corpus`, `theme:*` (exocortex, cybernetics, ego-plurality, egregore, magick-as-substrate, agency, decentralization, memetics, consciousness-as-infrastructure, cognitive-economics, cognitive-flexibility, cognitive-hazard, process-ontology, consciousness). Queryable via `mcp__minsky__memory_search`.
 - **Workshop:** [`.claude/skills/marketing-site-design/`](../.claude/skills/marketing-site-design/) — myth-first methodology + §8 (Minsky-specific layer) + worked example in `references/minsky-myth-2026-05.md`.
 - **Voice:** [`.claude/skills/pz-voice/SKILL.md`](../.claude/skills/pz-voice/SKILL.md) — the principal's literary voice as the signal layer of the brand identity.
+
+**Access and archival.** The Notion page (Minsky workspace) is private; principals with workspace access can read directly, others should request export. The `~/Projects/minsky-site` path in §7 is a local-only working tree until mt#1934 ships the public site; treat it as an out-of-repo reference, not a clonable URL.
 
 ## 1. Typography
 
@@ -22,6 +28,24 @@ The _why_ lives in the position paper — [Principal Substrate: Minsky as a recu
 | Display + body                                                                                                                          | **Geist** (Vercel-published, free)                          | 400 (regular) | Bold-at-large reads marketing-y; light reads confident. Tight tracking.      |
 | Eyebrows + structural labels + code                                                                                                     | **JetBrains Mono**                                          | 400 / 500     | Caps for eyebrows; sentence case for code.                                   |
 | System-speaks surfaces (places where Minsky itself talks: reviewer-bot output, memory recall, system messages, agent-identity overlays) | **Berkeley Mono** (preferred) _or_ **IBM Plex Mono italic** | 400 italic    | Slightly warmer mono — channels the Magi terminal aesthetic from Evangelion. |
+
+### Font licensing and fallback stacks
+
+- **Geist** — SIL Open Font License 1.1 (open). Self-host or load from Google Fonts / Vercel's CDN.
+- **JetBrains Mono** — SIL Open Font License 1.1 (open). Self-host or load from Google Fonts.
+- **IBM Plex Mono** — SIL Open Font License 1.1 (open). Self-host or load from Google Fonts. **Required default** for open-source / public-bundle surfaces.
+- **Berkeley Mono** — paid commercial license; not redistributable. Use only on surfaces where the principal owns a license and self-hosts. Open-source surfaces must fall back to **IBM Plex Mono italic**.
+
+Required CSS fallback stacks for any surface:
+
+```css
+--font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+--font-mono:
+  "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+  "Courier New", monospace;
+--font-warm-mono:
+  "Berkeley Mono", "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+```
 
 ### Sizing (starting scale; surfaces refine)
 
@@ -42,6 +66,7 @@ The _why_ lives in the position paper — [Principal Substrate: Minsky as a recu
 - **All-caps for structural labels only.** Nav items, eyebrows, numbered section markers. Never for body or headlines.
 - **Sentence case** everywhere else. Present tense. No exclamation marks.
 - **Avoid the AI-slop trifecta:** Inter + Roboto + Lucide icons. If a layout is reaching for these defaults, the brand has not been applied. See §6 (Anti-patterns).
+- **Interactive eyebrows** (when an eyebrow is a clickable label, nav item, or status pill) must keep ≥ 24px line-height and a ≥ 44px tap-target (per WCAG 2.5.5 / Apple HIG); pad the hit area rather than scaling the glyph.
 
 ## 2. Color
 
@@ -60,6 +85,29 @@ The palette is grounded in cybernetic-ops register: near-black ground, near-whit
 | `warn.amber`      | `#F59E0B` | `oklch(0.756 0.180 70)`  | Warning state, attention-required, soft alerts.                                                                                                                            |
 | `warn.red`        | `#DC2626` | `oklch(0.585 0.219 27)`  | Hard warning, hook denials, blocked actions, escalation alerts. NERV-warning end of the spectrum. Use sparingly.                                                           |
 | `iso.pastel`      | `#F5E6D3` | `oklch(0.911 0.030 75)`  | Iso-pastel warmth. **Reserved** for surfaces where an agent's companion-personality is being shown (agent identity indicators, "ghost" overlays). Never as primary accent. |
+
+### Source-of-truth, derivation, and gamut
+
+- **OKLCH is canonical; hex is derived.** When a surface adopts these tokens, generate the sRGB hex (and any HSL form needed for legacy CSS) from the OKLCH values, not the other way around. This prevents perceptual drift across surfaces.
+- **Conversion tooling.** Use [`culori`](https://culori.js.org/) (`culori.formatHex(culori.oklch({ ... }))`) or [`colorjs.io`](https://colorjs.io/) (`new Color("oklch", [L, C, H]).to("srgb").toString({ format: "hex" })`). Both implement the CSS Color Level 4 spec and produce identical results within rounding tolerance.
+- **The values in the table above are starting points** rounded to 3 decimals (lightness/chroma) and integer hue, derived from the principal's anchor hex values listed in the same row. Downstream surfaces (mt#1934, mt#1935) may refine via measured conversion + display-gamut clipping; commit any refinement back to this table so all surfaces stay in sync.
+- **Gamut clipping.** Surfaces rendering on wide-gamut displays (P3, Rec.2020) may render OKLCH values that fall outside sRGB. The fallback hex is intentionally clipped to sRGB; if a surface targets P3, allow the OKLCH value to render directly.
+- **Browser support floor.** `oklch()` requires Chrome 111+, Safari 16.4+, Firefox 113+. Surfaces supporting older engines must ship sRGB hex (or HSL) fallback values via CSS custom properties — e.g., `color: var(--text-primary-hex, var(--text-primary-oklch));`.
+
+### Contrast targets (WCAG 2.2 AA)
+
+The palette satisfies these floors on `bg.base` (`#020202`); surfaces must re-verify when composing on `bg.warm` or `bg.elevated`.
+
+| Foreground                                   | Background | Required                       | Notes                                 |
+| -------------------------------------------- | ---------- | ------------------------------ | ------------------------------------- |
+| `text.primary` (body text ≥ 16px)            | `bg.base`  | ≥ 4.5:1                        | `#EEEEEE` on `#020202` ≈ 18.9:1 ✓ AAA |
+| `text.muted` (large text ≥ 18px / 14px bold) | `bg.base`  | ≥ 3:1                          | `#A3A3A3` on `#020202` ≈ 8.7:1 ✓ AAA  |
+| `text.subtle` (UI components, decorative)    | `bg.base`  | ≥ 3:1                          | `#6B6B6B` on `#020202` ≈ 3.9:1 ✓ AA   |
+| `signal.cyan` (link / active state)          | `bg.base`  | ≥ 4.5:1 (link text) / 3:1 (UI) | `#00BFD8` on `#020202` ≈ 9.0:1 ✓ AAA  |
+| `warn.amber` (warning text)                  | `bg.base`  | ≥ 4.5:1                        | `#F59E0B` on `#020202` ≈ 9.1:1 ✓ AAA  |
+| `warn.red` (escalation text)                 | `bg.base`  | ≥ 4.5:1                        | `#DC2626` on `#020202` ≈ 4.6:1 ✓ AA   |
+
+Measurement method: WCAG 2.2 relative-luminance ratio on sRGB. Re-verify with [`@adobe/leonardo-contrast-colors`](https://leonardocolor.io/) or browser DevTools' contrast picker when porting to a new surface. **Do not** ship a token combination below the listed floor.
 
 ### Rules
 
@@ -84,7 +132,22 @@ Motion is signal infrastructure, not decoration. The budget is "ambient identity
 
 ### `prefers-reduced-motion`
 
-**Required.** Hook `useReducedMotion()` (React) or its equivalent and zero out every motion in the table above when the user has opted out. The sync-gauge becomes a static value; the status-dot is solid; section reveals become instant. Test with system reduced-motion enabled before shipping any surface.
+**Required.** Hook `useReducedMotion()` (React) or its equivalent and zero out every motion in the table above when the user has opted out. Concrete defaults:
+
+- All transitions > 100ms become instant (duration 0).
+- Continuous animations (wordmark rotation, status-dot pulse) stop on the current frame; static value remains visible.
+- Scroll-driven reveals: content renders immediately at final state — no fade, no offset.
+- Sync-gauge: render the final value directly; do not animate to it on change.
+- Hook-denial flash: replace with a static amber border or text colour for ~600ms then revert (visual signal without motion).
+
+**Test matrix.** Before shipping any surface, verify reduced-motion on:
+
+- macOS — System Settings → Accessibility → Display → Reduce motion.
+- Windows — Settings → Accessibility → Visual effects → Animation effects (off).
+- iOS — Settings → Accessibility → Motion → Reduce Motion.
+- Android — Settings → Accessibility → Color and motion → Remove animations.
+
+The CSS query `@media (prefers-reduced-motion: reduce) { ... }` and the React hook `useReducedMotion()` from Motion (formerly Framer Motion) both honor each OS setting above.
 
 ### Rules
 
@@ -180,6 +243,24 @@ This doc is the operational reference. The actual surfaces are owned by sibling 
 - **README + docs voice refresh:** mt#1936 — top-level README and selected `docs/*` updated to the locked voice register (§4 voice rules).
 - **Notion strategic-doc audit:** mt#1937 — register-consistency pass across existing position papers + RFCs.
 - **Brand-foundation skill:** mt#1933 — extracts the cyberbrain register into a separately-consumable skill so `marketing-site-design` and `cockpit-design` can both depend on it.
+
+### Cockpit token mapping (mt#1935 in-scope)
+
+The cockpit currently uses shadcn-style HSL custom properties (`src/cockpit/web/index.css`). mt#1935 migrates these onto the brand tokens above. The mapping is roughly 1:1 with one rename and one split:
+
+| Cockpit (HSL today)   | Brand token (OKLCH after mt#1935)              | Notes                                                                                                                            |
+| --------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `--background`        | `bg.base`                                      | Dark theme: `222.2 47% 4%` → `oklch(0.078 0 0)`.                                                                                 |
+| `--foreground`        | `text.primary`                                 | Dark theme: `210 40% 98%` → `oklch(0.946 0 0)`.                                                                                  |
+| `--card`              | `bg.elevated`                                  | Dark theme: `222.2 47% 7%` → `oklch(0.155 0 0)`.                                                                                 |
+| `--muted-foreground`  | `text.muted`                                   | Slight tone shift; verify contrast after migration.                                                                              |
+| `--primary` (dark)    | `text.primary`                                 | Used as button background; reassess: cockpit may want a `signal.cyan`-keyed primary instead.                                     |
+| `--destructive`       | `warn.red`                                     | Direct rename.                                                                                                                   |
+| `--liveness-healthy`  | (new) `liveness.healthy`                       | Keep cockpit-local liveness sub-tokens; add to the brand palette in a future revision once cockpit has settled.                  |
+| `--liveness-idle`     | (new) `liveness.idle`                          | Map onto `warn.amber` range; preserve cockpit semantic if the visual differs.                                                    |
+| `--liveness-stale`    | (new) `liveness.stale`                         | Map onto `warn.red` range.                                                                                                       |
+| `--liveness-orphaned` | (new) `liveness.orphaned`                      | Map onto `text.subtle` range.                                                                                                    |
+| —                     | `signal.cyan`, `signal.cyan.dim`, `iso.pastel` | **New**: add to cockpit during mt#1935 — used for active-status indicators, agent-identity surfaces, and sync-gauge instruments. |
 
 For agent-consumable brand discipline, see the `minsky-brand` skill (filed under mt#1933) once it ships. Until then, the marketing-site-design skill's §8 plus this doc are the agent-facing surfaces.
 
