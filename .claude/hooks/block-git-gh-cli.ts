@@ -321,7 +321,7 @@ export const ghDenials: DenialRule[] = [
       args[0] === "label" &&
       (args[1] === "create" || args[1] === "list" || args[1] === "edit" || args[1] === "delete"),
     reason:
-      "Use `mcp__minsky__forge_label_create` / `forge_label_list` / `forge_label_update` / `forge_label_delete` instead of `gh label`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
+      "Use `mcp__minsky__forge_label_create` / `mcp__minsky__forge_label_list` / `mcp__minsky__forge_label_update` / `mcp__minsky__forge_label_delete` instead of `gh label`. The Minsky tools route through the configured ForgeBackend (mt#1957).",
   },
   {
     // Block `gh api .../branches/<branch>/protection` reads/writes — use forge_branch_protection_get/set.
@@ -364,7 +364,7 @@ export const ghDenials: DenialRule[] = [
       return args.some((a) => /\/repos\/[^/]+\/[^/]+\/labels(\/|$)/.test(a));
     },
     reason:
-      "Use `mcp__minsky__forge_label_create` / `forge_label_list` / `forge_label_update` / `forge_label_delete` instead of `gh api /repos/.../labels`. The Minsky tools route through the configured ForgeBackend (mt#1957). (For applying labels to an issue or PR — `/repos/.../issues/<N>/labels` — use `mcp__github__issue_write` instead.)",
+      "Use `mcp__minsky__forge_label_create` / `mcp__minsky__forge_label_list` / `mcp__minsky__forge_label_update` / `mcp__minsky__forge_label_delete` instead of `gh api /repos/.../labels`. The Minsky tools route through the configured ForgeBackend (mt#1957). (For applying labels to an issue or PR — `/repos/.../issues/<N>/labels` — use `mcp__github__issue_write` instead.)",
   },
   {
     // Minsky policy: the PR-merge bypass (feedback_gh_api_bypass.md) and
