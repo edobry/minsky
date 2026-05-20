@@ -1,0 +1,19 @@
+# Railway Nixpacks config for the minsky-site marketing service.
+#
+# Railway runs `nixpacks build` from the repo root by default; the explicit
+# bun-as-package-manager declaration matches the pattern in
+# services/minsky-mcp/nixpacks.toml: pin Bun in the setup phase and use it
+# as the install + build tool so the Nixpacks Bun provider doesn't fall
+# through to npm when both lockfiles are present.
+
+[phases.setup]
+nixPkgs = ["bun"]
+
+[phases.install]
+cmds = ["bun install --frozen-lockfile"]
+
+[phases.build]
+cmds = ["cd services/site && bun run build"]
+
+[start]
+cmd = "cd services/site && bun run start"
