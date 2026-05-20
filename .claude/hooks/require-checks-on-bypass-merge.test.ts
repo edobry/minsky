@@ -14,6 +14,9 @@ import { findGhApiPutMergeSegment } from "./block-subagent-bypass-merge";
 const CANONICAL_BYPASS =
   "gh api -X PUT /repos/edobry/minsky/pulls/1234/merge -f merge_method=merge";
 const CANONICAL_TARGET: MergeTarget = { owner: "edobry", repo: "minsky", prNumber: "1234" };
+// Safe identifier shape used in audit/deny logs after PR #1176 R2 BLOCKING:
+// `owner/repo#PR-number`. Centralized so the magic-string lint doesn't fire.
+const CANONICAL_SAFE_IDENTIFIER = "edobry/minsky#1234";
 // Empty check-runs response — used across multiple ALLOW-path tests as the
 // inputs that produce a no-required-checks-firing or empty-runs scenario.
 // Extracted to dodge custom/no-magic-string-duplication.
@@ -285,6 +288,15 @@ describe("dispatchBypassCheck — override path (mt#1951 R1)", () => {
     if (result.kind === "override") {
       expect(result.auditLine).toContain("MINSKY_SKIP_REQUIRED_CHECKS=1");
       expect(result.auditLine).toContain("required-checks gate skipped");
+      // PR #1176 R2 BLOCKING: audit line MUST NOT echo the raw matched segment
+      // (which can carry -H/--header secrets). It SHOULD use the safe parsed
+      // identifier (owner/repo#PR).
+      expect(result.auditLine).toContain(CANONICAL_SAFE_IDENTIFIER);
+      // Raw-command-echo guard: `merge_method=merge` is a flag value present in
+      // the test's command. If it ever appears in the audit line, that proves
+      // the line is echoing matched-segment text — the PR #1176 R2 regression.
+      expect(result.auditLine).not.toContain("merge_method=merge");
+      expect(result.auditLine).not.toContain("-f");
     }
   });
 
@@ -338,14 +350,57 @@ describe("dispatchBypassCheck — deny-on-failure (mt#1951 R1 BLOCKING #3)", () 
   it("DENIES when segment is bypass-shaped but owner/repo cannot be parsed (env-var URL)", () => {
     const result = dispatchBypassCheck({
       ...baseInput,
-      command: 'gh api -X PUT "$URL_BASE/pulls/42/merge"',
+      command: 'gh api -X PUT "$VAR_HIDDEN_BASE/pulls/42/merge"',
       prInfoLookup: () => unreachableExec as unknown as PrInfoLookupResult,
     });
     expect(result.kind).toBe("deny");
     if (result.kind === "deny") {
       expect(result.reason).toContain("could not parse owner/repo/PR-number");
       expect(result.reason).toContain("MINSKY_SKIP_REQUIRED_CHECKS");
-      expect(result.reason).toContain("env-var URL");
+      // PR #1176 R2 BLOCKING: deny reason MUST NOT echo a token unique to the
+      // matched command (the env-var name). Static descriptive text like
+      // "$URL_BASE/pulls/N/merge" (example syntax in the help message) is OK,
+      // but `VAR_HIDDEN_BASE` (a string only present in THIS test's command)
+      // appearing in the reason would prove raw-command echo.
+      expect(result.reason).not.toContain("VAR_HIDDEN_BASE");
+    }
+  });
+
+  it("PR #1176 R2 BLOCKING — denial does not echo `-H Authorization` headers in matched command", () => {
+    // If a future bypass command (operator or agent) included an inline auth
+    // header, the deny path MUST NOT log the raw command. This test guards
+    // against the regression class by simulating a command with a sensitive
+    // header alongside the env-var URL form that triggers the deny path.
+    const sensitiveCommand =
+      'gh api -X PUT -H "Authorization: Bearer GHP_SECRETSECRETSECRET" "$VAR_HIDDEN_BASE/pulls/42/merge"';
+    const result = dispatchBypassCheck({
+      ...baseInput,
+      command: sensitiveCommand,
+      prInfoLookup: () => unreachableExec as unknown as PrInfoLookupResult,
+    });
+    expect(result.kind).toBe("deny");
+    if (result.kind === "deny") {
+      expect(result.reason).not.toContain("Authorization");
+      expect(result.reason).not.toContain("Bearer");
+      expect(result.reason).not.toContain("GHP_SECRETSECRETSECRET");
+      expect(result.reason).not.toContain("VAR_HIDDEN_BASE");
+    }
+  });
+
+  it("PR #1176 R2 BLOCKING — override audit-line does not echo `-H Authorization` headers", () => {
+    const sensitiveCommand = `gh api -X PUT -H "Authorization: Bearer GHP_SECRETSECRETSECRET" /repos/edobry/minsky/pulls/1234/merge`;
+    const result = dispatchBypassCheck({
+      ...baseInput,
+      command: sensitiveCommand,
+      overrideEnvValue: "1",
+    });
+    expect(result.kind).toBe("override");
+    if (result.kind === "override") {
+      expect(result.auditLine).not.toContain("Authorization");
+      expect(result.auditLine).not.toContain("Bearer");
+      expect(result.auditLine).not.toContain("GHP_SECRETSECRETSECRET");
+      // But SHOULD still contain the parsed safe identifier:
+      expect(result.auditLine).toContain(CANONICAL_SAFE_IDENTIFIER);
     }
   });
 
@@ -358,7 +413,7 @@ describe("dispatchBypassCheck — deny-on-failure (mt#1951 R1 BLOCKING #3)", () 
     expect(result.kind).toBe("deny");
     if (result.kind === "deny") {
       expect(result.reason).toContain("could not resolve PR info");
-      expect(result.reason).toContain("edobry/minsky#1234");
+      expect(result.reason).toContain(CANONICAL_SAFE_IDENTIFIER);
       expect(result.reason).toContain("not found");
       expect(result.reason).toContain("MINSKY_SKIP_REQUIRED_CHECKS");
     }

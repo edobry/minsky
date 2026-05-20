@@ -270,12 +270,23 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
     return { kind: "skip" };
   }
   // Override honored AFTER segment detection (matches layer 1's posture).
+  //
+  // SECURITY NOTE (PR #1176 R2 BLOCKING): we do NOT echo the matched command
+  // segment into logs. The segment may contain `-H/--header` arguments or
+  // other inline flags carrying auth tokens; echoing even a truncated slice
+  // risks leaking secrets into stdout / agent transcripts / merge-gate audit
+  // artifacts. The audit line uses a safe parsed identifier (owner/repo#PR)
+  // when available, or a static `matcher: gh-api-put-merge` tag otherwise.
   if (input.overrideEnvValue && /^(1|true|yes)$/i.test(input.overrideEnvValue)) {
+    const overrideTarget = extractMergeTarget(matchingSegment);
+    const safeIdentifier = overrideTarget
+      ? `${overrideTarget.owner}/${overrideTarget.repo}#${overrideTarget.prNumber}`
+      : "matcher:gh-api-put-merge (unparseable)";
     return {
       kind: "override",
       auditLine:
         `[require-checks-on-bypass-merge] required-checks gate skipped via ${REQUIRED_CHECKS_OVERRIDE_ENV}=${input.overrideEnvValue} ` +
-        `(matched segment: ${matchingSegment.slice(0, 100)}, ${new Date().toISOString()})\n`,
+        `(target: ${safeIdentifier}, ${new Date().toISOString()})\n`,
     };
   }
   // Deny-on-failure: bypass-merge intent detected; if we can't resolve the
@@ -285,8 +296,8 @@ export function dispatchBypassCheck(input: BypassDispatchInput): BypassDispatchO
     return {
       kind: "deny",
       reason: buildDenial(
-        "could not parse owner/repo/PR-number from bypass-merge segment " +
-          `(matched: ${matchingSegment.slice(0, 100)}). ` +
+        "could not parse owner/repo/PR-number from a matched bypass-merge segment " +
+          "(matcher: gh-api-put-merge). " +
           `If the segment uses env-var URL substitution like "$URL_BASE/pulls/N/merge", expand it inline. ` +
           `Override after manual verification: set ${REQUIRED_CHECKS_OVERRIDE_ENV}=1.`
       ),
