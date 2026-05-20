@@ -478,6 +478,40 @@ export const sessionPrEditCommandParams = {
 };
 
 /**
+ * Session PR Close Command Parameters (mt#1955)
+ *
+ * Closes a session's PR without merging, optionally posting a comment
+ * before the state flip. The per-tool behavioral spec lives in the tool's
+ * `description` field on `createSessionPrCloseCommand`; banned-tool
+ * mappings live in the `.claude/hooks/block-git-gh-cli.ts` and
+ * `block-github-mcp-pr-writes.ts` denial messages.
+ */
+export const sessionPrCloseCommandParams = {
+  sessionId: commonSessionParams.sessionId,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  prNumber: {
+    schema: z.union([z.number().int().positive(), z.string()]),
+    description:
+      "PR number to close (alternative to identifying via session). Required when " +
+      "no `task`/`sessionId` is provided. When both are passed, `prNumber` wins as the " +
+      "address and the session backend is reused; the session DB is updated only if the " +
+      "closed PR matches the session's recorded PR.",
+    required: false,
+  },
+  comment: {
+    schema: z.string(),
+    description:
+      "Optional comment to post on the PR before closing. Useful for absorb-and-close: " +
+      "name the PR that subsumes this work. Posted as a regular PR comment (not a review) " +
+      "so it appears chronologically before the close event.",
+    required: false,
+  },
+  json: commonSessionParams.json,
+  debug: commonSessionParams.debug,
+};
+
+/**
  * Session PR List command parameters
  * Lists all PRs associated with sessions
  */

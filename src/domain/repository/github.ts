@@ -20,6 +20,7 @@ import type {
   MergeInfo,
   CreatePROptions,
   UpdatePROptions,
+  ClosePROptions,
   PullRequestOperations,
   CIStatusOperations,
   ReviewOperations,
@@ -31,6 +32,7 @@ import type { Octokit } from "@octokit/rest";
 import {
   createPullRequest as createPR,
   updatePullRequest as updatePR,
+  closePullRequest as closePR,
   mergePullRequest as mergePR,
   getPullRequestDetails as getPRDetails,
   getPullRequestDiff as getPRDiff,
@@ -650,6 +652,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
       update: async (options: UpdatePROptions): Promise<PRInfo> => {
         const gh = this.requireGitHubContext();
         return updatePR(gh, options, () => this.getSessionDB());
+      },
+
+      close: async (options: ClosePROptions): Promise<PRInfo> => {
+        const gh = this.requireGitHubContext();
+        return closePR(gh, options, () => this.getSessionDB());
       },
 
       merge: async (

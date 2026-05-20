@@ -535,6 +535,10 @@ describe("checkDenial — gh", () => {
     expect(denied("pr", "get")).not.toBeNull();
   });
 
+  it("denies gh pr close", () => {
+    expect(denied("pr", "close")).not.toBeNull();
+  });
+
   it("denies gh pr merge", () => {
     expect(denied("pr", "merge")).not.toBeNull();
   });
@@ -583,6 +587,11 @@ describe("checkDenial — gh", () => {
   it("denial reason for gh issue references mcp__github__issue", () => {
     const reason = denied("issue", "create");
     expect(reason).toContain("mcp__github__issue_write");
+  });
+
+  it("denial reason for gh pr close references session_pr_close (mt#1955)", () => {
+    const reason = denied("pr", "close");
+    expect(reason).toContain("mcp__minsky__session_pr_close");
   });
 });
 
