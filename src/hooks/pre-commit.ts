@@ -74,11 +74,10 @@ export class PreCommitHook {
         return formatResult;
       }
 
-      // Step 2: Console usage validation (~1s)
-      const consoleResult = await this.runConsoleValidation();
-      if (!consoleResult.success) {
-        return consoleResult;
-      }
+      // Console-usage validation moved into ESLint as the `custom/no-raw-console`
+      // rule (mt#1960). Step 2 ran the standalone regex-based `lint:console:strict`
+      // script; that script and its package.json scripts were retired with mt#1960.
+      // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
       const variableResult = await this.runVariableNamingCheck();
@@ -833,27 +832,6 @@ export class PreCommitHook {
     } catch (error) {
       log.cli("❌ Code formatting failed! Please check for syntax errors.");
       return { success: false, message: "Code formatting failed", exitCode: 1 };
-    }
-  }
-
-  /**
-   * Run console usage validation
-   */
-  private async runConsoleValidation(): Promise<HookResult> {
-    log.cli("🔇 Checking for console usage violations...");
-
-    try {
-      await execAsync("bun run lint:console:strict", {
-        cwd: this.projectRoot,
-        timeout: 30000,
-      });
-      log.cli("✅ No console usage violations found.");
-      return { success: true, message: "Console validation passed", exitCode: 0 };
-    } catch (error) {
-      log.cli("❌ Console usage violations found! These cause test output pollution.");
-      log.cli("💡 Replace console.* calls with logger.* or mock logger utilities");
-      log.cli("📖 See docs/testing/global-test-setup.md for guidance");
-      return { success: false, message: "Console usage violations found", exitCode: 1 };
     }
   }
 
