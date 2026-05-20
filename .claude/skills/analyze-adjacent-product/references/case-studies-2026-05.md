@@ -296,7 +296,7 @@ When analyzing a new adjacent product's marketing site:
    - Peirce read (classify principal signs as icon / index / symbol)
    - Cultural codes invoked (per Oswald; cite exemplars)
 4. **Compare to the three-idiom synthesis** (Idiom A motion-decorated-infographic / Idiom B product-screenshot-dominant / Idiom C founder-essay). Which idiom does the site operate in? Which cultural codes does it claim? Which does it explicitly reject?
-5. **Note the implication for Minsky.** Does this analysis change the recommended cultural-code lane for Minsky? Does it open or close a white-space code? Update `marketing-site-design` SKILL.md's Section 5 table (the cultural-codes-occupied table) if a new code emerges.
+5. **Note the implication for Minsky.** Does this analysis change the recommended cultural-code lane for Minsky? Does it open or close a white-space code? If yes, update the cultural-code table in [`minsky-brand`](../../minsky-brand/SKILL.md) §4 (the brand-foundation source of truth; was previously in `marketing-site-design` §5 before mt#1933 extraction).
 6. **Apply the Pepsi/Arnell discipline.** When stating the myth, verify it is grounded in the actual visual evidence captured, not constructed post-hoc to make a tactical recommendation sound principled.
 
 The 2026-05 analysis (Composio / Cursor / Factory / Macro) is the canonical four-way instance of this template. Future instances should follow the same shape; archive them in this directory with date-stamped filenames (e.g., `case-studies-2026-08.md`).
