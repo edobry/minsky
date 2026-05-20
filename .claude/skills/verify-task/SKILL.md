@@ -1,12 +1,11 @@
 ---
 name: verify-task
 description: >-
-  Set DONE on the bypass-merge fallback path: confirm the PR is merged AND
-  the merge-commit body contains the canonical bypass-merge audit-trail
-  signature, then transition IN-REVIEW → DONE. The reviewer subagent (in
-  /review-pr) does the verification work; this skill only confirms the
-  closeout signal. Use when: "verify mt#X", "check mt#X is done",
-  "close out mt#X", "audit mt#X".
+  Set DONE on the bypass-merge fallback path: confirm the PR is merged AND the
+  merge-commit body contains the canonical bypass-merge audit-trail signature,
+  then transition IN-REVIEW → DONE. The reviewer subagent (in /review-pr) does
+  the verification work; this skill only confirms the closeout signal. Use when:
+  "verify mt#X", "check mt#X is done", "close out mt#X", "audit mt#X".
 user-invocable: true
 ---
 
