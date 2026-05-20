@@ -31,7 +31,21 @@ The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read 
 
 Cockpit is **one organ inside the cyberbrain frame, not an independent design language**. The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, vocabulary inventory, bridge-as-affect discipline — lives in [`minsky-brand`](../minsky-brand/SKILL.md). Load it before any cockpit visual decision so cockpit's mission-control register stays coherent with the marketing site, position papers, and any future Minsky surface.
 
-The operational tokens (typography stack, color palette in hex + OKLCH, motion budget with `prefers-reduced-motion` handling, WCAG contrast targets, font licensing) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume directly when implementing cockpit widgets; the §7 cockpit token mapping table in that doc walks the migration from cockpit's current HSL custom properties to the brand-system OKLCH tokens (mt#1935).
+The operational tokens (typography stack, color palette in hex + OKLCH, motion budget with `prefers-reduced-motion` handling, WCAG contrast targets, font licensing) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume directly when implementing cockpit widgets.
+
+**Migration status (mt#1935, shipped 2026-05-20).** Cockpit's `src/cockpit/web/index.css` now stores tokens as raw OKLCH triplets (lightness chroma hue) consumed via `oklch(var(--X) / <alpha-value>)` in `tailwind.config.ts`. The brand palette is in the Tailwind config under these utility classes:
+
+- `bg-background` / `text-foreground` / `bg-card` / etc. — shadcn semantic surface (`--primary` is keyed to `signal.cyan` in dark mode).
+- `bg-signal-cyan` / `text-signal-cyan` / `border-signal-cyan-dim` — the active/live accent.
+- `bg-warn-amber` / `text-warn-amber` — soft warning / attention-required.
+- `bg-warn-red` / `text-warn-red` — hard warning / hook-denial / escalation. (`bg-destructive` is the legacy alias; either works.)
+- `bg-iso-pastel` / `text-iso-pastel` — companion-personality surfaces only (agent identity indicators, ghost overlays).
+- `text-subtle` — tertiary text below `text-muted-foreground`.
+- `font-sans` / `font-mono` / `font-warm-mono` — Geist / JetBrains Mono / Berkeley-or-IBM-Plex-italic. `<body>` defaults to `font-sans`.
+- `animate-status-dot` — 1.6s opacity pulse for live status indicators (gated on `prefers-reduced-motion`).
+- `animate-hook-denial` — 600ms amber-fade-to-transparent for blocked-action surfaces (gated on `prefers-reduced-motion`).
+
+A token for `success` (green) is intentionally NOT in the palette — the brand register's "no green" rule (one accent + two warning tiers + one pastel) holds at the foundation. Widgets needing a green DONE / healthy semantic continue to use cockpit-local `bg-liveness-healthy` (kept as a green-mapped sub-token per brand-system §7) until the broader DONE-color decision is made.
 
 The patterns in _this_ skill — entity model, mission-control density, command-palette UX, drill-down navigation, attention-debt visualization — are the **Minsky-domain layer** that lives on top of the brand foundation. They are the things `minsky-brand` does not (and should not) carry, because they are specific to cockpit's operational role.
 
@@ -125,20 +139,22 @@ The forward path is `TODO → PLANNING → READY → IN-PROGRESS → IN-REVIEW �
 
 #### Status color conventions
 
-Use semantic tokens, not raw colors. The shadcn semantic palette covers most states; two states need tokens that are NOT in the current palette (`warning`, `success`) — these MUST be added to `tailwind.config.ts` + the CSS variable system in `src/cockpit/web/index.css` BEFORE using the class names below. **Class names `bg-warning`, `text-warning`, `bg-success`, `text-success` are aspirational — they will produce invalid Tailwind output until the palette is extended.** Adding them: define `--warning`/`--warning-foreground`/`--success`/`--success-foreground` CSS vars in `:root` and `.dark` blocks, then add `warning: { DEFAULT: "hsl(var(--warning))", foreground: "hsl(var(--warning-foreground))" }` (and same for `success`) under `theme.extend.colors` in `tailwind.config.ts`.
+Use semantic tokens, not raw colors. Post-mt#1935 the brand palette covers warning states via `warn.amber` and `warn.red`; a `success` token is intentionally not in the palette (see brand-application section above). Use the cockpit-local `liveness.healthy` token for the DONE / healthy semantic until a broader DONE-color decision is made.
 
-Status mapping (some classes still pending palette addition — marked **[needs token]**):
+Recommended status mapping:
 
 - TODO: `text-muted-foreground bg-muted` — neutral gray
 - PLANNING: `text-foreground bg-secondary` — active but pre-work
-- READY: `text-primary-foreground bg-primary` — calls action
+- READY: `text-primary-foreground bg-primary` — calls action (primary is signal-cyan in dark mode)
 - IN-PROGRESS: `text-foreground bg-accent` — distinct from READY
-- IN-REVIEW: **[needs token]** `text-foreground bg-warning` — add `warning` palette first
-- DONE: `text-muted-foreground bg-muted opacity-60` — settled, dim
-- BLOCKED: `text-destructive-foreground bg-destructive/30` — urgent
+- IN-REVIEW: `text-foreground bg-warn-amber/30` — attention-required, soft
+- DONE: `text-foreground bg-liveness-healthy/30` — settled, healthy
+- BLOCKED: `text-destructive-foreground bg-warn-red/40` — urgent (`bg-destructive` is the legacy alias)
 - CLOSED: `text-muted-foreground line-through opacity-50` — terminal
 
 Don't fall back to raw hex (e.g., `bg-yellow-500`) — that bypasses the dark-mode-first theming and creates per-widget drift. Always go through the semantic layer.
+
+**Existing inline hex colors in `Workstreams.tsx` / `TaskGraph.tsx` `statusStyle()` are pending refactor** to the tokens above. They were left in place by mt#1935 (foundation-layer migration only) so the refactor can land as a focused entity-display change; track or fold into a follow-up cockpit-design task when entity-display work next runs.
 
 ### Sessions
 
@@ -152,12 +168,14 @@ A session is the agent's workspace for a task. Has:
 
 #### Session liveness conventions
 
-Liveness dots need the `success` semantic token added (see the palette-extension note under "Status color conventions" above). The **[needs token]** marker below indicates classes that depend on that extension.
+Post-mt#1935 the liveness dots use the cockpit-local `liveness.*` sub-tokens directly. Each is OKLCH-keyed and tuned for dark elevation:
 
-- `healthy`: green dot — **[needs token]** `bg-success` (canonical); fall back to `bg-green-500` ONLY as a temporary placeholder while the palette extension is pending, with a `// TODO: bg-success once palette extends` comment
-- `idle`: yellow dot — **[needs token]** `bg-warning` once it lands
-- `stale`: orange dot — use `bg-destructive/30` (lower-saturation destructive) until a `warning` mid-tone is available
-- `exited`: gray dot — `bg-muted` (already in palette)
+- `healthy`: `bg-liveness-healthy` (green; cockpit-local — brand palette has no `success`)
+- `idle`: `bg-liveness-idle` (amber; maps onto `warn.amber` range)
+- `stale`: `bg-liveness-stale` (red; maps onto `warn.red` range)
+- `orphaned`: `bg-liveness-orphaned` (muted blue-gray; maps onto `text.subtle` range)
+
+For a live dot that should breathe per the brand motion budget, add `animate-status-dot` (1.6s opacity pulse, gated on `prefers-reduced-motion`).
 
 ### Changesets
 
