@@ -245,6 +245,13 @@ export interface UpdatePROptions {
   session?: string;
 }
 
+export interface ClosePROptions {
+  prIdentifier?: string | number;
+  session?: string;
+  /** Optional comment to post before the state flip (mt#1955). */
+  comment?: string;
+}
+
 export interface MergePROptions {
   /** Authorship tier from provenance — used to select the correct token and build trailers. */
   authorshipTier?: import("../provenance/types").AuthorshipTier;
@@ -257,6 +264,7 @@ export interface MergePROptions {
 export interface PullRequestOperations {
   create(options: CreatePROptions): Promise<PRInfo>;
   update(options: UpdatePROptions): Promise<PRInfo>;
+  close(options: ClosePROptions): Promise<PRInfo>;
   merge(
     prIdentifier: string | number,
     session?: string,

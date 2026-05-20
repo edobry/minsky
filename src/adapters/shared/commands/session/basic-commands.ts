@@ -221,7 +221,17 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
     id: "session.exec",
     category: CommandCategory.SESSION,
     name: "exec",
-    description: "Execute a shell command in a session's working directory",
+    description:
+      "Execute a shell command in a session's working directory. The session directory is " +
+      "resolved automatically from `task` or `sessionId` — never substitute `git -C <path>` " +
+      "or `cd <path> && cmd`. Use session_exec for commands that have no dedicated MCP tool " +
+      "(build, test, format, custom scripts). For git operations there are dedicated MCP tools " +
+      "(`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, " +
+      "`git_restore`, `session_commit`, `session_pr_merge`, etc.) — prefer those. The " +
+      "block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec " +
+      "the same way it denies them on Bash (mt#1196). Inside a session, the carved-out " +
+      "commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via " +
+      "session_exec because they're the recommended escape hatch.",
     parameters: sessionExecCommandParams,
     execute: withErrorLogging("session.exec", async (params: Record<string, unknown>) => {
       const { executeCommand } = await import("../../../../utils/exec");
