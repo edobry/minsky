@@ -1,8 +1,8 @@
-# Minsky Configuration System Guide
+# Minsky configuration guide
 
 ## Overview
 
-The Minsky configuration system provides a centralized, validated approach to managing all configuration aspects including storage backends, session databases, AI providers, and credentials. This guide covers configuration precedence, validation, migration, and best practices.
+Minsky's configuration system resolves storage backends, session databases, AI providers, and credentials through a strict precedence chain — CLI args → env vars → user config → repo config → defaults. Every value is validated at load; type errors and unknown keys fail loud at boot rather than silently at use. This guide walks the precedence order, the validation layer, the migration paths, and the operational defaults.
 
 ## Configuration Precedence Order
 

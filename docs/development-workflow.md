@@ -1,10 +1,10 @@
-# Development Workflow & Quality Gates
+# Development workflow & quality gates
 
-This document provides comprehensive guidance on the Minsky development workflow, focusing on the enhanced pre-commit hooks and quality gates that ensure code quality and consistency.
+The hooks, gates, and feedback loops that shape how code gets written in this repo. Pre-commit catches formatting and type errors before they leave the editor; pre-push runs the broader checks before code reaches the remote; CI is the third gate before merge. Each layer routes the cheaper decisions to the substrate and surfaces only what requires human judgement — the same routing principle the top-level [README](../README.md) §"Attention as the scarce resource" names. When a hook denies an action, its message names the rule and the override mechanism; that is the system-speaks register the hooks themselves implement.
 
 ## Overview
 
-Minsky implements a rigorous development workflow with automated quality gates to maintain high code standards. The system is designed to catch issues early, provide fast feedback, and maintain consistency across all contributions.
+Quality gates run in sequence; each layer serves a distinct purpose. The earliest layer (pre-commit) catches the fastest issues; the latest layer (CI) catches the cross-cutting ones. Cost scales with depth: a pre-commit failure is a 2-second loop, a CI failure is a 5-minute loop, a post-merge regression is a 24-hour loop. The gates are ordered to make the cheap failures unmissable so the expensive ones are rare.
 
 ## Pre-Commit Hook Architecture
 
