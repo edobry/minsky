@@ -64,7 +64,7 @@ export interface CallMcpOptions {
    */
   logPrefix?: string;
   /**
-   * Logger function. Defaults to console.warn with structured JSON.
+   * Logger function. Defaults to `log.warn` (reviewer-local winston logger).
    * Used for transport/protocol-level warnings; tool-result content is never logged.
    */
   logger?: (event: Record<string, unknown>) => void;
@@ -167,7 +167,8 @@ export function resetMcpClientSessions(): void {
 // ---------------------------------------------------------------------------
 
 function defaultLogger(event: Record<string, unknown>): void {
-  console.warn(JSON.stringify(event));
+  const name = typeof event["event"] === "string" ? (event["event"] as string) : "mcp_client.event";
+  log.warn(name, event);
 }
 
 // ---------------------------------------------------------------------------
