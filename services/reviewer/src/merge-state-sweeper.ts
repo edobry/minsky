@@ -73,6 +73,7 @@ import { callMcp } from "./mcp-client";
 import { createOctokit } from "./github-client";
 import { withTimeout, TimeoutError } from "./with-timeout";
 import type { Octokit } from "@octokit/rest";
+import { log } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -205,7 +206,7 @@ interface SessionListItem {
  * so any future change to the helper's default does not silently regress
  * the sweeper's prior behavior.
  *
- * Observability: `callMcp` emits structured `console.warn` events with the
+ * Observability: `callMcp` emits structured `log.warn` events with the
  * `merge_state_sweeper.mcp` prefix. The event name suffixes are
  * `_init_fetch_error`, `_init_http_error`, `_init_no_session_id`,
  * `_init_notif_failed`, `_session_expired_retrying`, `_fetch_error`,
@@ -270,12 +271,10 @@ export async function runMergeStateSweep(
     errors: [],
   };
 
-  console.log(
-    JSON.stringify({
-      event: "merge_state_sweeper.cycle_start",
-      timestamp: startedAt,
-    })
-  );
+  log.info("merge_state_sweeper.cycle_start", {
+    event: "merge_state_sweeper.cycle_start",
+    timestamp: startedAt,
+  });
 
   // Step 1: List PR_OPEN sessions.
   let sessions: SessionListItem[] = [];
@@ -283,12 +282,10 @@ export async function runMergeStateSweep(
     const listText = await callMcpTool(mcpUrl, mcpToken, "session.list", { status: "PR_OPEN" });
     if (!listText) {
       result.errors.push("session.list returned no content");
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.list_failed",
-          reason: "no_content",
-        })
-      );
+      log.warn("merge_state_sweeper.list_failed", {
+        event: "merge_state_sweeper.list_failed",
+        reason: "no_content",
+      });
       return result;
     }
 
@@ -302,22 +299,18 @@ export async function runMergeStateSweep(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     result.errors.push(`Failed to list PR_OPEN sessions: ${msg}`);
-    console.error(
-      JSON.stringify({
-        event: "merge_state_sweeper.list_error",
-        error: msg,
-      })
-    );
+    log.error("merge_state_sweeper.list_error", {
+      event: "merge_state_sweeper.list_error",
+      error: msg,
+    });
     return result;
   }
 
   result.sessionsScanned = sessions.length;
-  console.log(
-    JSON.stringify({
-      event: "merge_state_sweeper.sessions_scanned",
-      count: sessions.length,
-    })
-  );
+  log.info("merge_state_sweeper.sessions_scanned", {
+    event: "merge_state_sweeper.sessions_scanned",
+    count: sessions.length,
+  });
 
   // Step 2: For each PR_OPEN session with a pullRequest, check LIVE GitHub state.
   // Cap concurrency at 3 to avoid rate-limiting GitHub.
@@ -374,16 +367,14 @@ export async function runMergeStateSweep(
 
           // Step 3: PR is merged but session is still PR_OPEN — trigger sync.
           result.missedSyncs++;
-          console.warn(
-            JSON.stringify({
-              event: "merge_state_sweeper.missed_sync_detected",
-              sessionId,
-              taskId: session.taskId,
-              prNumber: session.pullRequest.number,
-              mergedAt: livePr.merged_at,
-              mergeSha: livePr.merge_commit_sha,
-            })
-          );
+          log.warn("merge_state_sweeper.missed_sync_detected", {
+            event: "merge_state_sweeper.missed_sync_detected",
+            sessionId,
+            taskId: session.taskId,
+            prNumber: session.pullRequest.number,
+            mergedAt: livePr.merged_at,
+            mergeSha: livePr.merge_commit_sha,
+          });
 
           // Call the apply_post_merge_state_sync MCP tool. The command reads
           // `params.sessionId` (not `params.session`). PR #1010 R2 fix.
@@ -402,25 +393,21 @@ export async function runMergeStateSweep(
 
           if (syncText) {
             result.syncsTriggered++;
-            console.log(
-              JSON.stringify({
-                event: "merge_state_sweeper.sync_triggered",
-                sessionId,
-                taskId: session.taskId,
-                mergedAt: livePr.merged_at,
-              })
-            );
+            log.info("merge_state_sweeper.sync_triggered", {
+              event: "merge_state_sweeper.sync_triggered",
+              sessionId,
+              taskId: session.taskId,
+              mergedAt: livePr.merged_at,
+            });
           } else {
             // The MCP tool may not be wired yet — log for manual repair.
             const msg = `session.apply_post_merge_state_sync returned no content for ${sessionId}`;
             result.errors.push(msg);
-            console.warn(
-              JSON.stringify({
-                event: "merge_state_sweeper.sync_tool_unavailable",
-                sessionId,
-                message: msg,
-              })
-            );
+            log.warn("merge_state_sweeper.sync_tool_unavailable", {
+              event: "merge_state_sweeper.sync_tool_unavailable",
+              sessionId,
+              message: msg,
+            });
           }
         } catch (sessionErr) {
           const msg = sessionErr instanceof Error ? sessionErr.message : String(sessionErr);
@@ -431,35 +418,29 @@ export async function runMergeStateSweep(
               ? "merge_state_sweeper.session_timeout"
               : "merge_state_sweeper.session_error";
           result.errors.push(`Error processing session ${sessionId}: ${msg}`);
-          console.warn(
-            JSON.stringify({
-              event: eventName,
-              sessionId,
-              error: msg,
-            })
-          );
+          log.warn(eventName, {
+            event: eventName,
+            sessionId,
+            error: msg,
+          });
         }
       })
     );
   }
 
   if (result.missedSyncs > 0) {
-    console.warn(
-      JSON.stringify({
-        event: "merge_state_sweeper.primary_webhook_failing",
-        message: `${result.missedSyncs} session(s) found with closed-merged PRs but unsync'd Minsky state. Webhook delivery may be failing.`,
-        missedSyncs: result.missedSyncs,
-        syncsTriggered: result.syncsTriggered,
-      })
-    );
+    log.warn("merge_state_sweeper.primary_webhook_failing", {
+      event: "merge_state_sweeper.primary_webhook_failing",
+      message: `${result.missedSyncs} session(s) found with closed-merged PRs but unsync'd Minsky state. Webhook delivery may be failing.`,
+      missedSyncs: result.missedSyncs,
+      syncsTriggered: result.syncsTriggered,
+    });
   }
 
-  console.log(
-    JSON.stringify({
-      event: "merge_state_sweeper.cycle_end",
-      ...result,
-    })
-  );
+  log.info("merge_state_sweeper.cycle_end", {
+    event: "merge_state_sweeper.cycle_end",
+    ...result,
+  });
 
   return result;
 }
@@ -488,57 +469,49 @@ export function startMergeStateSweeper(
   sweeperConfig: MergeStateSweeperConfig
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "merge_state_sweeper.disabled",
-        message: "Merge-state sweeper is disabled (MERGE_STATE_SWEEPER_ENABLED=false).",
-      })
-    );
+    log.info("merge_state_sweeper.disabled", {
+      event: "merge_state_sweeper.disabled",
+      message: "Merge-state sweeper is disabled (MERGE_STATE_SWEEPER_ENABLED=false).",
+    });
     return null;
   }
 
   if (!sweeperConfig.mcpUrl || !sweeperConfig.mcpToken) {
-    console.warn(
-      JSON.stringify({
-        event: "merge_state_sweeper.missing_credentials",
-        message:
-          "MERGE_STATE_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
-          "Merge-state sweeper will not start.",
-      })
-    );
+    log.warn("merge_state_sweeper.missing_credentials", {
+      event: "merge_state_sweeper.missing_credentials",
+      message:
+        "MERGE_STATE_SWEEPER_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+        "Merge-state sweeper will not start.",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "merge_state_sweeper.started",
-      intervalMs: sweeperConfig.intervalMs,
-      mcpUrl: sweeperConfig.mcpUrl,
-      owner: sweeperConfig.owner,
-      repo: sweeperConfig.repo,
-      ownerDefaulted: sweeperConfig.ownerDefaulted,
-      repoDefaulted: sweeperConfig.repoDefaulted,
-      githubTimeoutMs: sweeperConfig.githubTimeoutMs,
-    })
-  );
+  log.info("merge_state_sweeper.started", {
+    event: "merge_state_sweeper.started",
+    intervalMs: sweeperConfig.intervalMs,
+    mcpUrl: sweeperConfig.mcpUrl,
+    owner: sweeperConfig.owner,
+    repo: sweeperConfig.repo,
+    ownerDefaulted: sweeperConfig.ownerDefaulted,
+    repoDefaulted: sweeperConfig.repoDefaulted,
+    githubTimeoutMs: sweeperConfig.githubTimeoutMs,
+  });
 
   // PR #1116 R1 BLOCKING: when owner/repo were silently defaulted, emit a
   // structured warning at boot. In non-Minsky deployments this would otherwise
   // silently target edobry/minsky and never produce a high-signal log line.
   if (sweeperConfig.ownerDefaulted || sweeperConfig.repoDefaulted) {
-    console.warn(
-      JSON.stringify({
-        event: "merge_state_sweeper.using_default_repo_coordinates",
-        owner: sweeperConfig.owner,
-        repo: sweeperConfig.repo,
-        ownerDefaulted: sweeperConfig.ownerDefaulted,
-        repoDefaulted: sweeperConfig.repoDefaulted,
-        message:
-          "merge-state sweeper is using default repo coordinates. " +
-          "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
-          "to avoid silently sweeping the wrong repository.",
-      })
-    );
+    log.warn("merge_state_sweeper.using_default_repo_coordinates", {
+      event: "merge_state_sweeper.using_default_repo_coordinates",
+      owner: sweeperConfig.owner,
+      repo: sweeperConfig.repo,
+      ownerDefaulted: sweeperConfig.ownerDefaulted,
+      repoDefaulted: sweeperConfig.repoDefaulted,
+      message:
+        "merge-state sweeper is using default repo coordinates. " +
+        "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
+        "to avoid silently sweeping the wrong repository.",
+    });
   }
 
   let isRunning = false;
@@ -550,12 +523,10 @@ export function startMergeStateSweeper(
 
   const handle = setInterval(() => {
     if (isRunning) {
-      console.warn(
-        JSON.stringify({
-          event: "merge_state_sweeper.skip_reentrant",
-          message: "Previous merge-state sweep still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("merge_state_sweeper.skip_reentrant", {
+        event: "merge_state_sweeper.skip_reentrant",
+        message: "Previous merge-state sweep still in progress; skipping this interval tick.",
+      });
       return;
     }
     isRunning = true;
@@ -576,12 +547,10 @@ export function startMergeStateSweeper(
     })()
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "merge_state_sweeper.cycle_error",
-            error: message,
-          })
-        );
+        log.error("merge_state_sweeper.cycle_error", {
+          event: "merge_state_sweeper.cycle_error",
+          error: message,
+        });
         // Reset octokitPromise on auth-class errors so the next cycle re-authenticates.
         // (createOctokit throws if the app credentials are invalid; we let it retry.)
         if (/auth|credentials|401|403/i.test(message)) {

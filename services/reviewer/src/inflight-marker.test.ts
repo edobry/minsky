@@ -16,6 +16,8 @@
  */
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
+import { captureConsoleLogs, findLogEvent } from "./test-helpers/log-capture";
+import { log } from "./logger";
 import {
   acquireMarker,
   releaseMarker,
@@ -996,19 +998,13 @@ describe("AT-6: fail-open contract", () => {
   test("runReview marker_acquire_failed_fail_open pattern: caller catches and proceeds", async () => {
     // Simulate the runReview pattern: catch acquireMarker error and proceed.
     // This is the structural contract verified in the unit-test layer.
+    // The production code in review-worker.ts uses log.info for this event
+    // (mt#1982); this simulation mirrors that to keep the contract honest.
+    const FAIL_OPEN_EVENT = "runReview.marker_acquire_failed_fail_open";
     const { db } = makeFakeDb({ failExecute: true });
 
     let proceeded = false;
-    let loggedFailOpen = false;
-
-    const originalLog = console.log.bind(console);
-    const mockLog = mock((...args: unknown[]) => {
-      const msg = typeof args[0] === "string" ? args[0] : JSON.stringify(args[0]);
-      if (msg.includes("marker_acquire_failed_fail_open")) {
-        loggedFailOpen = true;
-      }
-    });
-    console.log = mockLog;
+    const { logs, restore } = captureConsoleLogs();
 
     try {
       let markerId: string | null = null;
@@ -1026,8 +1022,8 @@ describe("AT-6: fail-open contract", () => {
           markerId = result.id;
         }
       } catch {
-        // Fail-open: log and proceed
-        console.log(JSON.stringify({ event: "runReview.marker_acquire_failed_fail_open" }));
+        // Fail-open: log and proceed (mirrors review-worker.ts runReview path)
+        log.info(FAIL_OPEN_EVENT, { event: FAIL_OPEN_EVENT });
       }
 
       // Regardless of marker acquisition failure, proceed
@@ -1038,10 +1034,10 @@ describe("AT-6: fail-open contract", () => {
         // Would release here
       }
     } finally {
-      console.log = originalLog;
+      restore();
     }
 
     expect(proceeded).toBe(true);
-    expect(loggedFailOpen).toBe(true);
+    expect(findLogEvent(logs, FAIL_OPEN_EVENT)).not.toBeNull();
   });
 });

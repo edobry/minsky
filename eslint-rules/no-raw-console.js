@@ -10,21 +10,16 @@
  * # Disposition for `services/reviewer/**` and `services/site/**` (mt#1960)
  *
  * The legacy script broadly excluded both service directories. The 2026-05-20
- * audit recorded in mt#1960 confirmed those directories contain ~127 raw
- * `console.*` calls (reviewer) and 2 calls (site) that bypass each service's
- * local logger. The decision (Option C narrowly): preserve the broad excludes
- * here so the migration ships as a pure mechanical change, and decompose the
- * adoption work into sibling subtasks:
+ * audit recorded in mt#1960 confirmed those directories contained ~127 raw
+ * `console.*` calls (reviewer) and 2 calls (site). The exclude blocks have
+ * since been removed as the migration work completed:
  *
- *   - **mt#1982** — Finish mt#1255: adopt `log` across remaining
- *     `services/reviewer/**` source files. When this lands, drops the
- *     `services/reviewer/**` exemption block in `eslint.config.js`.
- *   - **mt#1983** — Add `services/site/src/logger.ts` + migrate the 2 calls
- *     in `services/site/src/server.ts`. When this lands, drops the
- *     `services/site/**` exemption block in `eslint.config.js`.
+ *   - **mt#1982** — Finished mt#1255: `log` adopted across all
+ *     `services/reviewer/**` source files. Exclude block removed.
+ *   - **mt#1983** — Added `services/site/src/logger.ts` and migrated the 2
+ *     calls in `services/site/src/server.ts`. Exclude block removed.
  *
- * Until those subtasks land, raw `console.*` in those directories is allowed.
- * Every other directory enforces this rule at `severity: error`.
+ * The rule now fires at `severity: error` across every directory.
  *
  * # Allowed patterns
  *
@@ -91,7 +86,7 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Disallow raw console.* usage outside designated files; use the structured logger instead. See mt#1960; subtasks mt#1982 (reviewer) + mt#1983 (site) will lift per-service excludes.",
+        "Disallow raw console.* usage outside designated files; use the structured logger instead. See mt#1960 for the migration rule rationale; the reviewer + site per-service excludes were retired by mt#1982 + mt#1983 respectively.",
     },
     fixable: "code",
     schema: [

@@ -46,6 +46,7 @@
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
 import { callMcp } from "./mcp-client";
+import { log } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -103,7 +104,7 @@ async function callAsksReconcile(mcpUrl: string, mcpToken: string): Promise<McpC
   // future change to the helper's default does not silently regress scheduler
   // behavior.
   //
-  // Observability: `callMcp` emits structured `console.warn` events with the
+  // Observability: `callMcp` emits structured `log.warn` events with the
   // `asks_reconcile_scheduler.mcp` prefix; the legacy
   // `asks_reconcile_scheduler.mcp_{http_error,rpc_error}` events are
   // preserved at the same prefix. The legacy
@@ -172,34 +173,28 @@ export function startAsksReconcileScheduler(
   schedulerConfig: AsksReconcileSchedulerConfig
 ): ReturnType<typeof setInterval> | null {
   if (!schedulerConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "asks_reconcile_scheduler.disabled",
-        message: "Asks-reconcile scheduler is disabled (ASKS_RECONCILE_ENABLED=false).",
-      })
-    );
+    log.info("asks_reconcile_scheduler.disabled", {
+      event: "asks_reconcile_scheduler.disabled",
+      message: "Asks-reconcile scheduler is disabled (ASKS_RECONCILE_ENABLED=false).",
+    });
     return null;
   }
 
   if (!schedulerConfig.mcpUrl || !schedulerConfig.mcpToken) {
-    console.warn(
-      JSON.stringify({
-        event: "asks_reconcile_scheduler.missing_credentials",
-        message:
-          "ASKS_RECONCILE_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
-          "Asks-reconcile scheduler will not start.",
-      })
-    );
+    log.warn("asks_reconcile_scheduler.missing_credentials", {
+      event: "asks_reconcile_scheduler.missing_credentials",
+      message:
+        "ASKS_RECONCILE_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+        "Asks-reconcile scheduler will not start.",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "asks_reconcile_scheduler.enabled",
-      intervalMs: schedulerConfig.intervalMs,
-      mcpUrl: schedulerConfig.mcpUrl,
-    })
-  );
+  log.info("asks_reconcile_scheduler.enabled", {
+    event: "asks_reconcile_scheduler.enabled",
+    intervalMs: schedulerConfig.intervalMs,
+    mcpUrl: schedulerConfig.mcpUrl,
+  });
 
   // Suppress unused variable warning — config is held for future use
   void config;
@@ -208,45 +203,37 @@ export function startAsksReconcileScheduler(
 
   const handle = setInterval(() => {
     if (isRunning) {
-      console.warn(
-        JSON.stringify({
-          event: "asks_reconcile_scheduler.tick.skipped_overlap",
-          message: "Previous asks-reconcile poll still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("asks_reconcile_scheduler.tick.skipped_overlap", {
+        event: "asks_reconcile_scheduler.tick.skipped_overlap",
+        message: "Previous asks-reconcile poll still in progress; skipping this interval tick.",
+      });
       return;
     }
     isRunning = true;
 
-    console.log(
-      JSON.stringify({
-        event: "asks_reconcile_scheduler.tick.start",
-      })
-    );
+    log.info("asks_reconcile_scheduler.tick.start", {
+      event: "asks_reconcile_scheduler.tick.start",
+    });
 
     callAsksReconcile(schedulerConfig.mcpUrl, schedulerConfig.mcpToken)
       .then((result) => {
         if (result.success) {
-          console.log(
-            JSON.stringify({
-              event: "asks_reconcile_scheduler.tick.complete",
-              inspected: result.inspected ?? 0,
-              responded: result.responded ?? 0,
-              errors: result.errors ?? 0,
-            })
-          );
+          log.info("asks_reconcile_scheduler.tick.complete", {
+            event: "asks_reconcile_scheduler.tick.complete",
+            inspected: result.inspected ?? 0,
+            responded: result.responded ?? 0,
+            errors: result.errors ?? 0,
+          });
         }
         // Errors are already logged inside callAsksReconcile.
       })
       .catch((err: unknown) => {
         // Unreachable: callAsksReconcile catches internally. Belt-and-suspenders.
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "asks_reconcile_scheduler.tick.error",
-            error: message,
-          })
-        );
+        log.error("asks_reconcile_scheduler.tick.error", {
+          event: "asks_reconcile_scheduler.tick.error",
+          error: message,
+        });
       })
       .finally(() => {
         isRunning = false;

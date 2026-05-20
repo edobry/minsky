@@ -57,6 +57,7 @@ import { decideRouting, extractTierFromPRBody } from "./tier-routing";
 import type { Octokit } from "@octokit/rest";
 import type { ReviewerDb } from "./db/client";
 import { pruneStaleMarkers, listActiveMarkersForPRs, markerKey } from "./inflight-marker";
+import { log } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -259,16 +260,14 @@ export async function retriggerViaRunReview(
   db?: ReviewerDb
 ): Promise<void> {
   const deliveryId = `sweeper-${Date.now()}`;
-  console.log(
-    JSON.stringify({
-      event: "sweeper.retrigger_start",
-      deliveryId,
-      pr: pr.number,
-      headSha: pr.headSha,
-      owner,
-      repo,
-    })
-  );
+  log.info("sweeper.retrigger_start", {
+    event: "sweeper.retrigger_start",
+    deliveryId,
+    pr: pr.number,
+    headSha: pr.headSha,
+    owner,
+    repo,
+  });
 
   try {
     const result = await runReviewFn(
@@ -281,27 +280,23 @@ export async function retriggerViaRunReview(
       pr.headSha,
       db !== undefined ? { db } : undefined
     );
-    console.log(
-      JSON.stringify({
-        event: "sweeper.retrigger_success",
-        deliveryId,
-        pr: pr.number,
-        headSha: pr.headSha,
-        status: result.status,
-        reason: result.reason,
-      })
-    );
+    log.info("sweeper.retrigger_success", {
+      event: "sweeper.retrigger_success",
+      deliveryId,
+      pr: pr.number,
+      headSha: pr.headSha,
+      status: result.status,
+      reason: result.reason,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.warn(
-      JSON.stringify({
-        event: "sweeper.retrigger_failed",
-        deliveryId,
-        pr: pr.number,
-        headSha: pr.headSha,
-        error: message,
-      })
-    );
+    log.warn("sweeper.retrigger_failed", {
+      event: "sweeper.retrigger_failed",
+      deliveryId,
+      pr: pr.number,
+      headSha: pr.headSha,
+      error: message,
+    });
   }
 }
 
@@ -389,15 +384,13 @@ export async function runSweep(
 
   const { octokit, botLogin, runReviewFn, db } = depsOverride ?? (await buildSweeperDeps(config));
 
-  console.log(
-    JSON.stringify({
-      event: "sweeper.cycle_start",
-      timestamp: startedAt,
-      owner,
-      repo,
-      botLogin,
-    })
-  );
+  log.info("sweeper.cycle_start", {
+    event: "sweeper.cycle_start",
+    timestamp: startedAt,
+    owner,
+    repo,
+    botLogin,
+  });
 
   // 0. Prune stale inflight markers (mt#1907 defense in depth).
   // Clears markers left by crashed runReview calls that never released.
@@ -406,21 +399,17 @@ export async function runSweep(
     try {
       const pruned = await pruneStaleMarkers(db);
       if (pruned > 0) {
-        console.log(
-          JSON.stringify({
-            event: "sweeper.pruned_stale_markers",
-            count: pruned,
-          })
-        );
+        log.info("sweeper.pruned_stale_markers", {
+          event: "sweeper.pruned_stale_markers",
+          count: pruned,
+        });
       }
     } catch (pruneErr: unknown) {
       const message = pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.prune_stale_markers_failed",
-          error: message,
-        })
-      );
+      log.warn("sweeper.prune_stale_markers_failed", {
+        event: "sweeper.prune_stale_markers_failed",
+        error: message,
+      });
     }
   }
 
@@ -434,14 +423,12 @@ export async function runSweep(
   for (const pr of openPRs) {
     // Skip draft PRs — mirrors the webhook handler's skip_draft policy.
     if (pr.draft) {
-      console.log(
-        JSON.stringify({
-          event: "skip_draft_sweeper",
-          pr: pr.number,
-          owner,
-          repo,
-        })
-      );
+      log.info("skip_draft_sweeper", {
+        event: "skip_draft_sweeper",
+        pr: pr.number,
+        owner,
+        repo,
+      });
       continue;
     }
 
@@ -469,14 +456,12 @@ export async function runSweep(
 
     if (detected !== null) {
       missing.push(detected);
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.missing_review",
-          pr: detected.number,
-          headSha: detected.headSha,
-          reason: detected.reason,
-        })
-      );
+      log.warn("sweeper.missing_review", {
+        event: "sweeper.missing_review",
+        pr: detected.number,
+        headSha: detected.headSha,
+        reason: detected.reason,
+      });
     }
   }
 
@@ -496,41 +481,35 @@ export async function runSweep(
         const key = markerKey(owner, repo, m.number, m.headSha);
         const marker = markerLookup.get(key);
         if (marker !== undefined) {
-          console.log(
-            JSON.stringify({
-              event: "sweeper.skipped_inflight",
-              pr: m.number,
-              headSha: m.headSha,
-              acquired_by: marker.acquiredBy,
-              delivery_id: marker.deliveryId,
-              expires_at: marker.expiresAt.toISOString(),
-            })
-          );
+          log.info("sweeper.skipped_inflight", {
+            event: "sweeper.skipped_inflight",
+            pr: m.number,
+            headSha: m.headSha,
+            acquired_by: marker.acquiredBy,
+            delivery_id: marker.deliveryId,
+            expires_at: marker.expiresAt.toISOString(),
+          });
           return false;
         }
         return true;
       });
     } catch (lookupErr: unknown) {
       const message = lookupErr instanceof Error ? lookupErr.message : String(lookupErr);
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.marker_lookup_failed_proceeding",
-          error: message,
-          missing_count: missing.length,
-        })
-      );
+      log.warn("sweeper.marker_lookup_failed_proceeding", {
+        event: "sweeper.marker_lookup_failed_proceeding",
+        error: message,
+        missing_count: missing.length,
+      });
       // Fail-open: proceed with all missing PRs if lookup fails.
     }
   }
 
   if (filteredMissing.length > 0) {
-    console.warn(
-      JSON.stringify({
-        event: "sweeper.primary_webhook_failing",
-        message: `${filteredMissing.length} PR(s) are missing a minsky-reviewer review — the primary webhook path may be failing.`,
-        missingPrNumbers: filteredMissing.map((m) => m.number),
-      })
-    );
+    log.warn("sweeper.primary_webhook_failing", {
+      event: "sweeper.primary_webhook_failing",
+      message: `${filteredMissing.length} PR(s) are missing a minsky-reviewer review — the primary webhook path may be failing.`,
+      missingPrNumbers: filteredMissing.map((m) => m.number),
+    });
   }
 
   // 3. Retrigger missing reviews via in-process runReview, capped at SWEEP_CONCURRENCY.
@@ -552,13 +531,11 @@ export async function runSweep(
     retriggeredCount,
   };
 
-  console.log(
-    JSON.stringify({
-      event: "sweeper.cycle_end",
-      ...result,
-      missingCount: filteredMissing.length,
-    })
-  );
+  log.info("sweeper.cycle_end", {
+    event: "sweeper.cycle_end",
+    ...result,
+    missingCount: filteredMissing.length,
+  });
 
   return result;
 }
@@ -589,44 +566,38 @@ export function startSweeper(
   db?: ReviewerDb
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
-    console.log(
-      JSON.stringify({
-        event: "sweeper.disabled",
-        message: "Sweeper is disabled (SWEEPER_ENABLED=false).",
-      })
-    );
+    log.info("sweeper.disabled", {
+      event: "sweeper.disabled",
+      message: "Sweeper is disabled (SWEEPER_ENABLED=false).",
+    });
     return null;
   }
 
-  console.log(
-    JSON.stringify({
-      event: "sweeper.started",
-      intervalMs: sweeperConfig.intervalMs,
-      owner: sweeperConfig.owner,
-      repo: sweeperConfig.repo,
-      ownerDefaulted: sweeperConfig.ownerDefaulted,
-      repoDefaulted: sweeperConfig.repoDefaulted,
-    })
-  );
+  log.info("sweeper.started", {
+    event: "sweeper.started",
+    intervalMs: sweeperConfig.intervalMs,
+    owner: sweeperConfig.owner,
+    repo: sweeperConfig.repo,
+    ownerDefaulted: sweeperConfig.ownerDefaulted,
+    repoDefaulted: sweeperConfig.repoDefaulted,
+  });
 
   // PR #1116 R1 cascade-defense: when owner/repo were silently defaulted,
   // emit a structured warning at boot. In non-Minsky deployments this would
   // otherwise silently target edobry/minsky and never produce a high-signal
   // log line. Mirrors merge-state-sweeper.ts.
   if (sweeperConfig.ownerDefaulted || sweeperConfig.repoDefaulted) {
-    console.warn(
-      JSON.stringify({
-        event: "sweeper.using_default_repo_coordinates",
-        owner: sweeperConfig.owner,
-        repo: sweeperConfig.repo,
-        ownerDefaulted: sweeperConfig.ownerDefaulted,
-        repoDefaulted: sweeperConfig.repoDefaulted,
-        message:
-          "missed-review sweeper is using default repo coordinates. " +
-          "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
-          "to avoid silently sweeping the wrong repository.",
-      })
-    );
+    log.warn("sweeper.using_default_repo_coordinates", {
+      event: "sweeper.using_default_repo_coordinates",
+      owner: sweeperConfig.owner,
+      repo: sweeperConfig.repo,
+      ownerDefaulted: sweeperConfig.ownerDefaulted,
+      repoDefaulted: sweeperConfig.repoDefaulted,
+      message:
+        "missed-review sweeper is using default repo coordinates. " +
+        "Set SWEEPER_REPO_OWNER and SWEEPER_REPO_NAME explicitly in non-Minsky deployments " +
+        "to avoid silently sweeping the wrong repository.",
+    });
   }
 
   // mt#1898 PR #1154 R1 cascade-defense: warn when the configured cadence is
@@ -637,21 +608,19 @@ export function startSweeper(
   // operator-visible at boot. Non-blocking by design — operators may want a
   // tighter cadence during the mt#1897 (OpenAI timeout) investigation window.
   if (sweeperConfig.intervalMs < SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS) {
-    console.warn(
-      JSON.stringify({
-        event: "sweeper.low_interval_warning",
-        intervalMs: sweeperConfig.intervalMs,
-        safeThresholdMs: SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS,
-        message:
-          `SWEEPER_INTERVAL_MS=${sweeperConfig.intervalMs} is below the ` +
-          `${SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS} ms (5 min) safe threshold. ` +
-          "Below this threshold the sweeper-vs-webhook double-trigger race " +
-          "(no in-flight marker; see mt#1898 `## Findings §4`) fires on a " +
-          "significant fraction of pushes, paying an OpenAI cycle AND a " +
-          "duplicate review comment per race. Land mt#1907 (in-flight " +
-          "marker) before tuning the cadence below this threshold.",
-      })
-    );
+    log.warn("sweeper.low_interval_warning", {
+      event: "sweeper.low_interval_warning",
+      intervalMs: sweeperConfig.intervalMs,
+      safeThresholdMs: SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS,
+      message:
+        `SWEEPER_INTERVAL_MS=${sweeperConfig.intervalMs} is below the ` +
+        `${SWEEPER_LOW_INTERVAL_WARN_THRESHOLD_MS} ms (5 min) safe threshold. ` +
+        "Below this threshold the sweeper-vs-webhook double-trigger race " +
+        "(no in-flight marker; see mt#1898 `## Findings §4`) fires on a " +
+        "significant fraction of pushes, paying an OpenAI cycle AND a " +
+        "duplicate review comment per race. Land mt#1907 (in-flight " +
+        "marker) before tuning the cadence below this threshold.",
+    });
   }
 
   let isSweeping = false;
@@ -662,12 +631,10 @@ export function startSweeper(
 
   const handle = setInterval(() => {
     if (isSweeping) {
-      console.warn(
-        JSON.stringify({
-          event: "sweeper.skip_reentrant",
-          message: "Previous sweep still in progress; skipping this interval tick.",
-        })
-      );
+      log.warn("sweeper.skip_reentrant", {
+        event: "sweeper.skip_reentrant",
+        message: "Previous sweep still in progress; skipping this interval tick.",
+      });
       return;
     }
     isSweeping = true;
@@ -679,12 +646,10 @@ export function startSweeper(
       .then((deps) => runSweep(config, sweeperConfig, deps))
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(
-          JSON.stringify({
-            event: "sweeper.cycle_error",
-            error: message,
-          })
-        );
+        log.error("sweeper.cycle_error", {
+          event: "sweeper.cycle_error",
+          error: message,
+        });
         // Clear cached deps on error so next cycle retries building them.
         cachedDeps = null;
       })

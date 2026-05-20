@@ -33,6 +33,7 @@
 import { sql, and, or, eq, gt } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
 import { inflightReviewsTable } from "./db/schemas/inflight-reviews-schema";
+import { log } from "./logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -53,14 +54,12 @@ export function resolveInflightTtlMs(): number {
   if (!raw) return DEFAULT_INFLIGHT_TTL_MS;
   const parsed = parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
-    console.warn(
-      JSON.stringify({
-        event: "inflight_marker.invalid_ttl_env",
-        envVar: INFLIGHT_TTL_ENV_VAR,
-        value: raw,
-        fallback: DEFAULT_INFLIGHT_TTL_MS,
-      })
-    );
+    log.warn("inflight_marker.invalid_ttl_env", {
+      event: "inflight_marker.invalid_ttl_env",
+      envVar: INFLIGHT_TTL_ENV_VAR,
+      value: raw,
+      fallback: DEFAULT_INFLIGHT_TTL_MS,
+    });
     return DEFAULT_INFLIGHT_TTL_MS;
   }
   return parsed;
