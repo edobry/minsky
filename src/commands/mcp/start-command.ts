@@ -10,6 +10,7 @@ import { Command } from "commander";
 // remain top-level since TS erases them at runtime.
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
+import { RetryingInitController } from "../../mcp/init-retry";
 import { log } from "../../utils/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
@@ -1017,28 +1018,57 @@ export function createStartCommand(
         // HTTP mode, preAction (`src/cli.ts`) has already initialized
         // synchronously — no defer needed (Profile B is long-lived).
         if (container && transportType === "stdio" && !container.has("persistence")) {
-          const initPromise = container.initialize().then(() => {
-            profileCheckpoint("background_container_initialized");
+          // mt#1962: retry-aware controller. Pre-mt#1962 this site stored a
+          // single long-lived `Promise<void>` whose rejection would poison
+          // every subsequent tool call indefinitely (promises are at-most-
+          // once; the side-effect-only `.catch` for logging didn't reset
+          // the original promise's rejected state). A single transient
+          // init failure (DB unreachable, missing migrations folder, slow
+          // Postgres handshake, port collision) became a hard outage that
+          // required `proxy_restart_server` or process kill to clear.
+          //
+          // The controller tracks attempt state and re-invokes the
+          // initializer on demand when a prior attempt rejected (subject
+          // to a 30s backoff so repeated failures don't tight-loop the
+          // database). Concurrent tool calls during an in-flight retry
+          // collapse to a single `container.initialize()` invocation.
+          const initController = new RetryingInitController({
+            initializer: () =>
+              container.initialize().then(() => {
+                profileCheckpoint("background_container_initialized");
+              }),
+            onAttemptSettled: (result) => {
+              if (result.error === undefined) {
+                if (result.attempt > 1) {
+                  log.warn("[mt#1962] container.initialize() succeeded on retry", {
+                    attempt: result.attempt,
+                  });
+                }
+                return;
+              }
+              log.error("[mt#1962] container.initialize() failed", {
+                attempt: result.attempt,
+                consecutiveFailures: result.consecutiveFailures,
+                error: getErrorMessage(result.error),
+              });
+            },
           });
 
-          // PR #1063 R2 BLOCKING: attach a SIDE-EFFECT-ONLY log catch on a
-          // FORKED reference (not the one passed to setInitPromise). This
-          // consumes the rejection so Node never emits `unhandledRejection`
-          // if init fails and no tool call ever awaits — the side `.catch`
-          // attaches a handler to a copy of the chain, preventing the
-          // unhandled-rejection hazard. The ORIGINAL `initPromise` remains
-          // rejecting; when a tool call awaits via `server.initPromise`
-          // (see server.ts CallTool handler), the error surfaces to the
-          // MCP client with the actual root cause (DB connection failure,
-          // missing config, etc.) — NOT a downstream "Service ... is not
-          // available" symptom.
-          initPromise.catch((err: unknown) => {
-            log.error("[mt#1751] background container.initialize() failed", {
-              error: getErrorMessage(err),
-            });
+          // PR #1063 R2 BLOCKING (preserved across mt#1962): kick off the
+          // first attempt eagerly in the background, preserving mt#1751's
+          // cold-start optimization (DI runs while the MCP `initialize`
+          // handshake proceeds in parallel). The side-effect-only `.catch`
+          // on a FORKED reference consumes the rejection so Node never
+          // emits `unhandledRejection` if init fails and no tool call ever
+          // awaits — the controller's internal state stays intact and a
+          // later tool-call `awaitReady()` surfaces the rejection (or
+          // triggers a retry, subject to backoff). The structured log line
+          // is emitted via `onAttemptSettled`, not from here.
+          initController.awaitReady().catch(() => {
+            // Side-effect-only; controller logs via onAttemptSettled.
           });
 
-          server.setInitPromise(initPromise);
+          server.setInitController(initController);
           profileCheckpoint("background_init_kicked_off");
         }
 
