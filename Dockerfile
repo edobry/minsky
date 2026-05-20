@@ -24,15 +24,32 @@ WORKDIR /app
 # Dependency layer — cached unless package.json/bun.lock changes.
 COPY package.json bun.lock ./
 
-# Workspace package manifests (mt#1681 / mt#1722 / mt#1727). The root declares
-# `workspaces: ["packages/*", "services/*"]`, and bun's `--frozen-lockfile`
-# install rejects any divergence between the workspace topology in the build
-# context and the committed lockfile. packages/shared is a direct dep of
-# root; services/reviewer is NOT used by minsky-mcp at runtime but its
-# manifest must be present so bun's workspace install computes the same
-# tree as the lockfile. See selective COPY below for what actually ships.
+# Workspace package manifests (mt#1681 / mt#1722 / mt#1727 / mt#1977). The
+# root declares `workspaces: ["packages/*", "services/*"]`, and bun's
+# `--frozen-lockfile` install rejects any divergence between the workspace
+# topology in the build context and the committed lockfile.
+#
+# **Invariant (mt#1977):** every directory matched by the workspaces glob in
+# root `package.json` MUST have its `package.json` explicitly COPYed below
+# before the `RUN bun install --frozen-lockfile` step. Otherwise bun walks
+# the glob, finds workspace entries in the lockfile that aren't present in
+# the build context, and aborts with:
+#   `error: lockfile had changes, but lockfile is frozen`
+# The local `bun install` succeeds because the full repo is mounted; the
+# Railway build fails because COPY is selective. Sync this list whenever a
+# new workspace is added under `packages/` or `services/`.
+#
+# Notes on individual entries:
+# - `packages/shared` is a direct dep of root.
+# - `services/reviewer` is NOT used by minsky-mcp at runtime but its
+#   manifest must be present so bun's workspace install computes the same
+#   tree as the lockfile.
+# - `services/site` is the marketing site (mt#1934); same rationale as
+#   reviewer — manifest required by the workspace install, but the runtime
+#   image does not ship its source (selective COPY below excludes it).
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY services/reviewer/package.json ./services/reviewer/package.json
+COPY services/site/package.json ./services/site/package.json
 
 # Hoist deps via the root workspace install (mt#1726).
 #
