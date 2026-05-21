@@ -9,7 +9,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { mapAttachmentTypeToBlockType, mapTurnTypeToBlockType } from "./session-context-snapshot";
+import {
+  assistantContentKind,
+  mapAttachmentTypeToBlockType,
+  mapTurnTypeToBlockType,
+} from "./session-context-snapshot";
 
 describe("mapTurnTypeToBlockType (mt#2022)", () => {
   test("user line → user-prompt", () => {
@@ -75,5 +79,54 @@ describe("mapAttachmentTypeToBlockType (mt#2022)", () => {
 
   test("unrecognized rawJsonlType → other", () => {
     expect(mapAttachmentTypeToBlockType("unknown", "anything")).toBe("other");
+  });
+});
+
+describe("assistantContentKind — content-array introspection (mt#2022, PR #1229 reviewer fix)", () => {
+  test("pure text content → 'text'", () => {
+    const message = {
+      role: "assistant",
+      content: [{ type: "text", text: "hello" }],
+    };
+    expect(assistantContentKind(message)).toBe("text");
+  });
+
+  test("pure thinking content → 'thinking'", () => {
+    const message = {
+      role: "assistant",
+      content: [{ type: "thinking", thinking: "deliberating…" }],
+    };
+    expect(assistantContentKind(message)).toBe("thinking");
+  });
+
+  test("mixed thinking + text → 'thinking' (thinking takes precedence)", () => {
+    const message = {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "deliberating…" },
+        { type: "text", text: "hello" },
+      ],
+    };
+    expect(assistantContentKind(message)).toBe("thinking");
+  });
+
+  test("tool_use only (no text/thinking) → 'text' (default)", () => {
+    const message = {
+      role: "assistant",
+      content: [{ type: "tool_use", id: "x", name: "Bash", input: {} }],
+    };
+    expect(assistantContentKind(message)).toBe("text");
+  });
+
+  test("string content (older JSONL shape) → 'text'", () => {
+    const message = { role: "assistant", content: "plain string" };
+    expect(assistantContentKind(message)).toBe("text");
+  });
+
+  test("malformed message → 'text' (defensive)", () => {
+    expect(assistantContentKind(null)).toBe("text");
+    expect(assistantContentKind(undefined)).toBe("text");
+    expect(assistantContentKind({})).toBe("text");
+    expect(assistantContentKind("not an object")).toBe("text");
   });
 });

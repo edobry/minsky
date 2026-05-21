@@ -21,7 +21,7 @@ import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transc
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
-import { extractAttachmentContentString, matchHookScript } from "./hook-preamble-matcher";
+import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
 
 // eslint-disable-next-line custom/require-injectable -- not yet registered in DI; wired by callers directly
 export class AgentTranscriptIngestService {
@@ -308,91 +308,4 @@ function extractStartedAt(lines: RawTurnLine[], source: TranscriptSource): Date 
 function deriveProjectDir(jsonlPath: string): string {
   const lastSlash = jsonlPath.lastIndexOf("/");
   return lastSlash > 0 ? jsonlPath.slice(0, lastSlash) : jsonlPath;
-}
-
-// ── mt#2022: attachment-row construction ────────────────────────────────────
-
-/**
- * Shape of a single `agent_transcript_attachments` row before insert.
- * Mirrors the schema in `agent-transcript-attachments-schema.ts`.
- */
-interface AttachmentRow {
-  agentSessionId: string;
-  lineIndex: number;
-  rawJsonlType: string;
-  attachmentType: string;
-  hookEvent: string | null;
-  hookName: string | null;
-  parentUuid: string | null;
-  content: unknown;
-  timestamp: Date | null;
-}
-
-/**
- * Build an attachment-row from a raw JSONL line. Returns `null` when the line
- * doesn't fit the attachment/system shape we expect (defensive — malformed
- * lines are skipped rather than crashing the ingest).
- *
- * Routing semantics:
- * - `attachment` lines: read `attachment.type` for `attachmentType`. For
- *   `hook_additional_context`, lift `hookName` (event) and run the preamble
- *   matcher against `attachment.content` to populate the script `hookName` column.
- * - `system` lines: read `subtype` for `attachmentType`.
- *
- * @see mt#2022
- */
-function buildAttachmentRow(
-  agentSessionId: string,
-  lineIndex: number,
-  line: RawTurnLine,
-  timestamp: Date | null
-): AttachmentRow | null {
-  const rawJsonlType = typeof line.type === "string" ? line.type : "";
-  if (rawJsonlType !== "attachment" && rawJsonlType !== "system") return null;
-
-  let attachmentType = "";
-  let hookEvent: string | null = null;
-  let hookName: string | null = null;
-
-  if (rawJsonlType === "attachment") {
-    const att = (line as { attachment?: unknown }).attachment;
-    if (att && typeof att === "object") {
-      const inner = att as Record<string, unknown>;
-      if (typeof inner.type === "string") attachmentType = inner.type;
-      // hook_additional_context attachments carry the hook EVENT in `hookName`
-      // (despite the field name). Disambiguate the specific script via the
-      // preamble matcher.
-      if (attachmentType === "hook_additional_context") {
-        const evt = inner.hookEvent ?? inner.hookName;
-        if (typeof evt === "string") hookEvent = evt;
-        const contentStr = extractAttachmentContentString(inner.content);
-        if (hookEvent !== null) {
-          hookName = matchHookScript(hookEvent, contentStr);
-        }
-      }
-    }
-  } else {
-    // system line
-    const subtype = (line as { subtype?: unknown }).subtype;
-    if (typeof subtype === "string") attachmentType = subtype;
-  }
-
-  if (!attachmentType) {
-    // Unrecognized shape — skip rather than write a row with a NOT-NULL violation.
-    return null;
-  }
-
-  const parentUuid = (line as { parentUuid?: unknown }).parentUuid;
-
-  return {
-    agentSessionId,
-    lineIndex,
-    rawJsonlType,
-    attachmentType,
-    hookEvent,
-    hookName,
-    parentUuid: typeof parentUuid === "string" ? parentUuid : null,
-    content: line,
-    timestamp,
-  };
 }

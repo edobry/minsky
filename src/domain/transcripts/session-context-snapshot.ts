@@ -91,10 +91,31 @@ function attachmentBlockId(agentSessionId: string, lineIndex: number): string {
 }
 
 /**
+ * Determine whether an assistant turn line's content array contains any
+ * `type: "thinking"` block (Claude Code's reasoning channel). When mixed
+ * content is present (thinking + text), we treat the line as
+ * `assistant-thinking` so downstream consumers can route reasoning surfaces
+ * to dedicated UI. Pure-text assistant lines route to `assistant-text`.
+ */
+export function assistantContentKind(message: unknown): "text" | "thinking" {
+  if (message === null || typeof message !== "object") return "text";
+  const m = message as Record<string, unknown>;
+  const content = m.content;
+  if (!Array.isArray(content)) return "text";
+  for (const block of content) {
+    if (block !== null && typeof block === "object") {
+      const bt = (block as Record<string, unknown>).type;
+      if (bt === "thinking") return "thinking";
+    }
+  }
+  return "text";
+}
+
+/**
  * Convert a raw turn line (from the `transcript` jsonb array) to a snapshot
  * block. The turn array stores user/assistant JSONL lines verbatim; this
  * function pulls the timestamp + parentUuid + content into the unified block
- * shape.
+ * shape and resolves the assistant kind via `assistantContentKind`.
  */
 function turnLineToBlock(
   agentSessionId: string,
@@ -110,13 +131,14 @@ function turnLineToBlock(
   if (!tsStr) return null;
 
   const parentUuid = typeof l.parentUuid === "string" ? l.parentUuid : undefined;
+  const kind = rawJsonlType === "assistant" ? assistantContentKind(l.message) : undefined;
 
   return {
     id: turnBlockId(agentSessionId, turnIndex),
-    type: mapTurnTypeToBlockType(rawJsonlType),
+    type: mapTurnTypeToBlockType(rawJsonlType, kind),
     source: "observed",
     content: l.message ?? l,
-    parentId: parentUuid,
+    parentUuid,
     timestamp: tsStr,
     turnIndex,
     rawJsonlType,
@@ -178,7 +200,7 @@ export async function assembleSessionContextSnapshot(
       type: mapAttachmentTypeToBlockType(row.rawJsonlType, row.attachmentType),
       source: "observed",
       content: row.content,
-      parentId: row.parentUuid ?? undefined,
+      parentUuid: row.parentUuid ?? undefined,
       timestamp: ts,
       rawJsonlType: row.rawJsonlType,
     });

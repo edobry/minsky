@@ -385,8 +385,20 @@ export interface SessionContextSnapshotBlock {
   /** Block content — raw text for turn blocks; structured payload for attachments. */
   content: unknown;
 
-  /** Parent linkage (e.g., `parentUuid` for attachments → preceding turn / attachment). */
-  parentId?: string;
+  /**
+   * Originating JSONL `parentUuid` — the harness-emitted external UUID that
+   * Claude Code uses to chain lines (attachment → preceding turn/attachment,
+   * turn → preceding turn). NOT a synthesized block `id` from this snapshot's
+   * namespace; downstream consumers wanting in-snapshot navigation can build
+   * a `uuid → blockId` map themselves (uuids appear on the underlying JSONL
+   * but are not exposed on the block shape yet — file a follow-up if the
+   * inspector UI needs them).
+   *
+   * Renamed from `parentId` per PR #1229 reviewer feedback; the old name
+   * implied resolution within the snapshot's id-namespace, which the value
+   * does not satisfy.
+   */
+  parentUuid?: string;
 
   /** ISO-8601 timestamp from the originating JSONL line. */
   timestamp: string;

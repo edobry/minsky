@@ -25,73 +25,13 @@ import { eq } from "drizzle-orm";
 
 import { ClaudeCodeTranscriptSource } from "../src/domain/transcripts/claude-code-transcript-source";
 import {
-  extractAttachmentContentString,
-  matchHookScript,
-} from "../src/domain/transcripts/hook-preamble-matcher";
+  type AttachmentRow,
+  buildAttachmentRow,
+} from "../src/domain/transcripts/attachment-row-builder";
 import { agentTranscriptsTable } from "../src/domain/storage/schemas/agent-transcripts-schema";
 import { agentTranscriptAttachmentsTable } from "../src/domain/storage/schemas/agent-transcript-attachments-schema";
 import { log } from "../src/utils/logger";
 import { getErrorMessage } from "../src/errors/index";
-
-interface AttachmentRow {
-  agentSessionId: string;
-  lineIndex: number;
-  rawJsonlType: string;
-  attachmentType: string;
-  hookEvent: string | null;
-  hookName: string | null;
-  parentUuid: string | null;
-  content: unknown;
-  timestamp: Date | null;
-}
-
-function buildRow(
-  agentSessionId: string,
-  lineIndex: number,
-  line: Record<string, unknown>,
-  timestamp: Date | null
-): AttachmentRow | null {
-  const rawJsonlType = typeof line.type === "string" ? line.type : "";
-  if (rawJsonlType !== "attachment" && rawJsonlType !== "system") return null;
-
-  let attachmentType = "";
-  let hookEvent: string | null = null;
-  let hookName: string | null = null;
-
-  if (rawJsonlType === "attachment") {
-    const att = line.attachment;
-    if (att && typeof att === "object") {
-      const inner = att as Record<string, unknown>;
-      if (typeof inner.type === "string") attachmentType = inner.type;
-      if (attachmentType === "hook_additional_context") {
-        const evt = inner.hookEvent ?? inner.hookName;
-        if (typeof evt === "string") hookEvent = evt;
-        const contentStr = extractAttachmentContentString(inner.content);
-        if (hookEvent !== null) {
-          hookName = matchHookScript(hookEvent, contentStr);
-        }
-      }
-    }
-  } else {
-    const subtype = line.subtype;
-    if (typeof subtype === "string") attachmentType = subtype;
-  }
-
-  if (!attachmentType) return null;
-
-  const parentUuid = line.parentUuid;
-  return {
-    agentSessionId,
-    lineIndex,
-    rawJsonlType,
-    attachmentType,
-    hookEvent,
-    hookName,
-    parentUuid: typeof parentUuid === "string" ? parentUuid : null,
-    content: line,
-    timestamp,
-  };
-}
 
 async function backfillSession(
   db: import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -123,7 +63,7 @@ async function backfillSession(
     const tsDate = tsStr ? new Date(tsStr) : null;
     const timestamp = tsDate && !isNaN(tsDate.getTime()) ? tsDate : null;
 
-    const row = buildRow(agentSessionId, lineIndex, line as Record<string, unknown>, timestamp);
+    const row = buildAttachmentRow(agentSessionId, lineIndex, line, timestamp);
     if (row !== null) rows.push(row);
   }
 
