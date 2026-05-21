@@ -446,6 +446,256 @@ export async function applyServiceInstanceUpdate(
   );
 }
 
+// ---------------------------------------------------------------------------
+// Deploy-trigger reconciliation (mt#2000 chunk 2)
+// ---------------------------------------------------------------------------
+//
+// The synthesizer reconciles the declared `source` + `build` blocks (from
+// services/<svc>/deploy.config.ts) against the live Railway service state.
+//
+// Railway schema note (per scripts/deploy-minsky-mcp.ts:readServiceSource
+// 2026-04-23 introspection): `rootDirectory` is a top-level field on
+// ServiceInstance; `source` only carries `image` and `repo`; `branch` lives
+// on deployment triggers, NOT on the service instance itself. So
+// `source.branch` is not in the read shape — it's still writable via
+// `ServiceInstanceUpdateInput.branch`, but we cannot diff it without a
+// separate deployment-trigger read. Treated as write-through (declared
+// values applied unconditionally; live read does not surface them).
+
+export interface ServiceInstanceState {
+  /** Top-level on Railway's ServiceInstance. */
+  rootDirectory?: string;
+  /** Top-level on Railway's ServiceInstance, nested under `source`. */
+  source?: { repo?: string };
+  /** Build configuration — top-level on ServiceInstance per Railway schema. */
+  builder?: RailwayBuilder;
+  buildCommand?: string;
+  dockerfilePath?: string;
+  watchPatterns?: string[];
+  nixpacksConfigPath?: string;
+}
+
+/**
+ * Read the live source + build state of a Railway service via GraphQL.
+ *
+ * Returns null when the service is not found in the environment (e.g.,
+ * stale config IDs). On any other GraphQL or transport error, throws.
+ *
+ * @param environmentId - Railway environment UUID (parent of serviceInstance).
+ * @param serviceId - Railway service UUID (lookup key into the environment's
+ *   serviceInstances).
+ * @param graphqlImpl - Injectable for testing.
+ */
+export async function fetchServiceInstanceState(
+  environmentId: string,
+  serviceId: string,
+  graphqlImpl: typeof graphql = graphql
+): Promise<ServiceInstanceState | null> {
+  type R = {
+    environment: {
+      serviceInstances: {
+        edges: Array<{
+          node: {
+            serviceId: string;
+            rootDirectory?: string;
+            source?: { repo?: string };
+            builder?: RailwayBuilder;
+            buildCommand?: string;
+            dockerfilePath?: string;
+            watchPatterns?: string[];
+            nixpacksConfigPath?: string;
+          };
+        }>;
+      };
+    };
+  };
+  const data = await graphqlImpl<R>(
+    `
+      query ($envId: String!) {
+        environment(id: $envId) {
+          serviceInstances {
+            edges {
+              node {
+                serviceId
+                rootDirectory
+                source {
+                  repo
+                }
+                builder
+                buildCommand
+                dockerfilePath
+                watchPatterns
+                nixpacksConfigPath
+              }
+            }
+          }
+        }
+      }
+    `,
+    { envId: environmentId }
+  );
+  const instance = data.environment.serviceInstances.edges.find(
+    (e) => e.node.serviceId === serviceId
+  );
+  if (!instance) return null;
+  const node = instance.node;
+  // Strip the lookup-only serviceId field; return only the reconcilable state.
+  return {
+    rootDirectory: node.rootDirectory,
+    source: node.source,
+    builder: node.builder,
+    buildCommand: node.buildCommand,
+    dockerfilePath: node.dockerfilePath,
+    watchPatterns: node.watchPatterns,
+    nixpacksConfigPath: node.nixpacksConfigPath,
+  };
+}
+
+/** A single field-level diff entry in the deploy-trigger reconciliation. */
+export type ServiceInstanceDiffEntry =
+  | { kind: "ADD"; field: string; value: unknown }
+  | { kind: "CHANGE"; field: string; from: unknown; to: unknown }
+  | { kind: "NO-CHANGE"; field: string };
+
+/**
+ * Compute the diff between the desired (declared in deploy.config.ts) and
+ * current (live Railway state) deploy-trigger configuration.
+ *
+ * Walks each field independently:
+ *   - ADD: desired has a value, current is unset/null/undefined.
+ *   - CHANGE: both set and values differ.
+ *   - NO-CHANGE: values match (string equality for scalars; deep equality
+ *     for arrays).
+ *
+ * Fields NOT declared in `desired` are skipped (NO REMOVE class) — the
+ * synthesizer doesn't prune deploy-trigger fields, because the declared
+ * config is a partial spec (you might declare only `source.rootDirectory`
+ * and let Railway's defaults govern the rest).
+ *
+ * `source.branch` is in the desired shape but NOT in the readable state
+ * (see ServiceInstanceState comment). It's treated as ADD when desired
+ * has a value — applied as write-through; the diff cannot verify it.
+ */
+export function computeServiceInstanceDiff(
+  desired: { source?: RailwaySource; build?: RailwayBuild },
+  current: ServiceInstanceState
+): ServiceInstanceDiffEntry[] {
+  const entries: ServiceInstanceDiffEntry[] = [];
+
+  const diffField = (fieldName: string, desiredVal: unknown, currentVal: unknown): void => {
+    if (desiredVal === undefined) return;
+    if (currentVal === undefined || currentVal === null) {
+      entries.push({ kind: "ADD", field: fieldName, value: desiredVal });
+      return;
+    }
+    if (arrayOrScalarEqual(desiredVal, currentVal)) {
+      entries.push({ kind: "NO-CHANGE", field: fieldName });
+      return;
+    }
+    entries.push({ kind: "CHANGE", field: fieldName, from: currentVal, to: desiredVal });
+  };
+
+  // Source fields
+  diffField("source.repo", desired.source?.repo, current.source?.repo);
+  // source.branch is write-through (not in readable state).
+  if (desired.source?.branch !== undefined) {
+    entries.push({ kind: "ADD", field: "source.branch", value: desired.source.branch });
+  }
+  diffField("source.rootDirectory", desired.source?.rootDirectory, current.rootDirectory);
+  // source.checkSuites is write-through; Railway's schema for reading is
+  // sparse here; treat as ADD when declared.
+  if (desired.source?.checkSuites !== undefined) {
+    entries.push({
+      kind: "ADD",
+      field: "source.checkSuites",
+      value: desired.source.checkSuites,
+    });
+  }
+
+  // Build fields
+  diffField("build.builder", desired.build?.builder, current.builder);
+  diffField("build.dockerfilePath", desired.build?.dockerfilePath, current.dockerfilePath);
+  diffField("build.buildCommand", desired.build?.buildCommand, current.buildCommand);
+  diffField("build.watchPatterns", desired.build?.watchPatterns, current.watchPatterns);
+  diffField(
+    "build.nixpacksConfigPath",
+    desired.build?.nixpacksConfigPath,
+    current.nixpacksConfigPath
+  );
+
+  return entries;
+}
+
+function arrayOrScalarEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}
+
+/**
+ * Flatten the Minsky-side nested `source.*` / `build.*` shape into Railway's
+ * flat `ServiceInstanceUpdateInput`. Only fields actually declared in the
+ * input are included; unset fields are omitted so the mutation doesn't
+ * touch them.
+ */
+export function flattenToServiceInstanceInput(desired: {
+  source?: RailwaySource;
+  build?: RailwayBuild;
+}): ServiceInstanceUpdateInput {
+  const input: ServiceInstanceUpdateInput = {};
+  if (desired.source?.repo !== undefined) input.repo = desired.source.repo;
+  if (desired.source?.branch !== undefined) input.branch = desired.source.branch;
+  if (desired.source?.rootDirectory !== undefined) {
+    input.rootDirectory = desired.source.rootDirectory;
+  }
+  if (desired.source?.checkSuites !== undefined) input.checkSuites = desired.source.checkSuites;
+  if (desired.build?.builder !== undefined) input.builder = desired.build.builder;
+  if (desired.build?.dockerfilePath !== undefined) {
+    input.dockerfilePath = desired.build.dockerfilePath;
+  }
+  if (desired.build?.buildCommand !== undefined) input.buildCommand = desired.build.buildCommand;
+  if (desired.build?.watchPatterns !== undefined) {
+    input.watchPatterns = desired.build.watchPatterns;
+  }
+  if (desired.build?.nixpacksConfigPath !== undefined) {
+    input.nixpacksConfigPath = desired.build.nixpacksConfigPath;
+  }
+  return input;
+}
+
+/**
+ * Render a deploy-trigger diff as human-readable lines (one per entry).
+ * NO-CHANGE entries are summarized as a single trailing line.
+ */
+export function formatServiceInstanceDiff(diff: ServiceInstanceDiffEntry[]): string {
+  if (diff.length === 0) return "No deploy-trigger changes.";
+  const lines: string[] = [];
+  const noChangeCount = diff.filter((e) => e.kind === "NO-CHANGE").length;
+  for (const entry of diff) {
+    if (entry.kind === "ADD") {
+      lines.push(`+ ADD    ${entry.field} = ${formatValue(entry.value)}`);
+    } else if (entry.kind === "CHANGE") {
+      lines.push(`~ CHANGE ${entry.field}: ${formatValue(entry.from)} → ${formatValue(entry.to)}`);
+    }
+  }
+  if (lines.length === 0 && noChangeCount > 0) {
+    lines.push("No deploy-trigger changes.");
+  }
+  if (noChangeCount > 0 && lines.length > 0 && lines[0] !== "No deploy-trigger changes.") {
+    lines.push(`  (${noChangeCount} field(s) unchanged)`);
+  }
+  return lines.join("\n");
+}
+
+function formatValue(v: unknown): string {
+  if (v === undefined || v === null) return "(unset)";
+  if (typeof v === "string") return JSON.stringify(v);
+  if (Array.isArray(v)) return JSON.stringify(v);
+  return String(v);
+}
+
 export function formatDiffOutput(
   diff: DiffEntry[],
   desired: Record<string, VariableValue>,

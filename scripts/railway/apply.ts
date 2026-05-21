@@ -5,6 +5,8 @@ import { pathToFileURL } from "node:url";
 import {
   type RailwayConfig,
   type CurrentVar,
+  type RailwaySource,
+  type RailwayBuild,
   computeDiff,
   buildVariablePatches,
   buildAllSecretPatches,
@@ -13,6 +15,11 @@ import {
   formatDiffOutput,
   summarizeDiff,
   graphql,
+  applyServiceInstanceUpdate,
+  fetchServiceInstanceState,
+  computeServiceInstanceDiff,
+  flattenToServiceInstanceInput,
+  formatServiceInstanceDiff,
 } from "./lib";
 
 const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_", "NIXPACKS_", "RAILPACK_"] as const;
@@ -96,6 +103,125 @@ async function loadConfig(serviceDir: string): Promise<RailwayConfig> {
   return config;
 }
 
+/**
+ * Deploy-trigger declarative config loaded from deploy.config.ts (mt#2000).
+ * Only the railway-platform variant is supported today (per mt#1730 v1).
+ * Returns null when:
+ *   - deploy.config.ts does not exist at the service-dir, OR
+ *   - deploy.config.ts exists but does NOT declare `source` or `build`
+ *     blocks (services that haven't been migrated yet skip the deploy-
+ *     trigger pass without error).
+ */
+interface DeployTriggerSpec {
+  source?: RailwaySource;
+  build?: RailwayBuild;
+}
+
+async function loadDeployConfig(serviceDir: string): Promise<DeployTriggerSpec | null> {
+  const configPath = resolve(serviceDir, "deploy.config.ts");
+  if (!existsSync(configPath)) return null;
+
+  type DeployModule = {
+    default?: {
+      platform: "railway";
+      railway: {
+        source?: RailwaySource;
+        build?: RailwayBuild;
+      };
+    };
+  };
+  const mod = (await import(pathToFileURL(configPath).href)) as DeployModule;
+  const cfg = mod?.default;
+  if (!cfg || typeof cfg !== "object" || cfg.platform !== "railway" || !cfg.railway) {
+    return null;
+  }
+  const { source, build } = cfg.railway;
+  if (source === undefined && build === undefined) return null;
+  return { source, build };
+}
+
+/**
+ * Reconcile the deploy-trigger config (source + build blocks) against the
+ * live Railway service. Mirrors the env-var reconciliation flow:
+ *   - Fetch live state via fetchServiceInstanceState
+ *   - Compute diff via computeServiceInstanceDiff
+ *   - Print human-readable diff
+ *   - On --execute, apply via applyServiceInstanceUpdate (after flatten)
+ *   - Verify by re-reading
+ *
+ * No-op when `deployConfig` is null (no deploy.config.ts or no source/build
+ * blocks declared).
+ */
+async function reconcileDeployTrigger(
+  config: RailwayConfig,
+  deployConfig: DeployTriggerSpec | null,
+  execute: boolean
+): Promise<void> {
+  if (!deployConfig) {
+    console.log("");
+    console.log(
+      "Deploy-trigger reconciliation: skipped (no deploy.config.ts source/build blocks)."
+    );
+    return;
+  }
+
+  console.log("");
+  console.log("Fetching current Railway deploy-trigger state...");
+  const current = await fetchServiceInstanceState(config.environmentId, config.serviceId);
+  if (!current) {
+    throw new Error(
+      `Service ${config.serviceId} not found in environment ${config.environmentId} ` +
+        `(deploy-trigger read). Check the service/environment IDs in railway.config.ts.`
+    );
+  }
+
+  const diff = computeServiceInstanceDiff(deployConfig, current);
+  const actionableChanges = diff.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+
+  console.log("Deploy-trigger diff:");
+  const output = formatServiceInstanceDiff(diff);
+  for (const line of output.split("\n")) {
+    console.log(`  ${line}`);
+  }
+
+  if (actionableChanges.length === 0) {
+    console.log("");
+    console.log("Deploy-trigger: no changes.");
+    return;
+  }
+
+  if (!execute) {
+    console.log("");
+    console.log("Deploy-trigger dry-run complete. Pass --execute to apply changes.");
+    return;
+  }
+
+  console.log("");
+  console.log("Applying deploy-trigger changes...");
+  const input = flattenToServiceInstanceInput(deployConfig);
+  await applyServiceInstanceUpdate(config.serviceId, config.environmentId, input);
+  console.log(`  Applied: ${actionableChanges.length} deploy-trigger field change(s).`);
+
+  console.log("");
+  console.log("Verifying deploy-trigger (read-back)...");
+  const afterApply = await fetchServiceInstanceState(config.environmentId, config.serviceId);
+  if (!afterApply) {
+    console.log("WARNING: deploy-trigger read-back returned null (service vanished?).");
+    return;
+  }
+  const diffAfter = computeServiceInstanceDiff(deployConfig, afterApply);
+  const actionableAfter = diffAfter.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+  if (actionableAfter.length === 0) {
+    console.log("Deploy-trigger read-back confirmed: no remaining changes.");
+  } else {
+    console.log("WARNING: deploy-trigger read-back shows remaining differences:");
+    const afterOutput = formatServiceInstanceDiff(diffAfter);
+    for (const line of afterOutput.split("\n")) {
+      console.log(`  ${line}`);
+    }
+  }
+}
+
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const execute = args.includes("--execute");
@@ -131,6 +257,10 @@ async function run(): Promise<void> {
   }
 
   const config = await loadConfig(serviceDir);
+  // mt#2000: load deploy.config.ts (optional) for the deploy-trigger pass.
+  // Resolved once up-front so every early-return path can still fire the
+  // deploy-trigger reconciliation.
+  const deployConfig = await loadDeployConfig(serviceDir);
 
   const modeLabel = execute ? (prune ? "APPLY+PRUNE" : "APPLY") : "DRY-RUN";
   console.log(`Service:     ${config.serviceId}`);
@@ -185,12 +315,14 @@ async function run(): Promise<void> {
     } else {
       console.log("No changes.");
     }
+    await reconcileDeployTrigger(config, deployConfig, execute);
     return;
   }
 
   if (!execute) {
     console.log("");
     console.log("Dry-run complete. Pass --execute to apply changes.");
+    await reconcileDeployTrigger(config, deployConfig, execute);
     return;
   }
 
@@ -244,6 +376,8 @@ async function run(): Promise<void> {
       console.log(`  ${line}`);
     }
   }
+
+  await reconcileDeployTrigger(config, deployConfig, execute);
 }
 
 run().catch((err) => {
