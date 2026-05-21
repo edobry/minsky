@@ -38,5 +38,26 @@ export default defineDeployment({
     projectId: railwayConfig.projectId,
     environmentId: railwayConfig.environmentId,
     serviceId: railwayConfig.serviceId,
+    // Source + build declared per mt#2001 — match live Railway state
+    // discovered 2026-05-21 via `fetchServiceInstanceState`. The synthesizer
+    // (mt#2000) reports clean diff against this declaration.
+    source: {
+      repo: "edobry/minsky",
+      // branch is write-through (not on serviceInstance read); declared
+      // as conventional "main" — synthesizer reports ADD on first run.
+      branch: "main",
+      // Empty string = repo root. The reviewer build context is the repo
+      // root because the Dockerfile uses workspace COPY semantics
+      // (services/reviewer/Dockerfile copies from / to enable the
+      // @minsky/shared workspace dep).
+      rootDirectory: "",
+    },
+    build: {
+      // Live state has RAILPACK builder despite dockerfilePath being set —
+      // RAILPACK is Railway's evolved build system; it picks up the
+      // Dockerfile path automatically when declared.
+      builder: "RAILPACK",
+      dockerfilePath: "services/reviewer/Dockerfile",
+    },
   },
 });

@@ -20,5 +20,19 @@ export default defineDeployment({
     projectId: railwayConfig.projectId,
     environmentId: railwayConfig.environmentId,
     serviceId: railwayConfig.serviceId,
+    // Source + build declared per mt#2001 — match live Railway state
+    // discovered 2026-05-21 via `fetchServiceInstanceState`. The synthesizer
+    // (mt#2000) reports clean diff against this declaration.
+    source: {
+      repo: "edobry/minsky",
+      // branch is write-through (not on serviceInstance read); declared
+      // as conventional "main" — synthesizer reports ADD on first run.
+      branch: "main",
+      rootDirectory: "services/site",
+    },
+    build: {
+      // Live state confirmed NIXPACKS for the static-site Astro build.
+      builder: "NIXPACKS",
+    },
   },
 });
