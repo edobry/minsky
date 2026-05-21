@@ -13,6 +13,19 @@
  * `defineDeployment`'s discriminator gates only on `platform: "railway"` plus
  * the three IDs — the underlying build method is irrelevant to the abstraction.
  *
+ * # Consumer (how this file is found)
+ *
+ * `src/domain/deployment/service-resolver.ts` (`loadDeploymentConfig`, line ~90)
+ * resolves a service name into a config path purely by convention:
+ *
+ *     resolve(projectRoot, "services", service, "deploy.config.ts")
+ *
+ * So `mcp__minsky__deployment_status service:"reviewer"` mechanically reads
+ * this file — no registry update or service-name mapping is required.
+ * `listServicesWithDeployConfig` (line ~64) walks `services/` and includes
+ * any directory containing `deploy.config.ts`; after this file lands, the
+ * walk returns `["reviewer", "site"]` (sorted).
+ *
  * See docs/deployment-platforms.md for the full design.
  */
 
