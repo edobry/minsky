@@ -162,7 +162,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_ACK_OOB_MERGE", // .claude/hooks/block-out-of-band-merge.ts (mt#1695)
   "MINSKY_FORCE_EDIT_GENERATED", // .claude/hooks/check-generated-file-edit.ts (mt#1699)
   "MINSKY_SKIP_SKILL_STALENESS", // .claude/hooks/skill-staleness-detector.ts (mt#1622)
-  "MINSKY_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts (state-dir override)
+  "MINSKY_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts + src/mcp/daemon-state.ts (state-dir override)
   "MINSKY_FORCE_LOOP_TERMINAL", // .claude/hooks/loop-preflight-pr-merge-check.ts
   "MINSKY_POLICY_COVERAGE_MODE", // .claude/hooks/policy-coverage-detector.ts (mt#1541)
   "MINSKY_SKIP_DAEMON_STALENESS", // .claude/hooks/mcp-daemon-staleness-detector.ts
