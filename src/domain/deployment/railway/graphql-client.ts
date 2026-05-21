@@ -2,20 +2,47 @@
  * Railway GraphQL client primitives — shared between the v1
  * RailwayDeploymentAdapter and the existing scripts/railway/ bun scripts.
  *
- * Extracted from scripts/railway/status.ts and scripts/railway/logs.ts as
- * part of mt#1730. The bun scripts will continue to re-export these
- * primitives (via scripts/railway/lib.ts) so behavior on that surface is
- * unchanged.
+ * Originally extracted from scripts/railway/status.ts and scripts/railway/logs.ts
+ * as part of mt#1730; the bun scripts were intended to re-export these primitives
+ * (via scripts/railway/lib.ts) but the consolidation was only partial. mt#2013
+ * completes the consolidation AND adds OAuth refresh-token handling so the
+ * access token (which Railway expires within ~5 hours) renews transparently
+ * mid-process without requiring an operator-side `railway login`.
  *
- * Tracking task: mt#1730.
+ * Tracking tasks: mt#1730 (consolidation), mt#2013 (refresh + final consolidation).
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 export const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
+export const RAILWAY_OAUTH_TOKEN_URL = "https://backboard.railway.com/oauth/token";
+
+/**
+ * Default OAuth client ID used by the Railway CLI when authenticating against
+ * the public OAuth endpoint. Source: railwayapp/cli `src/oauth.rs`. Operators
+ * may override via the `RAILWAY_OAUTH_CLIENT_ID` env var (same convention the
+ * CLI uses).
+ */
+export const RAILWAY_OAUTH_DEFAULT_CLIENT_ID = "rlwy_oaci_onEklvmksh1hRUiCo7E2zX12";
+
 const GRAPHQL_TIMEOUT_MS = 30_000;
+
+/**
+ * Refresh the access token when it's expired OR within this safety window
+ * of expiring. Avoids the race where a token is checked as valid, then expires
+ * before the GraphQL request lands.
+ */
+export const REFRESH_SAFETY_WINDOW_SECONDS = 300;
+
+// ---------------------------------------------------------------------------
+// Error classes
+// ---------------------------------------------------------------------------
 
 export class RailwayAuthError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -31,26 +58,88 @@ export class RailwayApiError extends Error {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Config store abstraction
+// ---------------------------------------------------------------------------
+//
+// `~/.railway/config.json` holds the credentials the Railway CLI maintains.
+// We model read+write behind an injectable interface so tests can drive the
+// refresh logic without touching the real filesystem.
+
+export interface RailwayUserCredentials {
+  accessToken?: string;
+  refreshToken?: string;
+  /** Unix epoch seconds when the access token expires. */
+  tokenExpiresAt?: number;
+  /** Separate field the Railway CLI stores; not modified by this module. */
+  token?: string;
+}
+
+export interface RailwayConfigShape {
+  user?: RailwayUserCredentials & Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface RailwayConfigStore {
+  read(): RailwayConfigShape;
+  write(cfg: RailwayConfigShape): void;
+}
+
+function defaultRailwayConfigPath(): string {
+  return join(homedir(), ".railway", "config.json");
+}
+
 /**
- * Read the Railway bearer token from `~/.railway/config.json`. Same path
- * the `railway` CLI populates; auth flow is `railway login`.
+ * Default fs-backed config store. Read and write the real
+ * `~/.railway/config.json` file.
+ *
+ * Write semantics: best-effort last-write-wins. Two concurrent processes
+ * refreshing simultaneously may stomp each other; the loser's stale access
+ * token will be rejected by Railway on its next use, triggering an idempotent
+ * re-refresh. A `proper-lockfile`-style file lock would be over-engineering
+ * for a single-CLI-per-machine consumer.
  */
-export function readRailwayToken(): string {
-  const cfgPath = join(homedir(), ".railway", "config.json");
-  if (!existsSync(cfgPath)) {
-    throw new RailwayAuthError(
-      "Railway CLI is not authenticated (missing ~/.railway/config.json). Run: railway login"
-    );
-  }
-  let cfg: { user?: { accessToken?: string } };
-  try {
-    cfg = JSON.parse(readFileSync(cfgPath, "utf-8").toString()) as typeof cfg;
-  } catch (err) {
-    throw new RailwayAuthError(
-      `Failed to parse ~/.railway/config.json: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err }
-    );
-  }
+export const defaultRailwayConfigStore: RailwayConfigStore = {
+  read(): RailwayConfigShape {
+    const cfgPath = defaultRailwayConfigPath();
+    if (!existsSync(cfgPath)) {
+      throw new RailwayAuthError(
+        "Railway CLI is not authenticated (missing ~/.railway/config.json). Run: railway login"
+      );
+    }
+    let parsed: RailwayConfigShape;
+    try {
+      parsed = JSON.parse(readFileSync(cfgPath, "utf-8").toString()) as RailwayConfigShape;
+    } catch (err) {
+      throw new RailwayAuthError(
+        `Failed to parse ~/.railway/config.json: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err }
+      );
+    }
+    return parsed;
+  },
+
+  write(cfg: RailwayConfigShape): void {
+    const cfgPath = defaultRailwayConfigPath();
+    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Token reading (sync, deprecated) and refresh-aware async variant
+// ---------------------------------------------------------------------------
+
+/**
+ * @deprecated Prefer {@link getValidRailwayToken} which transparently refreshes
+ * the access token on expiry. This helper does a sync file read and returns
+ * whatever access token is present; if it has expired, downstream GraphQL
+ * calls will fail with "Not Authorized". Retained for back-compat with the
+ * `(query, variables, token)` GraphQL-helper shape used across `scripts/` and
+ * the v1 `RailwayDeploymentAdapter`; new code should use
+ * {@link getValidRailwayToken} or {@link railwayGraphQLAuthed}.
+ */
+export function readRailwayToken(store: RailwayConfigStore = defaultRailwayConfigStore): string {
+  const cfg = store.read();
   const token = cfg.user?.accessToken;
   if (!token) {
     throw new RailwayAuthError(
@@ -61,20 +150,245 @@ export function readRailwayToken(): string {
 }
 
 /**
+ * OAuth refresh-token response shape (RFC 6749 §5.1 plus Railway's rotated
+ * refresh_token return). The Railway docs explicitly state that refresh_token
+ * may rotate and the new value must be persisted.
+ */
+export interface TokenRefreshResponse {
+  access_token: string;
+  /** Present when Railway rotates the refresh token; absent means keep the old one. */
+  refresh_token?: string;
+  /** Seconds-relative expiry. Compute absolute as Math.floor(Date.now()/1000) + expires_in. */
+  expires_in: number;
+  token_type?: string;
+}
+
+/**
+ * Low-level POST to `https://backboard.railway.com/oauth/token` with
+ * `grant_type=refresh_token`. Exported for test seams; production callers
+ * should use {@link getValidRailwayToken}.
+ *
+ * @throws RailwayAuthError on 4xx (refresh token expired/revoked).
+ * @throws RailwayApiError on 5xx, network errors, timeouts, or parse failures.
+ */
+export async function refreshRailwayToken(
+  refreshToken: string,
+  opts?: { clientId?: string; fetchImpl?: typeof fetch }
+): Promise<TokenRefreshResponse> {
+  const clientId = opts?.clientId ?? resolveDefaultClientId();
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+    client_id: clientId,
+  });
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetchImpl(RAILWAY_OAUTH_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new RailwayApiError(`Railway token refresh timed out after ${GRAPHQL_TIMEOUT_MS}ms`);
+    }
+    throw new RailwayApiError(
+      `Railway token refresh network error: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const text = await res.text();
+
+  if (res.status >= 400 && res.status < 500) {
+    // 4xx — auth failure (revoked refresh token, expired, rotated-but-superseded).
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- OAuth error body is ASCII JSON
+    const truncated = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+    throw new RailwayAuthError(
+      `Railway token refresh rejected (HTTP ${res.status} ${res.statusText}): ${truncated}. ` +
+        `The refresh token may be expired or revoked. Run: railway login`
+    );
+  }
+
+  if (!res.ok) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- OAuth error body is ASCII
+    const truncated = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+    throw new RailwayApiError(
+      `Railway token refresh failed (HTTP ${res.status} ${res.statusText}): ${truncated}`
+    );
+  }
+
+  let parsed: TokenRefreshResponse;
+  try {
+    parsed = JSON.parse(text) as TokenRefreshResponse;
+  } catch (err) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- OAuth response body is ASCII
+    const truncated = text.length > 300 ? `${text.slice(0, 300)}...` : text;
+    throw new RailwayApiError(`Railway token refresh returned non-JSON response: ${truncated}`, {
+      cause: err,
+    });
+  }
+
+  if (typeof parsed.access_token !== "string" || typeof parsed.expires_in !== "number") {
+    throw new RailwayApiError(
+      `Railway token refresh response missing expected fields (access_token, expires_in)`
+    );
+  }
+
+  return parsed;
+}
+
+function resolveDefaultClientId(): string {
+  return process.env["RAILWAY_OAUTH_CLIENT_ID"] ?? RAILWAY_OAUTH_DEFAULT_CLIENT_ID;
+}
+
+// ---------------------------------------------------------------------------
+// Single-flight refresh + persist
+// ---------------------------------------------------------------------------
+//
+// When the access token is past/near expiry and a refresh is needed, the
+// first caller initiates the POST; concurrent callers await the same promise.
+// Cleared on resolve/reject so the next round-trip can start fresh.
+//
+// Per-process module state; acceptable because scripts run as one-shot CLIs
+// and the production adapter runs in a single Node process per request.
+let inflightRefresh: Promise<string> | null = null;
+
+export interface GetValidRailwayTokenOptions {
+  store?: RailwayConfigStore;
+  fetchImpl?: typeof fetch;
+  clientId?: string;
+  /** Override for tests; defaults to current Unix epoch seconds. */
+  nowSeconds?: () => number;
+}
+
+/**
+ * Return a Railway access token guaranteed to be valid at call time
+ * (within the {@link REFRESH_SAFETY_WINDOW_SECONDS} window).
+ *
+ * Reads `~/.railway/config.json`; if `tokenExpiresAt` is past or within the
+ * safety window AND `refreshToken` is present, POSTs to the OAuth refresh
+ * endpoint to obtain a new access token, persists the updated credentials,
+ * and returns the new token. Concurrent calls during the refresh window
+ * share a single in-flight refresh (no duplicate POSTs).
+ *
+ * @throws RailwayAuthError when no access token is present, when the access
+ *   token is expired and no refresh token is available, or when refresh is
+ *   rejected by Railway.
+ * @throws RailwayApiError on network errors / timeouts / 5xx.
+ */
+export async function getValidRailwayToken(opts?: GetValidRailwayTokenOptions): Promise<string> {
+  const store = opts?.store ?? defaultRailwayConfigStore;
+  const fetchImpl = opts?.fetchImpl ?? fetch;
+  const clientId = opts?.clientId ?? resolveDefaultClientId();
+  const nowSeconds = opts?.nowSeconds ?? (() => Math.floor(Date.now() / 1000));
+
+  const cfg = store.read();
+  const user = cfg.user ?? {};
+  const accessToken = user.accessToken;
+  const refreshToken = user.refreshToken;
+  const expiresAt = user.tokenExpiresAt;
+
+  if (!accessToken) {
+    throw new RailwayAuthError(
+      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
+    );
+  }
+
+  const now = nowSeconds();
+  const needsRefresh =
+    typeof expiresAt === "number" && expiresAt - now < REFRESH_SAFETY_WINDOW_SECONDS;
+
+  if (!needsRefresh) {
+    return accessToken;
+  }
+
+  if (!refreshToken) {
+    throw new RailwayAuthError(
+      "Railway access token has expired (or is expiring) and no refresh token is available in ~/.railway/config.json. Run: railway login"
+    );
+  }
+
+  if (inflightRefresh) {
+    return inflightRefresh;
+  }
+
+  const refreshPromise = performRefresh(refreshToken, clientId, fetchImpl, store, nowSeconds);
+  inflightRefresh = refreshPromise;
+  try {
+    return await refreshPromise;
+  } finally {
+    // Clear only if still pointing to this promise — protects against a
+    // theoretical re-entry where another caller raced to set inflightRefresh.
+    if (inflightRefresh === refreshPromise) {
+      inflightRefresh = null;
+    }
+  }
+}
+
+async function performRefresh(
+  refreshToken: string,
+  clientId: string,
+  fetchImpl: typeof fetch,
+  store: RailwayConfigStore,
+  nowSeconds: () => number
+): Promise<string> {
+  const response = await refreshRailwayToken(refreshToken, { clientId, fetchImpl });
+
+  // Persist updated credentials, preserving every other field.
+  const cfg = store.read();
+  const updatedCfg: RailwayConfigShape = {
+    ...cfg,
+    user: {
+      ...(cfg.user ?? {}),
+      accessToken: response.access_token,
+      refreshToken: response.refresh_token ?? refreshToken,
+      tokenExpiresAt: nowSeconds() + response.expires_in,
+    },
+  };
+  store.write(updatedCfg);
+
+  return response.access_token;
+}
+
+/** Test-only: reset the single-flight refresh state between cases. */
+export function _resetInflightRefreshForTesting(): void {
+  inflightRefresh = null;
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL transport
+// ---------------------------------------------------------------------------
+
+/**
  * Execute a Railway GraphQL query. Throws RailwayApiError on HTTP errors,
  * parse failures, or GraphQL error responses.
+ *
+ * Token is passed as an explicit argument; callers that want refresh-aware
+ * auth should obtain the token via {@link getValidRailwayToken} or use the
+ * convenience helper {@link railwayGraphQLAuthed}.
  */
 export async function railwayGraphQL<T>(
   query: string,
   variables: Record<string, unknown>,
-  token: string
+  token: string,
+  fetchImpl: typeof fetch = fetch
 ): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
 
   let res: Response;
   try {
-    res = await fetch(RAILWAY_GRAPHQL_URL, {
+    res = await fetchImpl(RAILWAY_GRAPHQL_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -132,6 +446,20 @@ export async function railwayGraphQL<T>(
     throw new RailwayApiError(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
   }
   return body.data;
+}
+
+/**
+ * Refresh-aware convenience wrapper around {@link railwayGraphQL}. Obtains
+ * a valid access token (refreshing if needed) and forwards to the
+ * stateless transport. This is the preferred entry point for new callers.
+ */
+export async function railwayGraphQLAuthed<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  opts?: GetValidRailwayTokenOptions
+): Promise<T> {
+  const token = await getValidRailwayToken(opts);
+  return railwayGraphQL<T>(query, variables, token, opts?.fetchImpl);
 }
 
 // ---------------------------------------------------------------------------

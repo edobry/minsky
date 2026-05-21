@@ -28,8 +28,8 @@ import {
   fetchDeploymentById,
   fetchDeploymentLogs,
   fetchDeployments,
+  getValidRailwayToken,
   type RailwayDeploymentNode,
-  readRailwayToken,
 } from "./graphql-client";
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
@@ -93,7 +93,7 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
   constructor(private readonly config: RailwayDeploymentConfig) {}
 
   async getLatestDeploymentStatus(): Promise<DeploymentRecord> {
-    const token = readRailwayToken();
+    const token = await getValidRailwayToken();
     const deployments = await fetchDeployments(this.config.serviceId, 1, token);
     const latest = deployments[0];
     if (!latest) {
@@ -114,7 +114,7 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
     // deployment kicks off mid-wait (e.g., another push) we will still be
     // tracking the one that was latest at call time — by design, since the
     // caller's intent is "the deploy I just pushed."
-    const token = readRailwayToken();
+    const token = await getValidRailwayToken();
     const initial = await fetchDeployments(this.config.serviceId, 1, token);
     const initialNode = initial[0];
     if (!initialNode) {
@@ -163,7 +163,7 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
     type: LogType,
     lines: number = DEFAULT_LOG_LINES
   ): Promise<LogLine[]> {
-    const token = readRailwayToken();
+    const token = await getValidRailwayToken();
     const entries =
       type === "build"
         ? await fetchBuildLogs(deploymentId, lines, token)
