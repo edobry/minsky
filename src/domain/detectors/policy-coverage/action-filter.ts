@@ -41,7 +41,42 @@ const READ_ONLY_TOOLS = new Set([
   "mcp__minsky__tasks_spec_get",
 ]);
 
-const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
+// mt#2029: include MCP-session file-write tools alongside the Claude Code
+// native tools. The agent uses session_* tools exclusively inside Minsky
+// sessions per `Git and MCP tool usage`; absence here means the filter
+// silently no-ops on the surface where the agent actually works.
+const WRITE_TOOLS = new Set([
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "mcp__minsky__session_edit_file",
+  "mcp__minsky__session_search_replace",
+  "mcp__minsky__session_write_file",
+]);
+
+// Tool-equivalence helpers (mt#2029). The action-filter has pattern branches
+// gated on tool-name shape ("create-or-overwrite" vs "in-place-modify"). The
+// MCP session tools have direct equivalents, but their names differ — these
+// helpers classify by operational shape rather than literal name so adding a
+// new write-tool variant requires updating only this file.
+function isCreateOrOverwriteTool(toolName: string): boolean {
+  return toolName === "Write" || toolName === "mcp__minsky__session_write_file";
+}
+
+function isInPlaceModifyTool(toolName: string): boolean {
+  // mt#2029 R1: NotebookEdit is in WRITE_TOOLS but intentionally excluded here.
+  // Pre-mt#2029, Pattern 4 (new top-level export) fired only on `Write` or
+  // `Edit && !oldString` — NotebookEdit was never in that branch. Including
+  // it via the in-place-modify helper would silently expand the firing
+  // surface to .ipynb cells, an unintended scope change. If NotebookEdit
+  // parity becomes desired, add it here with a test fixture demonstrating
+  // intended behavior.
+  return (
+    toolName === "Edit" ||
+    toolName === "mcp__minsky__session_edit_file" ||
+    toolName === "mcp__minsky__session_search_replace"
+  );
+}
 
 /**
  * Reasons why an action was classified as preference-encoding.
@@ -88,9 +123,24 @@ export function extractToolCallParams(
 
   const content = typeof params["content"] === "string" ? params["content"] : undefined;
 
-  const newString = typeof params["new_string"] === "string" ? params["new_string"] : undefined;
+  // mt#2029: `mcp__minsky__session_search_replace` exposes `search` and
+  // `replace` aliases for `old_string` and `new_string` (see the tool's
+  // schema). Without these aliases, the detector silently sees empty
+  // old/new strings on session_search_replace calls and the action-filter
+  // under-fires.
+  const newString =
+    typeof params["new_string"] === "string"
+      ? params["new_string"]
+      : typeof params["replace"] === "string"
+        ? params["replace"]
+        : undefined;
 
-  const oldString = typeof params["old_string"] === "string" ? params["old_string"] : undefined;
+  const oldString =
+    typeof params["old_string"] === "string"
+      ? params["old_string"]
+      : typeof params["search"] === "string"
+        ? params["search"]
+        : undefined;
 
   return { toolName, filePath, content, newString, oldString };
 }
@@ -256,11 +306,16 @@ export function applyActionFilter(params: ToolCallParams): FilterResult {
   }
 
   // Pattern 4: new top-level export (TypeScript/JavaScript)
+  // mt#2029: gate on operational shape (create-or-overwrite OR in-place-modify-
+  // without-prior-content) rather than literal Claude Code tool names, so
+  // session_write_file / session_edit_file / session_search_replace fire
+  // identically to Write / Edit. The pre-mt#2029 condition
+  // `toolName === "Write" || (toolName === "Edit" && !oldString)` is the
+  // semantic equivalent expressed in the new helpers.
   if (
     (filePath.endsWith(".ts") || filePath.endsWith(".js") || filePath.endsWith(".tsx")) &&
     hasNewTopLevelExport(writtenContent) &&
-    // Only for Write (new file) or Edit that adds a completely new export
-    (toolName === "Write" || (toolName === "Edit" && !oldString))
+    (isCreateOrOverwriteTool(toolName) || (isInPlaceModifyTool(toolName) && !oldString))
   ) {
     return {
       fires: true,
@@ -269,12 +324,13 @@ export function applyActionFilter(params: ToolCallParams): FilterResult {
     };
   }
 
-  // Write to a new file (toolName=Write, no oldString/no existing content signals new file)
-  if (toolName === "Write") {
+  // Pattern 5: new-file fallback — any create-or-overwrite tool that didn't
+  // hit a more specific pattern above. Includes Write and session_write_file.
+  if (isCreateOrOverwriteTool(toolName)) {
     return {
       fires: true,
       reason: "new-file",
-      detail: `Write creates or overwrites ${filePath}`,
+      detail: `${toolName} creates or overwrites ${filePath}`,
     };
   }
 

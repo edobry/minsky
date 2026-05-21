@@ -87,7 +87,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-session-for-main-workspace-edits.ts",
             "timeout": 5,
             "statusMessage": "Checking main-workspace edit guard..."
-          },
+          }
+        ]
+      },
+      {
+        "_comment": "mt#2029 R1 consolidation: single PreToolUse block for policy-coverage-detector covering both Claude Code native write tools and MCP session write tools. Consolidating eliminates the double-invocation hazard the prior two-block layout had (if a future matcher refactor accidentally overlapped, both blocks would fire and skew calibration). require-session-for-main-workspace-edits stays in its own native-only block above (session tools are by definition session-scoped, so its guard doesn't apply there).",
+        "matcher": "Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace|mcp__minsky__session_write_file",
+        "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/policy-coverage-detector.ts",
