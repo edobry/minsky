@@ -16,27 +16,21 @@ import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
-import { registerDebugTools } from "../../adapters/mcp/debug";
-import { registerGitTools } from "../../adapters/mcp/git";
-import { registerRepoTools } from "../../adapters/mcp/repo";
-import { registerInitTools } from "../../adapters/mcp/init";
-import { registerRulesTools } from "../../adapters/mcp/rules";
-import { registerSessionTools } from "../../adapters/mcp/session";
+import { CommandCategory } from "../../adapters/shared/command-registry";
+import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
-import { registerPersistenceTools } from "../../adapters/mcp/persistence";
-import { registerTaskTools } from "../../adapters/mcp/tasks";
-import { registerChangesetTools } from "../../adapters/mcp/changeset";
-import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
-import { registerValidateTools } from "../../adapters/mcp/validate";
-import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
-import { registerMemoryTools } from "../../adapters/mcp/memory";
-import { registerDetectorsTools } from "../../adapters/mcp/detectors";
-import { registerPrincipalCorpusTools } from "../../adapters/mcp/principal-corpus";
-import { registerForgeTools } from "../../adapters/mcp/forge";
+import { MCP_CATEGORY_ADAPTERS, DEFAULT_EXCLUDE_CATEGORIES } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
+
+// Re-export discovery config for backward compatibility with code that imports
+// these constants from `start-command.ts` (e.g., existing tests). The source
+// of truth lives in `./discovery-config.ts` — a side-effect-free module that
+// out-of-band consumers (smoke scripts, unit tests) can import without
+// pulling in the MCP-server / HTTP / OAuth dependency graph.
+export { MCP_CATEGORY_ADAPTERS, DEFAULT_EXCLUDE_CATEGORIES } from "./discovery-config";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
@@ -203,10 +197,25 @@ export function injectAgentIdMeta(
 
 /**
  * Register all MCP tool adapters on the given command mapper.
+ *
+ * Uses a discovery loop over `Object.values(CommandCategory)` (mt#2010,
+ * subsumes mt#1521). Categories in `MCP_CATEGORY_ADAPTERS` use their
+ * per-category adapter(s) (preserving per-command overrides); categories
+ * without an entry are auto-bridged via `registerSharedCommandsWithMcp`.
+ *
+ * Native MCP tools (session-workspace, session-files, session-edit-tools)
+ * register directly via `commandMapper.addCommand` rather than going through
+ * the shared command registry, so they are NOT covered by the discovery loop —
+ * they are invoked explicitly below.
+ *
+ * @param excludeCategories Opt-out parameter (mt#1521 → narrowed-deployment
+ * hook, mt#1227 / mt#1254). Defaults to `DEFAULT_EXCLUDE_CATEGORIES` for
+ * production; tests pass `[]` to exercise the full surface.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("../../composition/types").AppContainerInterface,
+  excludeCategories: ReadonlyArray<CommandCategory> = DEFAULT_EXCLUDE_CATEGORIES
 ): Promise<void> {
   // mt#1751: Tool handlers (which need persistence) await the server's
   // `initPromise` before dispatching, so the container is NOT eagerly
@@ -228,38 +237,42 @@ async function registerAllTools(
     );
   }
 
-  // Register debug tools first to ensure they're available for debugging
-  registerDebugTools(commandMapper, container);
-
-  // Register main application tools
-  log.debug("[MCP] About to register task tools");
-  registerTaskTools(commandMapper, container);
-  log.debug("[MCP] About to register session tools");
-  registerSessionTools(commandMapper, container);
+  // Native MCP tools — registered directly via commandMapper.addCommand
+  // (NOT bridged through the shared command registry). These are session
+  // file/edit tools with bespoke runtime semantics; the discovery loop
+  // below covers everything else.
   registerSessionWorkspaceTools(commandMapper, container);
   registerSessionFileTools(commandMapper, container);
   registerSessionEditTools(commandMapper, container);
 
-  // Register persistence tools for agent querying
-  log.debug("[MCP] About to register persistence tools");
-  registerPersistenceTools(commandMapper, container);
+  // Discovery loop: every CommandCategory gets bridged exactly once. Dispatch
+  // to per-category adapter(s) if registered; otherwise auto-bridge with no
+  // overrides. New categories added to the enum + registered with shared
+  // commands surface in MCP `tools/list` without editing this file.
+  const excluded = new Set(excludeCategories);
+  for (const category of Object.values(CommandCategory)) {
+    if (excluded.has(category)) {
+      log.debug(`[MCP] Skipping excluded category: ${category}`);
+      continue;
+    }
 
-  registerGitTools(commandMapper, container);
-  registerRepoTools(commandMapper, container);
-
-  registerInitTools(commandMapper, container);
-  registerRulesTools(commandMapper, container);
-  registerConfigTools(commandMapper, container);
-  registerChangesetTools(commandMapper, container);
-  registerValidateTools(commandMapper, container);
-  registerMcpManagementTools(commandMapper, container);
-  registerMemoryTools(commandMapper, container);
-  registerDetectorsTools(commandMapper, container);
-  registerPrincipalCorpusTools(commandMapper, container);
-
-  // Register forge tools (mt#1957 / mt#2003 — forge-agnostic CI / check-runs /
-  // branch-protection / labels routed through ForgeBackend per ADR-005).
-  registerForgeTools(commandMapper, container);
+    const adapters = MCP_CATEGORY_ADAPTERS[category];
+    if (adapters && adapters.length > 0) {
+      log.debug(`[MCP] Registering category ${category} via ${adapters.length} adapter(s)`);
+      for (const adapter of adapters) {
+        adapter(commandMapper, container);
+      }
+    } else {
+      // Auto-bridge: no per-category adapter, no overrides. The bridge
+      // function is idempotent on empty categories (CORE has no commands),
+      // so this is safe to call unconditionally.
+      log.debug(`[MCP] Auto-bridging category ${category} (no per-category adapter)`);
+      registerSharedCommandsWithMcp(commandMapper, {
+        categories: [category],
+        container,
+      });
+    }
+  }
 }
 
 /**
