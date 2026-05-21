@@ -163,13 +163,33 @@ export interface ApprovalStatus {
       }>;
 
       /**
-       * Branch protection rules affecting merge
+       * Branch protection rules affecting merge.
+       *
+       * Carries per-field observed values from `GET /repos/{owner}/{repo}/branches/{branch}/protection`.
+       * The "configured" verdict is NOT stored — derive it in the formatter from the
+       * fields (any of: statusChecksContexts.length > 0, requiredReviews > 0,
+       * dismissStaleReviews, requireCodeOwnerReviews, restrictPushes, enforceAdmins,
+       * allowForcePushes === false, allowDeletions === false). See mt#2007.
        */
       branchProtection: {
         requiredReviews: number;
         dismissStaleReviews: boolean;
         requireCodeOwnerReviews: boolean;
         restrictPushes: boolean;
+        /** `required_status_checks.contexts` — list of required check names. Empty when no status checks required. */
+        statusChecksContexts?: string[];
+        /** `enforce_admins.enabled` — admins included in protection. */
+        enforceAdmins?: boolean;
+        /** `allow_force_pushes.enabled` — when false, force-push to branch is blocked. */
+        allowForcePushes?: boolean;
+        /** `allow_deletions.enabled` — when false, branch deletion is blocked. */
+        allowDeletions?: boolean;
+        /**
+         * Whether the GitHub API responded with a protection object at all.
+         * `false` when the API returned 404 (no protection configured); `true`
+         * when any protection rule exists in the response.
+         */
+        apiResponded?: boolean;
       };
 
       /**

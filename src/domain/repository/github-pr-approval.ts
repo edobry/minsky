@@ -294,20 +294,55 @@ export async function getPullRequestApprovalStatus(
     // Backward-compat: chronological list of all APPROVED reviews, unchanged.
     const approvals = reviews.filter((r) => r.state === "APPROVED");
 
-    // Determine required approvals from branch protection
+    // Read branch protection for the PR's base branch.
+    //
+    // mt#2007: previously this block read ONLY `required_approving_review_count`
+    // and discarded every other field, then the CLI collapsed the result to
+    // "configured / not configured" based solely on `requiredApprovals > 0`.
+    // That misreports branches with status checks + force-push/deletion blocks
+    // but zero required reviewers (Minsky's actual main config) as "not
+    // configured". Now: capture all the protection-shape fields the spec
+    // enumerates and pass them through `metadata.github.branchProtection` so
+    // the formatter can render the real state.
     let requiredApprovals = 0;
+    let bpDismissStaleReviews = false;
+    let bpRequireCodeOwnerReviews = false;
+    let bpRestrictPushes = false;
+    let bpStatusChecksContexts: string[] = [];
+    let bpEnforceAdmins = false;
+    let bpAllowForcePushes: boolean | undefined;
+    let bpAllowDeletions: boolean | undefined;
+    let bpApiResponded = false;
     try {
       const protection = await octokit.rest.repos.getBranchProtection({
         owner: gh.owner,
         repo: gh.repo,
         branch: pr.base.ref,
       });
-      const required =
-        protection.data.required_pull_request_reviews?.required_approving_review_count;
+      bpApiResponded = true;
+      const d = protection.data;
+      const required = d.required_pull_request_reviews?.required_approving_review_count;
       if (typeof required === "number" && required >= 0) {
         requiredApprovals = required;
       }
+      bpDismissStaleReviews = d.required_pull_request_reviews?.dismiss_stale_reviews === true;
+      bpRequireCodeOwnerReviews =
+        d.required_pull_request_reviews?.require_code_owner_reviews === true;
+      bpRestrictPushes = d.restrictions != null;
+      bpStatusChecksContexts = Array.isArray(d.required_status_checks?.contexts)
+        ? [...d.required_status_checks.contexts]
+        : [];
+      bpEnforceAdmins = d.enforce_admins?.enabled === true;
+      // allow_force_pushes / allow_deletions are nested {enabled: boolean} per
+      // GitHub's REST shape, but Octokit's typing varies — read defensively.
+      const afp = (d as { allow_force_pushes?: { enabled?: boolean } }).allow_force_pushes;
+      bpAllowForcePushes = typeof afp?.enabled === "boolean" ? afp.enabled : undefined;
+      const ad = (d as { allow_deletions?: { enabled?: boolean } }).allow_deletions;
+      bpAllowDeletions = typeof ad?.enabled === "boolean" ? ad.enabled : undefined;
     } catch (_e) {
+      // 404 (no protection) or auth-failure on the protection probe. Leave all
+      // fields at safe defaults; `apiResponded: false` is the signal that the
+      // formatter uses to report "not configured" honestly.
       requiredApprovals = 0;
     }
 
@@ -373,9 +408,14 @@ export async function getPullRequestApprovalStatus(
           statusChecks: [],
           branchProtection: {
             requiredReviews: requiredApprovals,
-            dismissStaleReviews: false,
-            requireCodeOwnerReviews: false,
-            restrictPushes: false,
+            dismissStaleReviews: bpDismissStaleReviews,
+            requireCodeOwnerReviews: bpRequireCodeOwnerReviews,
+            restrictPushes: bpRestrictPushes,
+            statusChecksContexts: bpStatusChecksContexts,
+            enforceAdmins: bpEnforceAdmins,
+            allowForcePushes: bpAllowForcePushes,
+            allowDeletions: bpAllowDeletions,
+            apiResponded: bpApiResponded,
           },
           codeownersApproval: undefined,
         },
