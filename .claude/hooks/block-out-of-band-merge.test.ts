@@ -106,7 +106,57 @@ is still healthy. Then:
     // rootDirectory appears in bare prose with out-of-band in same paragraph
     // — pair-requirement fires it
     expect(phrases.has("rootDirectory")).toBe(true);
+    // dockerfilePath also appears in bare prose alongside the same partner
+    // — pair-requirement fires it too
+    expect(phrases.has("dockerfilePath")).toBe(true);
     // out-of-band is no longer a standalone trigger (mt#2019)
+    expect(phrases.has("out-of-band")).toBe(false);
+  });
+
+  // mt#2019 R1 BLOCKING-defense: prove that pair-requirement firing on
+  // rootDirectory actually depends on bare-prose rootDirectory + partner,
+  // NOT on any other standalone trigger in the body. This variant strips
+  // serviceInstanceUpdate from the body and wraps rootDirectory in a code
+  // span — pair-requirement should NOT fire because the elision removes
+  // rootDirectory from the scan surface. If this test ever starts passing
+  // with rootDirectory in matches, the elision logic has regressed.
+  it("regression-anchor variant: code-span rootDirectory + bare-prose partner does NOT fire (mt#2019 R1)", () => {
+    const body = `## Design / Approach
+
+5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
+   service's \`rootDirectory\` from \`services/reviewer\` to \`""\` (repo root) and
+   set \`dockerfilePath\` to \`services/reviewer/Dockerfile\` via the Railway GraphQL API.
+
+## Live verification (post-merge)
+
+After merge, before flipping the Railway config, the existing reviewer deploy
+is still healthy.`;
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    // Neither field name should appear: both are in code spans (elided);
+    // out-of-band is no longer a standalone trigger; nothing else fires.
+    expect(phrases.has("rootDirectory")).toBe(false);
+    expect(phrases.has("dockerfilePath")).toBe(false);
+    expect(phrases.has("out-of-band")).toBe(false);
+    expect(matches.length).toBe(0);
+  });
+
+  // mt#2019 R1 BLOCKING-defense: bare-prose rootDirectory + bare-prose
+  // partner DOES fire — the positive variant of the code-span test above.
+  // This is the minimal reproduction of the pair-requirement firing on
+  // its own, without serviceInstanceUpdate or other standalone triggers
+  // to muddle the assertion. If this ever stops firing, pair-requirement
+  // has regressed.
+  it("regression-anchor variant: bare-prose rootDirectory + bare-prose partner DOES fire (mt#2019 R1)", () => {
+    const body = `## Design / Approach
+
+5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
+   service's rootDirectory from one value to another via the Railway GraphQL API.`;
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    // rootDirectory fires via pair-requirement (partnered with out-of-band)
+    expect(phrases.has("rootDirectory")).toBe(true);
+    // out-of-band stays excluded as a standalone phrase (mt#2019)
     expect(phrases.has("out-of-band")).toBe(false);
   });
 
