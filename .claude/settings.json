@@ -292,6 +292,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/mcp-daemon-staleness-detector.ts",
             "timeout": 5,
             "statusMessage": "Checking for MCP daemon staleness..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/substrate-bypass-detector.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for substrate bypass in prior turn..."
           }
         ]
       }

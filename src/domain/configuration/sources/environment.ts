@@ -174,6 +174,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // env-var-to-config dot-path parser.
   "MINSKY_AUTO_MIGRATE", // src/domain/persistence/providers/postgres-provider.ts (auto-migrate opt-out)
   "MINSKY_MIGRATIONS_FOLDER", // src/domain/persistence/providers/postgres-provider.ts (migrations path override)
+  "MINSKY_ACK_SUBSTRATE_BYPASS", // .claude/hooks/substrate-bypass-detector.ts (mt#2020) — override for substrate-bypass warning injection
 ]);
 
 /**
