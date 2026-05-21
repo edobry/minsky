@@ -115,9 +115,7 @@ describe("applyActionFilter", () => {
       expect(result.fires).toBe(true);
       if (result.fires) {
         // either user-facing-string or top-level-export — both valid; assert it's not new-file
-        expect(["new-user-facing-string", "new-top-level-export", "new-file"]).toContain(
-          result.reason
-        );
+        expect(["new-user-facing-string", REASON_TOP_LEVEL, "new-file"]).toContain(result.reason);
       }
     });
 
@@ -144,7 +142,7 @@ describe("applyActionFilter", () => {
       expect(result.fires).toBe(true);
       // Either new-top-level-export or new-file; both are reasonable
       if (result.fires) {
-        expect(["new-top-level-export", "new-file"]).toContain(result.reason);
+        expect([REASON_TOP_LEVEL, "new-file"]).toContain(result.reason);
       }
     });
   });
@@ -251,5 +249,113 @@ describe("string-pattern detectors", () => {
 
   it("hasNewConfigKey skips when both old and new contain same key", () => {
     expect(hasNewConfigKey('  "timeout": 14000', '  "timeout": 9000')).toBe(false);
+  });
+});
+
+// Shared test constants (mt#2029 — hoisted to file scope to deduplicate with
+// earlier suites that also reference the new-top-level-export reason).
+const SESSION_EDIT_FILE = "mcp__minsky__session_edit_file";
+const SESSION_SEARCH_REPLACE = "mcp__minsky__session_search_replace";
+const SESSION_WRITE_FILE = "mcp__minsky__session_write_file";
+const SESSION_READ_FILE = "mcp__minsky__session_read_file";
+const EXPORT_CONST = "export const X = 1;";
+const EXPORT_CLASS_FOO = "export class Foo {}";
+const REASON_TOP_LEVEL = "new-top-level-export";
+
+describe("MCP session file-write tools (mt#2029)", () => {
+  describe("extractToolCallParams handles MCP-tool parameter shapes", () => {
+    it("session_edit_file: path → filePath, content preserved", () => {
+      const params = extractToolCallParams(SESSION_EDIT_FILE, {
+        path: "src/foo.ts",
+        content: EXPORT_CONST,
+        instructions: "add export",
+      });
+      expect(params.filePath).toBe("src/foo.ts");
+      expect(params.content).toBe(EXPORT_CONST);
+    });
+
+    it("session_write_file: path → filePath, content preserved", () => {
+      const params = extractToolCallParams(SESSION_WRITE_FILE, {
+        path: "src/new.ts",
+        content: EXPORT_CLASS_FOO,
+      });
+      expect(params.filePath).toBe("src/new.ts");
+      expect(params.content).toBe(EXPORT_CLASS_FOO);
+    });
+
+    it("session_search_replace: path → filePath, search → oldString, replace → newString", () => {
+      const params = extractToolCallParams(SESSION_SEARCH_REPLACE, {
+        path: "src/bar.ts",
+        search: "const OLD = 1;",
+        replace: "const NEW = 2;",
+      });
+      expect(params.filePath).toBe("src/bar.ts");
+      expect(params.oldString).toBe("const OLD = 1;");
+      expect(params.newString).toBe("const NEW = 2;");
+    });
+
+    it("session_search_replace: old_string/new_string canonical names also work", () => {
+      const params = extractToolCallParams(SESSION_SEARCH_REPLACE, {
+        path: "src/baz.ts",
+        old_string: "foo",
+        new_string: "bar",
+      });
+      expect(params.oldString).toBe("foo");
+      expect(params.newString).toBe("bar");
+    });
+
+    it("explicit old_string wins over search alias when both present", () => {
+      const params = extractToolCallParams(SESSION_SEARCH_REPLACE, {
+        path: "src/x.ts",
+        old_string: "canonical",
+        search: "alias",
+      });
+      expect(params.oldString).toBe("canonical");
+    });
+  });
+
+  describe("applyActionFilter fires on MCP-session tools", () => {
+    it("fires on session_edit_file adding a new top-level export to a .ts file (the R6 case)", () => {
+      const result = applyActionFilter({
+        toolName: SESSION_EDIT_FILE,
+        filePath: "src/commands/mcp/discovery-config.ts",
+        content: "export const DEFAULT_EXCLUDE_CATEGORIES = [CommandCategory.AI];",
+      });
+      expect(result.fires).toBe(true);
+      if (result.fires) {
+        expect(result.reason).toBe(REASON_TOP_LEVEL);
+      }
+    });
+
+    it("fires on session_write_file creating a new file", () => {
+      const result = applyActionFilter({
+        toolName: SESSION_WRITE_FILE,
+        filePath: "src/new-module.ts",
+        content: EXPORT_CONST,
+      });
+      expect(result.fires).toBe(true);
+    });
+
+    it("fires on session_search_replace introducing a new config key in a json file", () => {
+      const result = applyActionFilter({
+        toolName: SESSION_SEARCH_REPLACE,
+        filePath: ".claude/settings.local.json",
+        oldString: '  "existing": true',
+        newString: '  "existing": true,\n  "newSetting": true',
+      });
+      expect(result.fires).toBe(true);
+      if (result.fires) {
+        expect(result.reason).toBe("new-config-key");
+      }
+    });
+
+    it("does NOT fire on session_read_file (read-only)", () => {
+      const result = applyActionFilter({
+        toolName: SESSION_READ_FILE,
+        filePath: "src/foo.ts",
+        content: EXPORT_CONST,
+      });
+      expect(result.fires).toBe(false);
+    });
   });
 });

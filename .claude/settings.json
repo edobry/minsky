@@ -97,6 +97,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__session_edit_file|mcp__minsky__session_search_replace|mcp__minsky__session_write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/policy-coverage-detector.ts",
+            "timeout": 15,
+            "statusMessage": "Checking policy coverage (session tools)..."
+          }
+        ]
+      },
+      {
         "matcher": "mcp__minsky__session_start",
         "hooks": [
           {

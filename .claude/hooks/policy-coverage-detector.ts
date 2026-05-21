@@ -61,7 +61,20 @@ import type { DetectionContext } from "../../src/domain/detectors/types";
 // ---------------------------------------------------------------------------
 
 /** Tool names that the detector evaluates — others are ignored. */
-const COVERED_TOOL_NAMES = new Set(["Edit", "Write", "NotebookEdit"]);
+// mt#2029: include MCP-session file-write tools. The agent uses these
+// exclusively inside Minsky sessions (per `Git and MCP tool usage` rule:
+// session_edit_file not Edit, session_write_file not Write). Without these
+// in the matcher set, the detector is structurally blind on the surface
+// where the agent actually does its work — six R-incidents of the
+// confabulated-strategic-frame family slipped through this gap.
+const COVERED_TOOL_NAMES = new Set([
+  "Edit",
+  "Write",
+  "NotebookEdit",
+  "mcp__minsky__session_edit_file",
+  "mcp__minsky__session_search_replace",
+  "mcp__minsky__session_write_file",
+]);
 
 /**
  * Mode env var. Three values:
