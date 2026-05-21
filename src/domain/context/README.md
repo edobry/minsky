@@ -29,7 +29,7 @@ The Context Management Module provides **AI context replication** capabilities f
 - **Constraint**: Context must reflect current Minsky session state
 - **Decision**: Include session metadata and task information when in active session
 - **Implementation**: Session context includes task metadata automatically (every session has associated task)
-- **Scope**: Uses CURRENT session (e.g., `task-md#082`) when detected
+- **Scope**: Uses CURRENT session (e.g., `task-mt#461`) when detected
 
 ### 4. **Modular Component Architecture**
 
@@ -137,7 +137,7 @@ const customSchema = manuallyBuildSchema(command);
 // Current session context is automatically detected
 const isInSession = isSessionWorkspace(workspacePath);
 const sessionContext = await getCurrentSessionContext(workspacePath);
-// Uses current session: task-md#082
+// Uses current session: task-mt#461
 ```
 
 ## Critical Lessons Learned

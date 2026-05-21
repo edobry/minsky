@@ -232,9 +232,9 @@ function generateSimulatedHistory(context: ComponentInput): ConversationHistoryI
     timestamp: new Date(startTime.getTime() + 0).toISOString(),
     role: "user",
     content:
-      "md#082 @Start Task, first review the task spec to ensure its still relevant in light of architectural changes and work done since it was first authored, then present your analysis, recommendation, and next steps",
+      "<testbench-fixture> @Start Task, first review the task spec to ensure its still relevant in light of architectural changes and work done since it was first authored, then present your analysis, recommendation, and next steps",
     metadata: {
-      task_id: "md#082",
+      task_id: "<testbench-fixture>",
       session_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     },
   });
@@ -242,11 +242,12 @@ function generateSimulatedHistory(context: ComponentInput): ConversationHistoryI
   entries.push({
     timestamp: new Date(startTime.getTime() + 300000).toISOString(), // 5 minutes later
     role: "assistant",
-    content: "I'll analyze the task specification for md#082 and assess its current relevance...",
+    content:
+      "I'll analyze the task specification for <testbench-fixture> and assess its current relevance...",
     metadata: {
       tools_used: ["codebase_search", "read_file", "list_dir"],
       context_components: ["task-context", "project-context"],
-      task_id: "md#082",
+      task_id: "<testbench-fixture>",
     },
   });
 
