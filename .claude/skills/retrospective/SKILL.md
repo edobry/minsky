@@ -148,7 +148,10 @@ When ≥3 such memories exist for the same root pattern, the surface-by-surface 
 Concrete procedure:
 
 1. Search memory for the failure-pattern root keyword (e.g., `mcp__minsky__memory_search "confabulated strategic frame"`).
-2. Count distinct R-numbered or surface-named memories that reference the same root memory ID or pattern name in their body.
+2. Count distinct R-numbered or surface-named memories that reference the same root memory ID or pattern name in their body. **Counting rules:**
+   - Count by **unique surface** — what type of agent action or artifact-class the failure occurred on (e.g., "strategic recommendation," "spec-amendment label," "ADR audit-table verdict at PR-implementation time"). One surface = one R.
+   - **Extensions of a prior R count with their parent, not as a new R.** A memory tagged `R2-extension` or "Rn extension" is a refinement of the parent R's surface, not a new instance of the family. Count it together with its parent (R2 + R2-extension = one R toward the threshold).
+   - When in doubt, count by **unique R-label** (R1, R2, R3, ...) as recorded in the memory's `## Recurrences` section, treating extensions as sub-labels of their parent.
 3. If count ≥ 3: write an **"Escalation" section** in the output (see output format below). Name the family, the count, the cumulative window from R1's date to today, and the structural-fix task's status (run the Step 5 liveness check on it now — a dead target itself is part of the escalation signal).
 4. The per-surface fix may still ship, but it MUST be paired with the family-level escalation. If only the per-surface fix lands, this retrospective itself becomes Rn+1 of the family — the per-surface-only response IS the failure pattern at the meta-level.
 
@@ -201,7 +204,7 @@ Before saving any bridge memory that cites a structural-fix task (the task whose
 If any cited task is dead-as-target:
 
 1. **Do not save the memory citing the dead target.** A bridge memory pointing at a dead task is structurally equivalent to no bridge at all — the gap-cover claim is false.
-2. **Re-target at a live successor task** if one exists. Search via `mcp__minsky__tasks_search` with the family's keywords; check the parent task's `tasks_children` if there's a known parent.
+2. **Re-target at a live successor task** if one exists. Search via `mcp__minsky__tasks_search` with the family's keywords; if there's a known parent task, list its subtasks via `mcp__minsky__tasks_children` and inspect their statuses.
 3. **If no live successor exists**, file a **"structural-fix task is dead, need replacement"** incident — a new task whose explicit purpose is to identify or create the live successor for this pattern. Cite that new task as the bridge memory's tracking target.
 4. **Surface the dead-target finding to the user explicitly.** A CLOSED structural-fix task that still has load-bearing bridge memories pointing at it is itself a structural failure; it should be named in the retrospective output, not silently re-cited.
 
@@ -251,11 +254,12 @@ Present findings to the user as:
 **Family**: <name of the failure-pattern family, e.g., "confabulated-strategic-frame">
 **Recurrence count**: <N> — list each R with date and surface descriptor (R1 2026-MM-DD <surface>, R2 ...).
 **Cumulative window**: <date of R1> → <date of current incident> (<N> days).
-**Structural-fix task**: <task-id> — status `<TODO|PLANNING|READY|IN-PROGRESS|IN-REVIEW|CLOSED|DONE|BLOCKED>` (from `tasks_status_get`).
+**Structural-fix task**: <task-id> — status `<TODO|PLANNING|READY|IN-PROGRESS|IN-REVIEW|CLOSED|DONE|BLOCKED>` (from `mcp__minsky__tasks_status_get`).
 
 - If status ∈ {CLOSED, DONE, BLOCKED}: **DEAD TARGET** — re-target at live successor OR file a "structural-fix task is dead, need replacement" task (see Step 5 liveness check).
-- If status ∈ {TODO, PLANNING, READY, IN-PROGRESS}: alive but stalled given the recurrence count; bump priority or file a comment on the task naming this retrospective as the Nth recurrence.
-  **Recommendation**: <"escalate the family's structural-fix task" / "file successor because original is dead" / "the structural fix is alive but stalled — bump priority + name the cumulative cost in a task comment">
+- If status ∈ {TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW}: alive but stalled given the recurrence count; bump priority or file a comment on the task naming this retrospective as the Nth recurrence. (This set matches the Step 5 liveness alive-set verbatim; an `IN-REVIEW` task is alive — its PR is in flight, and the right escalation is naming this retrospective as a blocker on that PR's review thread.)
+
+**Recommendation**: <"escalate the family's structural-fix task" / "file successor because original is dead" / "the structural fix is alive but stalled — bump priority + name the cumulative cost in a task comment">
 
 ### Fixes
 
