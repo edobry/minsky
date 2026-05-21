@@ -163,18 +163,39 @@ export class MinskyStdioProxy {
     this.childArgs = options.childArgs ?? DEFAULT_CHILD_ARGS;
   }
 
-  /** Start the proxy: spawn child and wire stdio. */
+  /**
+   * Start the proxy: install signal handlers, spawn the initial inner
+   * child, wire the stdio transforms, and await the readiness probe.
+   *
+   * Resolves once the initial spawn has completed and the inner has
+   * confirmed readiness via the ping probe (or the 2s timeout has fired
+   * as fallback). Initial-spawn failures (spawn ENOENT, pipe wiring
+   * errors, probe-write failures) reject `start()` so the CLI can
+   * surface them to the operator with a non-zero exit code.
+   *
+   * `start()` does NOT block until process exit (PR #1216 R2 fix); for
+   * that long-running lifetime, call `waitForExit()` after `start()`
+   * resolves. Splitting the two methods lets callers perform additional
+   * setup between "proxy is ready" and "block until shutdown" — and lets
+   * tests await `start()` without hanging.
+   */
   async start(): Promise<void> {
     this.setupSignalHandlers();
-    // Fire-and-forget the initial spawn. We don't await the readiness probe
-    // here because `start()` should resolve on process exit, not on each
-    // child's readiness — the probe runs concurrently and completes via the
-    // outbound transform.
-    void this.spawnChild().catch((err: Error) => {
-      log.error("[proxy] Initial spawnChild failed", { error: err.message });
-    });
+    await this.spawnChild();
+  }
 
-    // Keep process alive until shutdown.
+  /**
+   * Block until the proxy process exits. The CLI entrypoint calls this
+   * after `start()` resolves; the proxy stays alive as a daemon until
+   * SIGTERM/SIGINT (handled in `setupSignalHandlers`) or an unrecoverable
+   * crash (handled in `onChildClose`).
+   *
+   * Split from `start()` in PR #1216 R2: prior to the split, `start()`
+   * itself awaited this lifetime promise, which made it impossible for
+   * callers to do anything after the proxy was up. See R2 reviewer
+   * BLOCKING 3 for the original concern.
+   */
+  async waitForExit(): Promise<void> {
     await new Promise<void>((resolve) => {
       proc.once("exit", resolve);
     });
@@ -753,8 +774,15 @@ export class MinskyStdioProxy {
 
 /**
  * Main entry point — called from the CLI subcommand.
+ *
+ * `start()` resolves after the initial spawn + readiness probe; failures
+ * during that phase propagate as a rejected promise so the CLI surfaces
+ * them with a non-zero exit code. After start succeeds, `waitForExit()`
+ * blocks until the proxy process is terminated (SIGTERM, SIGINT, or
+ * unrecoverable crash).
  */
 export async function runProxy(options: ProxyOptions = {}): Promise<void> {
   const proxy = new MinskyStdioProxy(options);
   await proxy.start();
+  await proxy.waitForExit();
 }
