@@ -228,7 +228,8 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  // Only fire on Edit/Write/NotebookEdit
+  // Only fire on covered write tools (Edit/Write/NotebookEdit + MCP session
+  // file-write variants — see COVERED_TOOL_NAMES above).
   if (!COVERED_TOOL_NAMES.has(input.tool_name)) {
     process.exit(0);
   }

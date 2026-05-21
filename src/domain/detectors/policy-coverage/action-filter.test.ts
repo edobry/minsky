@@ -359,3 +359,37 @@ describe("MCP session file-write tools (mt#2029)", () => {
     });
   });
 });
+
+describe("NotebookEdit pre-mt#2029 behavior preserved (R1 BLOCKING #1)", () => {
+  // mt#2029 R1 review surfaced that the initial helper refactor accidentally
+  // expanded Pattern 4 (new-top-level-export) to fire on NotebookEdit when
+  // !oldString. Pre-mt#2029 the Pattern 4 condition was strictly
+  // `toolName === "Write" || (toolName === "Edit" && !oldString)` — NotebookEdit
+  // was never in that branch. R1 fix: exclude NotebookEdit from
+  // `isInPlaceModifyTool`. These tests lock that exclusion against regression.
+
+  it("NotebookEdit does NOT fire Pattern 4 (top-level export) even when oldString is absent", () => {
+    const result = applyActionFilter({
+      toolName: "NotebookEdit",
+      filePath: "notebook.ipynb",
+      newString: "export const X = 1;",
+      // oldString deliberately undefined — would have fired Pattern 4 if
+      // NotebookEdit were in `isInPlaceModifyTool`.
+    });
+    expect(result.fires).toBe(false);
+  });
+
+  it("NotebookEdit still fires Pattern 1 (package.json — new-dependency)", () => {
+    // Independent of helpers — package.json check happens before tool-shape
+    // gating. Confirms NotebookEdit is still in WRITE_TOOLS overall.
+    const result = applyActionFilter({
+      toolName: "NotebookEdit",
+      filePath: "package.json",
+      newString: '"foo": "1.0.0"',
+    });
+    expect(result.fires).toBe(true);
+    if (result.fires) {
+      expect(result.reason).toBe("new-dependency");
+    }
+  });
+});

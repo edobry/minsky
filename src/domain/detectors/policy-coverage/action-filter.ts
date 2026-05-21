@@ -64,9 +64,15 @@ function isCreateOrOverwriteTool(toolName: string): boolean {
 }
 
 function isInPlaceModifyTool(toolName: string): boolean {
+  // mt#2029 R1: NotebookEdit is in WRITE_TOOLS but intentionally excluded here.
+  // Pre-mt#2029, Pattern 4 (new top-level export) fired only on `Write` or
+  // `Edit && !oldString` — NotebookEdit was never in that branch. Including
+  // it via the in-place-modify helper would silently expand the firing
+  // surface to .ipynb cells, an unintended scope change. If NotebookEdit
+  // parity becomes desired, add it here with a test fixture demonstrating
+  // intended behavior.
   return (
     toolName === "Edit" ||
-    toolName === "NotebookEdit" ||
     toolName === "mcp__minsky__session_edit_file" ||
     toolName === "mcp__minsky__session_search_replace"
   );
