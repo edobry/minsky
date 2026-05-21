@@ -418,10 +418,9 @@ export async function runSweep(
         });
       }
     } catch (pruneErr: unknown) {
-      const message = pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
       log.warn("sweeper.prune_stale_markers_failed", {
         event: "sweeper.prune_stale_markers_failed",
-        error: message,
+        ...extractPgErrorContext(pruneErr),
       });
     }
   }
@@ -657,10 +656,9 @@ export function startSweeper(
     cachedDeps
       .then((deps) => runSweep(config, sweeperConfig, deps))
       .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
         log.error("sweeper.cycle_error", {
           event: "sweeper.cycle_error",
-          error: message,
+          ...extractPgErrorContext(err),
         });
         // Clear cached deps on error so next cycle retries building them.
         cachedDeps = null;

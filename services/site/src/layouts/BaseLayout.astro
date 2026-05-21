@@ -8,6 +8,9 @@ interface Props {
   pathname?: string;
   /** OG/Twitter image path (relative to site root). Defaults to /og-cover.png. */
   ogImage?: string;
+  /** Alt text for the OG/Twitter image. Defaults to a sensible site-wide description; per-page overrides
+   *  recommended when ogImage is overridden. */
+  ogImageAlt?: string;
   /** When true, robots are told not to index (preview / draft pages). */
   noindex?: boolean;
 }
@@ -17,6 +20,7 @@ const {
   description,
   pathname = Astro.url.pathname,
   ogImage = "/og-cover.png",
+  ogImageAlt = "Minsky — the cyberbrain for software organizations led by a principal. Brand mark on near-black background with cyan signal accent.",
   noindex = false,
 } = Astro.props;
 
@@ -62,6 +66,7 @@ const orgSchema = {
     <meta property="og:title" content={ogTitle} />
     <meta property="og:description" content={ogDescription} />
     <meta property="og:image" content={ogImageUrl} />
+    <meta property="og:image:alt" content={ogImageAlt} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
 
@@ -70,6 +75,7 @@ const orgSchema = {
     <meta name="twitter:title" content={ogTitle} />
     <meta name="twitter:description" content={ogDescription} />
     <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
 
     {/* Fonts — preconnect first, then load. Geist + JetBrains Mono + IBM Plex Mono italic. */}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
