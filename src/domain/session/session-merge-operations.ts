@@ -33,6 +33,7 @@ import { resolveRepository } from "../repository";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
 import { ProvenanceService } from "../provenance/provenance-service";
 import { AuthorshipTier } from "../provenance/types";
+import { formatBranchProtectionLine } from "./branch-protection-formatter";
 import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
 import { resolveMergeToken } from "../provenance/merge-token-resolution";
 import { AuthorshipJudge } from "../provenance/authorship-judge";
@@ -630,7 +631,14 @@ export async function mergeSessionPr(
       if (!params.json) {
         const approvals = approvalStatus.approvals?.length || 0;
         const required = approvalStatus.requiredApprovals ?? 0;
-        const branchProtection = required > 0 ? `enabled (requires ${required})` : `not configured`;
+        // mt#2007: read the full branch-protection shape (status checks,
+        // dismiss-stale, enforce_admins, force_push, deletion, etc.) from the
+        // metadata block populated in github-pr-approval.ts. The previous
+        // "required > 0 ? configured : not configured" collapse misreported
+        // every protection state where reviews=0 but other protections were
+        // active.
+        const bp = approvalStatus.metadata?.github?.branchProtection;
+        const branchProtection = formatBranchProtectionLine(bp);
         const approvalLine =
           required > 0
             ? `${approvals}/${required} approvals`
