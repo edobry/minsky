@@ -87,8 +87,12 @@ static table of per-category MCP adapters.
    (REPO has both `registerRepoTools` and `registerChangesetTools` — second-call
    override-merge via `addTool`'s Map semantics, by design).
 3. **`DEFAULT_EXCLUDE_CATEGORIES`** — categories that should NOT auto-bridge
-   to MCP under the default deployment. Currently contains only `AI` (see
-   §Audit below for rationale).
+   to MCP under the default deployment. **Currently empty** (`[]`) after
+   mt#2035 retracted the original `[AI]` default per the R6 retrospective
+   (see §Audit and §Retraction below). The constant itself is retained as
+   the opt-out hook for future narrowed deployments; mt#2017 investigates
+   whether the `excludeCategories` parameter should exist at all going
+   forward.
 4. **The discovery loop** — `registerAllTools` iterates
    `Object.values(CommandCategory)`. For each category:
    - If it's in `excludeCategories`, skip.
