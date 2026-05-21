@@ -16,6 +16,8 @@ import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
+import { CommandCategory } from "../../adapters/shared/command-registry";
+import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerRepoTools } from "../../adapters/mcp/repo";
@@ -54,6 +56,59 @@ import {
 import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
 import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
 import { profileCheckpoint } from "../../utils/cold-start-profile";
+
+/**
+ * Per-category MCP adapter signature. Each adapter receives the command mapper
+ * and (optional) DI container, and is responsible for calling the appropriate
+ * `register<Group>CommandsWithMcp` helper (with per-command overrides if any).
+ */
+type McpCategoryAdapter = (commandMapper: CommandMapper, container?: AppContainerInterface) => void;
+
+/**
+ * Dispatch table: CommandCategory → ordered list of per-category MCP adapters.
+ *
+ * Categories listed here have intentional per-command overrides (hidden flags,
+ * description overrides, argDefaults). The discovery loop in `registerAllTools`
+ * calls these adapters to preserve those overrides.
+ *
+ * Categories NOT listed here are auto-bridged via the discovery loop's fallback
+ * (`registerSharedCommandsWithMcp` with no overrides). Adding a new
+ * CommandCategory + shared-registry commands is sufficient to expose them via
+ * MCP — no edit to this file is required.
+ *
+ * Multiple adapters per category are supported (REPO has both
+ * `registerRepoTools` and `registerChangesetTools` — second-call override-merge
+ * via addTool's Map semantics, by design).
+ *
+ * mt#2010 — see `docs/architecture/adr-011-mcp-bridge-discovery.md`.
+ */
+export const MCP_CATEGORY_ADAPTERS: Partial<Record<CommandCategory, McpCategoryAdapter[]>> = {
+  [CommandCategory.DEBUG]: [registerDebugTools],
+  [CommandCategory.TASKS]: [registerTaskTools],
+  [CommandCategory.SESSION]: [registerSessionTools],
+  [CommandCategory.PERSISTENCE]: [registerPersistenceTools],
+  [CommandCategory.GIT]: [registerGitTools],
+  [CommandCategory.REPO]: [registerRepoTools, registerChangesetTools],
+  [CommandCategory.INIT]: [registerInitTools],
+  [CommandCategory.RULES]: [registerRulesTools],
+  [CommandCategory.CONFIG]: [registerConfigTools],
+  [CommandCategory.TOOLS]: [registerValidateTools],
+  [CommandCategory.MCP]: [registerMcpManagementTools],
+  [CommandCategory.MEMORY]: [registerMemoryTools],
+  [CommandCategory.DETECTORS]: [registerDetectorsTools],
+  [CommandCategory.PRINCIPAL_CORPUS]: [registerPrincipalCorpusTools],
+  [CommandCategory.FORGE]: [registerForgeTools],
+};
+
+/**
+ * Default `excludeCategories` for the production discovery loop.
+ *
+ * - `AI`: ai.chat / ai.complete invoke external paid LLM APIs. Auto-exposing
+ *   the category via MCP creates runaway-cost risk. CLI access remains;
+ *   re-evaluate per category on a follow-up task. ADR-011 §Audit documents
+ *   the rationale.
+ */
+export const DEFAULT_EXCLUDE_CATEGORIES: ReadonlyArray<CommandCategory> = [CommandCategory.AI];
 
 const DEFAULT_HTTP_PORT = 3000;
 const DEFAULT_HTTP_HOST = "localhost";
@@ -203,10 +258,25 @@ export function injectAgentIdMeta(
 
 /**
  * Register all MCP tool adapters on the given command mapper.
+ *
+ * Uses a discovery loop over `Object.values(CommandCategory)` (mt#2010,
+ * subsumes mt#1521). Categories in `MCP_CATEGORY_ADAPTERS` use their
+ * per-category adapter(s) (preserving per-command overrides); categories
+ * without an entry are auto-bridged via `registerSharedCommandsWithMcp`.
+ *
+ * Native MCP tools (session-workspace, session-files, session-edit-tools)
+ * register directly via `commandMapper.addCommand` rather than going through
+ * the shared command registry, so they are NOT covered by the discovery loop —
+ * they are invoked explicitly below.
+ *
+ * @param excludeCategories Opt-out parameter (mt#1521 → narrowed-deployment
+ * hook, mt#1227 / mt#1254). Defaults to `DEFAULT_EXCLUDE_CATEGORIES` for
+ * production; tests pass `[]` to exercise the full surface.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("../../composition/types").AppContainerInterface,
+  excludeCategories: ReadonlyArray<CommandCategory> = DEFAULT_EXCLUDE_CATEGORIES
 ): Promise<void> {
   // mt#1751: Tool handlers (which need persistence) await the server's
   // `initPromise` before dispatching, so the container is NOT eagerly
@@ -228,38 +298,42 @@ async function registerAllTools(
     );
   }
 
-  // Register debug tools first to ensure they're available for debugging
-  registerDebugTools(commandMapper, container);
-
-  // Register main application tools
-  log.debug("[MCP] About to register task tools");
-  registerTaskTools(commandMapper, container);
-  log.debug("[MCP] About to register session tools");
-  registerSessionTools(commandMapper, container);
+  // Native MCP tools — registered directly via commandMapper.addCommand
+  // (NOT bridged through the shared command registry). These are session
+  // file/edit tools with bespoke runtime semantics; the discovery loop
+  // below covers everything else.
   registerSessionWorkspaceTools(commandMapper, container);
   registerSessionFileTools(commandMapper, container);
   registerSessionEditTools(commandMapper, container);
 
-  // Register persistence tools for agent querying
-  log.debug("[MCP] About to register persistence tools");
-  registerPersistenceTools(commandMapper, container);
+  // Discovery loop: every CommandCategory gets bridged exactly once. Dispatch
+  // to per-category adapter(s) if registered; otherwise auto-bridge with no
+  // overrides. New categories added to the enum + registered with shared
+  // commands surface in MCP `tools/list` without editing this file.
+  const excluded = new Set(excludeCategories);
+  for (const category of Object.values(CommandCategory)) {
+    if (excluded.has(category)) {
+      log.debug(`[MCP] Skipping excluded category: ${category}`);
+      continue;
+    }
 
-  registerGitTools(commandMapper, container);
-  registerRepoTools(commandMapper, container);
-
-  registerInitTools(commandMapper, container);
-  registerRulesTools(commandMapper, container);
-  registerConfigTools(commandMapper, container);
-  registerChangesetTools(commandMapper, container);
-  registerValidateTools(commandMapper, container);
-  registerMcpManagementTools(commandMapper, container);
-  registerMemoryTools(commandMapper, container);
-  registerDetectorsTools(commandMapper, container);
-  registerPrincipalCorpusTools(commandMapper, container);
-
-  // Register forge tools (mt#1957 / mt#2003 — forge-agnostic CI / check-runs /
-  // branch-protection / labels routed through ForgeBackend per ADR-005).
-  registerForgeTools(commandMapper, container);
+    const adapters = MCP_CATEGORY_ADAPTERS[category];
+    if (adapters && adapters.length > 0) {
+      log.debug(`[MCP] Registering category ${category} via ${adapters.length} adapter(s)`);
+      for (const adapter of adapters) {
+        adapter(commandMapper, container);
+      }
+    } else {
+      // Auto-bridge: no per-category adapter, no overrides. The bridge
+      // function is idempotent on empty categories (CORE has no commands),
+      // so this is safe to call unconditionally.
+      log.debug(`[MCP] Auto-bridging category ${category} (no per-category adapter)`);
+      registerSharedCommandsWithMcp(commandMapper, {
+        categories: [category],
+        container,
+      });
+    }
+  }
 }
 
 /**

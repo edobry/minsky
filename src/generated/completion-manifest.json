@@ -4,6 +4,113 @@
   "description": "Minsky development workflow tool",
   "subcommands": [
     {
+      "name": "forge",
+      "description": "FORGE commands",
+      "subcommands": [
+        {
+          "name": "ci_run_list",
+          "description": "List CI workflow runs for the configured repository. Optionally filter by workflow file name (e.g. 'ci.yml'), branch name, or lifecycle status (queued, in_progress, completed, success, failure, etc.).",
+          "options": [
+            {
+              "flags": ["--workflow"],
+              "description": "Workflow file name (e.g. 'ci.yml') or numeric workflow ID to filter by.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--branch"],
+              "description": "Branch name to filter runs by.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--status"],
+              "description": "Lifecycle status filter: queued | in_progress | completed | success | failure | neutral | cancelled | skipped | timed_out | action_required | stale | waiting | requested | pending.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--per-page"],
+              "description": "Maximum results to return (1–100, default 30).",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "ci_run_view_log",
+          "description": "Download and decode the logs for a specific CI workflow run. Returns the log content as text (ZIP entries are extracted inline). Falls back to base64 if DEFLATE-compressed entries cannot be inflated without a native ZIP library."
+        },
+        {
+          "name": "check_runs_list",
+          "description": "List check-runs for an arbitrary commit SHA. Exposes the existing ci.getChecksForRef capability at the MCP surface, complementing session.pr.checks (which requires a PR context)."
+        },
+        {
+          "name": "branch_protection_get",
+          "description": "Get branch protection settings for a branch (e.g. 'main')."
+        },
+        {
+          "name": "branch_protection_set",
+          "description": "Replace branch protection settings for a branch. This is a full-replace operation — fields not provided are treated as disabled. Requires admin access to the repository. The config parameter should be a JSON object matching the BranchProtection shape (required_status_checks, enforce_admins, required_pull_request_reviews, restrictions, etc.).",
+          "options": [
+            {
+              "flags": ["--config"],
+              "description": "Branch protection configuration as a JSON object. See BranchProtection interface for all fields. Example: {required_status_checks: {strict: true, contexts: ['build']}, enforce_admins: true}",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "label_create",
+          "description": "Create a new label on the repository. Color must be a 6-digit lowercase hex string without the leading '#' (e.g. 'd73a4a').",
+          "options": [
+            {
+              "flags": ["--color"],
+              "description": "Hex color without leading '#'. GitHub accepts 6-digit lowercase hex (e.g. 'd73a4a').",
+              "takesValue": true
+            },
+            {
+              "flags": ["--description"],
+              "description": "Optional label description (up to 100 characters).",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "label_list",
+          "description": "List all labels on the repository. Collects all pages automatically.",
+          "options": [
+            {
+              "flags": ["--per-page"],
+              "description": "Labels per page during pagination (default 100).",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "label_update",
+          "description": "Update an existing label: rename, recolor, and/or change its description. Only provided fields are updated.",
+          "options": [
+            {
+              "flags": ["--name"],
+              "description": "New name for the label (renames it).",
+              "takesValue": true
+            },
+            {
+              "flags": ["--color"],
+              "description": "New color (6-digit hex without '#').",
+              "takesValue": true
+            },
+            {
+              "flags": ["--description"],
+              "description": "New description (up to 100 characters).",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "label_delete",
+          "description": "Delete a label from the repository by name."
+        }
+      ]
+    },
+    {
       "name": "git",
       "description": "GIT commands",
       "subcommands": [
@@ -1759,7 +1866,7 @@
         },
         {
           "name": "exec",
-          "description": "Execute a shell command in a session's working directory",
+          "description": "Execute a shell command in a session's working directory. The session directory is resolved automatically from `task` or `sessionId` — never substitute `git -C <path>` or `cd <path> && cmd`. Use session_exec for commands that have no dedicated MCP tool (build, test, format, custom scripts). For git operations there are dedicated MCP tools (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) — prefer those. The block-git-gh-cli.ts PreToolUse hook denies most git/gh CLI invocations on session_exec the same way it denies them on Bash (mt#1196). Inside a session, the carved-out commands `git stash`, `git reset`, `git restore`, `git status` ARE permitted via session_exec because they're the recommended escape hatch.",
           "options": [
             {
               "flags": ["--session-id"],
@@ -2345,6 +2452,45 @@
               ]
             },
             {
+              "name": "close",
+              "description": "Close a pull request WITHOUT merging, optionally posting a comment first (mt#1955). Use this for the absorb-and-close pattern: when work in PR A is absorbed into PR B (B's broader refresh subsumes A's narrower scope), close A with a comment pointing at B. The optional `comment` is posted as a regular PR comment (not a review) BEFORE the state flip, so it appears chronologically before the close event in the PR timeline. Refuses to close already-closed or already-merged PRs — returns a clear error naming the state (checked via live GitHub API, not the session DB record). Routes through TokenProvider (implementer App by default), like the rest of the session.pr.* family. This is the Minsky equivalent for `gh pr close` and for the state-flip-to-closed path of `mcp__github__update_pull_request` (both hook-banned per mt#1030).",
+              "options": [
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "Repository path",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--pr-number"],
+                  "description": "PR number to close (alternative to identifying via session). Required when no `task`/`sessionId` is provided. When both are passed, `prNumber` wins as the address and the session backend is reused; the session DB is updated only if the closed PR matches the session's recorded PR.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--comment"],
+                  "description": "Optional comment to post on the PR before closing. Useful for absorb-and-close: name the PR that subsumes this work. Posted as a regular PR comment (not a review) so it appears chronologically before the close event.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--json"],
+                  "description": "Output in JSON format"
+                },
+                {
+                  "flags": ["--debug"],
+                  "description": "Enable debug output"
+                }
+              ]
+            },
+            {
               "name": "merge",
               "description": "Merge an approved session pull request",
               "options": [
@@ -2492,7 +2638,7 @@
                   "subcommands": [
                     {
                       "name": "review-submit",
-                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity",
+                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the implementer App (`minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the reviewer App (`minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is configured. APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool throws a typed MinskyError naming the missing config key rather than silently falling back to implementer, because that would re-introduce GitHub's self-approval block on bot-authored PRs. The optional `identity` parameter can override the default mapping explicitly. See ADR-006 for the architectural decision record.",
                       "options": [
                         {
                           "flags": ["--session-id"],
@@ -4600,6 +4746,65 @@
               "description": "Load the pending-ask cohort for a window, render a terminal digest, and accept operator responses"
             }
           ]
+        },
+        {
+          "name": "deployment",
+          "description": "deployment commands",
+          "subcommands": [
+            {
+              "name": "wait-for-latest",
+              "description": "Block until the latest deployment for the configured service reaches a terminal state (SUCCESS/FAILED/CANCELLED/CRASHED). Returns the final deployment record. Platform-neutral; routes to the platform declared in services/<svc>/deploy.config.ts.",
+              "options": [
+                {
+                  "flags": ["--service"],
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--timeout-seconds"],
+                  "description": "Maximum time to block before timing out. Default: 600 (10 minutes).",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--poll-interval-seconds"],
+                  "description": "Poll cadence. Default: 10 seconds.",
+                  "takesValue": true
+                }
+              ]
+            },
+            {
+              "name": "status",
+              "description": "Read-only snapshot of the latest deployment for the configured service. Does not block. Platform-neutral.",
+              "options": [
+                {
+                  "flags": ["--service"],
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "takesValue": true
+                }
+              ]
+            },
+            {
+              "name": "logs",
+              "description": "Fetch build or deploy logs for a specific deployment. Block-and-return; streaming is out of scope for v1 (see mt#1725 for the notification path).",
+              "options": [
+                {
+                  "flags": ["--type"],
+                  "description": "Log channel: 'build' (build-phase) or 'deploy' (runtime). Default: 'build'.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--lines"],
+                  "description": "Maximum number of log lines to return. Default: 100.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--service"],
+                  "description": "Service name (matches services/<name>/deploy.config.ts). Optional when the project has exactly one declared service.",
+                  "takesValue": true
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -5260,6 +5465,81 @@
             {
               "flags": ["--json"],
               "description": "Output as JSON"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "principal_corpus",
+      "description": "PRINCIPAL_CORPUS commands",
+      "subcommands": [
+        {
+          "name": "search",
+          "description": "Semantic search over the principal-corpus tweet archive",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 10)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "similar",
+          "description": "Find tweets similar to a given tweet (by ID) in the principal-corpus",
+          "options": [
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results to return (default 10)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
+            }
+          ]
+        },
+        {
+          "name": "index-embeddings",
+          "description": "Ingest the principal's Twitter archive into the principal-corpus embedding namespace",
+          "options": [
+            {
+              "flags": ["--account-user-id"],
+              "description": "Principal's Twitter user_id (numeric string)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--screen-name"],
+              "description": "Principal's @-handle (without the @)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--filter-path"],
+              "description": "Path to a JSON file of classifier results to reuse (skips classifier when present)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--skip-filter"],
+              "description": "If true, index every original tweet without running the relevance classifier"
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Max number of tweets to index (debug aid)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--concurrency"],
+              "description": "Concurrent embedding requests (default 4)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output in JSON format"
             }
           ]
         }

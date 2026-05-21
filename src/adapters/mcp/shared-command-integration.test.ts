@@ -10,10 +10,7 @@
  */
 import { describe, test, expect, afterEach, spyOn } from "bun:test";
 import { z } from "zod";
-import {
-  registerSharedCommandsWithMcp,
-  registerAllMainCommandsWithMcp,
-} from "./shared-command-integration";
+import { registerSharedCommandsWithMcp } from "./shared-command-integration";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -355,58 +352,11 @@ describe("MCP shared-command bridge", () => {
     expect(result).toEqual(structuredBody);
   });
 
-  test("registerAllMainCommandsWithMcp does NOT include MEMORY (mt#1012 R2 regression guard)", async () => {
-    // PR #953 R2: MEMORY commands are registered solely via the per-category
-    // adapter `registerMemoryTools` invoked from start-command.ts. Including
-    // them in the all-in-one helper too would create a silent-overwrite
-    // hazard via MinskyMCPServer.addTool()'s Map semantics if anything ever
-    // calls registerAllMainCommandsWithMcp alongside the per-category path.
-    // mt#1521 owns the structural source-of-truth refactor that may apply
-    // this same exclusion to other categories; this test locks the MEMORY
-    // exclusion until that audit lands.
-    const id = "memory.__mcp_bridge_exclusion_test__";
-
-    registerTestCommand({
-      id,
-      name: id,
-      category: CommandCategory.MEMORY,
-      description: "MEMORY exclusion regression test",
-      requiresSetup: false,
-      parameters: {},
-      execute: async () => ({ success: true }),
-    });
-
-    const { mapper, captured } = makeMockMapper(id);
-    registerAllMainCommandsWithMcp(mapper as never);
-
-    expect(captured.handler).toBeUndefined();
-  });
-
-  test("registerAllMainCommandsWithMcp does NOT include DETECTORS (mt#1721 regression guard)", async () => {
-    // PR #1037 (mt#1721): DETECTORS commands are registered solely via the
-    // per-category adapter `registerDetectorsTools` invoked from
-    // start-command.ts, matching the MEMORY single-path model. Including
-    // them in the all-in-one helper would create the same silent-overwrite
-    // hazard via MinskyMCPServer.addTool()'s Map semantics. This test locks
-    // the DETECTORS exclusion until mt#1521's structural source-of-truth
-    // refactor lands.
-    const id = "detectors.__mcp_bridge_exclusion_test__";
-
-    registerTestCommand({
-      id,
-      name: id,
-      category: CommandCategory.DETECTORS,
-      description: "DETECTORS exclusion regression test",
-      requiresSetup: false,
-      parameters: {},
-      execute: async () => ({ success: true }),
-    });
-
-    const { mapper, captured } = makeMockMapper(id);
-    registerAllMainCommandsWithMcp(mapper as never);
-
-    expect(captured.handler).toBeUndefined();
-  });
+  // mt#1012 R2 / mt#1721 regression guards (MEMORY / DETECTORS dual-registration
+  // hazard) were retired with mt#2010: `registerAllMainCommandsWithMcp` was
+  // deleted (zero production callers), and `start-command.ts`'s discovery loop
+  // bridges each `CommandCategory` exactly once. The "category in two places"
+  // hazard those tests guarded against is now structurally impossible.
 
   // mt#1786: argDefaults — MCP-only per-argument defaults from commandOverrides
   describe("argDefaults (mt#1786)", () => {
