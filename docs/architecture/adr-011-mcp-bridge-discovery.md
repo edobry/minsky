@@ -162,10 +162,10 @@ a verdict have no commands registered.
 | `PRINCIPAL_CORPUS` | bridged (adapter)  | dispatch                        | `registerPrincipalCorpusTools` overrides preserved.                                                                                                                                        |
 | `FORGE`            | bridged (adapter)  | dispatch                        | `registerForgeTools` (mt#1957/mt#2003 wiring) overrides preserved.                                                                                                                         |
 
-**Net effect:** 8 categories newly auto-exposed (KNOWLEDGE, PROVENANCE,
-AUTHORSHIP, COMPILE, WORKSPACE, TRANSCRIPTS, OBSERVABILITY — total ~27 commands).
-1 category newly excluded by default (AI). 15 categories continue with their
-per-category adapter dispatch unchanged.
+**Net effect:** 7 categories newly auto-exposed (KNOWLEDGE, PROVENANCE,
+AUTHORSHIP, COMPILE, WORKSPACE, TRANSCRIPTS, OBSERVABILITY — total 18 commands,
+per the smoke-script live count). 1 category newly excluded by default (AI).
+15 categories continue with their per-category adapter dispatch unchanged.
 
 ## Consequences
 
@@ -173,7 +173,7 @@ per-category adapter dispatch unchanged.
 
 - New `CommandCategory` enum values auto-surface in MCP without `start-command.ts`
   edits — closes the recurring silent (4)+(5) failure mode.
-- Eight previously-unbridged categories with active CLI commands gain MCP
+- Seven previously-unbridged categories with active CLI commands gain MCP
   exposure, realizing the intent the dead `registerAllMainCommandsWithMcp`
   function had documented but never realized.
 - The dispatch table makes the override surface explicit — adding a new

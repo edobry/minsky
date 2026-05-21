@@ -18,7 +18,7 @@
  */
 import { describe, expect, test, afterEach } from "bun:test";
 import { z } from "zod";
-import { MCP_CATEGORY_ADAPTERS, DEFAULT_EXCLUDE_CATEGORIES } from "./start-command";
+import { MCP_CATEGORY_ADAPTERS, DEFAULT_EXCLUDE_CATEGORIES } from "./discovery-config";
 import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { sharedCommandRegistry, CommandCategory } from "../../adapters/shared/command-registry";
 
@@ -57,15 +57,7 @@ function registerTestCommand(
 
 afterEach(() => {
   for (const id of registeredIds) {
-    // SharedCommandRegistry has no public unregister API; clearing the internal
-    // map is a test-only escape valve. Cast through `unknown` since the
-    // internal field name isn't part of the public type.
-    const internalMap = (
-      sharedCommandRegistry as unknown as {
-        commands: Map<string, unknown>;
-      }
-    ).commands;
-    internalMap.delete(id);
+    sharedCommandRegistry.unregisterCommand(id);
   }
   registeredIds.clear();
 });
@@ -129,21 +121,32 @@ describe("discovery loop coverage (Acceptance Test 1)", () => {
     expect(fallbackInReachable.length).toBeGreaterThan(0);
   });
 
-  test("every CommandCategory enum value is accounted for", () => {
-    // Triple-partition check: every category is either dispatched, excluded,
-    // or — if neither — reachable via the auto-bridge fallback. There is no
-    // fourth "silently skipped" bucket.
+  test("every CommandCategory enum value is partitioned across {dispatched, excluded, fallback}", () => {
+    // The discovery loop classifies each CommandCategory into exactly one of
+    // three buckets: dispatched (per-category adapter), excluded
+    // (DEFAULT_EXCLUDE_CATEGORIES), or fallback (auto-bridge). The classes
+    // must be mutually exclusive AND collectively exhaustive — the test
+    // protects this invariant by asserting both properties.
     const excluded = new Set<string>(DEFAULT_EXCLUDE_CATEGORIES);
     const dispatched = new Set<string>(Object.keys(MCP_CATEGORY_ADAPTERS));
 
+    // Mutual exclusion: no category may be both dispatched AND excluded —
+    // that would mean we tried to bridge it AND drop it from the surface.
+    for (const cat of dispatched) {
+      expect(excluded.has(cat)).toBe(false);
+    }
+
+    // Collectively exhaustive: every enum value lands in exactly one of the
+    // three buckets. Fallback is the residual — anything not dispatched and
+    // not excluded falls through to `registerSharedCommandsWithMcp`.
     for (const category of Object.values(CommandCategory)) {
-      const isDispatched = dispatched.has(category);
-      const isExcluded = excluded.has(category);
-      // The category is "reachable" if it's not excluded. It's "covered" if
-      // it's dispatched. If not dispatched and not excluded, the fallback
-      // covers it (auto-bridge).
-      const isCovered = isDispatched || isExcluded || true; // fallback always covers
-      expect(isCovered).toBe(true);
+      const buckets = [
+        dispatched.has(category) ? "dispatched" : null,
+        excluded.has(category) ? "excluded" : null,
+        !dispatched.has(category) && !excluded.has(category) ? "fallback" : null,
+      ].filter((b) => b !== null);
+      // Exactly one bucket — partition is sound.
+      expect(buckets.length).toBe(1);
     }
   });
 });

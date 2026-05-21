@@ -20,7 +20,7 @@ import { registerSharedCommandsWithMcp } from "../src/adapters/mcp/shared-comman
 import {
   MCP_CATEGORY_ADAPTERS,
   DEFAULT_EXCLUDE_CATEGORIES,
-} from "../src/commands/mcp/start-command";
+} from "../src/commands/mcp/discovery-config";
 import { registerSessionWorkspaceTools } from "../src/adapters/mcp/session-workspace";
 import { registerSessionFileTools } from "../src/adapters/mcp/session-files";
 import { registerSessionEditTools } from "../src/adapters/mcp/session-edit-tools";
