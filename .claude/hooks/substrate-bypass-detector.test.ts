@@ -539,7 +539,7 @@ describe("main() end-to-end via Bun.spawn", () => {
     expect(parsed.hookSpecificOutput?.additionalContext).toContain("db-substrate-bypass");
   });
 
-  test("override env var suppresses output and emits audit on stderr", async () => {
+  test("override env var suppresses additionalContext and emits audit on stdout", async () => {
     const transcriptLines = [
       makeUserLine(),
       makeAssistantLine("I'd update memory X to reflect this finding."),
@@ -552,9 +552,14 @@ describe("main() end-to-end via Bun.spawn", () => {
       [OVERRIDE_ENV_VAR]: "1",
     });
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe(""); // No additionalContext on stdout
-    expect(stderr).toContain("[substrate-bypass-detector] OVERRIDE:");
-    expect(stderr).toContain("ack=1");
+    // Audit line on stdout per spec ("audit logging to stdout (matches
+    // sibling-hook convention)"); not valid JSON, so Claude Code's parser
+    // will not read it as a HookOutput envelope. The substantive assertion
+    // is that no additionalContext JSON envelope was emitted.
+    expect(stdout).toContain("[substrate-bypass-detector] OVERRIDE:");
+    expect(stdout).toContain("ack=1");
+    expect(stdout).not.toContain("additionalContext");
+    expect(stderr.trim()).toBe("");
   });
 
   test("malformed JSONL in middle — fail-open: exits 0, warns on stderr, NO additionalContext", async () => {

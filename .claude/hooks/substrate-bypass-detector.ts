@@ -512,7 +512,12 @@ export async function main(): Promise<void> {
 
   if (isOverride) {
     const ts = new Date().toISOString();
-    process.stderr.write(
+    // Audit on stdout per spec ("audit logging to stdout (matches sibling-hook
+    // convention)"). The line is not valid JSON, so Claude Code's hook output
+    // parser will not interpret it as a HookOutput envelope; the standard
+    // sibling-hook audit convention (parallel-work-guard, check-branch-fresh)
+    // uses stdout for the same purpose.
+    process.stdout.write(
       `[substrate-bypass-detector] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${ts}\n`
     );
     process.exit(0);
