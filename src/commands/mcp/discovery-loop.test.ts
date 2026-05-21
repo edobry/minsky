@@ -87,10 +87,13 @@ describe("MCP_CATEGORY_ADAPTERS dispatch table", () => {
     }
   });
 
-  test("DEFAULT_EXCLUDE_CATEGORIES contains only AI (mt#2010 audit verdict)", () => {
-    // AI is excluded because ai.chat / ai.complete invoke external paid LLM
-    // APIs; auto-exposing via MCP creates runaway-cost risk. See ADR-011.
-    expect(DEFAULT_EXCLUDE_CATEGORIES).toEqual([CommandCategory.AI]);
+  test("DEFAULT_EXCLUDE_CATEGORIES is empty (mt#2035 retraction of AI exclusion)", () => {
+    // The original AI exclusion shipped in mt#2010 was retracted by mt#2035:
+    // cost discipline belongs at the API layer, not the MCP bridge. All 9 AI
+    // commands (ai.chat, ai.complete, ai.fast-apply, ai.models.{list,available,refresh},
+    // ai.providers.list, ai.cache.clear, ai.validate) now auto-bridge by default.
+    // See ADR-011 §Audit for the updated verdict.
+    expect(DEFAULT_EXCLUDE_CATEGORIES).toEqual([]);
   });
 });
 
