@@ -1544,48 +1544,73 @@ with `Buffer.indexOf(0)` — a single memchr-class O(n) pass.
 A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between
 the NUL-byte check and the TypeScript type check) reads root
 `package.json`'s `workspaces` glob, enumerates workspace directories
-containing a `package.json`, and verifies the root `Dockerfile` has a
-`COPY <ws>/package.json ...` line for each one BEFORE the
-`RUN bun install --frozen-lockfile` step. Blocks the commit if any
-workspace is unaccounted for.
+containing a `package.json`, **discovers all Dockerfiles in the repo
+that run `bun install --frozen-lockfile`** (root + `services/*/Dockerfile`
++ `packages/*/Dockerfile`), and verifies each one has a
+`COPY <ws>/package.json ...` line for every workspace BEFORE the
+install step. Blocks the commit if any workspace is unaccounted for in
+any protected Dockerfile.
+
+The discovery is by trigger condition (has `bun install --frozen-lockfile`),
+not by hardcoded filename. The check applies to the *class* of
+"Dockerfiles that install against the root bun.lock" rather than to any
+specific instance; sub-project Dockerfiles that adopt frozen-lockfile
+installation are automatically protected without code changes (mt#1992).
 
 **Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
 `runWorkspaceCopyCheck()`. Pure-function implementation:
-`src/hooks/workspace-copy-detector.ts`.
+`src/hooks/workspace-copy-detector.ts` (key exports:
+`discoverProtectedDockerfiles`, `detectMissingWorkspaceCopies`,
+`runWorkspaceCopyCheck` returning per-Dockerfile results).
 
-**Why this check exists.** mt#1977 / 2026-05-20T19:44Z. PR #1186
+**Why this check exists.**
+
+*Originating incident (mt#1977 / 2026-05-20T19:44Z).* PR #1186
 (mt#1934, marketing-site rebuild) added `services/site/` as a new
 workspace declared by root `package.json`'s
 `workspaces: ["packages/*", "services/*"]`. The regenerated `bun.lock`
-referenced `services/site`'s deps. The Dockerfile's selective workspace-
-COPY block only copied `packages/shared/package.json` and
+referenced `services/site`'s deps. The root Dockerfile's selective
+workspace-COPY block only copied `packages/shared/package.json` and
 `services/reviewer/package.json` — `services/site/package.json` was
-missed. Result: every Railway deploy from `57c2e868` onward failed at
+missed. Every Railway deploy from `57c2e868` onward failed at
 `RUN bun install --frozen-lockfile` with
 `error: lockfile had changes, but lockfile is frozen`. Production was
-stuck on the prior commit for ~75 minutes; three PRs (PR #1186 itself,
-PR #1188 / mt#1962, PR #1189 / mt#1963) landed before the fix landed
-and unblocked the deploy queue.
+stuck on the prior commit for ~75 minutes.
+
+*Generalization incident (mt#1991 / 2026-05-20T20:55Z, ~6 hours later).*
+The mt#1984 guard's original scope was root-Dockerfile-only. The same
+failure class hit `services/reviewer/Dockerfile` (a sub-project Dockerfile
+with its own `bun install --frozen-lockfile` step against the root
+lockfile). After mt#1934 added services/site as a workspace + mt#1983
+added winston, the reviewer Dockerfile's COPY block silently fell out
+of date: 8 consecutive FAILED Railway deploys over ~4 hours, until
+mt#1989 added a `deploy.config.ts` that gave the deployment_status MCP
+tool visibility into the reviewer service. mt#1991 hotfixed the
+Dockerfile; mt#1992 generalized this guard to walk all protected
+Dockerfiles, not just root.
 
 The local `bun install` SUCCEEDS because the full repo is mounted;
 Railway's selective COPY produces an incomplete tree, so the failure
 mode only surfaces in the deploy environment. The pre-commit check is
 the commit-time complement that catches the failure at the cheapest
-authoring stage.
+authoring stage, across every Dockerfile that would fail the same way.
 
 **Trigger condition.** Always — the check runs on every commit
-regardless of which files are staged. The cost is ~5 fs reads + a single
-string scan on the Dockerfile (well under 10 ms in practice); always-
-on coverage matters because the contract can be violated by a commit
-that doesn't itself touch Dockerfile or package.json (e.g., the prior
-commit added a workspace, this commit is unrelated work — the broken
-state still blocks until someone notices).
+regardless of which files are staged. The cost is well under 50 ms
+(measured on an M1 Max workstation against the current repo with 2
+protected Dockerfiles); always-on coverage matters because the contract
+can be violated by a commit that doesn't itself touch any Dockerfile
+or package.json (e.g., the prior commit added a workspace, this commit
+is unrelated work — the broken state still blocks until someone
+notices).
 
-**On hit:** the step blocks with a structured message listing every
-missing workspace path and the literal `COPY <ws>/package.json ./<ws>/-
-package.json` line the operator must add to the Dockerfile, plus a "Why
-this is blocked" section pointing at mt#1984, mt#1977, and an
-explanation of the Railway-build invariant.
+**On hit:** the step blocks with a structured message that groups
+violations by Dockerfile path — listing every missing workspace per
+file with the literal `COPY <ws>/package.json ./<ws>/package.json` line
+the operator must add, plus a "Why this is blocked" section pointing
+at mt#1984 / mt#1992 / mt#1977 / mt#1991 and an explanation of the
+Railway-build invariant. Each violating Dockerfile is named explicitly
+so the operator knows which file(s) to edit.
 
 **Allowlist (skipped from the check):**
 - Workspaces matched by the glob but lacking a `package.json` — these
@@ -1593,13 +1618,18 @@ explanation of the Railway-build invariant.
   `package.json`), so no COPY is required. The mt#1977 instance of this
   is `services/minsky-mcp/`, a directory that matches `services/*` but
   exists only as a service-config home (no package.json).
-- Dockerfiles with no `RUN bun install --frozen-lockfile` line —
-  signals "this isn't the root Dockerfile we protect" (could be a sub-
-  project Dockerfile or a different deploy strategy). Check short-
-  circuits with a no-op pass.
-- Repositories without a root `Dockerfile` or `package.json` — same
-  short-circuit. The check protects a specific contract; absent both
-  files there's no contract to protect.
+- Dockerfiles with no `RUN bun install --frozen-lockfile` line — they
+  don't install against the root lockfile, so the workspace-COPY
+  invariant doesn't apply to them. Examples: a Dockerfile that uses
+  `npm ci`, or one that skips `--frozen-lockfile`, or one that doesn't
+  install at all. Such files are discovered, evaluated against the
+  trigger condition, and dropped from the protected set.
+- Repositories without a root `package.json` — silent short-circuit
+  (the check needs the root workspaces field to determine what to
+  protect; absent that there's no contract to check).
+- Repositories with a root `package.json` but NO protected Dockerfiles
+  — silent pass (the check ran but found nothing requiring the COPY
+  invariant; legitimate for repos without bun-frozen-lockfile installs).
 
 **Override mechanism:** Set `MINSKY_SKIP_WORKSPACE_COPY_CHECK=1` (or
 `true` / `yes`) in your environment before invoking the commit tool:
@@ -1637,13 +1667,25 @@ patterns (`packages/*`, `services/*`) are fully covered.
 
 **Performance:** the check completes in well under 50 ms in practice
 (measured on an M1 Max workstation against the current repo: 3
-workspace package.json reads + 1 Dockerfile read + a single
-single-pass regex scan).
+workspace package.json reads + 2 Dockerfile reads + 2 single-pass regex
+scans). Performance scales linearly with the number of protected
+Dockerfiles; current count is 2 (root + services/reviewer).
 
 **Cross-references:**
-- mt#1984 — this guard's tracking task
-- mt#1977 — originating incident; the 75-minute production outage
-- mt#1934 / PR #1186 — the merge that introduced the gap
+- mt#1984 — original tracking task (root-Dockerfile-only scope)
+- mt#1992 — generalization task (this expansion; class-scoped instead
+  of instance-scoped per the narrow-rule-doesn't-generalize anti-pattern)
+- mt#1977 — originating incident; the 75-minute root-Dockerfile outage
+- mt#1991 — generalization incident; the 4-hour reviewer-Dockerfile
+  outage that proved the original scope was too narrow
+- mt#1934 / PR #1186 — the merge that introduced the workspace topology
+  change exposing both gaps
+- mt#1983 — added winston to services/site, making the lockfile entry
+  non-trivial and exposing mt#1991
+- mt#1989 — added services/reviewer/deploy.config.ts, giving
+  deployment_status MCP-tool visibility that surfaced mt#1991
+- Memory `bd2c08be` — bridge memory documenting the
+  narrow-rule-doesn't-generalize anti-pattern this expansion fixes
 - mt#1610 / mt#1624 / mt#1626 — contract-propagation gap family
 - mt#1726 — original selective-COPY Dockerfile refactor (the contract
   this guard protects)
@@ -1822,6 +1864,24 @@ documenting the outcome. To close such a task via this path:
   This rule is the dual direction of `decision-defaults.mdc §Build vs buy — anti-pattern checklist` (4th bullet, "Build-path-as-research at action-execution-time"). Both are instances of: at action-execution time, agent defaults to the path requiring the least new tool-acquisition or boundary-crossing, even when other options are available.
 
   The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-phase sub-step that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces; the skill step covers the implement-task pipeline specifically.
+
+- **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Multi-agent task graphs contain agents mid-planning, mid-implementation, or about-to-start that don't surface on a single status read.
+
+  **Canonical probe sequence** (run in order; first hit indicates a collision):
+  1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
+  2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
+  3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.
+  4. **Recent-activity probe** — `mcp__minsky__git_log --grep="mt#<id>" --since="24 hours ago"` for commits by other actors.
+
+  **If a probe returns "another actor is here"**, do NOT recommend the same action as the next step. Surface the collision (which actor, what evidence) to the principal; let them resolve who continues.
+
+  **If all probes pass cleanly**, proceed — but record the probe outcome in the recommendation so the audit trail shows the check was done.
+
+  Originating incident: mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge guard agent-attestation gap investigation), the agent recommended `/implement-task mt#1964` without detecting that another agent had advanced mt#1964 PLANNING→READY during the same session. The status change was a visible signal not interpreted as evidence; the principal informed the agent of the collision. The substrate RFC (mt#1990) explores the structural fix — claim primitives, agent presence, status-machine intent states — that turns this probe sequence into a single substrate read. Until that ships, this rule is checklist-driven discipline.
+
+  This rule is the dual of `§Probe before deferring`: that rule guards the "skipping the easy path because I assume it's blocked" failure (claiming tooling is unavailable without verifying); this rule guards the "taking the easy path because I assume it's unclaimed" failure (recommending action on a shared resource without verifying who holds it). Both are instances of: at action-execution time, the agent defaults to the lowest-cost-check path without verifying the underlying assumption.
+
+  **Future structural enforcement:** mt#1990's RFC may propose making the four probes a single substrate query, or eliminating the need to probe entirely via active edges + presence broadcast. When that lands, this rule retires.
 
 - **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
 

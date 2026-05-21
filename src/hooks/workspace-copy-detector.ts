@@ -1,27 +1,34 @@
 /**
- * Detector for missing workspace-package.json COPY lines in the root
- * `Dockerfile`.
+ * Detector for missing workspace-package.json COPY lines in any Dockerfile
+ * that runs `bun install --frozen-lockfile`.
  *
- * Closes the gate-gap exposed by mt#1977 / 2026-05-20T19:44Z: PR #1186
- * (mt#1934, marketing-site rebuild) added `services/site/` as a new
- * workspace declared by root `package.json`'s
- * `workspaces: ["packages/*", "services/*"]`. The regenerated `bun.lock`
- * referenced `services/site`'s deps. The Dockerfile's selective workspace-
- * COPY block only copied `packages/shared/package.json` and
- * `services/reviewer/package.json` — `services/site/package.json` was
- * missed. Result: every Railway deploy from `57c2e868` onward failed with
- *   `error: lockfile had changes, but lockfile is frozen`
- * Production was stuck on the prior commit for ~75 minutes.
+ * Originally scoped to the root `Dockerfile` (mt#1984 / mt#1977 fix). The
+ * root-only scope was too narrow: mt#1991 (2026-05-20) demonstrated the
+ * same failure class on `services/reviewer/Dockerfile`, which the original
+ * detector silently passed over. That sub-project Dockerfile copies its
+ * own workspace-package.json subset before `bun install --frozen-lockfile`
+ * but missed `services/site/package.json` after mt#1934 added services/site
+ * as a workspace. Eight consecutive reviewer Railway deploys failed over
+ * ~4 hours with `error: lockfile had changes, but lockfile is frozen`.
  *
- * This detector mechanically enforces the contract: every workspace
+ * Tracking task mt#1992 generalized the scope: any Dockerfile in the repo
+ * containing a `bun install --frozen-lockfile` step is now subject to the
+ * workspace-COPY invariant. Discovery is by filesystem walk
+ * (`discoverProtectedDockerfiles`) over the conventional locations (root,
+ * `services/*`, `packages/*`); each protected Dockerfile is checked
+ * independently and per-file violations are reported.
+ *
+ * The contract each protected Dockerfile must satisfy: every workspace
  * matched by the glob in root `package.json`'s `workspaces` field AND
  * containing a `package.json` MUST have a corresponding
  *   `COPY <ws>/package.json ...`
- * line in the Dockerfile BEFORE the `RUN bun install --frozen-lockfile`
- * step. The pre-commit hook wraps this detector and blocks commits when
- * the invariant is violated.
+ * line BEFORE the `RUN bun install --frozen-lockfile` step. The pre-commit
+ * hook aggregates violations across all protected Dockerfiles and blocks
+ * the commit when any are present.
  *
- * Tracking task: mt#1984. Originating incident: mt#1977.
+ * Tracking tasks: mt#1984 (original root-Dockerfile detector),
+ *   mt#1992 (generalization). Originating incidents: mt#1977 (root),
+ *   mt#1991 (services/reviewer).
  */
 
 import { existsSync, readdirSync, statSync } from "fs";
@@ -76,9 +83,13 @@ export interface WorkspaceCopyCheckInput {
    */
   workspacePackageJsons: readonly string[];
   /**
-   * Raw Dockerfile text (root `Dockerfile`, not the `services/<svc>/-
-   * Dockerfile` siblings — those use their own local package.jsons and
-   * aren't affected by the root workspaces glob).
+   * Raw Dockerfile text. May be the root `Dockerfile` OR a sub-project
+   * Dockerfile (`services/<svc>/Dockerfile`, `packages/<pkg>/Dockerfile`)
+   * — mt#1992 generalized the scope. Any Dockerfile that runs
+   * `bun install --frozen-lockfile` against the root bun.lock is subject
+   * to the workspace-COPY invariant; sub-project Dockerfiles inherit the
+   * root lockfile's workspace topology even when they only install a
+   * subset of the deps.
    */
   dockerfileText: string;
 }
@@ -98,8 +109,11 @@ export interface MissingWorkspaceCopy {
  *
  * Special cases:
  * - If the Dockerfile contains no `RUN bun install --frozen-lockfile`
- *   step, returns `[]` (this is not the deploy Dockerfile we protect —
- *   either a sub-project Dockerfile or a different deploy strategy).
+ *   step, returns `[]` (the workspace-COPY invariant only applies when
+ *   the frozen-lockfile install is the load-bearing step). The caller's
+ *   discovery layer (`discoverProtectedDockerfiles`) filters by the same
+ *   trigger condition, so in practice this check is a defense-in-depth
+ *   double-gate; legitimately-passed callers don't hit this path.
  * - Workspaces matched by the glob but lacking a `package.json` are
  *   already excluded by the caller (per `WorkspaceCopyCheckInput`
  *   contract), so this function does not re-check disk state.
@@ -186,12 +200,21 @@ export interface FsOps {
   existsSync(path: string): boolean;
   readdirSync(path: string): string[];
   statSync(path: string): { isDirectory(): boolean };
+  /**
+   * Read a UTF-8 file's contents. Added (mt#1992) so the end-to-end check
+   * can be tested against synthetic in-memory filesystems without falling
+   * back to real temp directories (which the `custom/no-real-fs-in-tests`
+   * ESLint rule forbids). Default impl delegates to the existing
+   * `readTextFileSync` helper.
+   */
+  readTextFileSync(path: string): string;
 }
 
 const defaultFs: FsOps = {
   existsSync,
   readdirSync: (p) => readdirSync(p),
   statSync,
+  readTextFileSync,
 };
 
 export function resolveWorkspacePackageJsonPaths(
@@ -253,37 +276,134 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Convenience: run the end-to-end check against a real repo root. Reads
- * `package.json`, expands the workspaces glob via filesystem, reads the
- * Dockerfile, and runs the detector. Returns `null` if either the
- * `package.json` or the `Dockerfile` cannot be loaded — those are
- * "this repo isn't the one we protect" signals rather than failures.
+ * Discover all Dockerfiles in the repo that should be subject to the
+ * workspace-COPY invariant. A Dockerfile is "protected" iff it contains
+ * a `RUN bun install --frozen-lockfile` step (the bun frozen-lockfile
+ * install is the load-bearing signal — that's the only command that
+ * actually fails when a workspace manifest is missing from the build
+ * context).
+ *
+ * Search locations (mt#1992):
+ *   - `<repoRoot>/Dockerfile` (root)
+ *   - `<repoRoot>/services/<svc>/Dockerfile`
+ *   - `<repoRoot>/packages/<pkg>/Dockerfile`
+ *
+ * Dockerfile.* variants (`Dockerfile.prod`, `Dockerfile.dev`) are NOT
+ * scanned today; if Minsky adopts that pattern later this function should
+ * be extended. The conservative default (only the canonical filename)
+ * avoids false positives on dev-only Dockerfiles that intentionally
+ * differ from prod.
+ *
+ * Returns repo-relative paths in stable sort order.
+ */
+export function discoverProtectedDockerfiles(repoRoot: string, fs: FsOps = defaultFs): string[] {
+  const out: string[] = [];
+
+  const candidatePaths: string[] = [];
+
+  // Root Dockerfile.
+  candidatePaths.push("Dockerfile");
+
+  // services/<svc>/Dockerfile and packages/<pkg>/Dockerfile.
+  for (const parentDir of ["services", "packages"]) {
+    const absParent = join(repoRoot, parentDir);
+    if (!fs.existsSync(absParent)) continue;
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(absParent);
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const absChild = join(repoRoot, parentDir, entry);
+      try {
+        if (!fs.statSync(absChild).isDirectory()) continue;
+      } catch {
+        continue;
+      }
+      candidatePaths.push(`${parentDir}/${entry}/Dockerfile`);
+    }
+  }
+
+  for (const relPath of candidatePaths) {
+    const absPath = join(repoRoot, relPath);
+    if (!fs.existsSync(absPath)) continue;
+    let text: string;
+    try {
+      text = fs.readTextFileSync(absPath);
+    } catch {
+      continue;
+    }
+    if (FROZEN_INSTALL_LINE_RE.test(text)) {
+      out.push(relPath);
+    }
+  }
+
+  return out.sort();
+}
+
+/**
+ * Per-Dockerfile aggregation of missing-COPY violations. Each entry in
+ * the returned array represents one Dockerfile that was scanned; entries
+ * with empty `missing` arrays mean that file passed the check.
+ *
+ * The pre-commit hook flattens these into a single user-facing report
+ * grouped by Dockerfile path, so the operator knows which file(s) to fix.
+ */
+export interface DockerfileCheckResult {
+  /** Repo-relative Dockerfile path, e.g. `"Dockerfile"`, `"services/reviewer/Dockerfile"`. */
+  dockerfileRelPath: string;
+  /** Workspace COPYs missing from this specific Dockerfile. Empty = pass. */
+  missing: MissingWorkspaceCopy[];
+}
+
+/**
+ * Convenience: run the end-to-end check across all protected Dockerfiles
+ * in the repo. Reads root `package.json`, expands the workspaces glob via
+ * filesystem, discovers protected Dockerfiles, and runs the detector
+ * against each.
+ *
+ * Returns:
+ *   - `null` if `package.json` is missing or malformed — "this repo isn't
+ *     the one we protect" signal rather than a failure.
+ *   - `DockerfileCheckResult[]` otherwise. The array contains one entry
+ *     per protected Dockerfile; entries with `missing.length === 0`
+ *     represent passing files. Empty top-level array means "no protected
+ *     Dockerfiles found" (e.g., a repo with no `bun install
+ *     --frozen-lockfile` anywhere).
  *
  * The pre-commit hook calls this; tests call `detectMissingWorkspaceCopies`
- * directly with synthetic inputs.
+ * and `discoverProtectedDockerfiles` directly with synthetic inputs.
  */
 export function runWorkspaceCopyCheck(
   repoRoot: string,
   fs: FsOps = defaultFs
-): MissingWorkspaceCopy[] | null {
+): DockerfileCheckResult[] | null {
   const packageJsonPath = join(repoRoot, "package.json");
-  const dockerfilePath = join(repoRoot, "Dockerfile");
-  if (!fs.existsSync(packageJsonPath) || !fs.existsSync(dockerfilePath)) {
+  if (!fs.existsSync(packageJsonPath)) {
     return null;
   }
   let rootPackageJson: { workspaces?: string[] | { packages?: string[] } };
   try {
-    rootPackageJson = JSON.parse(readTextFileSync(packageJsonPath)) as {
+    rootPackageJson = JSON.parse(fs.readTextFileSync(packageJsonPath)) as {
       workspaces?: string[] | { packages?: string[] };
     };
   } catch {
     return null;
   }
-  const dockerfileText = readTextFileSync(dockerfilePath);
+
   const workspacesField = readWorkspacesField(rootPackageJson);
   const workspacePackageJsons = resolveWorkspacePackageJsonPaths(repoRoot, workspacesField, fs);
-  return detectMissingWorkspaceCopies({
-    workspacePackageJsons,
-    dockerfileText,
-  });
+  const protectedDockerfiles = discoverProtectedDockerfiles(repoRoot, fs);
+
+  const results: DockerfileCheckResult[] = [];
+  for (const dockerfileRelPath of protectedDockerfiles) {
+    const dockerfileText = fs.readTextFileSync(join(repoRoot, dockerfileRelPath));
+    const missing = detectMissingWorkspaceCopies({
+      workspacePackageJsons,
+      dockerfileText,
+    });
+    results.push({ dockerfileRelPath, missing });
+  }
+  return results;
 }

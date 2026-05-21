@@ -20,8 +20,10 @@ import { describe, test, expect } from "bun:test";
 
 import {
   detectMissingWorkspaceCopies,
+  discoverProtectedDockerfiles,
   resolveWorkspacePackageJsonPaths,
   readWorkspacesField,
+  runWorkspaceCopyCheck,
   isWorkspaceCopyOverrideTruthy,
   WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
   type FsOps,
@@ -32,6 +34,11 @@ import {
  * `/` are treated as directories; paths without the trailing slash are
  * files. `existsSync` and `statSync` use this set; `readdirSync` returns
  * the direct children of a given directory.
+ *
+ * For tests that need file CONTENTS (mt#1992 end-to-end tests of
+ * runWorkspaceCopyCheck), use `fakeFsWithContents` instead — it accepts
+ * a `path → content` map so `readTextFileSync` calls return the right
+ * file body.
  */
 function fakeFs(paths: readonly string[]): FsOps {
   const set = new Set(paths);
@@ -55,11 +62,63 @@ function fakeFs(paths: readonly string[]): FsOps {
         isDirectory: () => set.has(`${path}/`),
       };
     },
+    readTextFileSync(_path: string): string {
+      // Paths-only fakeFs doesn't know contents; callers that need
+      // contents should use fakeFsWithContents below. This impl exists
+      // only because the FsOps interface requires it.
+      throw new Error(`fakeFs has no contents for ${_path} — use fakeFsWithContents`);
+    },
+  };
+}
+
+/**
+ * Build an in-memory FsOps mock from a `path → content` map. Files are
+ * inferred from the map keys; intermediate directories are synthesized.
+ * `readTextFileSync` returns the stored content (throws on unknown
+ * paths, matching real fs semantics).
+ */
+function fakeFsWithContents(files: Record<string, string>): FsOps {
+  const fileSet = new Set(Object.keys(files));
+  const dirSet = new Set<string>();
+  for (const filePath of fileSet) {
+    const parts = filePath.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      dirSet.add(parts.slice(0, i).join("/"));
+    }
+  }
+  return {
+    existsSync(path: string): boolean {
+      return fileSet.has(path) || dirSet.has(path);
+    },
+    readdirSync(dir: string): string[] {
+      const prefix = dir.endsWith("/") ? dir : `${dir}/`;
+      const children = new Set<string>();
+      for (const p of [...fileSet, ...dirSet]) {
+        if (!p.startsWith(prefix)) continue;
+        const rest = p.slice(prefix.length);
+        const firstSeg = rest.split("/")[0];
+        if (firstSeg && firstSeg.length > 0) children.add(firstSeg);
+      }
+      return [...children];
+    },
+    statSync(path: string): { isDirectory(): boolean } {
+      return {
+        isDirectory: () => dirSet.has(path),
+      };
+    },
+    readTextFileSync(path: string): string {
+      const content = files[path];
+      if (content === undefined) {
+        throw new Error(`ENOENT: fakeFsWithContents has no file at ${path}`);
+      }
+      return content;
+    },
   };
 }
 
 const FROZEN_INSTALL_LINE = "RUN bun install --frozen-lockfile --production --ignore-scripts";
 const FROM_BUN_BASE = "FROM oven/bun:1.2-slim";
+const FROM_NODE_BASE = "FROM node:20-alpine";
 const COPY_ROOT_MANIFESTS = "COPY package.json bun.lock ./";
 const COPY_SHARED_PKG = "COPY packages/shared/package.json ./packages/shared/package.json";
 const COPY_REVIEWER_PKG = "COPY services/reviewer/package.json ./services/reviewer/package.json";
@@ -134,7 +193,7 @@ describe("workspace-copy-detector — mt#1984", () => {
 
     test("acceptance (e): Dockerfile with no frozen-lockfile install → no-op pass", () => {
       const dockerfile = [
-        "FROM node:20-alpine",
+        FROM_NODE_BASE,
         "WORKDIR /app",
         "COPY package.json ./",
         "RUN npm ci",
@@ -345,6 +404,211 @@ describe("workspace-copy-detector — mt#1984", () => {
 
     test("env var name is the canonical constant", () => {
       expect(WORKSPACE_COPY_CHECK_OVERRIDE_ENV).toBe("MINSKY_SKIP_WORKSPACE_COPY_CHECK");
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────
+  // mt#1992 — generalized discovery + per-Dockerfile aggregation tests
+  // ─────────────────────────────────────────────────────────────────────
+
+  const REPO_ROOT = "/fake/repo";
+  const ROOT_PKG = `${REPO_ROOT}/package.json`;
+  const ROOT_DOCKERFILE = `${REPO_ROOT}/Dockerfile`;
+  const SHARED_PKG_FILE = `${REPO_ROOT}/packages/shared/package.json`;
+  const SITE_PKG_FILE = `${REPO_ROOT}/services/site/package.json`;
+  const REVIEWER_PKG_FILE = `${REPO_ROOT}/services/reviewer/package.json`;
+  const REVIEWER_DOCKERFILE = `${REPO_ROOT}/services/reviewer/Dockerfile`;
+  const DF_ROOT_REL = "Dockerfile";
+  const DF_REVIEWER_REL = "services/reviewer/Dockerfile";
+
+  const ROOT_PKG_JSON = JSON.stringify({
+    workspaces: ["packages/*", "services/*"],
+  });
+
+  const ROOT_DOCKERFILE_GOOD = [
+    FROM_BUN_BASE,
+    "WORKDIR /app",
+    COPY_ROOT_MANIFESTS,
+    COPY_SHARED_PKG,
+    COPY_SITE_PKG,
+    COPY_REVIEWER_PKG,
+    FROZEN_INSTALL_LINE,
+    COPY_SRC,
+  ].join("\n");
+
+  describe("discoverProtectedDockerfiles (mt#1992) — fs-injected", () => {
+    test("finds root Dockerfile when it contains the frozen-lockfile install step", () => {
+      const fs = fakeFsWithContents({
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+      });
+      expect(discoverProtectedDockerfiles(REPO_ROOT, fs)).toEqual([DF_ROOT_REL]);
+    });
+
+    test("finds sub-project Dockerfile under services/ when it contains the install step", () => {
+      const reviewerDockerfile = [
+        FROM_BUN_BASE,
+        COPY_ROOT_MANIFESTS,
+        COPY_SHARED_PKG,
+        COPY_SITE_PKG,
+        COPY_REVIEWER_PKG,
+        FROZEN_INSTALL_LINE,
+      ].join("\n");
+      const fs = fakeFsWithContents({
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+        [REVIEWER_DOCKERFILE]: reviewerDockerfile,
+      });
+      expect(discoverProtectedDockerfiles(REPO_ROOT, fs).sort()).toEqual([
+        DF_ROOT_REL,
+        DF_REVIEWER_REL,
+      ]);
+    });
+
+    test("skips Dockerfiles without the frozen-lockfile install step", () => {
+      const npmDockerfile = [FROM_NODE_BASE, "RUN npm ci"].join("\n");
+      const fs = fakeFsWithContents({
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+        [REVIEWER_DOCKERFILE]: npmDockerfile,
+      });
+      expect(discoverProtectedDockerfiles(REPO_ROOT, fs)).toEqual([DF_ROOT_REL]);
+    });
+
+    test("returns empty when no Dockerfiles exist", () => {
+      const fs = fakeFsWithContents({});
+      expect(discoverProtectedDockerfiles(REPO_ROOT, fs)).toEqual([]);
+    });
+  });
+
+  describe("runWorkspaceCopyCheck (mt#1992) — fs-injected end-to-end", () => {
+    test("mt#1991 regression: services/reviewer/Dockerfile missing services/site COPY is flagged", () => {
+      // Pre-fix state of services/reviewer/Dockerfile from 2026-05-20
+      // mt#1991: copies packages/shared + services/reviewer package.jsons
+      // but missed services/site (which mt#1934 had added as a workspace).
+      // Eight consecutive Railway deploys failed over ~4 hours.
+      const reviewerDockerfile = [
+        FROM_BUN_BASE,
+        "WORKDIR /app",
+        COPY_ROOT_MANIFESTS,
+        COPY_SHARED_PKG,
+        COPY_REVIEWER_PKG, // services/site/package.json MISSING
+        FROZEN_INSTALL_LINE,
+        COPY_SRC,
+      ].join("\n");
+
+      const fs = fakeFsWithContents({
+        [ROOT_PKG]: ROOT_PKG_JSON,
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+        [SITE_PKG_FILE]: "{}",
+        [REVIEWER_PKG_FILE]: "{}",
+        [REVIEWER_DOCKERFILE]: reviewerDockerfile,
+        [SHARED_PKG_FILE]: "{}",
+      });
+
+      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
+      if (results === null) throw new Error("expected non-null results");
+      const failing = results.filter((r) => r.missing.length > 0);
+      expect(failing).toHaveLength(1);
+      const first = failing[0];
+      if (!first) throw new Error("expected at least one failing result");
+      expect(first.dockerfileRelPath).toBe(DF_REVIEWER_REL);
+      expect(first.missing.map((m) => m.workspacePath)).toEqual([WS_SITE]);
+    });
+
+    test("both root and sub-project Dockerfiles pass when all COPYs are present", () => {
+      const reviewerDockerfileGood = [
+        FROM_BUN_BASE,
+        COPY_ROOT_MANIFESTS,
+        COPY_SHARED_PKG,
+        COPY_SITE_PKG,
+        COPY_REVIEWER_PKG,
+        FROZEN_INSTALL_LINE,
+      ].join("\n");
+
+      const fs = fakeFsWithContents({
+        [ROOT_PKG]: ROOT_PKG_JSON,
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+        [SITE_PKG_FILE]: "{}",
+        [REVIEWER_PKG_FILE]: "{}",
+        [REVIEWER_DOCKERFILE]: reviewerDockerfileGood,
+        [SHARED_PKG_FILE]: "{}",
+      });
+
+      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
+      if (results === null) throw new Error("expected non-null results");
+      const failing = results.filter((r) => r.missing.length > 0);
+      expect(failing).toEqual([]);
+      expect(results.map((r) => r.dockerfileRelPath).sort()).toEqual([
+        DF_ROOT_REL,
+        DF_REVIEWER_REL,
+      ]);
+    });
+
+    test("sub-project Dockerfile WITHOUT frozen-lockfile install is skipped (not protected)", () => {
+      const npmDockerfile = [
+        FROM_NODE_BASE,
+        "WORKDIR /app",
+        "COPY package.json ./",
+        "RUN npm ci",
+        "COPY . .",
+      ].join("\n");
+
+      const fs = fakeFsWithContents({
+        [ROOT_PKG]: ROOT_PKG_JSON,
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+        [SITE_PKG_FILE]: "{}",
+        [REVIEWER_PKG_FILE]: "{}",
+        [REVIEWER_DOCKERFILE]: npmDockerfile,
+        [SHARED_PKG_FILE]: "{}",
+      });
+
+      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
+      if (results === null) throw new Error("expected non-null results");
+      expect(results.map((r) => r.dockerfileRelPath)).toEqual([DF_ROOT_REL]);
+    });
+
+    test("missing root package.json returns null (silent short-circuit)", () => {
+      const fs = fakeFsWithContents({
+        [ROOT_DOCKERFILE]: ROOT_DOCKERFILE_GOOD,
+      });
+      expect(runWorkspaceCopyCheck(REPO_ROOT, fs)).toBeNull();
+    });
+
+    test("repo with no protected Dockerfiles returns empty array (silent pass)", () => {
+      const fs = fakeFsWithContents({
+        [ROOT_PKG]: ROOT_PKG_JSON,
+        [SHARED_PKG_FILE]: "{}",
+      });
+      expect(runWorkspaceCopyCheck(REPO_ROOT, fs)).toEqual([]);
+    });
+
+    test("violations across multiple Dockerfiles are reported per-file", () => {
+      const missingFromAny = [
+        FROM_BUN_BASE,
+        COPY_ROOT_MANIFESTS,
+        COPY_SHARED_PKG,
+        COPY_REVIEWER_PKG,
+        FROZEN_INSTALL_LINE,
+      ].join("\n");
+
+      const fs = fakeFsWithContents({
+        [ROOT_PKG]: ROOT_PKG_JSON,
+        [ROOT_DOCKERFILE]: missingFromAny,
+        [SITE_PKG_FILE]: "{}",
+        [REVIEWER_PKG_FILE]: "{}",
+        [REVIEWER_DOCKERFILE]: missingFromAny,
+        [SHARED_PKG_FILE]: "{}",
+      });
+
+      const results = runWorkspaceCopyCheck(REPO_ROOT, fs);
+      if (results === null) throw new Error("expected non-null results");
+      const failing = results.filter((r) => r.missing.length > 0);
+      expect(failing).toHaveLength(2);
+      expect(failing.map((r) => r.dockerfileRelPath).sort()).toEqual([
+        DF_ROOT_REL,
+        DF_REVIEWER_REL,
+      ]);
+      for (const r of failing) {
+        expect(r.missing.map((m) => m.workspacePath)).toEqual([WS_SITE]);
+      }
     });
   });
 });

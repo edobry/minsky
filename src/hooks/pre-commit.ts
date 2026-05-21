@@ -105,12 +105,14 @@ export class PreCommitHook {
         return nulByteResult;
       }
 
-      // Step 3c: Workspace-COPY check (mt#1984). Verify every workspace
-      // declared by root `package.json`'s `workspaces` glob has a
-      // corresponding `COPY <ws>/package.json` line in the root Dockerfile
-      // before the `RUN bun install --frozen-lockfile` step. Prevents
-      // recurrence of mt#1977 (75-minute production outage after a new
-      // workspace was added without updating the Dockerfile's COPY list).
+      // Step 3c: Workspace-COPY check (mt#1984 + mt#1992). Verify every
+      // workspace declared by root `package.json`'s `workspaces` glob has
+      // a corresponding `COPY <ws>/package.json` line in EVERY Dockerfile
+      // that runs `bun install --frozen-lockfile` (root + sub-project
+      // Dockerfiles under services/* and packages/*), placed BEFORE the
+      // install step. Prevents recurrence of mt#1977 (75-minute root-
+      // Dockerfile outage) and mt#1991 (4-hour reviewer-Dockerfile outage
+      // after the root-only check missed services/reviewer/Dockerfile).
       const workspaceCopyResult = await this.runWorkspaceCopyCheck();
       if (!workspaceCopyResult.success) {
         return workspaceCopyResult;
@@ -733,47 +735,69 @@ export class PreCommitHook {
     }
 
     try {
-      const missing = runWorkspaceCopyDetector(this.projectRoot);
+      const results = runWorkspaceCopyDetector(this.projectRoot);
 
       // Silent on happy path (per spec): no preamble, no pass/skip
       // confirmation. Only the failure case below emits stdout.
-      // - null = "this repo does not have a root Dockerfile / package.json
-      //   pair we protect" — short-circuit silently.
-      if (missing === null) {
+      // - null = "this repo has no root package.json we recognize" —
+      //   short-circuit silently.
+      if (results === null) {
         return {
           success: true,
-          message: "Workspace-COPY check inapplicable (no root Dockerfile)",
+          message: "Workspace-COPY check inapplicable (no root package.json)",
           exitCode: 0,
         };
       }
 
-      if (missing.length === 0) {
+      // No protected Dockerfiles discovered (e.g., a repo without any
+      // `RUN bun install --frozen-lockfile` step). Silent pass.
+      if (results.length === 0) {
         return {
           success: true,
-          message: "Workspace-COPY check passed",
+          message: "Workspace-COPY check inapplicable (no protected Dockerfiles)",
           exitCode: 0,
         };
       }
 
-      log.cli("");
-      log.cli("Root Dockerfile missing workspace package.json COPY line(s). Commit blocked.");
-      log.cli("");
-      for (const m of missing) {
-        log.cli(`   ${m.workspacePath}/  — add to Dockerfile:`);
-        log.cli(`     ${m.copyLineToAdd}`);
+      const failing = results.filter((r) => r.missing.length > 0);
+      if (failing.length === 0) {
+        return {
+          success: true,
+          message: `Workspace-COPY check passed (${results.length} Dockerfile(s) verified)`,
+          exitCode: 0,
+        };
       }
+
+      const totalMissing = failing.reduce((sum, r) => sum + r.missing.length, 0);
+
       log.cli("");
+      log.cli(
+        `${failing.length} Dockerfile(s) missing workspace package.json COPY line(s). Commit blocked.`
+      );
+      log.cli("");
+      for (const r of failing) {
+        log.cli(`${r.dockerfileRelPath}:`);
+        for (const m of r.missing) {
+          log.cli(`   ${m.workspacePath}/  — add to ${r.dockerfileRelPath}:`);
+          log.cli(`     ${m.copyLineToAdd}`);
+        }
+        log.cli("");
+      }
       log.cli("Why this is blocked:");
-      log.cli("   - Tracking task:        mt#1984");
-      log.cli("   - Originating incident: mt#1977 (75-minute production outage)");
+      log.cli(
+        "   - Tracking tasks:       mt#1984 (root Dockerfile), mt#1992 (sub-project Dockerfiles)"
+      );
+      log.cli(
+        "   - Originating incidents: mt#1977 (75-minute outage), mt#1991 (4-hour reviewer outage)"
+      );
       log.cli("");
       log.cli("Background: root `package.json` declares workspaces (`packages/*`,");
       log.cli("   `services/*`). When a new workspace is added, `bun.lock` regenerates");
-      log.cli("   with its dependencies. The root Dockerfile's selective COPY block must");
-      log.cli("   include the new workspace's package.json BEFORE the");
-      log.cli("   `RUN bun install --frozen-lockfile` step — otherwise Railway's build");
-      log.cli("   container sees a workspace topology that doesn't match the lockfile and");
-      log.cli('   aborts with "lockfile had changes, but lockfile is frozen".');
+      log.cli("   with its dependencies. EVERY Dockerfile in the repo that runs");
+      log.cli("   `RUN bun install --frozen-lockfile` against that lockfile must include");
+      log.cli("   each workspace's package.json BEFORE the install step — otherwise the");
+      log.cli("   build container sees a workspace topology that doesn't match the lockfile");
+      log.cli('   and aborts with "lockfile had changes, but lockfile is frozen".');
       log.cli("");
       log.cli(
         `If a COPY is intentionally omitted (rare), set ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=1 to override.`
@@ -781,7 +805,7 @@ export class PreCommitHook {
       log.cli("   The skip is audit-logged to stdout.");
       return {
         success: false,
-        message: `Workspace-COPY check failed: ${missing.length} missing COPY line(s)`,
+        message: `Workspace-COPY check failed: ${totalMissing} missing COPY line(s) across ${failing.length} Dockerfile(s)`,
         exitCode: 1,
       };
     } catch (error) {
