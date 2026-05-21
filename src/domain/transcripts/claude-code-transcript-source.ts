@@ -3,12 +3,22 @@
  *
  * Scans a configurable Claude Code projects directory for JSONL transcript
  * files. Top-level files map to root agent sessions; files under
- * `<session>/subagents/` map to subagent transcripts. Filters to user/assistant
- * lines (matches `AgentTranscriptService.ingestTranscript` retention at
- * `src/domain/provenance/transcript-service.ts:26`).
+ * `<session>/subagents/` map to subagent transcripts.
+ *
+ * **Retention (mt#2022 update).** Filters to four JSONL line types:
+ * `user`, `assistant`, `attachment`, and `system`. Routing between
+ * `agent_transcripts.transcript` jsonb (turns) and the sibling
+ * `agent_transcript_attachments` table (non-turn side material) happens at
+ * the ingest layer (`AgentTranscriptIngestService`). The legacy
+ * `AgentTranscriptService.ingestTranscript` path at
+ * `src/domain/provenance/transcript-service.ts:26` still retains only
+ * user/assistant for authorship-tier judging — consolidation is filed
+ * separately as mt#2042 (bring-it-forward sibling of mt#2022).
  *
  * @see mt#1313 §Harness agnosticism, §Subagent transcript discovery
  * @see mt#1350 — this file
+ * @see mt#2022 — RETAINED_TYPES widening + routing-at-ingest
+ * @see mt#2042 — legacy filter consolidation
  */
 
 import { promises as fs, type Dirent } from "fs";
@@ -25,8 +35,26 @@ import type {
   TranscriptSource,
 } from "./transcript-source";
 
-/** Message types preserved from Claude Code JSONL transcripts. */
-const RETAINED_TYPES = new Set(["user", "assistant"]);
+/**
+ * JSONL line types preserved from Claude Code transcripts.
+ *
+ * `user`/`assistant`: turn content → flows into `agent_transcripts.transcript`
+ * jsonb (the canonical turn substrate).
+ *
+ * `attachment`/`system` (mt#2022): non-turn side material — hook injections,
+ * MCP-server instructions, skill listings, deferred-tools deltas, task
+ * reminders, stop-hook summaries, turn-duration metadata. These flow into the
+ * sibling `agent_transcript_attachments` table via the ingest pipeline; they
+ * do NOT enter the turn jsonb (preserving backwards-compat for existing
+ * consumers that iterate over `transcript`). See mt#2022 "Backwards-compat
+ * reasoning" section in the task spec.
+ *
+ * The two sub-classes (turn vs attachment) are discriminated inline in the
+ * ingest pipeline via direct string equality on `line.type` — no shared
+ * exported Set, per `custom/no-domain-singleton`. The grouping is documented
+ * here for readers; the routing logic lives in `agent-transcript-ingest-service.ts`.
+ */
+const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system"]);
 
 const HARNESS = "claude_code";
 

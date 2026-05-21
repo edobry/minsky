@@ -356,3 +356,71 @@ export class ContextAnalysisError extends Error {
     this.name = "ContextAnalysisError";
   }
 }
+
+// ── Observation-path snapshot (mt#2022) ──────────────────────────────────────
+//
+// A `SessionContextSnapshot` is the observation-path's primary output: the
+// categorized, chronologically-ordered set of context blocks that an actual
+// harness session received. Assembled from the canonical transcripts substrate
+// (`agent_transcripts.transcript` jsonb + `agent_transcript_attachments` rows)
+// by the `assembleSessionContextSnapshot` function in
+// `src/domain/transcripts/session-context-snapshot.ts`.
+//
+// The snapshot's `blocks` are typed against the canonical `ContextElement.type`
+// enum (mt#2033) and discriminated as `source: "observed"` — matching the
+// `ContextAnalysisResult` discriminator. Downstream consumers (mt#2023 inspector,
+// mt#2024 composition pane, mt#2025 origin graph) read from this shape.
+
+/** A single chronological block in a `SessionContextSnapshot`. */
+export interface SessionContextSnapshotBlock {
+  /** Stable per-session block ID (synthesized from session id + position). */
+  id: string;
+
+  /** Unified taxonomy from mt#2033; covers both synthesis and observation kinds. */
+  type: ContextElement["type"];
+
+  /** Observation-path blocks are always "observed". */
+  source: "observed";
+
+  /** Block content — raw text for turn blocks; structured payload for attachments. */
+  content: unknown;
+
+  /**
+   * Originating JSONL `parentUuid` — the harness-emitted external UUID that
+   * Claude Code uses to chain lines (attachment → preceding turn/attachment,
+   * turn → preceding turn). NOT a synthesized block `id` from this snapshot's
+   * namespace; downstream consumers wanting in-snapshot navigation can build
+   * a `uuid → blockId` map themselves (uuids appear on the underlying JSONL
+   * but are not exposed on the block shape yet — file a follow-up if the
+   * inspector UI needs them).
+   *
+   * Renamed from `parentId` per PR #1229 reviewer feedback; the old name
+   * implied resolution within the snapshot's id-namespace, which the value
+   * does not satisfy.
+   */
+  parentUuid?: string;
+
+  /** ISO-8601 timestamp from the originating JSONL line. */
+  timestamp: string;
+
+  /** For turn blocks: 0-indexed position in the transcript array. Unset otherwise. */
+  turnIndex?: number;
+
+  /** Original JSONL line type (`user` / `assistant` / `attachment` / `system`). */
+  rawJsonlType: string;
+}
+
+/** Full categorized context for one harness session, observed (not synthesized). */
+export interface SessionContextSnapshot {
+  /** The harness-native agent session ID this snapshot was assembled from. */
+  agentSessionId: string;
+
+  /** Source harness (`"claude_code"`, etc.). */
+  harness: string;
+
+  /** Categorized blocks in chronological order (ascending timestamp). */
+  blocks: SessionContextSnapshotBlock[];
+
+  /** When this snapshot was assembled (ISO-8601 UTC). */
+  assembledAt: string;
+}
