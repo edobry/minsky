@@ -513,7 +513,6 @@ describe("scanForTriggerPhrases — pair-requirement (mt#2002)", () => {
       "Post-merge step: set dockerfilePath to services/reviewer/Dockerfile on the Railway service.";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    expect(phrases.has(PHRASE_POST_MERGE_CONFIG) || phrases.has("rootDirectory")).toBeDefined();
     expect(phrases.has("dockerfilePath")).toBe(true);
   });
 
