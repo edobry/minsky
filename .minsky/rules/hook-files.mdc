@@ -102,10 +102,12 @@ that class at the merge surface.
 1. Resolves the PR number — for `session_pr_merge`, via `gh pr list --head task/<id>`; for
    the `gh api PUT` bypass path, by extracting `<N>` from the URL pattern `/pulls/<N>/merge`.
 2. Fetches the PR body via `gh pr view <N> --json body`.
-3. Scans the body for trigger phrases (case-insensitive, 6 total — narrow set chosen
-   over speculative phrases per PR #1020 R1): `out-of-band`, `post-merge config`,
-   `Railway config change`, `serviceInstanceUpdate`, `rootDirectory`, `dockerfilePath`.
-   Each is either a literal substring of the mt#1681 PR body or a Railway/GraphQL
+3. Scans the body for trigger phrases (case-insensitive — 2 standalone + 3 pair-required
+   per mt#2002/mt#2019, down from 6 at the mt#1020 R1 count): `post-merge config`,
+   `serviceInstanceUpdate` (standalone), `Railway config change`, `rootDirectory`,
+   `dockerfilePath` (pair-required). `out-of-band` is a PAIR_PARTNER but not a trigger
+   (see Pair-requirement section below).
+   Each phrase is either a literal substring of the mt#1681 PR body or a Railway/GraphQL
    identifier with near-zero benign use.
 4. On match, blocks with a structured message naming each matched phrase, a short surrounding
    excerpt for context, and the override mechanism.
@@ -138,11 +140,14 @@ This is rare in PR bodies (CommonMark renderers do handle it, but humans usually
 the `>` marker per line); flagged here so a future false-positive can be diagnosed
 quickly.
 
-**Pair-requirement (mt#2002):** the trigger phrases are split into two categories:
+**Pair-requirement (mt#2002, narrowed mt#2019):** the trigger phrases are split into two
+categories:
 
-- **STANDALONE phrases** (fire on any bare-prose occurrence): `out-of-band`,
-  `post-merge config`, `serviceInstanceUpdate`. These describe coordination shapes
-  with no benign use pattern.
+- **STANDALONE phrases** (fire on any bare-prose occurrence): `post-merge config`,
+  `serviceInstanceUpdate`. These describe coordination shapes with no benign use pattern.
+  `out-of-band` was removed from this category in mt#2019 to prevent false positives
+  on architectural prose (e.g., "out-of-band consumers" describing module callers in
+  the import graph — originating incident mt#2010 PR #1217). It remains a PAIR_PARTNER.
 - **PAIR-REQUIRED phrases** (fire only when paired with a partner in the same
   CommonMark paragraph): `rootDirectory`, `dockerfilePath`, `Railway config change`.
   These are Railway/config-field identifiers that legitimately appear in PR bodies
@@ -153,12 +158,20 @@ The PAIR_PARTNER phrases are `out-of-band` and `post-merge` (the bare `post-merg
 form matches both `post-merge` and `post-merge config`). When a pair-required
 phrase appears in the SAME PARAGRAPH (text separated by a blank line) as a partner,
 the combination is the strong signal; when it appears alone, it's likely a reference.
+`out-of-band` is a PAIR_PARTNER (activates pair-required phrases when co-occurring)
+but is NOT itself a trigger — it doesn't fire alone on architectural prose.
 
-Originating false-positive cluster: PR #1028 self-fire on mt#1707 (docs referencing
-Railway field names); PR #1204 self-fire on mt#1964 chunk 1 (synthesizer-shipping
-description). Both bypassed via `MINSKY_ACK_OOB_MERGE=1` before mt#2002 shipped;
-post-mt#2002 the bare-prose mentions are correctly suppressed unless a partner is
-in the same paragraph.
+Originating false-positive cluster (mt#2002): PR #1028 self-fire on mt#1707 (docs
+referencing Railway field names); PR #1204 self-fire on mt#1964 chunk 1
+(synthesizer-shipping description). Both bypassed via `MINSKY_ACK_OOB_MERGE=1`
+before mt#2002 shipped; post-mt#2002 the bare-prose mentions are correctly suppressed
+unless a partner is in the same paragraph.
+
+Additional false-positive fixed by mt#2019: mt#2010 PR #1217 used "out-of-band
+consumers (smoke scripts, unit tests)" to describe module callers in architectural
+prose. The hook fired; the author worked around by rephrasing. After mt#2019,
+bare `out-of-band` in architectural prose no longer fires. The originating
+mt#1681 true-positive still fires via `serviceInstanceUpdate` in bare prose.
 
 **Known limitation:** historical-incident descriptions that put both a pair-required
 phrase AND a partner in the same paragraph (e.g., "mt#1681 PR #1013 (rootDirectory
