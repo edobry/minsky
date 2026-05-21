@@ -14,6 +14,16 @@ COPY package.json bun.lock ./
 # Listing only manifests (not src) keeps this layer cacheable until a
 # package.json changes.
 COPY packages/shared/package.json ./packages/shared/package.json
+# services/site is also a workspace declared by root package.json. The root
+# bun.lock includes its workspace entries, so --frozen-lockfile at line ~24
+# requires services/site/package.json in the build context even though the
+# reviewer service doesn't consume it at runtime. Omitting it broke 8
+# consecutive reviewer deploys 2026-05-20 (~4 hours, mt#1991). The root
+# Dockerfile already follows the same pattern (mt#1977 / mt#1984); this
+# extends the discipline to the reviewer sub-project Dockerfile. The
+# structural follow-up to make mt#1984's pre-commit guard catch this class
+# automatically is tracked under mt#1992.
+COPY services/site/package.json ./services/site/package.json
 COPY services/reviewer/package.json ./services/reviewer/package.json
 
 # Hoist deps via the root workspace install. `--production` skips dev deps,
