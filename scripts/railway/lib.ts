@@ -371,8 +371,8 @@ export async function graphql<T>(
 export type RailwayBuilder = "NIXPACKS" | "DOCKERFILE" | "RAILPACK";
 
 export interface RailwaySource {
-  repo: string;
-  branch: string;
+  repo?: string;
+  branch?: string;
   rootDirectory?: string;
   /** Optional check-suite branch filter — per Railway's source.checkSuites. */
   checkSuites?: string[];
@@ -472,7 +472,13 @@ export interface ServiceInstanceState {
   buildCommand?: string;
   dockerfilePath?: string;
   watchPatterns?: string[];
-  nixpacksConfigPath?: string;
+  // Note: nixpacksConfigPath is NOT exposed on Railway's ServiceInstance
+  // read type (only on the write-side ServiceInstanceUpdateInput). It's
+  // treated as write-through like source.branch — synthesizer writes it
+  // when declared but cannot diff it. Empirically verified 2026-05-21
+  // (mt#2001 chunk 3 live-state read) via GraphQL field-validation
+  // error: "Cannot query field 'nixpacksConfigPath' on type
+  // 'ServiceInstance'."
 }
 
 /**
@@ -503,7 +509,6 @@ export async function fetchServiceInstanceState(
             buildCommand?: string;
             dockerfilePath?: string;
             watchPatterns?: string[];
-            nixpacksConfigPath?: string;
           };
         }>;
       };
@@ -525,7 +530,6 @@ export async function fetchServiceInstanceState(
                 buildCommand
                 dockerfilePath
                 watchPatterns
-                nixpacksConfigPath
               }
             }
           }
@@ -552,7 +556,6 @@ export async function fetchServiceInstanceState(
     buildCommand: node.buildCommand,
     dockerfilePath: node.dockerfilePath,
     watchPatterns: node.watchPatterns,
-    nixpacksConfigPath: node.nixpacksConfigPath,
   };
 }
 
@@ -627,11 +630,16 @@ export function computeServiceInstanceDiff(
   diffField("build.dockerfilePath", desired.build?.dockerfilePath, current.dockerfilePath);
   diffField("build.buildCommand", desired.build?.buildCommand, current.buildCommand);
   diffField("build.watchPatterns", desired.build?.watchPatterns, current.watchPatterns);
-  diffField(
-    "build.nixpacksConfigPath",
-    desired.build?.nixpacksConfigPath,
-    current.nixpacksConfigPath
-  );
+  // build.nixpacksConfigPath is write-through (not on serviceInstance read
+  // type). Mirrors source.branch pattern: emit ADD when desired declares
+  // a value; the live read cannot verify.
+  if (desired.build?.nixpacksConfigPath !== undefined) {
+    entries.push({
+      kind: "ADD",
+      field: "build.nixpacksConfigPath",
+      value: desired.build.nixpacksConfigPath,
+    });
+  }
 
   return entries;
 }

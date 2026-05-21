@@ -15,16 +15,16 @@
  *
  * # Consumer (how this file is found)
  *
- * `src/domain/deployment/service-resolver.ts` (`loadDeploymentConfig`, line ~90)
+ * `src/domain/deployment/service-resolver.ts` (`loadDeploymentConfig`)
  * resolves a service name into a config path purely by convention:
  *
  *     resolve(projectRoot, "services", service, "deploy.config.ts")
  *
  * So `mcp__minsky__deployment_status service:"reviewer"` mechanically reads
  * this file — no registry update or service-name mapping is required.
- * `listServicesWithDeployConfig` (line ~64) walks `services/` and includes
- * any directory containing `deploy.config.ts`; after this file lands, the
- * walk returns `["reviewer", "site"]` (sorted).
+ * `listServicesWithDeployConfig` walks `services/` and includes any
+ * directory containing `deploy.config.ts`; the current walk returns
+ * `["minsky-mcp", "reviewer", "site"]` (sorted) as of mt#2001 chunk 3.
  *
  * See docs/deployment-platforms.md for the full design.
  */
@@ -38,5 +38,26 @@ export default defineDeployment({
     projectId: railwayConfig.projectId,
     environmentId: railwayConfig.environmentId,
     serviceId: railwayConfig.serviceId,
+    // Source + build declared per mt#2001 — match live Railway state
+    // discovered 2026-05-21 via `fetchServiceInstanceState`. The synthesizer
+    // (mt#2000) reports clean diff against this declaration.
+    source: {
+      repo: "edobry/minsky",
+      // branch is write-through (not on serviceInstance read); declared
+      // as conventional "main" — synthesizer reports ADD on first run.
+      branch: "main",
+      // Empty string = repo root. The reviewer build context is the repo
+      // root because the Dockerfile uses workspace COPY semantics
+      // (services/reviewer/Dockerfile copies from / to enable the
+      // @minsky/shared workspace dep).
+      rootDirectory: "",
+    },
+    build: {
+      // Live state has RAILPACK builder despite dockerfilePath being set —
+      // RAILPACK is Railway's evolved build system; it picks up the
+      // Dockerfile path automatically when declared.
+      builder: "RAILPACK",
+      dockerfilePath: "services/reviewer/Dockerfile",
+    },
   },
 });
