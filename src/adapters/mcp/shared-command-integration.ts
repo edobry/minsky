@@ -868,7 +868,24 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.AUTHORSHIP,
       CommandCategory.WORKSPACE,
       CommandCategory.TRANSCRIPTS,
+      CommandCategory.FORGE,
     ],
+    ...config,
+  });
+}
+
+/**
+ * Register forge commands with MCP (forge-agnostic CI / check-runs /
+ * branch-protection / labels — mt#1957). Provided alongside the bulk-register
+ * path above for consistency with the per-category functions that exist for
+ * every other category in the array.
+ */
+export function registerForgeCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.FORGE],
     ...config,
   });
 }
