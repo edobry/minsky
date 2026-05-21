@@ -40,7 +40,7 @@
 
 import { join } from "node:path";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import type { ReviewerDb } from "./client";
 
 /** Dedicated migrations table for the reviewer service (mt#1967). */
@@ -72,6 +72,30 @@ export const REVIEWER_EXPECTED_TABLES = [
   "reviewer_webhook_events",
   "reviewer_inflight_reviews",
 ] as const;
+
+/**
+ * Build the `SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename IN (...)`
+ * fragment used by verifyExpectedTables.
+ *
+ * Extracted as an exported helper so the SQL shape can be regression-tested
+ * via PgDialect.sqlToQuery without needing a live database. The mt#2008
+ * incident was a SQL-shape bug (drizzle's sql tag spreads JS arrays into
+ * `ANY(($2, $3, $4))` — invalid Postgres because the inner parens make a
+ * record/composite type, not an array). Switching to `IN (...)` with
+ * `sql.join` produces `IN ($2, $3, $4)` which is unambiguously valid and
+ * doesn't rely on driver-specific array binding.
+ */
+export function buildExpectedTablesQuery(
+  schemaName: string,
+  expectedTables: readonly string[]
+): SQL {
+  const tableLiterals = expectedTables.map((t) => sql`${t}`);
+  return sql`
+    SELECT tablename FROM pg_tables
+    WHERE schemaname = ${schemaName}
+      AND tablename IN (${sql.join(tableLiterals, sql`, `)})
+  `;
+}
 
 /**
  * Apply all pending reviewer migrations and verify the resulting schema.
@@ -112,11 +136,9 @@ export async function verifyExpectedTables(db: ReviewerDb): Promise<void> {
   // override at the session level would cause current_schema() to return a
   // different schema and produce false-negative self-check failures
   // (PR #1197 R1 fix).
-  const result = await db.execute<{ tablename: string }>(sql`
-    SELECT tablename FROM pg_tables
-    WHERE schemaname = ${REVIEWER_TABLES_SCHEMA}
-      AND tablename = ANY(${[...REVIEWER_EXPECTED_TABLES] as string[]})
-  `);
+  const result = await db.execute<{ tablename: string }>(
+    buildExpectedTablesQuery(REVIEWER_TABLES_SCHEMA, REVIEWER_EXPECTED_TABLES)
+  );
   const presentTables = new Set(result.map((row) => row.tablename));
   const missing = REVIEWER_EXPECTED_TABLES.filter((t) => !presentTables.has(t));
   if (missing.length > 0) {
