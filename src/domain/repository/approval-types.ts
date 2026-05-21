@@ -165,11 +165,26 @@ export interface ApprovalStatus {
       /**
        * Branch protection rules affecting merge.
        *
-       * Carries per-field observed values from `GET /repos/{owner}/{repo}/branches/{branch}/protection`.
-       * The "configured" verdict is NOT stored — derive it in the formatter from the
-       * fields (any of: statusChecksContexts.length > 0, requiredReviews > 0,
-       * dismissStaleReviews, requireCodeOwnerReviews, restrictPushes, enforceAdmins,
-       * allowForcePushes === false, allowDeletions === false). See mt#2007.
+       * Carries per-field observed values from
+       * `GET /repos/{owner}/{repo}/branches/{branch}/protection`. The
+       * "configured" verdict is NOT stored — derive it in the formatter
+       * (`src/domain/session/branch-protection-formatter.ts`) from the
+       * observed fields. See mt#2007.
+       *
+       * Shape extended additively in mt#2007 — the original four required
+       * fields (`requiredReviews / dismissStaleReviews / requireCodeOwnerReviews
+       * / restrictPushes`) are preserved for backward compatibility. New
+       * consumers should call `formatBranchProtectionLine()` rather than
+       * hardcoding the old "requiredReviews > 0" collapse.
+       *
+       * Three-state semantics for the API response, distinguished via
+       * `apiResponded` + `probeError`:
+       *   - HTTP 200 + protection object → apiResponded=true, probeError=false
+       *   - HTTP 404 (no protection rules) → apiResponded=true, probeError=false
+       *   - Auth / network / 5xx failure → apiResponded=false, probeError=true
+       * The formatter renders state #3 as "unknown (API error)" rather than
+       * "not configured" to avoid misleading operators when the state is
+       * undeterminable.
        */
       branchProtection: {
         requiredReviews: number;
@@ -185,11 +200,18 @@ export interface ApprovalStatus {
         /** `allow_deletions.enabled` — when false, branch deletion is blocked. */
         allowDeletions?: boolean;
         /**
-         * Whether the GitHub API responded with a protection object at all.
-         * `false` when the API returned 404 (no protection configured); `true`
-         * when any protection rule exists in the response.
+         * Whether the GitHub API gave a definitive response (200 or 404).
+         * `true` for both successful protection fetch AND 404 (no protection);
+         * `false` only when the probe failed for reasons other than 404.
          */
         apiResponded?: boolean;
+        /**
+         * Whether the protection probe failed for a non-404 reason (auth,
+         * network, permission, 5xx). When true, the protection state is
+         * UNKNOWN — distinct from "not configured." Mutually exclusive with
+         * `apiResponded=true`.
+         */
+        probeError?: boolean;
       };
 
       /**

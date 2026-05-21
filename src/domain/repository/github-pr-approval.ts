@@ -313,6 +313,7 @@ export async function getPullRequestApprovalStatus(
     let bpAllowForcePushes: boolean | undefined;
     let bpAllowDeletions: boolean | undefined;
     let bpApiResponded = false;
+    let bpProbeError = false;
     try {
       const protection = await octokit.rest.repos.getBranchProtection({
         owner: gh.owner,
@@ -339,10 +340,33 @@ export async function getPullRequestApprovalStatus(
       bpAllowForcePushes = typeof afp?.enabled === "boolean" ? afp.enabled : undefined;
       const ad = (d as { allow_deletions?: { enabled?: boolean } }).allow_deletions;
       bpAllowDeletions = typeof ad?.enabled === "boolean" ? ad.enabled : undefined;
-    } catch (_e) {
-      // 404 (no protection) or auth-failure on the protection probe. Leave all
-      // fields at safe defaults; `apiResponded: false` is the signal that the
-      // formatter uses to report "not configured" honestly.
+    } catch (e) {
+      // mt#2007 R1: distinguish 404 (definitive "no protection configured")
+      // from non-404 errors (auth / network / permission — state is UNKNOWN).
+      // The prior code conflated both as `apiResponded=false`, which the
+      // formatter rendered as "not configured" — misleading when the actual
+      // state was undeterminable due to API failure.
+      //
+      // Octokit's RequestError carries an `.status` number for HTTP errors.
+      // 404 means the branch genuinely has no protection rules; any other
+      // status (401, 403, 5xx) or a network error (no `.status`) is a probe
+      // failure where the protection state is unknown.
+      const status =
+        typeof (e as { status?: unknown })?.status === "number"
+          ? (e as { status: number }).status
+          : undefined;
+      if (status === 404) {
+        // Definitive "no protection" — API responded, no rules exist.
+        bpApiResponded = true;
+        // All boolean defaults already represent the no-protection state.
+        // GitHub doesn't return allow_force_pushes / allow_deletions when
+        // there's no protection rule, so leave those undefined.
+      } else {
+        // Probe failure (auth, network, permission, 5xx). State is unknown;
+        // the formatter renders "unknown (API error)" rather than "not
+        // configured."
+        bpProbeError = true;
+      }
       requiredApprovals = 0;
     }
 
@@ -416,6 +440,7 @@ export async function getPullRequestApprovalStatus(
             allowForcePushes: bpAllowForcePushes,
             allowDeletions: bpAllowDeletions,
             apiResponded: bpApiResponded,
+            probeError: bpProbeError,
           },
           codeownersApproval: undefined,
         },

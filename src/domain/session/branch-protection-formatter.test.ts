@@ -10,14 +10,22 @@
  * Success-criteria mapping (from the mt#2007 spec):
  *   - Unit test (configured-but-no-reviews)  → mt#2007 success criterion 4
  *   - Unit test (truly unprotected)          → mt#2007 success criterion 5
+ *
+ * R1 additions (post-reviewer-bot CHANGES_REQUESTED, 2026-05-21):
+ *   - Three-state output: 404 ≠ non-404 error; the formatter must render
+ *     non-404 failures as "unknown (API error)" not "not configured."
+ *   - `dismiss_stale` emitted only when true (false is non-protection noise).
  */
 
 import { describe, test, expect } from "bun:test";
 import {
   formatBranchProtectionLine,
   isBranchProtectionConfigured,
+  PROBE_ERROR_OUTPUT,
   type BranchProtectionFields,
 } from "./branch-protection-formatter";
+
+const REVIEWS_1_REQUIRED = "reviews=1 required";
 
 describe("formatBranchProtectionLine (mt#2007)", () => {
   test("AC4: configured-but-no-reviews — status checks present, reviews=0 → NOT 'not configured'", () => {
@@ -46,6 +54,7 @@ describe("formatBranchProtectionLine (mt#2007)", () => {
     // The critical regression check: previously this would have been
     // "not configured" because requiredReviews === 0.
     expect(line).not.toBe("not configured");
+    expect(line).not.toBe(PROBE_ERROR_OUTPUT);
     expect(isBranchProtectionConfigured(bp)).toBe(true);
 
     // The line must name each active protection so the operator can read
@@ -58,9 +67,11 @@ describe("formatBranchProtectionLine (mt#2007)", () => {
     expect(line).toContain("deletion=blocked");
   });
 
-  test("AC5: truly unprotected — API returned 404 (apiResponded=false) → 'not configured'", () => {
-    // The github-pr-approval.ts code path on a 404 (no protection at all)
-    // leaves every field at its safe default and sets apiResponded=false.
+  test("AC5 — truly unprotected (HTTP 404): API responded definitively → 'not configured'", () => {
+    // mt#2007 R1: 404 is a definitive API response (apiResponded=true,
+    // probeError=false). GitHub's 404 means "branch has no protection rules"
+    // — that's a valid answer, not a probe failure. The github-pr-approval
+    // populator sets apiResponded=true on 404 to make this state legible.
     const bp: BranchProtectionFields = {
       requiredReviews: 0,
       dismissStaleReviews: false,
@@ -70,18 +81,17 @@ describe("formatBranchProtectionLine (mt#2007)", () => {
       enforceAdmins: false,
       allowForcePushes: undefined,
       allowDeletions: undefined,
-      apiResponded: false,
+      apiResponded: true,
+      probeError: false,
     };
 
     expect(formatBranchProtectionLine(bp)).toBe("not configured");
     expect(isBranchProtectionConfigured(bp)).toBe(false);
   });
 
-  test("AC5 variant: API responded but every field is the no-protection default → 'not configured'", () => {
-    // A second variant of the unprotected case: the API responded with a
-    // protection object but every observed value is in the "no protection"
-    // state. This can occur if GitHub returns an empty protection object,
-    // which the formatter must still report honestly.
+  test("AC5 variant: API responded with all-default fields → 'not configured'", () => {
+    // A second variant: the API responded with a protection object whose
+    // every observed value is in the no-protection state.
     const bp: BranchProtectionFields = {
       requiredReviews: 0,
       dismissStaleReviews: false,
@@ -92,10 +102,45 @@ describe("formatBranchProtectionLine (mt#2007)", () => {
       allowForcePushes: true, // force-push allowed → no protection
       allowDeletions: true, //   deletion allowed   → no protection
       apiResponded: true,
+      probeError: false,
     };
 
     expect(formatBranchProtectionLine(bp)).toBe("not configured");
     expect(isBranchProtectionConfigured(bp)).toBe(false);
+  });
+
+  test("R1: non-404 probe failure → 'unknown (API error)' (distinct from 'not configured')", () => {
+    // mt#2007 R1 (reviewer-bot BLOCKING #1): auth / network / 5xx failures
+    // are NOT the same as 404. The protection state is undeterminable; the
+    // formatter must say so honestly rather than mislead the operator into
+    // thinking the branch is unprotected.
+    const bp: BranchProtectionFields = {
+      requiredReviews: 0,
+      dismissStaleReviews: false,
+      requireCodeOwnerReviews: false,
+      restrictPushes: false,
+      statusChecksContexts: [],
+      apiResponded: false,
+      probeError: true,
+    };
+
+    expect(formatBranchProtectionLine(bp)).toBe(PROBE_ERROR_OUTPUT);
+  });
+
+  test("R1: probeError takes precedence over field values", () => {
+    // Defensive: even if the populator inconsistently sets field values
+    // alongside probeError=true, the formatter must surface the probe
+    // failure rather than render stale field values as if they were live.
+    const bp: BranchProtectionFields = {
+      requiredReviews: 1,
+      dismissStaleReviews: true,
+      requireCodeOwnerReviews: false,
+      restrictPushes: false,
+      statusChecksContexts: ["build"],
+      probeError: true,
+    };
+
+    expect(formatBranchProtectionLine(bp)).toBe(PROBE_ERROR_OUTPUT);
   });
 
   test("undefined input → 'not configured' (no metadata at all)", () => {
@@ -168,6 +213,41 @@ describe("formatBranchProtectionLine (mt#2007)", () => {
     expect(line).toContain("restrict_pushes=true");
   });
 
+  test("R1: dismiss_stale=false is OMITTED (noise reduction)", () => {
+    // mt#2007 R1 (reviewer-bot BLOCKING #2): `dismiss_stale=false` is the
+    // non-protection default; emitting it adds noise without surfacing
+    // protection. Only emit when true.
+    const bp: BranchProtectionFields = {
+      requiredReviews: 1,
+      dismissStaleReviews: false,
+      requireCodeOwnerReviews: false,
+      restrictPushes: false,
+      statusChecksContexts: [],
+      apiResponded: true,
+    };
+
+    const line = formatBranchProtectionLine(bp);
+    expect(line).toContain(REVIEWS_1_REQUIRED);
+    expect(line).not.toContain("dismiss_stale");
+  });
+
+  test("R1: empty statusChecksContexts is OMITTED (only emit when list has entries)", () => {
+    // mt#2007 R1 (reviewer-bot BLOCKING #2): an empty status_checks=[] adds
+    // noise. Only emit the field when there's at least one required check.
+    const bp: BranchProtectionFields = {
+      requiredReviews: 1,
+      dismissStaleReviews: false,
+      requireCodeOwnerReviews: false,
+      restrictPushes: false,
+      statusChecksContexts: [],
+      apiResponded: true,
+    };
+
+    const line = formatBranchProtectionLine(bp);
+    expect(line).toContain(REVIEWS_1_REQUIRED);
+    expect(line).not.toContain("status_checks=");
+  });
+
   test("undefined optional fields are omitted (not rendered as 'unknown')", () => {
     // Older code paths (or future schema additions) may leave fields
     // undefined. The formatter must omit them rather than print
@@ -183,17 +263,18 @@ describe("formatBranchProtectionLine (mt#2007)", () => {
     };
 
     const line = formatBranchProtectionLine(bp);
-    expect(line).toContain("reviews=1 required");
+    expect(line).toContain(REVIEWS_1_REQUIRED);
     expect(line).not.toContain("undefined");
     expect(line).not.toContain("status_checks=");
     expect(line).not.toContain("enforce_admins=");
     expect(line).not.toContain("force_push=");
     expect(line).not.toContain("deletion=");
+    expect(line).not.toContain("dismiss_stale");
   });
 });
 
 describe("isBranchProtectionConfigured (mt#2007)", () => {
-  test("apiResponded=false short-circuits to false", () => {
+  test("apiResponded=false short-circuits to false (caller checks probeError separately)", () => {
     expect(
       isBranchProtectionConfigured({
         requiredReviews: 0,
@@ -201,6 +282,7 @@ describe("isBranchProtectionConfigured (mt#2007)", () => {
         requireCodeOwnerReviews: false,
         restrictPushes: false,
         apiResponded: false,
+        probeError: true,
       })
     ).toBe(false);
   });

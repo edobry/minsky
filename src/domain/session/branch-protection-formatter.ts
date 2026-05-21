@@ -15,8 +15,20 @@
  * naming each active protection. It is the operator-visible mirror of
  * `scripts/set-branch-protection.ts --check`.
  *
+ * Three-state output (mt#2007 R1):
+ *   - "configured" — one or more protection layers active → render per-field summary
+ *   - "not configured" — GitHub responded but no protection rules exist (HTTP 404)
+ *   - "unknown (API error)" — probe failed for non-404 reasons (auth, network, 5xx)
+ *
  * The formatter is a pure function for testability — no I/O, no globals.
  */
+
+/**
+ * Output literal for non-404 probe failures. Exported so tests can assert
+ * against the same constant rather than duplicating the magic string (and
+ * so the eslint magic-string-duplication rule doesn't catch a repeat).
+ */
+export const PROBE_ERROR_OUTPUT = "unknown (API error)";
 
 /**
  * Subset of `ApprovalStatus.metadata.github.branchProtection` that the
@@ -34,14 +46,15 @@ export interface BranchProtectionFields {
   allowForcePushes?: boolean;
   allowDeletions?: boolean;
   apiResponded?: boolean;
+  probeError?: boolean;
 }
 
 /**
  * Decide whether ANY protection layer is active.
  *
- * Returns `false` when the GitHub API responded 404 (no protection at all,
- * `apiResponded === false`) OR when the API responded with a protection
- * object whose every observed field is in the "no protection" state.
+ * Returns `false` when the GitHub API responded but no protection rules are
+ * configured. Callers must check `probeError` separately if they need to
+ * distinguish "no protection" from "probe failed."
  *
  * The fields considered "protection signals":
  *   - `statusChecksContexts.length > 0` — required checks defined
@@ -75,45 +88,64 @@ export function isBranchProtectionConfigured(bp: BranchProtectionFields | undefi
  *     dismiss_stale=true, enforce_admins=false, force_push=blocked,
  *     deletion=blocked
  *
- * When the protection API responded but no protection is configured, or when
- * the API did not respond (404 / auth failure), returns `"not configured"`.
+ * Three terminal outputs:
+ *   - "unknown (API error)" when `probeError === true` (non-404 probe failure)
+ *   - "not configured" when the API responded but no protection layers are active
+ *   - per-field summary otherwise
  *
- * Fields whose observed value is `undefined` (the GitHub API did not carry
- * them, or the older code path that does not populate them) are omitted from
- * the summary rather than rendered as `unknown`. This keeps the output stable
- * across GitHub API shape variations and avoids printing fields the formatter
- * couldn't observe.
+ * Emission rules per field (mt#2007 R1):
+ *   - `status_checks=[...]` — emitted only when the contexts list is non-empty
+ *     (the field is informative only as a list of required checks; an empty
+ *     list adds noise)
+ *   - `reviews=N required` — always emitted (the operator always wants the count)
+ *   - `dismiss_stale=true` — emitted only when true (false is the default
+ *     non-protection state; emitting `dismiss_stale=false` adds noise)
+ *   - `enforce_admins=<bool>` — emitted in both directions when observed
+ *     (operator needs to know whether admins can bypass)
+ *   - `force_push=<allowed|blocked>` — both directions when observed
+ *   - `deletion=<allowed|blocked>` — both directions when observed
+ *   - `require_code_owner=true` — only when true
+ *   - `restrict_pushes=true` — only when true
+ *
+ * Fields whose observed value is `undefined` are omitted rather than rendered
+ * as `unknown`. This keeps the output stable across GitHub API shape variations
+ * and avoids printing fields the formatter couldn't observe.
  */
 export function formatBranchProtectionLine(bp: BranchProtectionFields | undefined): string {
+  // Probe-error path: distinct from "not configured" because state is unknown.
+  if (bp?.probeError === true) {
+    return PROBE_ERROR_OUTPUT;
+  }
+
   if (!isBranchProtectionConfigured(bp) || !bp) {
     return "not configured";
   }
 
   const parts: string[] = [];
 
-  // status_checks=[a,b,c] — always show when there are required checks, even
-  // if the list is empty (presence is informative).
-  if (bp.statusChecksContexts !== undefined) {
-    parts.push(`status_checks=[${bp.statusChecksContexts.join(",")}]`);
+  // status_checks=[a,b,c] — emit only when non-empty (informative as a list).
+  const contexts = bp.statusChecksContexts;
+  if (contexts !== undefined && contexts.length > 0) {
+    parts.push(`status_checks=[${contexts.join(",")}]`);
   }
 
-  // reviews=N required — the spec calls this `reviews=0 required` form
-  // explicitly. Always emit so the operator sees the actual count.
+  // reviews=N required — always emit so the operator sees the actual count.
   parts.push(`reviews=${bp.requiredReviews} required`);
 
-  // dismiss_stale — surface as boolean. Skipped when undefined (can't happen
-  // with the current populator since the field is non-optional in the shape,
-  // but defensive against schema evolution).
-  parts.push(`dismiss_stale=${bp.dismissStaleReviews}`);
+  // dismiss_stale — emit only when true (false is the non-protection default).
+  if (bp.dismissStaleReviews) {
+    parts.push("dismiss_stale=true");
+  }
 
-  // enforce_admins — only emit when observed.
+  // enforce_admins — emit in both directions when observed (operator needs to
+  // know whether admins can bypass protection).
   if (bp.enforceAdmins !== undefined) {
     parts.push(`enforce_admins=${bp.enforceAdmins}`);
   }
 
-  // force_push / deletion — rendered as "blocked" / "allowed" rather than
-  // raw booleans because the field semantics invert (allow_force_pushes=false
-  // is the safer state).
+  // force_push / deletion — both directions when observed. Rendered as
+  // "blocked" / "allowed" rather than raw booleans because the field
+  // semantics invert (allow_force_pushes=false is the safer state).
   if (bp.allowForcePushes !== undefined) {
     parts.push(`force_push=${bp.allowForcePushes ? "allowed" : "blocked"}`);
   }
@@ -121,13 +153,12 @@ export function formatBranchProtectionLine(bp: BranchProtectionFields | undefine
     parts.push(`deletion=${bp.allowDeletions ? "allowed" : "blocked"}`);
   }
 
-  // require_code_owner_reviews — surface only when active (the silent
-  // default of false is uninformative in the summary line).
+  // require_code_owner_reviews — only when active.
   if (bp.requireCodeOwnerReviews) {
     parts.push("require_code_owner=true");
   }
 
-  // restrict_pushes — surface only when active (same rationale).
+  // restrict_pushes — only when active.
   if (bp.restrictPushes) {
     parts.push("restrict_pushes=true");
   }
