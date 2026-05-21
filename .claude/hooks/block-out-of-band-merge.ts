@@ -78,34 +78,65 @@ function deriveGhTimeoutMs(): number {
 // (and the mt#1624 SESSIONDB env-var class).
 // ---------------------------------------------------------------------------
 //
-// These phrases historically signal "coupled non-code step that must happen
-// outside this PR's diff." When any appears in a PR body, the merge is gated.
+// Two trigger categories (mt#2002):
+//
+// 1. STANDALONE — phrases that fire on any occurrence in bare prose. These
+//    describe coordination shapes with no benign use pattern. Originally the
+//    entire trigger list; narrowed in mt#2002 to just the phrases that
+//    cannot reasonably appear as field-name references or historical-incident
+//    descriptors.
+//
+// 2. PAIR-REQUIRED — phrases that fire only when a PAIR_PARTNER appears in
+//    the SAME PARAGRAPH (CommonMark paragraph: separated by a blank line).
+//    Pair-required phrases are Railway/config-field identifiers that
+//    legitimately appear in PR bodies as:
+//      - test-plan documentation ("set rootDirectory to empty in dashboard")
+//      - synthesizer-shipping descriptions ("the dockerfilePath synthesizer")
+//      - historical-incident cross-references ("mt#1681 PR #1013 (rootDirectory
+//        + dockerfilePath flip ...)")
+//    None of these is an out-of-band coordination instruction; firing on bare
+//    occurrence produced systematic false positives (originating sample:
+//    mt#1707 PR #1028 self-fire; mt#1964 PR #1204 self-fire).
+//
+// PAIR_PARTNER phrases are the standalone triggers themselves — they're the
+// signal that a coordination instruction is being given. When a pair-required
+// phrase appears in the same paragraph as a partner, the combination is the
+// strong signal; when it appears alone, it's likely a reference.
 //
 // Adding new phrases: prefer narrow, observed phrases (from real incidents)
-// over speculative ones. Each phrase should describe a concrete coordination
-// shape, not a generic concern. Over-broad phrases produce false positives
-// that erode operator trust in the gate.
-// PR #1020 R1 BLOCKING #2: speculative phrases ("infra mutation",
-// "applied separately", "configure separately", "infra change required")
-// were dropped to reduce false-positive risk on benign PRs. Each remaining
-// phrase is either an exact substring of the mt#1681 PR body OR a
-// tightly-scoped Railway/GraphQL identifier with near-zero benign use:
-//
-//   - out-of-band, post-merge config, Railway config change: literal
-//     phrases observed in mt#1681 PR #1013 body
-//   - serviceInstanceUpdate: Railway GraphQL mutation name
-//   - rootDirectory, dockerfilePath: Railway service-config field names
-//
-// If a future incident introduces a new coupled-step shape, add the
-// concrete phrase observed in that PR's body — don't add speculative
-// generic terms.
-const TRIGGER_PHRASES: ReadonlyArray<string> = [
+// over speculative ones. If a future incident introduces a new coupled-step
+// shape, add the concrete phrase observed in that PR's body — don't add
+// speculative generic terms.
+
+const STANDALONE_TRIGGER_PHRASES: ReadonlyArray<string> = [
   "out-of-band",
   "post-merge config",
-  "Railway config change",
   "serviceInstanceUpdate",
+];
+
+const PAIR_REQUIRED_PHRASES: ReadonlyArray<string> = [
+  "Railway config change",
   "rootDirectory",
   "dockerfilePath",
+];
+
+/**
+ * Phrases that, when present in the same paragraph as a PAIR_REQUIRED
+ * phrase, cause the pair-required phrase to fire. The standalone phrases
+ * "out-of-band" and "post-merge config" are the partners. Including the
+ * bare "post-merge" form (without "config") also matches phrasings like
+ * "After merge (post-merge), flip rootDirectory".
+ */
+const PAIR_PARTNER_PHRASES: ReadonlyArray<string> = ["out-of-band", "post-merge"];
+
+/**
+ * All phrases the scanner reports on — used by tests and by older callers
+ * that want a complete listing. Order is preserved (standalone first, then
+ * pair-required) for stable output formatting.
+ */
+export const TRIGGER_PHRASES: ReadonlyArray<string> = [
+  ...STANDALONE_TRIGGER_PHRASES,
+  ...PAIR_REQUIRED_PHRASES,
 ];
 
 // ---------------------------------------------------------------------------
@@ -183,36 +214,113 @@ export function elideMarkdownNonProse(body: string): string {
 }
 
 /**
+ * Split a body into CommonMark-style paragraphs separated by blank lines.
+ * Returns the lowercase text of each paragraph alongside its starting
+ * character offset in the input string so callers can re-anchor matches
+ * back to the original body for excerpt extraction.
+ *
+ * Used by {@link scanForTriggerPhrases} to implement mt#2002's
+ * pair-requirement: a pair-required phrase only fires when a partner
+ * phrase appears in the same paragraph.
+ */
+function splitIntoParagraphs(text: string): Array<{ text: string; offset: number }> {
+  const paragraphs: Array<{ text: string; offset: number }> = [];
+  // CommonMark paragraph boundary: one or more blank lines.
+  // Use a regex with global flag to walk the text and capture both
+  // the paragraph content AND its starting offset.
+  const paragraphBoundaryRe = /\r?\n\s*\r?\n/g;
+  let lastEnd = 0;
+  let m: RegExpExecArray | null;
+  while ((m = paragraphBoundaryRe.exec(text)) !== null) {
+    const content = text.slice(lastEnd, m.index);
+    if (content.length > 0) {
+      paragraphs.push({ text: content, offset: lastEnd });
+    }
+    lastEnd = paragraphBoundaryRe.lastIndex;
+  }
+  // Final paragraph (no trailing blank line).
+  if (lastEnd < text.length) {
+    const content = text.slice(lastEnd);
+    if (content.length > 0) {
+      paragraphs.push({ text: content, offset: lastEnd });
+    }
+  }
+  return paragraphs;
+}
+
+/**
  * Scan a PR body for trigger phrases (case-insensitive). Returns one match
  * per distinct phrase that appears at least once. Each match includes a
  * short excerpt of the surrounding text so the operator can see the context.
  *
  * Returns an empty array when no triggers are present.
  *
+ * Two-stage scan (mt#2002):
+ *
+ *   1. STANDALONE phrases ("out-of-band", "post-merge config",
+ *      "serviceInstanceUpdate") fire on any bare-prose occurrence anywhere
+ *      in the body.
+ *
+ *   2. PAIR-REQUIRED phrases ("rootDirectory", "dockerfilePath",
+ *      "Railway config change") fire only when a PAIR_PARTNER ("out-of-band"
+ *      or "post-merge") appears in the SAME PARAGRAPH (CommonMark
+ *      paragraph: text separated by a blank line). This suppresses the
+ *      false-positive class where Railway field names appear in PR bodies
+ *      as test-plan documentation, synthesizer-shipping descriptions, or
+ *      historical-incident cross-references without an actual coordination
+ *      instruction.
+ *
  * Markdown contexts that carry textual references (code spans, code fences,
  * blockquotes) are filtered out before scanning via {@link elideMarkdownNonProse}
- * so trigger phrases appearing as field-name references don't fire the gate.
- * Excerpts are still sliced from the ORIGINAL body so the operator sees real
- * surrounding context.
+ * (mt#1707) so trigger phrases appearing as field-name references don't fire
+ * the gate. Excerpts are still sliced from the ORIGINAL body so the operator
+ * sees real surrounding context.
  */
 export function scanForTriggerPhrases(body: string): PhraseMatch[] {
   if (!body) return [];
-  const matches: PhraseMatch[] = [];
   // Same-length whitespace replacement preserves positions: a phrase found at
   // offset N in the elided text occupies the same offset N in the original
   // body. Excerpts slice from `body`, so they show what the operator wrote.
   const scanText = elideMarkdownNonProse(body).toLowerCase();
-  for (const phrase of TRIGGER_PHRASES) {
-    const lower = phrase.toLowerCase();
-    const idx = scanText.indexOf(lower);
-    if (idx === -1) continue;
-    // Excerpt: ~50 chars before + the match + ~50 chars after, on a single line
+
+  // Track matches by phrase (dedup; first occurrence wins for excerpt).
+  const seenPhrases = new Map<string, PhraseMatch>();
+  const addMatch = (phrase: string, idx: number): void => {
+    if (seenPhrases.has(phrase)) return;
     const start = Math.max(0, idx - 50);
     const end = Math.min(body.length, idx + phrase.length + 50);
     const excerpt = body.slice(start, end).replace(/\s+/g, " ").trim();
-    matches.push({ phrase, excerpt });
+    seenPhrases.set(phrase, { phrase, excerpt });
+  };
+
+  // Stage 1: STANDALONE phrases — fire on any occurrence.
+  for (const phrase of STANDALONE_TRIGGER_PHRASES) {
+    const idx = scanText.indexOf(phrase.toLowerCase());
+    if (idx !== -1) addMatch(phrase, idx);
   }
-  return matches;
+
+  // Stage 2: PAIR-REQUIRED phrases — fire only when paired with a
+  // PAIR_PARTNER in the same paragraph.
+  const paragraphs = splitIntoParagraphs(scanText);
+  const lowerPartners = PAIR_PARTNER_PHRASES.map((p) => p.toLowerCase());
+  for (const { text: paragraphText, offset } of paragraphs) {
+    const hasPartner = lowerPartners.some((partner) => paragraphText.includes(partner));
+    if (!hasPartner) continue;
+    for (const phrase of PAIR_REQUIRED_PHRASES) {
+      const idxInParagraph = paragraphText.indexOf(phrase.toLowerCase());
+      if (idxInParagraph !== -1) {
+        addMatch(phrase, offset + idxInParagraph);
+      }
+    }
+  }
+
+  // Preserve declaration order: standalone first, then pair-required.
+  const ordered: PhraseMatch[] = [];
+  for (const phrase of [...STANDALONE_TRIGGER_PHRASES, ...PAIR_REQUIRED_PHRASES]) {
+    const m = seenPhrases.get(phrase);
+    if (m) ordered.push(m);
+  }
+  return ordered;
 }
 
 // ---------------------------------------------------------------------------

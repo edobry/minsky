@@ -1158,6 +1158,36 @@ This is rare in PR bodies (CommonMark renderers do handle it, but humans usually
 the `>` marker per line); flagged here so a future false-positive can be diagnosed
 quickly.
 
+**Pair-requirement (mt#2002):** the trigger phrases are split into two categories:
+
+- **STANDALONE phrases** (fire on any bare-prose occurrence): `out-of-band`,
+  `post-merge config`, `serviceInstanceUpdate`. These describe coordination shapes
+  with no benign use pattern.
+- **PAIR-REQUIRED phrases** (fire only when paired with a partner in the same
+  CommonMark paragraph): `rootDirectory`, `dockerfilePath`, `Railway config change`.
+  These are Railway/config-field identifiers that legitimately appear in PR bodies
+  as test-plan documentation, synthesizer-shipping descriptions, or synthesizer
+  cross-references.
+
+The PAIR_PARTNER phrases are `out-of-band` and `post-merge` (the bare `post-merge`
+form matches both `post-merge` and `post-merge config`). When a pair-required
+phrase appears in the SAME PARAGRAPH (text separated by a blank line) as a partner,
+the combination is the strong signal; when it appears alone, it's likely a reference.
+
+Originating false-positive cluster: PR #1028 self-fire on mt#1707 (docs referencing
+Railway field names); PR #1204 self-fire on mt#1964 chunk 1 (synthesizer-shipping
+description). Both bypassed via `MINSKY_ACK_OOB_MERGE=1` before mt#2002 shipped;
+post-mt#2002 the bare-prose mentions are correctly suppressed unless a partner is
+in the same paragraph.
+
+**Known limitation:** historical-incident descriptions that put both a pair-required
+phrase AND a partner in the same paragraph (e.g., "mt#1681 PR #1013 (rootDirectory
+flip documented as out-of-band)") still fire under pair-requirement because the
+pair-partner is in the same paragraph. Resolving this without breaking the actual
+mt#1681-style coordination signal requires a different mechanism (e.g.,
+`## Originating-Context` heading exclusion or NLP-based intent classification) and
+is out of scope for mt#2002.
+
 **On block:** the hook denies with this shape:
 > "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
 > pre-authorized) BEFORE merging. Matched trigger phrases: [list with excerpts]. If the
