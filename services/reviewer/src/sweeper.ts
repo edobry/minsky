@@ -58,6 +58,7 @@ import type { Octokit } from "@octokit/rest";
 import type { ReviewerDb } from "./db/client";
 import { pruneStaleMarkers, listActiveMarkersForPRs, markerKey } from "./inflight-marker";
 import { log } from "./logger";
+import { extractPgErrorContext } from "./webhook-events";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -289,13 +290,12 @@ export async function retriggerViaRunReview(
       reason: result.reason,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     log.warn("sweeper.retrigger_failed", {
       event: "sweeper.retrigger_failed",
       deliveryId,
       pr: pr.number,
       headSha: pr.headSha,
-      error: message,
+      ...extractPgErrorContext(err),
     });
   }
 }
@@ -494,11 +494,10 @@ export async function runSweep(
         return true;
       });
     } catch (lookupErr: unknown) {
-      const message = lookupErr instanceof Error ? lookupErr.message : String(lookupErr);
       log.warn("sweeper.marker_lookup_failed_proceeding", {
         event: "sweeper.marker_lookup_failed_proceeding",
-        error: message,
         missing_count: missing.length,
+        ...extractPgErrorContext(lookupErr),
       });
       // Fail-open: proceed with all missing PRs if lookup fails.
     }

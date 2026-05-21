@@ -100,6 +100,7 @@ import {
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { log } from "./logger";
+import { extractPgErrorContext } from "./webhook-events";
 
 /**
  * Which attempt produced the final (or failing) output. Used for observability
@@ -868,7 +869,10 @@ export async function runReview(
       markerId = markerResult.id;
     } catch (markerErr: unknown) {
       // DB error — fail open: proceed without marker guarantee.
-      const errorMessage = markerErr instanceof Error ? markerErr.message : String(markerErr);
+      // extractPgErrorContext surfaces error_code / error_detail / error_severity
+      // (or error_cause_keys + error_cause_json fallback) so postgres errors like
+      // 42P01 (undefined_table) appear in logs instead of just the SQL body
+      // (mt#1968 — closes the observability gap surfaced by mt#1963).
       log.info("runReview.marker_acquire_failed_fail_open", {
         event: "runReview.marker_acquire_failed_fail_open",
         pr_owner: owner,
@@ -876,7 +880,7 @@ export async function runReview(
         pr_number: prNumber,
         head_sha: pr.headSha,
         delivery_id: deliveryId,
-        error: errorMessage,
+        ...extractPgErrorContext(markerErr),
       });
     }
   }
