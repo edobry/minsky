@@ -163,48 +163,16 @@ function railwayTry(args: string[]): ShResult {
   return sh("railway", args);
 }
 
-function readRailwayToken(): string {
-  const cfg = JSON.parse(readFileSync(expandTilde("~/.railway/config.json"), "utf8")) as {
-    user?: { accessToken?: string };
-  };
-  const token = cfg.user?.accessToken;
-  if (!token) {
-    throw new Error(
-      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
-    );
-  }
-  return token;
-}
+// mt#2013: readRailwayToken + graphql consolidated through
+// src/domain/deployment/railway/graphql-client.ts. The local copies are
+// retired; this script now inherits OAuth token-refresh transparently.
+import {
+  readRailwayToken,
+  railwayGraphQLAuthed,
+} from "../src/domain/deployment/railway/graphql-client";
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const token = readRailwayToken();
-  const res = await fetch("https://backboard.railway.com/graphql/v2", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const body = (await res.json()) as {
-    data?: T;
-    errors?: { message?: string; path?: (string | number)[] }[];
-  };
-  if (body.errors) {
-    // Sanitize: surface only message + path, never the full payload. If the
-    // Railway API ever echoes submitted variables in an error (for a mutation
-    // like variableCollectionUpsert), those variables may be secrets. Don't
-    // JSON.stringify the entire errors object for this reason.
-    const summary = body.errors
-      .map((e) => {
-        const path = e.path ? ` at ${e.path.join(".")}` : "";
-        return `${e.message ?? "unknown GraphQL error"}${path}`;
-      })
-      .join("; ");
-    throw new Error(`GraphQL error: ${summary}`);
-  }
-  if (!body.data) throw new Error(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
-  return body.data;
+  return railwayGraphQLAuthed<T>(query, variables);
 }
 
 // ---------------------------------------------------------------------------
