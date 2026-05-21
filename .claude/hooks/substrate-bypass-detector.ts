@@ -444,7 +444,6 @@ function buildReminder(surfaces: MatchedSurface[]): string {
     .join("\n");
 
   return [
-    "<system-reminder>",
     "**Substrate-bypass detected (mt#2020 / substrate-bypass-detector.ts)**",
     "",
     "The previous assistant turn made a verbal commitment or used inline structure",
@@ -468,8 +467,7 @@ function buildReminder(surfaces: MatchedSurface[]): string {
     "  DB tables via the MCP tool surface — do NOT read JSONL files directly.",
     "",
     "**Override:** Set `MINSKY_ACK_SUBSTRATE_BYPASS=1` in your environment to",
-    "suppress this warning. The override emits an audit line to stderr.",
-    "</system-reminder>",
+    "suppress this warning. The override emits an audit line to stdout.",
   ].join("\n");
 }
 
