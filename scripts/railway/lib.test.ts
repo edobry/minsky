@@ -868,4 +868,13 @@ describe("fetchServiceInstanceState() — mt#2000", () => {
       "GraphQL error: environment not found"
     );
   });
+
+  test("returns null when environment is null (invalid envId or access-denied; PR #1214 R1 #4)", async () => {
+    // Railway returns `environment: null` without a top-level GraphQL error
+    // for invalid env IDs or insufficient access. Function must guard the
+    // nested access and return null per the contract.
+    const fakeGraphql = async <T>(): Promise<T> => ({ environment: null }) as unknown as T;
+    const state = await fetchServiceInstanceState("nonexistent-env", "svc-1", fakeGraphql);
+    expect(state).toBe(null);
+  });
 });

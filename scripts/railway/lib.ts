@@ -507,7 +507,7 @@ export async function fetchServiceInstanceState(
           };
         }>;
       };
-    };
+    } | null;
   };
   const data = await graphqlImpl<R>(
     `
@@ -534,6 +534,11 @@ export async function fetchServiceInstanceState(
     `,
     { envId: environmentId }
   );
+  // PR #1214 R1 BLOCKING #4: Railway can return `environment: null` (without
+  // a top-level GraphQL error) for invalid env IDs or access-denied. Guard
+  // before nested-property access to honor the function's null-on-not-found
+  // contract instead of throwing TypeError.
+  if (!data.environment) return null;
   const instance = data.environment.serviceInstances.edges.find(
     (e) => e.node.serviceId === serviceId
   );
@@ -564,13 +569,18 @@ export type ServiceInstanceDiffEntry =
  * Walks each field independently:
  *   - ADD: desired has a value, current is unset/null/undefined.
  *   - CHANGE: both set and values differ.
- *   - NO-CHANGE: values match (string equality for scalars; deep equality
- *     for arrays).
+ *   - NO-CHANGE: values match (string equality for scalars; order-sensitive
+ *     equality for arrays).
  *
- * Fields NOT declared in `desired` are skipped (NO REMOVE class) — the
- * synthesizer doesn't prune deploy-trigger fields, because the declared
- * config is a partial spec (you might declare only `source.rootDirectory`
- * and let Railway's defaults govern the rest).
+ * **No REMOVE class — by design (PR #1214 R1 BLOCKING #1 clarification).**
+ * Fields NOT declared in `desired` are skipped — the synthesizer doesn't
+ * prune deploy-trigger fields, because the declared config is a partial
+ * spec (you might declare only `source.rootDirectory` and let Railway's
+ * defaults govern the rest). Railway's deploy-trigger fields are not
+ * "deletable" in the env-var sense — they have platform defaults; emitting
+ * a REMOVE entry would imply a delete-and-revert-to-default operation that
+ * Railway's GraphQL API does not expose cleanly. The spec was clarified
+ * post-review to reflect this partial-spec semantic.
  *
  * `source.branch` is in the desired shape but NOT in the readable state
  * (see ServiceInstanceState comment). It's treated as ADD when desired
@@ -626,6 +636,19 @@ export function computeServiceInstanceDiff(
   return entries;
 }
 
+/**
+ * Equality comparator used by {@link computeServiceInstanceDiff}.
+ *
+ * **Array semantics: order-sensitive (intentional).** Arrays are equal only
+ * when they have the same length AND the same element at each index. This
+ * is the conservative choice for Railway's `watchPatterns`: changing the
+ * order may semantically signal different precedence to Railway's build
+ * system (and even if Railway treats them as an unordered set, the false-
+ * positive class — emitting a CHANGE entry on reorder-only diffs — only
+ * over-reports; it does not under-report). If Railway is confirmed
+ * order-insensitive for any field in the future, switch to a sorted
+ * comparison and document the swap in this docstring.
+ */
 function arrayOrScalarEqual(a: unknown, b: unknown): boolean {
   if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) return false;

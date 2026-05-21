@@ -121,20 +121,43 @@ async function loadDeployConfig(serviceDir: string): Promise<DeployTriggerSpec |
   const configPath = resolve(serviceDir, "deploy.config.ts");
   if (!existsSync(configPath)) return null;
 
-  type DeployModule = {
-    default?: {
-      platform: "railway";
-      railway: {
-        source?: RailwaySource;
-        build?: RailwayBuild;
-      };
+  type DeployModuleShape = {
+    platform: "railway" | string;
+    railway?: {
+      source?: RailwaySource;
+      build?: RailwayBuild;
     };
   };
+  type DeployModule = { default?: DeployModuleShape } | DeployModuleShape;
+
   const mod = (await import(pathToFileURL(configPath).href)) as DeployModule;
-  const cfg = mod?.default;
-  if (!cfg || typeof cfg !== "object" || cfg.platform !== "railway" || !cfg.railway) {
+  // PR #1214 R1 BLOCKING #3: mirror loadConfig's ESM/CJS fallback so
+  // configs that export the object directly (not as default) also load.
+  const cfg =
+    mod && typeof mod === "object" && "default" in mod && mod.default != null
+      ? (mod.default as DeployModuleShape)
+      : (mod as DeployModuleShape);
+
+  if (!cfg || typeof cfg !== "object") return null;
+
+  if (cfg.platform !== "railway") {
+    // Surface non-railway platforms so the operator knows the deploy-trigger
+    // pass was deliberately skipped (vs. a silent miss).
+    console.warn(
+      `[apply] deploy.config.ts platform=${cfg.platform} is not "railway"; ` +
+        `deploy-trigger reconciliation skipped (only railway is supported in v1).`
+    );
     return null;
   }
+
+  if (!cfg.railway || typeof cfg.railway !== "object") {
+    console.warn(
+      `[apply] deploy.config.ts has platform=railway but no railway block; ` +
+        `deploy-trigger reconciliation skipped.`
+    );
+    return null;
+  }
+
   const { source, build } = cfg.railway;
   if (source === undefined && build === undefined) return null;
   return { source, build };
