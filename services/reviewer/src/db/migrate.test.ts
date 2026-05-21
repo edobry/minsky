@@ -9,10 +9,13 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   REVIEWER_EXPECTED_TABLES,
   REVIEWER_MIGRATIONS_TABLE,
   REVIEWER_MIGRATIONS_SCHEMA,
+  REVIEWER_TABLES_SCHEMA,
+  buildExpectedTablesQuery,
   verifyExpectedTables,
 } from "./migrate";
 import type { ReviewerDb } from "./client";
@@ -78,5 +81,53 @@ describe("mt#1967 verifyExpectedTables", () => {
     for (const expectedTable of REVIEWER_EXPECTED_TABLES) {
       await expect(verifyExpectedTables(db)).rejects.toThrow(new RegExp(expectedTable));
     }
+  });
+});
+
+describe("mt#2008 buildExpectedTablesQuery SQL shape", () => {
+  // Regression coverage for the production crash on commit fb96637a33 / mt#1967
+  // (PR #1197): drizzle-orm's `sql` template spreads a JS array passed inside
+  // `ANY(${arr})` into separate parameters with surrounding parens, producing
+  // `ANY(($2, $3, $4))`. PostgreSQL interprets the inner parens as a record /
+  // composite type (not an array), rejects the query (42601), the reviewer
+  // service's migrate handler throws, server.ts exits 1, Railway respawns,
+  // and the service crash-loops. The fix switches to `IN (...)` with
+  // `sql.join` so the compiled SQL is unambiguously valid Postgres.
+  const dialect = new PgDialect();
+
+  test("compiled SQL uses IN (...) form, never ANY((...))", () => {
+    const compiled = dialect.sqlToQuery(
+      buildExpectedTablesQuery(REVIEWER_TABLES_SCHEMA, REVIEWER_EXPECTED_TABLES)
+    );
+    // The pre-mt#2008 bug pattern: `ANY(($2, $3, ...))` — the doubled
+    // open-paren is what PostgreSQL reads as a record/composite type.
+    expect(compiled.sql).not.toMatch(/ANY\s*\(\s*\(/);
+    // The fix pattern: `IN ($2, $3, $4)`.
+    expect(compiled.sql).toMatch(/tablename\s+IN\s*\(\s*\$/);
+  });
+
+  test("schema + every expected table name appears in the parameter list", () => {
+    const compiled = dialect.sqlToQuery(
+      buildExpectedTablesQuery(REVIEWER_TABLES_SCHEMA, REVIEWER_EXPECTED_TABLES)
+    );
+    // 1 schema param + N table params = N+1 total.
+    expect(compiled.params).toHaveLength(1 + REVIEWER_EXPECTED_TABLES.length);
+    expect(compiled.params[0]).toBe(REVIEWER_TABLES_SCHEMA);
+    for (const expectedTable of REVIEWER_EXPECTED_TABLES) {
+      expect(compiled.params).toContain(expectedTable);
+    }
+  });
+
+  test("regression: compiled SQL does NOT match the pre-mt#2008 ANY(record) shape", () => {
+    // Belt-and-suspenders: the exact failing-query pattern observed in the
+    // 2026-05-21 production Railway logs was
+    //   `tablename = ANY(($2, $3, $4))`
+    // — equality + record-type-as-ANY-operand. Assert neither component is
+    // present.
+    const compiled = dialect.sqlToQuery(
+      buildExpectedTablesQuery(REVIEWER_TABLES_SCHEMA, REVIEWER_EXPECTED_TABLES)
+    );
+    expect(compiled.sql).not.toMatch(/tablename\s*=\s*ANY/);
+    expect(compiled.sql).not.toMatch(/ANY\s*\(\s*\(\s*\$/);
   });
 });
