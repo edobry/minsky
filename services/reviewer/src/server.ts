@@ -834,26 +834,61 @@ if (import.meta.main) {
     specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
   });
 
-  // Register graceful shutdown handlers for SIGTERM and SIGINT.
-  // On signal: stop accepting new connections, drain in-flight reviews (max 25s), then exit.
-  process.on("SIGTERM", () => {
+  // Register graceful shutdown handlers for SIGTERM, SIGINT, SIGHUP.
+  // On signal: emit shutdown_signal log line (mt#1966 SC#3) so future
+  // restart-cause investigations can see WHICH signal triggered the shutdown,
+  // then stop accepting new connections, drain in-flight reviews (max 25s), then exit.
+  //
+  // The shutdown_signal log line was the load-bearing observability gap during
+  // mt#1963 — the 2026-05-20 restart window showed no signal in retained logs,
+  // making the restart cause invisible. Adding the log on signal arrival closes
+  // that gap for future incidents.
+  function handleShutdownSignal(signal: "SIGTERM" | "SIGINT" | "SIGHUP"): void {
+    const uptimeSec = process.uptime();
+    log.warn("shutdown_signal", {
+      event: "shutdown_signal",
+      signal,
+      uptime_sec: Math.round(uptimeSec * 1000) / 1000,
+    });
     gracefulShutdown().catch((err: unknown) => {
       log.error("shutdown_error", {
         event: "shutdown_error",
+        signal,
         error: err instanceof Error ? err.message : String(err),
       });
       process.exitCode = 1;
     });
-  });
+  }
+  process.on("SIGTERM", () => handleShutdownSignal("SIGTERM"));
+  process.on("SIGINT", () => handleShutdownSignal("SIGINT"));
+  process.on("SIGHUP", () => handleShutdownSignal("SIGHUP"));
 
-  process.on("SIGINT", () => {
-    gracefulShutdown().catch((err: unknown) => {
-      log.error("shutdown_error", {
-        event: "shutdown_error",
-        error: err instanceof Error ? err.message : String(err),
-      });
-      process.exitCode = 1;
+  // Uncaught-exception and unhandled-rejection handlers (mt#1966 SC#3).
+  // These fire on bugs the normal try/catch chain doesn't reach. Without
+  // these, a crash exits silently with no log line — the 2026-05-20 mt#1963
+  // window suggested either a silent crash or a Railway-side signal; we
+  // couldn't tell because neither path emitted a log. The handlers below
+  // make BOTH paths observable. The handlers do not attempt graceful
+  // shutdown — by the time they fire the process state is undefined and
+  // the right move is fail-fast with diagnostics in the log.
+  process.on("uncaughtException", (err: Error) => {
+    log.error("uncaught_exception", {
+      event: "uncaught_exception",
+      uptime_sec: Math.round(process.uptime() * 1000) / 1000,
+      error: err.message,
+      stack: err.stack?.slice(0, 1000),
     });
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    log.error("unhandled_rejection", {
+      event: "unhandled_rejection",
+      uptime_sec: Math.round(process.uptime() * 1000) / 1000,
+      error: err.message,
+      stack: err.stack?.slice(0, 1000),
+    });
+    process.exit(1);
   });
 
   // Start the periodic sweeper safety net (mt#1260).
