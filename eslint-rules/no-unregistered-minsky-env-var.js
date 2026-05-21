@@ -125,14 +125,28 @@ export default {
     // and rewrites separators to `path.sep`.
     const normalized = pathNormalize(filename);
 
-    // Scope per spec: lint src/**/*.ts only. Root-level config files like
-    // drizzle.pg.config.ts have their own lifecycle (drizzle-kit migrate,
-    // not the MCP boot path) and don't conflict with the env-var-to-config
-    // parser at runtime. Both the path-segment match and the .ts extension
-    // are required (PR #1089 R1 BLOCKING #5 — without the extension check
-    // the rule was also firing on .js files under src/).
+    // Scope per spec: lint src/**/*.ts AND .claude/hooks/**/*.ts.
+    //
+    // - src/**/*.ts: original mt#1788 coverage. Root-level config files like
+    //   drizzle.pg.config.ts have their own lifecycle (drizzle-kit migrate,
+    //   not the MCP boot path) and don't conflict with the env-var-to-config
+    //   parser at runtime. Both the path-segment match and the .ts extension
+    //   are required (PR #1089 R1 BLOCKING #5 — without the extension check
+    //   the rule was also firing on .js files under src/).
+    //
+    // - .claude/hooks/**/*.ts: mt#1994 extension. Hook-only override env vars
+    //   (e.g., MINSKY_ACK_OOB_MERGE, MINSKY_FORCE_EDIT_GENERATED) have their
+    //   only read site in .claude/hooks/*.ts files. Without scanning this
+    //   directory, the rule missed the hook-only-override slice — operators
+    //   following the documented override instructions would hit a hard CLI
+    //   crash because the env var wasn't registered in HOOK_ONLY_ENV_VARS.
+    //   See mt#1994 spec and `feedback_new_minsky_env_var_must_be_registered`.
     const srcSegment = `${pathSep}src${pathSep}`;
-    if (!normalized.includes(srcSegment) || !normalized.endsWith(".ts")) {
+    const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
+    const isTsFile = normalized.endsWith(".ts");
+    const inSrc = normalized.includes(srcSegment);
+    const inClaudeHooks = normalized.includes(claudeHooksSegment);
+    if (!isTsFile || (!inSrc && !inClaudeHooks)) {
       return {};
     }
 

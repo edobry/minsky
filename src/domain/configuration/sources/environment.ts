@@ -150,6 +150,23 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
   "MINSKY_MCP_INIT_RETRY_INTERVAL_MS", // src/commands/mcp/start-command.ts (mt#1962 — init retry backoff)
   "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
+  // mt#1994 — hook-only override env vars whose only read site is in
+  // .claude/hooks/*.ts (outside the mt#1788 ESLint rule's prior scan path).
+  // Each is documented in CLAUDE.md or the hook's own header as a user-facing
+  // escape valve. Without registration, setting any of these crashes the CLI
+  // at boot because the env-var-to-config dot-path parser converts e.g.
+  // `MINSKY_ACK_OOB_MERGE` → `ack.oob.merge`, which the strict config schema
+  // rejects (`Unrecognized key: "ack"`). The mt#1994 PR also extends the
+  // ESLint rule to scan .claude/hooks/**/*.ts so future hook authors can't
+  // reintroduce the gap.
+  "MINSKY_ACK_OOB_MERGE", // .claude/hooks/block-out-of-band-merge.ts (mt#1695)
+  "MINSKY_FORCE_EDIT_GENERATED", // .claude/hooks/check-generated-file-edit.ts (mt#1699)
+  "MINSKY_SKIP_SKILL_STALENESS", // .claude/hooks/skill-staleness-detector.ts (mt#1622)
+  "MINSKY_HOME", // .claude/hooks/mcp-daemon-staleness-detector.ts + src/mcp/daemon-state.ts (state-dir override)
+  "MINSKY_FORCE_LOOP_TERMINAL", // .claude/hooks/loop-preflight-pr-merge-check.ts
+  "MINSKY_POLICY_COVERAGE_MODE", // .claude/hooks/policy-coverage-detector.ts (mt#1541)
+  "MINSKY_SKIP_DAEMON_STALENESS", // .claude/hooks/mcp-daemon-staleness-detector.ts
+  "MINSKY_UNASKED_DIRECTION_DETECTOR", // .claude/hooks/post-merge-unasked-direction-scan.ts
   // mt#1767 — auto-migration controls in postgres-provider.ts. Process-only;
   // they govern boot-time behavior, not runtime config. Adding to the
   // hook-only set so Railway env-var sets (e.g. MINSKY_AUTO_MIGRATE=false
