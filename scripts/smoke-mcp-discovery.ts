@@ -12,8 +12,8 @@ import "reflect-metadata";
  *   bun scripts/smoke-mcp-discovery.ts
  *
  * Exit codes:
- *   0 — all expected categories surfaced; no AI surfacing
- *   1 — at least one expected new category missing OR AI leaked
+ *   0 — all expected categories surfaced; AI commands present (9 expected)
+ *   1 — at least one expected new category missing OR AI commands missing
  */
 import { CommandCategory } from "../src/adapters/shared/command-registry";
 import { registerSharedCommandsWithMcp } from "../src/adapters/mcp/shared-command-integration";
@@ -86,11 +86,21 @@ async function main() {
     if (!ok) allOk = false;
   }
 
-  // AI exclusion check
+  // AI inclusion check (mt#2035 — AI exclusion retracted)
+  // Expected 9 tools: ai.chat, ai.complete, ai.fast-apply,
+  // ai.models.list, ai.models.available, ai.models.refresh,
+  // ai.providers.list, ai.cache.clear, ai.validate
   const aiTools = tools.filter((t) => t.startsWith("ai."));
-  console.log(`\nAI exclusion check: ${aiTools.length} tools (expect 0)`);
+  const aiExpectedCount = 9;
+  const aiOk = aiTools.length >= aiExpectedCount;
+  console.log(
+    `\nAI inclusion check: ${aiTools.length} tools (expect >= ${aiExpectedCount}) ${aiOk ? "OK" : "MISSING"}`
+  );
   if (aiTools.length > 0) {
-    console.log(`  LEAKED: ${aiTools.join(", ")}`);
+    console.log(`  ai.* : ${aiTools.join(", ")}`);
+  }
+  if (!aiOk) {
+    console.log(`  MISSING: expected >= ${aiExpectedCount} AI tools, got ${aiTools.length}`);
     allOk = false;
   }
 

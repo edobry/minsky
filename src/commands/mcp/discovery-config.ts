@@ -79,9 +79,15 @@ export const MCP_CATEGORY_ADAPTERS: Partial<Record<CommandCategory, McpCategoryA
 /**
  * Default `excludeCategories` for the production discovery loop.
  *
- * - `AI`: ai.chat / ai.complete invoke external paid LLM APIs. Auto-exposing
- *   the category via MCP creates runaway-cost risk. CLI access remains;
- *   re-evaluate per category on a follow-up task. ADR-011 §Audit documents
- *   the rationale.
+ * Empty: all `CommandCategory` values auto-bridge by default. The original
+ * exclusion of `AI` shipped in mt#2010 was retracted by mt#2035 — the
+ * rationale (runaway-cost risk) was post-hoc rationalization; cost discipline
+ * belongs at the API layer (rate limits, budget caps, model-tier controls),
+ * not at the MCP bridge. See ADR-011 §Audit for the updated verdict and
+ * mt#2035 for the R6 retrospective rationale.
+ *
+ * The `excludeCategories` parameter on `registerAllTools` remains as a
+ * narrowed-deployment hook (mt#1227/mt#1254) — see mt#2017 for the
+ * investigation of whether the parameter should continue to exist.
  */
-export const DEFAULT_EXCLUDE_CATEGORIES: ReadonlyArray<CommandCategory> = [CommandCategory.AI];
+export const DEFAULT_EXCLUDE_CATEGORIES: ReadonlyArray<CommandCategory> = [];
