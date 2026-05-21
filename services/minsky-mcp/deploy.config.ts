@@ -10,11 +10,13 @@
  * discovered 2026-05-21 via `fetchServiceInstanceState`. The synthesizer
  * (mt#2000) reports clean diff against this declaration.
  *
- * Note on `source` field: the live serviceInstance returns `source: null`
- * (no repo binding visible on the instance). minsky-mcp deploys via
- * project-level Railway GitHub App integration. The `source` block is
- * intentionally omitted here so the synthesizer's partial-spec diff
- * does not reconcile it.
+ * Note on `source.repo` + `source.branch`: the live serviceInstance returns
+ * `source: null` (no repo binding visible on the instance). minsky-mcp
+ * deploys via project-level Railway GitHub App integration. The
+ * `source.repo` and `source.branch` fields are intentionally omitted so
+ * the synthesizer does not try to reconcile a non-existent binding.
+ * Only `source.rootDirectory` is declared — it IS a top-level field on
+ * serviceInstance (live value: "/") and benefits from drift detection.
  *
  * See docs/deployment-platforms.md for the full design.
  */
@@ -28,8 +30,13 @@ export default defineDeployment({
     projectId: railwayConfig.projectId,
     environmentId: railwayConfig.environmentId,
     serviceId: railwayConfig.serviceId,
-    // source intentionally omitted — live state has source: null (project-
-    // level GitHub App integration; no serviceInstance.source binding).
+    source: {
+      // repo + branch intentionally omitted — live source binding is null
+      // (project-level GitHub App integration; no serviceInstance.source).
+      // rootDirectory IS declared so the synthesizer can detect drift on
+      // this top-level ServiceInstance field (live value: "/").
+      rootDirectory: "/",
+    },
     build: {
       // Live state confirmed RAILPACK (Railway's evolved build system,
       // successor to NIXPACKS for this project).

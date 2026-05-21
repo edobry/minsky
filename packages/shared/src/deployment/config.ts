@@ -36,10 +36,16 @@ export type RailwayBuilder = "NIXPACKS" | "DOCKERFILE" | "RAILPACK";
  * Source-repo binding for a Railway service. Optional on
  * `RailwayDeploymentConfig` — services that haven't been migrated to
  * declarative deploy-trigger config (mt#1964 chunk 3 / mt#2001) omit this.
+ *
+ * `repo` and `branch` are optional (mt#2001 relaxation): some services
+ * deploy via project-level Railway GitHub App integration and have
+ * `source: null` on the serviceInstance — but `rootDirectory` (which IS
+ * a top-level serviceInstance field) is still worth declaring for drift
+ * detection. Such services declare `{ rootDirectory: "..." }` only.
  */
 export interface RailwaySource {
-  repo: string;
-  branch: string;
+  repo?: string;
+  branch?: string;
   rootDirectory?: string;
   /** Optional check-suite branch filter — per Railway's source.checkSuites. */
   checkSuites?: string[];

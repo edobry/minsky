@@ -371,8 +371,8 @@ export async function graphql<T>(
 export type RailwayBuilder = "NIXPACKS" | "DOCKERFILE" | "RAILPACK";
 
 export interface RailwaySource {
-  repo: string;
-  branch: string;
+  repo?: string;
+  branch?: string;
   rootDirectory?: string;
   /** Optional check-suite branch filter — per Railway's source.checkSuites. */
   checkSuites?: string[];
