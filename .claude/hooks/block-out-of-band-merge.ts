@@ -84,7 +84,11 @@ function deriveGhTimeoutMs(): number {
 //    describe coordination shapes with no benign use pattern. Originally the
 //    entire trigger list; narrowed in mt#2002 to just the phrases that
 //    cannot reasonably appear as field-name references or historical-incident
-//    descriptors.
+//    descriptors. Narrowed further in mt#2019 to drop "out-of-band" as a
+//    standalone trigger (too broad — fires on architectural prose like
+//    "out-of-band consumers" describing module callers, originating incident
+//    mt#2010 PR #1217). The Railway/config-specific phrases cover the true-
+//    positive class without the broad phrase.
 //
 // 2. PAIR-REQUIRED — phrases that fire only when a PAIR_PARTNER appears in
 //    the SAME PARAGRAPH (CommonMark paragraph: separated by a blank line).
@@ -98,10 +102,16 @@ function deriveGhTimeoutMs(): number {
 //    occurrence produced systematic false positives (originating sample:
 //    mt#1707 PR #1028 self-fire; mt#1964 PR #1204 self-fire).
 //
-// PAIR_PARTNER phrases are the standalone triggers themselves — they're the
-// signal that a coordination instruction is being given. When a pair-required
-// phrase appears in the same paragraph as a partner, the combination is the
-// strong signal; when it appears alone, it's likely a reference.
+// PAIR_PARTNER phrases signal that a coordination instruction is being given.
+// When a pair-required phrase appears in the same paragraph as a partner,
+// the combination is the strong signal; when it appears alone, it's likely a
+// reference.
+//
+// "out-of-band" as a PAIR_PARTNER: the phrase remains meaningful as a
+// coordination signal when it appears alongside Railway/config field names
+// (e.g., "out-of-band, flip rootDirectory on Railway"). Keeping it as a
+// PAIR_PARTNER while removing it from STANDALONE preserves the true-positive
+// contribution without firing on standalone architectural prose.
 //
 // Adding new phrases: prefer narrow, observed phrases (from real incidents)
 // over speculative ones. If a future incident introduces a new coupled-step
@@ -109,7 +119,6 @@ function deriveGhTimeoutMs(): number {
 // speculative generic terms.
 
 const STANDALONE_TRIGGER_PHRASES: ReadonlyArray<string> = [
-  "out-of-band",
   "post-merge config",
   "serviceInstanceUpdate",
 ];
@@ -122,10 +131,12 @@ const PAIR_REQUIRED_PHRASES: ReadonlyArray<string> = [
 
 /**
  * Phrases that, when present in the same paragraph as a PAIR_REQUIRED
- * phrase, cause the pair-required phrase to fire. The standalone phrases
- * "out-of-band" and "post-merge config" are the partners. Including the
- * bare "post-merge" form (without "config") also matches phrasings like
- * "After merge (post-merge), flip rootDirectory".
+ * phrase, cause the pair-required phrase to fire. "out-of-band" and
+ * "post-merge" are the partners. Including the bare "post-merge" form
+ * (without "config") also matches phrasings like "After merge (post-merge),
+ * flip rootDirectory". "out-of-band" is kept here as a partner even though
+ * it is no longer a standalone trigger — it still signals coordination
+ * context when it co-appears with Railway/config field names (mt#2019).
  */
 const PAIR_PARTNER_PHRASES: ReadonlyArray<string> = ["out-of-band", "post-merge"];
 
@@ -255,11 +266,15 @@ function splitIntoParagraphs(text: string): Array<{ text: string; offset: number
  *
  * Returns an empty array when no triggers are present.
  *
- * Two-stage scan (mt#2002):
+ * Two-stage scan (mt#2002, refined mt#2019):
  *
- *   1. STANDALONE phrases ("out-of-band", "post-merge config",
- *      "serviceInstanceUpdate") fire on any bare-prose occurrence anywhere
- *      in the body.
+ *   1. STANDALONE phrases ("post-merge config", "serviceInstanceUpdate") fire
+ *      on any bare-prose occurrence anywhere in the body. "out-of-band" was
+ *      removed from this category in mt#2019 to prevent false positives on
+ *      architectural prose (e.g., "out-of-band consumers" describing module
+ *      callers — mt#2010 originating incident). It remains a PAIR_PARTNER so
+ *      it still activates pair-required phrases when co-occurring with Railway
+ *      field names.
  *
  *   2. PAIR-REQUIRED phrases ("rootDirectory", "dockerfilePath",
  *      "Railway config change") fire only when a PAIR_PARTNER ("out-of-band"
