@@ -16,7 +16,7 @@ import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
-import { withTimeout } from "./with-timeout";
+import { withTimeout, TimeoutError } from "./with-timeout";
 import { log } from "./logger";
 
 /**
@@ -28,6 +28,80 @@ import { log } from "./logger";
  * mt#1086.
  */
 const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
+
+/**
+ * Default retry-on-timeout ceiling for the openai.chat.completions.create.toolloop
+ * inner call. mt#1969: when a single inner SDK call times out at the primary
+ * `timeoutMs` cap, we retry ONCE with this reduced ceiling. Rationale: if the
+ * model is genuinely slow at the primary cap, a shorter retry forces the failure
+ * surface to fire faster (instead of compounding wall-clock on a hopeless retry);
+ * if the slow path was transient provider-side load on the first attempt, the
+ * second attempt usually completes in normal-cadence time (~80-90s per the
+ * `feedback_reviewer_bot_actual_latency_calibration_data` empirical baseline).
+ *
+ * Tunable via REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS at process-env load time.
+ */
+const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 90_000;
+
+/**
+ * Read the toolloop-retry config from process env at call time. Defaults match
+ * the empirically-grounded values above. mt#1969.
+ */
+function resolveToolloopRetryConfig(): { enabled: boolean; retryTimeoutMs: number } {
+  const rawEnabled = process.env["REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT"];
+  const enabled = rawEnabled === undefined ? true : rawEnabled === "true" || rawEnabled === "1";
+  const rawMs = process.env["REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS"];
+  const parsedMs = rawMs ? parseInt(rawMs, 10) : NaN;
+  const retryTimeoutMs =
+    Number.isFinite(parsedMs) && parsedMs > 0 ? parsedMs : DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS;
+  return { enabled, retryTimeoutMs };
+}
+
+/**
+ * Run the toolloop SDK call with a single retry on TimeoutError (mt#1969).
+ *
+ * Behavior:
+ *   - First attempt uses the caller-supplied `primaryTimeoutMs` (production
+ *     default 120s from config.ts → DEFAULT_MODEL_TIMEOUT_MS).
+ *   - On TimeoutError AND retry-enabled (REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT,
+ *     default "true"), emits a `toolloop.timeout_retry` log line and retries
+ *     once with REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS (default 90s).
+ *   - If the retry also times out OR retry is disabled, the TimeoutError
+ *     propagates to the toolloop caller and surfaces in logs as the existing
+ *     `sweeper.retrigger_failed` / equivalent shape.
+ *
+ * Why retry with a SMALLER ceiling, not a larger one: the goal is to recover
+ * transient provider-side slowness, not mask sustained slowness. A larger
+ * retry ceiling would just inflate wall-clock on hopeless retries. A smaller
+ * ceiling preserves the "fail fast on genuinely-stuck" property while
+ * giving transient hiccups a second chance.
+ *
+ * Non-TimeoutError throws (e.g., HTTP 4xx/5xx from OpenAI, schema validation,
+ * etc.) propagate without retry — they aren't timeout-class issues and the
+ * retry doesn't address them.
+ */
+export async function callToolloopWithRetry<T>(
+  op: string,
+  round: number,
+  primaryTimeoutMs: number,
+  fn: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  try {
+    return await withTimeout(op, primaryTimeoutMs, fn);
+  } catch (err) {
+    if (!(err instanceof TimeoutError)) throw err;
+    const { enabled, retryTimeoutMs } = resolveToolloopRetryConfig();
+    if (!enabled) throw err;
+    log.warn("toolloop.timeout_retry", {
+      event: "toolloop.timeout_retry",
+      op,
+      round,
+      primary_timeout_ms: primaryTimeoutMs,
+      retry_timeout_ms: retryTimeoutMs,
+    });
+    return await withTimeout(`${op}.retry`, retryTimeoutMs, fn);
+  }
+}
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -511,8 +585,11 @@ export async function callOpenAIWithClient(
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
-    const response = await withTimeout(
+    // mt#1969: retry-on-timeout once with a reduced ceiling to recover
+    // transient provider-side slowness. See callToolloopWithRetry's docstring.
+    const response = await callToolloopWithRetry(
       "openai.chat.completions.create.toolloop",
+      round,
       timeoutMs,
       (signal) =>
         client.chat.completions.create(

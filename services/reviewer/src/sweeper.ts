@@ -355,7 +355,16 @@ export async function buildSweeperDeps(
  * @param depsOverride Optional dependency override for tests. When provided,
  *   skips the createOctokit + getAppIdentity calls entirely.
  */
-const SWEEP_CONCURRENCY = 3;
+// mt#1969: sweeper-initiated retriggers run SEQUENTIALLY (concurrency=1).
+// mt#1963 Layer 3 found that 3 concurrent retriggers all timed out on the
+// 120s openai.chat.completions.create.toolloop cap — including a TINY PR
+// (2 files, 8+10 lines). Diff size was not the cause; provider-side
+// slowness OR per-key throughput contention was. Sequential retrigger
+// removes the contention class and lets retries (mt#1969, providers.ts)
+// recover individual hung calls without amplifying upstream load. The
+// webhook-initiated path is unaffected — it processes 1 review per webhook
+// arrival.
+const SWEEP_CONCURRENCY = 1;
 
 /**
  * Boot-time warning threshold for the sweeper cadence (mt#1898 PR #1154 R1).
