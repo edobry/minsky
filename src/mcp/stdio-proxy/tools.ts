@@ -25,6 +25,27 @@
 export const PROXY_RESTART_TOOL_NAME = "__proxy_restart_server";
 
 /**
+ * Operator-visible nudge appended to `__proxy_restart_server`'s success
+ * response while Claude Code's deferred-tools cache doesn't refresh on
+ * `notifications/tools/list_changed` (mt#2031). The proxy emits the
+ * notification correctly per mt#2011, but Claude Code's `ToolSearch`
+ * surface stays stale until manual `/mcp` reconnect.
+ *
+ * This is a **temporary mechanism** per CLAUDE.md `§Temporary mechanism
+ * budget`. Retire when mt#2030's upstream fix
+ * (anthropics/claude-code#4118) lands and verification confirms the gap
+ * closes. Budget: escalate if still in place after 60 days from filing
+ * (filed 2026-05-21).
+ *
+ * Tracking task: mt#2030.
+ */
+export const PROXY_RESTART_NUDGE_TEXT =
+  "NOTE: If newly-registered tools don't surface in ToolSearch, run /mcp reconnect — " +
+  "Claude Code's deferred-tools cache currently doesn't refresh on " +
+  "notifications/tools/list_changed " +
+  "(tracked at anthropics/claude-code#4118; Minsky mt#2030).";
+
+/**
  * Reserved JSON-RPC request-id prefix for the proxy's internal ping-based
  * readiness probe (mt#2011). After every inner-server (re)spawn the proxy
  * synthesizes a `ping` request with id `__proxy_ready_probe_<monotonic>` and

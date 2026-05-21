@@ -20,6 +20,7 @@ import { Writable } from "stream";
 import { MinskyStdioProxy } from "./proxy";
 import {
   PROXY_READY_PROBE_ID_PREFIX,
+  PROXY_RESTART_NUDGE_TEXT,
   TOOLS_LIST_CHANGED_NOTIFICATION_METHOD,
   buildReadyProbeRequest,
   buildToolsListChangedNotification,
@@ -249,5 +250,73 @@ describe("outbound transform — probe-response interception (mt#2011)", () => {
     const downstreamOutput = await readTransformOutput(transform as NodeJS.ReadableStream);
     expect(downstreamOutput).toContain('"id":"regular-7"');
     expect(downstreamOutput).toContain('"echo":"hi"');
+  });
+});
+
+describe("__proxy_restart_server response — operator nudge (mt#2031)", () => {
+  test("PROXY_RESTART_NUDGE_TEXT names /mcp reconnect and the upstream tracking issue", () => {
+    expect(PROXY_RESTART_NUDGE_TEXT).toContain("/mcp");
+    expect(PROXY_RESTART_NUDGE_TEXT).toContain("anthropics/claude-code#4118");
+    expect(PROXY_RESTART_NUDGE_TEXT).toContain("ToolSearch");
+  });
+
+  test("handleProxyRestart response embeds the nudge after the restart-confirmation line", async () => {
+    // Exercise the real handleProxyRestart() path against a controlled
+    // captured-stdout setup. We capture proc.stdout writes, then trigger
+    // handleProxyRestart with a synthetic tools/call request. The proxy will:
+    //   1. Attempt to kill `this.child` (we set it to null up front to skip
+    //      the kill path safely).
+    //   2. Call spawnChild() — this tries to spawn a real subprocess. To keep
+    //      the test fast and avoid spawning a process, we shortcut by setting
+    //      isShuttingDown=true BEFORE invoking handleProxyRestart so spawnChild
+    //      returns early without spawning.
+    //   3. Send the success response (with nudge appended) to proc.stdout —
+    //      this is the path we want to verify.
+    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
+
+    const captured: string[] = [];
+    const originalWrite = process.stdout.write.bind(process.stdout);
+    (process.stdout as Writable).write = ((chunk: unknown) => {
+      captured.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+
+    // Short-circuit spawnChild so it doesn't spawn an actual process.
+    (proxy as unknown as { isShuttingDown: boolean }).isShuttingDown = true;
+    // No child to kill.
+    (proxy as unknown as { child: unknown }).child = null;
+
+    const request = {
+      jsonrpc: "2.0",
+      id: "test-restart-1",
+      method: "tools/call",
+      params: { name: "__proxy_restart_server" },
+    };
+
+    try {
+      await (
+        proxy as unknown as { handleProxyRestart: (req: unknown) => Promise<void> }
+      ).handleProxyRestart(request);
+    } finally {
+      (process.stdout as Writable).write = originalWrite as typeof process.stdout.write;
+    }
+
+    // The proxy should have written exactly one JSON-RPC frame to stdout: the
+    // tool-call success response.
+    const [responseLine] = captured.filter((s) => s.includes('"id":"test-restart-1"'));
+    if (!responseLine) {
+      throw new Error("expected handleProxyRestart to write a tool-call response");
+    }
+
+    // Parse the response and verify it contains both the restart-confirmation
+    // text AND the nudge text.
+    const parsed = JSON.parse(responseLine.trim());
+    const text = parsed.result.content[0].text as string;
+    expect(text).toContain("inner server restarted at");
+    expect(text).toContain(PROXY_RESTART_NUDGE_TEXT);
+    // The nudge appears after the restart-confirmation line.
+    expect(text.indexOf(PROXY_RESTART_NUDGE_TEXT)).toBeGreaterThan(
+      text.indexOf("inner server restarted at")
+    );
   });
 });
