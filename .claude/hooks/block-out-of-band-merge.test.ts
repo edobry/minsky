@@ -14,7 +14,13 @@ import {
 // magic-string-duplication lint rule fires at 3+ literal occurrences).
 const PHRASE_SERVICE_INSTANCE_UPDATE = "serviceInstanceUpdate";
 const PHRASE_POST_MERGE_CONFIG = "post-merge config";
-const PHRASE_OUT_OF_BAND = "out-of-band";
+const PHRASE_ROOT_DIRECTORY = "rootDirectory";
+// Note: "out-of-band" is a PAIR_PARTNER (activates pair-required phrases when
+// co-occurring with them in the same paragraph) but is NOT itself a trigger
+// phrase since mt#2019 removed it from STANDALONE_TRIGGER_PHRASES to prevent
+// false positives on architectural prose like "out-of-band consumers".
+// Use PHRASE_ROOT_DIRECTORY or PHRASE_SERVICE_INSTANCE_UPDATE for true-positive
+// test assertions that require Railway-coordination context.
 
 // ---------------------------------------------------------------------------
 // scanForTriggerPhrases
@@ -44,12 +50,14 @@ bun test passes.`;
 });
 
 describe("scanForTriggerPhrases — coupled-step PR bodies", () => {
-  it("matches 'out-of-band' (case-insensitive)", () => {
+  it("does NOT match 'out-of-band' alone — mt#2019 false-positive fix (architectural prose)", () => {
+    // mt#2019: "out-of-band" was removed from STANDALONE_TRIGGER_PHRASES to
+    // prevent false positives on architectural prose like "out-of-band consumers"
+    // (mt#2010 originating incident). Bare occurrences of out-of-band in prose
+    // that don't co-occur with Railway/config field names should not fire.
     const body = "This requires an OUT-OF-BAND deploy step before merging.";
     const matches = scanForTriggerPhrases(body);
-    expect(matches.length).toBe(1);
-    expect(matches[0].phrase).toBe("out-of-band");
-    expect(matches[0].excerpt.toLowerCase()).toContain("out-of-band");
+    expect(matches.length).toBe(0);
   });
 
   it("matches multiple distinct phrases in one body", () => {
@@ -59,15 +67,25 @@ serviceInstanceUpdate needs rootDirectory + dockerfilePath flipped.`;
     const phraseSet = new Set(matches.map((m) => m.phrase));
     expect(phraseSet.has("Railway config change")).toBe(true);
     expect(phraseSet.has(PHRASE_POST_MERGE_CONFIG)).toBe(true);
-    expect(phraseSet.has("serviceInstanceUpdate")).toBe(true);
+    expect(phraseSet.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(true);
     expect(phraseSet.has("rootDirectory")).toBe(true);
     expect(phraseSet.has("dockerfilePath")).toBe(true);
   });
 
   it("matches the mt#1681 PR #1013 body shape (regression anchor)", () => {
     // Excerpts taken verbatim from PR #1013 body to ensure the originating
-    // incident's PR shape would be caught by this hook. The four phrases
-    // asserted below were all present in the actual PR body.
+    // incident's PR shape would be caught by this hook.
+    //
+    // After mt#2019: "out-of-band" is no longer a standalone trigger.
+    // The hook still fires because:
+    //   1. serviceInstanceUpdate appears in bare prose (standalone trigger)
+    //   2. rootDirectory appears in bare prose alongside out-of-band in
+    //      the same paragraph (pair-requirement satisfied)
+    //
+    // In this test body, rootDirectory and dockerfilePath appear WITHOUT
+    // backtick code spans (unlike the mt#1707 regression test). The backticks
+    // here surround the VALUE strings (`services/reviewer`, `""`), not the
+    // field names themselves. So rootDirectory fires via pair-requirement.
     const body = `## Design / Approach
 
 5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
@@ -83,24 +101,30 @@ is still healthy. Then:
     const matches = scanForTriggerPhrases(body);
     expect(matches.length).toBeGreaterThan(0);
     const phrases = new Set(matches.map((m) => m.phrase));
-    expect(phrases.has("out-of-band")).toBe(true);
-    expect(phrases.has("rootDirectory")).toBe(true);
-    expect(phrases.has("dockerfilePath")).toBe(true);
+    // serviceInstanceUpdate appears in bare prose — fires standalone
     expect(phrases.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(true);
+    // rootDirectory appears in bare prose with out-of-band in same paragraph
+    // — pair-requirement fires it
+    expect(phrases.has("rootDirectory")).toBe(true);
+    // out-of-band is no longer a standalone trigger (mt#2019)
+    expect(phrases.has("out-of-band")).toBe(false);
   });
 
   it("includes a short surrounding excerpt for each match", () => {
-    const body =
-      "Some preamble before the trigger — this PR requires an out-of-band Railway flip after merge.";
+    // Uses serviceInstanceUpdate (standalone trigger) to test excerpt extraction.
+    // "out-of-band" was removed from standalone triggers in mt#2019.
+    const body = `Some preamble before the trigger — this PR calls ${PHRASE_SERVICE_INSTANCE_UPDATE} on the Railway service.`;
     const matches = scanForTriggerPhrases(body);
     expect(matches.length).toBe(1);
     expect(matches[0].excerpt.length).toBeLessThanOrEqual(160);
-    expect(matches[0].excerpt).toContain("out-of-band");
+    expect(matches[0].excerpt).toContain(PHRASE_SERVICE_INSTANCE_UPDATE);
   });
 
   it("collapses whitespace in excerpts", () => {
+    // Uses serviceInstanceUpdate (standalone trigger) to test excerpt whitespace collapsing.
+    // "out-of-band" was removed from standalone triggers in mt#2019.
     const body = `requires
-an out-of-band
+serviceInstanceUpdate
 deploy`;
     const matches = scanForTriggerPhrases(body);
     expect(matches[0].excerpt).not.toContain("\n");
@@ -133,23 +157,33 @@ Acknowledged in the doc.`;
     expect(scanForTriggerPhrases(body)).toEqual([]);
   });
 
-  it("still fires on a trigger phrase in bare prose when paired with out-of-band (mt#2002 regression check)", () => {
-    // Post-mt#2002: rootDirectory requires a pair-partner in the same
-    // paragraph to fire. Adding "out-of-band" makes it fire (paired).
-    // This test originally asserted bare-prose rootDirectory fired
-    // alone; that's no longer the case under pair-requirement.
+  it("still fires on pair-required phrase in bare prose when paired with out-of-band (mt#2002/mt#2019 regression check)", () => {
+    // mt#2002: rootDirectory requires a pair-partner in the same paragraph to fire.
+    // mt#2019: "out-of-band" is no longer a standalone trigger, but it IS still a
+    // PAIR_PARTNER — so rootDirectory still fires when co-occurring with out-of-band.
+    // After mt#2019: only rootDirectory fires (out-of-band is not itself a trigger).
     const body =
       "After merge (out-of-band), set rootDirectory to empty string on the Railway service.";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
     expect(phrases.has("rootDirectory")).toBe(true);
-    expect(phrases.has("out-of-band")).toBe(true);
+    // out-of-band is a PAIR_PARTNER, not a trigger phrase — does not appear in results
+    expect(phrases.has("out-of-band")).toBe(false);
   });
 
-  it("preserves the mt#1681 PR #1013 body regression anchor (bare prose, mixed with parenthetical code)", () => {
+  it("mt#1681 PR #1013 body: code-span field names not fired, out-of-band no longer standalone (mt#2019)", () => {
     // mt#1681's body uses `rootDirectory` in code spans AND uses bare-prose
-    // language like "(post-merge, out-of-band)" — the bare prose is the load-
-    // bearing signal that must still fire.
+    // language like "(post-merge, out-of-band)".
+    //
+    // After mt#2019: "out-of-band" is no longer a standalone trigger. And
+    // rootDirectory/dockerfilePath are ONLY in code spans (elided by mt#1707),
+    // so no pair-matching fires either. This body alone (without the bare-prose
+    // serviceInstanceUpdate line) would NOT fire the hook.
+    //
+    // This is intentional — this PR body excerpt by itself describes what IS
+    // happening (field values in code spans). The full mt#1681 PR body also
+    // contains "Flip Railway serviceInstanceUpdate for minsky-reviewer-webhook"
+    // in bare prose (the regression anchor test covers the full body).
     const body = `## Design / Approach
 
 5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
@@ -157,12 +191,13 @@ Acknowledged in the doc.`;
    set \`dockerfilePath\` to \`services/reviewer/Dockerfile\` via the Railway GraphQL API.`;
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    // out-of-band appears in bare prose — should still fire
-    expect(phrases.has("out-of-band")).toBe(true);
-    // rootDirectory and dockerfilePath appear ONLY in code spans here — should
-    // NOT fire on those individually
+    // out-of-band is no longer standalone (mt#2019) — does not fire alone
+    expect(phrases.has("out-of-band")).toBe(false);
+    // rootDirectory and dockerfilePath appear ONLY in code spans — not fired
     expect(phrases.has("rootDirectory")).toBe(false);
     expect(phrases.has("dockerfilePath")).toBe(false);
+    // This excerpt has no standalone triggers either
+    expect(matches.length).toBe(0);
   });
 
   it("fires on prose occurrence when the same phrase also appears in a code span (paired)", () => {
@@ -218,12 +253,13 @@ services/reviewer/DEPLOY.md:dockerfilePath services/reviewer/Dockerfile
   it("excerpts continue to slice from the original body (positions preserved)", () => {
     // Phrase appears in prose; verify the excerpt contains the original
     // surrounding text — confirms position preservation in the elision pass.
-    const body =
-      "Some preamble before the trigger — this PR requires an out-of-band Railway flip after merge.";
+    // Uses serviceInstanceUpdate (standalone trigger) since "out-of-band" is
+    // no longer a standalone trigger (mt#2019).
+    const body = `Some preamble before the trigger — this PR calls ${PHRASE_SERVICE_INSTANCE_UPDATE} on the Railway service after merge.`;
     const matches = scanForTriggerPhrases(body);
     expect(matches.length).toBe(1);
-    expect(matches[0].excerpt).toContain("out-of-band");
-    expect(matches[0].excerpt).toContain("Railway flip");
+    expect(matches[0].excerpt).toContain(PHRASE_SERVICE_INSTANCE_UPDATE);
+    expect(matches[0].excerpt).toContain("Railway service");
   });
 });
 
@@ -500,11 +536,16 @@ describe("scanForTriggerPhrases — pair-requirement (mt#2002)", () => {
   });
 
   it("DOES fire on rootDirectory when paired with out-of-band in same paragraph", () => {
+    // out-of-band is a PAIR_PARTNER that activates rootDirectory. After mt#2019,
+    // out-of-band is no longer itself a trigger — it doesn't appear in results.
+    // But rootDirectory fires because out-of-band is present in the same paragraph.
     const body =
       "After merge (out-of-band), flip the reviewer service rootDirectory to empty string.";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    expect(phrases.has("out-of-band")).toBe(true);
+    // out-of-band is a PAIR_PARTNER, not a trigger — not in the results
+    expect(phrases.has("out-of-band")).toBe(false);
+    // rootDirectory fires because out-of-band is in the same paragraph
     expect(phrases.has("rootDirectory")).toBe(true);
   });
 
@@ -520,59 +561,74 @@ describe("scanForTriggerPhrases — pair-requirement (mt#2002)", () => {
     // First paragraph has out-of-band; second paragraph has rootDirectory.
     // They're separated by a blank line, so they're separate paragraphs.
     // rootDirectory should NOT fire (pair-requirement is paragraph-scoped).
-    // out-of-band fires standalone.
+    // After mt#2019: out-of-band is also no longer standalone, so neither fires.
     const body =
       "This PR will require an out-of-band coordination step on Railway after merge.\n\n" +
       "Separately, the rootDirectory field is documented in the comments for reference.";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    expect(phrases.has("out-of-band")).toBe(true);
+    // out-of-band is no longer standalone (mt#2019) — doesn't fire even when alone
+    expect(phrases.has("out-of-band")).toBe(false);
+    // rootDirectory has no partner in its paragraph — doesn't fire
     expect(phrases.has("rootDirectory")).toBe(false);
+    // Nothing fires — the hook allows this merge
+    expect(matches.length).toBe(0);
   });
 
   it("fires correctly across multiple paragraphs with independent pair-checks", () => {
-    // Paragraph 1: rootDirectory + out-of-band (pair-match → fires)
+    // Paragraph 1: rootDirectory + out-of-band (pair-match → rootDirectory fires)
     // Paragraph 2: dockerfilePath alone (no partner → suppressed)
-    // Paragraph 3: post-merge alone (standalone partner; no pair-required to fire)
+    // Paragraph 3: post-merge alone (PAIR_PARTNER without a pair-required phrase → nothing fires)
+    //
+    // After mt#2019: out-of-band is a PAIR_PARTNER, not a trigger. It activates
+    // rootDirectory but doesn't itself appear in the matches set.
     const body =
       "After merge (out-of-band), set rootDirectory to empty.\n\n" +
       "The dockerfilePath field is documented in the diff.\n\n" +
       "Post-merge, the deploy will use the new config.";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    expect(phrases.has("out-of-band")).toBe(true);
+    // out-of-band is a PAIR_PARTNER (not a trigger) — not in results
+    expect(phrases.has("out-of-band")).toBe(false);
+    // rootDirectory fires because out-of-band is in the same paragraph
     expect(phrases.has("rootDirectory")).toBe(true);
+    // dockerfilePath alone (no partner in its paragraph) — doesn't fire
     expect(phrases.has("dockerfilePath")).toBe(false);
   });
 
-  it("preserves the mt#1681 PR #1013 regression anchor (rootDirectory + out-of-band in same prose paragraph)", () => {
-    // mt#1681's PR body: rootDirectory + dockerfilePath are in CODE SPANS
-    // (elided by mt#1707), but "out-of-band" and "post-merge" appear in bare
-    // prose. Under pair-requirement, since the code-span phrases are already
-    // elided, the remaining bare-prose `out-of-band` fires standalone and
-    // blocks the merge. The regression anchor holds.
+  it("preserves the mt#1681 PR #1013 regression anchor (full body with bare-prose serviceInstanceUpdate)", () => {
+    // mt#1681's full PR body: rootDirectory + dockerfilePath are in CODE SPANS
+    // (elided by mt#1707). After mt#2019, "out-of-band" is no longer a standalone
+    // trigger. The regression anchor is now preserved via "serviceInstanceUpdate"
+    // in bare prose — it appears as a standalone trigger on the "Flip Railway
+    // serviceInstanceUpdate" line.
     const body = `## Design / Approach
 
 5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
    service's \`rootDirectory\` from \`services/reviewer\` to \`""\` (repo root) and
-   set \`dockerfilePath\` to \`services/reviewer/Dockerfile\` via the Railway GraphQL API.`;
+   set \`dockerfilePath\` to \`services/reviewer/Dockerfile\` via the Railway GraphQL API.
+
+## Live verification (post-merge)
+
+After merge, before flipping the Railway config, the existing reviewer deploy
+is still healthy. Then:
+
+1. Flip Railway serviceInstanceUpdate for minsky-reviewer-webhook.`;
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    // out-of-band fires standalone (bare prose, not elided)
-    expect(phrases.has("out-of-band")).toBe(true);
-    // The merge will be blocked regardless of whether rootDirectory fires
-    // (which it shouldn't, since it's only in code spans here).
+    // serviceInstanceUpdate fires standalone (bare prose, not elided)
+    expect(phrases.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(true);
+    // The merge is blocked by the serviceInstanceUpdate standalone trigger
     expect(matches.length).toBeGreaterThan(0);
+    // out-of-band is no longer standalone (mt#2019) — doesn't appear in results
+    expect(phrases.has("out-of-band")).toBe(false);
   });
 
-  it("STANDALONE triggers (out-of-band, post-merge config, serviceInstanceUpdate) still fire alone", () => {
-    // Each of these has no benign mention pattern; they fire on any
-    // bare-prose occurrence regardless of pair-partner presence.
+  it("STANDALONE triggers (post-merge config, serviceInstanceUpdate) still fire alone (mt#2019: out-of-band removed)", () => {
+    // After mt#2019: "out-of-band" is no longer a standalone trigger (moved to
+    // PAIR_PARTNER only). The remaining standalones fire on any bare-prose
+    // occurrence regardless of pair-partner presence.
     const cases = [
-      {
-        body: "This PR uses an out-of-band signing flow for the upgrade.",
-        phrase: PHRASE_OUT_OF_BAND,
-      },
       { body: "Includes a post-merge config update step.", phrase: PHRASE_POST_MERGE_CONFIG },
       {
         body: "Calls serviceInstanceUpdate to apply the change.",
@@ -586,7 +642,7 @@ describe("scanForTriggerPhrases — pair-requirement (mt#2002)", () => {
     }
   });
 
-  it("PR #1204-style historical-incident description: pair-required phrases do not fire (partial fix)", () => {
+  it("PR #1204-style historical-incident description: pair-required phrases still fire when co-occurring with out-of-band (known limitation)", () => {
     // PR #1204's body included this kind of language. Pair-required
     // phrases (rootDirectory, dockerfilePath) appearing in bare prose
     // alongside out-of-band do still fire under the pair-requirement —
@@ -595,19 +651,111 @@ describe("scanForTriggerPhrases — pair-requirement (mt#2002)", () => {
     // ALONE; it does NOT help when out-of-band is also in the same
     // sentence describing the incident.
     //
-    // The remaining false-positive class (historical-incident
-    // descriptions that mention BOTH phrases) is a follow-up — likely
-    // requires a "## Originating-Context" section exclusion or similar.
+    // After mt#2019: out-of-band is no longer a standalone trigger so it
+    // doesn't appear in results itself — but it's still a PAIR_PARTNER that
+    // activates rootDirectory/dockerfilePath in the same paragraph.
+    //
+    // The remaining false-positive class (historical-incident descriptions
+    // that mention BOTH phrases) is a follow-up — likely requires a
+    // "## Originating-Context" section exclusion or similar.
     const body =
       "Three instances in May 2026 — mt#1681 PR #1013 (rootDirectory + dockerfilePath flip documented as out-of-band, never executed).";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
-    // out-of-band fires standalone
-    expect(phrases.has("out-of-band")).toBe(true);
-    // rootDirectory + dockerfilePath fire because out-of-band is in the
-    // same paragraph (single sentence here). This is the known limitation
-    // of pair-requirement on incident-description prose.
+    // out-of-band is no longer standalone (mt#2019) — doesn't appear in results
+    expect(phrases.has("out-of-band")).toBe(false);
+    // rootDirectory + dockerfilePath fire because out-of-band (PAIR_PARTNER)
+    // is in the same paragraph. This is the known limitation: incident-
+    // description prose that uses both phrases still triggers the hook.
     expect(phrases.has("rootDirectory")).toBe(true);
     expect(phrases.has("dockerfilePath")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2019 acceptance tests — false-positive reduction
+// ---------------------------------------------------------------------------
+
+describe("scanForTriggerPhrases — mt#2019 acceptance tests", () => {
+  it("mt#2010 false-positive: 'out-of-band consumers' in architectural prose does NOT fire", () => {
+    // Originating incident: mt#2010 PR #1217. The PR body described
+    // `discovery-config.ts` as importable by "out-of-band consumers (smoke
+    // scripts, unit tests)" — architectural prose about module callers in
+    // the import graph. The hook incorrectly blocked the merge.
+    //
+    // After mt#2019: "out-of-band" is no longer a standalone trigger.
+    // This PR body should not fire the hook.
+    const body = `## Summary
+
+Adds the \`discoverDeploymentConfig\` function to \`discovery-config.ts\` to make
+it importable by out-of-band consumers (smoke scripts, unit tests) without
+pulling in the full server bootstrap.
+
+## Testing
+
+bun test passes.`;
+    expect(scanForTriggerPhrases(body)).toEqual([]);
+  });
+
+  it("mt#2010 false-positive: variant phrasings of architectural 'out-of-band' consumers do NOT fire", () => {
+    // Additional phrasings of the same architectural pattern that should not fire.
+    const bodies = [
+      "The module can be used out-of-band by scripts that need config discovery.",
+      "Out-of-band callers (unit tests, CLI tools) import this module directly.",
+      "This function is safe to call out-of-band outside the server context.",
+    ];
+    for (const body of bodies) {
+      expect(scanForTriggerPhrases(body)).toEqual([]);
+    }
+  });
+
+  it("mt#1681 true-positive: full PR #1013 body still fires (regression anchor preserved)", () => {
+    // The originating true-positive incident. After mt#2019, the hook still
+    // fires on this body because `serviceInstanceUpdate` appears in bare prose.
+    // The merge would be correctly blocked.
+    const body = `## Design / Approach
+
+5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
+   service's rootDirectory from \`services/reviewer\` to \`""\` (repo root) and
+   set dockerfilePath to \`services/reviewer/Dockerfile\` via the Railway GraphQL API.
+
+## Live verification (post-merge)
+
+After merge, before flipping the Railway config, the existing reviewer deploy
+is still healthy. Then:
+
+1. Flip Railway serviceInstanceUpdate for minsky-reviewer-webhook.`;
+    const matches = scanForTriggerPhrases(body);
+    expect(matches.length).toBeGreaterThan(0);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    // serviceInstanceUpdate in bare prose is the load-bearing true-positive signal
+    expect(phrases.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(true);
+  });
+
+  it("post-merge config coordination step still fires (standalone trigger preserved)", () => {
+    // "post-merge config" is still a standalone trigger — coordination steps
+    // documented this way should be caught.
+    const body = `## Summary
+
+Refactors the Railway config pipeline.
+
+## Post-merge steps
+
+This PR requires a post-merge config update to the Railway service dashboard
+to set the new environment variable.`;
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has(PHRASE_POST_MERGE_CONFIG)).toBe(true);
+  });
+
+  it("out-of-band + rootDirectory in same paragraph still fires via pair-requirement", () => {
+    // Even though out-of-band is no longer standalone, the combination of
+    // out-of-band + rootDirectory in the same paragraph is still a strong
+    // coordination signal and fires via pair-requirement.
+    const body =
+      "After merge, perform the out-of-band step: set rootDirectory to empty string on the Railway service.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has(PHRASE_ROOT_DIRECTORY)).toBe(true);
   });
 });
