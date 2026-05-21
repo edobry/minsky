@@ -12,7 +12,7 @@
  * Tracking tasks: mt#1730 (consolidation), mt#2013 (refresh + final consolidation).
  */
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -90,14 +90,31 @@ function defaultRailwayConfigPath(): string {
 }
 
 /**
+ * Default mode applied to a freshly-created `~/.railway/config.json`. The file
+ * contains bearer + refresh tokens; private (owner-only) is the right baseline.
+ * Mirrors Railway CLI's first-write convention.
+ */
+const DEFAULT_CONFIG_FILE_MODE = 0o600;
+
+/**
  * Default fs-backed config store. Read and write the real
  * `~/.railway/config.json` file.
  *
- * Write semantics: best-effort last-write-wins. Two concurrent processes
- * refreshing simultaneously may stomp each other; the loser's stale access
- * token will be rejected by Railway on its next use, triggering an idempotent
- * re-refresh. A `proper-lockfile`-style file lock would be over-engineering
- * for a single-CLI-per-machine consumer.
+ * Write semantics:
+ * - **Atomic via temp + rename** to avoid partial writes on crash (PR #1228 R1
+ *   NON-BLOCKING). A pid-suffixed temp file in the same directory is written
+ *   first, then `rename`d over the target. `rename` within a single filesystem
+ *   is atomic on POSIX; the reader will see either the old or new content,
+ *   never a partial file.
+ * - **Preserves existing file permissions** when the target file already
+ *   exists; uses {@link DEFAULT_CONFIG_FILE_MODE} (`0o600`) when creating a
+ *   new file. Prevents accidentally widening permissions on token-bearing
+ *   data.
+ * - **Best-effort last-write-wins.** Two concurrent processes refreshing
+ *   simultaneously may stomp each other; the loser's stale access token will
+ *   be rejected by Railway on its next use, triggering an idempotent
+ *   re-refresh. A `proper-lockfile`-style file lock would be over-engineering
+ *   for a single-CLI-per-machine consumer.
  */
 export const defaultRailwayConfigStore: RailwayConfigStore = {
   read(): RailwayConfigShape {
@@ -121,7 +138,20 @@ export const defaultRailwayConfigStore: RailwayConfigStore = {
 
   write(cfg: RailwayConfigShape): void {
     const cfgPath = defaultRailwayConfigPath();
-    writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+    // Preserve the existing file's permission bits; fall back to 0o600 when
+    // creating a new file (or stat fails).
+    let mode = DEFAULT_CONFIG_FILE_MODE;
+    try {
+      const stats = statSync(cfgPath);
+      mode = stats.mode & 0o777;
+    } catch {
+      // File doesn't exist (or stat failed); use the conservative default.
+    }
+    // Atomic write: write to a temp file in the same directory, then rename
+    // over the target. Same-directory rename is atomic on POSIX.
+    const tmpPath = `${cfgPath}.tmp-${process.pid}`;
+    writeFileSync(tmpPath, JSON.stringify(cfg, null, 2), { mode });
+    renameSync(tmpPath, cfgPath);
   },
 };
 

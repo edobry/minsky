@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   RAILWAY_GRAPHQL_URL as CANONICAL_RAILWAY_GRAPHQL_URL,
   railwayGraphQLAuthed,
+  type RailwayConfigStore,
 } from "../../src/domain/deployment/railway/graphql-client";
 
 // Re-export the canonical readRailwayToken for back-compat with any consumer
@@ -304,13 +305,25 @@ export const RAILWAY_GRAPHQL_URL = CANONICAL_RAILWAY_GRAPHQL_URL;
  *
  * The `fetchImpl` parameter is preserved for tests that inject a mocked
  * fetch; production callers can omit it.
+ *
+ * The optional 4th-arg `opts` lets tests fully isolate from the real
+ * `~/.railway/config.json` by injecting a custom `store` (and a
+ * clock/`clientId` override). Without it, refresh reads/writes the real
+ * file — the pre-mt#2013 behavior at the read-only level, plus the new
+ * refresh-write behavior. PR #1228 R1 BLOCKING.
  */
 export async function graphql<T>(
   query: string,
   variables: Record<string, unknown>,
-  fetchImpl: typeof fetch = fetch
+  fetchImpl: typeof fetch = fetch,
+  opts?: { store?: RailwayConfigStore; nowSeconds?: () => number; clientId?: string }
 ): Promise<T> {
-  return railwayGraphQLAuthed<T>(query, variables, { fetchImpl });
+  return railwayGraphQLAuthed<T>(query, variables, {
+    fetchImpl,
+    store: opts?.store,
+    nowSeconds: opts?.nowSeconds,
+    clientId: opts?.clientId,
+  });
 }
 
 // ---------------------------------------------------------------------------
