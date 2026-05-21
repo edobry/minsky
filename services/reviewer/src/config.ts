@@ -44,6 +44,32 @@ export interface ReviewerConfig {
 }
 
 /**
+ * Additional reviewer env vars NOT bound through ReviewerConfig but read at
+ * call time. Names declared here so operators auditing reviewer
+ * configuration can find them in this file without grepping the full source
+ * tree. The actual reads live in `services/reviewer/src/providers.ts`
+ * (`resolveToolloopRetryConfig`).
+ *
+ * Why call-time rather than ReviewerConfig: `providers.ts` is a sealed
+ * module without imports from `./config`, and the production callers don't
+ * thread a per-call retry config through. Reading at call time keeps the
+ * surface narrow while still being operator-tunable. If operational
+ * complexity grows (more retry knobs, hot-reload, etc.) the proper fix is
+ * to plumb them through ReviewerConfig.
+ *
+ * Defaults are in `providers.ts` (`DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 90000`;
+ * `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT` defaults `"true"`).
+ *
+ * mt#1969.
+ */
+export const REVIEWER_CALLTIME_ENV_VAR_NAMES = {
+  /** Enable single retry on toolloop `TimeoutError`. Default `"true"`. */
+  TOOLLOOP_RETRY_ON_TIMEOUT: "REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT",
+  /** Reduced timeout ceiling for the retry attempt. Default `90000` ms. */
+  TOOLLOOP_RETRY_TIMEOUT_MS: "REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS",
+} as const;
+
+/**
  * Parse a positive-integer env var with a default fallback. Throws at
  * config-load time on `=abc`, `=-5`, `=0`, `=NaN`, `=3.14`, `= ` — any
  * non-positive-integer value. This is mt#1086's stricter cousin of the
