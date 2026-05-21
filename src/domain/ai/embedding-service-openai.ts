@@ -16,6 +16,36 @@ export function isRetryableAIError(error: unknown): boolean {
 }
 
 /**
+ * Determines whether a GitHub REST API error is retryable.
+ *
+ * Retryable:
+ *   - 429 Too Many Requests (secondary rate limit)
+ *   - 403 with "rate limit" language (primary rate limit)
+ *   - 5xx server errors
+ *   - Network errors (ECONNRESET, ETIMEDOUT)
+ *
+ * Not retryable:
+ *   - 401 Unauthorized (bad token)
+ *   - 403 without rate-limit language (permissions)
+ *   - 404 Not Found
+ *   - 422 Unprocessable Entity
+ */
+export function isRetryableGitHubError(error: unknown): boolean {
+  const msg = String((error as Error)?.message ?? "");
+  if (/GitHub API error: 401/i.test(msg)) return false;
+  if (/GitHub API error: 404/i.test(msg)) return false;
+  if (/GitHub API error: 422/i.test(msg)) return false;
+  // 403 — only retry if it's a rate limit
+  if (/GitHub API error: 403/i.test(msg)) {
+    return /rate.limit|rate_limit|secondary rate/i.test(msg);
+  }
+  return (
+    /GitHub API error: (429|5\d\d)/i.test(msg) ||
+    /429|rate.limit|503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(msg)
+  );
+}
+
+/**
  * Determines whether a Google Docs / Drive API error is retryable.
  *
  * Retryable:
