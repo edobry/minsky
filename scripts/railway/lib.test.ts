@@ -14,11 +14,17 @@ import {
   summarizeDiff,
   assertHttpOk,
   applyServiceInstanceUpdate,
+  computeServiceInstanceDiff,
+  flattenToServiceInstanceInput,
+  formatServiceInstanceDiff,
+  fetchServiceInstanceState,
   type SecretsFileReader,
   type CurrentVar,
   type VariableValue,
   type DiffEntry,
   type ServiceInstanceUpdateInput,
+  type ServiceInstanceState,
+  type ServiceInstanceDiffEntry,
 } from "./lib";
 
 // Shared constants to satisfy no-magic-string-duplication rule
@@ -30,6 +36,7 @@ const ENV_KEY_REDACTION = "REDACTION_TEST_SECRET";
 const ENV_KEY_RESEAL_A = "RE_SEAL_SECRET_A";
 const ENV_KEY_RESEAL_B = "RE_SEAL_SECRET_B";
 const ENV_KEY_RESEAL_C = "RE_SEAL_SECRET_C";
+const FIELD_SOURCE_ROOT_DIRECTORY = "source.rootDirectory";
 
 /** In-memory secrets file reader — avoids real fs in tests. */
 function makeFileReader(files: Record<string, string>): SecretsFileReader {
@@ -653,5 +660,221 @@ describe("applyServiceInstanceUpdate() — mt#1964 chunk 1", () => {
     const call = calls[0];
     if (!call) throw new Error("expected at least one call");
     expect(call.variables.input).toEqual({ builder: "NIXPACKS" });
+  });
+});
+
+describe("computeServiceInstanceDiff() — mt#2000 chunk 2", () => {
+  test("returns no actionable entries when desired matches current", () => {
+    const desired = {
+      source: { repo: "edobry/minsky", branch: "main", rootDirectory: "services/site" },
+      build: { builder: "NIXPACKS" as const },
+    };
+    const current: ServiceInstanceState = {
+      rootDirectory: "services/site",
+      source: { repo: "edobry/minsky" },
+      builder: "NIXPACKS",
+    };
+    const diff = computeServiceInstanceDiff(desired, current);
+    const actionable = diff.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+    // source.branch is always ADD (write-through; not in readable state)
+    expect(actionable.length).toBe(1);
+    expect(actionable[0]).toEqual({ kind: "ADD", field: "source.branch", value: "main" });
+  });
+
+  test("ADD entries when current is unset", () => {
+    const desired = {
+      source: { repo: "edobry/minsky", branch: "main", rootDirectory: "services/reviewer" },
+      build: { builder: "DOCKERFILE" as const, dockerfilePath: "services/reviewer/Dockerfile" },
+    };
+    const current: ServiceInstanceState = {}; // nothing live
+    const diff = computeServiceInstanceDiff(desired, current);
+    const adds = diff.filter((e) => e.kind === "ADD");
+    expect(adds.length).toBe(5);
+    expect(adds.map((e) => (e as { field: string }).field).sort()).toEqual([
+      "build.builder",
+      "build.dockerfilePath",
+      "source.branch",
+      "source.repo",
+      FIELD_SOURCE_ROOT_DIRECTORY,
+    ]);
+  });
+
+  test("CHANGE entry when desired differs from current", () => {
+    const desired = {
+      source: { repo: "edobry/minsky", branch: "main", rootDirectory: "services/site" },
+    };
+    const current: ServiceInstanceState = {
+      rootDirectory: "", // current is empty string; desired wants services/site
+      source: { repo: "edobry/minsky" },
+    };
+    const diff = computeServiceInstanceDiff(desired, current);
+    const change = diff.find((e) => e.kind === "CHANGE");
+    expect(change).toBeDefined();
+    if (change && change.kind === "CHANGE") {
+      expect(change.field).toBe(FIELD_SOURCE_ROOT_DIRECTORY);
+      expect(change.from).toBe("");
+      expect(change.to).toBe("services/site");
+    }
+  });
+
+  test("skips undeclared fields (no REMOVE class)", () => {
+    // Current has builder and buildCommand; desired only declares rootDirectory.
+    // The undeclared fields should NOT appear in the diff at all (no REMOVE).
+    const desired = { source: { repo: "x", branch: "y", rootDirectory: "z" } };
+    const current: ServiceInstanceState = {
+      rootDirectory: "z",
+      source: { repo: "x" },
+      builder: "NIXPACKS",
+      buildCommand: "old command",
+    };
+    const diff = computeServiceInstanceDiff(desired, current);
+    const fields = new Set(diff.map((e) => (e as { field?: string }).field));
+    expect(fields.has("build.builder")).toBe(false);
+    expect(fields.has("build.buildCommand")).toBe(false);
+  });
+
+  test("array-equal comparison for watchPatterns", () => {
+    const desired = {
+      build: { builder: "NIXPACKS" as const, watchPatterns: ["src/**", "tests/**"] },
+    };
+    const sameOrder: ServiceInstanceState = {
+      builder: "NIXPACKS",
+      watchPatterns: ["src/**", "tests/**"],
+    };
+    const differentOrder: ServiceInstanceState = {
+      builder: "NIXPACKS",
+      watchPatterns: ["tests/**", "src/**"],
+    };
+    const diffSame = computeServiceInstanceDiff(desired, sameOrder);
+    const sameActionable = diffSame.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+    expect(sameActionable.length).toBe(0);
+
+    const diffDifferent = computeServiceInstanceDiff(desired, differentOrder);
+    const diffActionable = diffDifferent.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+    expect(diffActionable.length).toBe(1);
+    expect(diffActionable[0].kind).toBe("CHANGE");
+  });
+});
+
+describe("flattenToServiceInstanceInput() — mt#2000", () => {
+  test("flat input contains only declared fields", () => {
+    const desired = {
+      source: { repo: "edobry/minsky", branch: "main", rootDirectory: "services/site" },
+      build: { builder: "DOCKERFILE" as const, dockerfilePath: "Dockerfile" },
+    };
+    const input = flattenToServiceInstanceInput(desired);
+    expect(input).toEqual({
+      repo: "edobry/minsky",
+      branch: "main",
+      rootDirectory: "services/site",
+      builder: "DOCKERFILE",
+      dockerfilePath: "Dockerfile",
+    });
+  });
+
+  test("sparse-input preserves only declared fields", () => {
+    const desired = { source: { repo: "x", branch: "y" } };
+    const input = flattenToServiceInstanceInput(desired);
+    expect(input).toEqual({ repo: "x", branch: "y" });
+  });
+
+  test("empty desired returns empty input", () => {
+    const input = flattenToServiceInstanceInput({});
+    expect(input).toEqual({});
+  });
+});
+
+describe("formatServiceInstanceDiff() — mt#2000", () => {
+  test("clean diff returns 'No deploy-trigger changes.'", () => {
+    const diff: ServiceInstanceDiffEntry[] = [];
+    expect(formatServiceInstanceDiff(diff)).toBe("No deploy-trigger changes.");
+  });
+
+  test("ADD entry shows + ADD prefix", () => {
+    const diff: ServiceInstanceDiffEntry[] = [
+      { kind: "ADD", field: FIELD_SOURCE_ROOT_DIRECTORY, value: "services/site" },
+    ];
+    expect(formatServiceInstanceDiff(diff)).toContain("+ ADD");
+    expect(formatServiceInstanceDiff(diff)).toContain(FIELD_SOURCE_ROOT_DIRECTORY);
+    expect(formatServiceInstanceDiff(diff)).toContain("services/site");
+  });
+
+  test("CHANGE entry shows ~ CHANGE prefix with from → to", () => {
+    const diff: ServiceInstanceDiffEntry[] = [
+      { kind: "CHANGE", field: FIELD_SOURCE_ROOT_DIRECTORY, from: "", to: "services/site" },
+    ];
+    const out = formatServiceInstanceDiff(diff);
+    expect(out).toContain("~ CHANGE");
+    expect(out).toContain("→");
+  });
+});
+
+describe("fetchServiceInstanceState() — mt#2000", () => {
+  test("returns state when service exists in environment", async () => {
+    const fakeGraphql = async <T>(): Promise<T> =>
+      ({
+        environment: {
+          serviceInstances: {
+            edges: [
+              {
+                node: {
+                  serviceId: "svc-1",
+                  rootDirectory: "services/site",
+                  source: { repo: "edobry/minsky" },
+                  builder: "NIXPACKS",
+                },
+              },
+            ],
+          },
+        },
+      }) as unknown as T;
+    const state = await fetchServiceInstanceState("env-1", "svc-1", fakeGraphql);
+    expect(state).toEqual({
+      rootDirectory: "services/site",
+      source: { repo: "edobry/minsky" },
+      builder: "NIXPACKS",
+      buildCommand: undefined,
+      dockerfilePath: undefined,
+      watchPatterns: undefined,
+      nixpacksConfigPath: undefined,
+    });
+  });
+
+  test("returns null when service not found in environment", async () => {
+    const fakeGraphql = async <T>(): Promise<T> =>
+      ({
+        environment: {
+          serviceInstances: {
+            edges: [
+              {
+                node: {
+                  serviceId: "different-service",
+                  rootDirectory: "x",
+                },
+              },
+            ],
+          },
+        },
+      }) as unknown as T;
+    const state = await fetchServiceInstanceState("env-1", "svc-1", fakeGraphql);
+    expect(state).toBe(null);
+  });
+
+  test("propagates GraphQL errors from injected implementation", async () => {
+    const failing = async <T>(): Promise<T> => {
+      throw new Error("GraphQL error: environment not found");
+    };
+    await expect(fetchServiceInstanceState("env-1", "svc-1", failing)).rejects.toThrow(
+      "GraphQL error: environment not found"
+    );
+  });
+
+  test("returns null when environment is null (invalid envId or access-denied; PR #1214 R1 #4)", async () => {
+    // Railway returns `environment: null` without a top-level GraphQL error
+    // for invalid env IDs or insufficient access. Function must guard the
+    // nested access and return null per the contract.
+    const fakeGraphql = async <T>(): Promise<T> => ({ environment: null }) as unknown as T;
+    const state = await fetchServiceInstanceState("nonexistent-env", "svc-1", fakeGraphql);
+    expect(state).toBe(null);
   });
 });
