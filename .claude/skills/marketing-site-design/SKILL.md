@@ -19,13 +19,13 @@ user-invocable: true
 
 # marketing-site-design — marketing-surface patterns over the Minsky brand foundation
 
-You are designing or auditing a marketing surface for Minsky (`~/Projects/minsky-site` or any future microsite, launch page, or campaign page). The vendored Tier-1 skills cover visual quality, IA, engineering stack, SEO, and motion. The sibling `analyze-adjacent-product` skill encodes the Peirce-Barthes-Oswald semiotic framework for reading other brands. The sibling `minsky-brand` skill carries the locked brand foundation (myth, cultural code, references, vocabulary). **This skill adds the marketing-surface layer on top of that foundation:** which idiom marketing uses, how marketing pages are structured, what marketing-format anti-patterns are forbidden, and how to run a workshop for a new marketing-surface myth.
+You are designing or auditing a marketing surface for Minsky (`services/site/` in this monorepo, or any future microsite, launch page, or campaign page). The vendored Tier-1 skills cover visual quality, IA, engineering stack, SEO, and motion. The sibling `analyze-adjacent-product` skill encodes the Peirce-Barthes-Oswald semiotic framework for reading other brands. The sibling `minsky-brand` skill carries the locked brand foundation (myth, cultural code, references, vocabulary). **This skill adds the marketing-surface layer on top of that foundation:** which idiom marketing uses, how marketing pages are structured, what marketing-format anti-patterns are forbidden, and how to run a workshop for a new marketing-surface myth.
 
 If you are pattern-matching against "what other AI startup sites look like" before invoking `minsky-brand` to load the locked myth and code, stop. That order of operations produces the Pepsi/Arnell trap (§2). The order is: load `minsky-brand` → pick the marketing idiom that carries the code → choose the signs that instantiate it on the marketing surface.
 
 ## When to invoke
 
-- Designing or rebuilding the Minsky marketing site (`~/Projects/minsky-site`)
+- Designing or rebuilding the Minsky marketing site (`services/site/` in this monorepo; rebuilt under mt#1934 and live at https://minsky-site-production.up.railway.app)
 - Designing any adjacent marketing surface (launch microsites, campaign pages, position-paper landing pages)
 - Auditing an existing marketing surface against the locked brand register
 - Workshopping a brand-positioning myth for a _new_ marketing surface (the locked Minsky myth is in `minsky-brand` §1 — don't re-derive)

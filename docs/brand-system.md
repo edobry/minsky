@@ -19,7 +19,7 @@ The cited franchises and works (Ghost in the Shell, Stand Alone Complex, Neon Ge
 - **Workshop:** [`.claude/skills/marketing-site-design/`](../.claude/skills/marketing-site-design/) — myth-first methodology + §6 (marketing-specific layer over the brand foundation) + worked example in `references/minsky-myth-2026-05.md`. Brand-foundation content (the locked myth, cultural code, layered references, vocabulary) lives in [`.claude/skills/minsky-brand/SKILL.md`](../.claude/skills/minsky-brand/SKILL.md) post-mt#1933 extraction.
 - **Voice:** [`.claude/skills/pz-voice/SKILL.md`](../.claude/skills/pz-voice/SKILL.md) — the principal's literary voice as the signal layer of the brand identity.
 
-**Access and archival.** The Notion page (Minsky workspace) is private; principals with workspace access can read directly, others should request export. The `~/Projects/minsky-site` path in §7 is a local-only working tree until mt#1934 ships the public site; treat it as an out-of-repo reference, not a clonable URL.
+**Access and archival.** The Notion page (Minsky workspace) is private; principals with workspace access can read directly, others should request export. The marketing site shipped under mt#1934 lives at `services/site/` in this monorepo and is deployed at https://minsky-site-production.up.railway.app.
 
 ## 1. Typography
 
@@ -262,7 +262,7 @@ This is the load-bearing discipline. The reference layer is _atmospheric_; surfa
 
 This doc is the operational reference. The actual surfaces are owned by sibling tasks:
 
-- **Site rebuild:** mt#1934 — applies these tokens to `~/Projects/minsky-site` (Idiom B founder-essay register).
+- **Site rebuild:** mt#1934 — applied these tokens to `services/site/` in this monorepo (Astro 5 + Tailwind v4 + shadcn-style stack, Idiom B product-screenshot-dominant). Shipped 2026-05-20; live at https://minsky-site-production.up.railway.app.
 - **Cockpit refresh:** mt#1935 — migrates `src/cockpit/web/**` color tokens from HSL to OKLCH per §2 and brings the cyberbrain register into mission-control surfaces.
 - **README + docs voice refresh:** mt#1936 — top-level README and selected `docs/*` updated to the locked voice register (§4 voice rules).
 - **Notion strategic-doc audit:** mt#1937 — register-consistency pass across existing position papers + RFCs.
