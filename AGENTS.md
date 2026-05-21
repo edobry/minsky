@@ -1158,6 +1158,36 @@ This is rare in PR bodies (CommonMark renderers do handle it, but humans usually
 the `>` marker per line); flagged here so a future false-positive can be diagnosed
 quickly.
 
+**Pair-requirement (mt#2002):** the trigger phrases are split into two categories:
+
+- **STANDALONE phrases** (fire on any bare-prose occurrence): `out-of-band`,
+  `post-merge config`, `serviceInstanceUpdate`. These describe coordination shapes
+  with no benign use pattern.
+- **PAIR-REQUIRED phrases** (fire only when paired with a partner in the same
+  CommonMark paragraph): `rootDirectory`, `dockerfilePath`, `Railway config change`.
+  These are Railway/config-field identifiers that legitimately appear in PR bodies
+  as test-plan documentation, synthesizer-shipping descriptions, or synthesizer
+  cross-references.
+
+The PAIR_PARTNER phrases are `out-of-band` and `post-merge` (the bare `post-merge`
+form matches both `post-merge` and `post-merge config`). When a pair-required
+phrase appears in the SAME PARAGRAPH (text separated by a blank line) as a partner,
+the combination is the strong signal; when it appears alone, it's likely a reference.
+
+Originating false-positive cluster: PR #1028 self-fire on mt#1707 (docs referencing
+Railway field names); PR #1204 self-fire on mt#1964 chunk 1 (synthesizer-shipping
+description). Both bypassed via `MINSKY_ACK_OOB_MERGE=1` before mt#2002 shipped;
+post-mt#2002 the bare-prose mentions are correctly suppressed unless a partner is
+in the same paragraph.
+
+**Known limitation:** historical-incident descriptions that put both a pair-required
+phrase AND a partner in the same paragraph (e.g., "mt#1681 PR #1013 (rootDirectory
+flip documented as out-of-band)") still fire under pair-requirement because the
+pair-partner is in the same paragraph. Resolving this without breaking the actual
+mt#1681-style coordination signal requires a different mechanism (e.g.,
+`## Originating-Context` heading exclusion or NLP-based intent classification) and
+is out of scope for mt#2002.
+
 **On block:** the hook denies with this shape:
 > "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
 > pre-authorized) BEFORE merging. Matched trigger phrases: [list with excerpts]. If the
@@ -2481,6 +2511,61 @@ When introducing a "temporary," "escape hatch," "workaround," "interim," or "unt
 
 **Generic-SE override:** "TODO: clean this up later." See `Work Completion §Temporary mechanism budget`.
 
+## Missing MCP tool — escalate, don't silently work around
+
+When you need a capability and (a) reach for bash before checking MCP, (b) the MCP tool exists but errors for the specific subject, or (c) no MCP tool covers the capability AND bash is denied by a hook: **escalate to the user** rather than silently abandoning the goal, switching to a non-equivalent workaround, or proceeding with degraded behavior.
+
+**The three sub-patterns:**
+
+1. **Bash-first reflex when MCP exists.** Reaching for `gh pr view`, `git pull`, `gh api`, etc. before checking whether `mcp__github__*` or `mcp__minsky__*` covers the same capability. Block-and-redirect hooks (mt#1196's `block-git-gh-cli.ts`, etc.) catch most of these post-hoc, but reaching for CLI first is the wrong default. MCP-first.
+
+2. **MCP tool exists but precondition fails for the specific subject.** Example: `mcp__minsky__deployment_status service:"reviewer"` returns "No deploy.config.ts found for service 'reviewer'". The tool exists; the subject isn't covered (the platform-neutral abstraction can't track services that only have a `railway.config.ts`). Silently moving to `ls` to investigate the filesystem is the failure mode. Escalate.
+
+3. **No MCP tool for the capability AND bash denied.** The agent has no fallback. The narrow git-only precedent (memory `b30bfabe`, "Known MCP-toolkit gaps") covers this case for git; the general principle applies to deployment, gh API surface beyond what's wrapped, Railway, and any other domain where MCP coverage is partial.
+
+**Required escalation form** (when any of (1)–(3) fires) — surface to the user with:
+
+- **Capability needed** — one sentence on what you need to do.
+- **What's missing** — no MCP tool / MCP tool errored / bash denied.
+- **Concrete options** — present as [a]/[b]/[c]/[d]:
+  - [a] add a new MCP tool for the capability,
+  - [b] add the config (or other precondition) the existing tool needs,
+  - [c] use a non-equivalent workaround Z with explicit acknowledgment,
+  - [d] accept the gap and proceed.
+
+**Anti-patterns (do NOT do any of these):**
+
+- Silently **abandon** the goal ("I'll skip the X check").
+- Silently **switch to a non-equivalent workaround** ("falling back to Y").
+- Proceed with **degraded behavior** the user doesn't know about.
+
+**Trigger-phrase self-recognition (STOP before any of these land in user-facing output):**
+
+- "I'll skip the X check / step"
+- "There's no MCP tool for Y so I'll Z"
+- "Falling back to [CLI / shell / non-equivalent]"
+- "No MCP tool covers this — proceeding with..."
+- "The MCP tool errored — moving on"
+
+**Generic-SE override:** "the agent's job is to keep moving — when a tool doesn't fit, find another path." That heuristic is correct for routine tooling friction, but the missing-MCP-tool case is exactly where silent workarounds accumulate undocumented capability gaps the user can't see and therefore can't prioritize closing.
+
+**Originating incident:** 2026-05-20 (mt#1983 close-out session). Three reaches in one 60-minute window — two correct-recovery (`gh pr view` denied → `mcp__github__pull_request_read`; `git pull` denied → `mcp__minsky__git_pull`), one silent abandon (`mcp__minsky__deployment_status service:"reviewer"` → "No deploy.config.ts found", agent moved to `ls` instead of escalating). User articulated: "whenever there's a missing MCP tool and you get denied the bash route, you should escalate this to me and ask for me to give you a new tool." See memory `3408717a` (bridge) and `b30bfabe` (narrow git-only precedent being generalized).
+
+**Why agent-discipline-tier, not hook-tier.** A PostToolUse hook could pattern-match on the trigger phrases in agent output, but string-match on natural language is brittle. The current tier is rule + memory bridge until the pattern recurs structurally past this rule. If this rule fails to prevent a future instance, escalate to hook-tier per `Work Completion §Process corrections require structural fixes`. Same escalation shape as `§Build vs buy` (memory → corpus rule → `/declare-framework` skill) and `§Subsystem-assignment verification` (memory → corpus rule, Phase 2 in mt#1873).
+
+**Cross-references:**
+
+- `error-investigation.mdc` — adjacent rule covering tool errors (2-strikes rule, workarounds-need-bug-task); covers tool errors, not capability gaps.
+- CLAUDE.md `§Using your tools` (system-prompt-level) — encourages MCP-first; doesn't cover the missing-tool escalation case.
+- Memory `b30bfabe` (Git and MCP tool usage) — narrow git-only precedent this rule generalizes.
+- Memory `3408717a` (bridge memory for this rule; retires when this section lands AND a subsequent missing-MCP-tool gap is caught by it).
+- Memory `39701a9a` (Stop and confirm when shared-state writes hit systemic tool errors) — adjacent rule for shared-state-write tool errors.
+- Memory `7f67af43` (session_update aborts on conflict without leaving markers) — concrete instance of the broader pattern in git domain.
+- mt#1196 — `block-git-gh-cli.ts` hook (catches CLI-first reflex post-hoc for git/gh; this rule covers domains the hook doesn't).
+- mt#1197 — git-toolkit gap filling (narrower, ongoing).
+- mt#1983 — originating session.
+- mt#1989 — concrete instance: filled the specific pattern-(2) gap (`services/reviewer/deploy.config.ts`) surfaced in the originating incident.
+
 ## User does not review PRs in the loop
 
 Don't end status updates with "ready for your review/merge." User has delegated PR review to `minsky-reviewer[bot]`. Drive the PR to convergence with the bot, then surface only at merge.
@@ -2657,6 +2742,11 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1797 — deferred Shape C tracking task (harness-agnostic working-notes surface)
 - mt#1868 — R5 escalation task (recommendation-time / subsystem-assignment-time enforcement)
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
+- Memory `3408717a` — bridge memory for `§Missing MCP tool — escalate, don't silently work around` (retires when the rule has caught a subsequent instance)
+- Memory `b30bfabe` (Git and MCP tool usage) — narrow git-only precedent generalized by `§Missing MCP tool — escalate, don't silently work around`
+- mt#1196 — `block-git-gh-cli.ts` hook (post-hoc catcher for the bash-first reflex in git/gh; sibling structural enforcement to the new section)
+- mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
+- mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
 
 # Memory Usage
 

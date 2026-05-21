@@ -13,10 +13,12 @@ import {
   formatDiffOutput,
   summarizeDiff,
   assertHttpOk,
+  applyServiceInstanceUpdate,
   type SecretsFileReader,
   type CurrentVar,
   type VariableValue,
   type DiffEntry,
+  type ServiceInstanceUpdateInput,
 } from "./lib";
 
 // Shared constants to satisfy no-magic-string-duplication rule
@@ -583,5 +585,73 @@ describe("resolveSecret() — error message includes actual secretsFilePath", ()
     expect(caught?.message).not.toContain("~/.config/minsky");
 
     delete process.env[SECRETS_FILE_ENV_VAR];
+  });
+});
+
+describe("applyServiceInstanceUpdate() — mt#1964 chunk 1", () => {
+  // Helper: build a fake graphql implementation that records calls and
+  // returns a stub success response.
+  function makeFakeGraphql() {
+    const calls: Array<{ query: string; variables: Record<string, unknown> }> = [];
+    const fake = async <T>(query: string, variables: Record<string, unknown>): Promise<T> => {
+      calls.push({ query, variables });
+      return { serviceInstanceUpdate: true } as unknown as T;
+    };
+    return { fake, calls };
+  }
+
+  test("issues a serviceInstanceUpdate mutation with the provided input", async () => {
+    const { fake, calls } = makeFakeGraphql();
+    const input: ServiceInstanceUpdateInput = { rootDirectory: "services/site" };
+    await applyServiceInstanceUpdate("svc-abc", "env-xyz", input, fake);
+
+    expect(calls.length).toBe(1);
+    const call = calls[0];
+    if (!call) throw new Error("expected at least one call");
+    expect(call.query).toContain("mutation");
+    expect(call.query).toContain("serviceInstanceUpdate");
+    expect(call.variables).toEqual({
+      serviceId: "svc-abc",
+      environmentId: "env-xyz",
+      input,
+    });
+  });
+
+  test("passes through all source + build fields when set", async () => {
+    const { fake, calls } = makeFakeGraphql();
+    const input: ServiceInstanceUpdateInput = {
+      repo: "edobry/minsky",
+      branch: "main",
+      rootDirectory: "services/reviewer",
+      builder: "DOCKERFILE",
+      dockerfilePath: "services/reviewer/Dockerfile",
+      watchPatterns: ["services/reviewer/**"],
+    };
+    await applyServiceInstanceUpdate("svc-1", "env-1", input, fake);
+
+    const call = calls[0];
+    if (!call) throw new Error("expected at least one call");
+    expect(call.variables.input).toEqual(input);
+  });
+
+  test("propagates GraphQL errors from the injected implementation", async () => {
+    const failing = async <T>(): Promise<T> => {
+      throw new Error("GraphQL error: rootDirectory invalid path");
+    };
+    await expect(
+      applyServiceInstanceUpdate("svc-1", "env-1", { rootDirectory: "/bad" }, failing)
+    ).rejects.toThrow("GraphQL error: rootDirectory invalid path");
+  });
+
+  test("partial-input shape is preserved (unset fields not included)", async () => {
+    const { fake, calls } = makeFakeGraphql();
+    // Only one field set — confirms the input passes through verbatim, so
+    // unset fields are not touched by the mutation (Railway's
+    // ServiceInstanceUpdateInput skips fields not present in input).
+    await applyServiceInstanceUpdate("svc", "env", { builder: "NIXPACKS" }, fake);
+
+    const call = calls[0];
+    if (!call) throw new Error("expected at least one call");
+    expect(call.variables.input).toEqual({ builder: "NIXPACKS" });
   });
 });

@@ -13,6 +13,8 @@ import {
 // reference them without duplicating string literals across many cases (the
 // magic-string-duplication lint rule fires at 3+ literal occurrences).
 const PHRASE_SERVICE_INSTANCE_UPDATE = "serviceInstanceUpdate";
+const PHRASE_POST_MERGE_CONFIG = "post-merge config";
+const PHRASE_OUT_OF_BAND = "out-of-band";
 
 // ---------------------------------------------------------------------------
 // scanForTriggerPhrases
@@ -56,7 +58,7 @@ serviceInstanceUpdate needs rootDirectory + dockerfilePath flipped.`;
     const matches = scanForTriggerPhrases(body);
     const phraseSet = new Set(matches.map((m) => m.phrase));
     expect(phraseSet.has("Railway config change")).toBe(true);
-    expect(phraseSet.has("post-merge config")).toBe(true);
+    expect(phraseSet.has(PHRASE_POST_MERGE_CONFIG)).toBe(true);
     expect(phraseSet.has("serviceInstanceUpdate")).toBe(true);
     expect(phraseSet.has("rootDirectory")).toBe(true);
     expect(phraseSet.has("dockerfilePath")).toBe(true);
@@ -131,11 +133,17 @@ Acknowledged in the doc.`;
     expect(scanForTriggerPhrases(body)).toEqual([]);
   });
 
-  it("still fires on a trigger phrase in bare prose (regression check)", () => {
-    const body = "After merge, set rootDirectory to empty string on the Railway service.";
+  it("still fires on a trigger phrase in bare prose when paired with out-of-band (mt#2002 regression check)", () => {
+    // Post-mt#2002: rootDirectory requires a pair-partner in the same
+    // paragraph to fire. Adding "out-of-band" makes it fire (paired).
+    // This test originally asserted bare-prose rootDirectory fired
+    // alone; that's no longer the case under pair-requirement.
+    const body =
+      "After merge (out-of-band), set rootDirectory to empty string on the Railway service.";
     const matches = scanForTriggerPhrases(body);
-    expect(matches.length).toBe(1);
-    expect(matches[0].phrase).toBe("rootDirectory");
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("rootDirectory")).toBe(true);
+    expect(phrases.has("out-of-band")).toBe(true);
   });
 
   it("preserves the mt#1681 PR #1013 body regression anchor (bare prose, mixed with parenthetical code)", () => {
@@ -157,18 +165,23 @@ Acknowledged in the doc.`;
     expect(phrases.has("dockerfilePath")).toBe(false);
   });
 
-  it("fires on prose occurrence when the same phrase also appears in a code span", () => {
+  it("fires on prose occurrence when the same phrase also appears in a code span (paired)", () => {
     // First occurrence is in a code span (must be ignored); second is in prose.
     // Excerpt must come from the prose location, not the code span.
+    // Post-mt#2002: rootDirectory requires a pair-partner; "out-of-band" is
+    // added to the prose context so the pair-requirement is satisfied.
     const body =
-      "This PR documents the `rootDirectory` field. The deploy step is: set rootDirectory to empty.";
+      "This PR documents the `rootDirectory` field. " +
+      "The deploy step is: set rootDirectory to empty as an out-of-band action.";
     const matches = scanForTriggerPhrases(body);
-    expect(matches.length).toBe(1);
-    expect(matches[0].phrase).toBe("rootDirectory");
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("rootDirectory")).toBe(true);
     // Excerpt must show the prose context (contains "deploy step") rather than
     // the code-span context (contains "documents the").
-    expect(matches[0].excerpt).toContain("deploy step");
-    expect(matches[0].excerpt).not.toContain("documents the");
+    const rootDirMatch = matches.find((m) => m.phrase === "rootDirectory");
+    if (!rootDirMatch) throw new Error("expected rootDirectory match");
+    expect(rootDirMatch.excerpt).toContain("deploy step");
+    expect(rootDirMatch.excerpt).not.toContain("documents the");
   });
 
   it("allows a PR #1021-style docs body (code-span field references throughout)", () => {
@@ -443,18 +456,158 @@ describe("elideMarkdownNonProse — CommonMark variants (PR #1028 R1)", () => {
     }
   });
 
-  it("known limitation: lazy continuation lines are NOT elided (documented)", () => {
+  it("known limitation: lazy continuation lines are NOT elided (documented; paired)", () => {
     // CommonMark allows a blockquote paragraph to wrap onto subsequent lines
     // without the `>` marker. Our regex-based pass elides only marked lines,
     // so wrapped prose may remain scannable. The reviewer flagged this as
     // NON-BLOCKING; documented here so a future false-positive can be
     // diagnosed quickly. The first marked line is still elided.
-    const body = "> Perform serviceInstanceUpdate on Railway\nrootDirectory must be set too.";
+    //
+    // Post-mt#2002: rootDirectory requires a pair-partner; "out-of-band" is
+    // added to the lazy-continuation line so the pair-requirement is
+    // satisfied and the test still demonstrates the elision limitation.
+    const body =
+      "> Perform serviceInstanceUpdate on Railway\nrootDirectory must be set too, out-of-band.";
     const matches = scanForTriggerPhrases(body);
     const phrases = new Set(matches.map((m) => m.phrase));
     // The marked-line phrase is elided
     expect(phrases.has(PHRASE_SERVICE_INSTANCE_UPDATE)).toBe(false);
-    // The lazy-continuation line is NOT elided (known limitation)
+    // The lazy-continuation line is NOT elided (known limitation) AND
+    // contains out-of-band as a pair-partner, so rootDirectory fires.
     expect(phrases.has("rootDirectory")).toBe(true);
+  });
+});
+
+describe("scanForTriggerPhrases — pair-requirement (mt#2002)", () => {
+  it("does NOT fire on bare-prose rootDirectory when no pair-partner in same paragraph", () => {
+    // PR body documents a Railway field name without any coordination
+    // language — this is the false-positive class mt#2002 fixes.
+    const body =
+      "This PR documents the rootDirectory field used by the synthesizer. " +
+      "All changes are in-PR with no manual coordination steps.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("rootDirectory")).toBe(false);
+  });
+
+  it("does NOT fire on bare-prose dockerfilePath when no pair-partner in same paragraph", () => {
+    const body =
+      "The dockerfilePath setting is now declarative via deploy.config.ts. " +
+      "Apply via the synthesizer; no manual Railway dashboard edit required.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("dockerfilePath")).toBe(false);
+  });
+
+  it("DOES fire on rootDirectory when paired with out-of-band in same paragraph", () => {
+    const body =
+      "After merge (out-of-band), flip the reviewer service rootDirectory to empty string.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("out-of-band")).toBe(true);
+    expect(phrases.has("rootDirectory")).toBe(true);
+  });
+
+  it("DOES fire on dockerfilePath when paired with post-merge in same paragraph", () => {
+    const body =
+      "Post-merge step: set dockerfilePath to services/reviewer/Dockerfile on the Railway service.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("dockerfilePath")).toBe(true);
+  });
+
+  it("does NOT fire on rootDirectory if pair-partner is in a DIFFERENT paragraph", () => {
+    // First paragraph has out-of-band; second paragraph has rootDirectory.
+    // They're separated by a blank line, so they're separate paragraphs.
+    // rootDirectory should NOT fire (pair-requirement is paragraph-scoped).
+    // out-of-band fires standalone.
+    const body =
+      "This PR will require an out-of-band coordination step on Railway after merge.\n\n" +
+      "Separately, the rootDirectory field is documented in the comments for reference.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("out-of-band")).toBe(true);
+    expect(phrases.has("rootDirectory")).toBe(false);
+  });
+
+  it("fires correctly across multiple paragraphs with independent pair-checks", () => {
+    // Paragraph 1: rootDirectory + out-of-band (pair-match → fires)
+    // Paragraph 2: dockerfilePath alone (no partner → suppressed)
+    // Paragraph 3: post-merge alone (standalone partner; no pair-required to fire)
+    const body =
+      "After merge (out-of-band), set rootDirectory to empty.\n\n" +
+      "The dockerfilePath field is documented in the diff.\n\n" +
+      "Post-merge, the deploy will use the new config.";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    expect(phrases.has("out-of-band")).toBe(true);
+    expect(phrases.has("rootDirectory")).toBe(true);
+    expect(phrases.has("dockerfilePath")).toBe(false);
+  });
+
+  it("preserves the mt#1681 PR #1013 regression anchor (rootDirectory + out-of-band in same prose paragraph)", () => {
+    // mt#1681's PR body: rootDirectory + dockerfilePath are in CODE SPANS
+    // (elided by mt#1707), but "out-of-band" and "post-merge" appear in bare
+    // prose. Under pair-requirement, since the code-span phrases are already
+    // elided, the remaining bare-prose `out-of-band` fires standalone and
+    // blocks the merge. The regression anchor holds.
+    const body = `## Design / Approach
+
+5. **Railway service-config change** (post-merge, out-of-band): flip the reviewer
+   service's \`rootDirectory\` from \`services/reviewer\` to \`""\` (repo root) and
+   set \`dockerfilePath\` to \`services/reviewer/Dockerfile\` via the Railway GraphQL API.`;
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    // out-of-band fires standalone (bare prose, not elided)
+    expect(phrases.has("out-of-band")).toBe(true);
+    // The merge will be blocked regardless of whether rootDirectory fires
+    // (which it shouldn't, since it's only in code spans here).
+    expect(matches.length).toBeGreaterThan(0);
+  });
+
+  it("STANDALONE triggers (out-of-band, post-merge config, serviceInstanceUpdate) still fire alone", () => {
+    // Each of these has no benign mention pattern; they fire on any
+    // bare-prose occurrence regardless of pair-partner presence.
+    const cases = [
+      {
+        body: "This PR uses an out-of-band signing flow for the upgrade.",
+        phrase: PHRASE_OUT_OF_BAND,
+      },
+      { body: "Includes a post-merge config update step.", phrase: PHRASE_POST_MERGE_CONFIG },
+      {
+        body: "Calls serviceInstanceUpdate to apply the change.",
+        phrase: PHRASE_SERVICE_INSTANCE_UPDATE,
+      },
+    ];
+    for (const { body, phrase } of cases) {
+      const matches = scanForTriggerPhrases(body);
+      const phrases = new Set(matches.map((m) => m.phrase));
+      expect(phrases.has(phrase)).toBe(true);
+    }
+  });
+
+  it("PR #1204-style historical-incident description: pair-required phrases do not fire (partial fix)", () => {
+    // PR #1204's body included this kind of language. Pair-required
+    // phrases (rootDirectory, dockerfilePath) appearing in bare prose
+    // alongside out-of-band do still fire under the pair-requirement —
+    // because they're in the same paragraph. This case documents the
+    // current behavior: mt#2002 helps when the pair-required phrase is
+    // ALONE; it does NOT help when out-of-band is also in the same
+    // sentence describing the incident.
+    //
+    // The remaining false-positive class (historical-incident
+    // descriptions that mention BOTH phrases) is a follow-up — likely
+    // requires a "## Originating-Context" section exclusion or similar.
+    const body =
+      "Three instances in May 2026 — mt#1681 PR #1013 (rootDirectory + dockerfilePath flip documented as out-of-band, never executed).";
+    const matches = scanForTriggerPhrases(body);
+    const phrases = new Set(matches.map((m) => m.phrase));
+    // out-of-band fires standalone
+    expect(phrases.has("out-of-band")).toBe(true);
+    // rootDirectory + dockerfilePath fire because out-of-band is in the
+    // same paragraph (single sentence here). This is the known limitation
+    // of pair-requirement on incident-description prose.
+    expect(phrases.has("rootDirectory")).toBe(true);
+    expect(phrases.has("dockerfilePath")).toBe(true);
   });
 });

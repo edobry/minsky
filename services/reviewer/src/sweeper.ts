@@ -15,8 +15,11 @@
  * step, so it can construct the same arguments runReview would receive from
  * the webhook handler.
  *
- * Concurrency is capped at 3 simultaneous runReview calls to avoid OOM under
- * large PR backlogs.
+ * Concurrency is capped at SWEEP_CONCURRENCY simultaneous runReview calls
+ * (1 post-mt#1969; was 3 pre-mt#1969 — see the SWEEP_CONCURRENCY constant
+ * for rationale). Originally chosen to avoid OOM under large PR backlogs;
+ * mt#1969 reduced to 1 to eliminate the per-key throughput contention class
+ * that contributed to the mt#1963 triple-toolloop-timeout.
  *
  * retriggeredCount = number of PRs for which runReview was successfully
  * scheduled (detached, catch-logged). Since we don't await, all missing PRs
@@ -58,6 +61,7 @@ import type { Octokit } from "@octokit/rest";
 import type { ReviewerDb } from "./db/client";
 import { pruneStaleMarkers, listActiveMarkersForPRs, markerKey } from "./inflight-marker";
 import { log } from "./logger";
+import { extractPgErrorContext } from "./webhook-events";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -289,13 +293,12 @@ export async function retriggerViaRunReview(
       reason: result.reason,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     log.warn("sweeper.retrigger_failed", {
       event: "sweeper.retrigger_failed",
       deliveryId,
       pr: pr.number,
       headSha: pr.headSha,
-      error: message,
+      ...extractPgErrorContext(err),
     });
   }
 }
@@ -341,7 +344,8 @@ export async function buildSweeperDeps(
  *    review at HEAD SHA. Skips PRs whose tier routes to skip (Tier 1 or
  *    Tier 2 when tier2Enabled=false).
  * 3. For each missing PR, calls runReview directly (in-process, detached).
- *    Concurrency is capped at SWEEP_CONCURRENCY (3) to avoid OOM.
+ *    Concurrency is capped at SWEEP_CONCURRENCY (1 post-mt#1969;
+ *    was 3 pre-mt#1969 — see SWEEP_CONCURRENCY constant for rationale).
  * 4. Returns a SweepResult with cycle metrics.
  *
  * NOTE: This sweeper deliberately uses extractTierFromPRBody (body-only) instead
@@ -355,7 +359,16 @@ export async function buildSweeperDeps(
  * @param depsOverride Optional dependency override for tests. When provided,
  *   skips the createOctokit + getAppIdentity calls entirely.
  */
-const SWEEP_CONCURRENCY = 3;
+// mt#1969: sweeper-initiated retriggers run SEQUENTIALLY (concurrency=1).
+// mt#1963 Layer 3 found that 3 concurrent retriggers all timed out on the
+// 120s openai.chat.completions.create.toolloop cap — including a TINY PR
+// (2 files, 8+10 lines). Diff size was not the cause; provider-side
+// slowness OR per-key throughput contention was. Sequential retrigger
+// removes the contention class and lets retries (mt#1969, providers.ts)
+// recover individual hung calls without amplifying upstream load. The
+// webhook-initiated path is unaffected — it processes 1 review per webhook
+// arrival.
+const SWEEP_CONCURRENCY = 1;
 
 /**
  * Boot-time warning threshold for the sweeper cadence (mt#1898 PR #1154 R1).
@@ -494,11 +507,10 @@ export async function runSweep(
         return true;
       });
     } catch (lookupErr: unknown) {
-      const message = lookupErr instanceof Error ? lookupErr.message : String(lookupErr);
       log.warn("sweeper.marker_lookup_failed_proceeding", {
         event: "sweeper.marker_lookup_failed_proceeding",
-        error: message,
         missing_count: missing.length,
+        ...extractPgErrorContext(lookupErr),
       });
       // Fail-open: proceed with all missing PRs if lookup fails.
     }
