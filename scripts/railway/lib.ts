@@ -266,6 +266,186 @@ export function buildAllSecretPatches(
   return patches;
 }
 
+// ---------------------------------------------------------------------------
+// Railway GraphQL primitives (mt#1964 chunk 1 hoist)
+// ---------------------------------------------------------------------------
+//
+// Hoisted from scripts/railway/apply.ts and scripts/deploy-minsky-mcp.ts so
+// both call sites share one source of truth. Per Resolved decision 3 of
+// mt#1964: reuse the existing precedent rather than introducing a second
+// code path for the `serviceInstanceUpdate` mutation.
+
+export const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
+export const GRAPHQL_TIMEOUT_MS = 30_000;
+
+export function readRailwayToken(): string {
+  const cfgPath = join(homedir(), ".railway", "config.json");
+  if (!existsSync(cfgPath)) {
+    throw new Error(
+      "Railway CLI is not authenticated (missing ~/.railway/config.json). Run: railway login"
+    );
+  }
+  const cfg = JSON.parse(readFileSync(cfgPath, "utf-8")) as {
+    user?: { accessToken?: string };
+  };
+  const token = cfg.user?.accessToken;
+  if (!token) {
+    throw new Error(
+      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
+    );
+  }
+  return token;
+}
+
+export async function graphql<T>(
+  query: string,
+  variables: Record<string, unknown>,
+  fetchImpl: typeof fetch = fetch
+): Promise<T> {
+  const token = readRailwayToken();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetchImpl(RAILWAY_GRAPHQL_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`Railway API request timed out after ${GRAPHQL_TIMEOUT_MS}ms`);
+    }
+    throw new Error(
+      `Railway API network error: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err }
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const bodyText = await res.text();
+
+  if (!res.ok) {
+    assertHttpOk(res.status, res.statusText, bodyText);
+  }
+
+  let body: { data?: T; errors?: { message?: string; path?: (string | number)[] }[] };
+  try {
+    body = JSON.parse(bodyText) as typeof body;
+  } catch (parseErr) {
+    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP response bodies are ASCII JSON/HTML error pages
+    const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
+    throw new Error(`Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`, {
+      cause: parseErr,
+    });
+  }
+
+  if (body.errors) {
+    const summary = body.errors
+      .map((e) => {
+        const path = e.path ? ` at ${e.path.join(".")}` : "";
+        return `${e.message ?? "unknown GraphQL error"}${path}`;
+      })
+      .join("; ");
+    throw new Error(`GraphQL error: ${summary}`);
+  }
+  if (!body.data) throw new Error(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
+  return body.data;
+}
+
+// ---------------------------------------------------------------------------
+// Deploy-trigger types (mt#1964 chunk 1)
+// ---------------------------------------------------------------------------
+//
+// Minsky-side ergonomic shape: `source.*` / `build.*` nested. Railway's
+// `ServiceInstanceUpdateInput` is flat (per the comment in
+// scripts/deploy-minsky-mcp.ts:581 originally). The synthesizer flattens at
+// the apply boundary (see ServiceInstanceUpdateInput below).
+
+export type RailwayBuilder = "NIXPACKS" | "DOCKERFILE" | "RAILPACK";
+
+export interface RailwaySource {
+  repo: string;
+  branch: string;
+  rootDirectory?: string;
+  /** Optional check-suite branch filter — per Railway's source.checkSuites. */
+  checkSuites?: string[];
+}
+
+export interface RailwayBuild {
+  builder: RailwayBuilder;
+  /** Required when builder === "DOCKERFILE". */
+  dockerfilePath?: string;
+  buildCommand?: string;
+  watchPatterns?: string[];
+  nixpacksConfigPath?: string;
+}
+
+/**
+ * Flat input shape matching Railway's GraphQL `ServiceInstanceUpdateInput`.
+ * Callers pass only the fields they want to change; unset fields are not
+ * touched by the mutation.
+ *
+ * The Minsky-side nested shape (`RailwaySource` + `RailwayBuild`) is
+ * flattened into this at the apply boundary.
+ */
+export interface ServiceInstanceUpdateInput {
+  // Source fields
+  repo?: string;
+  branch?: string;
+  rootDirectory?: string;
+  /** Source check-suite branches filter. */
+  checkSuites?: string[];
+  // Build fields
+  builder?: RailwayBuilder;
+  dockerfilePath?: string;
+  buildCommand?: string;
+  watchPatterns?: string[];
+  nixpacksConfigPath?: string;
+}
+
+/**
+ * Issue the `serviceInstanceUpdate` GraphQL mutation against Railway.
+ *
+ * Hoisted from scripts/deploy-minsky-mcp.ts:patchServiceRootDirectory
+ * (mt#1964 R3). Both `scripts/railway/apply.ts` (new in mt#2000) and
+ * `scripts/deploy-minsky-mcp.ts` (existing caller, refactored in this PR
+ * to delegate) consume this single source of truth.
+ *
+ * @param serviceId - Railway service ID (UUID).
+ * @param environmentId - Railway environment ID (UUID).
+ * @param input - Flat ServiceInstanceUpdateInput shape; unset fields are
+ *   not touched by the mutation.
+ * @param graphqlImpl - Injectable for testing; defaults to the live
+ *   Railway GraphQL transport.
+ */
+export async function applyServiceInstanceUpdate(
+  serviceId: string,
+  environmentId: string,
+  input: ServiceInstanceUpdateInput,
+  graphqlImpl: typeof graphql = graphql
+): Promise<void> {
+  type R = { serviceInstanceUpdate: boolean };
+  await graphqlImpl<R>(
+    `
+      mutation ($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
+        serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
+      }
+    `,
+    {
+      serviceId,
+      environmentId,
+      input,
+    }
+  );
+}
+
 export function formatDiffOutput(
   diff: DiffEntry[],
   desired: Record<string, VariableValue>,
