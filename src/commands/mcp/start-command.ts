@@ -35,6 +35,7 @@ import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resourc
 import { registerMemoryTools } from "../../adapters/mcp/memory";
 import { registerDetectorsTools } from "../../adapters/mcp/detectors";
 import { registerPrincipalCorpusTools } from "../../adapters/mcp/principal-corpus";
+import { registerForgeTools } from "../../adapters/mcp/forge";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
@@ -255,6 +256,10 @@ async function registerAllTools(
   registerMemoryTools(commandMapper, container);
   registerDetectorsTools(commandMapper, container);
   registerPrincipalCorpusTools(commandMapper, container);
+
+  // Register forge tools (mt#1957 / mt#2003 — forge-agnostic CI / check-runs /
+  // branch-protection / labels routed through ForgeBackend per ADR-005).
+  registerForgeTools(commandMapper, container);
 }
 
 /**
