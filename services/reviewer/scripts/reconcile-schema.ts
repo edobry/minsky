@@ -53,6 +53,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { sql } from "drizzle-orm";
 import {
   applyMigrations,
+  buildExpectedTablesQuery,
   REVIEWER_EXPECTED_TABLES,
   REVIEWER_MIGRATIONS_TABLE,
   REVIEWER_MIGRATIONS_SCHEMA,
@@ -101,11 +102,9 @@ async function inspect(db: ReturnType<typeof drizzle<typeof schema>>): Promise<{
   missingTables: string[];
   migrationRows: number;
 }> {
-  const tableRows = await db.execute<{ tablename: string }>(sql`
-    SELECT tablename FROM pg_tables
-    WHERE schemaname = ${REVIEWER_TABLES_SCHEMA}
-      AND tablename = ANY(${[...REVIEWER_EXPECTED_TABLES] as string[]})
-  `);
+  const tableRows = await db.execute<{ tablename: string }>(
+    buildExpectedTablesQuery(REVIEWER_TABLES_SCHEMA, REVIEWER_EXPECTED_TABLES)
+  );
   const present = new Set(tableRows.map((r) => r.tablename));
   const presentTables = REVIEWER_EXPECTED_TABLES.filter((t) => present.has(t));
   const missingTables = REVIEWER_EXPECTED_TABLES.filter((t) => !present.has(t));
