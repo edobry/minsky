@@ -67,10 +67,50 @@ export class RuleSuggestionError extends Error {
 }
 
 // Context Analysis Types
+//
+// Canonical harness-agnostic context-analysis shapes. Originally designed during the
+// Cursor-cannibalization era (mt#082 → mt#461) but never adopted by the synthesis path
+// (`src/commands/context/`), which defines its own `AnalysisResult` shape in
+// `generate-types.ts`. mt#2033 (Path A) makes these canonical shapes load-bearing for
+// the first time by adopting them in the observation path (mt#2022 onward).
+//
+// Two consumers, two source values for the `ContextAnalysisResult.source` discriminator:
+//   - "synthesized" — "what context should be assembled from current workspace state"
+//                     (synthesis path; not yet migrated to these types — see mt#2040)
+//   - "observed"    — "what context actually was during a specific harness session"
+//                     (observation path; mt#2022 adopts this surface)
+//
+// The diff between the two surfaces (mt#2039) exposes harness-specific overhead.
+// Synthesis-path migration to the canonical shape is filed as mt#2040 (Path B follow-up).
 
 export interface ContextElement {
-  /** Type of context element */
-  type: "rule" | "file" | "conversation" | "metadata" | "other";
+  /**
+   * Type of context element.
+   *
+   * Synthesis-path kinds (Cursor-replication era + general): rule / file / conversation
+   * / metadata / other.
+   *
+   * Observation-path kinds (per-harness reality): hook-injection / skill-body /
+   * tool-result / tool-schema / deferred-tool-catalog / mcp-instructions / system-prompt
+   * / user-prompt / assistant-text / assistant-thinking.
+   */
+  type: // Synthesis-path kinds
+  | "rule"
+    | "file"
+    | "conversation"
+    | "metadata"
+    | "other"
+    // Observation-path kinds (mt#2033 Path A, 2026-05-21)
+    | "hook-injection"
+    | "skill-body"
+    | "tool-result"
+    | "tool-schema"
+    | "deferred-tool-catalog"
+    | "mcp-instructions"
+    | "system-prompt"
+    | "user-prompt"
+    | "assistant-text"
+    | "assistant-thinking";
 
   /** Unique identifier for this element */
   id: string;
@@ -139,6 +179,19 @@ export interface ContextAnalysisRequest {
 }
 
 export interface ContextAnalysisResult {
+  /**
+   * Which surface produced this analysis.
+   *
+   * - "synthesized" — assembled from current workspace state via the synthesis path
+   *                   (canonical harness-agnostic baseline of what context should be).
+   * - "observed"    — extracted from an actual harness session's transcript via the
+   *                   observation path (per-harness reality of what context actually was).
+   *
+   * Required (not optional) so every analysis result can be classified at the call site
+   * without inference. mt#2039 (cross-surface comparison pane) discriminates on this field.
+   */
+  source: "synthesized" | "observed";
+
   /** Summary information */
   summary: {
     /** Total token count for target model */
