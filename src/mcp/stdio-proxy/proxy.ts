@@ -303,7 +303,19 @@ export class MinskyStdioProxy {
           this.pendingProbe = null;
         }
 
-        if (emitNotification) {
+        // Defensive guard (PR #1216 R1 NON-BLOCKING 2): if the timeout fires
+        // for a child that has already exited (rare race where the close
+        // handler hasn't yet scheduled the respawn-side cancel), skip the
+        // notification — the subsequent respawn's probe will emit one with
+        // a live child. Race detection: `this.child` is set to the most-
+        // recent spawned child; we cancelled-or-completed any prior probe
+        // at the top of spawnChild(), so if `this.child !== child` here, a
+        // newer spawn has already taken over and is responsible for its
+        // own notification.
+        const childStillCurrent =
+          reason === "response" || (this.child === child && child.exitCode === null);
+
+        if (emitNotification && childStillCurrent) {
           log.debug("[proxy] Emitting tools/list_changed notification", {
             probeId,
             reason,
@@ -317,6 +329,12 @@ export class MinskyStdioProxy {
               error: (err as Error).message,
             });
           }
+        } else if (emitNotification && !childStillCurrent) {
+          log.debug("[proxy] Skipping tools/list_changed — child no longer current", {
+            probeId,
+            reason,
+            childExitCode: child.exitCode,
+          });
         } else {
           log.debug("[proxy] Initial spawn — skipping tools/list_changed", {
             probeId,
@@ -540,12 +558,35 @@ export class MinskyStdioProxy {
         let outputLine = line;
         try {
           const msg = JSON.parse(line) as JsonRpcMessage;
-          const probe = proxy.pendingProbe;
-          if (isReadyProbeResponse(msg) && probe !== null && probe.id === msg.id) {
-            // Swallow the probe response — never forward upstream. Completion
-            // also writes `notifications/tools/list_changed` to proc.stdout
-            // when this is a respawn (mt#2011).
-            probe.complete("response");
+          if (isReadyProbeResponse(msg)) {
+            // Swallow ANY response carrying the reserved
+            // `__proxy_ready_probe_` id prefix — never forward upstream
+            // (mt#2011, PR #1216 R1 BLOCKING 1). The id namespace is
+            // reserved by the proxy; no compliant client should ever send
+            // a request with this prefix, so a response with the prefix is
+            // always either:
+            //   (a) the response to a currently-outstanding probe — trigger
+            //       `pendingProbe.complete("response")` which emits
+            //       `notifications/tools/list_changed` upstream on respawns
+            //       (spawnCount > 1).
+            //   (b) a LATE response arriving after the 2s timeout has
+            //       already fired and cleared `pendingProbe` — swallow it
+            //       silently (the timeout path already emitted the
+            //       notification best-effort; emitting again would be a
+            //       duplicate, and forwarding the response upstream would
+            //       leak proxy-internal traffic onto the wire).
+            //   (c) a STALE response from a prior probe whose child was
+            //       superseded by a respawn — swallow silently for the
+            //       same reason as (b).
+            const probe = proxy.pendingProbe;
+            if (probe !== null && probe.id === msg.id) {
+              probe.complete("response");
+            } else {
+              log.debug("[proxy] Swallowed late/stale probe response", {
+                id: msg.id,
+                pendingProbeId: probe?.id ?? null,
+              });
+            }
             continue;
           }
           const augmented = augmentToolsListResponse(msg);

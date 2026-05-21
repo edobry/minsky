@@ -169,11 +169,19 @@ describe("outbound transform — probe-response interception (mt#2011)", () => {
     expect(writtenNotifications).toHaveLength(1);
   });
 
-  test("forwards a probe-response with a NON-matching id verbatim (defensive against stale probes)", async () => {
+  test("swallows late/stale probe responses unconditionally (no leak when pendingProbe id mismatches)", async () => {
+    // PR #1216 R1 BLOCKING 1+2 regression test. The previous version of this
+    // test asserted that an unmatched-id probe response was FORWARDED
+    // upstream — that was a bug. The `__proxy_ready_probe_` id namespace is
+    // reserved by the proxy; no compliant client should ever send a request
+    // with this prefix, so a response carrying this prefix must always be
+    // swallowed regardless of whether it matches the currently-outstanding
+    // probe. Forwarding would leak proxy-internal traffic onto the wire.
     const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
 
-    // Set pendingProbe to id "1", then feed a response with id "2".
-    // The transform should NOT swallow the unmatched id — it forwards.
+    // Set pendingProbe to id "1", then feed a response with id "2" (LATE/
+    // STALE — e.g., the prior probe timed out and a delayed response is
+    // arriving, or the child of a prior spawn responded after a respawn).
     (proxy as unknown as { pendingProbe: unknown }).pendingProbe = {
       id: `${PROXY_READY_PROBE_ID_PREFIX}1`,
       timeoutHandle: setTimeout(() => {}, 99_999),
@@ -193,11 +201,34 @@ describe("outbound transform — probe-response interception (mt#2011)", () => {
 
     const downstreamOutput = await readTransformOutput(transform as NodeJS.ReadableStream);
 
-    // The stale-probe response is forwarded as-is because no current probe
-    // matches its id (defensive: an in-flight client cannot have sent this id
-    // anyway, but the transform's contract is byte-faithful passthrough
-    // unless the message matches an interception case).
-    expect(downstreamOutput).toContain(staleProbeId);
+    // The stale-probe response MUST be swallowed (not appear downstream).
+    expect(downstreamOutput).not.toContain(staleProbeId);
+    expect(downstreamOutput).not.toContain(PROXY_READY_PROBE_ID_PREFIX);
+  });
+
+  test("swallows probe response even when pendingProbe is null (late response after timeout)", async () => {
+    // PR #1216 R1 BLOCKING 1 regression test. The bug: after the timeout
+    // path cleared pendingProbe, a late ping response from the child would
+    // fall through the outbound transform and be forwarded upstream. The
+    // fix: swallow by id prefix unconditionally.
+    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
+
+    // pendingProbe is null on construction (timeout path also clears it to
+    // null) — simulates "timeout already cleared it".
+    expect((proxy as unknown as { pendingProbe: unknown }).pendingProbe).toBeNull();
+
+    const transform = (
+      proxy as unknown as { createOutboundTransform: () => NodeJS.ReadWriteStream }
+    ).createOutboundTransform();
+
+    const lateProbeId = `${PROXY_READY_PROBE_ID_PREFIX}3`;
+    (transform as NodeJS.WritableStream).write(probeResponseLine(lateProbeId));
+    (transform as NodeJS.WritableStream).end();
+
+    const downstreamOutput = await readTransformOutput(transform as NodeJS.ReadableStream);
+
+    expect(downstreamOutput).not.toContain(lateProbeId);
+    expect(downstreamOutput).not.toContain(PROXY_READY_PROBE_ID_PREFIX);
   });
 
   test("passes ordinary JSON-RPC frames through verbatim (probe interception does not affect non-probe traffic)", async () => {

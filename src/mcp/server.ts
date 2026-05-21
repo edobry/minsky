@@ -513,6 +513,18 @@ export class MinskyMCPServer {
           // refreshes its tools/list cache without needing `/mcp` reconnect.
           // Per MCP spec, clients SHOULD ignore the notification when the
           // server has not advertised this capability.
+          //
+          // In direct-start mode (no proxy), the inner server itself does
+          // not emit `notifications/tools/list_changed` — Minsky has no
+          // in-process tool-set mutation today (PR #1216 R1 NON-BLOCKING 1).
+          // The capability advertisement is therefore inert in direct mode.
+          // We advertise unconditionally for two reasons: (a) the proxy is
+          // the operator-recommended deployment path, and (b) advertising a
+          // capability the server can deliver under SOME deployment shape is
+          // spec-permissible (the spec frames `listChanged: true` as
+          // "server MAY send", not "server WILL always send"). If direct-
+          // start emits start to support in-process tool mutation in the
+          // future, this declaration is already correct; no change needed.
           tools: { listChanged: true },
           resources: {},
           prompts: {},
