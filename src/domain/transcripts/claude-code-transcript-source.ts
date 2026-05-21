@@ -25,8 +25,26 @@ import type {
   TranscriptSource,
 } from "./transcript-source";
 
-/** Message types preserved from Claude Code JSONL transcripts. */
-const RETAINED_TYPES = new Set(["user", "assistant"]);
+/**
+ * JSONL line types preserved from Claude Code transcripts.
+ *
+ * `user`/`assistant`: turn content → flows into `agent_transcripts.transcript`
+ * jsonb (the canonical turn substrate).
+ *
+ * `attachment`/`system` (mt#2022): non-turn side material — hook injections,
+ * MCP-server instructions, skill listings, deferred-tools deltas, task
+ * reminders, stop-hook summaries, turn-duration metadata. These flow into the
+ * sibling `agent_transcript_attachments` table via the ingest pipeline; they
+ * do NOT enter the turn jsonb (preserving backwards-compat for existing
+ * consumers that iterate over `transcript`). See mt#2022 "Backwards-compat
+ * reasoning" section in the task spec.
+ *
+ * The two sub-classes (turn vs attachment) are discriminated inline in the
+ * ingest pipeline via direct string equality on `line.type` — no shared
+ * exported Set, per `custom/no-domain-singleton`. The grouping is documented
+ * here for readers; the routing logic lives in `agent-transcript-ingest-service.ts`.
+ */
+const RETAINED_TYPES = new Set(["user", "assistant", "attachment", "system"]);
 
 const HARNESS = "claude_code";
 

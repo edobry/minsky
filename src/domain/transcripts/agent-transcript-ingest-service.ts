@@ -17,9 +17,11 @@ import { eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
+import { agentTranscriptAttachmentsTable } from "../storage/schemas/agent-transcript-attachments-schema";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
+import { extractAttachmentContentString, matchHookScript } from "./hook-preamble-matcher";
 
 // eslint-disable-next-line custom/require-injectable -- not yet registered in DI; wired by callers directly
 export class AgentTranscriptIngestService {
@@ -67,11 +69,26 @@ export class AgentTranscriptIngestService {
     }
 
     // ── 2. Stream new lines ──────────────────────────────────────────────────
+    // Source yields all retained types (user/assistant/attachment/system per
+    // `RETAINED_TYPES` in claude-code-transcript-source). The ingest routes
+    // them to two destinations:
+    //   - user/assistant turn content → `agent_transcripts.transcript` jsonb
+    //     (backwards-compat for existing turn-extractor / FTS / summary etc.)
+    //   - attachment/system side material → `agent_transcript_attachments`
+    //     (mt#2022 — new sibling table for context-inspector use case)
+    //
+    // `lineIndex` increments on every retained line yielded — including those
+    // filtered out by the HWM gate — so the counter is stable across re-ingest
+    // for an append-only JSONL file. Attachments use it as part of their PK.
     const newLines: RawTurnLine[] = [];
+    const newAttachmentRows: AttachmentRow[] = [];
     let latestTs: Date | null = null;
+    let lineIndex = -1;
 
     try {
       for await (const line of this.source.readSession(agentSessionId)) {
+        lineIndex++;
+
         const tsStr = this.source.getJsonlTimestamp(line);
         if (!tsStr) continue;
 
@@ -81,7 +98,14 @@ export class AgentTranscriptIngestService {
         // Incremental gate: skip lines already ingested.
         if (highWaterMark !== null && tsDate <= highWaterMark) continue;
 
-        newLines.push(line);
+        const lineType = typeof line.type === "string" ? line.type : "";
+        if (lineType === "user" || lineType === "assistant") {
+          newLines.push(line);
+        } else if (lineType === "attachment" || lineType === "system") {
+          const row = buildAttachmentRow(agentSessionId, lineIndex, line, tsDate);
+          if (row !== null) newAttachmentRows.push(row);
+        }
+
         if (latestTs === null || tsDate > latestTs) {
           latestTs = tsDate;
         }
@@ -95,7 +119,7 @@ export class AgentTranscriptIngestService {
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
-    if (newLines.length === 0) {
+    if (newLines.length === 0 && newAttachmentRows.length === 0) {
       log.debug(
         `No new lines for session ${agentSessionId} (high-water-mark: ${highWaterMark?.toISOString() ?? "none"})`
       );
@@ -150,15 +174,49 @@ export class AgentTranscriptIngestService {
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
-    log.debug(`Ingested ${newLines.length} new lines for session ${agentSessionId}`, {
-      highWaterMark: highWaterMark?.toISOString() ?? "none",
-      newHighWaterMark: latestTs?.toISOString(),
-    });
+    // ── 5. Insert new attachment rows (mt#2022) ──────────────────────────────
+    // Write to the sibling table for non-turn JSONL lines (attachment/system).
+    // PK is `(agent_session_id, line_index)`; `line_index` is stable on an
+    // append-only JSONL so ON CONFLICT DO NOTHING is the idempotency mechanism
+    // for re-runs (backfill, repeated ingests, HWM regressions).
+    let attachmentsWritten = 0;
+    let attachmentError: Error | undefined;
+    if (newAttachmentRows.length > 0) {
+      try {
+        await this.db
+          .insert(agentTranscriptAttachmentsTable)
+          .values(newAttachmentRows)
+          .onConflictDoNothing();
+        attachmentsWritten = newAttachmentRows.length;
+      } catch (err) {
+        attachmentError = err instanceof Error ? err : new Error(String(err));
+        log.warn(
+          `Failed to insert ${newAttachmentRows.length} attachment rows for session ${agentSessionId}`,
+          { error: getErrorMessage(err) }
+        );
+        // Don't fail the whole ingest — turn-row upsert already succeeded.
+        // Surface the error so the sweep can count degraded ingests.
+      }
+    }
 
-    // Surface any HWM-read failure even on success — caller may want to know
-    // the HWM was lost (the upsert merged via JSONB-array-concat so we may have
-    // duplicated already-ingested lines). The `ingested` count is honest.
-    return { ingested: newLines.length, error: hwmReadError };
+    log.debug(
+      `Ingested ${newLines.length} turn lines + ${attachmentsWritten} attachment rows for session ${agentSessionId}`,
+      {
+        highWaterMark: highWaterMark?.toISOString() ?? "none",
+        newHighWaterMark: latestTs?.toISOString(),
+      }
+    );
+
+    // Surface any HWM-read OR attachment-insert failure on success — caller
+    // may want to know the HWM was lost (the upsert merged via JSONB-array-
+    // concat so we may have duplicated already-ingested lines) or that
+    // attachments were skipped. The `ingested` count counts turn lines only,
+    // matching the pre-mt#2022 semantics; attachments live in their own table
+    // and don't roll into this number.
+    return {
+      ingested: newLines.length,
+      error: hwmReadError ?? attachmentError,
+    };
   }
 
   /**
@@ -250,4 +308,91 @@ function extractStartedAt(lines: RawTurnLine[], source: TranscriptSource): Date 
 function deriveProjectDir(jsonlPath: string): string {
   const lastSlash = jsonlPath.lastIndexOf("/");
   return lastSlash > 0 ? jsonlPath.slice(0, lastSlash) : jsonlPath;
+}
+
+// ── mt#2022: attachment-row construction ────────────────────────────────────
+
+/**
+ * Shape of a single `agent_transcript_attachments` row before insert.
+ * Mirrors the schema in `agent-transcript-attachments-schema.ts`.
+ */
+interface AttachmentRow {
+  agentSessionId: string;
+  lineIndex: number;
+  rawJsonlType: string;
+  attachmentType: string;
+  hookEvent: string | null;
+  hookName: string | null;
+  parentUuid: string | null;
+  content: unknown;
+  timestamp: Date | null;
+}
+
+/**
+ * Build an attachment-row from a raw JSONL line. Returns `null` when the line
+ * doesn't fit the attachment/system shape we expect (defensive — malformed
+ * lines are skipped rather than crashing the ingest).
+ *
+ * Routing semantics:
+ * - `attachment` lines: read `attachment.type` for `attachmentType`. For
+ *   `hook_additional_context`, lift `hookName` (event) and run the preamble
+ *   matcher against `attachment.content` to populate the script `hookName` column.
+ * - `system` lines: read `subtype` for `attachmentType`.
+ *
+ * @see mt#2022
+ */
+function buildAttachmentRow(
+  agentSessionId: string,
+  lineIndex: number,
+  line: RawTurnLine,
+  timestamp: Date | null
+): AttachmentRow | null {
+  const rawJsonlType = typeof line.type === "string" ? line.type : "";
+  if (rawJsonlType !== "attachment" && rawJsonlType !== "system") return null;
+
+  let attachmentType = "";
+  let hookEvent: string | null = null;
+  let hookName: string | null = null;
+
+  if (rawJsonlType === "attachment") {
+    const att = (line as { attachment?: unknown }).attachment;
+    if (att && typeof att === "object") {
+      const inner = att as Record<string, unknown>;
+      if (typeof inner.type === "string") attachmentType = inner.type;
+      // hook_additional_context attachments carry the hook EVENT in `hookName`
+      // (despite the field name). Disambiguate the specific script via the
+      // preamble matcher.
+      if (attachmentType === "hook_additional_context") {
+        const evt = inner.hookEvent ?? inner.hookName;
+        if (typeof evt === "string") hookEvent = evt;
+        const contentStr = extractAttachmentContentString(inner.content);
+        if (hookEvent !== null) {
+          hookName = matchHookScript(hookEvent, contentStr);
+        }
+      }
+    }
+  } else {
+    // system line
+    const subtype = (line as { subtype?: unknown }).subtype;
+    if (typeof subtype === "string") attachmentType = subtype;
+  }
+
+  if (!attachmentType) {
+    // Unrecognized shape — skip rather than write a row with a NOT-NULL violation.
+    return null;
+  }
+
+  const parentUuid = (line as { parentUuid?: unknown }).parentUuid;
+
+  return {
+    agentSessionId,
+    lineIndex,
+    rawJsonlType,
+    attachmentType,
+    hookEvent,
+    hookName,
+    parentUuid: typeof parentUuid === "string" ? parentUuid : null,
+    content: line,
+    timestamp,
+  };
 }
