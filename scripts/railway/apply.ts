@@ -1,12 +1,9 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type RailwayConfig,
   type CurrentVar,
-  assertHttpOk,
   computeDiff,
   buildVariablePatches,
   buildAllSecretPatches,
@@ -14,10 +11,8 @@ import {
   buildDeletePatch,
   formatDiffOutput,
   summarizeDiff,
+  graphql,
 } from "./lib";
-
-const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
-const GRAPHQL_TIMEOUT_MS = 30_000;
 
 const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_", "NIXPACKS_", "RAILPACK_"] as const;
 // Exact keys auto-injected by Railway that do not carry a recognizable prefix.
@@ -26,83 +21,6 @@ const RAILWAY_SYSTEM_KEYS = new Set(["PORT"] as const);
 function isPlatformInjectedVar(key: string): boolean {
   if (RAILWAY_SYSTEM_KEYS.has(key)) return true;
   return RAILWAY_SYSTEM_PREFIXES.some((prefix) => key.startsWith(prefix));
-}
-
-function readRailwayToken(): string {
-  const cfgPath = join(homedir(), ".railway", "config.json");
-  if (!existsSync(cfgPath)) {
-    throw new Error(
-      "Railway CLI is not authenticated (missing ~/.railway/config.json). Run: railway login"
-    );
-  }
-  const cfg = JSON.parse(readFileSync(cfgPath, "utf-8")) as {
-    user?: { accessToken?: string };
-  };
-  const token = cfg.user?.accessToken;
-  if (!token) {
-    throw new Error(
-      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
-    );
-  }
-  return token;
-}
-
-async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const token = readRailwayToken();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(RAILWAY_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Railway API request timed out after ${GRAPHQL_TIMEOUT_MS}ms`);
-    }
-    throw new Error(
-      `Railway API network error: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err }
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  const bodyText = await res.text();
-
-  if (!res.ok) {
-    assertHttpOk(res.status, res.statusText, bodyText);
-  }
-
-  let body: { data?: T; errors?: { message?: string; path?: (string | number)[] }[] };
-  try {
-    body = JSON.parse(bodyText) as typeof body;
-  } catch (parseErr) {
-    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP response bodies are ASCII JSON/HTML error pages
-    const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
-    throw new Error(`Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`, {
-      cause: parseErr,
-    });
-  }
-
-  if (body.errors) {
-    const summary = body.errors
-      .map((e) => {
-        const path = e.path ? ` at ${e.path.join(".")}` : "";
-        return `${e.message ?? "unknown GraphQL error"}${path}`;
-      })
-      .join("; ");
-    throw new Error(`GraphQL error: ${summary}`);
-  }
-  if (!body.data) throw new Error(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
-  return body.data;
 }
 
 async function fetchCurrentVariables(
