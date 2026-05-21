@@ -335,11 +335,14 @@ describe("parseArgs() argument parsing", () => {
 // --- AuthError / ApiError class types ---
 
 describe("AuthError and ApiError class invariants", () => {
+  // Post-mt#2013: AuthError / ApiError are re-exports of RailwayAuthError /
+  // RailwayApiError from src/domain/deployment/railway/graphql-client. The
+  // .name field carries the canonical class name; instanceof still works.
   test("AuthError is an Error subclass with correct name", () => {
     const err = new AuthError("test");
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(AuthError);
-    expect(err.name).toBe("AuthError");
+    expect(err.name).toBe("RailwayAuthError");
     expect(err.message).toBe("test");
   });
 
@@ -347,7 +350,7 @@ describe("AuthError and ApiError class invariants", () => {
     const err = new ApiError("test");
     expect(err).toBeInstanceOf(Error);
     expect(err).toBeInstanceOf(ApiError);
-    expect(err.name).toBe("ApiError");
+    expect(err.name).toBe("RailwayApiError");
     expect(err.message).toBe("test");
   });
 

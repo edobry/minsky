@@ -20,126 +20,42 @@
  *   1  Auth / config error
  *   2  API error
  */
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
+// Canonical Railway auth + GraphQL primitives — mt#2013 consolidated the
+// previous local duplicates of readRailwayToken / RAILWAY_GRAPHQL_URL /
+// AuthError / ApiError / graphql<T>() through this module. All Railway HTTP
+// traffic now flows through src/domain/deployment/railway/graphql-client.ts
+// and inherits OAuth token-refresh via getValidRailwayToken.
+import {
+  RailwayAuthError,
+  RailwayApiError,
+  getValidRailwayToken,
+  railwayGraphQL,
+} from "../../src/domain/deployment/railway/graphql-client";
 
-const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
-const GRAPHQL_TIMEOUT_MS = 30_000;
+// Re-export under historical script-side names so the existing test surface
+// (`logs.test.ts` imports AuthError/ApiError from this module) keeps working.
+// AuthError === RailwayAuthError (instanceof / catch). The error's `.name`
+// field reflects the canonical class name ("RailwayAuthError" / "RailwayApiError").
+export {
+  RailwayAuthError as AuthError,
+  RailwayApiError as ApiError,
+} from "../../src/domain/deployment/railway/graphql-client";
+
 const DEFAULT_LIMIT = 100;
 
-// --- Auth ---
+// --- GraphQL client (thin wrapper preserving the pre-mt#2013 signature) ---
 
-export class AuthError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "AuthError";
-  }
-}
-
-export class ApiError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "ApiError";
-  }
-}
-
-/** Reads the Railway bearer token from ~/.railway/config.json */
-export function readRailwayToken(): string {
-  const cfgPath = join(homedir(), ".railway", "config.json");
-  if (!existsSync(cfgPath)) {
-    throw new AuthError(
-      "Railway CLI is not authenticated (missing ~/.railway/config.json). Run: railway login"
-    );
-  }
-  let cfg: { user?: { accessToken?: string } };
-  try {
-    cfg = JSON.parse(readFileSync(cfgPath, "utf-8")) as typeof cfg;
-  } catch (err) {
-    throw new AuthError(
-      `Failed to parse ~/.railway/config.json: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err }
-    );
-  }
-  const token = cfg.user?.accessToken;
-  if (!token) {
-    throw new AuthError(
-      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
-    );
-  }
-  return token;
-}
-
-// --- GraphQL client ---
-
+/**
+ * Token-by-arg GraphQL helper. Preserved for back-compat with `fetchDeploymentLogs`
+ * and the test surface; new callers should use `railwayGraphQL` or
+ * `railwayGraphQLAuthed` from the canonical module directly.
+ */
 export async function graphql<T>(
   query: string,
   variables: Record<string, unknown>,
   token: string
 ): Promise<T> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(RAILWAY_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new ApiError(`Railway API request timed out after ${GRAPHQL_TIMEOUT_MS}ms`);
-    }
-    throw new ApiError(
-      `Railway API network error: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err }
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  const bodyText = await res.text();
-
-  if (!res.ok) {
-    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII
-    const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
-    throw new ApiError(
-      `Railway API request failed: HTTP ${res.status} ${res.statusText}. ` +
-        `Body: ${truncated}. ` +
-        `Check your Railway token and network connectivity.`
-    );
-  }
-
-  let body: { data?: T; errors?: { message?: string; path?: (string | number)[] }[] };
-  try {
-    body = JSON.parse(bodyText) as typeof body;
-  } catch (parseErr) {
-    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP error body is ASCII
-    const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
-    throw new ApiError(
-      `Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`,
-      { cause: parseErr }
-    );
-  }
-
-  if (body.errors) {
-    const summary = body.errors
-      .map((e) => {
-        const path = e.path ? ` at ${e.path.join(".")}` : "";
-        return `${e.message ?? "unknown GraphQL error"}${path}`;
-      })
-      .join("; ");
-    throw new ApiError(`GraphQL error: ${summary}`);
-  }
-  if (!body.data) {
-    throw new ApiError(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
-  }
-  return body.data;
+  return railwayGraphQL<T>(query, variables, token);
 }
 
 // --- Types ---
@@ -311,9 +227,9 @@ async function run(): Promise<void> {
 
   let token: string;
   try {
-    token = readRailwayToken();
+    token = await getValidRailwayToken();
   } catch (err) {
-    if (err instanceof AuthError) {
+    if (err instanceof RailwayAuthError) {
       console.error(`Auth error: ${err.message}`);
       process.exit(1);
     }
@@ -324,7 +240,7 @@ async function run(): Promise<void> {
   try {
     logs = await fetchDeploymentLogs(args.deploymentId, args.limit, token);
   } catch (err) {
-    if (err instanceof ApiError) {
+    if (err instanceof RailwayApiError) {
       console.error(`API error: ${err.message}`);
       process.exit(2);
     }
