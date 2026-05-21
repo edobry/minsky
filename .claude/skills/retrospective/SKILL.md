@@ -135,6 +135,26 @@ Answer **why** the gap existed, not just **what** was missed. Dig one level deep
   - Was the fix in the wrong artifact? (e.g., a memory entry when a hook was needed)
 - Repeated patterns MUST escalate to more aggressive enforcement: if a CLAUDE.md rule was the previous fix, this time it needs a hook, skill step, or automated check. Behavioral fixes that failed once will fail again.
 
+**Family-level recurrence check (2026-05-21, mt#2016)**: beyond the per-pattern check above, scan for **family-level recurrence** — multiple distinct patterns that share a common root. The per-pattern check catches "the same surface failed twice"; this check catches "different surfaces of the same root failed N times, each with its own surface-specific fix accumulating."
+
+Signals that a family exists:
+
+- A "family" tag or naming convention on memories (e.g., "R1 of confabulated-strategic-frame family", "Rn of X family", "<pattern>-lineage")
+- ≥3 memories cross-referencing a single root memory ID or root pattern name in their body
+- A shared parent / mechanization task that multiple memories cite as the structural-fix target (e.g., mt#1541's policy-coverage detector for the confabulated-strategic-frame family)
+
+When ≥3 such memories exist for the same root pattern, the surface-by-surface fix approach has **failed to contain the family**. The retrospective's primary recommendation MUST be **escalating the family's structural-fix task** — not adding another per-surface fix. The cumulative-cost signal across the family is what justifies structural escalation; without aggregating it, each per-surface fix looks individually proportional while the family's true cost compounds invisibly.
+
+Concrete procedure:
+
+1. Search memory for the failure-pattern root keyword (e.g., `mcp__minsky__memory_search "confabulated strategic frame"`).
+2. Count distinct R-numbered or surface-named memories that reference the same root memory ID or pattern name in their body. **Counting rules:**
+   - Count by **unique surface** — what type of agent action or artifact-class the failure occurred on (e.g., "strategic recommendation," "spec-amendment label," "ADR audit-table verdict at PR-implementation time"). One surface = one R.
+   - **Extensions of a prior R count with their parent, not as a new R.** A memory tagged `R2-extension` or "Rn extension" is a refinement of the parent R's surface, not a new instance of the family. Count it together with its parent (R2 + R2-extension = one R toward the threshold).
+   - When in doubt, count by **unique R-label** (R1, R2, R3, ...) as recorded in the memory's `## Recurrences` section, treating extensions as sub-labels of their parent.
+3. If count ≥ 3: write an **"Escalation" section** in the output (see output format below). Name the family, the count, the cumulative window from R1's date to today, and the structural-fix task's status (run the Step 5 liveness check on it now — a dead target itself is part of the escalation signal).
+4. The per-surface fix may still ship, but it MUST be paired with the family-level escalation. If only the per-surface fix lands, this retrospective itself becomes Rn+1 of the family — the per-surface-only response IS the failure pattern at the meta-level.
+
 ### 4. Design fixes
 
 For each root cause, propose a fix that is **structural, not behavioral**. Prefer changes that make the wrong thing hard over changes that require remembering the right thing.
@@ -169,6 +189,26 @@ Before saving a memory entry as the implementation, decide whether the structura
 - **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create` / canonical `mcp__minsky__tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands. Before saving the bridge memory, search memory for an existing entry on the same pattern (`mcp__minsky__memory_search`); if one exists, update it with the new task ID rather than creating a near-duplicate.
 
 - **Shape is unclear** → memory tier alone is acceptable while you investigate. The memory entry should record what you DID see (the symptom) and an explicit "fix shape unknown — investigation needed" note so a future agent recognizes it as bridge-only, not the resolution.
+
+**Structural-fix-task liveness verification (2026-05-21, mt#2016)**
+
+Before saving any bridge memory that cites a structural-fix task (the task whose shipping will retire the memory): verify the cited task is **alive**.
+
+- Call `mcp__minsky__tasks_status_get <task-id>` for every structural-fix task ID cited in the memory's body (typically named in cross-references or "Tracking task" sections).
+- A task is **alive** if its status is one of `{TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW}`.
+- A task is **dead-as-target** if its status is one of `{CLOSED, DONE, BLOCKED}`:
+  - `CLOSED` — the task was abandoned; the structural fix is not coming.
+  - `DONE` — the structural fix already shipped. If the memory's pattern recurred anyway, the citation is stale: the shipped fix did not contain the pattern, and citing it as a retirement target perpetuates the false-cover.
+  - `BLOCKED` — the task can't progress without external resolution; citing it commits the memory to a target that may never ship.
+
+If any cited task is dead-as-target:
+
+1. **Do not save the memory citing the dead target.** A bridge memory pointing at a dead task is structurally equivalent to no bridge at all — the gap-cover claim is false.
+2. **Re-target at a live successor task** if one exists. Search via `mcp__minsky__tasks_search` with the family's keywords; if there's a known parent task, list its subtasks via `mcp__minsky__tasks_children` and inspect their statuses.
+3. **If no live successor exists**, file a **"structural-fix task is dead, need replacement"** incident — a new task whose explicit purpose is to identify or create the live successor for this pattern. Cite that new task as the bridge memory's tracking target.
+4. **Surface the dead-target finding to the user explicitly.** A CLOSED structural-fix task that still has load-bearing bridge memories pointing at it is itself a structural failure; it should be named in the retrospective output, not silently re-cited.
+
+This check turns "the structural fix exists" from an assumption into an invariant. Originating case: 2026-05-21 mt#2010 PR #1217 retrospective. The agent saved a bridge memory (`f4306866`) citing mt#1541 (Surface 1 policy-coverage detector) as the family's mechanization target without noticing mt#1541 had been CLOSED. The bridge memory committed to a dead pointer; the user surfaced the gap post-fact. Tracking task for the closure investigation: mt#2015.
 
 The default until the 2026-04-26 meta-retrospective was "save memory, file structural task only after recurrence." That cost 12-24h per pattern. Reference: Notion incident memo `34e937f03cb4813c8046c6e00cb668f2` ("Mitigation-tier inversion") — of four pattern-fixes that day, only one (session_update force-push, mt#1304) followed the corrected sequence; the other three (verify-script-not-run, parallel-work, reviewer-bot misreads) waited 1-2+ days before the structural task was filed, and the failure mode recurred in the meantime.
 
@@ -209,6 +249,18 @@ Present findings to the user as:
 
 <Was this pattern seen before? If yes: why did the prior fix fail?>
 
+### Escalation (when triage is Repeated failure OR family-level recurrence ≥3 fires)
+
+**Family**: <name of the failure-pattern family, e.g., "confabulated-strategic-frame">
+**Recurrence count**: <N> — list each R with date and surface descriptor (R1 2026-MM-DD <surface>, R2 ...).
+**Cumulative window**: <date of R1> → <date of current incident> (<N> days).
+**Structural-fix task**: <task-id> — status `<TODO|PLANNING|READY|IN-PROGRESS|IN-REVIEW|CLOSED|DONE|BLOCKED>` (from `mcp__minsky__tasks_status_get`).
+
+- If status ∈ {CLOSED, DONE, BLOCKED}: **DEAD TARGET** — re-target at live successor OR file a "structural-fix task is dead, need replacement" task (see Step 5 liveness check).
+- If status ∈ {TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW}: alive but stalled given the recurrence count; bump priority or file a comment on the task naming this retrospective as the Nth recurrence. (This set matches the Step 5 liveness alive-set verbatim; an `IN-REVIEW` task is alive — its PR is in flight, and the right escalation is naming this retrospective as a blocker on that PR's review thread.)
+
+**Recommendation**: <"escalate the family's structural-fix task" / "file successor because original is dead" / "the structural fix is alive but stalled — bump priority + name the cumulative cost in a task comment">
+
 ### Fixes
 
 1. **<artifact>**: <specific change> — prevents <failure mode> by <mechanism>
@@ -227,6 +279,47 @@ For minor corrections (Step 0 triage), use a compressed format:
 **Fix**: <what was changed>
 **Memory saved**: <yes/no — new pattern?>
 ```
+
+## Worked example: family-level recurrence escalation
+
+This walkthrough demonstrates the Step 3 family-recurrence check, the Step 5 liveness check, and the Output-format Escalation section together. Scenario: a hypothetical 7th instance (R7) of the confabulated-strategic-frame family at some point after mt#2014 ships.
+
+**Setup.** During a PR-implementation session, the agent labels an artifact "auxiliary capability" inside a spec amendment to justify a build-vs-buy preference, without producing the four-step citation-and-mapping protocol. A reviewer-bot pass misses it; the user catches it post-merge. The agent invokes `/retrospective`.
+
+**Step 3 — recurrence check.** The agent runs `mcp__minsky__memory_search "confabulated strategic frame"`. Surfaced entries (illustrative):
+
+- `88d92439` (family root, "Confabulated strategic frame to justify tactical preference")
+- `feedback_build_vs_buy_default_for_non_core` (R2)
+- `feedback_build_path_as_research_at_action_time` (R2-extension)
+- `feedback_explicit_framework_selection` (R3)
+- `feedback_premise_label_verification_required` (R4)
+- `feedback_subsystem_assignment_verification` (R5)
+- `f4306866` (R6, ADR audit-table verdicts)
+- (this incident → R7)
+
+Count of distinct R-numbered memories sharing the `88d92439` root: 6 prior + this = 7. Threshold (≥3) is exceeded — family-level recurrence fires.
+
+**Step 5 — liveness check on cited structural-fix task.** The R6 memory cited `mt#1541` as the family's mechanization target. The agent runs `mcp__minsky__tasks_status_get mt#1541` → status `CLOSED`. DEAD TARGET. The R6 bridge memory was already committed to a dead pointer; this R7 retrospective must not repeat the mistake.
+
+The agent searches for a live successor via `mcp__minsky__tasks_search` on the family keywords. If mt#2015 (the mt#1541-closure investigation) has produced a successor task by R7's time, that's the live target. If not, the agent files a new task: "Successor structural-fix task for confabulated-strategic-frame family — mt#1541 was CLOSED and no replacement was filed; this task identifies or creates one."
+
+**Output — Escalation section (primary, not Fixes):**
+
+```markdown
+### Escalation (family-level recurrence)
+
+**Family**: confabulated-strategic-frame
+**Recurrence count**: 7 — R1 2026-05-08 (hosted-MCP strategic recommendation), R2 2026-05-12 (build-vs-buy action-execution), R3 2026-05-12 (framework selection), R4 2026-05-13 (spec-amendment label), R5 2026-05-17 (subsystem-assignment recommendation), R6 2026-05-21 (ADR audit-table verdict at PR-implementation time), R7 <date> (auxiliary-capability label at spec-amendment time, missed by reviewer-bot).
+**Cumulative window**: 2026-05-08 → <R7 date> (~<N> days).
+**Structural-fix task**: mt#1541 — status `CLOSED`. DEAD TARGET — successor required. mt#2015 (closure investigation) is <status>; file/wait for the live successor it produces.
+**Recommendation**: file successor mechanization task NOW. The per-surface fix tier is exhausted — every prior R shipped a per-surface fix and the family continued. The bridge-memory tier alone fails because bridges have been pointing at a dead task since R6. Until the live successor exists, every new R adds to a stalled queue without containment.
+```
+
+**Output — Fixes (secondary, paired with escalation):**
+
+The per-surface fix for R7 (a new spec-amendment-time check, or extending an existing one) may still ship — but the PR body and the bridge memory must reference the family Escalation and the live successor task, not mt#1541. If only the per-surface fix ships and the escalation is omitted, R7's retrospective itself becomes R8 of the family at the meta-level.
+
+**Why this walkthrough succeeds where the R6 retrospective did not.** R6 produced a per-surface fix (mt#2014) and a bridge memory (`f4306866`) citing mt#1541 as the mechanization target. The R6 retrospective did NOT run a family-level recurrence count (which would have surfaced 6 R's at that point) and did NOT run a liveness check on mt#1541 (which would have surfaced its CLOSED status). The user surfaced both gaps post-fact. The Step 3 family check and Step 5 liveness check above structurally produce both findings on first run.
 
 ## Key principles
 
