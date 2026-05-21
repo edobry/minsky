@@ -507,7 +507,13 @@ export class MinskyMCPServer {
       },
       {
         capabilities: {
-          tools: {},
+          // listChanged: true advertises that the server may emit
+          // `notifications/tools/list_changed`. The stdio proxy (mt#2011)
+          // emits this notification on inner-server respawn so Claude Code
+          // refreshes its tools/list cache without needing `/mcp` reconnect.
+          // Per MCP spec, clients SHOULD ignore the notification when the
+          // server has not advertised this capability.
+          tools: { listChanged: true },
           resources: {},
           prompts: {},
           logging: {},

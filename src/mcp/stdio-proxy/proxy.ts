@@ -31,9 +31,13 @@ import { Transform, type Readable, type Writable } from "stream";
 import { log } from "../../utils/logger";
 import {
   PROXY_RESTART_TOOL_NAME,
+  PROXY_READY_PROBE_ID_PREFIX,
   augmentToolsListResponse,
+  buildReadyProbeRequest,
+  buildToolsListChangedNotification,
   makeToolCallResponse,
   isProxyRestartRequest,
+  isReadyProbeResponse,
   type JsonRpcMessage,
 } from "./tools";
 
@@ -50,6 +54,14 @@ const RESPAWN_DELAY_MS = 200;
 const MAX_CONSECUTIVE_FAILURES = 5;
 /** Window to count failures (ms). */
 const FAILURE_WINDOW_MS = 60_000;
+/**
+ * Timeout (ms) for the ping-based readiness probe sent after each child
+ * respawn (mt#2011). On timeout the proxy emits
+ * `notifications/tools/list_changed` upstream anyway as a best-effort
+ * fallback; better to race with the inner's startup than to silently leave
+ * Claude Code's tools cache stale.
+ */
+const READY_PROBE_TIMEOUT_MS = 2000;
 
 export interface ProxyOptions {
   /** Command to spawn as the inner MCP server. Default: "minsky" */
@@ -94,6 +106,41 @@ export class MinskyStdioProxy {
   private child: ChildProcess | null = null;
   private isShuttingDown = false;
   private recentFailures: number[] = [];
+  /**
+   * Number of times `spawnChild()` has been invoked successfully across the
+   * proxy's lifetime. Used to (a) decide whether to emit
+   * `notifications/tools/list_changed` upstream (only on respawns, not the
+   * initial spawn — Claude Code's session-start initialize has not yet
+   * completed on the first spawn and a notification then would be premature),
+   * and (b) generate unique ids for the ping readiness probe so stale
+   * responses from prior respawns cannot accidentally resolve the current
+   * probe.
+   */
+  private spawnCount = 0;
+  /**
+   * Currently outstanding readiness probe. Cleared when the matching response
+   * arrives (or the timeout fires). The id is the same value carried on the
+   * `ping` request id; the outbound transform compares against this to
+   * recognise the probe response and trigger upstream notification emission.
+   */
+  private pendingProbe: {
+    id: string;
+    timeoutHandle: ReturnType<typeof setTimeout>;
+    /**
+     * Completes the probe — clears `this.pendingProbe`, conditionally writes
+     * `notifications/tools/list_changed` upstream, then resolves the
+     * `spawnChild()` promise. Idempotent: safe to call from either the probe
+     * response path or the timeout path.
+     */
+    complete: (reason: "response" | "timeout") => void;
+    /**
+     * Cancel the probe without emitting `notifications/tools/list_changed`.
+     * Used when a new `spawnChild()` invocation supersedes the prior child
+     * before its probe completed (crash-then-respawn). Resolves the prior
+     * `spawnChild()` promise without notification side-effects.
+     */
+    cancel: () => void;
+  } | null = null;
 
   /**
    * Transform stream that sits on the inbound path (stdin → child.stdin).
@@ -119,7 +166,13 @@ export class MinskyStdioProxy {
   /** Start the proxy: spawn child and wire stdio. */
   async start(): Promise<void> {
     this.setupSignalHandlers();
-    this.spawnChild();
+    // Fire-and-forget the initial spawn. We don't await the readiness probe
+    // here because `start()` should resolve on process exit, not on each
+    // child's readiness — the probe runs concurrently and completes via the
+    // outbound transform.
+    void this.spawnChild().catch((err: Error) => {
+      log.error("[proxy] Initial spawnChild failed", { error: err.message });
+    });
 
     // Keep process alive until shutdown.
     await new Promise<void>((resolve) => {
@@ -130,9 +183,37 @@ export class MinskyStdioProxy {
   /**
    * Spawn the inner server child process and wire stdio pipes.
    * Called on initial start and on each respawn.
+   *
+   * Returns a Promise that resolves when the post-spawn readiness probe
+   * (mt#2011) completes — either because the inner responded to the
+   * synthesized `ping` request (semantic readiness signal: the inner's
+   * protocol layer is operational), or because the
+   * `READY_PROBE_TIMEOUT_MS` fallback elapsed. On respawns (spawnCount > 1)
+   * the probe completion also writes `notifications/tools/list_changed`
+   * upstream so Claude Code refreshes its `tools/list` cache without
+   * needing `/mcp` reconnect.
+   *
+   * The async return shape lets `handleProxyRestart()` `await spawnChild()`
+   * and send its tool-call success response only after the notification has
+   * been emitted (ensuring Claude Code sees notification-then-response, not
+   * response-then-notification with a race window in between). `start()`
+   * and `onChildClose()` ignore the returned promise (fire-and-forget) since
+   * they do not need to sequence anything after probe completion.
    */
-  spawnChild(): void {
+  async spawnChild(): Promise<void> {
     if (this.isShuttingDown) return;
+
+    // Cancel any probe outstanding from a prior child (mt#2011). The prior
+    // child's stdio is being replaced; that probe will never receive a
+    // response. Cancelling clears its timeout, resolves the prior
+    // spawnChild() promise, and DOES NOT emit a stale notification — the
+    // new probe will emit one if appropriate.
+    if (this.pendingProbe !== null) {
+      log.debug("[proxy] Cancelling pending probe from prior child", {
+        probeId: this.pendingProbe.id,
+      });
+      this.pendingProbe.cancel();
+    }
 
     log.debug("[proxy] Spawning inner MCP server", {
       command: this.childCommand,
@@ -176,7 +257,108 @@ export class MinskyStdioProxy {
     (child as unknown as { _proxyCloseHandler: typeof closeHandler })._proxyCloseHandler =
       closeHandler;
 
-    log.debug("[proxy] Inner MCP server spawned", { pid: child.pid });
+    this.spawnCount += 1;
+    log.debug("[proxy] Inner MCP server spawned", {
+      pid: child.pid,
+      spawnCount: this.spawnCount,
+    });
+
+    // Send the ping readiness probe and await its completion (response or
+    // timeout). On respawns (spawnCount > 1), completion also writes
+    // `notifications/tools/list_changed` upstream.
+    const emitToolsListChanged = this.spawnCount > 1;
+    await this.runReadyProbe(child, emitToolsListChanged);
+  }
+
+  /**
+   * Send a `ping` request to the freshly-spawned child and resolve when the
+   * matching response arrives (the outbound transform intercepts it and calls
+   * `pendingProbe.complete("response")`) or when `READY_PROBE_TIMEOUT_MS`
+   * elapses. When `emitNotification` is true, completion writes
+   * `notifications/tools/list_changed` to `process.stdout` so Claude Code
+   * refreshes its tools cache (mt#2011).
+   *
+   * The probe id carries the reserved `__proxy_ready_probe_<spawnCount>`
+   * prefix; the outbound transform recognises it by prefix and discards
+   * the response (it is never forwarded upstream).
+   */
+  private runReadyProbe(child: ChildProcess, emitNotification: boolean): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (this.isShuttingDown) {
+        resolve();
+        return;
+      }
+
+      const probeId = `${PROXY_READY_PROBE_ID_PREFIX}${this.spawnCount}`;
+      let completed = false;
+
+      const complete = (reason: "response" | "timeout"): void => {
+        if (completed) return;
+        completed = true;
+
+        // Clear pendingProbe iff it still refers to this probe (defensive:
+        // a subsequent respawn may have already overwritten it).
+        if (this.pendingProbe?.id === probeId) {
+          clearTimeout(this.pendingProbe.timeoutHandle);
+          this.pendingProbe = null;
+        }
+
+        if (emitNotification) {
+          log.debug("[proxy] Emitting tools/list_changed notification", {
+            probeId,
+            reason,
+          });
+          try {
+            (proc.stdout as Writable).write(
+              `${JSON.stringify(buildToolsListChangedNotification())}\n`
+            );
+          } catch (err) {
+            log.error("[proxy] Failed to write tools/list_changed", {
+              error: (err as Error).message,
+            });
+          }
+        } else {
+          log.debug("[proxy] Initial spawn — skipping tools/list_changed", {
+            probeId,
+            reason,
+          });
+        }
+
+        resolve();
+      };
+
+      const cancel = (): void => {
+        if (completed) return;
+        completed = true;
+        if (this.pendingProbe?.id === probeId) {
+          clearTimeout(this.pendingProbe.timeoutHandle);
+          this.pendingProbe = null;
+        }
+        // Resolve the spawnChild() promise WITHOUT emitting the notification
+        // — the new spawn will emit if appropriate.
+        resolve();
+      };
+
+      const timeoutHandle = setTimeout(() => complete("timeout"), READY_PROBE_TIMEOUT_MS);
+      this.pendingProbe = {
+        id: probeId,
+        timeoutHandle,
+        complete,
+        cancel,
+      };
+
+      try {
+        const probeRequest = buildReadyProbeRequest(probeId);
+        (child.stdin as Writable).write(`${JSON.stringify(probeRequest)}\n`);
+        log.debug("[proxy] Ready probe sent", { probeId });
+      } catch (err) {
+        log.error("[proxy] Failed to send ready probe", {
+          probeId,
+          error: (err as Error).message,
+        });
+        complete("timeout");
+      }
+    });
   }
 
   /**
@@ -218,7 +400,14 @@ export class MinskyStdioProxy {
     // Schedule respawn.
     log.debug("[proxy] Scheduling respawn", { delayMs: RESPAWN_DELAY_MS, cause });
     setTimeout(() => {
-      this.spawnChild();
+      // Fire-and-forget: spawnChild() is now async (mt#2011) because it
+      // awaits the readiness probe; onChildClose does not need to sequence
+      // anything after probe completion. The probe handles its own logging
+      // on failure, and notification emission is internal to the probe's
+      // completion path.
+      void this.spawnChild().catch((err: Error) => {
+        log.error("[proxy] Respawn after close failed", { error: err.message });
+      });
     }, RESPAWN_DELAY_MS);
   }
 
@@ -318,8 +507,11 @@ export class MinskyStdioProxy {
 
   /**
    * Create the outbound transform stream.
-   * Inspects each line for `tools/list` responses.
-   * Augments matching responses with `__proxy_restart_server`.
+   * Inspects each line for two interception cases:
+   *   1. `tools/list` responses — augmented with `__proxy_restart_server`.
+   *   2. Readiness-probe responses (mt#2011) — swallowed (not forwarded
+   *      upstream); triggers `pendingProbe.complete("response")` which on
+   *      respawns also writes `notifications/tools/list_changed` upstream.
    * All other lines are forwarded verbatim.
    *
    * Framing contract: same `\r\n` normalization as the inbound transform —
@@ -327,6 +519,7 @@ export class MinskyStdioProxy {
    * regardless of the inner server's line-ending style.
    */
   private createOutboundTransform(): Transform {
+    const proxy = this;
     let outBuffer = "";
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -347,6 +540,14 @@ export class MinskyStdioProxy {
         let outputLine = line;
         try {
           const msg = JSON.parse(line) as JsonRpcMessage;
+          const probe = proxy.pendingProbe;
+          if (isReadyProbeResponse(msg) && probe !== null && probe.id === msg.id) {
+            // Swallow the probe response — never forward upstream. Completion
+            // also writes `notifications/tools/list_changed` to proc.stdout
+            // when this is a respawn (mt#2011).
+            probe.complete("response");
+            continue;
+          }
           const augmented = augmentToolsListResponse(msg);
           if (augmented !== msg) {
             outputLine = JSON.stringify(augmented);
@@ -411,13 +612,15 @@ export class MinskyStdioProxy {
       this.tearDownPipes();
     }
 
-    // Spawn the fresh child.
-    this.spawnChild();
-
-    // Wait a short moment for the child to start before responding.
-    // The inner server emits its ready signal; the initialize handshake
-    // happens transparently between Claude Code and child over the pipe.
-    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    // Spawn the fresh child and await its readiness probe (mt#2011). The
+    // probe is the semantic ready signal — successful ping response = inner's
+    // protocol layer is operational. Completion also emits
+    // `notifications/tools/list_changed` upstream so Claude Code refreshes
+    // its tools cache before this method writes the tool-call success
+    // response below; the client therefore sees notification-then-response,
+    // not response-then-notification with a race window in between.
+    // Replaces the prior blanket 300ms wait.
+    await this.spawnChild();
 
     // Send the tool-call response back to Claude Code.
     const response = makeToolCallResponse(
