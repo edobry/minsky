@@ -795,6 +795,73 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     }
   });
 
+  /**
+   * GET /api/cockpit/context-inspector/snapshot — fetch full SessionContextSnapshot
+   * for a given agent session (mt#2023).
+   *
+   * Query params:
+   *   ?sessionId=<agent_session_id>   — required; the harness-native session UUID.
+   *
+   * Response: SessionContextSnapshot JSON (categorized chronological block list)
+   *   or 404 when the session is unknown to the substrate.
+   *
+   * The widget framework's single-payload shape doesn't fit the interactive
+   * picker → detail pattern, so this endpoint lives as a sibling to the
+   * `context-inspector` widget (which returns the picker source). The widget
+   * + this endpoint together compose the "Context" tab.
+   *
+   * @see mt#2023 — this endpoint
+   * @see mt#2022 — `assembleSessionContextSnapshot` from the foundation
+   * @see mt#2033 — canonical SessionContextSnapshot shape
+   */
+  app.get("/api/cockpit/context-inspector/snapshot", async (req, res) => {
+    const sessionId = req.query["sessionId"];
+    if (typeof sessionId !== "string" || sessionId.length === 0) {
+      res.status(400).json({ error: "sessionId query parameter is required" });
+      return;
+    }
+
+    try {
+      const { PersistenceService } = await import("../domain/persistence/service");
+      const { assembleSessionContextSnapshot } = await import(
+        "../domain/transcripts/session-context-snapshot"
+      );
+
+      const svc = new PersistenceService();
+      await svc.initialize();
+      const provider = svc.getProvider();
+
+      if (
+        !("getDatabaseConnection" in provider) ||
+        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
+          "function"
+      ) {
+        res.status(503).json({
+          error:
+            "Context inspector requires a SQL persistence provider; current provider does not support it",
+        });
+        return;
+      }
+
+      const sqlProvider = provider as {
+        getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
+      };
+      const db = await sqlProvider.getDatabaseConnection();
+      const snapshot = await assembleSessionContextSnapshot(db, sessionId);
+
+      if (snapshot === null) {
+        res.status(404).json({ error: `Session ${sessionId} not found` });
+        return;
+      }
+
+      res.json(snapshot);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[context-inspector] snapshot fetch failed for ${sessionId}: ${message}`);
+      res.status(500).json({ error: `Internal error assembling snapshot: ${message}` });
+    }
+  });
+
   // --- Static SPA assets ---
 
   /** GET /assets/* — served from web/dist/assets */
