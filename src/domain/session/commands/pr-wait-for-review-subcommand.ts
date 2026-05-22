@@ -6,8 +6,19 @@
  * primitive that mt#1180's Ask subsystem composes for its `quality.review`
  * resolution.
  *
- * Resolution criteria: a review on the PR with `submittedAt >= since` (default
- * = call start), optionally filtered by reviewer login.
+ * Resolution criteria: a review on the PR with `submittedAt >= since`,
+ * optionally filtered by reviewer login.
+ *
+ * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
+ * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
+ * PR match by default. Backends that don't implement the lookup fall back
+ * to the call's start time (the pre-mt#2043 behavior). Explicit
+ * `params.since` continues to take precedence with no backend call.
+ *
+ * On timeout, the result payload includes `lastSeenReviews` (annotated
+ * with per-entry `rejectionReason`) and `sinceUsed` (the resolved
+ * threshold) so callers can diagnose the miss class without a separate
+ * forensics round-trip (mt#2043).
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
@@ -138,12 +149,20 @@ export interface SessionPrWaitForReviewTimeout {
    */
   lastSeenReviews: AnnotatedReview[];
   /**
-   * The `since` threshold (ISO-8601) actually used for the filter on the
-   * final poll. When the caller passes `params.since`, this matches; when
-   * the caller passes no `since`, this shows the resolved default (PR
-   * `created_at`, or call start when the backend doesn't support PR-time
-   * lookup). Surfacing this lets agents quickly see whether the
-   * `since`-default did what they expected.
+   * The `since` threshold actually used for the filter on the final poll.
+   * Formatted as ISO-8601 with milliseconds (`YYYY-MM-DDTHH:MM:SS.sssZ`)
+   * via `Date.prototype.toISOString` — this is the standard JS form and
+   * matches what `Date.parse` round-trips losslessly. Note this is
+   * fractionally more precise than GitHub's typical `submittedAt` /
+   * `created_at` second-precision form; comparison is by millisecond so
+   * the extra digits do not affect filter semantics.
+   *
+   * When the caller passes `params.since`, this reflects the parsed value
+   * (so a caller-supplied `2026-05-21T20:00:00Z` becomes
+   * `2026-05-21T20:00:00.000Z` here). When the caller passes no `since`,
+   * this shows the resolved default (PR `created_at`, or call start when
+   * the backend doesn't support PR-time lookup). Surfacing this lets
+   * agents quickly see whether the `since`-default did what they expected.
    */
   sinceUsed: string;
 }
