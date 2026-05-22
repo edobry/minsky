@@ -7,6 +7,8 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  annotateReviewRejections,
+  explainReviewRejection,
   findMatchingReview,
   resolveReviewerFilter,
   sessionPrWaitForReview,
@@ -312,13 +314,29 @@ describe("sessionPrWaitForReview", () => {
 
   function makeDeps(
     reviewsQueue: ReviewListEntry[][],
-    clockStart = 1_000_000
+    clockStart = 1_000_000,
+    backendOverrides: {
+      /**
+       * Optional mt#2043 hook: when set, the stub backend exposes
+       * `getPullRequestCreatedAt` returning this ISO string.
+       * When `undefined`, the backend does NOT implement the method,
+       * exercising the non-GitHub-backend fallback path (since = call start).
+       */
+      prCreatedAt?: string;
+      /**
+       * When set, `getPullRequestCreatedAt` throws this error instead of
+       * returning a value. Lets the typed-error path be tested.
+       */
+      prCreatedAtError?: Error;
+    } = {}
   ): SessionPrWaitForReviewDependencies & {
     listCalls: number;
     sleepCalls: number[];
+    createdAtCalls: number;
   } {
     let clock = clockStart;
     let listIdx = 0;
+    let createdAtCalls = 0;
     const sleepCalls: number[] = [];
 
     const sessionRecord: SessionRecord = {
@@ -334,14 +352,23 @@ describe("sessionPrWaitForReview", () => {
       getSession: async (id: string) => (id === sessionId ? sessionRecord : null),
     } as unknown as SessionProviderInterface;
 
-    const backend: RepositoryBackend = {
-      review: {
-        listReviews: async () => {
-          const next = reviewsQueue[listIdx] ?? reviewsQueue[reviewsQueue.length - 1] ?? [];
-          listIdx++;
-          return next;
-        },
+    const reviewObj: Record<string, unknown> = {
+      listReviews: async () => {
+        const next = reviewsQueue[listIdx] ?? reviewsQueue[reviewsQueue.length - 1] ?? [];
+        listIdx++;
+        return next;
       },
+    };
+    if (backendOverrides.prCreatedAt !== undefined || backendOverrides.prCreatedAtError) {
+      reviewObj.getPullRequestCreatedAt = async () => {
+        createdAtCalls++;
+        if (backendOverrides.prCreatedAtError) throw backendOverrides.prCreatedAtError;
+        return backendOverrides.prCreatedAt as string;
+      };
+    }
+
+    const backend: RepositoryBackend = {
+      review: reviewObj,
     } as unknown as RepositoryBackend;
 
     const deps = {
@@ -358,11 +385,15 @@ describe("sessionPrWaitForReview", () => {
       get sleepCalls() {
         return sleepCalls;
       },
+      get createdAtCalls() {
+        return createdAtCalls;
+      },
     };
 
     return deps as unknown as SessionPrWaitForReviewDependencies & {
       listCalls: number;
       sleepCalls: number[];
+      createdAtCalls: number;
     };
   }
 
@@ -615,5 +646,420 @@ describe("sessionPrWaitForReview", () => {
       expect(result.review.reviewId).toBe(42);
       expect(result.pollCount).toBe(1);
     }
+  });
+});
+
+// ============================================================================
+// mt#2043 — since-default = PR created_at + timeout diagnostic visibility
+// ============================================================================
+
+describe("explainReviewRejection (mt#2043)", () => {
+  const since = Date.parse("2026-05-21T18:32:55Z");
+
+  test("returns null for a matching review", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    expect(explainReviewRejection(r, since, REVIEWER_BOT)).toBeNull();
+  });
+
+  test("returns state-pending for PENDING drafts", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "PENDING",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    expect(explainReviewRejection(r, since, undefined)).toMatch(/^state-pending:/);
+  });
+
+  test("returns missing-submittedAt when submittedAt is undefined", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: undefined,
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    expect(explainReviewRejection(r, since, undefined)).toMatch(/^missing-submittedAt:/);
+  });
+
+  test("returns unparseable-submittedAt when submittedAt is malformed", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "not-a-date",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    expect(explainReviewRejection(r, since, undefined)).toMatch(
+      /^unparseable-submittedAt: not-a-date/
+    );
+  });
+
+  test("returns since:... when review predates the threshold (mt#2043 originating bug)", () => {
+    // This is the exact shape of the mt#2031 bug: the COMMENT review at
+    // 18:35:57Z fell BEFORE the wait's effective `since` (the call start at
+    // 18:51:57Z under the old default). Reproduce the rejection text agents
+    // would see post-mt#2043 to diagnose the same incident.
+    const callStart = Date.parse("2026-05-21T18:51:57Z");
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    const reason = explainReviewRejection(r, callStart, REVIEWER_BOT);
+    expect(reason).toMatch(/^since:/);
+    expect(reason).toContain("2026-05-21T18:35:57Z");
+    expect(reason).toContain("2026-05-21T18:51:57");
+  });
+
+  test("returns reviewer-mismatch when reviewer filter excludes the entry", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: "someone-else",
+      body: "",
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT);
+    expect(reason).toMatch(/^reviewer-mismatch:/);
+    expect(reason).toContain("someone-else");
+    expect(reason).toContain(REVIEWER_BOT);
+  });
+
+  test("reviewer-mismatch reports <null> when reviewerLogin is null", () => {
+    const r: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: null,
+      body: "",
+    };
+    const reason = explainReviewRejection(r, since, REVIEWER_BOT);
+    expect(reason).toMatch(/^reviewer-mismatch:/);
+    expect(reason).toContain("<null>");
+  });
+});
+
+describe("annotateReviewRejections (mt#2043)", () => {
+  const since = Date.parse("2026-05-21T18:32:55Z");
+
+  test("annotates each review with its rejection reason", () => {
+    const reviews: ReviewListEntry[] = [
+      {
+        reviewId: 1,
+        state: "PENDING",
+        submittedAt: "2026-05-21T18:35:57Z",
+        reviewerLogin: REVIEWER_BOT,
+        body: "",
+      },
+      {
+        reviewId: 2,
+        state: "COMMENTED",
+        submittedAt: "2020-01-01T00:00:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        body: "",
+      },
+      {
+        reviewId: 3,
+        state: "APPROVED",
+        submittedAt: "2026-05-21T19:00:00Z",
+        reviewerLogin: "someone-else",
+        body: "",
+      },
+    ];
+    const annotated = annotateReviewRejections(reviews, since, REVIEWER_BOT);
+    expect(annotated).toHaveLength(3);
+    const [pending, oldReview, wrongReviewer] = annotated;
+    expect(pending?.rejectionReason).toMatch(/^state-pending:/);
+    expect(oldReview?.rejectionReason).toMatch(/^since:/);
+    expect(wrongReviewer?.rejectionReason).toMatch(/^reviewer-mismatch:/);
+    // Original review fields are preserved.
+    expect(pending?.reviewId).toBe(1);
+    expect(oldReview?.reviewId).toBe(2);
+    expect(wrongReviewer?.reviewId).toBe(3);
+  });
+
+  test("returns empty array for empty input", () => {
+    expect(annotateReviewRejections([], since, undefined)).toEqual([]);
+  });
+
+  test("matching reviews get the defensive-fallback reason (only reachable in tests)", () => {
+    // In production this code path is unreachable — the wait loop returns
+    // on first match before annotation. The defensive fallback is here so
+    // callers passing a matching review through `annotateReviewRejections`
+    // (e.g., for direct test inspection) don't crash on a null assignment.
+    const reviews: ReviewListEntry[] = [
+      {
+        reviewId: 1,
+        state: "COMMENTED",
+        submittedAt: "2026-05-21T19:00:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        body: "",
+      },
+    ];
+    const annotated = annotateReviewRejections(reviews, since, REVIEWER_BOT);
+    const [only] = annotated;
+    expect(only?.rejectionReason).toMatch(/^matched:/);
+  });
+});
+
+describe("sessionPrWaitForReview since-default = PR created_at (mt#2043)", () => {
+  const sessionId = "test-session";
+  const prNumber = 123;
+
+  // Replays the makeDeps helper inline here so the mt#2043 tests are
+  // self-contained — see the parent describe block's makeDeps for the
+  // canonical version. Identical signature plus the `backendOverrides`
+  // argument (already added to makeDeps).
+  function makeMt2043Deps(
+    reviewsQueue: ReviewListEntry[][],
+    clockStart: number,
+    backendOverrides: { prCreatedAt?: string; prCreatedAtError?: Error } = {}
+  ) {
+    let clock = clockStart;
+    let listIdx = 0;
+    let createdAtCalls = 0;
+    const sleepCalls: number[] = [];
+
+    const sessionRecord: SessionRecord = {
+      session: sessionId,
+      repoName: "edobry-minsky",
+      repoUrl: "https://github.com/edobry/minsky.git",
+      createdAt: new Date(clockStart).toISOString(),
+      pullRequest: { number: prNumber, branch: "task/mt-test", baseBranch: "main" },
+      taskId: "mt#2043",
+    } as unknown as SessionRecord;
+
+    const sessionDB = {
+      getSession: async (id: string) => (id === sessionId ? sessionRecord : null),
+    } as unknown as SessionProviderInterface;
+
+    const reviewObj: Record<string, unknown> = {
+      listReviews: async () => {
+        const next = reviewsQueue[listIdx] ?? reviewsQueue[reviewsQueue.length - 1] ?? [];
+        listIdx++;
+        return next;
+      },
+    };
+    if (backendOverrides.prCreatedAt !== undefined || backendOverrides.prCreatedAtError) {
+      reviewObj.getPullRequestCreatedAt = async () => {
+        createdAtCalls++;
+        if (backendOverrides.prCreatedAtError) throw backendOverrides.prCreatedAtError;
+        return backendOverrides.prCreatedAt as string;
+      };
+    }
+
+    const backend: RepositoryBackend = {
+      review: reviewObj,
+    } as unknown as RepositoryBackend;
+
+    return {
+      sessionDB,
+      createBackend: async () => backend,
+      now: () => clock,
+      sleep: async (ms: number) => {
+        sleepCalls.push(ms);
+        clock += ms;
+      },
+      get listCalls() {
+        return listIdx;
+      },
+      get sleepCalls() {
+        return sleepCalls;
+      },
+      get createdAtCalls() {
+        return createdAtCalls;
+      },
+    } as unknown as SessionPrWaitForReviewDependencies & {
+      listCalls: number;
+      sleepCalls: number[];
+      createdAtCalls: number;
+    };
+  }
+
+  test("originating-incident regression: pre-existing COMMENT review matches by default", async () => {
+    // Replays the mt#2031 timeline:
+    //   T0 = PR created at 18:32:55Z
+    //   T1 = bot posts COMMENT at 18:35:57Z
+    //   T2 = wait invoked at 18:51:57Z (16 min after the review)
+    // Pre-mt#2043 default since=T2 silently excluded T1.
+    // Post-mt#2043 default since=T0 includes T1 → match on first poll.
+    const prCreatedAt = "2026-05-21T18:32:55Z";
+    const callStart = Date.parse("2026-05-21T18:51:57Z");
+    const commentReview: ReviewListEntry = {
+      reviewId: 4339665649,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "Non-blocking findings; do not block merge.",
+    };
+
+    const deps = makeMt2043Deps([[commentReview]], callStart, { prCreatedAt });
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 30, intervalSeconds: 5, reviewer: REVIEWER_BOT },
+      deps
+    );
+
+    expect(result.matched).toBe(true);
+    if (result.matched) {
+      expect(result.review.reviewId).toBe(4339665649);
+      expect(result.pollCount).toBe(1);
+    }
+    expect(deps.createdAtCalls).toBe(1);
+  });
+
+  test("explicit since wins over backend lookup; no created_at call", async () => {
+    const prCreatedAt = "2026-05-21T18:32:55Z";
+    const callStart = Date.parse("2026-05-21T18:51:57Z");
+    // With explicit since=18:51:57Z, the pre-existing comment at 18:35:57Z
+    // must be excluded (reproducing the mt#2031 incident shape on purpose).
+    const commentReview: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    const deps = makeMt2043Deps([[commentReview]], callStart, { prCreatedAt });
+    const result = await sessionPrWaitForReview(
+      {
+        sessionId,
+        timeoutSeconds: 10,
+        intervalSeconds: 5,
+        reviewer: REVIEWER_BOT,
+        since: "2026-05-21T18:51:57Z",
+      },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    expect(deps.createdAtCalls).toBe(0); // explicit since bypassed backend lookup
+  });
+
+  test("backend without getPullRequestCreatedAt falls back to call-start (pre-mt#2043 default)", async () => {
+    // No prCreatedAt → backend object omits the optional method.
+    const callStart = Date.parse("2026-05-21T18:51:57Z");
+    const commentReview: ReviewListEntry = {
+      reviewId: 1,
+      state: "COMMENTED",
+      submittedAt: "2026-05-21T18:35:57Z",
+      reviewerLogin: REVIEWER_BOT,
+      body: "",
+    };
+    const deps = makeMt2043Deps([[commentReview]], callStart, {}); // no prCreatedAt
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 10, intervalSeconds: 5, reviewer: REVIEWER_BOT },
+      deps
+    );
+
+    // Fallback since = callStart → the pre-existing review is excluded (the
+    // pre-mt#2043 behavior, preserved for non-GitHub backends).
+    expect(result.matched).toBe(false);
+    expect(deps.createdAtCalls).toBe(0);
+  });
+
+  test("backend returns unparseable created_at → throws MinskyError naming the value", async () => {
+    const deps = makeMt2043Deps([[]], Date.now(), { prCreatedAt: "garbage-timestamp" });
+    let err: unknown;
+    try {
+      await sessionPrWaitForReview({ sessionId, timeoutSeconds: 5, intervalSeconds: 5 }, deps);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MinskyError);
+    expect((err as MinskyError).message).toContain("garbage-timestamp");
+    expect((err as MinskyError).message).toContain("unparseable PR created_at");
+  });
+
+  test("timeout payload includes lastSeenReviews with rejection reasons + sinceUsed", async () => {
+    const prCreatedAt = "2026-05-21T18:32:55Z";
+    const callStart = Date.parse("2026-05-21T18:51:57Z");
+    // Three reviews, none matching for different reasons:
+    //   1: wrong reviewer
+    //   2: predates PR creation (would be rejected by since)
+    //   3: PENDING draft
+    const lastPoll: ReviewListEntry[] = [
+      {
+        reviewId: 1,
+        state: "COMMENTED",
+        submittedAt: "2026-05-21T18:40:00Z",
+        reviewerLogin: "someone-else",
+        body: "",
+      },
+      {
+        reviewId: 2,
+        state: "APPROVED",
+        submittedAt: "2026-05-21T17:00:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        body: "",
+      },
+      {
+        reviewId: 3,
+        state: "PENDING",
+        submittedAt: "2026-05-21T18:45:00Z",
+        reviewerLogin: REVIEWER_BOT,
+        body: "",
+      },
+    ];
+    const deps = makeMt2043Deps([lastPoll], callStart, { prCreatedAt });
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 10, intervalSeconds: 5, reviewer: REVIEWER_BOT },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.lastSeenReviews).toHaveLength(3);
+      const [wrong, old, pending] = result.lastSeenReviews;
+      expect(wrong?.rejectionReason).toMatch(/^reviewer-mismatch:/);
+      // Review 2 was filtered by since (PR creation time) — predates 18:32:55Z
+      // would not match, but 17:00:00Z DOES predate 18:32:55Z so this is a
+      // since-rejection.
+      expect(old?.rejectionReason).toMatch(/^since:/);
+      expect(pending?.rejectionReason).toMatch(/^state-pending:/);
+      // sinceUsed reflects the resolved default (PR created_at).
+      expect(result.sinceUsed).toBe("2026-05-21T18:32:55.000Z");
+    }
+  });
+
+  test("timeout payload has empty lastSeenReviews when backend returns no reviews", async () => {
+    const prCreatedAt = "2026-05-21T18:32:55Z";
+    const deps = makeMt2043Deps([[]], Date.parse("2026-05-21T18:51:57Z"), { prCreatedAt });
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 5, intervalSeconds: 5 },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.lastSeenReviews).toEqual([]);
+      expect(result.sinceUsed).toBe("2026-05-21T18:32:55.000Z");
+    }
+  });
+
+  test("timeout payload sinceUsed reflects explicit since when caller provides one", async () => {
+    const prCreatedAt = "2026-05-21T18:32:55Z";
+    const explicitSince = "2026-05-21T20:00:00Z";
+    const deps = makeMt2043Deps([[]], Date.parse("2026-05-21T18:51:57Z"), { prCreatedAt });
+    const result = await sessionPrWaitForReview(
+      { sessionId, timeoutSeconds: 5, intervalSeconds: 5, since: explicitSince },
+      deps
+    );
+
+    expect(result.matched).toBe(false);
+    if (!result.matched) {
+      expect(result.sinceUsed).toBe("2026-05-21T20:00:00.000Z");
+    }
+    // Backend lookup skipped on explicit since.
+    expect(deps.createdAtCalls).toBe(0);
   });
 });

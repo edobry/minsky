@@ -387,6 +387,21 @@ export interface ReviewOperations {
   listReviews?(prIdentifier: string | number): Promise<ReviewListEntry[]>;
 
   /**
+   * Return the PR's creation timestamp (ISO-8601 string).
+   *
+   * Introduced for mt#2043: `session_pr_wait_for_review` uses this to default
+   * the `since` filter to PR creation time so reviews posted BEFORE the wait
+   * was invoked are still matched. Without this, the wait tool is blind to
+   * reviews that landed during the gap between PR creation and the agent's
+   * follow-up wait call.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "PR-creation-time lookup not supported on this backend"
+   * and fall back to call-start time (the previous default).
+   */
+  getPullRequestCreatedAt?(prIdentifier: string | number): Promise<string>;
+
+  /**
    * Mark a GitHub PR review thread as resolved.
    *
    * Requires a GraphQL `resolveReviewThread` mutation — no REST equivalent.

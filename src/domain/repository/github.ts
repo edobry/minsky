@@ -53,7 +53,10 @@ import {
   type DismissReviewOptions,
   type DismissReviewResult,
 } from "./github-pr-review";
-import { listReviews as listReviewsImpl } from "./github-pr-review";
+import {
+  listReviews as listReviewsImpl,
+  getPullRequestCreatedAt as getPullRequestCreatedAtImpl,
+} from "./github-pr-review";
 import type { SubmitReviewOptions, SubmitReviewResult } from "./github-pr-review";
 import {
   submitCheckRun as submitCheckRunImpl,
@@ -778,6 +781,11 @@ Repository: https://github.com/${this.owner}/${this.repo}
       listReviews: async (prIdentifier: string | number): Promise<ReviewListEntry[]> => {
         const gh = this.requireGitHubContext();
         return listReviewsImpl(gh, prIdentifier);
+      },
+
+      getPullRequestCreatedAt: async (prIdentifier: string | number): Promise<string> => {
+        const gh = this.requireGitHubContext();
+        return getPullRequestCreatedAtImpl(gh, prIdentifier);
       },
 
       resolveReviewThread: async (threadId: string): Promise<void> => {
