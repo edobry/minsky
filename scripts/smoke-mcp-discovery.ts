@@ -17,10 +17,7 @@ import "reflect-metadata";
  */
 import { CommandCategory } from "../src/adapters/shared/command-registry";
 import { registerSharedCommandsWithMcp } from "../src/adapters/mcp/shared-command-integration";
-import {
-  MCP_CATEGORY_ADAPTERS,
-  DEFAULT_EXCLUDE_CATEGORIES,
-} from "../src/commands/mcp/discovery-config";
+import { MCP_CATEGORY_ADAPTERS } from "../src/commands/mcp/discovery-config";
 import { registerSessionWorkspaceTools } from "../src/adapters/mcp/session-workspace";
 import { registerSessionFileTools } from "../src/adapters/mcp/session-files";
 import { registerSessionEditTools } from "../src/adapters/mcp/session-edit-tools";
@@ -49,10 +46,9 @@ async function main() {
   registerSessionFileTools(mapper);
   registerSessionEditTools(mapper);
 
-  // Discovery loop (mirror start-command.ts logic)
-  const excluded = new Set<CommandCategory>(DEFAULT_EXCLUDE_CATEGORIES);
+  // Discovery loop (mirror start-command.ts logic — mt#2037 deleted the
+  // excludeCategories parameter, so the loop iterates unconditionally).
   for (const category of Object.values(CommandCategory)) {
-    if (excluded.has(category)) continue;
     const adapters = MCP_CATEGORY_ADAPTERS[category];
     if (adapters && adapters.length > 0) {
       for (const adapter of adapters) adapter(mapper);
@@ -86,21 +82,27 @@ async function main() {
     if (!ok) allOk = false;
   }
 
-  // AI inclusion check (mt#2035 — AI exclusion retracted)
-  // Expected 9 tools: ai.chat, ai.complete, ai.fast-apply,
-  // ai.models.list, ai.models.available, ai.models.refresh,
-  // ai.providers.list, ai.cache.clear, ai.validate
+  // AI inclusion check (mt#2035 — AI exclusion retracted; mt#2037 R1 fix —
+  // assert canonical subset by name rather than fixed count, so the smoke
+  // doesn't become brittle when AI tools are added/removed/renamed over time).
   const aiTools = tools.filter((t) => t.startsWith("ai."));
-  const aiExpectedCount = 9;
-  const aiOk = aiTools.length >= aiExpectedCount;
+  const aiCanonicalSubset = [
+    "ai.chat",
+    "ai.complete",
+    "ai.models.list",
+    "ai.providers.list",
+    "ai.validate",
+  ];
+  const aiMissing = aiCanonicalSubset.filter((name) => !tools.includes(name));
+  const aiOk = aiMissing.length === 0;
   console.log(
-    `\nAI inclusion check: ${aiTools.length} tools (expect >= ${aiExpectedCount}) ${aiOk ? "OK" : "MISSING"}`
+    `\nAI inclusion check: ${aiTools.length} tools total; canonical subset ${aiOk ? "OK" : "MISSING"}`
   );
   if (aiTools.length > 0) {
     console.log(`  ai.* : ${aiTools.join(", ")}`);
   }
   if (!aiOk) {
-    console.log(`  MISSING: expected >= ${aiExpectedCount} AI tools, got ${aiTools.length}`);
+    console.log(`  MISSING canonical AI commands: ${aiMissing.join(", ")}`);
     allOk = false;
   }
 

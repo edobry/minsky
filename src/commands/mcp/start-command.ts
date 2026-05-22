@@ -22,7 +22,7 @@ import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-worksp
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
-import { MCP_CATEGORY_ADAPTERS, DEFAULT_EXCLUDE_CATEGORIES } from "./discovery-config";
+import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 
 // Re-export discovery config for backward compatibility with code that imports
@@ -30,7 +30,7 @@ import { buildAndStartScheduler } from "./scheduler-wiring";
 // of truth lives in `./discovery-config.ts` — a side-effect-free module that
 // out-of-band consumers (smoke scripts, unit tests) can import without
 // pulling in the MCP-server / HTTP / OAuth dependency graph.
-export { MCP_CATEGORY_ADAPTERS, DEFAULT_EXCLUDE_CATEGORIES } from "./discovery-config";
+export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
@@ -208,14 +208,16 @@ export function injectAgentIdMeta(
  * the shared command registry, so they are NOT covered by the discovery loop —
  * they are invoked explicitly below.
  *
- * @param excludeCategories Opt-out parameter (mt#1521 → narrowed-deployment
- * hook, mt#1227 / mt#1254). Defaults to `DEFAULT_EXCLUDE_CATEGORIES` for
- * production; tests pass `[]` to exercise the full surface.
+ * mt#2037: the `excludeCategories` parameter (mt#1521 / mt#1227 / mt#1254
+ * narrowed-deployment hook) was deleted per the mt#2017 investigation —
+ * none of the realistic narrowing use cases needed the boot-time function-
+ * parameter shape. Per-request narrowing belongs at OAuth-scope (mt#1666);
+ * per-deployment belongs at env-var read in `createStartCommand`. See
+ * ADR-011 §Audit and discovery-config.ts inline comment.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface,
-  excludeCategories: ReadonlyArray<CommandCategory> = DEFAULT_EXCLUDE_CATEGORIES
+  container?: import("../../composition/types").AppContainerInterface
 ): Promise<void> {
   // mt#1751: Tool handlers (which need persistence) await the server's
   // `initPromise` before dispatching, so the container is NOT eagerly
@@ -249,13 +251,7 @@ async function registerAllTools(
   // to per-category adapter(s) if registered; otherwise auto-bridge with no
   // overrides. New categories added to the enum + registered with shared
   // commands surface in MCP `tools/list` without editing this file.
-  const excluded = new Set(excludeCategories);
   for (const category of Object.values(CommandCategory)) {
-    if (excluded.has(category)) {
-      log.debug(`[MCP] Skipping excluded category: ${category}`);
-      continue;
-    }
-
     const adapters = MCP_CATEGORY_ADAPTERS[category];
     if (adapters && adapters.length > 0) {
       log.debug(`[MCP] Registering category ${category} via ${adapters.length} adapter(s)`);

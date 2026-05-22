@@ -86,16 +86,8 @@ static table of per-category MCP adapters.
    preserve those overrides. Multiple adapters per category are supported
    (REPO has both `registerRepoTools` and `registerChangesetTools` — second-call
    override-merge via `addTool`'s Map semantics, by design).
-3. **`DEFAULT_EXCLUDE_CATEGORIES`** — categories that should NOT auto-bridge
-   to MCP under the default deployment. **Currently empty** (`[]`) after
-   mt#2035 retracted the original `[AI]` default per the R6 retrospective
-   (see §Audit and §Retraction below). The constant itself is retained as
-   the opt-out hook for future narrowed deployments; mt#2017 investigates
-   whether the `excludeCategories` parameter should exist at all going
-   forward.
-4. **The discovery loop** — `registerAllTools` iterates
+3. **The discovery loop** — `registerAllTools` iterates
    `Object.values(CommandCategory)`. For each category:
-   - If it's in `excludeCategories`, skip.
    - If it's in the dispatch table, invoke each registered adapter (preserves
      overrides).
    - Otherwise, fall back to `registerSharedCommandsWithMcp(commandMapper, { categories: [category] })`
@@ -125,9 +117,6 @@ discovery loop on the next MCP startup.
 
 - Per-category adapter files (`git.ts`, `tasks.ts`, …, `forge.ts`) remain as
   the dispatch targets when overrides are needed.
-- The `excludeCategories` opt-out parameter on `registerAllTools` preserves
-  the narrowed-deployment hook (mt#1227 / mt#1254 intent), even though no
-  narrowed deployment ships today.
 - Native MCP tools (session-workspace, session-files, session-edit-tools)
   remain as explicit calls — they register directly via
   `commandMapper.addCommand` rather than going through the shared registry,
@@ -195,39 +184,52 @@ was retracted by mt#2035 — see the AI row above for the R6 retrospective ratio
   Success Criteria 9 regression test (deferred per scope) could catch
   this if needed later.
 
-### Retraction (mt#2035)
+### Retraction (mt#2035) + parameter deletion (mt#2037)
 
 The AI exclusion shipped in this ADR's original `DEFAULT_EXCLUDE_CATEGORIES`
 was retracted by mt#2035 (R6 retrospective, bridge memory f4306866). The
 exclusion was unprincipled — post-hoc rationalization rather than a
-criterion-justified verdict. `DEFAULT_EXCLUDE_CATEGORIES` is now `[]`; all
-9 AI commands auto-bridge by default. Mt#2017 investigates the
-`excludeCategories` parameter itself.
+criterion-justified verdict.
 
-### Neutral
+mt#2017 investigated whether the `excludeCategories` parameter itself
+should exist; the verdict (published to
+https://www.notion.so/367937f03cb4818896c1dc3bf1e752dd) was **delete it
+entirely**. None of the 7 evaluated narrowing use cases needs the
+boot-time function-parameter shape:
 
-- The `excludeCategories` parameter is a forward-compat hook for narrowed
-  deployments (mt#1227/mt#1254). No narrowed deployment exists today; the
-  parameter is dormant infrastructure. This is the design memory
-  `d624c862` ("doc-comment intent vs caller reality") warned about: structure
-  preserved for hypothetical future callers. Acceptable here because the
-  cost is a single function parameter with empty default — near-zero
-  complexity — and the parameter is needed by the discovery loop's
-  iteration logic regardless.
+- Per-client / per-scope / per-tenant / per-billing-tier / per-security-class
+  narrowing all want **per-request** filtering at OAuth-scope (mt#1666
+  shipped the primitive).
+- Per-deployment narrowing belongs at env-var read in `createStartCommand`,
+  not a pass-through function parameter.
+- Operator/dev narrowing is already covered by `commandOverrides.hidden`
+  per-command.
+- The reviewer-service "narrowed deployment" motivation was realized at
+  the namespace layer (`authorship.get` projection in mt#1254), not at
+  deployment.
+
+mt#2037 deleted `DEFAULT_EXCLUDE_CATEGORIES`, the `excludeCategories`
+parameter, the `excluded` Set construction in the discovery loop, and
+the re-export from `start-command.ts`. The discovery loop now iterates
+`Object.values(CommandCategory)` unconditionally; every category lands
+in one of two buckets — {dispatched, fallback}.
 
 ## Cross-references
 
 - mt#2010 — this task; the structural fix shipping the discovery loop.
 - mt#2035 — retracted the AI exclusion from `DEFAULT_EXCLUDE_CATEGORIES`; R6 retrospective rationale.
-- mt#2017 — investigation of the `excludeCategories` parameter itself.
+- mt#2037 — deleted the `excludeCategories` parameter entirely per mt#2017 verdict.
+- mt#2017 — investigation of the `excludeCategories` parameter (DONE; verdict: delete).
 - mt#2029 — matcher-coverage fix (structural fix that would have caught the original AI-exclusion error).
 - mt#1521 — original structural-fix task, subsumed by mt#2010.
 - mt#386 — 1st historical recurrence (git commands).
 - mt#1517 — 2nd recurrence (memory commands; originated mt#1521).
 - mt#1957 — 3rd recurrence (forge tools, mt#2003 follow-up).
 - mt#2003 — 4th recurrence (within-PR; the mt#1957 fix that itself recurred).
-- mt#1227 / mt#1254 — narrowed-deployment intent preserved via
-  `excludeCategories` hook.
+- mt#1227 / mt#1254 — original "narrowed deployment" intent; realized at
+  namespace layer (mt#1254 `authorship.get` projection), not deployment layer.
+- mt#1666 — OAuth scope infrastructure (the right layer for any future
+  per-request narrowing; supersedes the `excludeCategories` parameter shape).
 - mt#1779 — dual-name (dotted + underscored) MCP tool registration pattern
   (adjacent; the discovery loop does not change this).
 - mt#264 — broader RFC on SharedCommandRegistry architecture (out of scope

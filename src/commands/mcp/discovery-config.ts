@@ -76,18 +76,15 @@ export const MCP_CATEGORY_ADAPTERS: Partial<Record<CommandCategory, McpCategoryA
   [CommandCategory.FORGE]: [registerForgeTools],
 };
 
-/**
- * Default `excludeCategories` for the production discovery loop.
- *
- * Empty: all `CommandCategory` values auto-bridge by default. The original
- * exclusion of `AI` shipped in mt#2010 was retracted by mt#2035 — the
- * rationale (runaway-cost risk) was post-hoc rationalization; cost discipline
- * belongs at the API layer (rate limits, budget caps, model-tier controls),
- * not at the MCP bridge. See ADR-011 §Audit for the updated verdict and
- * mt#2035 for the R6 retrospective rationale.
- *
- * The `excludeCategories` parameter on `registerAllTools` remains as a
- * narrowed-deployment hook (mt#1227/mt#1254) — see mt#2017 for the
- * investigation of whether the parameter should continue to exist.
- */
-export const DEFAULT_EXCLUDE_CATEGORIES: ReadonlyArray<CommandCategory> = [];
+// mt#2037: `DEFAULT_EXCLUDE_CATEGORIES` and the `excludeCategories` parameter
+// it served were both deleted per the mt#2017 investigation verdict
+// (https://www.notion.so/367937f03cb4818896c1dc3bf1e752dd). None of the 7
+// evaluated narrowing use cases needs the boot-time function-parameter shape:
+// per-client / per-scope / per-tenant / per-billing-tier / per-security-class
+// all want per-request filtering at OAuth-scope (mt#1666 shipped the
+// primitive); per-deployment narrowing belongs at env-var reading in
+// `createStartCommand`; operator/dev narrowing is already covered by
+// `commandOverrides.hidden`. The reviewer-service "narrowed deployment"
+// motivation was realized at the namespace layer (`authorship.get` projection
+// in mt#1254), not at deployment. Keeping the parameter directed future
+// implementers to the wrong layer.
