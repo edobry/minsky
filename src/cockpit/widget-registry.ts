@@ -12,6 +12,7 @@ import type { WidgetModule } from "./types";
 import { agentsWidget } from "./widgets/agents";
 import { attentionWidget } from "./widgets/attention";
 import { basicHealthWidget } from "./widgets/basic-health";
+import { contextInspectorWidget } from "./widgets/context-inspector";
 import { credentialsWidget } from "./widgets/credentials";
 import { taskGraphWidget } from "./widgets/task-graph";
 import { workstreamsWidget } from "./widgets/workstreams";
@@ -25,6 +26,7 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   agents: agentsWidget,
   attention: attentionWidget,
   "basic-health": basicHealthWidget,
+  "context-inspector": contextInspectorWidget,
   credentials: credentialsWidget,
   "task-graph": taskGraphWidget,
   workstreams: workstreamsWidget,

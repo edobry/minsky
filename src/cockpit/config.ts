@@ -23,6 +23,14 @@ const DEFAULT_CONFIG: CockpitConfig = {
     // degrades when no DB is available.
     { id: "attention", enabled: true },
     { id: "basic-health", enabled: true },
+    // context-inspector (mt#2023) — observation surface for per-session context
+    // composition. Real-data widget reading from agent_transcripts + the new
+    // agent_transcript_attachments table. Defaults to `enabled: false` to
+    // match the agents / task-graph / workstreams opt-in pattern (PR #1030 R1):
+    // the cockpit's first-run behavior stays bound to placeholder widgets
+    // until operators opt in explicitly. Gracefully degrades when the SQL
+    // provider isn't available.
+    { id: "context-inspector", enabled: false },
     // credentials (mt#1426) — credential lifecycle surface. Defaults to enabled
     // because credentials setup is a first-run concern; operators need to see
     // and manage credentials from the cockpit home. No external dependency;
