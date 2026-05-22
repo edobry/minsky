@@ -47,7 +47,7 @@ async function main() {
   registerSessionEditTools(mapper);
 
   // Discovery loop (mirror start-command.ts logic — mt#2037 deleted the
-  // excludeCategories parameter, so the loop iterates unconditionally).
+  // opt-out parameter, so the loop iterates unconditionally).
   for (const category of Object.values(CommandCategory)) {
     const adapters = MCP_CATEGORY_ADAPTERS[category];
     if (adapters && adapters.length > 0) {
@@ -60,8 +60,12 @@ async function main() {
   const tools = [...new Set(captured)].sort();
   console.log(`Total tools registered: ${tools.length}`);
 
-  // Newly-exposed categories per ADR-011 audit
+  // Newly-exposed categories per ADR-011 audit.
+  // ai.* added in mt#2037 — AI is now just another auto-bridged category
+  // after the exclusion was retracted (mt#2035) and the exclusion mechanism
+  // itself was deleted (this task).
   const expectedNewCategories: ReadonlyArray<{ prefix: string; minCount: number }> = [
+    { prefix: "ai.", minCount: 1 },
     { prefix: "knowledge.", minCount: 1 },
     { prefix: "provenance.", minCount: 1 },
     { prefix: "authorship.", minCount: 1 },
@@ -80,30 +84,6 @@ async function main() {
       `  ${prefix}* : ${matches.length} tools ${ok ? "OK" : "MISSING"} — ${matches.slice(0, 5).join(", ")}${matches.length > 5 ? "…" : ""}`
     );
     if (!ok) allOk = false;
-  }
-
-  // AI inclusion check (mt#2035 — AI exclusion retracted; mt#2037 R1 fix —
-  // assert canonical subset by name rather than fixed count, so the smoke
-  // doesn't become brittle when AI tools are added/removed/renamed over time).
-  const aiTools = tools.filter((t) => t.startsWith("ai."));
-  const aiCanonicalSubset = [
-    "ai.chat",
-    "ai.complete",
-    "ai.models.list",
-    "ai.providers.list",
-    "ai.validate",
-  ];
-  const aiMissing = aiCanonicalSubset.filter((name) => !tools.includes(name));
-  const aiOk = aiMissing.length === 0;
-  console.log(
-    `\nAI inclusion check: ${aiTools.length} tools total; canonical subset ${aiOk ? "OK" : "MISSING"}`
-  );
-  if (aiTools.length > 0) {
-    console.log(`  ai.* : ${aiTools.join(", ")}`);
-  }
-  if (!aiOk) {
-    console.log(`  MISSING canonical AI commands: ${aiMissing.join(", ")}`);
-    allOk = false;
   }
 
   // Existing categories — sample check that core surfaces didn't disappear

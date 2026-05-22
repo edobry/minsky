@@ -76,15 +76,10 @@ export const MCP_CATEGORY_ADAPTERS: Partial<Record<CommandCategory, McpCategoryA
   [CommandCategory.FORGE]: [registerForgeTools],
 };
 
-// mt#2037: `DEFAULT_EXCLUDE_CATEGORIES` and the `excludeCategories` parameter
-// it served were both deleted per the mt#2017 investigation verdict
+// mt#2037: the prior exclusion constant and its caller-facing parameter
+// were both deleted per the mt#2017 investigation verdict
 // (https://www.notion.so/367937f03cb4818896c1dc3bf1e752dd). None of the 7
-// evaluated narrowing use cases needs the boot-time function-parameter shape:
-// per-client / per-scope / per-tenant / per-billing-tier / per-security-class
-// all want per-request filtering at OAuth-scope (mt#1666 shipped the
-// primitive); per-deployment narrowing belongs at env-var reading in
-// `createStartCommand`; operator/dev narrowing is already covered by
-// `commandOverrides.hidden`. The reviewer-service "narrowed deployment"
-// motivation was realized at the namespace layer (`authorship.get` projection
-// in mt#1254), not at deployment. Keeping the parameter directed future
-// implementers to the wrong layer.
+// evaluated narrowing use cases needed the boot-time function-parameter
+// shape; future narrowing belongs at the OAuth-scope layer (mt#1666 shipped
+// the primitive) for per-request cases, or env-var reading in
+// `createStartCommand` for per-deployment cases. See ADR-011 §Retraction.

@@ -25,11 +25,17 @@ import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resourc
 import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
 
-// Re-export discovery config for backward compatibility with code that imports
-// these constants from `start-command.ts` (e.g., existing tests). The source
-// of truth lives in `./discovery-config.ts` — a side-effect-free module that
-// out-of-band consumers (smoke scripts, unit tests) can import without
+// Re-export the dispatch table for consumers that prefer importing from
+// `start-command.ts`. Source of truth: `./discovery-config.ts` — a side-
+// effect-free module that smoke scripts and unit tests can import without
 // pulling in the MCP-server / HTTP / OAuth dependency graph.
+//
+// mt#2037: the prior exclusion-constant re-export was deleted alongside
+// the constant itself. No in-repo consumers ever imported it; out-of-repo
+// consumers (if any exist) would need to update their imports to remove
+// the deleted symbol. The deletion is intentional, not a backward-compat
+// break — the symbol has zero realistic consumers per the mt#2017 caller-
+// graph analysis.
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
@@ -208,12 +214,12 @@ export function injectAgentIdMeta(
  * the shared command registry, so they are NOT covered by the discovery loop —
  * they are invoked explicitly below.
  *
- * mt#2037: the `excludeCategories` parameter (mt#1521 / mt#1227 / mt#1254
- * narrowed-deployment hook) was deleted per the mt#2017 investigation —
- * none of the realistic narrowing use cases needed the boot-time function-
- * parameter shape. Per-request narrowing belongs at OAuth-scope (mt#1666);
- * per-deployment belongs at env-var read in `createStartCommand`. See
- * ADR-011 §Audit and discovery-config.ts inline comment.
+ * mt#2037: the prior narrowed-deployment opt-out (mt#1521 / mt#1227 / mt#1254
+ * hook) was deleted per the mt#2017 investigation — none of the realistic
+ * narrowing use cases needed the boot-time function-parameter shape.
+ * Per-request narrowing belongs at OAuth-scope (mt#1666); per-deployment
+ * belongs at env-var read in `createStartCommand`. See ADR-011 §Retraction
+ * and the inline comment in discovery-config.ts.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,

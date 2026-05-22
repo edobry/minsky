@@ -87,9 +87,9 @@ describe("MCP_CATEGORY_ADAPTERS dispatch table", () => {
     }
   });
 
-  // mt#2037: the test asserting `DEFAULT_EXCLUDE_CATEGORIES` is `[]` was
-  // removed alongside the constant itself. The exclusion mechanism is gone;
-  // every category auto-bridges via dispatch table or fallback.
+  // mt#2037: the test asserting the prior default-exclusion list is empty
+  // was removed alongside the constant itself. The exclusion mechanism is
+  // gone; every category auto-bridges via dispatch table or fallback.
 });
 
 // ---------------------------------------------------------------------------
@@ -98,7 +98,7 @@ describe("MCP_CATEGORY_ADAPTERS dispatch table", () => {
 
 describe("discovery loop coverage (Acceptance Test 1)", () => {
   test("every CommandCategory enum value is bridged via dispatch table or fallback", () => {
-    // mt#2037: after deleting `excludeCategories`, the partition is
+    // mt#2037: after deleting the opt-out parameter, the partition is
     // {dispatched, fallback} — no "excluded" bucket. Every CommandCategory
     // is reachable; either via a per-category adapter (preserving overrides)
     // or via the fallback `registerSharedCommandsWithMcp` (no overrides).
