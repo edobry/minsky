@@ -31,6 +31,7 @@ import { Transform, type Readable, type Writable } from "stream";
 import { log } from "../../utils/logger";
 import {
   PROXY_RESTART_TOOL_NAME,
+  PROXY_RESTART_NUDGE_TEXT,
   PROXY_READY_PROBE_ID_PREFIX,
   augmentToolsListResponse,
   buildReadyProbeRequest,
@@ -685,9 +686,15 @@ export class MinskyStdioProxy {
     await this.spawnChild();
 
     // Send the tool-call response back to Claude Code.
+    // Append the operator nudge (mt#2031): Claude Code's deferred-tools cache
+    // currently doesn't refresh on notifications/tools/list_changed, so the
+    // operator still needs to /mcp reconnect to see newly-registered tools in
+    // ToolSearch. Surface this in the response so the operator sees the cause
+    // and the upstream link instead of silent failure. Retire when mt#2030
+    // closes (anthropics/claude-code#4118 lands).
     const response = makeToolCallResponse(
       request,
-      `${PROXY_RESTART_TOOL_NAME}: inner server restarted at ${new Date().toISOString()}`
+      `${PROXY_RESTART_TOOL_NAME}: inner server restarted at ${new Date().toISOString()}\n\n${PROXY_RESTART_NUDGE_TEXT}`
     );
     (proc.stdout as Writable).write(`${JSON.stringify(response)}\n`);
 
