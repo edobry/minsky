@@ -217,9 +217,9 @@ unconditionally; every category lands in one of two buckets —
 ## Cross-references
 
 - mt#2010 — this task; the structural fix shipping the discovery loop.
-- mt#2035 — retracted the AI exclusion from `DEFAULT_EXCLUDE_CATEGORIES`; R6 retrospective rationale.
-- mt#2037 — deleted the `excludeCategories` parameter entirely per mt#2017 verdict.
-- mt#2017 — investigation of the `excludeCategories` parameter (DONE; verdict: delete).
+- mt#2035 — retracted the AI exclusion from the default exclusion list; R6 retrospective rationale.
+- mt#2037 — deleted the opt-out parameter entirely per mt#2017 verdict.
+- mt#2017 — investigation of the opt-out parameter (DONE; verdict: delete).
 - mt#2029 — matcher-coverage fix (structural fix that would have caught the original AI-exclusion error).
 - mt#1521 — original structural-fix task, subsumed by mt#2010.
 - mt#386 — 1st historical recurrence (git commands).
@@ -229,7 +229,7 @@ unconditionally; every category lands in one of two buckets —
 - mt#1227 / mt#1254 — original "narrowed deployment" intent; realized at
   namespace layer (mt#1254 `authorship.get` projection), not deployment layer.
 - mt#1666 — OAuth scope infrastructure (the right layer for any future
-  per-request narrowing; supersedes the `excludeCategories` parameter shape).
+  per-request narrowing; supersedes the prior opt-out parameter shape).
 - mt#1779 — dual-name (dotted + underscored) MCP tool registration pattern
   (adjacent; the discovery loop does not change this).
 - mt#264 — broader RFC on SharedCommandRegistry architecture (out of scope

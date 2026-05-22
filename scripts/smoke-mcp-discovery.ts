@@ -5,15 +5,16 @@ import "reflect-metadata";
  *
  * Boots an in-process MCP command-mapper, runs the same registration sequence
  * as `registerAllTools` against it (without the network or DI container), and
- * reports the set of tool names bridged. Verifies the 7 newly-exposed
- * categories from the mt#2010 audit appear in the bridged set.
+ * reports the set of tool names bridged. Verifies that every auto-bridged
+ * category from the mt#2010 audit (including AI per mt#2037) appears in the
+ * bridged set.
  *
  * Usage:
  *   bun scripts/smoke-mcp-discovery.ts
  *
  * Exit codes:
- *   0 — all expected categories surfaced; AI commands present (9 expected)
- *   1 — at least one expected new category missing OR AI commands missing
+ *   0 — all expected categories surfaced (≥1 tool each)
+ *   1 — at least one expected category is missing
  */
 import { CommandCategory } from "../src/adapters/shared/command-registry";
 import { registerSharedCommandsWithMcp } from "../src/adapters/mcp/shared-command-integration";
