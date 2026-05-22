@@ -87,6 +87,45 @@ const serverStartTime = Date.now();
  * Call `app.listen(port)` on the returned app to start the server.
  */
 // ---------------------------------------------------------------------------
+// Context-inspector SQL connection — lazy-cached singleton (mt#2023).
+// Mirrors the agents.ts pattern so the snapshot endpoint doesn't pay
+// PersistenceService init cost on every request. Returns null when the
+// provider is non-SQL (the endpoint returns 503 in that case).
+// ---------------------------------------------------------------------------
+
+let _cachedContextInspectorDb: import("drizzle-orm/postgres-js").PostgresJsDatabase | null = null;
+let _cachedContextInspectorDbProbed = false;
+
+async function getContextInspectorDb(): Promise<
+  import("drizzle-orm/postgres-js").PostgresJsDatabase | null
+> {
+  if (_cachedContextInspectorDb) return _cachedContextInspectorDb;
+  if (_cachedContextInspectorDbProbed) return null; // last probe found non-SQL provider; don't keep retrying
+  try {
+    const { PersistenceService } = await import("../domain/persistence/service");
+    const svc = new PersistenceService();
+    await svc.initialize();
+    const provider = svc.getProvider();
+    if (
+      !("getDatabaseConnection" in provider) ||
+      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
+    ) {
+      _cachedContextInspectorDbProbed = true;
+      return null;
+    }
+    const sqlProvider = provider as {
+      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
+    };
+    _cachedContextInspectorDb = await sqlProvider.getDatabaseConnection();
+    _cachedContextInspectorDbProbed = true;
+    return _cachedContextInspectorDb;
+  } catch {
+    _cachedContextInspectorDbProbed = true;
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // AskRepository lazy init — shared across requests (same singleton pattern
 // as agents.ts defaultProviderFactory).
 // ---------------------------------------------------------------------------
@@ -814,51 +853,77 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * @see mt#2022 — `assembleSessionContextSnapshot` from the foundation
    * @see mt#2033 — canonical SessionContextSnapshot shape
    */
+  // Stable user-safe error codes for the snapshot endpoint (PR #1230 R1 BLOCKING).
+  // Mirrors the credential-endpoint sanitization discipline: raw `err.message`
+  // values are logged server-side via `log.error` but NEVER returned to the
+  // client.
+  type ContextInspectorErrorCode =
+    | "missing_field"
+    | "unsupported_provider"
+    | "session_not_found"
+    | "internal";
+
+  function contextInspectorError(
+    res: express.Response,
+    status: number,
+    code: ContextInspectorErrorCode,
+    message: string
+  ): void {
+    res.status(status).json({ error: { code, message } });
+  }
+
+  function logContextInspectorInternal(route: string, err: unknown): void {
+    const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    log.error(`[context-inspector] ${route} — internal error: ${detail}`);
+  }
+
   app.get("/api/cockpit/context-inspector/snapshot", async (req, res) => {
     const sessionId = req.query["sessionId"];
     if (typeof sessionId !== "string" || sessionId.length === 0) {
-      res.status(400).json({ error: "sessionId query parameter is required" });
+      contextInspectorError(res, 400, "missing_field", "`sessionId` is required.");
       return;
     }
 
     try {
-      const { PersistenceService } = await import("../domain/persistence/service");
-      const { assembleSessionContextSnapshot } = await import(
-        "../domain/transcripts/session-context-snapshot"
-      );
-
-      const svc = new PersistenceService();
-      await svc.initialize();
-      const provider = svc.getProvider();
-
-      if (
-        !("getDatabaseConnection" in provider) ||
-        typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !==
-          "function"
-      ) {
-        res.status(503).json({
-          error:
-            "Context inspector requires a SQL persistence provider; current provider does not support it",
-        });
+      // Lazy-cached SQL DB connection — mirrors the agents.ts singleton
+      // pattern. Avoids constructing a fresh `PersistenceService` (and
+      // re-initializing the provider) on every request. PR #1230 R1
+      // non-blocking finding.
+      const db = await getContextInspectorDb();
+      if (db === null) {
+        contextInspectorError(
+          res,
+          503,
+          "unsupported_provider",
+          "Context inspector requires a SQL persistence provider."
+        );
         return;
       }
 
-      const sqlProvider = provider as {
-        getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-      };
-      const db = await sqlProvider.getDatabaseConnection();
+      const { assembleSessionContextSnapshot } = await import(
+        "../domain/transcripts/session-context-snapshot"
+      );
       const snapshot = await assembleSessionContextSnapshot(db, sessionId);
 
       if (snapshot === null) {
-        res.status(404).json({ error: `Session ${sessionId} not found` });
+        contextInspectorError(
+          res,
+          404,
+          "session_not_found",
+          "No transcript found for the requested session."
+        );
         return;
       }
 
       res.json(snapshot);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(`[context-inspector] snapshot fetch failed for ${sessionId}: ${message}`);
-      res.status(500).json({ error: `Internal error assembling snapshot: ${message}` });
+      logContextInspectorInternal("GET /api/cockpit/context-inspector/snapshot", err);
+      contextInspectorError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while assembling the snapshot."
+      );
     }
   });
 

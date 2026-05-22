@@ -134,18 +134,37 @@ function formatTimestamp(iso: string): string {
 
 // ── Filter chip set ──────────────────────────────────────────────────────────
 
-/** Categories that the filter chip row exposes. Maps to ContextElement.type. */
+/**
+ * Categories that the filter chip row exposes. Each chip's `key` MUST match a
+ * `block.type` value that the mt#2022 mappers actually produce — otherwise the
+ * chip is a no-op (PR #1230 R1 BLOCKING finding).
+ *
+ * Produced values per `mapTurnTypeToBlockType` + `mapAttachmentTypeToBlockType`
+ * in `src/domain/transcripts/session-context-snapshot.ts`:
+ *
+ *   - turn lines: `user-prompt`, `assistant-text`, `assistant-thinking`, `other`
+ *   - attachment lines:
+ *       - `hook_additional_context` / `task_reminder` / `auto_mode` → `hook-injection`
+ *       - `deferred_tools_delta` → `deferred-tool-catalog`
+ *       - `mcp_instructions_delta` → `mcp-instructions`
+ *       - `skill_listing` → `skill-body`
+ *       - else → `other`
+ *   - system lines → `metadata`
+ *
+ * Other `ContextElement.type` values (`tool-result`, `tool-schema`,
+ * `system-prompt`, etc.) exist in the canonical enum but aren't produced by
+ * the current pipeline — their chips would be no-ops, so they're omitted here.
+ * When mt#2022's mappers expand to produce them (or a sibling source does),
+ * add matching chip entries.
+ */
 const FILTER_CHIPS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "user-prompt", label: "user" },
   { key: "assistant-text", label: "assistant" },
   { key: "assistant-thinking", label: "thinking" },
   { key: "hook-injection", label: "hooks" },
   { key: "skill-body", label: "skills" },
-  { key: "tool-result", label: "tool-result" },
-  { key: "tool-schema", label: "tool-schema" },
   { key: "deferred-tool-catalog", label: "deferred-tools" },
   { key: "mcp-instructions", label: "mcp" },
-  { key: "system-prompt", label: "system" },
   { key: "metadata", label: "metadata" },
   { key: "other", label: "other" },
 ];

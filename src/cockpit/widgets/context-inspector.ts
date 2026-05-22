@@ -47,7 +47,16 @@ const MAX_SESSIONS = 50;
 /** Build a brief human-readable label for the dropdown. */
 function deriveLabel(agentSessionId: string, cwd: string | null, startedAt: Date | null): string {
   const sessionPrefix = agentSessionId.slice(0, 8);
-  const cwdSuffix = cwd ? cwd.split("/").slice(-2).join("/") : "unknown";
+  // Normalize Windows `\` separators to `/` so the cwd tail-extraction works
+  // on transcripts captured on Windows hosts (PR #1230 R1 non-blocking).
+  const cwdSuffix = cwd
+    ? cwd
+        .replace(/\\/g, "/")
+        .split("/")
+        .filter((s) => s.length > 0)
+        .slice(-2)
+        .join("/") || cwd
+    : "unknown";
   const ts = startedAt ? startedAt.toISOString().slice(0, 16).replace("T", " ") : "no-ts";
   return `${ts} · ${cwdSuffix} · ${sessionPrefix}`;
 }
