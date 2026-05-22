@@ -165,9 +165,14 @@ Navigate to your main workspace and try again:
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
-    // Validate task status
+    // Validate task status. The valid precursor for session_start is kind-aware:
+    // - implementation kind: requires READY (planning gate must complete first)
+    // - umbrella kind: requires PLANNING (no READY state in the umbrella workflow;
+    //   PLANNING → IN-PROGRESS is the direct transition per mt#1812's workflow registry)
+    // Both kinds reject TODO (must go through PLANNING regardless).
     if (!noStatusUpdate) {
       const currentStatus = await deps.taskService.getTaskStatus(normalizedTaskId);
+      const taskKind = (taskObj as { kind?: string }).kind || "implementation";
 
       if (currentStatus === TASK_STATUS.TODO) {
         throw new ValidationError(
@@ -177,7 +182,9 @@ Navigate to your main workspace and try again:
         );
       }
 
-      if (currentStatus === TASK_STATUS.PLANNING) {
+      if (currentStatus === TASK_STATUS.PLANNING && taskKind !== "umbrella") {
+        // implementation-kind tasks must go through the READY gate before session_start.
+        // umbrella-kind tasks transition PLANNING → IN-PROGRESS directly (no READY).
         throw new ValidationError(
           "Planning is not yet marked as complete. Set status to READY when investigation is done.",
           undefined,
@@ -464,12 +471,21 @@ Error: ${getErrorMessage(nestedError)}`
     }
   }
 
-  // Transition task status to IN-PROGRESS
+  // Transition task status to IN-PROGRESS. Valid precursors are kind-aware:
+  // - implementation kind: READY (planning gate complete) or IN-PROGRESS (idempotent)
+  // - umbrella kind: PLANNING (direct transition; no READY state) or IN-PROGRESS (idempotent)
   if (taskId && !noStatusUpdate) {
     try {
       const currentStatus = await deps.taskService.getTaskStatus(taskId);
+      const task = await deps.taskService.getTask(taskId);
+      const taskKind = (task as { kind?: string } | null)?.kind || "implementation";
+      const isUmbrella = taskKind === "umbrella";
 
-      if (currentStatus === TASK_STATUS.READY || currentStatus === TASK_STATUS.IN_PROGRESS) {
+      const validPrecursor =
+        currentStatus === TASK_STATUS.IN_PROGRESS ||
+        (isUmbrella ? currentStatus === TASK_STATUS.PLANNING : currentStatus === TASK_STATUS.READY);
+
+      if (validPrecursor) {
         if (currentStatus === TASK_STATUS.READY) {
           try {
             const specResult = await deps.taskService.getTaskSpecContent(taskId);
