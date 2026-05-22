@@ -34,13 +34,11 @@ export const PROXY_RESTART_TOOL_NAME = "__proxy_restart_server";
  * This is a **temporary mechanism** per CLAUDE.md `§Temporary mechanism
  * budget`. Retire when mt#2030's upstream fix
  * (anthropics/claude-code#4118) lands and verification confirms the gap
- * closes. Budget: escalate if still in place after 60 days from filing
- * (filed 2026-05-21).
- *
- * Tracking task: mt#2030.
+ * closes. Tracking task mt#2030 holds the canonical filing date and
+ * budget; see that task for retirement criteria.
  */
 export const PROXY_RESTART_NUDGE_TEXT =
-  "NOTE: If newly-registered tools don't surface in ToolSearch, run /mcp reconnect — " +
+  "NOTE: If newly-registered tools don't surface in ToolSearch, run /mcp reconnect - " +
   "Claude Code's deferred-tools cache currently doesn't refresh on " +
   "notifications/tools/list_changed " +
   "(tracked at anthropics/claude-code#4118; Minsky mt#2030).";

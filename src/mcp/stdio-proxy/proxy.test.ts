@@ -272,8 +272,11 @@ describe("__proxy_restart_server response — operator nudge (mt#2031)", () => {
     //      returns early without spawning.
     //   3. Send the success response (with nudge appended) to proc.stdout —
     //      this is the path we want to verify.
-    const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
-
+    //
+    // The entire test body (including proxy construction and stdout
+    // override) is wrapped in try/finally so the stdout override is restored
+    // even if an unrelated exception fires before the handleProxyRestart
+    // call — per R1 reviewer NON-BLOCKING #1.
     const captured: string[] = [];
     const originalWrite = process.stdout.write.bind(process.stdout);
     (process.stdout as Writable).write = ((chunk: unknown) => {
@@ -281,42 +284,44 @@ describe("__proxy_restart_server response — operator nudge (mt#2031)", () => {
       return true;
     }) as typeof process.stdout.write;
 
-    // Short-circuit spawnChild so it doesn't spawn an actual process.
-    (proxy as unknown as { isShuttingDown: boolean }).isShuttingDown = true;
-    // No child to kill.
-    (proxy as unknown as { child: unknown }).child = null;
-
-    const request = {
-      jsonrpc: "2.0",
-      id: "test-restart-1",
-      method: "tools/call",
-      params: { name: "__proxy_restart_server" },
-    };
-
     try {
+      const proxy = new MinskyStdioProxy({ childCommand: "bun", childArgs: ["--version"] });
+
+      // Short-circuit spawnChild so it doesn't spawn an actual process.
+      (proxy as unknown as { isShuttingDown: boolean }).isShuttingDown = true;
+      // No child to kill.
+      (proxy as unknown as { child: unknown }).child = null;
+
+      const request = {
+        jsonrpc: "2.0",
+        id: "test-restart-1",
+        method: "tools/call",
+        params: { name: "__proxy_restart_server" },
+      };
+
       await (
         proxy as unknown as { handleProxyRestart: (req: unknown) => Promise<void> }
       ).handleProxyRestart(request);
+
+      // The proxy should have written exactly one JSON-RPC frame to stdout: the
+      // tool-call success response.
+      const [responseLine] = captured.filter((s) => s.includes('"id":"test-restart-1"'));
+      if (!responseLine) {
+        throw new Error("expected handleProxyRestart to write a tool-call response");
+      }
+
+      // Parse the response and verify it contains both the restart-confirmation
+      // text AND the nudge text.
+      const parsed = JSON.parse(responseLine.trim());
+      const text = parsed.result.content[0].text as string;
+      expect(text).toContain("inner server restarted at");
+      expect(text).toContain(PROXY_RESTART_NUDGE_TEXT);
+      // The nudge appears after the restart-confirmation line.
+      expect(text.indexOf(PROXY_RESTART_NUDGE_TEXT)).toBeGreaterThan(
+        text.indexOf("inner server restarted at")
+      );
     } finally {
       (process.stdout as Writable).write = originalWrite as typeof process.stdout.write;
     }
-
-    // The proxy should have written exactly one JSON-RPC frame to stdout: the
-    // tool-call success response.
-    const [responseLine] = captured.filter((s) => s.includes('"id":"test-restart-1"'));
-    if (!responseLine) {
-      throw new Error("expected handleProxyRestart to write a tool-call response");
-    }
-
-    // Parse the response and verify it contains both the restart-confirmation
-    // text AND the nudge text.
-    const parsed = JSON.parse(responseLine.trim());
-    const text = parsed.result.content[0].text as string;
-    expect(text).toContain("inner server restarted at");
-    expect(text).toContain(PROXY_RESTART_NUDGE_TEXT);
-    // The nudge appears after the restart-confirmation line.
-    expect(text.indexOf(PROXY_RESTART_NUDGE_TEXT)).toBeGreaterThan(
-      text.indexOf("inner server restarted at")
-    );
   });
 });
