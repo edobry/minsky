@@ -716,7 +716,9 @@ export const sessionPrWaitForReviewCommandParams = {
     schema: z.string(),
     description:
       "ISO-8601 timestamp; only reviews submitted at or after this time count as matches " +
-      "(inclusive lower bound). Defaults to the call's start time.",
+      "(inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing " +
+      "reviews on the PR match by default. Pass an explicit value to narrow the window " +
+      "(e.g., wait only for reviews newer than a known stale one).",
     required: false,
   },
 };

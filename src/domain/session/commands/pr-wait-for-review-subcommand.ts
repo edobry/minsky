@@ -6,8 +6,19 @@
  * primitive that mt#1180's Ask subsystem composes for its `quality.review`
  * resolution.
  *
- * Resolution criteria: a review on the PR with `submittedAt >= since` (default
- * = call start), optionally filtered by reviewer login.
+ * Resolution criteria: a review on the PR with `submittedAt >= since`,
+ * optionally filtered by reviewer login.
+ *
+ * `since` default (mt#2043): the PR's `created_at` timestamp, looked up via
+ * `ReviewOperations.getPullRequestCreatedAt`. Pre-existing reviews on the
+ * PR match by default. Backends that don't implement the lookup fall back
+ * to the call's start time (the pre-mt#2043 behavior). Explicit
+ * `params.since` continues to take precedence with no backend call.
+ *
+ * On timeout, the result payload includes `lastSeenReviews` (annotated
+ * with per-entry `rejectionReason`) and `sinceUsed` (the resolved
+ * threshold) so callers can diagnose the miss class without a separate
+ * forensics round-trip (mt#2043).
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
@@ -72,7 +83,19 @@ export interface SessionPrWaitForReviewParams {
    *   disambiguate by passing the `[bot]`-suffixed or owner-prefixed form.
    */
   reviewer?: string;
-  /** Optional ISO timestamp; reviews with submittedAt earlier than this are ignored. */
+  /**
+   * Optional ISO timestamp; reviews with submittedAt earlier than this are
+   * ignored. Defaults to the PR's `created_at` timestamp (mt#2043), so
+   * pre-existing reviews on the PR match by default. Pass an explicit value
+   * to narrow the window (e.g., wait only for reviews newer than a known
+   * stale one).
+   *
+   * Backwards-compat note: prior to mt#2043 the default was the call's
+   * start time, which silently excluded reviews posted before the wait was
+   * invoked. The new default is structurally more useful for the typical
+   * post-PR-create wait pattern. Backends that don't implement
+   * `ReviewOperations.getPullRequestCreatedAt` fall back to call-start.
+   */
   since?: string;
 }
 
@@ -83,10 +106,65 @@ export interface SessionPrWaitForReviewMatch {
   pollCount: number;
 }
 
+/**
+ * A review entry annotated with the reason it did not match the filter on
+ * the wait tool's most recent poll. Returned in `lastSeenReviews` on
+ * timeout so callers can see WHY each review on the PR was rejected without
+ * a separate `pull_request_read get_reviews` round-trip.
+ *
+ * Introduced for mt#2043 (diagnostic visibility into wait-tool timeouts).
+ */
+export interface AnnotatedReview extends ReviewListEntry {
+  /**
+   * Why the wait-tool's filter rejected this review on the final poll.
+   * One of:
+   *   - `"state-pending"` — review is in PENDING (draft) state.
+   *   - `"missing-submittedAt"` — review has no `submittedAt` timestamp.
+   *   - `"unparseable-submittedAt: <value>"` — `submittedAt` could not be parsed.
+   *   - `"since: submittedAt <iso> < threshold <iso>"` — review predates the `since` filter.
+   *   - `"reviewer-mismatch: reviewerLogin <login> != filter <filter>"` — reviewer filter excluded it.
+   *
+   * `null` is intentionally not possible here — if a review matched, it would
+   * have been returned in the `matched: true` payload instead. This field is
+   * only populated on the timeout path.
+   */
+  rejectionReason: string;
+}
+
 export interface SessionPrWaitForReviewTimeout {
   matched: false;
   elapsedMs: number;
   pollCount: number;
+  /**
+   * Reviews returned by the backend on the most recent poll, each annotated
+   * with the rejection reason. Empty array means the backend returned no
+   * reviews on the final poll (the PR has no reviews at all, or pagination
+   * was empty).
+   *
+   * Introduced for mt#2043: agents can inspect this to diagnose why the wait
+   * timed out — e.g., a reviewer-filter mismatch, an old review that the
+   * caller's `since` excluded, or a PENDING draft that hasn't been submitted.
+   * Replaces the previous diagnostic gap where `{matched: false, elapsedMs,
+   * pollCount}` carried zero signal about which filter criterion fired.
+   */
+  lastSeenReviews: AnnotatedReview[];
+  /**
+   * The `since` threshold actually used for the filter on the final poll.
+   * Formatted as ISO-8601 with milliseconds (`YYYY-MM-DDTHH:MM:SS.sssZ`)
+   * via `Date.prototype.toISOString` — this is the standard JS form and
+   * matches what `Date.parse` round-trips losslessly. Note this is
+   * fractionally more precise than GitHub's typical `submittedAt` /
+   * `created_at` second-precision form; comparison is by millisecond so
+   * the extra digits do not affect filter semantics.
+   *
+   * When the caller passes `params.since`, this reflects the parsed value
+   * (so a caller-supplied `2026-05-21T20:00:00Z` becomes
+   * `2026-05-21T20:00:00.000Z` here). When the caller passes no `since`,
+   * this shows the resolved default (PR `created_at`, or call start when
+   * the backend doesn't support PR-time lookup). Surfacing this lets
+   * agents quickly see whether the `since`-default did what they expected.
+   */
+  sinceUsed: string;
 }
 
 export type SessionPrWaitForReviewResult =
@@ -216,6 +294,52 @@ async function defaultGetTokenProvider(): Promise<TokenProvider> {
 }
 
 /**
+ * Explain why a single review entry did not match the filter, or return
+ * `null` if it matches.
+ *
+ * Exported for unit tests and reused by `findMatchingReview` so the match
+ * decision and the rejection-reason explanation are guaranteed to stay in
+ * lockstep (one source of truth — no risk of the timeout-path explanation
+ * disagreeing with the match-path decision).
+ *
+ * Reason format (mt#2043): each non-null return value is a structured tag
+ * (`state-pending`, `missing-submittedAt`, `unparseable-submittedAt`,
+ * `since`, `reviewer-mismatch`) followed by the relevant evidence.
+ * Agents can string-match on the tag for programmatic dispatch.
+ */
+export function explainReviewRejection(
+  review: ReviewListEntry,
+  since: number,
+  reviewer: string | undefined
+): string | null {
+  // Exclude PENDING — those are draft reviews the reviewer hasn't submitted
+  // yet; they don't count as "a review has been posted" for waiter purposes.
+  if (review.state === "PENDING") return "state-pending: review is in PENDING (draft) state";
+  if (review.submittedAt === undefined) {
+    return "missing-submittedAt: review has no submittedAt timestamp";
+  }
+  const submittedMs = Date.parse(review.submittedAt);
+  if (Number.isNaN(submittedMs)) {
+    return `unparseable-submittedAt: ${review.submittedAt}`;
+  }
+  if (submittedMs < since) {
+    const sinceIso = new Date(since).toISOString();
+    return `since: submittedAt ${review.submittedAt} < threshold ${sinceIso}`;
+  }
+  if (reviewer !== undefined) {
+    // GitHub logins are case-insensitive at the platform level; the
+    // `[bot]` suffix is a presentation-layer artifact of the App identity.
+    // Compare on the normalized form so `minsky-reviewer` matches
+    // `minsky-reviewer[bot]` and vice versa.
+    const normalizedReviewer = normalizeReviewerLogin(reviewer);
+    if (normalizeReviewerLogin(review.reviewerLogin ?? "") !== normalizedReviewer) {
+      return `reviewer-mismatch: reviewerLogin ${review.reviewerLogin ?? "<null>"} != filter ${reviewer}`;
+    }
+  }
+  return null;
+}
+
+/**
  * Pick the first review, in listing order, that matches the filter criteria.
  *
  * Exported for unit tests — keeps the filter logic independent of the polling
@@ -227,25 +351,37 @@ export function findMatchingReview(
   since: number,
   reviewer: string | undefined
 ): ReviewListEntry | undefined {
-  const normalizedReviewer = reviewer !== undefined ? normalizeReviewerLogin(reviewer) : undefined;
   for (const review of reviews) {
-    // Exclude PENDING — those are draft reviews the reviewer hasn't submitted
-    // yet; they don't count as "a review has been posted" for waiter purposes.
-    if (review.state === "PENDING") continue;
-    if (review.submittedAt === undefined) continue;
-    const submittedMs = Date.parse(review.submittedAt);
-    if (Number.isNaN(submittedMs)) continue;
-    if (submittedMs < since) continue;
-    if (normalizedReviewer !== undefined) {
-      // GitHub logins are case-insensitive at the platform level; the
-      // `[bot]` suffix is a presentation-layer artifact of the App identity.
-      // Compare on the normalized form so `minsky-reviewer` matches
-      // `minsky-reviewer[bot]` and vice versa.
-      if (normalizeReviewerLogin(review.reviewerLogin ?? "") !== normalizedReviewer) continue;
+    if (explainReviewRejection(review, since, reviewer) === null) {
+      return review;
     }
-    return review;
   }
   return undefined;
+}
+
+/**
+ * Annotate every review in a list with the reason it did NOT match the
+ * filter. Used on the wait-tool's timeout path to surface the most-recent
+ * poll's reviews + per-entry rejection reason, replacing the previous
+ * "{matched: false, elapsedMs, pollCount}" diagnostic gap.
+ *
+ * Reviews that WOULD have matched are still annotated with their match
+ * status — but those will not appear in the timeout payload because the
+ * wait loop returns immediately on the first match. The defensive non-null
+ * fallback below covers the edge case where annotation runs on a list
+ * containing a matching review (e.g., during testing).
+ */
+export function annotateReviewRejections(
+  reviews: ReviewListEntry[],
+  since: number,
+  reviewer: string | undefined
+): AnnotatedReview[] {
+  return reviews.map((review) => ({
+    ...review,
+    rejectionReason:
+      explainReviewRejection(review, since, reviewer) ??
+      "matched: review satisfies all filter criteria (annotation defensive fallback)",
+  }));
 }
 
 /**
@@ -254,11 +390,21 @@ export function findMatchingReview(
  * Contract:
  * - Resolves the session's PR via `resolveSessionContextWithFeedback`.
  * - Calls `backend.review.listReviews` at each poll tick.
- * - Returns the first review matching `since` (default = call start) and
- *   optional `reviewer` filter.
- * - On timeout, returns `{ matched: false, elapsedMs, pollCount }` — does not
- *   throw. Downstream callers differentiate success from timeout on the
- *   `matched` flag, not on exception flow.
+ * - Returns the first review matching `since` and optional `reviewer` filter.
+ * - `since` default (mt#2043): when the caller does not pass `since`, the
+ *   default is the PR's `created_at` timestamp (looked up via
+ *   `backend.review.getPullRequestCreatedAt`). This makes pre-existing
+ *   reviews on the PR match by default — the previous "call start" default
+ *   silently excluded any review posted before the wait was invoked.
+ *   Backends that do not implement `getPullRequestCreatedAt` fall back to
+ *   call start (the previous default).
+ * - On timeout, returns
+ *   `{matched: false, elapsedMs, pollCount, lastSeenReviews, sinceUsed}` —
+ *   does not throw. `lastSeenReviews` is the most recent poll's reviews,
+ *   each annotated with the rejection reason; `sinceUsed` is the actual
+ *   `since` threshold applied. Together they let callers diagnose the miss
+ *   without a separate `pull_request_read get_reviews` round-trip
+ *   (mt#2043 diagnostic visibility).
  * - Throws MinskyError / ResourceNotFoundError / ValidationError for
  *   structural failures (no PR on session, backend unsupported, auth issue).
  */
@@ -280,10 +426,12 @@ export async function sessionPrWaitForReview(
   const intervalMs = clamp(params.intervalSeconds ?? 15, 5, 60) * 1000;
 
   const start = now();
-  // `since` establishes the threshold for "new" reviews. Default is call start;
-  // explicit override lets callers watch past a known-stale review.
-  const since = params.since !== undefined ? Date.parse(params.since) : start;
-  if (Number.isNaN(since)) {
+
+  // Validate explicit `params.since` up front. The default-`since`
+  // resolution (PR `created_at`) happens AFTER backend creation since it
+  // requires a backend call (`getPullRequestCreatedAt`). The explicit path
+  // is validated here so caller-supplied bad timestamps fail fast.
+  if (params.since !== undefined && Number.isNaN(Date.parse(params.since))) {
     throw new ValidationError(`Invalid --since timestamp: ${params.since}`);
   }
 
@@ -323,8 +471,50 @@ export async function sessionPrWaitForReview(
       );
     }
 
+    // Resolve the `since` threshold (mt#2043):
+    //   - explicit `params.since` wins; backend lookup is skipped.
+    //   - otherwise look up PR `created_at` via the backend so pre-existing
+    //     reviews match by default.
+    //   - if the backend doesn't implement `getPullRequestCreatedAt`, fall
+    //     back to call start (the previous default — preserves behavior on
+    //     non-GitHub backends that haven't implemented the new method yet).
+    let since: number;
+    if (params.since !== undefined) {
+      since = Date.parse(params.since);
+    } else if (backend.review.getPullRequestCreatedAt) {
+      const createdAt = await backend.review.getPullRequestCreatedAt(prNumber);
+      const createdMs = Date.parse(createdAt);
+      if (Number.isNaN(createdMs)) {
+        // Backend returned a malformed timestamp — surface defensively
+        // rather than silently coercing to call start. The agent's spec
+        // promise is "default since = PR created_at"; if the backend can't
+        // produce a usable value, the caller should know.
+        throw new MinskyError(
+          `Backend returned unparseable PR created_at: "${createdAt}". ` +
+            `Pass an explicit \`since\` to bypass the default lookup.`
+        );
+      }
+      since = createdMs;
+    } else {
+      // Non-GitHub backend with no PR-creation-time exposure. Falls back to
+      // call-start semantics (the pre-mt#2043 default).
+      since = start;
+    }
+
+    const sinceIso = new Date(since).toISOString();
     const deadline = start + timeoutMs;
     let pollCount = 0;
+    // Track the most recent poll's reviews so the timeout payload can
+    // surface them with per-entry rejection reasons (mt#2043).
+    let lastReviews: ReviewListEntry[] = [];
+
+    const buildTimeoutResult = (): SessionPrWaitForReviewTimeout => ({
+      matched: false,
+      elapsedMs: now() - start,
+      pollCount,
+      lastSeenReviews: annotateReviewRejections(lastReviews, since, resolvedReviewer),
+      sinceUsed: sinceIso,
+    });
 
     while (true) {
       // After the first poll, the sleep may have brought us exactly to (or
@@ -333,15 +523,12 @@ export async function sessionPrWaitForReview(
       // `pollCount > 0` guard guarantees at least one poll even on zero
       // or sub-interval budgets — the contract is "one check minimum."
       if (pollCount > 0 && now() >= deadline) {
-        return {
-          matched: false,
-          elapsedMs: now() - start,
-          pollCount,
-        };
+        return buildTimeoutResult();
       }
 
       pollCount += 1;
       const reviews = await backend.review.listReviews(prNumber);
+      lastReviews = reviews;
       const match = findMatchingReview(reviews, since, resolvedReviewer);
       if (match) {
         return {
@@ -354,11 +541,7 @@ export async function sessionPrWaitForReview(
 
       const remaining = deadline - now();
       if (remaining <= 0) {
-        return {
-          matched: false,
-          elapsedMs: now() - start,
-          pollCount,
-        };
+        return buildTimeoutResult();
       }
 
       const sleepMs = Math.min(intervalMs, remaining);

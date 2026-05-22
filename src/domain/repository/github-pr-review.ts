@@ -616,6 +616,58 @@ export async function listReviews(
   }
 }
 
+/**
+ * Return the PR's creation timestamp (ISO-8601 string).
+ *
+ * Introduced for mt#2043: `session_pr_wait_for_review` defaults the `since`
+ * filter to PR creation time so reviews posted BEFORE the wait was invoked
+ * are still matched. Backend-agnostic at the interface level
+ * (`ReviewOperations.getPullRequestCreatedAt`); this is the GitHub adapter.
+ *
+ * Auth goes through `gh.getToken()` (TokenProvider-aware). Read-only.
+ */
+export async function getPullRequestCreatedAt(
+  gh: GitHubContext,
+  prIdentifier: string | number
+): Promise<string> {
+  const prNumber = await resolvePRNumber(prIdentifier, gh, async (branch) => {
+    const token = await gh.getToken();
+    const ok = createOctokit(token);
+    return findPRNumberForBranch(branch, gh, ok);
+  });
+
+  try {
+    const token = await gh.getToken();
+    const octokit = createOctokit(token);
+
+    const { data } = await octokit.rest.pulls.get({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+    });
+
+    if (!data.created_at) {
+      // Should not happen — GitHub always populates created_at — but guard
+      // defensively so a missing field surfaces as a typed error rather than
+      // silently returning undefined into Date.parse.
+      throw new MinskyError(
+        `GitHub returned no created_at for PR #${prNumber} (${gh.owner}/${gh.repo})`
+      );
+    }
+
+    return data.created_at;
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "get pull request created_at",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+    throw error;
+  }
+}
+
 // ── GraphQL thread resolution mutations ─────────────────────────────────────
 
 /**

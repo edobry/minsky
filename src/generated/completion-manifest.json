@@ -2602,7 +2602,7 @@
                 },
                 {
                   "flags": ["--since"],
-                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the call's start time.",
+                  "description": "ISO-8601 timestamp; only reviews submitted at or after this time count as matches (inclusive lower bound). Defaults to the PR's created_at timestamp, so pre-existing reviews on the PR match by default. Pass an explicit value to narrow the window (e.g., wait only for reviews newer than a known stale one).",
                   "takesValue": true
                 }
               ]
