@@ -5,22 +5,20 @@ import "reflect-metadata";
  *
  * Boots an in-process MCP command-mapper, runs the same registration sequence
  * as `registerAllTools` against it (without the network or DI container), and
- * reports the set of tool names bridged. Verifies the 7 newly-exposed
- * categories from the mt#2010 audit appear in the bridged set.
+ * reports the set of tool names bridged. Verifies that every auto-bridged
+ * category from the mt#2010 audit (including AI per mt#2037) appears in the
+ * bridged set.
  *
  * Usage:
  *   bun scripts/smoke-mcp-discovery.ts
  *
  * Exit codes:
- *   0 — all expected categories surfaced; AI commands present (9 expected)
- *   1 — at least one expected new category missing OR AI commands missing
+ *   0 — all expected categories surfaced (≥1 tool each)
+ *   1 — at least one expected category is missing
  */
 import { CommandCategory } from "../src/adapters/shared/command-registry";
 import { registerSharedCommandsWithMcp } from "../src/adapters/mcp/shared-command-integration";
-import {
-  MCP_CATEGORY_ADAPTERS,
-  DEFAULT_EXCLUDE_CATEGORIES,
-} from "../src/commands/mcp/discovery-config";
+import { MCP_CATEGORY_ADAPTERS } from "../src/commands/mcp/discovery-config";
 import { registerSessionWorkspaceTools } from "../src/adapters/mcp/session-workspace";
 import { registerSessionFileTools } from "../src/adapters/mcp/session-files";
 import { registerSessionEditTools } from "../src/adapters/mcp/session-edit-tools";
@@ -49,10 +47,9 @@ async function main() {
   registerSessionFileTools(mapper);
   registerSessionEditTools(mapper);
 
-  // Discovery loop (mirror start-command.ts logic)
-  const excluded = new Set<CommandCategory>(DEFAULT_EXCLUDE_CATEGORIES);
+  // Discovery loop (mirror start-command.ts logic — mt#2037 deleted the
+  // opt-out parameter, so the loop iterates unconditionally).
   for (const category of Object.values(CommandCategory)) {
-    if (excluded.has(category)) continue;
     const adapters = MCP_CATEGORY_ADAPTERS[category];
     if (adapters && adapters.length > 0) {
       for (const adapter of adapters) adapter(mapper);
@@ -64,8 +61,12 @@ async function main() {
   const tools = [...new Set(captured)].sort();
   console.log(`Total tools registered: ${tools.length}`);
 
-  // Newly-exposed categories per ADR-011 audit
+  // Newly-exposed categories per ADR-011 audit.
+  // ai.* added in mt#2037 — AI is now just another auto-bridged category
+  // after the exclusion was retracted (mt#2035) and the exclusion mechanism
+  // itself was deleted (this task).
   const expectedNewCategories: ReadonlyArray<{ prefix: string; minCount: number }> = [
+    { prefix: "ai.", minCount: 1 },
     { prefix: "knowledge.", minCount: 1 },
     { prefix: "provenance.", minCount: 1 },
     { prefix: "authorship.", minCount: 1 },
@@ -84,24 +85,6 @@ async function main() {
       `  ${prefix}* : ${matches.length} tools ${ok ? "OK" : "MISSING"} — ${matches.slice(0, 5).join(", ")}${matches.length > 5 ? "…" : ""}`
     );
     if (!ok) allOk = false;
-  }
-
-  // AI inclusion check (mt#2035 — AI exclusion retracted)
-  // Expected 9 tools: ai.chat, ai.complete, ai.fast-apply,
-  // ai.models.list, ai.models.available, ai.models.refresh,
-  // ai.providers.list, ai.cache.clear, ai.validate
-  const aiTools = tools.filter((t) => t.startsWith("ai."));
-  const aiExpectedCount = 9;
-  const aiOk = aiTools.length >= aiExpectedCount;
-  console.log(
-    `\nAI inclusion check: ${aiTools.length} tools (expect >= ${aiExpectedCount}) ${aiOk ? "OK" : "MISSING"}`
-  );
-  if (aiTools.length > 0) {
-    console.log(`  ai.* : ${aiTools.join(", ")}`);
-  }
-  if (!aiOk) {
-    console.log(`  MISSING: expected >= ${aiExpectedCount} AI tools, got ${aiTools.length}`);
-    allOk = false;
   }
 
   // Existing categories — sample check that core surfaces didn't disappear
