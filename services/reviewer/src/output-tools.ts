@@ -542,7 +542,7 @@ function isToolName(name: string): name is ToolName {
  * @param name     - The tool name emitted by the model (e.g. "submit_finding").
  * @param argsJson - The raw JSON string of arguments from the model.
  * @returns The discriminated-union tool call with validated args.
- * @throws If `name` is not one of the five known output tools.
+ * @throws If `name` is not one of the six known output tools.
  * @throws If `argsJson` is not valid JSON.
  * @throws If the parsed args fail zod validation for the named tool.
  */
