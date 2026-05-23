@@ -118,8 +118,9 @@ export interface ReviewOutput {
   model: string;
   /**
    * Structured output tool calls emitted by the model during review. Each
-   * entry is a parsed, validated discriminated-union call (submit_finding,
-   * submit_inline_comment, submit_spec_verification, or conclude_review).
+   * entry is a parsed, validated discriminated-union call: submit_finding,
+   * submit_inline_comment, submit_spec_verification, submit_documentation_impact,
+   * submit_thread_resolve, or conclude_review.
    * Always an array — never undefined; empty when no output tools were called.
    */
   toolCalls: ReviewToolCall[];
@@ -276,9 +277,10 @@ const OUTPUT_TOOL_NAMES = new Set<string>(OUTPUT_TOOL_DEFINITIONS.map((t) => t.f
 
 /**
  * All tools registered with the model in the tool-use loop: the two
- * read-only reviewer tools (read_file, list_directory) plus the four
+ * read-only reviewer tools (read_file, list_directory) plus the six
  * structured output tools (submit_finding, submit_inline_comment,
- * submit_spec_verification, conclude_review).
+ * submit_spec_verification, submit_documentation_impact, submit_thread_resolve,
+ * conclude_review).
  *
  * OutputToolDefinition.function.parameters uses a concrete shape (type, properties,
  * required, additionalProperties) while OpenAI's FunctionParameters is typed as

@@ -121,6 +121,11 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       tc.name === "submit_spec_verification"
   );
 
+  const documentationImpacts = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_documentation_impact" }> =>
+      tc.name === "submit_documentation_impact"
+  );
+
   const concludeCalls = toolCalls.filter(
     (tc): tc is Extract<ReviewToolCall, { name: "conclude_review" }> =>
       tc.name === "conclude_review"
@@ -225,6 +230,28 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       const status = escapeTableCell(tc.args.status);
       const evidence = escapeTableCell(tc.args.evidence);
       lines.push(`| ${criterion} | ${status} | ${evidence} |`);
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  // Section 5: Documentation impact (optional)
+  //
+  // Emitted when the model calls submit_documentation_impact. The merge-gate
+  // hook (.claude/hooks/require-review-before-merge.ts) text-matches
+  // /documentation[- ]impact/i on the rendered body, so the literal section
+  // heading "## Documentation impact" must remain.
+  //
+  // Multi-call handling: the prompt instructs the model to call this tool
+  // exactly once per review. In practice the model may emit more than one
+  // (self-correction, retries). Mirror the conclude_review pattern and use
+  // the LAST call's args — newer emissions supersede older ones. Single bullet
+  // rendered regardless of N to avoid duplicate-content drift.
+  const lastDocImpact = documentationImpacts[documentationImpacts.length - 1];
+  if (lastDocImpact !== undefined) {
+    const lines: string[] = ["## Documentation impact", ""];
+    lines.push(`- **${lastDocImpact.args.kind}** — ${lastDocImpact.args.evidence}`);
+    if (lastDocImpact.args.affectedDocs && lastDocImpact.args.affectedDocs.length > 0) {
+      lines.push(`  Affected: ${lastDocImpact.args.affectedDocs.join(", ")}`);
     }
     sections.push(lines.join("\n"));
   }

@@ -1,11 +1,13 @@
 /**
  * Output tools for the reviewer model.
  *
- * Defines the four structured output tools the reviewer model uses to compose
+ * Defines the six structured output tools the reviewer model uses to compose
  * a PR review. Each tool corresponds to one kind of review artifact:
  *   - submit_finding: a discrete review finding with severity and location
  *   - submit_inline_comment: a targeted inline comment on a specific line
  *   - submit_spec_verification: a verification result for one spec criterion
+ *   - submit_documentation_impact: documentation-impact assessment (mt#2053)
+ *   - submit_thread_resolve: resolve an existing review thread (mt#1345)
  *   - conclude_review: the final review conclusion (approve / request-changes / comment)
  *
  * This module is schema-only — no provider wiring, no composition logic. It is
@@ -151,6 +153,52 @@ export const SubmitSpecVerificationArgsSchema = z.object({
 export type SubmitSpecVerificationArgs = z.infer<typeof SubmitSpecVerificationArgsSchema>;
 
 /**
+ * Args for the `submit_documentation_impact` tool.
+ *
+ * Records whether the PR's changes affect any project documentation. Submit
+ * exactly one call per review (or zero if the PR is purely internal — e.g., a
+ * tests-only or internal-refactor PR where documentation impact does not
+ * apply). Mirrors the three outcomes defined in `.claude/skills/review-pr/SKILL.md`
+ * step 6a:
+ *   - "no-update-needed"      — bugfix, internal refactor, cosmetic; docs do not change.
+ *   - "updated-in-pr"         — the PR includes documentation updates alongside the code.
+ *   - "blocking-needs-update" — the PR affects documented behavior but does NOT update
+ *                               the docs. This is a blocking concern (the docs and code
+ *                               drift apart on merge); the reviewer should also emit a
+ *                               `submit_finding` with severity BLOCKING for the same issue.
+ *
+ * The reviewer service composes a `## Documentation impact` section in the
+ * GitHub review body from this call so the merge gate can verify
+ * documentation impact was explicitly assessed.
+ */
+export const SubmitDocumentationImpactArgsSchema = z.object({
+  /**
+   * The PR's documentation-impact classification. See the schema-level
+   * comment above for the meaning of each value.
+   */
+  kind: z.enum(["no-update-needed", "updated-in-pr", "blocking-needs-update"]),
+
+  /**
+   * Justification for the verdict. Reference the specific docs (or absence
+   * thereof) that drove the call. Examples:
+   *   - "Pure internal refactor — no user-facing or documented behavior changed."
+   *   - "Updated docs/configuration-guide.md to describe the new MINSKY_FOO env var."
+   *   - "Adds a new MCP tool but does not update docs/architecture.md tool inventory."
+   */
+  evidence: z.string().min(1),
+
+  /**
+   * Optional list of documentation file paths affected (or required to be
+   * updated). For `updated-in-pr`, list the docs the PR updated. For
+   * `blocking-needs-update`, list the docs that need updating. Omit for
+   * `no-update-needed`.
+   */
+  affectedDocs: z.array(z.string().min(1)).optional(),
+});
+
+export type SubmitDocumentationImpactArgs = z.infer<typeof SubmitDocumentationImpactArgsSchema>;
+
+/**
  * Args for the `conclude_review` tool.
  *
  * Signals the end of the review and provides a top-level summary. This tool
@@ -200,7 +248,7 @@ export interface OutputToolDefinition {
 }
 
 /**
- * The four output tools registered with the model for structured review
+ * The six output tools registered with the model for structured review
  * composition. Mirrors the style of REVIEWER_TOOL_DEFINITIONS in providers.ts.
  */
 export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
@@ -380,6 +428,49 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "submit_documentation_impact",
+      description:
+        "Record whether the PR's changes affect any project documentation. " +
+        "Call this exactly once per review (zero only if the PR is purely internal and " +
+        "documentation impact does not apply — e.g., a tests-only refactor). " +
+        "kind: 'no-update-needed' for bugfix/internal-refactor/cosmetic PRs that do not " +
+        "change documented behavior; 'updated-in-pr' when the PR ships documentation " +
+        "updates alongside the code; 'blocking-needs-update' when the PR affects " +
+        "documented behavior but does NOT update the docs (the reviewer should also " +
+        "emit a submit_finding with severity BLOCKING for the same issue). " +
+        "evidence must justify the verdict and reference specific docs when applicable. " +
+        "affectedDocs is optional but recommended for 'updated-in-pr' and " +
+        "'blocking-needs-update' — list the affected documentation file paths.",
+      parameters: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: ["no-update-needed", "updated-in-pr", "blocking-needs-update"],
+            description:
+              "Documentation-impact classification: no-update-needed, updated-in-pr, or blocking-needs-update.",
+          },
+          evidence: {
+            type: "string",
+            minLength: 1,
+            description:
+              "Justification for the verdict. Reference specific docs (or absence thereof).",
+          },
+          affectedDocs: {
+            type: "array",
+            items: { type: "string", minLength: 1 },
+            description:
+              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'.",
+          },
+        },
+        required: ["kind", "evidence"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "conclude_review",
       description:
         "Signal the end of the review and provide a top-level summary. " +
@@ -425,6 +516,7 @@ export type ReviewToolCall =
   | { name: "submit_finding"; args: SubmitFindingArgs }
   | { name: "submit_inline_comment"; args: SubmitInlineCommentArgs }
   | { name: "submit_spec_verification"; args: SubmitSpecVerificationArgs }
+  | { name: "submit_documentation_impact"; args: SubmitDocumentationImpactArgs }
   | { name: "conclude_review"; args: ConcludeReviewArgs }
   | { name: "submit_thread_resolve"; args: SubmitThreadResolveArgs };
 
@@ -433,6 +525,7 @@ const TOOL_SCHEMAS = {
   submit_finding: SubmitFindingArgsSchema,
   submit_inline_comment: SubmitInlineCommentArgsSchema,
   submit_spec_verification: SubmitSpecVerificationArgsSchema,
+  submit_documentation_impact: SubmitDocumentationImpactArgsSchema,
   conclude_review: ConcludeReviewArgsSchema,
   submit_thread_resolve: SubmitThreadResolveArgsSchema,
 } as const;
@@ -449,7 +542,7 @@ function isToolName(name: string): name is ToolName {
  * @param name     - The tool name emitted by the model (e.g. "submit_finding").
  * @param argsJson - The raw JSON string of arguments from the model.
  * @returns The discriminated-union tool call with validated args.
- * @throws If `name` is not one of the five known output tools.
+ * @throws If `name` is not one of the six known output tools.
  * @throws If `argsJson` is not valid JSON.
  * @throws If the parsed args fail zod validation for the named tool.
  */
@@ -485,6 +578,8 @@ export function parseToolCall(name: string, argsJson: string): ReviewToolCall {
       return { name, args: result.data as SubmitInlineCommentArgs };
     case "submit_spec_verification":
       return { name, args: result.data as SubmitSpecVerificationArgs };
+    case "submit_documentation_impact":
+      return { name, args: result.data as SubmitDocumentationImpactArgs };
     case "conclude_review":
       return { name, args: result.data as ConcludeReviewArgs };
     case "submit_thread_resolve":
