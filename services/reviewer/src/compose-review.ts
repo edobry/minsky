@@ -240,13 +240,18 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
   // hook (.claude/hooks/require-review-before-merge.ts) text-matches
   // /documentation[- ]impact/i on the rendered body, so the literal section
   // heading "## Documentation impact" must remain.
-  if (documentationImpacts.length > 0) {
+  //
+  // Multi-call handling: the prompt instructs the model to call this tool
+  // exactly once per review. In practice the model may emit more than one
+  // (self-correction, retries). Mirror the conclude_review pattern and use
+  // the LAST call's args — newer emissions supersede older ones. Single bullet
+  // rendered regardless of N to avoid duplicate-content drift.
+  const lastDocImpact = documentationImpacts[documentationImpacts.length - 1];
+  if (lastDocImpact !== undefined) {
     const lines: string[] = ["## Documentation impact", ""];
-    for (const tc of documentationImpacts) {
-      lines.push(`- **${tc.args.kind}** — ${tc.args.evidence}`);
-      if (tc.args.affectedDocs && tc.args.affectedDocs.length > 0) {
-        lines.push(`  Affected: ${tc.args.affectedDocs.join(", ")}`);
-      }
+    lines.push(`- **${lastDocImpact.args.kind}** — ${lastDocImpact.args.evidence}`);
+    if (lastDocImpact.args.affectedDocs && lastDocImpact.args.affectedDocs.length > 0) {
+      lines.push(`  Affected: ${lastDocImpact.args.affectedDocs.join(", ")}`);
     }
     sections.push(lines.join("\n"));
   }

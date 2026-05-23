@@ -1,11 +1,13 @@
 /**
  * Output tools for the reviewer model.
  *
- * Defines the four structured output tools the reviewer model uses to compose
+ * Defines the six structured output tools the reviewer model uses to compose
  * a PR review. Each tool corresponds to one kind of review artifact:
  *   - submit_finding: a discrete review finding with severity and location
  *   - submit_inline_comment: a targeted inline comment on a specific line
  *   - submit_spec_verification: a verification result for one spec criterion
+ *   - submit_documentation_impact: documentation-impact assessment (mt#2053)
+ *   - submit_thread_resolve: resolve an existing review thread (mt#1345)
  *   - conclude_review: the final review conclusion (approve / request-changes / comment)
  *
  * This module is schema-only — no provider wiring, no composition logic. It is
@@ -246,7 +248,7 @@ export interface OutputToolDefinition {
 }
 
 /**
- * The four output tools registered with the model for structured review
+ * The six output tools registered with the model for structured review
  * composition. Mirrors the style of REVIEWER_TOOL_DEFINITIONS in providers.ts.
  */
 export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [

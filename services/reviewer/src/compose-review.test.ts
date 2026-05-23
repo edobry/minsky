@@ -29,6 +29,9 @@ const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
 // body, so the literal strings are part of the contract.
 const SECTION_DOCUMENTATION_IMPACT = "## Documentation impact";
 
+// Documentation-impact kind constants — referenced across multiple test cases.
+const DOC_IMPACT_NO_UPDATE_NEEDED = "no-update-needed" as const;
+
 // ---------------------------------------------------------------------------
 // Test 1: Three findings + conclude APPROVE → body has summary, ordered
 //         findings (BLOCKING, NON-BLOCKING, PRE-EXISTING), event APPROVE
@@ -619,7 +622,7 @@ describe("composeReviewBody", () => {
       {
         name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
         args: {
-          kind: "no-update-needed",
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
           evidence: "Pure internal refactor — no documented behavior changed.",
         },
       },
@@ -736,6 +739,59 @@ describe("composeReviewBody", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Test 16b: multiple submit_documentation_impact calls → LAST one wins
+  // (mirrors conclude_review self-correction semantics; prevents duplicate
+  // bullets when the model self-corrects)
+  // -------------------------------------------------------------------------
+  test("16b: multiple submit_documentation_impact calls → last wins (single bullet rendered)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Initial verdict — internal refactor.",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "updated-in-pr",
+          evidence: "Correction — actually updated docs/configuration-guide.md.",
+          affectedDocs: ["docs/configuration-guide.md"],
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Model self-corrected mid-review." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    // Last call wins
+    expect(result.body).toContain("**updated-in-pr**");
+    expect(result.body).toContain("Correction — actually updated");
+    expect(result.body).toContain("Affected: docs/configuration-guide.md");
+    // Earlier call must NOT be rendered
+    expect(result.body).not.toContain("**no-update-needed**");
+    expect(result.body).not.toContain("Initial verdict");
+    // Exactly one bullet in the Documentation impact section (find the next
+    // heading or end-of-body as the section terminator; can't use `\n\n` as
+    // a delimiter because it appears WITHIN the section between heading and
+    // body too).
+    const docSectionStart = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+    const afterStart = docSectionStart + SECTION_DOCUMENTATION_IMPACT.length;
+    const nextHeadingIdx = result.body.slice(afterStart).search(/\n## /);
+    const docSection =
+      nextHeadingIdx === -1
+        ? result.body.slice(docSectionStart)
+        : result.body.slice(docSectionStart, afterStart + nextHeadingIdx);
+    const bulletCount = (docSection.match(/^- \*\*/gm) ?? []).length;
+    expect(bulletCount).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
   // Test 17: documentation impact section is rendered AFTER spec verification
   // section when both are present (gate-relevant section ordering)
   // -------------------------------------------------------------------------
@@ -752,7 +808,7 @@ describe("composeReviewBody", () => {
       {
         name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
         args: {
-          kind: "no-update-needed",
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
           evidence: "Adds an output tool; no end-user doc surface change.",
         },
       },

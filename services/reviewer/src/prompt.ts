@@ -301,7 +301,7 @@ If a task spec is provided, call submit_spec_verification(criterion, status, evi
 - status: "Met", "Not Met", or "N/A".
 - evidence: the file:line or diff reference that supports the verdict.
 
-Call submit_documentation_impact(kind, evidence, affectedDocs?) exactly once to record whether the PR's changes affect documentation.
+Call submit_documentation_impact(kind, evidence, affectedDocs?) exactly once to record whether the PR's changes affect documentation. If you need to correct an earlier emission, emit only the corrected call — do not repeat the original. The composer uses the LAST call's args (mirroring conclude_review's self-correction semantics).
 - kind: "no-update-needed" for bugfixes / internal refactors / cosmetic changes that do not affect documented behavior; "updated-in-pr" when the PR ships documentation updates alongside the code; "blocking-needs-update" when the PR affects documented behavior but does NOT update the docs (in which case also emit a submit_finding with severity BLOCKING for the same issue).
 - evidence: justify the verdict, referencing specific docs or stating their absence.
 - affectedDocs: optional. List doc file paths for "updated-in-pr" (what the PR updated) or "blocking-needs-update" (what needs updating). Omit for "no-update-needed".
