@@ -40,7 +40,7 @@ Step 6: Develop
 Step 7: Verify implementation
 Step 7a: Ship verification artifact for structural changes (when in scope)
 Step 8: Create PR (IN-PROGRESS → IN-REVIEW)
-Step 9: Hand off to verify
+Step 9: Drive PR to convergence (IN-REVIEW → merge)
 
 ### 0. Entry gate: check task status
 
@@ -245,15 +245,58 @@ Use `mcp__minsky__session_pr_create` to create the pull request:
 - Body includes Summary, Key Changes, Testing sections
 - The tool automatically rebases on main and sets task status to IN-REVIEW
 
-### 9. Hand off to verify
+### 9. Drive PR to convergence (IN-REVIEW → merge)
 
-After PR creation, **stop working on the session**. Do not continue committing.
+**After PR creation, the main agent owns the PR until convergence — do NOT stop, do NOT idle, do NOT end the turn with deferral language.** The user has delegated review to `minsky-reviewer[bot]`; the agent drives the PR to APPROVE (or to a documented bypass condition) and then merges. This step exists because the agent's default is to treat PR-creation as a hand-off; the corpus rules (`feedback_user_does_not_review`, `decision-defaults.mdc §User does not review PRs in the loop`) and the runtime hook `.claude/hooks/drive-pr-to-convergence.ts` all agree: convergence is the agent's job.
 
-Suggest to the user:
+**Forbidden turn-closers** (each one re-creates the failure pattern mt#2056 fixed):
 
-> "PR created. Run `/verify-task mt#X` to verify the implementation against all success criteria before merging."
+- "PR created. Ready for your review/merge."
+- "Standing by for the reviewer bot."
+- "Ping me when the review lands."
+- "I'll wait for you to merge."
+- Ending the turn at `session_pr_create` return without invoking the next mechanism.
 
-**Do NOT** auto-run `/verify-task`, do NOT attempt to merge. Verification and merge are owned by the `/verify-task` skill and the review process.
+**Default mechanism: `session_pr_wait-for-review` with `reviewer: "minsky-reviewer[bot]"`.**
+
+```
+mcp__minsky__session_pr_wait-for-review(task: "mt#<id>", reviewer: "minsky-reviewer[bot]")
+```
+
+Block-and-return on the first review by the reviewer-bot. Then branch on the review state:
+
+- **APPROVE** → call `mcp__minsky__session_pr_merge`. The standard merge path succeeds when the bot's review body satisfies the merge-gate text patterns (post-mt#2053: both `## Spec verification` and `## Documentation impact` sections are required and will be present in a well-formed APPROVE review). On success, the at-merge handler sets DONE atomically.
+- **CHANGES_REQUESTED** → fix per the §7 Convergence Checklist (anti-rationalization: did you change behavior or just add a doc comment?; class-not-instance: scan for sibling sites of the same class and patch them all in one round). Commit, push, then re-invoke `session_pr_wait-for-review` with `since` set to the previous review's timestamp. Iterate until APPROVE.
+- **COMMENT** → assess whether changes are required. If the bot is the same App identity as the PR author, GitHub blocks APPROVE — the bot posts COMMENT with a "would have approved" signal in the body. If the body indicates no outstanding BLOCKING/REQUEST_CHANGES findings, treat as approval-equivalent and proceed to the bot-authored merge path below. Otherwise treat the COMMENT findings the same as CHANGES_REQUESTED and iterate.
+
+**Self-authored / bot-authored PR escape valves** (per `feedback_self_authored_pr_merge_constraints`).
+
+When the PR is authored by `minsky-ai[bot]` or another identity that the reviewer-bot cannot APPROVE (GitHub self-approval block), the standard `session_pr_merge` path may need the bypass:
+
+- **Standard merge** succeeds when the bot review body satisfies the merge-gate's text patterns even though the conclusion is COMMENT rather than APPROVE (see `.claude/hooks/require-review-before-merge.ts` for the matched patterns). Always try `session_pr_merge` first.
+- **Bypass via `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`** when ALL of these hold:
+  - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once).
+  - AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD (per `feedback_reviewer_bot_cot_leakage_forces_bypass`); OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix (per `feedback_reviewer_bot_self_reversal_is_bypass_signal`); OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per `feedback_self_authored_pr_merge_constraints` step 5 (service health / webhook miss / CoT-leakage stall).
+  - AND `merge_method=merge` (not squash — `.claude/hooks/block-git-gh-cli.ts` enforces this; `docs/pr-workflow.md §Merge method policy`).
+- **Pre-bypass discipline:** verify CI fired and passed on the current HEAD before invoking the bypass (per `feedback_verify_ci_fired_before_bypass_merge`). A green commit that never triggered CI is a webhook-miss waiting to land broken.
+- The bypass merge-commit body MUST contain the canonical audit-trail signature `"Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"` plus the diagnostic context (which rounds, the error class, CI status, scope summary, fix-commit references). The `/verify-task` skill's bypass-merge closeout depends on this signature.
+
+**On any escape-valve activation, surface the merge to the user with a one-line note naming the condition that fired**, then proceed with the bypass — do not stop and wait for permission. The user has pre-authorized the bypass for the documented conditions.
+
+**Subagent carve-out.** Subagents STOP at §8 (Create PR). Convergence-driving is the **main agent's** responsibility. `.claude/hooks/block-subagent-bypass-merge.ts` structurally enforces this for the `gh api PUT /merge` sub-case by detecting non-empty `agent_id` on the tool input and denying the call. Subagents must report the PR URL + bot-review status back to the parent and exit; the main agent then drives convergence per this step.
+
+**Post-merge:** §10 (Post-merge deploy verification) takes over when the merged PR touches a deployed service. Otherwise the at-merge handler sets DONE and the lifecycle is complete.
+
+**Cross-references:**
+
+- `CLAUDE.md §Drive-PR-To-Convergence Reminder` — the runtime hook this step's discipline aligns with.
+- `feedback_user_does_not_review` — the parent rule (id `b22fa663`).
+- `feedback_drive_pr_to_convergence_dont_end_on_ping_me` — sibling rule on deferral language.
+- `feedback_self_authored_pr_merge_constraints` — bypass-merge mechanics + diagnostic ladder.
+- `feedback_reviewer_bot_cot_leakage_forces_bypass` (id `af0b6aac`) — escape-valve trigger (a).
+- `feedback_reviewer_bot_self_reversal_is_bypass_signal` (id `06aebe02`) — escape-valve trigger (b).
+- `feedback_verify_ci_fired_before_bypass_merge` — pre-bypass CI discipline.
+- `decision-defaults.mdc §User does not review PRs in the loop` — corpus rule.
 
 ### 10. Post-merge deploy verification (when the task touches a deployed service)
 
