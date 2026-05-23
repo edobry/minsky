@@ -21,8 +21,13 @@ import type { ReviewToolCall } from "./output-tools";
 const TOOL_SUBMIT_FINDING = "submit_finding";
 const TOOL_SUBMIT_INLINE_COMMENT = "submit_inline_comment";
 const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
+const TOOL_SUBMIT_DOCUMENTATION_IMPACT = "submit_documentation_impact";
 const TOOL_CONCLUDE_REVIEW = "conclude_review";
 const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
+
+// Section heading constants — the merge gate text-matches these in the rendered
+// body, so the literal strings are part of the contract.
+const SECTION_DOCUMENTATION_IMPACT = "## Documentation impact";
 
 // ---------------------------------------------------------------------------
 // Test 1: Three findings + conclude APPROVE → body has summary, ordered
@@ -603,5 +608,166 @@ describe("composeReviewBody", () => {
     // No side must NOT be annotated
     expect(result.body).toContain("src/noside.ts:15");
     expect(result.body).not.toContain("src/noside.ts:15 (");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 13: submit_documentation_impact "no-update-needed" → section emitted,
+  // affectedDocs omitted from output when not provided
+  // -------------------------------------------------------------------------
+  test("13: documentation impact no-update-needed renders section without affected docs", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "no-update-needed",
+          evidence: "Pure internal refactor — no documented behavior changed.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Clean refactor." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**no-update-needed**");
+    expect(result.body).toContain("Pure internal refactor");
+    expect(result.body).not.toContain("Affected:");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 14: submit_documentation_impact "updated-in-pr" with affectedDocs →
+  // affected list rendered alongside kind + evidence
+  // -------------------------------------------------------------------------
+  test("14: documentation impact updated-in-pr with affectedDocs renders affected list", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "updated-in-pr",
+          evidence: "Added a new MINSKY_FOO env var; updated configuration guide.",
+          affectedDocs: ["docs/configuration-guide.md", "CLAUDE.md"],
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Code and docs in sync." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**updated-in-pr**");
+    expect(result.body).toContain("Added a new MINSKY_FOO env var");
+    expect(result.body).toContain("Affected: docs/configuration-guide.md, CLAUDE.md");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 15: submit_documentation_impact "blocking-needs-update" → section
+  // emitted; the reviewer is expected to ALSO emit a BLOCKING finding for the
+  // same issue (this test verifies the section emission only, not the finding)
+  // -------------------------------------------------------------------------
+  test("15: documentation impact blocking-needs-update renders section with affected docs", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "blocking-needs-update",
+          evidence: "Adds a new MCP tool but does not update docs/architecture.md tool inventory.",
+          affectedDocs: ["docs/architecture.md"],
+        },
+      },
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "docs/architecture.md",
+          line: 1,
+          summary: "Architecture doc missing new MCP tool",
+          details:
+            "The new tool registration is not reflected in docs/architecture.md tool inventory. Update before merge.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Docs out of sync." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**blocking-needs-update**");
+    expect(result.body).toContain("Affected: docs/architecture.md");
+    // The companion BLOCKING finding is rendered in the Findings section
+    expect(result.body).toContain("## Findings");
+    expect(result.body).toContain("[BLOCKING] docs/architecture.md:1");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 16: no submit_documentation_impact call → no Documentation impact
+  // section in body (the merge gate will then deny — that's by design until
+  // the structural restructure of mt#2055 ships)
+  // -------------------------------------------------------------------------
+  test("16: absent documentation impact tool call → no section emitted", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "minor nit",
+          details: "trivial nit details",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Fine." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).not.toContain(SECTION_DOCUMENTATION_IMPACT);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 17: documentation impact section is rendered AFTER spec verification
+  // section when both are present (gate-relevant section ordering)
+  // -------------------------------------------------------------------------
+  test("17: documentation impact follows spec verification in body section order", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: {
+          criterion: "Tool registered",
+          status: "Met",
+          evidence: "output-tools.ts new entry",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "no-update-needed",
+          evidence: "Adds an output tool; no end-user doc surface change.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Internal tool addition." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const specIndex = result.body.indexOf("## Spec verification");
+    const docIndex = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+    expect(specIndex).toBeGreaterThan(-1);
+    expect(docIndex).toBeGreaterThan(-1);
+    expect(docIndex).toBeGreaterThan(specIndex);
   });
 });

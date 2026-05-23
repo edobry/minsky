@@ -121,6 +121,11 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       tc.name === "submit_spec_verification"
   );
 
+  const documentationImpacts = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_documentation_impact" }> =>
+      tc.name === "submit_documentation_impact"
+  );
+
   const concludeCalls = toolCalls.filter(
     (tc): tc is Extract<ReviewToolCall, { name: "conclude_review" }> =>
       tc.name === "conclude_review"
@@ -225,6 +230,23 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       const status = escapeTableCell(tc.args.status);
       const evidence = escapeTableCell(tc.args.evidence);
       lines.push(`| ${criterion} | ${status} | ${evidence} |`);
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  // Section 5: Documentation impact (optional)
+  //
+  // Emitted when the model calls submit_documentation_impact. The merge-gate
+  // hook (.claude/hooks/require-review-before-merge.ts) text-matches
+  // /documentation[- ]impact/i on the rendered body, so the literal section
+  // heading "## Documentation impact" must remain.
+  if (documentationImpacts.length > 0) {
+    const lines: string[] = ["## Documentation impact", ""];
+    for (const tc of documentationImpacts) {
+      lines.push(`- **${tc.args.kind}** — ${tc.args.evidence}`);
+      if (tc.args.affectedDocs && tc.args.affectedDocs.length > 0) {
+        lines.push(`  Affected: ${tc.args.affectedDocs.join(", ")}`);
+      }
     }
     sections.push(lines.join("\n"));
   }
