@@ -118,8 +118,9 @@ export interface ReviewOutput {
   model: string;
   /**
    * Structured output tool calls emitted by the model during review. Each
-   * entry is a parsed, validated discriminated-union call (submit_finding,
-   * submit_inline_comment, submit_spec_verification, or conclude_review).
+   * entry is a parsed, validated discriminated-union call: submit_finding,
+   * submit_inline_comment, submit_spec_verification, submit_documentation_impact,
+   * submit_thread_resolve, or conclude_review.
    * Always an array — never undefined; empty when no output tools were called.
    */
   toolCalls: ReviewToolCall[];
