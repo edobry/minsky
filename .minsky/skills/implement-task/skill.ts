@@ -3,17 +3,18 @@ import { defineSkill } from "../../../src/domain/definitions/factories";
 export default defineSkill({
   name: "implement-task",
   description:
-    "Full implementation lifecycle for a Minsky task: read spec, plan, code, test, verify, commit, and create PR. All work happens in session workspaces with absolute paths. Use when implementing a task, starting development, or beginning work in a session.",
+    "Full implementation lifecycle for a Minsky task: read spec, plan, code, test, verify, commit, create PR, and drive to merge. All work happens in session workspaces with absolute paths. Use when implementing a task, starting development, or beginning work in a session.",
   userInvocable: true,
   content: `
 # Implement Task
 
-Step-by-step implementation lifecycle for a task within a Minsky session. Covers status-gating, session creation through PR creation.
+Step-by-step implementation lifecycle for a task within a Minsky session. Covers status-gating, session creation, PR creation, and PR-to-merge convergence.
 
 **Owned lifecycle transitions:**
 
 - READY → IN-PROGRESS: this skill owns this transition via \`session_start\`
 - IN-PROGRESS → IN-REVIEW: this skill owns this transition via \`session_pr_create\`
+- IN-REVIEW → DONE: this skill owns convergence-driving (§9) and the merge call (\`session_pr_merge\` standard path, or \`gh api PUT /merge\` bypass under documented conditions); the at-merge handler sets DONE atomically.
 
 ## Triggers
 
@@ -51,7 +52,7 @@ Evaluate the returned status:
 - **BLOCKED or CLOSED** → halt. Explain the status and ask the user how to proceed.
 - **READY** → proceed to step 1 below. This skill owns the READY → IN-PROGRESS transition.
 - **IN-PROGRESS** → a session may already exist. Retrieve it with \`mcp__minsky__session_get\` and continue from step 3.
-- **IN-REVIEW** → PR already created. Remind user to use \`/verify-task mt#X\` for next steps.
+- **IN-REVIEW** → PR already exists. Drive convergence per §9: call \`mcp__minsky__session_pr_wait-for-review\` with \`reviewer: "minsky-reviewer[bot]"\`, branch on the review state, and proceed to \`session_pr_merge\` (standard path) or the documented bypass conditions. \`/verify-task\` applies ONLY to the bypass-merge closeout path (per the post-mt#1551 architecture); for the standard merge path, the at-merge handler sets DONE atomically and no \`/verify-task\` invocation is needed.
 - **DONE** → task is complete. No action needed.
 
 ### 0a. Late parallel-work spot-check
@@ -257,8 +258,20 @@ Use \`mcp__minsky__session_pr_create\` to create the pull request:
 
 **Default mechanism: \`session_pr_wait-for-review\` with \`reviewer: "minsky-reviewer[bot]"\`.**
 
+First wait (no \`since\` — picks up the first review on the PR):
+
 \`\`\`
 mcp__minsky__session_pr_wait-for-review(task: "mt#<id>", reviewer: "minsky-reviewer[bot]")
+\`\`\`
+
+Subsequent waits (after pushing a fix — pass \`since\` set to the previous review's \`submittedAt\` timestamp so the call returns the NEW review, not the stale CHANGES_REQUESTED one):
+
+\`\`\`
+mcp__minsky__session_pr_wait-for-review(
+  task: "mt#<id>",
+  reviewer: "minsky-reviewer[bot]",
+  since: "<previous review.submittedAt>"   // e.g. "2026-05-23T16:59:27Z"
+)
 \`\`\`
 
 Block-and-return on the first review by the reviewer-bot. Then branch on the review state:
