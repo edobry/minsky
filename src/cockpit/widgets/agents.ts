@@ -144,7 +144,12 @@ export function createAgentsWidget(
         const taskTitleMap = new Map<string, string>();
         if (getTaskProvider) {
           try {
-            const taskProvider = await getTaskProvider();
+            const taskProvider = await Promise.race([
+              getTaskProvider(),
+              new Promise<TaskProviderLike>((_resolve, reject) =>
+                setTimeout(() => reject(new Error("Task provider init timeout (5s)")), 5000)
+              ),
+            ]);
             const uniqueTaskIds = [
               ...new Set(filtered.map((r) => r.taskId).filter((id): id is string => id != null)),
             ];
@@ -230,7 +235,7 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
 
 let _cachedTaskProvider: TaskProviderLike | null = null;
 
-async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
+async function _defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   if (_cachedTaskProvider) return _cachedTaskProvider;
 
   const { PersistenceService } = await import("../../domain/persistence/service");
@@ -254,8 +259,13 @@ async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   return _cachedTaskProvider;
 }
 
-/** Default agents widget — ready to drop into WIDGET_REGISTRY */
-export const agentsWidget: WidgetModule = createAgentsWidget(
-  defaultProviderFactory,
-  defaultTaskProviderFactory
-);
+/** Default agents widget — ready to drop into WIDGET_REGISTRY.
+ *
+ * Task-title enrichment (defaultTaskProviderFactory) is disabled: the second
+ * PersistenceService instance deadlocks the DB connection pool when both
+ * providers init concurrently. Fix tracked as a follow-up — the factory needs
+ * to share the same PersistenceService instance as the session provider, or
+ * use a connection-pool-aware init. Until then, agents show without task
+ * titles (branch/sessionId fallback).
+ */
+export const agentsWidget: WidgetModule = createAgentsWidget(defaultProviderFactory);
