@@ -20,6 +20,7 @@ import { Credentials } from "./widgets/Credentials";
 import { AgentsPage } from "./pages/AgentsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksPage } from "./pages/TasksPage";
+import { TasksListPage } from "./pages/TasksListPage";
 import { PromotedPageTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,7 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 
 // IDs of the three promoted widgets — App still polls their data so page routes
 // receive it without a separate fetch setup.
-const PROMOTED_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph"]);
+const PROMOTED_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -238,6 +239,14 @@ export function App() {
           element={
             <ErrorBoundary id="tasks-page">
               <TasksPage data={taskGraphData} />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/tasks/list"
+          element={
+            <ErrorBoundary id="tasks-list-page">
+              <TasksListPage />
             </ErrorBoundary>
           }
         />
