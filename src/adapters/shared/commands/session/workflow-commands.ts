@@ -177,6 +177,8 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
       async (params: Record<string, unknown>, context) => {
         const { sessionCommit } = await import("../../../../domain/session/session-commands");
         const { log } = await import("../../../../utils/logger");
+        const { createTokenProvider } = await import("../../../../domain/auth");
+        const { getConfiguration } = await import("../../../../domain/configuration");
         const deps = await getDeps();
         // Guard: skip DB touch when persistence is not registered in the container.
         // buildAskRepository is a no-op when container is absent, but calling it
@@ -207,7 +209,16 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
               noFiles: params.noFiles as boolean | undefined,
             },
             deps.sessionProvider,
-            askRepository ?? undefined
+            askRepository ?? undefined,
+            (() => {
+              try {
+                const cfg = getConfiguration();
+                const userToken = String(cfg.github?.token ?? "");
+                return createTokenProvider(cfg.github ?? {}, userToken);
+              } catch {
+                return undefined;
+              }
+            })()
           );
 
           return {

@@ -10,6 +10,10 @@ export interface PushOptions {
   remote?: string;
   force?: boolean;
   debug?: boolean;
+  /** GitHub App installation token for push authentication (mt#1477).
+   * When set, overrides the system credential helper with an HTTP
+   * Authorization header — same approach as actions/checkout. */
+  authToken?: string;
 }
 
 /**
@@ -96,7 +100,20 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
   }
 
   // 3. Build push command
-  let pushCmd = `git -C ${qWorkdir} push ${qRemote} ${qBranch}`;
+  let pushCmd = `git -C ${qWorkdir}`;
+
+  // mt#1477: when an auth token is provided, disable the system credential
+  // helper and inject the token as an HTTP Authorization header. This causes
+  // the push to authenticate as the GitHub App, which triggers pull_request
+  // workflows (unlike GITHUB_TOKEN or system-keychain credentials).
+  // Same approach as actions/checkout: -c credential.helper= clears the
+  // helper, -c http.extraheader sets the auth for github.com requests.
+  if (options.authToken) {
+    const encoded = Buffer.from(`x-access-token:${options.authToken}`).toString("base64");
+    pushCmd += ` -c credential.helper= -c http.https://github.com/.extraheader=${shellQuote(`AUTHORIZATION: basic ${encoded}`)}`;
+  }
+
+  pushCmd += ` push ${qRemote} ${qBranch}`;
   if (options.force) {
     pushCmd += " --force";
   }

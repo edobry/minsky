@@ -17,6 +17,7 @@ export async function pushChanges(
     repoPath: params.workdir,
     remote: params.remote,
     force: params.force,
+    authToken: params.authToken,
   };
 
   const result = await gitService.push(options);
@@ -41,6 +42,7 @@ export async function pushFromParams(params: {
   remote?: string;
   force?: boolean;
   debug?: boolean;
+  authToken?: string;
 }): Promise<PushResult> {
   const gitService = createGitService();
 
@@ -49,6 +51,7 @@ export async function pushFromParams(params: {
     remote: params.remote,
     force: params.force,
     debug: params.debug,
+    authToken: params.authToken,
   };
 
   const result = await gitService.push(options);
