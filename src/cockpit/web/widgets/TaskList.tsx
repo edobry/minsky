@@ -5,8 +5,9 @@
  * Query. Complements the TaskGraph DAG view with a scan-friendly list.
  *
  * Uses useListControls with prefix "tl" for URL param persistence.
+ * Status filter is multi-select via comma-separated URL param values.
  */
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -49,6 +50,7 @@ async function fetchTaskList(): Promise<WidgetData> {
 type TaskSortKey = "id" | "title" | "status" | "kind";
 
 interface TaskFilters {
+  /** Comma-separated status values for multi-select, or "all" */
   status: string;
   search: string;
   kind: string;
@@ -59,6 +61,21 @@ const DEFAULT_FILTERS: TaskFilters = {
   search: "",
   kind: "all",
 };
+
+function parseStatusFilter(raw: string): Set<string> {
+  if (raw === "all" || raw === "") return new Set();
+  return new Set(raw.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean));
+}
+
+function toggleStatus(current: string, status: string): string {
+  const selected = parseStatusFilter(current);
+  if (selected.has(status)) {
+    selected.delete(status);
+  } else {
+    selected.add(status);
+  }
+  return selected.size === 0 ? "all" : [...selected].join(",");
+}
 
 // ---------------------------------------------------------------------------
 // Status palette — same as Workstreams/TaskGraph
@@ -146,7 +163,7 @@ interface ControlBarProps {
   hasActiveFilters: boolean;
   kinds: string[];
   onSort: (key: TaskSortKey) => void;
-  onFilterStatus: (value: string) => void;
+  onToggleStatus: (status: string) => void;
   onFilterSearch: (value: string) => void;
   onFilterKind: (value: string) => void;
   onPageSize: (size: number) => void;
@@ -162,103 +179,116 @@ function TaskListControlBar({
   hasActiveFilters,
   kinds,
   onSort,
-  onFilterStatus,
+  onToggleStatus,
   onFilterSearch,
   onFilterKind,
   onPageSize,
   onClearFilters,
 }: ControlBarProps) {
+  const selectedStatuses = parseStatusFilter(filters.status);
+
   return (
-    <div className="flex flex-wrap items-center gap-2 py-2 mb-2 border-b border-border">
-      {/* Sort controls */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
-      {(["id", "title", "status", "kind"] as TaskSortKey[]).map((key) => (
-        <button
-          key={key}
-          onClick={() => onSort(key)}
-          className={`text-xs px-2 py-1 rounded border transition-colors ${
-            sortKey === key
-              ? "border-primary bg-primary/10 text-foreground"
-              : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
-          }`}
-          aria-pressed={sortKey === key}
-        >
-          {key === "id" ? "ID" : key.charAt(0).toUpperCase() + key.slice(1)}
-          <SortIndicator active={sortKey === key} dir={sortDir} />
-        </button>
-      ))}
-
-      <span className="text-border mx-1">|</span>
-
-      {/* Status filter */}
-      <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Status:</span>
-      <select
-        value={filters.status}
-        onChange={(e) => onFilterStatus(e.target.value)}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Filter by status"
-      >
-        <option value="all">All</option>
-        {ALL_STATUSES.map((s) => (
-          <option key={s} value={s}>{s}</option>
-        ))}
-      </select>
-
-      {/* Kind filter */}
-      {kinds.length > 1 && (
-        <>
-          <span className="text-xs text-muted-foreground ml-1">Kind:</span>
-          <select
-            value={filters.kind}
-            onChange={(e) => onFilterKind(e.target.value)}
-            className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-            aria-label="Filter by kind"
+    <div className="flex flex-col gap-2 py-2 mb-2 border-b border-border">
+      {/* Row 1: sort + search + page size */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Sort:</span>
+        {(["id", "title", "status", "kind"] as TaskSortKey[]).map((key) => (
+          <button
+            key={key}
+            onClick={() => onSort(key)}
+            className={`text-xs px-2 py-1 rounded border transition-colors ${
+              sortKey === key
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border text-muted-foreground hover:text-foreground hover:border-muted-foreground"
+            }`}
+            aria-pressed={sortKey === key}
           >
-            <option value="all">All</option>
-            {kinds.map((k) => (
-              <option key={k} value={k}>{k}</option>
-            ))}
-          </select>
-        </>
-      )}
-
-      {/* Search */}
-      <span className="text-xs text-muted-foreground ml-1">Search:</span>
-      <input
-        type="text"
-        value={filters.search}
-        onChange={(e) => onFilterSearch(e.target.value)}
-        placeholder="title or ID..."
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 w-32 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Search tasks by title or ID"
-      />
-
-      <span className="text-border mx-1">|</span>
-
-      {/* Page size */}
-      <span className="text-xs text-muted-foreground">Per page:</span>
-      <select
-        value={pageSize}
-        onChange={(e) => onPageSize(Number(e.target.value))}
-        className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Items per page"
-      >
-        {pageSizeOptions.map((n) => (
-          <option key={n} value={n}>{n}</option>
+            {key === "id" ? "ID" : key.charAt(0).toUpperCase() + key.slice(1)}
+            <SortIndicator active={sortKey === key} dir={sortDir} />
+          </button>
         ))}
-      </select>
 
-      {/* Clear filters */}
-      {hasActiveFilters && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClearFilters}
-          className="text-xs h-6 px-2 ml-auto"
+        <span className="text-border mx-1">|</span>
+
+        <span className="text-xs text-muted-foreground">Search:</span>
+        <input
+          type="text"
+          value={filters.search}
+          onChange={(e) => onFilterSearch(e.target.value)}
+          placeholder="title or ID..."
+          className="text-xs bg-background border border-border rounded px-1.5 py-1 w-32 text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+          aria-label="Search tasks by title or ID"
+        />
+
+        {/* Kind filter */}
+        {kinds.length > 1 && (
+          <>
+            <span className="text-xs text-muted-foreground ml-1">Kind:</span>
+            <select
+              value={filters.kind}
+              onChange={(e) => onFilterKind(e.target.value)}
+              className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              aria-label="Filter by kind"
+            >
+              <option value="all">All</option>
+              {kinds.map((k) => (
+                <option key={k} value={k}>{k}</option>
+              ))}
+            </select>
+          </>
+        )}
+
+        <span className="text-border mx-1">|</span>
+
+        <span className="text-xs text-muted-foreground">Per page:</span>
+        <select
+          value={pageSize}
+          onChange={(e) => onPageSize(Number(e.target.value))}
+          className="text-xs bg-background border border-border rounded px-1.5 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          aria-label="Items per page"
         >
-          Clear filters
-        </Button>
-      )}
+          {pageSizeOptions.map((n) => (
+            <option key={n} value={n}>{n}</option>
+          ))}
+        </select>
+
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClearFilters}
+            className="text-xs h-6 px-2 ml-auto"
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
+      {/* Row 2: status multi-select toggle pills */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-muted-foreground uppercase tracking-wide mr-1">Status:</span>
+        {ALL_STATUSES.map((s) => {
+          const isSelected = selectedStatuses.has(s);
+          const style = statusStyle(s);
+          return (
+            <button
+              key={s}
+              onClick={() => onToggleStatus(s)}
+              className="text-xs px-1.5 py-0.5 rounded-full font-medium transition-opacity"
+              style={{
+                background: isSelected ? style.background : "transparent",
+                color: isSelected ? style.color : style.background,
+                border: `1px solid ${style.border}`,
+                opacity: selectedStatuses.size === 0 || isSelected ? 1 : 0.4,
+              }}
+              aria-pressed={isSelected}
+              aria-label={`Filter by ${s}`}
+            >
+              {s}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -369,36 +399,63 @@ function TaskTableHeader({
 // Task row
 // ---------------------------------------------------------------------------
 
-function TaskRowItem({ task }: { task: TaskListItem }) {
+function TaskRowItem({
+  task,
+  expanded,
+  onToggle,
+}: {
+  task: TaskListItem;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   return (
-    <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
-      <div className="flex-shrink-0 w-24">
-        <StatusBadge status={task.status} />
-      </div>
-      <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-20">
-        {task.id}
-      </span>
-      <div className="flex-1 min-w-0">
-        <span className="text-sm truncate block">{task.title}</span>
-        {task.tags.length > 0 && (
-          <div className="flex gap-1 mt-0.5">
-            {task.tags.map((tag) => (
-              <span
-                key={tag}
-                className="text-[10px] px-1 py-0 rounded bg-muted text-muted-foreground"
-              >
-                {tag}
-              </span>
-            ))}
+    <div className="border-b border-border last:border-0">
+      <button
+        onClick={onToggle}
+        className="flex items-center gap-3 py-1.5 w-full text-left hover:bg-muted/30 transition-colors rounded-sm"
+        aria-expanded={expanded}
+      >
+        <div className="flex-shrink-0 w-24">
+          <StatusBadge status={task.status} />
+        </div>
+        <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-20">
+          {task.id}
+        </span>
+        <div className="flex-1 min-w-0">
+          <span className="text-sm truncate block">{task.title}</span>
+        </div>
+        <span className="text-xs text-muted-foreground flex-shrink-0 w-28 truncate">
+          {task.kind}
+        </span>
+        <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-16">
+          {task.parentId ?? "—"}
+        </span>
+      </button>
+      {expanded && (
+        <div className="pl-28 pr-4 pb-2 pt-1 bg-muted/10 rounded-b-sm">
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
+            <span><span className="font-medium text-foreground">ID:</span> {task.id}</span>
+            <span><span className="font-medium text-foreground">Status:</span> {task.status}</span>
+            <span><span className="font-medium text-foreground">Kind:</span> {task.kind}</span>
+            {task.parentId && (
+              <span><span className="font-medium text-foreground">Parent:</span> {task.parentId}</span>
+            )}
           </div>
-        )}
-      </div>
-      <span className="text-xs text-muted-foreground flex-shrink-0 w-28 truncate">
-        {task.kind}
-      </span>
-      <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-16">
-        {task.parentId ?? "—"}
-      </span>
+          {task.tags.length > 0 && (
+            <div className="flex gap-1 mt-1.5">
+              <span className="text-xs font-medium text-foreground mr-1">Tags:</span>
+              {task.tags.map((tag) => (
+                <span
+                  key={tag}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -408,7 +465,8 @@ function TaskRowItem({ task }: { task: TaskListItem }) {
 // ---------------------------------------------------------------------------
 
 function taskFilterFn(task: TaskListItem, filters: TaskFilters): boolean {
-  if (filters.status !== "all" && task.status.toUpperCase() !== filters.status.toUpperCase()) {
+  const selectedStatuses = parseStatusFilter(filters.status);
+  if (selectedStatuses.size > 0 && !selectedStatuses.has(task.status.toUpperCase())) {
     return false;
   }
   if (filters.kind !== "all" && task.kind !== filters.kind) {
@@ -460,6 +518,7 @@ function taskSortFn(a: TaskListItem, b: TaskListItem, key: TaskSortKey, dir: Sor
 function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
   const filterFn = useCallback(taskFilterFn, []);
   const sortFn = useCallback(taskSortFn, []);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const kinds = [...new Set(tasks.map((t) => t.kind))].sort();
 
@@ -492,6 +551,13 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
     prefix: "tl",
   });
 
+  const handleToggleStatus = useCallback(
+    (status: string) => {
+      setFilter("status", toggleStatus(filters.status, status));
+    },
+    [filters.status, setFilter]
+  );
+
   return (
     <>
       {totalCount > 0 && (
@@ -504,7 +570,7 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
           hasActiveFilters={hasActiveFilters}
           kinds={kinds}
           onSort={setSort}
-          onFilterStatus={(v) => setFilter("status", v)}
+          onToggleStatus={handleToggleStatus}
           onFilterSearch={(v) => setFilter("search", v)}
           onFilterKind={(v) => setFilter("kind", v)}
           onPageSize={setPageSize}
@@ -530,7 +596,12 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
         <div>
           <TaskTableHeader sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
           {pageItems.map((task) => (
-            <TaskRowItem key={task.id} task={task} />
+            <TaskRowItem
+              key={task.id}
+              task={task}
+              expanded={expandedId === task.id}
+              onToggle={() => setExpandedId(expandedId === task.id ? null : task.id)}
+            />
           ))}
           <PaginationBar
             page={page}
