@@ -510,11 +510,11 @@ If none of these apply, this criterion passes automatically. State that explicit
 
 **Required checks (when triggered).** For each identified security-surface change:
 
-| Check | How to verify | Block condition |
-| --- | --- | --- |
-| Security implications | Web search for security implications of the proposed approach (e.g., "pull_request_target security") | Known anti-pattern in security literature (e.g., GitHub Security Lab, OWASP, CVE databases) with no justification for divergence |
-| Community practice | Web search for how the community solves the same problem class (e.g., "GitHub Actions bot token push doesn't trigger workflow") | Community-standard solution exists and differs from proposed approach, with no justification for divergence |
-| Citation | At least one authoritative community reference cited in the spec | No citation present |
+| Check                 | How to verify                                                                                                                   | Block condition                                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Security implications | Web search for security implications of the proposed approach (e.g., "pull_request_target security")                            | Known anti-pattern in security literature (e.g., GitHub Security Lab, OWASP, CVE databases) with no justification for divergence |
+| Community practice    | Web search for how the community solves the same problem class (e.g., "GitHub Actions bot token push doesn't trigger workflow") | Community-standard solution exists and differs from proposed approach, with no justification for divergence                      |
+| Citation              | At least one authoritative community reference cited in the spec                                                                | No citation present                                                                                                              |
 
 **Check steps:**
 
