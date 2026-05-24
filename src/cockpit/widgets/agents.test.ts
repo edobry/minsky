@@ -7,7 +7,7 @@
  */
 import { describe, test, expect } from "bun:test";
 import { createAgentsWidget } from "./agents";
-import type { TaskProviderLike } from "./agents";
+import type { TaskProviderLike, AgentRow } from "./agents";
 import type { SessionProviderInterface, SessionRecord } from "../../domain/session/types";
 import { SessionStatus } from "../../domain/session/types";
 
@@ -306,5 +306,87 @@ describe("createAgentsWidget — task title enrichment", () => {
     expect(agents[0]?.taskTitle).toBe("Title for mt#100");
     expect(agents[1]?.taskTitle).toBe("Title for mt#100");
     expect(agents[2]?.taskTitle).toBe("Title for mt#200");
+  });
+});
+
+describe("createAgentsWidget — pagination and caching", () => {
+  test("payload includes totalCount reflecting all non-terminal sessions", async () => {
+    const sessions = [
+      makeActiveSession({ sessionId: S1, taskId: "mt#100" }),
+      makeActiveSession({ sessionId: S2, taskId: "mt#200" }),
+      makeActiveSession({ sessionId: S3, taskId: "mt#300", status: SessionStatus.MERGED }),
+    ];
+
+    const widget = createAgentsWidget(async () => makeSessionProvider(sessions));
+
+    const data = await widget.fetch({ id: "agents" });
+    expect(data.state).toBe("ok");
+    if (data.state !== "ok") throw new Error("expected ok");
+
+    const payload = data.payload as { agents: AgentRow[]; totalCount: number };
+    expect(payload.agents.length).toBe(2);
+    expect(payload.totalCount).toBe(2);
+  });
+
+  test("limit/offset query params paginate the result", async () => {
+    const sessions = [
+      makeActiveSession({ sessionId: "a1-0000-0000-0000-000000000001", taskId: "mt#1" }),
+      makeActiveSession({ sessionId: "a2-0000-0000-0000-000000000002", taskId: "mt#2" }),
+      makeActiveSession({ sessionId: "a3-0000-0000-0000-000000000003", taskId: "mt#3" }),
+      makeActiveSession({ sessionId: "a4-0000-0000-0000-000000000004", taskId: "mt#4" }),
+      makeActiveSession({ sessionId: "a5-0000-0000-0000-000000000005", taskId: "mt#5" }),
+    ];
+
+    const widget = createAgentsWidget(async () => makeSessionProvider(sessions));
+
+    const page1 = await widget.fetch({ id: "agents", query: { limit: "2", offset: "0" } });
+    expect(page1.state).toBe("ok");
+    if (page1.state !== "ok") throw new Error("expected ok");
+    const p1 = page1.payload as { agents: AgentRow[]; totalCount: number };
+    expect(p1.agents.length).toBe(2);
+    expect(p1.totalCount).toBe(5);
+
+    const page2 = await widget.fetch({ id: "agents", query: { limit: "2", offset: "2" } });
+    expect(page2.state).toBe("ok");
+    if (page2.state !== "ok") throw new Error("expected ok");
+    const p2 = page2.payload as { agents: AgentRow[]; totalCount: number };
+    expect(p2.agents.length).toBe(2);
+    expect(p2.totalCount).toBe(5);
+
+    // Pages don't overlap
+    const p1Ids = p1.agents.map((a) => a.sessionId);
+    const p2Ids = p2.agents.map((a) => a.sessionId);
+    expect(p1Ids.filter((id) => p2Ids.includes(id)).length).toBe(0);
+  });
+
+  test("task-title cache skips getTasks on second fetch within TTL", async () => {
+    let getTasksCallCount = 0;
+    const taskProvider: TaskProviderLike = {
+      getTask: async () => null,
+      getTasks: async (ids: string[]) => {
+        getTasksCallCount++;
+        return ids.map((id) => ({ id, title: `Title ${id}` }));
+      },
+    };
+
+    const sessions = [makeActiveSession({ sessionId: S1, taskId: "mt#100" })];
+
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider(sessions),
+      async () => taskProvider
+    );
+
+    const data1 = await widget.fetch({ id: "agents" });
+    expect(data1.state).toBe("ok");
+    expect(getTasksCallCount).toBe(1);
+
+    const data2 = await widget.fetch({ id: "agents" });
+    expect(data2.state).toBe("ok");
+    // Cache hit — no second getTasks call
+    expect(getTasksCallCount).toBe(1);
+
+    if (data2.state !== "ok") throw new Error("expected ok");
+    const payload = data2.payload as { agents: AgentRow[] };
+    expect(payload.agents[0]?.taskTitle).toBe("Title mt#100");
   });
 });

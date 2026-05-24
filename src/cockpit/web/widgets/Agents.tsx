@@ -30,6 +30,7 @@ interface AgentRow {
 
 interface AgentsPayload {
   agents: AgentRow[];
+  totalCount?: number;
 }
 
 // Narrows the shared `WidgetData` envelope to the agents-specific payload shape.
@@ -322,9 +323,7 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
           The taskId secondary line gives the operator the canonical reference. */}
       <div className="flex-1 min-w-0">
         <span className="text-sm font-medium truncate block">{agent.taskTitle ?? agent.title}</span>
-        {agent.taskId && (
-          <span className="text-xs text-muted-foreground">{agent.taskId}</span>
-        )}
+        {agent.taskId && <span className="text-xs text-muted-foreground">{agent.taskId}</span>}
       </div>
 
       {/* PR badge */}
@@ -465,12 +464,7 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
       ) : filteredCount === 0 ? (
         <div className="py-6 text-center">
           <p className="text-sm text-muted-foreground">No agents match these filters</p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearFilters}
-            className="mt-2 text-xs"
-          >
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="mt-2 text-xs">
             Clear filters
           </Button>
         </div>
@@ -568,9 +562,7 @@ export function Agents() {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">
-          Agents
-        </CardTitle>
+        <CardTitle className="text-base font-semibold">Agents</CardTitle>
       </CardHeader>
       <CardContent>
         <AgentsInner agents={agents} />
