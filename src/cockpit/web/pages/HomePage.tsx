@@ -4,8 +4,8 @@
  * Structure (operator journey order):
  *   1. System section  — compact status cards (BasicHealth, Attention, Credentials)
  *      inside a subtle bordered panel; rendered by App.tsx's HomePage component.
- *   2. Nav section — generous tiles for the three promoted pages.
- *      Exported here as PromotedPageTiles, consumed by App.tsx.
+ *   2. Nav section — generous tiles linking to the feature pages.
+ *      Exported here as PageNavTiles, consumed by App.tsx.
  *
  * The two sections are intentionally different in visual weight:
  *   System  = dense, data-first cards enclosed in a muted bordered panel
@@ -16,7 +16,7 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, GitBranch, List, Network, ChevronRight } from "lucide-react";
+import { Bot, GitBranch, List, Network, MessageCircleQuestion, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -46,7 +46,10 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
     >
       {/* Icon container — slightly elevated surface feel */}
       <div className="flex-shrink-0 flex items-center justify-center h-9 w-9 rounded-md bg-muted/60 group-hover:bg-muted transition-colors">
-        <Icon aria-hidden className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+        <Icon
+          aria-hidden
+          className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors"
+        />
       </div>
 
       {/* Label + description */}
@@ -71,10 +74,10 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
 // Promoted pages section — exported for use in App.tsx
 // ---------------------------------------------------------------------------
 
-export function PromotedPageTiles() {
+export function PageNavTiles() {
   return (
     <section aria-label="Navigate to feature pages">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <EntryTile
           to="/agents"
           icon={Bot}
@@ -98,6 +101,12 @@ export function PromotedPageTiles() {
           icon={Network}
           label="Task Graph"
           description="Interactive task dependency DAG"
+        />
+        <EntryTile
+          to="/asks"
+          icon={MessageCircleQuestion}
+          label="Asks"
+          description="Respond to pending principal-attention asks"
         />
       </div>
     </section>

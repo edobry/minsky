@@ -16,14 +16,14 @@ import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { Credentials } from "./widgets/Credentials";
-// Promoted widgets — rendered at their dedicated page routes
 import { AgentsPage } from "./pages/AgentsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksLayout } from "./pages/TasksLayout";
 import { TasksListPage } from "./pages/TasksListPage";
 import { TasksGraphPage } from "./pages/TasksGraphPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
-import { PromotedPageTiles } from "./pages/HomePage";
+import { AsksPage } from "./pages/AsksPage";
+import { PageNavTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -38,15 +38,13 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
 };
 
 // Prop-driven widgets: receive data from App-level polling.
-// agents, workstreams, task-graph are promoted to their own pages;
-// they still receive polling data from App state.
 const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
   "basic-health": BasicHealth,
 };
 
-// IDs of the three promoted widgets — App still polls their data so page routes
-// receive it without a separate fetch setup.
-const PROMOTED_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
+// IDs of widgets that have dedicated page routes — App still polls their data
+// so page routes receive it without a separate fetch setup.
+const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -54,7 +52,7 @@ interface WidgetState {
 }
 
 // ---------------------------------------------------------------------------
-// Home page grid — small widgets + promoted-page entry tiles
+// Home page grid — small widgets + page nav tiles
 // ---------------------------------------------------------------------------
 
 interface HomePageProps {
@@ -69,45 +67,45 @@ function HomePage({ widgets }: HomePageProps) {
         <section aria-label="System status">
           <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {widgets.map(({ meta, data }) => {
-              const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
-              const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
+              {widgets.map(({ meta, data }) => {
+                const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
+                const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
 
-              return (
-                <ErrorBoundary key={meta.id} id={meta.id}>
-                  {SelfFetchingRenderer ? (
-                    <SelfFetchingRenderer />
-                  ) : !PropDrivenRenderer ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>{meta.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="text-muted-foreground">
-                        <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
-                      </CardContent>
-                    </Card>
-                  ) : data === null ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>{meta.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="text-muted-foreground">
-                        <p>Loading...</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <PropDrivenRenderer data={data} />
-                  )}
-                </ErrorBoundary>
-              );
-            })}
+                return (
+                  <ErrorBoundary key={meta.id} id={meta.id}>
+                    {SelfFetchingRenderer ? (
+                      <SelfFetchingRenderer />
+                    ) : !PropDrivenRenderer ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>{meta.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-muted-foreground">
+                          <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
+                        </CardContent>
+                      </Card>
+                    ) : data === null ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>{meta.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-muted-foreground">
+                          <p>Loading...</p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <PropDrivenRenderer data={data} />
+                    )}
+                  </ErrorBoundary>
+                );
+              })}
             </div>
           </div>
         </section>
       )}
 
       {/* Navigate section — below status: where am I going? */}
-      <PromotedPageTiles />
+      <PageNavTiles />
     </div>
   );
 }
@@ -212,7 +210,7 @@ export function App() {
   // Home page only receives the non-promoted, renderable widgets
   const homeWidgets = widgets.filter(
     (w) =>
-      !PROMOTED_WIDGET_IDS.has(w.meta.id) &&
+      !PAGE_ROUTE_WIDGET_IDS.has(w.meta.id) &&
       (SELF_FETCHING_RENDERERS[w.meta.id] || PROP_DRIVEN_RENDERERS[w.meta.id])
   );
 
@@ -249,6 +247,14 @@ export function App() {
           {/* React Router v7 matches literal "graph" before ":id" so no conflict */}
           <Route path=":id" element={<TaskDetailPage />} />
         </Route>
+        <Route
+          path="/asks"
+          element={
+            <ErrorBoundary id="asks-page">
+              <AsksPage />
+            </ErrorBoundary>
+          }
+        />
       </Routes>
     </Layout>
   );
