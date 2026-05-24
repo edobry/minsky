@@ -164,9 +164,9 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 The hosted Minsky MCP supports OAuth 2.1 in addition to the static-bearer-token path. claude.ai web requires the OAuth flow as a precondition for adding remote MCP servers; mt#1634 shipped the full discovery + DCR + PKCE + RFC 8707 audience-binding flow backed by `oidc-provider`.
 
-### Required env vars (none new for v1)
+### Required env vars
 
-The InProcessOAuthProvider works with zero additional configuration in v1:
+The InProcessOAuthProvider works with minimal configuration:
 
 - **Issuer URL** — derived from `req.hostname` + `req.protocol` (Express's `trust proxy 1` setting honors Railway's `X-Forwarded-Proto` / `X-Forwarded-Host`). Setting `MINSKY_OAUTH_ISSUER` is only necessary if the service runs behind multiple hostnames.
 - **Signing key** — `MINSKY_OAUTH_SIGNING_KEY` is set as a sealed Railway secret containing a persistent RSA-2048 JWK (kty=RSA, use=sig, alg=RS256). Tokens survive Railway redeploys. The env var is registered in `environmentMappings` (path `oauth.signingKey`) so the config system maps it correctly — the auto-conversion fallback would produce the wrong path (`oauth.signing.key`). See "Signing-key rotation" below for generation and rotation instructions.
