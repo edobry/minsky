@@ -18,6 +18,7 @@
  * Types mirror src/cockpit/widgets/attention.ts (no server imports on frontend).
  */
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
@@ -158,19 +159,47 @@ interface KindStyle {
 function kindStyle(kind: AskKind): KindStyle {
   switch (kind) {
     case "stuck.unblock":
-      return { badge: "bg-destructive text-destructive-foreground", label: "stuck.unblock", priority: "P1" };
+      return {
+        badge: "bg-destructive text-destructive-foreground",
+        label: "stuck.unblock",
+        priority: "P1",
+      };
     case "authorization.approve":
-      return { badge: "bg-destructive/60 text-foreground", label: "authorization.approve", priority: "P2" };
+      return {
+        badge: "bg-destructive/60 text-foreground",
+        label: "authorization.approve",
+        priority: "P2",
+      };
     case "direction.decide":
-      return { badge: "bg-accent text-accent-foreground", label: "direction.decide", priority: "P3" };
+      return {
+        badge: "bg-accent text-accent-foreground",
+        label: "direction.decide",
+        priority: "P3",
+      };
     case "quality.review":
-      return { badge: "bg-secondary text-secondary-foreground", label: "quality.review", priority: "P4" };
+      return {
+        badge: "bg-secondary text-secondary-foreground",
+        label: "quality.review",
+        priority: "P4",
+      };
     case "coordination.notify":
-      return { badge: "bg-muted text-muted-foreground", label: "coordination.notify", priority: "P5" };
+      return {
+        badge: "bg-muted text-muted-foreground",
+        label: "coordination.notify",
+        priority: "P5",
+      };
     case "capability.escalate":
-      return { badge: "bg-muted text-muted-foreground", label: "capability.escalate", priority: "P6" };
+      return {
+        badge: "bg-muted text-muted-foreground",
+        label: "capability.escalate",
+        priority: "P6",
+      };
     case "information.retrieve":
-      return { badge: "bg-muted text-muted-foreground", label: "information.retrieve", priority: "P7" };
+      return {
+        badge: "bg-muted text-muted-foreground",
+        label: "information.retrieve",
+        priority: "P7",
+      };
   }
 }
 
@@ -204,7 +233,9 @@ function AskContextSection({ ask }: { ask: AttentionAsk }) {
 
   const drivers: string[] = [];
   if (ask.contextRefs && ask.contextRefs.length > 0) {
-    drivers.push(...ask.contextRefs.filter((r) => r.description).map((r) => r.description as string));
+    drivers.push(
+      ...ask.contextRefs.filter((r) => r.description).map((r) => r.description as string)
+    );
   }
   if (ask.metadata?.["drivers"] && Array.isArray(ask.metadata["drivers"])) {
     drivers.push(...(ask.metadata["drivers"] as string[]));
@@ -234,12 +265,21 @@ function AskContextSection({ ask }: { ask: AttentionAsk }) {
       )}
 
       {/* Per-kind: quality.review — show diff/output context */}
-      {ask.kind === "quality.review" && ask.contextRefs && ask.contextRefs.filter((r) => r.kind === "diff").map((r) => (
-        <div key={r.ref} className="rounded bg-muted/60 px-2 py-1 text-xs font-mono text-muted-foreground truncate">
-          <span className="font-medium not-italic">diff:</span> {r.ref}
-          {r.description && <span className="ml-1 text-muted-foreground/70"> — {r.description}</span>}
-        </div>
-      ))}
+      {ask.kind === "quality.review" &&
+        ask.contextRefs &&
+        ask.contextRefs
+          .filter((r) => r.kind === "diff")
+          .map((r) => (
+            <div
+              key={r.ref}
+              className="rounded bg-muted/60 px-2 py-1 text-xs font-mono text-muted-foreground truncate"
+            >
+              <span className="font-medium not-italic">diff:</span> {r.ref}
+              {r.description && (
+                <span className="ml-1 text-muted-foreground/70"> — {r.description}</span>
+              )}
+            </div>
+          ))}
 
       {/* 2. Options inline — direction.decide, authorization.approve */}
       {ask.options && ask.options.length > 0 && (
@@ -248,10 +288,13 @@ function AskContextSection({ ask }: { ask: AttentionAsk }) {
             const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
             const letter = letters[i] ?? "?";
             const isFirst = i === 0;
-            const isRecommended = isFirst && !String(opt.label).toLowerCase().includes("recommended");
+            const isRecommended =
+              isFirst && !String(opt.label).toLowerCase().includes("recommended");
             return (
               <li key={String(opt.value ?? i)} className="flex items-start gap-1.5 text-xs">
-                <span className="flex-shrink-0 font-medium text-muted-foreground w-4">{letter})</span>
+                <span className="flex-shrink-0 font-medium text-muted-foreground w-4">
+                  {letter})
+                </span>
                 <span className="text-foreground">
                   {opt.label}
                   {isRecommended && (
@@ -328,26 +371,35 @@ function AskCard({ ask, index, onResolve, resolving }: AskCardProps) {
   const ageStr = formatRelative(ask.createdAt);
   const isOverdue = deadlineStr === "overdue";
 
-  const hasOptions = (ask.options && ask.options.length > 0) ||
+  const hasOptions =
+    (ask.options && ask.options.length > 0) ||
     ask.kind === "authorization.approve" ||
     ask.kind === "quality.review";
 
   // Available response letters
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const optionCount = ask.options ? Math.min(ask.options.length, letters.length) : (hasOptions ? 2 : 0);
+  const optionCount = ask.options
+    ? Math.min(ask.options.length, letters.length)
+    : hasOptions
+      ? 2
+      : 0;
 
   return (
     <div className="rounded border border-border bg-card/50 overflow-hidden">
       {/* Ask header row */}
-      <div className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-muted/30 select-none"
-           onClick={() => setExpanded((v) => !v)}>
+      <div
+        className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-muted/30 select-none"
+        onClick={() => setExpanded((v) => !v)}
+      >
         {/* Index */}
         <span className="text-xs font-mono text-muted-foreground w-5 flex-shrink-0 text-right">
           [{index}]
         </span>
 
         {/* Kind badge */}
-        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${ks.badge}`}>
+        <span
+          className={`text-xs px-1.5 py-0.5 rounded-full font-medium flex-shrink-0 ${ks.badge}`}
+        >
           {ks.priority}
         </span>
 
@@ -358,15 +410,15 @@ function AskCard({ ask, index, onResolve, resolving }: AskCardProps) {
 
         {/* Deadline badge */}
         {deadlineStr && (
-          <span className={`text-xs flex-shrink-0 tabular-nums ${isOverdue ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+          <span
+            className={`text-xs flex-shrink-0 tabular-nums ${isOverdue ? "text-destructive font-medium" : "text-muted-foreground"}`}
+          >
             {deadlineStr}
           </span>
         )}
 
         {/* Age */}
-        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
-          {ageStr}
-        </span>
+        <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">{ageStr}</span>
 
         {/* Expand chevron */}
         <svg
@@ -401,27 +453,29 @@ function AskCard({ ask, index, onResolve, resolving }: AskCardProps) {
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
             <span>
               <span className="font-medium">From:</span>{" "}
-              <span className="font-mono">{ask.requestor.length > 40 ? ask.requestor.slice(0, 40) + "…" : ask.requestor}</span>
+              <span className="font-mono">
+                {ask.requestor.length > 40 ? ask.requestor.slice(0, 40) + "…" : ask.requestor}
+              </span>
             </span>
             {ask.windowMissedCount > 0 && (
-              <span className="text-destructive/80">
-                missed {ask.windowMissedCount}x
-              </span>
+              <span className="text-destructive/80">missed {ask.windowMissedCount}x</span>
             )}
           </div>
 
           {/* Context refs (non-diff) */}
           {ask.contextRefs && ask.contextRefs.filter((r) => r.kind !== "diff").length > 0 && (
             <div className="mt-1.5 space-y-0.5">
-              {ask.contextRefs.filter((r) => r.kind !== "diff").map((ref, i) => (
-                <div key={i} className="text-xs text-muted-foreground">
-                  <span className="font-medium">{ref.kind}:</span>{" "}
-                  <span className="font-mono">{ref.ref}</span>
-                  {ref.description && (
-                    <span className="ml-1 text-muted-foreground/70"> — {ref.description}</span>
-                  )}
-                </div>
-              ))}
+              {ask.contextRefs
+                .filter((r) => r.kind !== "diff")
+                .map((ref, i) => (
+                  <div key={i} className="text-xs text-muted-foreground">
+                    <span className="font-medium">{ref.kind}:</span>{" "}
+                    <span className="font-mono">{ref.ref}</span>
+                    {ref.description && (
+                      <span className="ml-1 text-muted-foreground/70"> — {ref.description}</span>
+                    )}
+                  </div>
+                ))}
             </div>
           )}
 
@@ -486,9 +540,7 @@ function TaskGroup({ taskId, asks, globalOffset, onResolve, resolvingId }: TaskG
     <div className="mb-3 last:mb-0">
       {/* Task section header */}
       <div className="flex items-center gap-2 mb-1.5">
-        <span className="text-xs font-mono font-medium text-foreground">
-          {taskId}
-        </span>
+        <span className="text-xs font-mono font-medium text-foreground">{taskId}</span>
         <span className="text-xs text-muted-foreground">
           {asks.length === 1 ? "1 ask" : `${asks.length} asks`}
         </span>
@@ -666,9 +718,12 @@ export function Attention() {
           <CardTitle className="text-base font-semibold">
             Attention
             {totalPending > 0 && (
-              <span className="ml-2 text-sm font-normal text-muted-foreground">
-                {totalPending} pending
-              </span>
+              <Link
+                to="/asks"
+                className="ml-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {totalPending} pending →
+              </Link>
             )}
           </CardTitle>
 
@@ -704,7 +759,10 @@ export function Attention() {
             {/* Mutation error feedback */}
             {resolveMutation.isError && (
               <div className="mb-2 rounded border border-destructive/50 bg-destructive/10 px-2 py-1 text-xs text-destructive">
-                Resolve failed: {resolveMutation.error instanceof Error ? resolveMutation.error.message : "unknown error"}
+                Resolve failed:{" "}
+                {resolveMutation.error instanceof Error
+                  ? resolveMutation.error.message
+                  : "unknown error"}
               </div>
             )}
 
