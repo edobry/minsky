@@ -79,6 +79,9 @@ export const environmentMappings = {
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
   MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
 
+  // OAuth configuration
+  MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
+
   // Logger configuration
   MINSKY_LOG_MODE: "logger.mode",
   LOG_MODE: "logger.mode",
