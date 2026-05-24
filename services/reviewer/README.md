@@ -158,18 +158,10 @@ Outbound model and GitHub API calls are wrapped with `AbortController` timeouts.
 
 **Defaults:**
 
-- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s per tool-loop round; gpt-5 with `reasoning_effort=low` on a normal PR takes ~80-100s. Trivial and docs-only PRs skip the tool loop entirely (mt#2083 scope-aware fast path) and complete in a single API call.
-- `REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS=120000` — retry ceiling when a tool-loop round times out. Matches the primary timeout (mt#2083; was 90s pre-mt#2083 but that was shorter than healthy-case latency). Tunable at call time without redeploy.
+- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s per tool-loop round. Production data (2026-05-24): successful reviews complete in 50-60s; transient timeouts recover via retry in 10-20s.
+- `REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS=120000` — retry ceiling when a tool-loop round times out. Matches the primary timeout. Tunable at call time without redeploy.
 - `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT=true` — enable/disable the per-round timeout retry. Default `"true"`.
 - `REVIEWER_GITHUB_TIMEOUT_MS=30000` — GitHub REST and GraphQL calls. 30s is generous; happy-path GitHub calls return in <5s. Lower it if you want to surface GitHub-side latency faster.
-
-**Healthy budgets by PR size (mt#2083):**
-
-| PR scope                      | Tool loop                         | Expected latency | Timeout budget                      |
-| ----------------------------- | --------------------------------- | ---------------- | ----------------------------------- |
-| Trivial (≤10 lines, ≤3 files) | Skipped (single-turn, 16K tokens) | ~30-60s          | 120s primary                        |
-| Docs-only                     | Skipped (single-turn, 16K tokens) | ~30-60s          | 120s primary                        |
-| Normal / test-only            | Active (multi-round, 32K tokens)  | ~80-100s         | 120s primary + 120s retry per round |
 
 **Validation:** timeout env vars must parse as positive integers. `0`, negative numbers, decimals, non-numeric strings, and whitespace-padded values are rejected at boot with a clear error pointing at the env var name. The reviewer will not start with malformed timeout config — by design, since silent NaN coercion would produce infinite waits, defeating the point.
 

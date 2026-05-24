@@ -377,23 +377,13 @@ export function decidePostSanitizeOutcome(
 /**
  * Decide whether tool-use is active for a given PR + provider combination.
  *
- * Gates on three axes (mt#1126 MVP + mt#1216 fork-access probe + mt#2083
- * scope-aware fast path):
+ * Gates on two axes (mt#1126 MVP + mt#1216 fork-access probe):
  *
  *   1) Provider capability — only OpenAI has a tool-use loop wired up.
  *      Gemini and Anthropic fall back to the no-tools path with a warning
  *      log at the caller site.
  *
- *   2) PR scope — trivial and docs-only PRs skip the tool-use loop
- *      entirely. The multi-round tool loop adds latency (each round is a
- *      separate API call with its own timeout budget) that trivial diffs
- *      don't need — the model can review a 1-line change in a single turn
- *      without reading additional files. mt#2083: originating incident
- *      PR #1252, where a 1-line bunfig.toml change timed out twice on
- *      the webhook path because gpt-5's tool-loop round exceeded the
- *      120s per-round budget under transient provider load.
- *
- *   3) Fork accessibility — the reviewer App is installed on the base repo;
+ *   2) Fork accessibility — the reviewer App is installed on the base repo;
  *      it may not have read access to forks. Public forks are typically
  *      readable via `contents: read` on the head repo, so we probe at
  *      review start (one `readFile` for a known file like README.md or
@@ -408,19 +398,12 @@ export function decidePostSanitizeOutcome(
 export async function decideToolsActive(
   config: ReviewerConfig,
   pr: Pick<PullRequestContext, "number" | "isForkedPR">,
-  probeForkAccess: () => Promise<boolean>,
-  prScope?: PRScope
+  probeForkAccess: () => Promise<boolean>
 ): Promise<{ toolsActive: boolean; reason?: string }> {
   if (config.provider !== "openai") {
     return {
       toolsActive: false,
       reason: `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`,
-    };
-  }
-  if (prScope === "trivial" || prScope === "docs-only") {
-    return {
-      toolsActive: false,
-      reason: `scope "${prScope}" — skipping tool-use loop for fast single-turn review (mt#2083)`,
     };
   }
   if (!pr.isForkedPR) {
@@ -1164,11 +1147,8 @@ async function runReviewBody(
   // fallback); if it succeeds, tools are enabled on the fork. Otherwise we
   // switch to the NO_TOOLS_SECTION prompt so the model marks cross-file
   // claims as NEEDS VERIFICATION.
-  const { toolsActive, reason } = await decideToolsActive(
-    config,
-    pr,
-    () => defaultForkAccessProbe(octokit, pr),
-    prScope
+  const { toolsActive, reason } = await decideToolsActive(config, pr, () =>
+    defaultForkAccessProbe(octokit, pr)
   );
 
   // Output tools (submit_finding, conclude_review, etc.) follow the same gate
