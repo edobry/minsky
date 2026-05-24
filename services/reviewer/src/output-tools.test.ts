@@ -8,7 +8,7 @@
  *   - Missing required fields throw.
  *   - Invalid JSON in argsJson throws.
  *   - Unknown tool name throws.
- *   - OUTPUT_TOOL_DEFINITIONS length is 6 with the required structure.
+ *   - OUTPUT_TOOL_DEFINITIONS length is 7 with the required structure.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -499,8 +499,8 @@ describe("parseToolCall — submit_inline_comment — inReplyTo", () => {
 // ---------------------------------------------------------------------------
 
 describe("OUTPUT_TOOL_DEFINITIONS", () => {
-  test("has exactly 6 entries", () => {
-    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(6);
+  test("has exactly 7 entries", () => {
+    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(7);
   });
 
   test("each entry has type: function", () => {
@@ -543,12 +543,13 @@ describe("OUTPUT_TOOL_DEFINITIONS", () => {
     }
   });
 
-  test("tool names match the expected six", () => {
+  test("tool names match the expected seven", () => {
     const names = OUTPUT_TOOL_DEFINITIONS.map((d) => d.function.name);
     expect(names).toContain(TOOL_SUBMIT_FINDING);
     expect(names).toContain(TOOL_SUBMIT_INLINE_COMMENT);
     expect(names).toContain(TOOL_SUBMIT_SPEC_VERIFICATION);
     expect(names).toContain(TOOL_SUBMIT_DOCUMENTATION_IMPACT);
+    expect(names).toContain("submit_adoption_sweep");
     expect(names).toContain(TOOL_CONCLUDE_REVIEW);
     expect(names).toContain(TOOL_SUBMIT_THREAD_RESOLVE);
   });

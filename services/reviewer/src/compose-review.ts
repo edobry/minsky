@@ -126,6 +126,11 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       tc.name === "submit_documentation_impact"
   );
 
+  const adoptionSweepCalls = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_adoption_sweep" }> =>
+      tc.name === "submit_adoption_sweep"
+  );
+
   const concludeCalls = toolCalls.filter(
     (tc): tc is Extract<ReviewToolCall, { name: "conclude_review" }> =>
       tc.name === "conclude_review"
@@ -230,6 +235,41 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       const status = escapeTableCell(tc.args.status);
       const evidence = escapeTableCell(tc.args.evidence);
       lines.push(`| ${criterion} | ${status} | ${evidence} |`);
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  // Section 4b: Adoption sweep (optional)
+  //
+  // Emitted when the model calls submit_adoption_sweep. Positioned AFTER
+  // spec verification and BEFORE documentation impact. Section is omitted
+  // entirely when no submit_adoption_sweep calls were made.
+  if (adoptionSweepCalls.length > 0) {
+    const lines: string[] = [
+      "## Adoption sweep",
+      "",
+      "| Symbol | Kind | Consumers found | Classification | Notes |",
+      "| --- | --- | --- | --- | --- |",
+    ];
+    let missingConsumersCount = 0;
+    for (const tc of adoptionSweepCalls) {
+      const symbol = escapeTableCell(tc.args.symbol);
+      const kind = escapeTableCell(tc.args.kind);
+      const consumers = escapeTableCell(
+        tc.args.consumersFound.length > 0 ? tc.args.consumersFound.join(", ") : "—"
+      );
+      const classification = escapeTableCell(tc.args.classification);
+      const notes = escapeTableCell(tc.args.notes ?? "");
+      lines.push(`| ${symbol} | ${kind} | ${consumers} | ${classification} | ${notes} |`);
+      if (tc.args.classification === "Missing consumers") {
+        missingConsumersCount++;
+      }
+    }
+    if (missingConsumersCount > 0) {
+      lines.push(
+        "",
+        `Recommendation: file a follow-up adoption task to wire ${missingConsumersCount} missing consumer${missingConsumersCount === 1 ? "" : "s"}.`
+      );
     }
     sections.push(lines.join("\n"));
   }

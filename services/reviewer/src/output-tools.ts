@@ -1,12 +1,13 @@
 /**
  * Output tools for the reviewer model.
  *
- * Defines the six structured output tools the reviewer model uses to compose
+ * Defines the seven structured output tools the reviewer model uses to compose
  * a PR review. Each tool corresponds to one kind of review artifact:
  *   - submit_finding: a discrete review finding with severity and location
  *   - submit_inline_comment: a targeted inline comment on a specific line
  *   - submit_spec_verification: a verification result for one spec criterion
  *   - submit_documentation_impact: documentation-impact assessment (mt#2053)
+ *   - submit_adoption_sweep: adoption sweep result per new public export (mt#2059)
  *   - submit_thread_resolve: resolve an existing review thread (mt#1345)
  *   - conclude_review: the final review conclusion (approve / request-changes / comment)
  *
@@ -197,6 +198,60 @@ export const SubmitDocumentationImpactArgsSchema = z.object({
 });
 
 export type SubmitDocumentationImpactArgs = z.infer<typeof SubmitDocumentationImpactArgsSchema>;
+
+/**
+ * Args for the `submit_adoption_sweep` tool.
+ *
+ * Records the adoption-sweep result for one new public export introduced by
+ * this PR. Submit one call per new public export (function, class, type, CLI
+ * command, MCP tool, hook). When the PR introduces more than 10 new exports,
+ * emit a single cost-bounded call with `kind: "capability"` to avoid
+ * exhausting the tool-call budget on mechanical enumeration.
+ */
+export const SubmitAdoptionSweepArgsSchema = z.object({
+  /**
+   * The fully-qualified name of the new export being swept.
+   * Examples: "Reviewer.runReview", "tasks_orchestrate", "/declare-framework",
+   * "submit_adoption_sweep". For cost-bounded calls, use the form
+   * "<N> new exports (cost-bounding rule)".
+   */
+  symbol: z.string().min(1),
+
+  /**
+   * The kind of export being swept. Used as a rendering discriminator:
+   *   "function"    — a new exported function
+   *   "class"       — a new exported class
+   *   "type"        — a new exported type or interface
+   *   "cli-command" — a new CLI subcommand
+   *   "mcp-tool"    — a new MCP tool
+   *   "hook"        — a new hook entry point
+   *   "capability"  — catchall for cost-bounded summary calls (>10 new exports)
+   */
+  kind: z.enum(["function", "class", "type", "cli-command", "mcp-tool", "hook", "capability"]),
+
+  /**
+   * List of callsites / consumers found in the codebase. Each entry is a short
+   * description of the consumer (e.g., "src/foo.ts:42 — passes value via …").
+   * Empty when no consumers are found.
+   */
+  consumersFound: z.array(z.string()).default([]),
+
+  /**
+   * Adoption classification:
+   *   "Adopted"           — consumers were found; the export is in use.
+   *   "Missing consumers" — no consumers were found; the export has no wiring.
+   */
+  classification: z.enum(["Adopted", "Missing consumers"]),
+
+  /**
+   * Optional free-form rationale. Use to explain why consumers are missing
+   * (e.g., "wiring planned in mt#XXXX") or to note that spec-required wiring
+   * is absent (which would also warrant a BLOCKING submit_finding call).
+   */
+  notes: z.string().optional(),
+});
+
+export type SubmitAdoptionSweepArgs = z.infer<typeof SubmitAdoptionSweepArgsSchema>;
 
 /**
  * Args for the `conclude_review` tool.
@@ -473,6 +528,65 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
   {
     type: "function",
     function: {
+      name: "submit_adoption_sweep",
+      description:
+        "Record the adoption-sweep result for one new public export introduced by this PR. " +
+        "Call this once per new public export (function, class, type, CLI command, MCP tool, hook). " +
+        "A 'new public export' is any symbol added to the public API surface: exported functions, " +
+        "classes, types, CLI subcommands, MCP tools, or hooks that callers outside the module can use. " +
+        "For each symbol, search the codebase for existing consumers (callsites, imports, registrations). " +
+        "classification: 'Adopted' when consumers are found; 'Missing consumers' when none are found. " +
+        "When the PR introduces more than 10 new public exports, emit a SINGLE call with " +
+        "kind: 'capability', symbol: '<N> new exports (cost-bounding rule)', classification: 'Missing consumers', " +
+        "and a notes field recommending a follow-up adoption task. Do NOT emit N individual calls. " +
+        "When a spec criterion requires specific consumer wiring (e.g., 'the tool must be registered in X'), " +
+        "a missing-consumer finding for that symbol is BLOCKING — also emit a submit_finding with " +
+        "severity BLOCKING for the same issue.",
+      parameters: {
+        type: "object",
+        properties: {
+          symbol: {
+            type: "string",
+            minLength: 1,
+            description:
+              "Fully-qualified name of the new export (e.g. 'Reviewer.runReview', 'tasks_orchestrate', " +
+              "'/declare-framework', 'submit_adoption_sweep'). For cost-bounded calls: '<N> new exports (cost-bounding rule)'.",
+          },
+          kind: {
+            type: "string",
+            enum: ["function", "class", "type", "cli-command", "mcp-tool", "hook", "capability"],
+            description:
+              "Kind of export: function, class, type, cli-command, mcp-tool, hook, " +
+              "or capability (catchall for cost-bounded summary calls with >10 new exports).",
+          },
+          consumersFound: {
+            type: "array",
+            items: { type: "string" },
+            default: [],
+            description:
+              "List of callsites / consumers found in the codebase. Each entry is a short description " +
+              "(e.g. 'src/foo.ts:42 — passes value via …'). Empty array when no consumers are found.",
+          },
+          classification: {
+            type: "string",
+            enum: ["Adopted", "Missing consumers"],
+            description:
+              "Adoption classification: 'Adopted' when consumers found; 'Missing consumers' when none found.",
+          },
+          notes: {
+            type: "string",
+            description:
+              "Optional free-form rationale (e.g. 'wiring planned in mt#XXXX' or 'spec requires this to be registered in Y').",
+          },
+        },
+        required: ["symbol", "kind", "consumersFound", "classification"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "conclude_review",
       description:
         "Signal the end of the review and provide a top-level summary. " +
@@ -519,6 +633,7 @@ export type ReviewToolCall =
   | { name: "submit_inline_comment"; args: SubmitInlineCommentArgs }
   | { name: "submit_spec_verification"; args: SubmitSpecVerificationArgs }
   | { name: "submit_documentation_impact"; args: SubmitDocumentationImpactArgs }
+  | { name: "submit_adoption_sweep"; args: SubmitAdoptionSweepArgs }
   | { name: "conclude_review"; args: ConcludeReviewArgs }
   | { name: "submit_thread_resolve"; args: SubmitThreadResolveArgs };
 
@@ -528,6 +643,7 @@ const TOOL_SCHEMAS = {
   submit_inline_comment: SubmitInlineCommentArgsSchema,
   submit_spec_verification: SubmitSpecVerificationArgsSchema,
   submit_documentation_impact: SubmitDocumentationImpactArgsSchema,
+  submit_adoption_sweep: SubmitAdoptionSweepArgsSchema,
   conclude_review: ConcludeReviewArgsSchema,
   submit_thread_resolve: SubmitThreadResolveArgsSchema,
 } as const;
@@ -582,6 +698,8 @@ export function parseToolCall(name: string, argsJson: string): ReviewToolCall {
       return { name, args: result.data as SubmitSpecVerificationArgs };
     case "submit_documentation_impact":
       return { name, args: result.data as SubmitDocumentationImpactArgs };
+    case "submit_adoption_sweep":
+      return { name, args: result.data as SubmitAdoptionSweepArgs };
     case "conclude_review":
       return { name, args: result.data as ConcludeReviewArgs };
     case "submit_thread_resolve":
