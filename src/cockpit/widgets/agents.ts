@@ -202,16 +202,43 @@ export function createAgentsWidget(
 // (cockpit/DI integration RFC).
 // ---------------------------------------------------------------------------
 
+// Shared PersistenceService singleton — both session and task providers use
+// the same instance to avoid deadlocking the DB connection pool (mt#2079).
+let _sharedPersistenceService:
+  | import("../../domain/persistence/service").PersistenceService
+  | null = null;
+let _sharedInitPromise: Promise<
+  import("../../domain/persistence/service").PersistenceService
+> | null = null;
+
+async function getSharedPersistenceService() {
+  if (_sharedPersistenceService) return _sharedPersistenceService;
+  if (_sharedInitPromise) return _sharedInitPromise;
+
+  _sharedInitPromise = (async () => {
+    try {
+      const { PersistenceService } = await import("../../domain/persistence/service");
+      const svc = new PersistenceService();
+      await svc.initialize();
+      _sharedPersistenceService = svc;
+      return svc;
+    } catch (err) {
+      _sharedInitPromise = null;
+      throw err;
+    }
+  })();
+
+  return _sharedInitPromise;
+}
+
 let _cachedProvider: SessionProviderInterface | null = null;
 
 async function defaultProviderFactory(): Promise<SessionProviderInterface> {
   if (_cachedProvider) return _cachedProvider;
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
   const { createSessionProvider } = await import("../../domain/session/session-db-adapter");
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const provider = await createSessionProvider(undefined, {
     persistenceService: {
       isInitialized: () => true,
@@ -223,31 +250,23 @@ async function defaultProviderFactory(): Promise<SessionProviderInterface> {
 }
 
 // ---------------------------------------------------------------------------
-// Default task provider — lazy singleton mirroring defaultProviderFactory.
+// Default task provider — lazy singleton sharing PersistenceService with
+// the session provider above (mt#2079).
 //
 // Uses createConfiguredTaskService (the same path the CLI uses) so the widget
 // benefits from multi-backend task resolution (mt# Minsky DB + gh# GitHub).
-// A separate PersistenceService instance is constructed here to keep the
-// session-provider singleton and the task-provider singleton independent;
-// both share the same underlying DB URL, so there is no duplication of
-// authoritative state.
 // ---------------------------------------------------------------------------
 
 let _cachedTaskProvider: TaskProviderLike | null = null;
 
-async function _defaultTaskProviderFactory(): Promise<TaskProviderLike> {
+async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   if (_cachedTaskProvider) return _cachedTaskProvider;
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
   const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const persistenceProvider = svc.getProvider();
 
-  // Resolve workspace path — same strategy as src/composition/cli.ts.
-  // The cockpit server is always started from the repo root, so process.cwd()
-  // is a reliable workspace root without needing import.meta.url resolution.
   const workspacePath = process.cwd();
 
   const taskService = await createConfiguredTaskService({
@@ -259,13 +278,8 @@ async function _defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   return _cachedTaskProvider;
 }
 
-/** Default agents widget — ready to drop into WIDGET_REGISTRY.
- *
- * Task-title enrichment (defaultTaskProviderFactory) is disabled: the second
- * PersistenceService instance deadlocks the DB connection pool when both
- * providers init concurrently. Fix tracked as a follow-up — the factory needs
- * to share the same PersistenceService instance as the session provider, or
- * use a connection-pool-aware init. Until then, agents show without task
- * titles (branch/sessionId fallback).
- */
-export const agentsWidget: WidgetModule = createAgentsWidget(defaultProviderFactory);
+/** Default agents widget — ready to drop into WIDGET_REGISTRY */
+export const agentsWidget: WidgetModule = createAgentsWidget(
+  defaultProviderFactory,
+  defaultTaskProviderFactory
+);
