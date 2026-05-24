@@ -492,7 +492,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       conditions.push(eq(postgresSessions.repoName, sessionOpts.repoName));
     }
     if (sessionOpts?.statusNotIn && sessionOpts.statusNotIn.length > 0) {
-      conditions.push(notInArray(postgresSessions.status, sessionOpts.statusNotIn));
+      const excluded = sessionOpts.statusNotIn;
+      conditions.push(
+        sql`(${postgresSessions.status} IS NULL OR ${notInArray(postgresSessions.status, excluded)})`
+      );
     }
     if (options?.createdAfter) {
       conditions.push(gte(postgresSessions.createdAt, new Date(options.createdAfter)));

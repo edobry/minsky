@@ -281,7 +281,10 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
         }
 
         if (sessionOpts.statusNotIn && sessionOpts.statusNotIn.length > 0) {
-          conditions.push(notInArray(sessionsTable.status, sessionOpts.statusNotIn));
+          const excluded = sessionOpts.statusNotIn;
+          conditions.push(
+            sql`(${sessionsTable.status} IS NULL OR ${notInArray(sessionsTable.status, excluded)})`
+          );
         }
 
         if (sessionOpts.createdAfter) {
