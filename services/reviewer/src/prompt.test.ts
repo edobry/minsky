@@ -165,6 +165,18 @@ describe("buildCriticConstitution — verification-mode preamble (mt#1656)", () 
     expect(prompt).not.toContain("Your adversariality has structure");
   });
 
+  test("verification preamble includes spec-freshness clause (mt#2082)", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, true);
+    expect(prompt).toContain("spec you see is the current version");
+    expect(prompt).toContain("patched between review rounds");
+    expect(prompt).toContain("current spec is canonical");
+  });
+
+  test("standard preamble (R1) does NOT include spec-freshness clause (mt#2082)", () => {
+    const prompt = buildCriticConstitution(true, "normal", false, false);
+    expect(prompt).not.toContain("patched between review rounds");
+  });
+
   test("priorReviewsPresent works across scope buckets and output-tools modes", () => {
     // The verification preamble swap is independent of scope and output-tools
     // mode. All four combinations must include the verification framing.
@@ -1003,6 +1015,21 @@ describe("Critic Constitution disciplines (mt#2058)", () => {
     const failureSection = constitution.slice(failureModesStart, outOfRepoStart);
     expect(failureSection).toContain(LIVE_TARGET_PHRASE);
     expect(failureSection).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+  });
+
+  test("contains spec section-precedence hierarchy (principle 12, mt#2082)", () => {
+    expect(constitution).toContain("Spec section-precedence hierarchy");
+    expect(constitution).toContain("Success Criteria");
+    expect(constitution).toContain("normative");
+    expect(constitution).toContain("informational");
+  });
+
+  test("principle 12 appears in the Principles section before Failure modes (mt#2082)", () => {
+    const principlesStart = constitution.indexOf("## Principles");
+    const failureModesStart = constitution.indexOf(FAILURE_MODES_HEADING);
+    const principlesSection = constitution.slice(principlesStart, failureModesStart);
+    expect(principlesSection).toContain("Spec section-precedence hierarchy");
+    expect(principlesSection).toContain("normative section wins");
   });
 
   test("no-tools variant also includes the new disciplines", () => {
