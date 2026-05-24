@@ -1012,4 +1012,16 @@ describe("Critic Constitution disciplines (mt#2058)", () => {
     expect(noToolsConstitution).toContain(BEHAVIORAL_RESIDUE_PHRASE);
     expect(noToolsConstitution).toContain(COVERAGE_COMPLETENESS_PHRASE);
   });
+
+  test("trivial/docs scope calibration preserves constitution-mandated findings", () => {
+    const trivialConstitution = buildCriticConstitution(true, "trivial-or-docs");
+    expect(trivialConstitution).toContain("Constitution-mandated findings");
+    expect(trivialConstitution).toContain("retain their specified severity");
+  });
+
+  test("test-only scope calibration preserves constitution-mandated findings", () => {
+    const testOnlyConstitution = buildCriticConstitution(true, "test-only");
+    expect(testOnlyConstitution).toContain("Constitution-mandated findings");
+    expect(testOnlyConstitution).toContain("retain their specified severity");
+  });
 });

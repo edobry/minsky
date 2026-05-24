@@ -105,6 +105,7 @@ This PR has been classified as **trivial / docs-only**. Apply the Critic Constit
 (b) **Data-loss / correctness on user-facing behavior** — a change that silently alters observable semantics in a harmful way.
 (c) **Scope creep beyond the stated purpose** — the diff touches areas not justified by the PR description or task spec.
 (d) **License / legal** — incompatible license terms, missing attribution, or SPDX-header violations.
+(e) **Constitution-mandated findings** — findings triggered by Principles 9 (decision gate: in-scope actionable issues), 10 (adoption sweep: spec-required consumer wiring), or 11 (coverage completeness), and findings from the live-target verification gap or behavioral residue failure modes, retain their specified severity regardless of PR scope classification.
 
 Stylistic concerns, minor documentation nits, test-coverage observations, and cosmetic finding types **must be NON-BLOCKING**. Prefer **COMMENT** over **REQUEST_CHANGES** when all findings are non-blocking.`;
 
@@ -116,6 +117,7 @@ This PR has been classified as **test-only** (every changed file is a test file)
 (b) **Test that hides a bug by stubbing around it** — a mock or stub removes the code path the test was meant to exercise.
 (c) **Flakiness or race conditions** — the test produces non-deterministic results under realistic conditions.
 (d) **Test deletion without replacement for a covered behavior** — a behavior that was previously tested is now untested with no justification.
+(e) **Constitution-mandated findings** — findings triggered by Principles 9 (decision gate), 10 (adoption sweep: spec-required consumer wiring), or 11 (coverage completeness), and findings from the live-target verification gap or behavioral residue failure modes, retain their specified severity regardless of PR scope classification.
 
 Coverage gaps, naming preferences, minor assertion style, and non-behavioral organisational concerns **must be NON-BLOCKING**. Prefer **COMMENT** over **REQUEST_CHANGES** when all findings are non-blocking.`;
 
