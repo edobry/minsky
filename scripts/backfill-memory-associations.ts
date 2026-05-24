@@ -122,10 +122,10 @@ async function main() {
   );
   console.log(`Memories needing update: ${toUpdate.length}`);
   console.log(`Already up-to-date: ${allMemories.length - toUpdate.length}`);
-  console.log(`\nBody-text mt#XXXX references found: ${totalBodyRefs}`);
-  console.log(`Captured as structured associations: ${capturedRefs}`);
+  console.log(`\nUnique task IDs referenced in body text: ${totalBodyRefs}`);
+  console.log(`Unique task IDs captured as associations: ${capturedRefs}`);
   const coverage = totalBodyRefs > 0 ? ((capturedRefs / totalBodyRefs) * 100).toFixed(1) : "N/A";
-  console.log(`Coverage: ${coverage}%`);
+  console.log(`Coverage (unique IDs captured / unique IDs found): ${coverage}%`);
   console.log();
 
   if (toUpdate.length > 0) {
