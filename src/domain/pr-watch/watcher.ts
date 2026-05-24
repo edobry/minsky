@@ -20,6 +20,7 @@ import type { PrWatchRepository } from "./repository";
 import type { PrWatch } from "./types";
 import type { OperatorNotify } from "../notify/operator-notify";
 import type { WakeSignalSink } from "../ask/wake-on-respond";
+import type { EventEmitter } from "../events/emitter";
 
 // ---------------------------------------------------------------------------
 // GithubPrClient — narrow interface used by this reconciler
@@ -131,7 +132,8 @@ export async function runWatcher(
   prWatchRepository: PrWatchRepository,
   githubClient: GithubPrClient,
   operatorNotify: OperatorNotify,
-  wakeSink?: WakeSignalSink
+  wakeSink?: WakeSignalSink,
+  eventEmitter?: EventEmitter
 ): Promise<WatcherResult> {
   const watches = await prWatchRepository.listActive();
   log.debug("pr-watch: inspecting watches", { count: watches.length });
@@ -145,7 +147,8 @@ export async function runWatcher(
         prWatchRepository,
         githubClient,
         operatorNotify,
-        wakeSink
+        wakeSink,
+        eventEmitter
       );
       outcomes.push(outcome);
     } catch (err: unknown) {
@@ -182,7 +185,8 @@ async function processWatch(
   prWatchRepository: PrWatchRepository,
   githubClient: GithubPrClient,
   operatorNotify: OperatorNotify,
-  wakeSink?: WakeSignalSink
+  wakeSink?: WakeSignalSink,
+  eventEmitter?: EventEmitter
 ): Promise<PrWatchOutcome> {
   const { prOwner, prRepo, prNumber } = watch;
 
@@ -317,6 +321,20 @@ async function processWatch(
         reason: "parentSessionId absent on fired watch",
       })}`
     );
+  }
+
+  // Event emission for review-posted (mt#2095): best-effort, never throws.
+  if (eventEmitter && watch.event === "review-posted") {
+    await eventEmitter.emit({
+      eventType: "pr.review_posted",
+      payload: {
+        prNumber: watch.prNumber,
+        repo: `${watch.prOwner}/${watch.prRepo}`,
+        reviewer: watch.watcherId,
+        state: "posted",
+      },
+      relatedTaskId: ((watch.metadata as Record<string, unknown>)?.taskId as string) ?? undefined,
+    });
   }
 
   return { kind: "fired", watchId: watch.id, notified };

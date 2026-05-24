@@ -53,6 +53,7 @@ import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
 import { getServiceWindowDefault } from "../../../domain/ask/service-window-defaults";
+import { createEventEmitter } from "../../../domain/events/emitter";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -842,7 +843,7 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           ? { capabilityRegistry }
           : {};
 
-        return await createAsk(
+        const result = await createAsk(
           repo,
           {
             kind: params.kind as AskKind,
@@ -867,6 +868,43 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
           },
           routerOptions
         );
+
+        // Emit ask.created event (best-effort via EventEmitter — never throws).
+        // Resolve DB connection from the same container the repo used.
+        if (container?.has("persistence")) {
+          try {
+            const persistenceProvider = container.get(
+              "persistence"
+            ) as SqlCapablePersistenceProvider;
+            if (persistenceProvider.getDatabaseConnection) {
+              const db = await persistenceProvider.getDatabaseConnection();
+              if (db) {
+                const eventEmitter = createEventEmitter(
+                  db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+                );
+                await eventEmitter.emit({
+                  eventType: "ask.created",
+                  payload: {
+                    askId: result.id,
+                    kind: result.kind,
+                    title: result.title,
+                    question: result.question,
+                  },
+                  actor: (params.requestor as string) ?? undefined,
+                  relatedTaskId: (params.parentTaskId as string) ?? undefined,
+                  relatedSessionId: (params.parentSessionId as string) ?? undefined,
+                });
+              }
+            }
+          } catch (err: unknown) {
+            // Best-effort: swallow any errors resolving the DB or building the emitter.
+            log.warn("asks.create: failed to emit ask.created event (best-effort, swallowed)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+        }
+
+        return result;
       },
     })
   );

@@ -48,6 +48,7 @@ import {
 } from "../domain/storage/schemas/subagent-invocations-schema";
 import { log } from "../utils/logger";
 import { getErrorMessage } from "../errors/index";
+import type { EventEmitter } from "../domain/events/emitter";
 
 // ---------------------------------------------------------------------------
 // Escalation threshold constants (tunable from a single place)
@@ -179,7 +180,10 @@ export class SubagentDispatchTracker {
     return SubagentDispatchTracker._instance;
   }
 
-  constructor(private readonly db: PostgresJsDatabase) {}
+  constructor(
+    private readonly db: PostgresJsDatabase,
+    private readonly eventEmitter?: EventEmitter
+  ) {}
 
   /**
    * Insert a new invocation row, or update an existing one identified by
@@ -235,6 +239,26 @@ export class SubagentDispatchTracker {
       } else {
         // No session key — always INSERT a new row.
         await this.db.insert(subagentInvocationsTable).values(input);
+      }
+
+      // Emit subagent.failed event for failure outcomes (mt#2095).
+      // Best-effort — EventEmitter.emit() never throws.
+      if (
+        this.eventEmitter &&
+        (input.outcome === "crashed-no-output" ||
+          input.outcome === "partial-uncommitted-no-handoff")
+      ) {
+        await this.eventEmitter.emit({
+          eventType: "subagent.failed",
+          payload: {
+            taskId: input.taskId,
+            agentType: input.agentType,
+            outcome: input.outcome,
+            errorSummary: input.errorSummary,
+          },
+          relatedTaskId: input.taskId ?? undefined,
+          relatedSessionId: input.parentSessionId ?? undefined,
+        });
       }
     } catch (err) {
       log.warn("subagent_dispatch_tracker: failed to record invocation", {
