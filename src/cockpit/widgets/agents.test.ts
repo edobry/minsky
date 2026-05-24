@@ -8,7 +8,11 @@
 import { describe, test, expect } from "bun:test";
 import { createAgentsWidget } from "./agents";
 import type { TaskProviderLike, AgentRow } from "./agents";
-import type { SessionProviderInterface, SessionRecord } from "../../domain/session/types";
+import type {
+  SessionProviderInterface,
+  SessionRecord,
+  SessionListOptions,
+} from "../../domain/session/types";
 import { SessionStatus } from "../../domain/session/types";
 
 // ---------------------------------------------------------------------------
@@ -17,7 +21,13 @@ import { SessionStatus } from "../../domain/session/types";
 
 function makeSessionProvider(records: SessionRecord[]): SessionProviderInterface {
   return {
-    listSessions: async () => records,
+    listSessions: async (options?: SessionListOptions) => {
+      const excluded = options?.statusNotIn;
+      if (excluded && excluded.length > 0) {
+        return records.filter((r) => !r.status || !excluded.includes(r.status));
+      }
+      return records;
+    },
     getSession: async () => null,
     getSessionByTaskId: async () => null,
     addSession: async () => {},

@@ -7,7 +7,7 @@
 
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, notInArray, type SQL } from "drizzle-orm";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -18,6 +18,7 @@ import type {
   SessionRecord as DomainSessionRecord,
   SessionDbState,
 } from "../../session/session-db";
+import type { SessionListOptions } from "../../session/types";
 import { sqliteSessions, toSqliteInsert } from "../schemas/session-schema";
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
@@ -262,10 +263,11 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
     try {
       // Build WHERE conditions from filters
       const conditions: SQL[] = [];
-      if (options) {
-        if (options.taskId) {
+      const sessionOpts = options as SessionListOptions | undefined;
+      if (sessionOpts) {
+        if (sessionOpts.taskId) {
           // Normalize taskId by removing # prefix if present
-          const validatedTaskId = options.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
+          const validatedTaskId = sessionOpts.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
           // BUGFIX: Use SQL to handle null values properly
           // This finds sessions where taskId (without #) equals validatedTaskId
           // and excludes sessions with null taskId
@@ -274,15 +276,22 @@ export class SqliteStorage implements DatabaseStorage<DomainSessionRecord, Sessi
           );
         }
 
-        if (options.repoName) {
-          conditions.push(eq(sessionsTable.repoName, options.repoName));
+        if (sessionOpts.repoName) {
+          conditions.push(eq(sessionsTable.repoName, sessionOpts.repoName));
         }
 
-        if (options.createdAfter) {
-          conditions.push(gte(sessionsTable.createdAt, options.createdAfter));
+        if (sessionOpts.statusNotIn && sessionOpts.statusNotIn.length > 0) {
+          const excluded = sessionOpts.statusNotIn;
+          conditions.push(
+            sql`(${sessionsTable.status} IS NULL OR ${notInArray(sessionsTable.status, excluded)})`
+          );
         }
-        if (options.createdBefore) {
-          conditions.push(lte(sessionsTable.createdAt, options.createdBefore));
+
+        if (sessionOpts.createdAfter) {
+          conditions.push(gte(sessionsTable.createdAt, sessionOpts.createdAfter));
+        }
+        if (sessionOpts.createdBefore) {
+          conditions.push(lte(sessionsTable.createdAt, sessionOpts.createdBefore));
         }
       }
 

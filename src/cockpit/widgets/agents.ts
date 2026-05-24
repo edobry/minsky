@@ -266,13 +266,13 @@ export function createAgentsWidget(
         const offset = ctx.query?.offset ? parseInt(ctx.query.offset, 10) : undefined;
         const isPaginated = limit != null && !isNaN(limit);
 
-        // Fetch all non-terminal sessions for total count + liveness filtering.
-        // DB-level status filtering is not yet available in SessionListOptions,
-        // so we fetch all and filter in JS. The limit/offset is applied post-filter.
-        const allRecords = await provider.listSessions();
+        // Filter terminal statuses at DB level; orphaned liveness is derived
+        // in JS (no DB column) so it stays as a post-fetch filter.
+        const allRecords = await provider.listSessions({
+          statusNotIn: [...TERMINAL_STATUSES],
+        });
 
         const filtered = allRecords.filter((r) => {
-          if (r.status && TERMINAL_STATUSES.has(r.status)) return false;
           const liveness = deriveSessionLiveness(r);
           if (liveness === "orphaned") return false;
           return true;
