@@ -15,6 +15,7 @@
  * separate refactor concern per mt#1146 review feedback.
  */
 import { useState, useCallback } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { useListControls, type SortDir } from "../lib/useListControls";
@@ -348,7 +349,13 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
         <div className="flex items-center justify-between gap-2">
           <div className="flex-1 min-w-0">
             <CardTitle className="text-sm">
-              <span className="font-mono text-xs text-muted-foreground mr-1">{card.parentId}</span>
+              <Link
+                to={`/tasks/${encodeURIComponent(card.parentId)}`}
+                className="font-mono text-xs text-muted-foreground mr-1 hover:text-foreground transition-colors"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {card.parentId}
+              </Link>
               <span className="font-medium">{card.parentTitle}</span>
             </CardTitle>
           </div>
@@ -374,13 +381,17 @@ function WorkstreamCardItem({ card, defaultOpen }: WorkstreamCardProps) {
       {isOpen && (
         <CardContent className="pt-0">
           {card.children.map((child) => (
-            <div key={child.id} className="flex items-center gap-2 py-1.5 border-b border-border last:border-0">
+            <Link
+              key={child.id}
+              to={`/tasks/${encodeURIComponent(child.id)}`}
+              className="flex items-center gap-2 py-1.5 border-b border-border last:border-0 hover:bg-muted/30 transition-colors rounded-sm"
+            >
               <StatusBadge status={child.status} />
               <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
                 {child.id}
               </span>
               <span className="text-sm truncate">{child.title}</span>
-            </div>
+            </Link>
           ))}
         </CardContent>
       )}

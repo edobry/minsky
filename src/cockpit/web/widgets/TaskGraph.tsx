@@ -19,6 +19,7 @@
  *     task classification using a configurable legend.
  */
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import ReactFlow, {
   Background,
   Controls,
@@ -313,6 +314,7 @@ export function TaskGraph({ data, containerClassName = "h-[600px]" }: Props) {
   // first onInit, subsequent renders skip fitView so polling refreshes don't
   // snap the user's viewport back to the default.
   const hasFittedRef = useRef(false);
+  const navigate = useNavigate();
   const [rfNodes, setRfNodes, onNodesChange] = useNodesState([]);
   const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
   const [selected, setSelected] = useState<{
@@ -347,13 +349,18 @@ export function TaskGraph({ data, containerClassName = "h-[600px]" }: Props) {
     setRfEdges(nextEdges);
   }, [data, setRfNodes, setRfEdges]);
 
-  const handleNodeClick: NodeMouseHandler = useCallback((_evt, node) => {
-    setSelected({
-      id: node.id,
-      label: (node.data as { label: string }).label,
-      status: (node.data as { status: string }).status,
-    });
-  }, []);
+  // Node click: update the side panel AND navigate to the task detail page
+  const handleNodeClick: NodeMouseHandler = useCallback(
+    (_evt, node) => {
+      setSelected({
+        id: node.id,
+        label: (node.data as { label: string }).label,
+        status: (node.data as { status: string }).status,
+      });
+      navigate(`/tasks/${encodeURIComponent(node.id)}`);
+    },
+    [navigate]
+  );
 
   if (data.state === "degraded") {
     return (
