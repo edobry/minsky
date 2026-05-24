@@ -153,9 +153,8 @@ export function registerEventsCommands(container?: AppContainerInterface): void 
       execute: async (params): Promise<EventsListResult> => {
         const db = await getDb(container);
         if (!db) {
-          throw new Error(
-            "events.list: DB connection unavailable — persistence provider does not support SQL"
-          );
+          log.warn("events.list: DB connection unavailable — returning empty results");
+          return { events: [], total: 0, limit: (params.limit as number | undefined) ?? 50 };
         }
 
         const events = await listEvents(db, {
@@ -189,9 +188,12 @@ export function registerEventsCommands(container?: AppContainerInterface): void 
       execute: async (params): Promise<EventsEmitResult> => {
         const db = await getDb(container);
         if (!db) {
-          throw new Error(
-            "events.emit: DB connection unavailable — persistence provider does not support SQL"
-          );
+          log.warn("events.emit: DB connection unavailable — event silently dropped (best-effort)");
+          return {
+            success: false,
+            message:
+              "events.emit: DB connection unavailable — event silently dropped (best-effort)",
+          };
         }
 
         const emitter = new DrizzleEventEmitter(db);
