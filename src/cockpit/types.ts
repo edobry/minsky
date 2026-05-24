@@ -16,6 +16,7 @@ export type WidgetData = { state: "ok"; payload: unknown } | { state: "degraded"
 /** Runtime context injected into each fetch() call */
 export interface WidgetContext {
   id: string;
+  query?: Record<string, string>;
 }
 
 /** The complete module contract every widget must satisfy */
