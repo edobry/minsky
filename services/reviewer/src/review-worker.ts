@@ -287,7 +287,9 @@ export async function callReviewerWithRetry(
       timeoutMs: err.timeoutMs,
       provider: config.provider,
     });
-    const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools);
+    const retryOptions =
+      config.provider === "openai" ? { reasoningEffort: "low" as const } : undefined;
+    const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools, retryOptions);
     const retryValidation = validateReviewOutput(retry, outputToolsActive);
     return {
       output: retry,

@@ -405,9 +405,12 @@ describe("callReviewerWithRetry — TimeoutError retry (mt#2083)", () => {
     toolCalls: [],
   };
 
-  test("retries once on TimeoutError and succeeds", async () => {
+  test("retries once on TimeoutError and succeeds with reasoningEffort=low for OpenAI", async () => {
     let callCount = 0;
-    const fakeFn: CallReviewerFn = async () => {
+    type Invocation = { options?: CallReviewerOptions };
+    const invocations: Invocation[] = [];
+    const fakeFn: CallReviewerFn = async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
       callCount++;
       if (callCount === 1)
         throw new TimeoutError("openai.chat.completions.create.toolloop", 120000);
@@ -418,6 +421,29 @@ describe("callReviewerWithRetry — TimeoutError retry (mt#2083)", () => {
     expect(result.attempt).toBe("retry-success");
     expect(result.retryAttempted).toBe(true);
     expect(result.output.text).toContain("substantive");
+    expect(invocations[1]?.options).toEqual({ reasoningEffort: "low" });
+  });
+
+  test("timeout retry for non-OpenAI provider does NOT pass reasoningEffort", async () => {
+    const googleConfig = { ...fakeConfig, provider: "google" } as unknown as ReviewerConfig;
+    const googleSubstantive = {
+      ...substantive,
+      provider: "google" as const,
+      model: "gemini-2.5-pro",
+    };
+    let callCount = 0;
+    type Invocation = { options?: CallReviewerOptions };
+    const invocations: Invocation[] = [];
+    const fakeFn: CallReviewerFn = async (_config, _sys, _user, _tools, options) => {
+      invocations.push({ options });
+      callCount++;
+      if (callCount === 1) throw new TimeoutError("test.op", 120000);
+      return googleSubstantive;
+    };
+    const result = await callReviewerWithRetry(googleConfig, "sys", "user", undefined, fakeFn);
+    expect(callCount).toBe(2);
+    expect(result.attempt).toBe("retry-success");
+    expect(invocations[1]?.options).toBeUndefined();
   });
 
   test("retries once on TimeoutError — retry also times out → propagates", async () => {

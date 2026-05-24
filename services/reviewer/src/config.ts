@@ -57,7 +57,7 @@ export interface ReviewerConfig {
  * complexity grows (more retry knobs, hot-reload, etc.) the proper fix is
  * to plumb them through ReviewerConfig.
  *
- * Defaults are in `providers.ts` (`DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 90000`;
+ * Defaults are in `providers.ts` (`DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120000`;
  * `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT` defaults `"true"`).
  *
  * mt#1969.
@@ -65,7 +65,7 @@ export interface ReviewerConfig {
 export const REVIEWER_CALLTIME_ENV_VAR_NAMES = {
   /** Enable single retry on toolloop `TimeoutError`. Default `"true"`. */
   TOOLLOOP_RETRY_ON_TIMEOUT: "REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT",
-  /** Reduced timeout ceiling for the retry attempt. Default `90000` ms. */
+  /** Timeout ceiling for the retry attempt (matches primary). Default `120000` ms. */
   TOOLLOOP_RETRY_TIMEOUT_MS: "REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS",
 } as const;
 
@@ -166,12 +166,14 @@ export function loadConfig(): ReviewerConfig {
     port: parseInt(optionalEnv("PORT", "3000"), 10),
     logLevel: optionalEnv("LOG_LEVEL", "info") as ReviewerConfig["logLevel"],
 
-    // mt#1086 — defaults sized to actual production traffic patterns:
-    //   model: 120s — gpt-5 with reasoning_effort=high on a Tier-3 PR
-    //          regularly takes 60-90s end-to-end including tool-use rounds.
-    //   github: 30s — every GitHub REST call we make returns in <5s on the
-    //          happy path; 30s buys headroom for transient slow paths
-    //          without holding webhooks open through GitHub's own timeout.
+    // mt#1086/mt#2083 — timeout budgets sized to production traffic:
+    //   model: 120s per tool-loop round. gpt-5 with reasoning_effort=low
+    //          takes ~80-100s on normal PRs. Trivial/docs-only PRs skip
+    //          the tool loop entirely (mt#2083 scope-aware fast path).
+    //   toolloop retry: 120s (matches primary; see providers.ts). Was 90s
+    //          pre-mt#2083 but that was shorter than healthy-case latency.
+    //   github: 30s — every GitHub REST call returns in <5s on the happy
+    //          path; 30s buys headroom for transient slow paths.
     modelTimeoutMs: parsePositiveIntEnv("REVIEWER_MODEL_TIMEOUT_MS", 120_000),
     githubTimeoutMs: parsePositiveIntEnv("REVIEWER_GITHUB_TIMEOUT_MS", 30_000),
   };
