@@ -161,6 +161,34 @@ async function getServerAskRepository(): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Task service lazy init — shared across /api/tasks requests (same singleton
+// pattern as AskRepository above).
+// ---------------------------------------------------------------------------
+
+let _cachedTaskService: import("../domain/tasks/taskService").TaskServiceInterface | null = null;
+
+async function getServerTaskService(): Promise<
+  import("../domain/tasks/taskService").TaskServiceInterface | null
+> {
+  if (_cachedTaskService) return _cachedTaskService;
+  try {
+    const { PersistenceService } = await import("../domain/persistence/service");
+    const { createConfiguredTaskService } = await import("../domain/tasks/taskService");
+    const svc = new PersistenceService();
+    await svc.initialize();
+    const provider = svc.getProvider();
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+      persistenceProvider: provider,
+    });
+    _cachedTaskService = taskService;
+    return _cachedTaskService;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Attention-window channel names — must match notify.ts emit side
 // ---------------------------------------------------------------------------
 
@@ -409,6 +437,37 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.json({ state: "degraded", reason: `Widget crashed: ${message}` });
+    }
+  });
+
+  /**
+   * GET /api/tasks — lightweight task list for the command palette (mt#1917).
+   *
+   * Returns: { tasks: { id, title, status }[] }
+   * Uses the shared task service singleton (same bootstrap pattern as
+   * workstreams.ts). Returns 503 when the task service is unavailable.
+   */
+  app.get("/api/tasks", async (_req, res) => {
+    try {
+      const taskService = await getServerTaskService();
+      if (!taskService) {
+        res.status(503).json({
+          error: "Task service unavailable — persistence provider not ready",
+        });
+        return;
+      }
+      const { formatTaskIdForDisplay } = await import("../domain/tasks/task-id-utils");
+      const tasks = await taskService.listTasks({});
+      const taskList = tasks.map((t) => ({
+        id: formatTaskIdForDisplay(t.id),
+        title: t.title ?? "",
+        status: (t.status ?? "TODO").toUpperCase(),
+      }));
+      res.json({ tasks: taskList });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[tasks] GET /api/tasks — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while listing tasks." });
     }
   });
 

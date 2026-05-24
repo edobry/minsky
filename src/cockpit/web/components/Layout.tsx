@@ -11,6 +11,7 @@
  */
 import { type ReactNode } from "react";
 import { AppHeader } from "./AppHeader";
+import { CommandPalette } from "./CommandPalette";
 
 interface Props {
   children: ReactNode;
@@ -23,6 +24,7 @@ export function Layout({ children }: Props) {
       <main className="flex-1 overflow-auto">
         {children}
       </main>
+      <CommandPalette />
     </div>
   );
 }
