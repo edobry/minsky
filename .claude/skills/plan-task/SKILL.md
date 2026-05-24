@@ -56,6 +56,7 @@ a status transition; everything else is investigation and gate-check.
     with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
   - (k) Third-party tool/dependency verification
   - (l) Security-surface community-practice check
+  - (m) Problem-statement verification
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -539,6 +540,77 @@ Cross-reference: memory `22a55d66` (`Security-surface changes require community-
 check before spec authoring`) is the originating memory. Corpus rule:
 `decision-defaults.mdc §Security-surface changes require community-practice check`.
 Originating incident: mt#1477.
+
+#### Gate criterion (m) — Problem-statement verification
+
+When the spec describes a causal claim about system behavior — "X fails because Y",
+"the timeout fires and both retries fail", "the parser doesn't handle Q", "users see
+error Z when condition W holds" — the claim is a hypothesis until verified against
+observable evidence. Code analysis confirming the code _could_ fail that way is not
+verification that it _does_.
+
+Rationale: mt#2083 (2026-05-24). The spec claimed "reviewer tool-loop timed out, both
+attempts failed, sweeper rescued the review ~9 minutes later." Code analysis confirmed
+the retry timeout (90s) was shorter than typical latency (~80-100s), making the narrative
+plausible. Three fixes were designed and merged. Production logs showed: both timeouts
+recovered via the existing retry in 10-20 seconds; the sweeper caught a separate
+webhook-miss. Fix 1 (scope-aware tool-loop bypass) actively degraded review quality for
+a non-existent problem and was reverted in PR #1266. The cognitive error: treating
+plausibility as verification.
+
+**Trigger condition.** This criterion fires when the spec contains a causal claim about
+runtime behavior — any assertion of the form "when X happens, Y results" or "X is
+broken/failing/slow because Y." Claims about code structure ("function F calls G") are
+not causal claims and don't trigger this criterion; claims about runtime behavior ("F
+throws when called with Z" or "the timeout fires under load") do.
+
+If no causal claims about runtime behavior appear in the spec, this criterion passes
+automatically. State that explicitly: "(m) No causal runtime claims — criterion passes."
+
+**Required verification protocol (when triggered):**
+
+1. **Identify each causal claim** in the spec. State it as a testable hypothesis:
+   "Hypothesis: when X happens, Y results."
+
+2. **Name the observable evidence** that would confirm or refute the hypothesis. Examples:
+
+   - Production logs showing the event sequence
+   - A reproduction (run the command, trigger the condition, observe the result)
+   - Database query showing the claimed state
+   - Test output demonstrating the failure
+
+3. **Attempt the verification.** Pull logs, run a reproduction, query the DB. If the
+   verification source is inaccessible (auth failure, no reproduction environment, data
+   not persisted), **state that explicitly** — "verification blocked: [reason]" — rather
+   than treating the claim as settled by default. Inaccessibility is a gap to surface,
+   not permission to skip.
+
+4. **State the verdict** for each claim: "verified", "refuted", or "unverifiable —
+   [reason]."
+
+A spec with a refuted causal claim has a blocking gap — the problem description is wrong
+and the fix will address the wrong cause. A spec with an unverifiable claim should note
+the gap explicitly so the implementation accounts for the uncertainty (e.g., by adding
+observability that would make the claim verifiable in the future, rather than assuming
+the claim is true).
+
+**Example (m) failure — mt#2083 walkthrough.** If this criterion had existed:
+
+1. **Claim:** "tool-loop timed out at 17:37:04Z and 17:39:55Z, both attempts failed,
+   sweeper rescued at 17:41:12Z."
+2. **Observable evidence:** Railway deploy logs for the incident window (deployment
+   `1bddc2ad`, service `minsky-reviewer-webhook`).
+3. **Verification:** `get_logs(deployment_id, search: "timeout")` + full deploy log
+   trace. Result: both timeouts show `toolloop.timeout_retry` events followed by
+   `review_result` events 10-20s later — **retries succeeded**. Sweeper's
+   `missing_review` at 17:41:12 was for a different PR (webhook-miss class).
+4. **Verdict:** REFUTED. The causal claim "both attempts failed" is wrong; the existing
+   retry mechanism works. Fix should not degrade tool-use capability for a failure mode
+   that doesn't occur.
+
+Cross-reference: bridge memory `d77d2bd4` (`feedback_verify_problem_statement_before_designing_fixes`)
+is the precedent memory this gate formalizes. Memory `ffd503f9` ("Check merged scope vs
+filing narrative") is the adjacent pattern for post-fix narrative drift.
 
 ### Step 4: Act on gate results
 

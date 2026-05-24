@@ -806,6 +806,503 @@ When creating any test, start by asking:
 4. Am I accidentally testing console output directly?
 5. Am I accidentally performing direct filesystem operations?
 
+## Minsky Workflow
+
+# Minsky Workflow
+
+This rule defines the complete workflow for working with tasks and sessions in Minsky.
+
+## Core Workflow Steps
+
+### 1. Task Management
+
+**List Available Tasks**
+```bash
+minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>] [--tag <value>] [--since <value>] [--until <value>] [--hierarchical <value>] [--showDeps <value>] [--showAttention <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+```
+
+
+
+**Get Task Details**
+
+```bash
+minsky tasks get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json] [--includeSpec <value>] [--includeSubtasks <value>] [--includeSession <value>]
+```
+
+
+
+**Check Task Status**
+
+```bash
+minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+```
+
+
+
+### 2. Session Management
+
+**Start New Session**
+
+```bash
+minsky session start [--sessionId <value>] [--task <value>] [--description <value>] [--branch <value>] [--repo <value>] [--json] [--quiet] [--noStatusUpdate] [--skipInstall] [--packageManager <value>] [--recover]
+```
+
+
+
+**Get Session Directory**
+
+```bash
+minsky session dir [--sessionId <value>] [--task <value>] [--repo <value>] [--json]
+```
+
+
+
+### 3. Implementation Process
+
+1. **Create Session**: Use session.start with task ID
+2. **Work in Session**: All code changes happen in the session directory
+3. **Regular Commits**: Commit changes frequently
+4. **Create PR**: Use session.pr.create when ready for review
+5. **Update Status**: Set task status to IN-REVIEW
+
+### 4. Review & Completion
+
+**Create Pull Request**
+
+```bash
+minsky session pr.create <title> <type> [--body <value>] [--bodyPath <value>] [--sessionId <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--autoResolveDeleteConflicts] [--skipConflictCheck] [--draft]
+```
+
+
+
+**Update Task Status**
+
+```bash
+minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+```
+
+
+
+## Best Practices
+
+- Always work in sessions for code isolation
+- Use descriptive commit messages
+- Update task status at key milestones
+- Document any architectural decisions
+- Test changes before creating PRs
+
+## Command Parameters
+
+- `all`: Include all tasks regardless of status (Optional, Default: `false`)
+- `status`: Task status (Optional)
+- `filter`: Filter criteria for tasks (Optional)
+- `limit`: Maximum number of tasks to return (Optional)
+- `tag`: Filter by tag (can be repeated for multiple tags, e.g., --tag di-cleanup --tag test-quality) (Optional)
+- `since`: Only include tasks updated on/after this time (YYYY-MM-DD or 7d/24h/30m) (Optional)
+- `until`: Only include tasks updated on/before this time (YYYY-MM-DD or 7d/24h/30m) (Optional)
+- `hierarchical`: Group subtasks under their parent tasks in a tree view (Optional)
+- `showDeps`: Show dependency status (READY/BLOCKED) for each task (Optional)
+- `showAttention`: Include per-task attention cost rollup in the output (ADR-008 §Attention accounting) (Optional)
+- `repo`: Repository path (Optional)
+- `workspace`: Workspace path (Optional)
+- `session`: Session identifier (Optional)
+- `backend`: Backend type (available: github, minsky) (Optional)
+- `json`: Output in JSON format (Optional, Default: `false`)
+
+- `sessionId`: Session ID (Optional)
+- `task`: Task ID (Optional)
+- `description`: Task description for auto-creation (Optional)
+- `branch`: Git branch to use (Optional)
+- `repo`: Repository path (Optional)
+- `json`: Output in JSON format (Optional, Default: `false`)
+- `quiet`: Suppress output (Optional, Default: `false`)
+- `noStatusUpdate`: Skip updating task status (Optional, Default: `false`)
+- `skipInstall`: ⚠️ DEPRECATED — DO NOT USE. Skips dependency installation, creating a workspace that cannot pass typecheck hooks or run tests. Will be removed in a future release. (Optional, Default: `false`)
+- `packageManager`: Package manager to use (Optional)
+- `recover`: Recover abandoned session: if existing session for this task is stale/orphaned, delete it and create a fresh one (Optional, Default: `false`)
+
+- `title`: PR title (description only when --type is provided) (Required)
+- `type`: Conventional commit type to generate title prefix (Required)
+- `body`: PR body content (Optional)
+- `bodyPath`: Path to file containing PR body (Optional)
+- `sessionId`: Session ID (Optional)
+- `task`: Task ID (Optional)
+- `repo`: Repository path (Optional)
+- `noStatusUpdate`: Skip updating task status (Optional, Default: `false`)
+- `debug`: Enable debug output (Optional, Default: `false`)
+- `autoResolveDeleteConflicts`: Automatically resolve delete conflicts (Optional, Default: `false`)
+- `skipConflictCheck`: Skip conflict detection (Optional, Default: `false`)
+- `draft`: Create draft PR (GitHub only, skips session update) (Optional, Default: `false`)
+
+# Minsky Workflow System
+
+This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
+
+## Core Workflow Rules
+
+The following rules form the complete Minsky workflow system:
+
+2. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
+3. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
+4. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
+
+## Fundamental Principle: Command-Based Workflow
+
+**CRITICAL REQUIREMENT**: ALL task and session management MUST be done through the appropriate interface commands, not through direct file system operations. This includes:
+
+- Task listing, status checking, and status updates
+- Session creation, navigation, and management
+- Task implementation and verification
+- PR preparation and submission
+
+## When to Apply These Rules
+
+These workflow rules should be applied:
+
+- When starting work on a new task
+- When checking or updating task status
+- When creating or managing sessions
+- When implementing task requirements
+- When preparing pull requests
+- When approving and merging pull requests
+
+## Workflow Sequence
+
+1. **Task Selection and Status Verification**
+   - First: Check available tasks with minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>] [--tag <value>] [--since <value>] [--until <value>] [--hierarchical <value>] [--showDeps <value>] [--showAttention <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+   - Then: Verify task status with minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+   - Apply: task-status-protocol
+
+2. **Session Creation and Navigation**
+   - First: Create or re-enter a session for the task
+   - Then: Navigate to the session directory
+   - Apply: session-first-workflow
+
+3. **Task Implementation**
+   - First: Understand task requirements
+   - Then: Implement the solution in the session workspace
+   - Apply: task-implementation-workflow
+
+4. **Testing and Verification**
+   - First: Write and run tests for the implementation
+   - Then: Verify that all requirements are met
+   - Apply: task-implementation-workflow and tests
+
+5. **PR Preparation and Submission**
+   - First: Generate PR description
+   - Then: Finalize changes and update task status
+   - Apply: pr-preparation-workflow
+
+6. **PR Approval and Merging**
+   - First: Review PR content thoroughly
+   - Then: Use the git approve command to merge the PR branch
+   - Apply: pr-preparation-workflow
+
+7. **Task Completion**
+   - First: Update task status to DONE after PR is merged
+   - Then: Clean up the session if needed
+   - Apply: task-status-protocol
+
+## Common Workflow Questions
+
+### Task-Related Questions
+
+- **"What tasks are available?"**
+  → Use minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>] [--tag <value>] [--since <value>] [--until <value>] [--hierarchical <value>] [--showDeps <value>] [--showAttention <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+- **"How do I start working on a task?"**
+  → Apply session-first-workflow to create a session
+
+- **"How do I check task status?"**
+  → Apply task-status-protocol and use minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+### Session-Related Questions
+
+- **"How do I create a session?"**
+  → Apply session-first-workflow and use minsky session start [--sessionId <value>] [--task <value>] [--description <value>] [--branch <value>] [--repo <value>] [--json] [--quiet] [--noStatusUpdate] [--skipInstall] [--packageManager <value>] [--recover]
+
+- **"How do I get back to my session?"**
+  → Apply session-first-workflow and use minsky session dir [--sessionId <value>] [--task <value>] [--repo <value>] [--json]
+
+### Implementation Questions
+
+- **"How do I implement a task?"**
+  → Apply task-implementation-workflow for step-by-step guidance
+
+- **"How do I verify my implementation?"**
+  → Apply task-implementation-workflow and tests
+
+- **"How do I create a PR?"**
+  → Apply pr-preparation-workflow for PR creation steps
+
+- **"How do I approve and merge a PR?"**
+  → Apply pr-preparation-workflow and use the git approve command to merge the PR
+
+## Error Recovery Checkpoints
+
+| Error Scenario | Rule to Apply | Recovery Action |
+|----------------|---------------|--------------------|
+| **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
+| **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
+| **PR Approval Failure** | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
+
+## Rule Integration Table
+
+| Rule | Primary Purpose | Integrates With |
+|------|-----------------|----------------|
+| task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
+| task-status-protocol | Status management | task-status-workflow-protocol, task-implementation-workflow |
+| pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
+
+## Supporting Rules
+
+The Minsky workflow is supported by these additional rules:
+
+- [**pr-description-guidelines**](mdc:.cursor/rules/pr-description-guidelines.mdc) - Format and content requirements for PR descriptions
+- [**rules-management**](mdc:.cursor/rules/rules-management.mdc) - Guidelines for managing Minsky rules
+
+## Git & PR Workflow
+
+# PR Preparation Workflow
+
+This rule provides a complete workflow for preparing, creating, and managing pull requests in the Minsky system.
+
+## Overview
+
+Pull requests are the mechanism for integrating completed work from sessions back into the main codebase. The PR workflow ensures:
+
+- Proper review of all changes
+- Integration with task management
+- Quality assurance before merge
+- Documentation of changes
+
+## Prerequisites
+
+Before creating a PR, ensure:
+
+1. **Implementation is complete** - All task requirements met
+2. **Tests are passing** - Full test suite runs successfully
+3. **Task status is correct** - Should be IN-REVIEW before PR creation
+4. **Session is current** - Session updated with latest changes
+
+## PR Creation Process
+
+### Step 1: Pre-PR Verification
+
+**Check task status**: minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+- Verify task is in appropriate state for PR creation
+- Update to IN-REVIEW if not already: minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+**Verify session state**: minsky session get [--sessionId <value>] [--task <value>] [--repo <value>] [--json] [--since <value>] [--until <value>]
+- Confirm session is properly configured
+- Check that all changes are committed
+- Ensure session is up to date
+
+### Step 2: Create Pull Request
+
+**Generate PR from session**: minsky session pr.create <title> <type> [--body <value>] [--bodyPath <value>] [--sessionId <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--autoResolveDeleteConflicts] [--skipConflictCheck] [--draft]
+- Creates PR from session branch to main branch
+- Automatically links PR to associated task
+- May update task status to IN-REVIEW
+
+**Provide PR details**:
+- Use descriptive title including task ID
+- Write comprehensive description of changes
+- Include testing information
+- Reference any relevant issues or dependencies
+
+### Step 3: PR Content Verification
+
+After PR creation:
+
+1. **Review PR description** - Ensure it follows guidelines
+2. **Check file changes** - Verify all intended changes included
+3. **Confirm task linkage** - PR should reference task ID
+4. **Validate build status** - Ensure CI/CD passes
+
+## PR Description Format
+
+Follow this structure for PR descriptions:
+
+```markdown
+# <type>(#<task-id>): <Short description>
+
+## Summary
+Brief description of what was changed and why.
+
+## Changes
+### Added
+- List new features or functionality
+
+### Changed
+- List modifications to existing functionality
+
+### Fixed
+- List bugs or issues resolved
+
+## Testing
+Description of testing performed.
+
+## Checklist
+- [x] All requirements implemented
+- [x] Tests written and passing
+- [x] Documentation updated
+```
+
+## PR Types
+
+Use these prefixes for PR titles:
+
+- **feat**: New feature
+- **fix**: Bug fix
+- **docs**: Documentation changes
+- **style**: Code style changes
+- **refactor**: Code refactoring
+- **perf**: Performance improvements
+- **test**: Test additions or modifications
+- **chore**: Build process or tool changes
+
+## PR Management Commands
+
+### PR Creation
+**Create PR from session**: minsky session pr.create <title> <type> [--body <value>] [--bodyPath <value>] [--sessionId <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--autoResolveDeleteConflicts] [--skipConflictCheck] [--draft]
+- Primary method for creating PRs
+- Handles task integration automatically
+- Manages branch and status updates
+
+### PR Information
+**Get session PR info**: minsky session get [--sessionId <value>] [--task <value>] [--repo <value>] [--json] [--since <value>] [--until <value>]
+- Shows PR status for session
+- Displays PR URL and details
+- Indicates merge status
+
+## PR Review Process
+
+### For PR Authors
+
+1. **Respond to feedback promptly**
+2. **Make requested changes in session workspace**
+3. **Push updates to session branch**
+4. **Re-request review after changes**
+
+### For PR Reviewers
+
+1. **Review code changes thoroughly**
+2. **Verify requirements are met**
+3. **Check test coverage and quality**
+4. **Provide constructive feedback**
+5. **Approve when satisfied with changes**
+
+## PR Merge Process
+
+### Automated Merge
+When using Minsky's integrated workflow:
+- PR merge can trigger automatic task status update to DONE
+- Session cleanup may be automated
+- Branch deletion handled automatically
+
+### Manual Verification
+After PR merge:
+
+1. **Verify task status**: minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+2. **Confirm changes in main branch**
+3. **Update task status if needed**: minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+## Common PR Scenarios
+
+### Scenario 1: Standard Feature PR
+
+```bash
+# 1. Verify implementation complete and tests passing
+cd $(minsky session dir [--sessionId <value>] [--task <value>] [--repo <value>] [--json])
+
+# 2. Update task status to IN-REVIEW
+minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+# 3. Create PR from session
+minsky session pr.create <title> <type> [--body <value>] [--bodyPath <value>] [--sessionId <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--autoResolveDeleteConflicts] [--skipConflictCheck] [--draft]
+```
+
+### Scenario 2: Bug Fix PR
+
+```bash
+# 1. Ensure fix is complete and tested
+cd $(minsky session dir [--sessionId <value>] [--task <value>] [--repo <value>] [--json])
+
+# 2. Update task status
+minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+# 3. Create PR with fix prefix
+minsky session pr.create <title> <type> [--body <value>] [--bodyPath <value>] [--sessionId <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--autoResolveDeleteConflicts] [--skipConflictCheck] [--draft]
+```
+
+### Scenario 3: Documentation PR
+
+```bash
+# 1. Verify documentation changes
+cd $(minsky session dir [--sessionId <value>] [--task <value>] [--repo <value>] [--json])
+
+# 2. Set appropriate status
+minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+
+# 3. Create docs PR
+minsky session pr.create <title> <type> [--body <value>] [--bodyPath <value>] [--sessionId <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--autoResolveDeleteConflicts] [--skipConflictCheck] [--draft]
+```
+
+## PR Best Practices
+
+### Content Guidelines
+- **Keep PRs focused** - One task per PR
+- **Write clear descriptions** - Explain what and why
+- **Include testing info** - How changes were verified
+- **Reference task ID** - Link to original requirement
+
+### Technical Guidelines
+- **Ensure tests pass** - All CI/CD checks green
+- **Keep changes minimal** - Only what's needed for task
+- **Handle conflicts promptly** - Resolve merge conflicts quickly
+- **Update documentation** - Keep docs current with changes
+
+### Process Guidelines
+- **Create PR when ready** - Don't create draft PRs prematurely
+- **Respond to reviews quickly** - Keep momentum going
+- **Test final version** - Verify changes after addressing feedback
+- **Clean up after merge** - Close related issues, update status
+
+## Troubleshooting
+
+### Problem: PR creation fails
+**Solution**: Check session status with minsky session get [--sessionId <value>] [--task <value>] [--repo <value>] [--json] [--since <value>] [--until <value>], ensure all changes committed
+
+### Problem: PR not linked to task
+**Solution**: Verify task ID in PR title and description, update if needed
+
+### Problem: Tests failing in PR
+**Solution**: Run tests in session workspace, fix failures before requesting review
+
+### Problem: Merge conflicts
+**Solution**: Update session with minsky session update [--sessionId <value>] [--task <value>] [--repo <value>] [--branch <value>] [--noStash] [--noPush] [--force] [--json] [--skipConflictCheck] [--autoResolveDeleteConflicts] [--dryRun] [--skipIfAlreadyMerged], resolve conflicts, push updates
+
+## Integration Points
+
+This workflow integrates with:
+
+- **task-implementation-workflow**: PR creation is final phase of implementation
+- **task-status-protocol**: Status updates during PR lifecycle
+- **pr-description-guidelines**: Detailed formatting requirements
+
+## Verification Checklist
+
+Before creating PR:
+
+- [ ] All requirements implemented
+- [ ] Tests written and passing
+- [ ] Task status is IN-REVIEW
+- [ ] Session is up to date
+- [ ] Changes are committed and pushed
+- [ ] PR title includes task ID
+- [ ] PR description is complete and follows format
+
 ## Boundaries
 
 # Operational Safety: Dry-Run First
