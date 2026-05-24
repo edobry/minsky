@@ -19,8 +19,9 @@ import { Credentials } from "./widgets/Credentials";
 // Promoted widgets — rendered at their dedicated page routes
 import { AgentsPage } from "./pages/AgentsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
-import { TasksPage } from "./pages/TasksPage";
+import { TasksLayout } from "./pages/TasksLayout";
 import { TasksListPage } from "./pages/TasksListPage";
+import { TasksGraphPage } from "./pages/TasksGraphPage";
 import { PromotedPageTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
@@ -237,19 +238,14 @@ export function App() {
         <Route
           path="/tasks"
           element={
-            <ErrorBoundary id="tasks-page">
-              <TasksPage data={taskGraphData} />
+            <ErrorBoundary id="tasks-layout">
+              <TasksLayout taskGraphData={taskGraphData} />
             </ErrorBoundary>
           }
-        />
-        <Route
-          path="/tasks/list"
-          element={
-            <ErrorBoundary id="tasks-list-page">
-              <TasksListPage />
-            </ErrorBoundary>
-          }
-        />
+        >
+          <Route index element={<TasksListPage />} />
+          <Route path="graph" element={<TasksGraphPage />} />
+        </Route>
       </Routes>
     </Layout>
   );
