@@ -140,7 +140,7 @@ describe("extractProvenance", () => {
       },
       {
         name: "submit_thread_resolve",
-        args: { threadId: 123, reason: "Fixed" },
+        args: { threadId: "PRT_123", reason: "Fixed" },
       },
     ];
 
