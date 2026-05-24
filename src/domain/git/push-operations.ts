@@ -113,6 +113,8 @@ export async function pushImpl(options: PushOptions, deps: PushDependencies): Pr
     pushCmd += ` -c credential.helper= -c http.https://github.com/.extraheader=${shellQuote(`AUTHORIZATION: basic ${encoded}`)}`;
   }
 
+  // mt#1477 live verification: App-token push triggers pull_request workflows
+
   pushCmd += ` push ${qRemote} ${qBranch}`;
   if (options.force) {
     pushCmd += " --force";
