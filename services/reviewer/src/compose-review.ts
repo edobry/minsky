@@ -294,6 +294,12 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       lines.push(`  Affected: ${lastDocImpact.args.affectedDocs.join(", ")}`);
     }
     sections.push(lines.join("\n"));
+  } else {
+    sections.push(
+      "## Documentation impact\n\n" +
+        "- **missing** — `submit_documentation_impact` was not called by the reviewer model. " +
+        "The merge gate requires this assessment. This is a reviewer-bot output gap, not a PR defect."
+    );
   }
 
   return {
