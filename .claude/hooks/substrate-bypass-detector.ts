@@ -3,7 +3,7 @@
 // structure as a bypass of canonical Minsky substrate tooling, and inject a
 // system-reminder warning per mt#2020.
 //
-// Three trigger surfaces:
+// Four trigger surfaces:
 //   1. Verbal-commitment detection — agent says "I'll update X" / "I should
 //      file X" without executing the corresponding canonical tool in the same
 //      turn. Canonical substrates: memory_create/memory_update, tasks_create,
@@ -15,6 +15,11 @@
 //      "extend[ing] the DB later" near the word "transcript", suggesting it's
 //      using the file-based transcript log instead of the `agent_transcripts`
 //      DB tables.
+//   4. Passive-outcome-as-mechanism — agent describes a future outcome using
+//      passive framing ("happen naturally", "as a side effect", "organically",
+//      "over time") near a future-state verb ("will happen", "will be", etc.)
+//      WITHOUT naming an actor. The absence of an actor means there is no
+//      mechanism — just wishful framing. Originating: mt#2063 / mt#2056.
 //
 // This is an INFORMATIONAL hook — it injects additionalContext guidance and
 // never blocks the user prompt. Fail-open posture throughout.
@@ -95,6 +100,75 @@ export const DB_BYPASS_PHRASES: string[] = [
   "extend the DB later",
   "DB doesn't have",
   "DB is incompatible",
+];
+
+/**
+ * Passive-outcome phrases that, when combined with a future-state verb (≤300 chars
+ * proximity in the same paragraph), indicate the agent is describing a future
+ * state without naming an actor, trigger, or execution path.
+ *
+ * Originating incident: mt#2056 closeout (2026-05-23) — agent answered
+ * "it'll happen naturally as a side effect of the next implementer session"
+ * with no named actor or mechanism.
+ */
+export const PASSIVE_OUTCOME_PHRASES: string[] = [
+  "happen naturally",
+  "natural side effect",
+  "as a side effect",
+  "organically",
+  "over time",
+  "eventually",
+];
+
+/**
+ * Future-state verb phrases that, when co-occurring with a passive-outcome phrase
+ * (≤300 chars proximity in the same paragraph), form the detector trigger.
+ *
+ * Includes both full forms ("will happen") and contraction forms ("'ll happen")
+ * to catch common passive constructions like "it'll happen naturally".
+ */
+export const FUTURE_STATE_VERBS: string[] = [
+  "will happen",
+  "will be",
+  "'ll happen",
+  "'ll be",
+  "should happen",
+  "would happen",
+  "is expected to",
+];
+
+/**
+ * Actor-indicator patterns. When any of these appear in the SAME SENTENCE as the
+ * matched passive-outcome + future-state combo, the detector does NOT fire.
+ * Named actors imply a real mechanism; actorless passive framing is the failure mode.
+ *
+ * Deliberately narrow: we only exclude sentences that name a SPECIFIC actor.
+ * Generic demonstratives ("this will", "that will") are NOT actors — they're the
+ * passive framing we want to catch. Only concrete named subjects block the detector.
+ */
+export const ACTOR_INDICATORS: RegExp[] = [
+  /\bI\s+will\b/i,
+  /\bI'll\b/i,
+  // "the <noun> will" patterns — specific named mechanism actors
+  /\bthe\s+hook\s+will\b/i,
+  /\bthe\s+agent\s+will\b/i,
+  /\bthe\s+script\s+will\b/i,
+  /\bthe\s+task\s+will\b/i,
+  /\bthe\s+sweeper\s+will\b/i,
+  /\bthe\s+detector\s+will\b/i,
+  /\bthe\s+workflow\s+will\b/i,
+  /\bthe\s+scheduler\s+will\b/i,
+  /\bthe\s+cron\s+will\b/i,
+  /\bthe\s+job\s+will\b/i,
+  /\bthe\s+pipeline\s+will\b/i,
+  // "mt#N will" — task-as-actor
+  /\bmt#\d+\s+will\b/i,
+  // "<Proper noun> will" — named services/products (e.g., "Railway will", "GitHub will")
+  // Use a narrow set of known service names rather than any capitalized word
+  /\bRailway\s+will\b/,
+  /\bGitHub\s+will\b/,
+  /\bGitHub\s+Actions\s+will\b/,
+  /\bCloudflare\s+will\b/,
 ];
 
 // ---------------------------------------------------------------------------
@@ -425,6 +499,110 @@ export function detectDbSubstrateBypass(turnLines: TranscriptLine[]): DetectionR
   return { matched: false };
 }
 
+/**
+ * Detect passive-outcome-as-mechanism: agent describes a future state using passive
+ * framing ("happen naturally", "as a side effect", "over time") near a future-state
+ * verb ("will happen", "will be", "is expected to") WITHOUT a named actor in the
+ * same sentence.
+ *
+ * The absence of a named actor means there is no mechanism — just wishful description
+ * of an outcome. The canonical response is: name the actor, the trigger, and the
+ * execution path — or state explicitly that no mechanism exists.
+ *
+ * Originating incident: mt#2056 closeout (2026-05-23).
+ */
+export function detectPassiveOutcomeAsMechanism(assistantText: string): DetectionResult {
+  if (!assistantText) return { matched: false };
+
+  // Apply markdown-aware filtering to exclude code blocks and blockquotes
+  const filteredText = elideMarkdownContexts(assistantText);
+
+  // Split text into paragraphs (blank-line separated) for proximity scoping
+  const paragraphs = filteredText.split(/\n\s*\n/);
+
+  for (const paragraph of paragraphs) {
+    if (!paragraph.trim()) continue;
+    const lowerPara = paragraph.toLowerCase();
+
+    // Find each passive-outcome phrase in this paragraph
+    for (const passivePhrase of PASSIVE_OUTCOME_PHRASES) {
+      const phraseIdx = lowerPara.indexOf(passivePhrase.toLowerCase());
+      if (phraseIdx === -1) continue;
+
+      // Check proximity: find a future-state verb within ±300 chars of the passive phrase
+      let futureVerbFound = false;
+      let matchedVerbPhrase = "";
+      for (const futureVerb of FUTURE_STATE_VERBS) {
+        const verbIdx = lowerPara.indexOf(futureVerb.toLowerCase());
+        if (verbIdx === -1) continue;
+        if (Math.abs(verbIdx - phraseIdx) <= 300) {
+          futureVerbFound = true;
+          matchedVerbPhrase = futureVerb;
+          break;
+        }
+      }
+
+      if (!futureVerbFound) continue;
+
+      // Find the sentence(s) containing the passive phrase
+      // Split paragraph into sentences (rough sentence boundary split)
+      const sentences = paragraph.split(/(?<=[.!?])\s+|(?<=\n)/);
+      let passiveSentence = paragraph; // fallback: whole paragraph as "sentence"
+      for (const sentence of sentences) {
+        if (sentence.toLowerCase().includes(passivePhrase.toLowerCase())) {
+          passiveSentence = sentence;
+          break;
+        }
+      }
+
+      // Check for actor indicators in the same sentence
+      const hasActor = ACTOR_INDICATORS.some((actorRe) => actorRe.test(passiveSentence));
+      if (hasActor) continue;
+
+      // Match confirmed: passive framing + future-state verb + no named actor
+      const snippetStart = Math.max(0, phraseIdx - 20);
+      const snippetEnd = Math.min(paragraph.length, phraseIdx + passivePhrase.length + 60);
+      const snippet = paragraph.slice(snippetStart, snippetEnd).trim();
+
+      return {
+        matched: true,
+        matchedPhrase: `"${passivePhrase}" near "${matchedVerbPhrase}" — ${snippet.slice(0, 150)}`,
+        canonicalSubstrate:
+          'Named actor + trigger + execution path (or explicit: "there is no mechanism")',
+        reason: "passive-outcome-as-mechanism",
+      };
+    }
+  }
+
+  return { matched: false };
+}
+
+/**
+ * Elide markdown contexts that carry textual references rather than coordination
+ * instructions (inline code spans, fenced code blocks, blockquotes).
+ *
+ * The elision replaces matched content with same-length whitespace to preserve
+ * character positions for accurate snippet extraction.
+ *
+ * Reusable by multiple detectors that need markdown-aware filtering.
+ */
+export function elideMarkdownContexts(text: string): string {
+  let result = text;
+
+  // Elide fenced code blocks (``` or ~~~ fences, 3+ markers)
+  result = result.replace(/^[ \t]{0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?\n[ \t]{0,3}\1[ \t]*$/gm, (m) =>
+    " ".repeat(m.length)
+  );
+
+  // Elide inline code spans (variable backtick run length)
+  result = result.replace(/(`+)([^`]|(?!`)[^`]*?)\1(?!`)/g, (m) => " ".repeat(m.length));
+
+  // Elide blockquote lines (up to 3 leading spaces + one or more > markers)
+  result = result.replace(/^[ \t]{0,3}>+.*$/gm, (m) => " ".repeat(m.length));
+
+  return result;
+}
+
 // ---------------------------------------------------------------------------
 // Reminder builder
 // ---------------------------------------------------------------------------
@@ -465,6 +643,10 @@ function buildReminder(surfaces: MatchedSurface[]): string {
     "  are not a substitute for the durable structural-fix discipline.",
     "- For DB-substrate bypass: use the `agent_transcripts` / `agent_transcript_turns`",
     "  DB tables via the MCP tool surface — do NOT read JSONL files directly.",
+    "- For passive-outcome-as-mechanism: state the actor, the trigger, and the",
+    '  execution path explicitly. If none exist, say so: "there is no mechanism."',
+    '  Passive framing ("it\'ll happen naturally", "over time") is not a mechanism.',
+    "  Originating incident: mt#2056 closeout, 2026-05-23.",
     "",
     "**Override:** Set `MINSKY_ACK_SUBSTRATE_BYPASS=1` in your environment to",
     "suppress this warning. The override emits an audit line to stdout.",
@@ -556,7 +738,7 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Run all three detectors
+  // Run all four detectors
   const matchedSurfaces: MatchedSurface[] = [];
 
   try {
@@ -601,6 +783,22 @@ export async function main(): Promise<void> {
   } catch (err) {
     console.error(
       `[substrate-bypass-detector] DB substrate bypass detection error: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  try {
+    const assistantText = extractAssistantText(turnLines);
+    const passiveResult = detectPassiveOutcomeAsMechanism(assistantText);
+    if (passiveResult.matched && passiveResult.matchedPhrase && passiveResult.canonicalSubstrate) {
+      matchedSurfaces.push({
+        surface: "passive-outcome-as-mechanism",
+        matchedPhrase: passiveResult.matchedPhrase,
+        canonicalSubstrate: passiveResult.canonicalSubstrate,
+      });
+    }
+  } catch (err) {
+    console.error(
+      `[substrate-bypass-detector] Passive outcome detection error: ${err instanceof Error ? err.message : String(err)}`
     );
   }
 

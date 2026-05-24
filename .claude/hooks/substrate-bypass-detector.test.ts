@@ -8,6 +8,8 @@ import {
   detectVerbalCommitment,
   detectSkillBypass,
   detectDbSubstrateBypass,
+  detectPassiveOutcomeAsMechanism,
+  elideMarkdownContexts,
   parseTranscript,
   extractLastAssistantTurn,
   OVERRIDE_ENV_VAR,
@@ -374,6 +376,172 @@ describe("detectDbSubstrateBypass", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Unit tests: detectPassiveOutcomeAsMechanism
+// ---------------------------------------------------------------------------
+
+describe("detectPassiveOutcomeAsMechanism", () => {
+  // Acceptance test 1: originating incident phrase triggers the detector
+  test('matches "it\'ll happen naturally as a side effect" with no actor (originating incident)', () => {
+    const text = "it'll happen naturally as a side effect of the next implementer session.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+    expect(result.matchedPhrase).toBeTruthy();
+    expect(result.canonicalSubstrate).toContain("actor");
+    expect(result.reason).toBe("passive-outcome-as-mechanism");
+  });
+
+  // Acceptance test 2: named actor suppresses the match
+  test('silent when "the hook will fire naturally" — actor "the hook" is present', () => {
+    const text = "the hook will fire naturally on the next session.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  // Acceptance test 3: code-block context is filtered out
+  test("silent when passive phrase is inside a code block", () => {
+    const text = [
+      "Some regular text.",
+      "",
+      "```",
+      "it will happen naturally as a side effect",
+      "```",
+      "",
+      "More text.",
+    ].join("\n");
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  // Acceptance test 3b: blockquote context is filtered out
+  test("silent when passive phrase is inside a blockquote", () => {
+    const text = "> it will happen naturally as a side effect of the migration.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  test('matches "happen naturally" + "will be" near each other without actor', () => {
+    const text = "The data will be cleaned up happen naturally over the next few sessions.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+  });
+
+  test('matches "over time" + "will happen" without actor', () => {
+    const text = "This will happen over time as more data accumulates.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+  });
+
+  test('matches "eventually" + "will be" without actor', () => {
+    const text = "It will be resolved eventually when the subsystem ships.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+  });
+
+  test('matches "organically" + "should happen" without actor', () => {
+    const text = "This should happen organically as usage grows.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+  });
+
+  test('matches "as a side effect" + "would happen" without actor', () => {
+    const text = "The cleanup would happen as a side effect of the next deploy.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+  });
+
+  test('matches "natural side effect" + "is expected to" without actor', () => {
+    const text = "The migration is expected to be a natural side effect of the new schema.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(true);
+  });
+
+  test('silent when "I will" acts as actor indicator', () => {
+    const text = "I will make it happen naturally over time.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  test("silent when proper noun acts as actor indicator", () => {
+    const text = "Railway will handle this organically as deployments proceed.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  test('silent when "mt#1234 will" acts as actor indicator', () => {
+    const text = "mt#1234 will resolve this happen naturally when it ships.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  test("silent when passive phrase but no future-state verb nearby", () => {
+    const text = "The data is cleaned up happen naturally without any future action.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    // "naturally" is present but no future-state verb nearby
+    expect(result.matched).toBe(false);
+  });
+
+  test("silent when future verb present but no passive phrase", () => {
+    const text = "This will be resolved by running the cleanup script manually.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  test("silent on empty string", () => {
+    const result = detectPassiveOutcomeAsMechanism("");
+    expect(result.matched).toBe(false);
+  });
+
+  test("does not fire when passive phrase + verb are >300 chars apart", () => {
+    const padding = "x ".repeat(200);
+    const text = `happen naturally ${padding} will be resolved.`;
+    const result = detectPassiveOutcomeAsMechanism(text);
+    expect(result.matched).toBe(false);
+  });
+
+  test("silent when passive phrase inside inline code span", () => {
+    const text = "Some text: `happen naturally as a side effect` — will be done manually.";
+    const result = detectPassiveOutcomeAsMechanism(text);
+    // The passive phrase is inside a code span — filtered out, so no match
+    // The future-state verb "will be" remains but the passive phrase is gone
+    expect(result.matched).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unit tests: elideMarkdownContexts
+// ---------------------------------------------------------------------------
+
+describe("elideMarkdownContexts", () => {
+  test("elides fenced code block content", () => {
+    const text = ["Before.", "```", "code content here", "```", "After."].join("\n");
+    const result = elideMarkdownContexts(text);
+    // The block should be replaced with spaces
+    expect(result).not.toContain("code content here");
+    expect(result.length).toBe(text.length);
+  });
+
+  test("elides inline code spans", () => {
+    const text = "Before `inline code` after.";
+    const result = elideMarkdownContexts(text);
+    expect(result).not.toContain("inline code");
+    expect(result.length).toBe(text.length);
+  });
+
+  test("elides blockquote lines", () => {
+    const text = "> quoted line\nRegular line.";
+    const result = elideMarkdownContexts(text);
+    expect(result).not.toContain("quoted line");
+    expect(result).toContain("Regular line.");
+  });
+
+  test("preserves non-context text at same length", () => {
+    const text = "Regular text without any markdown contexts.";
+    const result = elideMarkdownContexts(text);
+    expect(result).toBe(text);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Unit tests: parseTranscript + extractLastAssistantTurn
 // ---------------------------------------------------------------------------
 
@@ -616,6 +784,45 @@ describe("main() end-to-end via Bun.spawn", () => {
   test("transcript with only system + user messages (no assistant turn before current prompt) → silent", async () => {
     // Two user messages but no assistant turn between them
     const transcriptLines = [makeUserLine(), makeUserLine()];
+    const transcriptPath = writeTranscript(transcriptLines);
+    const input = makeHookInput(transcriptPath);
+
+    const { exitCode, stdout } = await invokeHook(input);
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+  });
+
+  test("emits additionalContext when passive-outcome-as-mechanism detected (originating incident phrase)", async () => {
+    // Originating incident: mt#2056 closeout — "it'll happen naturally as a side effect of the next implementer session"
+    const transcriptLines = [
+      makeUserLine(),
+      makeAssistantLine(
+        "The bridge memory will be retired. It will happen naturally as a side effect of the next implementer session."
+      ),
+      makeUserLine(),
+    ];
+    const transcriptPath = writeTranscript(transcriptLines);
+    const input = makeHookInput(transcriptPath);
+
+    const { exitCode, stdout } = await invokeHook(input);
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput?: { hookEventName?: string; additionalContext?: string };
+    };
+    expect(parsed.hookSpecificOutput?.hookEventName).toBe("UserPromptSubmit");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("passive-outcome-as-mechanism");
+    expect(parsed.hookSpecificOutput?.additionalContext).toContain("actor");
+  });
+
+  test('silent when passive-outcome phrase present but actor named ("the hook will")', async () => {
+    const transcriptLines = [
+      makeUserLine(),
+      makeAssistantLine(
+        "The hook will fire naturally on the next session startup — it checks the env var on each run."
+      ),
+      makeUserLine(),
+    ];
     const transcriptPath = writeTranscript(transcriptLines);
     const input = makeHookInput(transcriptPath);
 
