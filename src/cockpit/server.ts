@@ -458,7 +458,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
       const { formatTaskIdForDisplay } = await import("../domain/tasks/task-id-utils");
       const tasks = await taskService.listTasks({});
-      const taskList = tasks.map((t) => ({
+      const taskList = tasks.slice(0, 500).map((t) => ({
         id: formatTaskIdForDisplay(t.id),
         title: t.title ?? "",
         status: (t.status ?? "TODO").toUpperCase(),

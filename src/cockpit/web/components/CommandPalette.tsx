@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -155,18 +155,31 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
+  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
+        if (!open) {
+          previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+        }
         setOpen((prev) => !prev);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [open]);
+
+  // Restore focus to previously-focused element when palette closes
+  useEffect(() => {
+    if (!open && previouslyFocusedRef.current) {
+      const el = previouslyFocusedRef.current;
+      previouslyFocusedRef.current = null;
+      requestAnimationFrame(() => el.focus());
+    }
+  }, [open]);
 
   // Load recent items when palette opens
   useEffect(() => {
