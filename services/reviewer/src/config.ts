@@ -166,12 +166,11 @@ export function loadConfig(): ReviewerConfig {
     port: parseInt(optionalEnv("PORT", "3000"), 10),
     logLevel: optionalEnv("LOG_LEVEL", "info") as ReviewerConfig["logLevel"],
 
-    // mt#1086/mt#2083 — timeout budgets sized to production traffic:
-    //   model: 120s per tool-loop round. gpt-5 with reasoning_effort=low
-    //          takes ~80-100s on normal PRs. Trivial/docs-only PRs skip
-    //          the tool loop entirely (mt#2083 scope-aware fast path).
-    //   toolloop retry: 120s (matches primary; see providers.ts). Was 90s
-    //          pre-mt#2083 but that was shorter than healthy-case latency.
+    // mt#1086 — timeout budgets sized to production traffic:
+    //   model: 120s per tool-loop round. Production data (2026-05-24):
+    //          successful reviews complete in 50-60s; transient timeouts
+    //          recover via callToolloopWithRetry in 10-20s.
+    //   toolloop retry: 120s (matches primary; see providers.ts).
     //   github: 30s — every GitHub REST call returns in <5s on the happy
     //          path; 30s buys headroom for transient slow paths.
     modelTimeoutMs: parsePositiveIntEnv("REVIEWER_MODEL_TIMEOUT_MS", 120_000),
