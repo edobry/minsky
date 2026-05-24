@@ -7,7 +7,7 @@ import { runHook } from "./post-merge-pull";
 
 type ExecResult = { exitCode: number; stdout: string; stderr: string; timedOut?: boolean };
 
-/** Build a stub exec function from a call-by-call response list. */
+/** Build a stub exec that matches commands by the first args and returns corresponding results. */
 function makeExec(responses: ExecResult[]): (cmd: string[], opts?: { cwd?: string }) => ExecResult {
   let callIndex = 0;
   return (_cmd: string[], _opts?: { cwd?: string }) => {
@@ -19,6 +19,9 @@ function makeExec(responses: ExecResult[]): (cmd: string[], opts?: { cwd?: strin
 
 const SHA_A = "abc1234567890";
 const SHA_B = "def9876543210";
+
+const DIRTY_STATUS = " M scripts/cli-entry.ts\n";
+const STASH_SAVED = "Saved working directory";
 
 // ---------------------------------------------------------------------------
 // Failure cases
@@ -37,6 +40,7 @@ describe("runHook — stale-lock failure", () => {
 
     const exec = makeExec([
       { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
       { exitCode: 1, stdout: "", stderr: staleLockStderr }, // git pull
     ]);
 
@@ -63,6 +67,7 @@ describe("runHook — generic non-zero pull failure", () => {
 
     const exec = makeExec([
       { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
       { exitCode: 1, stdout: "", stderr: genericStderr }, // git pull
     ]);
 
@@ -86,6 +91,7 @@ describe("runHook — generic non-zero pull failure", () => {
 
     const exec = makeExec([
       { exitCode: 0, stdout: SHA_A, stderr: "" },
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
       { exitCode: 1, stdout: "", stderr: genericStderr },
     ]);
 
@@ -103,17 +109,17 @@ describe("runHook — generic non-zero pull failure", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Success cases
+// Success cases — clean working tree (no stash needed)
 // ---------------------------------------------------------------------------
 
-describe("runHook — success, already up to date", () => {
+describe("runHook — clean tree, already up to date", () => {
   it("exits 0 and does not write anything user-facing to stderr", () => {
     const stderrMessages: string[] = [];
     const exitCodes: number[] = [];
 
-    // before and after are the same SHA — no changes pulled
     const exec = makeExec([
       { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
       { exitCode: 0, stdout: "", stderr: "" }, // git pull (Already up to date)
       { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (after) — same SHA
     ]);
@@ -130,12 +136,11 @@ describe("runHook — success, already up to date", () => {
   });
 });
 
-describe("runHook — success, src/ changed", () => {
+describe("runHook — clean tree, src/ changed", () => {
   it("writes existing Minsky source code updated warning to stdout", () => {
     const stdoutMessages: string[] = [];
     const originalWrite = process.stdout.write.bind(process.stdout);
 
-    // Temporarily capture stdout
     process.stdout.write = (msg: string | Uint8Array) => {
       if (typeof msg === "string") {
         stdoutMessages.push(msg);
@@ -145,6 +150,7 @@ describe("runHook — success, src/ changed", () => {
 
     const exec = makeExec([
       { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
       { exitCode: 0, stdout: "", stderr: "" }, // git pull (fast-forward)
       { exitCode: 0, stdout: SHA_B, stderr: "" }, // rev-parse HEAD (after) — different SHA
       { exitCode: 0, stdout: "src/foo.ts\nsrc/bar.ts", stderr: "" }, // git diff --name-only
@@ -164,7 +170,7 @@ describe("runHook — success, src/ changed", () => {
   });
 });
 
-describe("runHook — success, no src/ changes", () => {
+describe("runHook — clean tree, no src/ changes", () => {
   it("does NOT write Minsky source code warning when only non-src files changed", () => {
     const stdoutMessages: string[] = [];
     const originalWrite = process.stdout.write.bind(process.stdout);
@@ -178,6 +184,7 @@ describe("runHook — success, no src/ changes", () => {
 
     const exec = makeExec([
       { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
       { exitCode: 0, stdout: "", stderr: "" }, // git pull (fast-forward)
       { exitCode: 0, stdout: SHA_B, stderr: "" }, // rev-parse HEAD (after) — different SHA
       { exitCode: 0, stdout: "", stderr: "" }, // git diff --name-only — empty (no src/ changes)
@@ -194,5 +201,91 @@ describe("runHook — success, no src/ changes", () => {
 
     const combinedStdout = stdoutMessages.join("");
     expect(combinedStdout).not.toContain("Minsky source code updated");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dirty working tree — stash+pull+pop
+// ---------------------------------------------------------------------------
+
+describe("runHook — dirty tree, stash+pull+pop success", () => {
+  it("stashes, pulls, pops, and exits 0", () => {
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: DIRTY_STATUS, stderr: "" }, // git status --porcelain (dirty)
+      { exitCode: 0, stdout: STASH_SAVED, stderr: "" }, // git stash
+      { exitCode: 0, stdout: "", stderr: "" }, // git pull (fast-forward)
+      { exitCode: 0, stdout: "", stderr: "" }, // git stash pop (success)
+      { exitCode: 0, stdout: SHA_B, stderr: "" }, // rev-parse HEAD (after)
+      { exitCode: 0, stdout: "", stderr: "" }, // git diff --name-only (no src/ changes)
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([0]);
+    expect(stderrMessages).toHaveLength(0);
+  });
+});
+
+describe("runHook — dirty tree, stash pop conflict", () => {
+  it("warns about stash pop conflict but still exits 0 (main was advanced)", () => {
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: DIRTY_STATUS, stderr: "" }, // git status --porcelain (dirty)
+      { exitCode: 0, stdout: STASH_SAVED, stderr: "" }, // git stash
+      { exitCode: 0, stdout: "", stderr: "" }, // git pull (fast-forward)
+      { exitCode: 1, stdout: "", stderr: "CONFLICT in scripts/cli-entry.ts" }, // git stash pop (conflict)
+      { exitCode: 0, stdout: SHA_B, stderr: "" }, // rev-parse HEAD (after)
+      { exitCode: 0, stdout: "src/mcp/server.ts", stderr: "" }, // git diff --name-only
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([0]);
+    const combinedStderr = stderrMessages.join("");
+    expect(combinedStderr).toContain("stash pop had conflicts");
+    expect(combinedStderr).toContain("git stash pop");
+  });
+});
+
+describe("runHook — dirty tree, pull fails, stash restored", () => {
+  it("restores stash on pull failure and exits 1", () => {
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: DIRTY_STATUS, stderr: "" }, // git status --porcelain (dirty)
+      { exitCode: 0, stdout: STASH_SAVED, stderr: "" }, // git stash
+      { exitCode: 1, stdout: "", stderr: "fatal: Not possible to fast-forward" }, // git pull fails
+      { exitCode: 0, stdout: "", stderr: "" }, // git stash pop (restore)
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([1]);
+    const combinedStderr = stderrMessages.join("");
+    expect(combinedStderr).toContain("Not possible to fast-forward");
   });
 });
