@@ -419,10 +419,11 @@ describe("estimateTokens", () => {
 // ---------------------------------------------------------------------------
 
 describe("renderResult", () => {
-  it("includes name, type, score, description, and content", () => {
+  it("includes name, type, id prefix, score, description, and content", () => {
     const rendered = renderResult({ record: VALID_RECORD, score: 0.876 });
     expect(rendered).toContain("Test memory");
     expect(rendered).toContain("feedback");
+    expect(rendered).toContain("id mem-1");
     expect(rendered).toContain("0.876");
     expect(rendered).toContain("A test memory entry");
     expect(rendered).toContain("Body of the test memory");
