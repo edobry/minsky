@@ -80,6 +80,7 @@ import type { ReviewerToolContext } from "./tools";
 import { sanitizeReviewBody, redactForLog, type SanitizeResult } from "./sanitize";
 import { composeReviewBody, type ComposeReviewResult } from "./compose-review";
 import type { ReviewToolCall } from "./output-tools";
+import { extractProvenance, serializeProvenance } from "./review-provenance";
 import {
   applyMonotonicityRecovery,
   parsePriorReviewFindings,
@@ -1520,7 +1521,13 @@ async function runReviewBody(
       });
     }
 
-    const reviewBody = annotateReviewBody(composed.body, output, tier, isSelfReview);
+    const reviewBody = annotateReviewBody(
+      composed.body,
+      output,
+      tier,
+      isSelfReview,
+      recoveryResult.toolCalls
+    );
 
     // Map composed inline comments (file/line/body/inReplyTo) to the shape
     // expected by submitReview's new inlineComments parameter (mt#1345).
@@ -1814,7 +1821,8 @@ function annotateReviewBody(
   text: string,
   output: { provider: string; model: string },
   tier: AuthorshipTier,
-  isSelfReview: boolean
+  isSelfReview: boolean,
+  toolCalls?: ReadonlyArray<ReviewToolCall>
 ): string {
   const header =
     `**Independent adversarial review (Chinese-wall)**\n` +
@@ -1825,7 +1833,14 @@ function annotateReviewBody(
         : ""
     }\n\n---\n\n`;
 
-  return header + text;
+  const body = header + text;
+
+  if (toolCalls && toolCalls.length > 0) {
+    const provenance = extractProvenance(toolCalls);
+    return `${body}\n${serializeProvenance(provenance)}`;
+  }
+
+  return body;
 }
 
 /**
