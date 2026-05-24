@@ -10,11 +10,14 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { prefixKey, applyUpdates, computePageCount, paginateSlice } from "./useListControls";
 
 // ---------------------------------------------------------------------------
-// Bun doesn't ship renderHook — we test the pure logic functions directly
-// instead of rendering the hook. The hook is a thin glue layer; the logic
-// under test is filter/sort/paginate which can be verified independently.
+// Tests exercise the hook's exported pure helpers directly (prefixKey,
+// applyUpdates, computePageCount, paginateSlice) plus consumer-provided
+// filter/sort functions that widgets pass to the hook. The hook's React
+// integration (useState, useEffect, URL sync) is a thin glue layer tested
+// via manual QA; Bun doesn't ship renderHook.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -111,49 +114,40 @@ describe("useListControls logic", () => {
   // Pagination
   // ---------------------------------------------------------------------------
 
-  describe("pagination", () => {
-    function paginate<T>(items: T[], page: number, pageSize: number): T[] {
-      const start = (page - 1) * pageSize;
-      return items.slice(start, start + pageSize);
-    }
-
-    function pageCount(itemCount: number, pageSize: number): number {
-      return Math.max(1, Math.ceil(itemCount / pageSize));
-    }
-
+  describe("pagination (imported from useListControls)", () => {
     test("page 1 with pageSize 2 returns first 2 items", () => {
-      const result = paginate(ITEMS, 1, 2);
+      const result = paginateSlice(ITEMS, 1, 2);
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe("a");
       expect(result[1].id).toBe("b");
     });
 
     test("page 2 with pageSize 2 returns items 3-4", () => {
-      const result = paginate(ITEMS, 2, 2);
+      const result = paginateSlice(ITEMS, 2, 2);
       expect(result[0].id).toBe("c");
       expect(result[1].id).toBe("d");
     });
 
     test("last page with pageSize 2 returns 1 item for odd count", () => {
-      const result = paginate(ITEMS, 3, 2);
+      const result = paginateSlice(ITEMS, 3, 2);
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe("e");
     });
 
-    test("pageCount for 5 items and pageSize 2 is 3", () => {
-      expect(pageCount(5, 2)).toBe(3);
+    test("computePageCount for 5 items and pageSize 2 is 3", () => {
+      expect(computePageCount(5, 2)).toBe(3);
     });
 
-    test("pageCount for 0 items is 1", () => {
-      expect(pageCount(0, 10)).toBe(1);
+    test("computePageCount for 0 items is 1", () => {
+      expect(computePageCount(0, 10)).toBe(1);
     });
 
-    test("pageCount for 10 items and pageSize 10 is 1", () => {
-      expect(pageCount(10, 10)).toBe(1);
+    test("computePageCount for 10 items and pageSize 10 is 1", () => {
+      expect(computePageCount(10, 10)).toBe(1);
     });
 
-    test("pageCount for 11 items and pageSize 10 is 2", () => {
-      expect(pageCount(11, 10)).toBe(2);
+    test("computePageCount for 11 items and pageSize 10 is 2", () => {
+      expect(computePageCount(11, 10)).toBe(2);
     });
   });
 
@@ -161,46 +155,44 @@ describe("useListControls logic", () => {
   // URL param serialization
   // ---------------------------------------------------------------------------
 
-  describe("URL param helpers", () => {
-    function mergeParams(
-      existing: string,
-      updates: Record<string, string | null>
-    ): URLSearchParams {
-      const next = new URLSearchParams(existing);
-      for (const [key, val] of Object.entries(updates)) {
-        if (val === null) {
-          next.delete(key);
-        } else {
-          next.set(key, val);
-        }
-      }
-      return next;
-    }
-
+  describe("URL param helpers (imported from useListControls)", () => {
     test("setting a param adds it to the search string", () => {
-      const result = mergeParams("", { sort: "value" });
+      const result = applyUpdates(new URLSearchParams(""), { sort: "value" });
       expect(result.get("sort")).toBe("value");
     });
 
     test("setting null removes an existing param", () => {
-      const result = mergeParams("?sort=value&page=2", { sort: null });
+      const result = applyUpdates(new URLSearchParams("sort=value&page=2"), { sort: null });
       expect(result.has("sort")).toBe(false);
       expect(result.get("page")).toBe("2");
     });
 
     test("updating multiple params at once", () => {
-      const result = mergeParams("?sort=id", { sort: "value", dir: "desc", page: null });
+      const result = applyUpdates(new URLSearchParams("sort=id"), {
+        sort: "value",
+        dir: "desc",
+        page: null,
+      });
       expect(result.get("sort")).toBe("value");
       expect(result.get("dir")).toBe("desc");
       expect(result.has("page")).toBe(false);
     });
 
-    test("prefixed params use prefix separator", () => {
-      const prefix = "ws";
-      const pk = (k: string) => (prefix ? `${prefix}_${k}` : k);
-      const result = mergeParams("", { [pk("sort")]: "value", [pk("page")]: "2" });
+    test("prefixed params use prefix separator (imported prefixKey)", () => {
+      const result = applyUpdates(new URLSearchParams(""), {
+        [prefixKey("ws", "sort")]: "value",
+        [prefixKey("ws", "page")]: "2",
+      });
       expect(result.get("ws_sort")).toBe("value");
       expect(result.get("ws_page")).toBe("2");
+    });
+
+    test("prefixKey with empty prefix returns key unchanged", () => {
+      expect(prefixKey("", "sort")).toBe("sort");
+    });
+
+    test("prefixKey with prefix returns prefixed key", () => {
+      expect(prefixKey("ag", "page")).toBe("ag_page");
     });
   });
 
@@ -208,7 +200,7 @@ describe("useListControls logic", () => {
   // Filter + sort + paginate pipeline
   // ---------------------------------------------------------------------------
 
-  describe("filter → sort → paginate pipeline", () => {
+  describe("filter → sort → paginate pipeline (using imported helpers)", () => {
     function runPipeline(
       items: Item[],
       filters: Filters,
@@ -219,10 +211,9 @@ describe("useListControls logic", () => {
     ) {
       const filtered = items.filter((i) => filterFn(i, filters));
       const sorted = [...filtered].sort((a, b) => sortFn(a, b, sortKey, sortDir));
-      const pc = Math.max(1, Math.ceil(sorted.length / pageSize));
+      const pc = computePageCount(sorted.length, pageSize);
       const safePage = Math.min(page, pc);
-      const start = (safePage - 1) * pageSize;
-      const pageItems = sorted.slice(start, start + pageSize);
+      const pageItems = paginateSlice(sorted, safePage, pageSize);
       return { filtered, sorted, pageItems, pageCount: pc, safePage };
     }
 

@@ -90,7 +90,7 @@ export interface UseListControlsResult<T, S extends string, F extends Record<str
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50];
 
 // ---------------------------------------------------------------------------
-// URL helpers (pure, no React deps)
+// Pure helpers (no React deps) — exported for direct testing
 // ---------------------------------------------------------------------------
 
 function readSearchParams(): URLSearchParams {
@@ -104,12 +104,12 @@ function writeSearchParams(params: URLSearchParams): void {
 }
 
 /** Prefix a URL param key */
-function prefixKey(prefix: string, k: string): string {
+export function prefixKey(prefix: string, k: string): string {
   return prefix ? `${prefix}_${k}` : k;
 }
 
 /** Apply a batch of updates (null = delete) to a URLSearchParams copy */
-function applyUpdates(
+export function applyUpdates(
   base: URLSearchParams,
   updates: Record<string, string | null>
 ): URLSearchParams {
@@ -122,6 +122,19 @@ function applyUpdates(
     }
   }
   return next;
+}
+
+/** Compute total page count from item count and page size */
+export function computePageCount(totalItems: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(totalItems / pageSize));
+}
+
+/** Slice a sorted array into a single page (1-based page index, clamped) */
+export function paginateSlice<T>(items: T[], page: number, pageSize: number): T[] {
+  const pc = computePageCount(items.length, pageSize);
+  const safePage = Math.min(Math.max(1, page), pc);
+  const start = (safePage - 1) * pageSize;
+  return items.slice(start, start + pageSize);
 }
 
 // ---------------------------------------------------------------------------
@@ -202,10 +215,9 @@ export function useListControls<T, S extends string, F extends Record<string, st
     [filtered, sortKey, sortDir, sortFn]
   );
 
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const safePage = Math.min(page, pageCount);
-  const start = (safePage - 1) * pageSize;
-  const pageItems = sorted.slice(start, start + pageSize);
+  const pgCount = computePageCount(sorted.length, pageSize);
+  const safePage = Math.min(page, pgCount);
+  const pageItems = paginateSlice(sorted, safePage, pageSize);
 
   // ---------------------------------------------------------------------------
   // Write helpers — all read latest opts via optsRef to stay stable
@@ -289,7 +301,7 @@ export function useListControls<T, S extends string, F extends Record<string, st
     totalCount: items.length,
     page: safePage,
     pageSize,
-    pageCount,
+    pageCount: pgCount,
     sortKey,
     sortDir,
     filters,
