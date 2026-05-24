@@ -9,6 +9,10 @@
  * no-ops at the DB layer. This achieves ≥95% coverage of recent JSONL sessions
  * without requiring manual `transcripts_ingest --all` invocations.
  *
+ * DI readiness: on stdio cold start, container.initialize() runs in the
+ * background. getDatabaseConnection() may return null before init completes.
+ * This function retries once after a delay to coordinate with the init signal.
+ *
  * @see mt#2051 — this file (indexing gap fix)
  * @see mt#1351 — AgentTranscriptIngestService
  * @see mt#1350 — ClaudeCodeTranscriptSource
@@ -16,6 +20,8 @@
 
 import { log } from "../../../../utils/logger";
 import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
+
+const INIT_RETRY_DELAY_MS = 5_000;
 
 /**
  * Triggers a background transcript ingest sweep for all discoverable sessions.
@@ -27,13 +33,11 @@ export async function triggerStartupTranscriptIngest(
 ): Promise<void> {
   if (!persistenceProvider.capabilities.sql) return;
 
-  const getDb =
-    "getDatabaseConnection" in persistenceProvider &&
-    typeof persistenceProvider.getDatabaseConnection === "function"
-      ? persistenceProvider.getDatabaseConnection
-      : undefined;
-  const db = getDb ? await getDb.call(persistenceProvider) : undefined;
-  if (!db) return;
+  const db = await resolveDb(persistenceProvider);
+  if (!db) {
+    log.debug("Startup transcript ingest skipped: DB not available after retry");
+    return;
+  }
 
   const { ClaudeCodeTranscriptSource } = await import(
     "../../../../domain/transcripts/claude-code-transcript-source"
@@ -57,4 +61,18 @@ export async function triggerStartupTranscriptIngest(
       sessionsErrored: result.sessionsErrored,
     });
   }
+}
+
+async function resolveDb(provider: BasePersistenceProvider): Promise<unknown> {
+  const getDb =
+    "getDatabaseConnection" in provider && typeof provider.getDatabaseConnection === "function"
+      ? provider.getDatabaseConnection
+      : undefined;
+  if (!getDb) return undefined;
+
+  const first = await getDb.call(provider);
+  if (first) return first;
+
+  await new Promise((r) => setTimeout(r, INIT_RETRY_DELAY_MS));
+  return getDb.call(provider);
 }

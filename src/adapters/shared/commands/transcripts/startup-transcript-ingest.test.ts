@@ -4,11 +4,14 @@ import type { BasePersistenceProvider } from "../../../../domain/persistence/typ
 
 describe("triggerStartupTranscriptIngest", () => {
   it("returns early when persistence provider lacks sql capability", async () => {
+    const getDatabaseConnection = mock(() => Promise.resolve({}));
     const provider = {
       capabilities: { sql: false },
+      getDatabaseConnection,
     } as unknown as BasePersistenceProvider;
 
     await triggerStartupTranscriptIngest(provider);
+    expect(getDatabaseConnection).not.toHaveBeenCalled();
   });
 
   it("returns early when getDatabaseConnection is not available", async () => {
@@ -19,7 +22,7 @@ describe("triggerStartupTranscriptIngest", () => {
     await triggerStartupTranscriptIngest(provider);
   });
 
-  it("returns early when getDatabaseConnection returns null", async () => {
+  it("retries once when getDatabaseConnection returns null", async () => {
     const getDatabaseConnection = mock(() => Promise.resolve(null));
     const provider = {
       capabilities: { sql: true },
@@ -27,6 +30,6 @@ describe("triggerStartupTranscriptIngest", () => {
     } as unknown as BasePersistenceProvider;
 
     await triggerStartupTranscriptIngest(provider);
-    expect(getDatabaseConnection).toHaveBeenCalledTimes(1);
+    expect(getDatabaseConnection).toHaveBeenCalledTimes(2);
   });
 });
