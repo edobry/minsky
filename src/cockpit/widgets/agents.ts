@@ -25,6 +25,7 @@ import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
  */
 export interface TaskProviderLike {
   getTask(taskId: string): Promise<{ title: string } | null>;
+  getTasks?(ids: string[]): Promise<{ id: string; title: string }[]>;
 }
 
 /** Shape of a single agent row emitted in the payload */
@@ -152,17 +153,24 @@ export function createAgentsWidget(
             ]);
             const uniqueTaskIds = [
               ...new Set(filtered.map((r) => r.taskId).filter((id): id is string => id != null)),
-            ];
-            const results = await Promise.all(
-              uniqueTaskIds.map(async (rawId) => {
-                const displayId = formatTaskIdForDisplay(rawId);
-                const task = await taskProvider.getTask(displayId);
-                return { displayId, title: task?.title ?? null };
-              })
-            );
-            for (const { displayId, title } of results) {
-              if (title != null) {
-                taskTitleMap.set(displayId, title);
+            ].map(formatTaskIdForDisplay);
+
+            if (typeof taskProvider.getTasks === "function") {
+              const tasks = await taskProvider.getTasks(uniqueTaskIds);
+              for (const task of tasks) {
+                taskTitleMap.set(task.id, task.title);
+              }
+            } else {
+              const results = await Promise.all(
+                uniqueTaskIds.map(async (displayId) => {
+                  const task = await taskProvider.getTask(displayId);
+                  return { displayId, title: task?.title ?? null };
+                })
+              );
+              for (const { displayId, title } of results) {
+                if (title != null) {
+                  taskTitleMap.set(displayId, title);
+                }
               }
             }
           } catch {
