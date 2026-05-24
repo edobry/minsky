@@ -20,6 +20,7 @@ import {
   List,
   Network,
   MessageCircleQuestion,
+  Bell,
   X,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -75,6 +76,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Asks",
     description: "Pending principal-attention asks",
     icon: MessageCircleQuestion,
+  },
+  {
+    to: "/activity",
+    label: "Activity",
+    description: "System event log",
+    icon: Bell,
   },
 ];
 
