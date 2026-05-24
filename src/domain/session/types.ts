@@ -130,13 +130,18 @@ export interface Session {
 /**
  * Options for listing sessions, applied at the storage layer.
  *
- * Extends DatabaseQueryOptions so a SessionListOptions value can be passed
- * straight to a storage backend's getEntities() without an unsafe cast.
+ * Extends DatabaseQueryOptions (generic pagination/ordering) with
+ * session-specific filter fields.
  */
 export interface SessionListOptions extends DatabaseQueryOptions {
-  // All fields are inherited from DatabaseQueryOptions:
-  //   taskId, repoName, createdAfter, createdBefore, limit, offset, orderBy
-  // Kept as a named alias here for domain-layer clarity.
+  /** Filter by task ID */
+  taskId?: string;
+  /** Filter by repo name */
+  repoName?: string;
+  /** Filter by session ID */
+  session?: string;
+  /** Exclude sessions with any of these statuses (DB-level WHERE NOT IN) */
+  statusNotIn?: SessionStatus[];
 }
 
 /**

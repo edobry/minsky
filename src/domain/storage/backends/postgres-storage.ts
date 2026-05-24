@@ -7,7 +7,7 @@
 
 import { injectable } from "tsyringe";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, gte, lte, sql, type SQL } from "drizzle-orm";
+import { eq, and, gte, lte, sql, notInArray, type SQL } from "drizzle-orm";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { first } from "../../../utils/array-safety";
@@ -23,6 +23,7 @@ import type {
   DatabaseQueryOptions,
 } from "../database-storage";
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
+import type { SessionListOptions } from "../../session/types";
 import { postgresSessions, toPostgresInsert, fromPostgresSelect } from "../schemas/session-schema";
 import type { PersistenceProvider } from "../../persistence/types";
 import { withPgPoolRetry } from "../../persistence/postgres-retry";
@@ -480,14 +481,18 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   private async getEntitiesInternal(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
     await this.ensureConnection();
 
+    const sessionOpts = options as SessionListOptions | undefined;
     const conditions: SQL[] = [];
-    if (options?.taskId) {
+    if (sessionOpts?.taskId) {
       // Normalize qualified IDs (e.g. "mt#283" → "283") to match storage format
-      const normalizedTaskId = options.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
+      const normalizedTaskId = sessionOpts.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
       conditions.push(eq(postgresSessions.taskId, normalizedTaskId));
     }
-    if (options?.repoName) {
-      conditions.push(eq(postgresSessions.repoName, options.repoName));
+    if (sessionOpts?.repoName) {
+      conditions.push(eq(postgresSessions.repoName, sessionOpts.repoName));
+    }
+    if (sessionOpts?.statusNotIn && sessionOpts.statusNotIn.length > 0) {
+      conditions.push(notInArray(postgresSessions.status, sessionOpts.statusNotIn));
     }
     if (options?.createdAfter) {
       conditions.push(gte(postgresSessions.createdAt, new Date(options.createdAfter)));
