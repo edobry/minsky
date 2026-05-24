@@ -19,12 +19,17 @@ import { deriveSessionLiveness } from "../../domain/session/types";
 import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
 
 /**
- * Minimal interface for task title look-up. The agents widget only needs
- * `getTask()` — a subset of `TaskServiceInterface` — keeping the coupling
- * thin and the test doubles trivial.
+ * Minimal interface for task title look-up. Keeps coupling thin and test
+ * doubles trivial.
+ *
+ * - `getTask(id)` — single look-up; `id` is in display form (e.g. `"mt#123"`).
+ * - `getTasks(ids)` — optional batch look-up. IDs are in display form. Returns
+ *   only found tasks (missing IDs are omitted, not returned as null). Returned
+ *   `id` values must match the input display-form IDs.
  */
 export interface TaskProviderLike {
   getTask(taskId: string): Promise<{ title: string } | null>;
+  getTasks?(ids: string[]): Promise<{ id: string; title: string }[]>;
 }
 
 /** Shape of a single agent row emitted in the payload */
@@ -150,19 +155,31 @@ export function createAgentsWidget(
                 setTimeout(() => reject(new Error("Task provider init timeout (5s)")), 5000)
               ),
             ]);
-            const uniqueTaskIds = [
-              ...new Set(filtered.map((r) => r.taskId).filter((id): id is string => id != null)),
-            ];
-            const results = await Promise.all(
-              uniqueTaskIds.map(async (rawId) => {
-                const displayId = formatTaskIdForDisplay(rawId);
-                const task = await taskProvider.getTask(displayId);
-                return { displayId, title: task?.title ?? null };
-              })
+            const uniqueTaskIds = Array.from(
+              new Set(
+                filtered
+                  .map((r) => r.taskId)
+                  .filter((id): id is string => id != null)
+                  .map(formatTaskIdForDisplay)
+              )
             );
-            for (const { displayId, title } of results) {
-              if (title != null) {
-                taskTitleMap.set(displayId, title);
+
+            if (typeof taskProvider.getTasks === "function") {
+              const tasks = await taskProvider.getTasks(uniqueTaskIds);
+              for (const task of tasks) {
+                taskTitleMap.set(task.id, task.title);
+              }
+            } else {
+              const results = await Promise.all(
+                uniqueTaskIds.map(async (displayId) => {
+                  const task = await taskProvider.getTask(displayId);
+                  return { displayId, title: task?.title ?? null };
+                })
+              );
+              for (const { displayId, title } of results) {
+                if (title != null) {
+                  taskTitleMap.set(displayId, title);
+                }
               }
             }
           } catch {
