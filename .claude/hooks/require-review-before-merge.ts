@@ -636,6 +636,200 @@ export function evaluateRequiredChecksStatus(
   return { deny: false };
 }
 
+// ---------------------------------------------------------------------------
+// mt#2055: Structured review provenance — inspection + legacy fallback
+// ---------------------------------------------------------------------------
+
+export const PROVENANCE_MARKER_START = "<!-- minsky-review-provenance:";
+export const PROVENANCE_MARKER_END = " -->";
+
+export interface ReviewProvenance {
+  specVerification: Array<{ criterion: string; status: string; evidence: string }>;
+  docImpact: { kind: string; evidence: string; affectedDocs?: string[] } | null;
+  findings: { blocking: number; nonBlocking: number };
+  conclusion: { event: string; summary: string } | null;
+  adoptionSweep: null;
+}
+
+export function parseReviewProvenance(body: string): ReviewProvenance | null {
+  const startIdx = body.indexOf(PROVENANCE_MARKER_START);
+  if (startIdx === -1) return null;
+
+  const jsonStart = startIdx + PROVENANCE_MARKER_START.length;
+  const endIdx = body.indexOf(PROVENANCE_MARKER_END, jsonStart);
+  if (endIdx === -1) return null;
+
+  try {
+    const parsed = JSON.parse(body.slice(jsonStart, endIdx));
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!Array.isArray(parsed.specVerification)) return null;
+    for (const sv of parsed.specVerification) {
+      if (!sv || typeof sv.criterion !== "string" || typeof sv.evidence !== "string") return null;
+    }
+    if (parsed.docImpact !== null) {
+      if (
+        !parsed.docImpact ||
+        typeof parsed.docImpact !== "object" ||
+        typeof parsed.docImpact.kind !== "string" ||
+        typeof parsed.docImpact.evidence !== "string"
+      )
+        return null;
+    }
+    if (
+      !parsed.findings ||
+      typeof parsed.findings.blocking !== "number" ||
+      typeof parsed.findings.nonBlocking !== "number"
+    )
+      return null;
+    if (parsed.conclusion !== null) {
+      if (
+        !parsed.conclusion ||
+        typeof parsed.conclusion !== "object" ||
+        typeof parsed.conclusion.event !== "string" ||
+        typeof parsed.conclusion.summary !== "string"
+      )
+        return null;
+    }
+    return parsed as ReviewProvenance;
+  } catch {
+    return null;
+  }
+}
+
+export interface ProvenanceValidation {
+  valid: boolean;
+  reasons: string[];
+}
+
+export function validateProvenance(provenance: ReviewProvenance): ProvenanceValidation {
+  const reasons: string[] = [];
+
+  const nonVacuousSpec = provenance.specVerification.filter(
+    (sv) => sv.criterion.trim().length > 0 && sv.evidence.trim().length > 0
+  );
+  if (nonVacuousSpec.length === 0) {
+    reasons.push(
+      "No non-vacuous spec-verification entries (submit_spec_verification with criterion + evidence)."
+    );
+  }
+
+  if (!provenance.docImpact) {
+    reasons.push("No documentation-impact assessment (submit_documentation_impact not called).");
+  } else if (provenance.docImpact.evidence.trim().length === 0) {
+    reasons.push("Documentation-impact assessment has vacuous (empty) evidence.");
+  }
+
+  return { valid: reasons.length === 0, reasons };
+}
+
+export interface ReviewContentResult {
+  deny: boolean;
+  reason?: string;
+}
+
+export const EXPECTED_REVIEWER_LOGIN = "minsky-reviewer[bot]";
+
+type ReviewEntry = {
+  body: string;
+  commit_id: string;
+  submitted_at: string;
+  user_login?: string;
+};
+
+export function validateReviewContent(
+  reviews: ReviewEntry[],
+  pr: string,
+  headSha: string | undefined
+): ReviewContentResult {
+  const sorted = [...reviews]
+    .filter((r) => r.body)
+    .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
+
+  // Try structured path: find the most recent review with a provenance block
+  // from the expected reviewer identity
+  for (const review of sorted) {
+    const provenance = parseReviewProvenance(review.body);
+    if (!provenance) continue;
+
+    // Enforce reviewer identity when available
+    if (review.user_login && review.user_login !== EXPECTED_REVIEWER_LOGIN) continue;
+
+    // Structured review found — check freshness
+    if (headSha && review.commit_id !== headSha) {
+      return {
+        deny: true,
+        reason:
+          `Bot review on PR #${pr} is stale — structured provenance covers commit ` +
+          `${review.commit_id.slice(0, 7)} but PR HEAD is ${headSha.slice(0, 7)}. ` +
+          `Push a new commit or re-trigger the reviewer bot to review the latest changes.`,
+      };
+    }
+
+    // Validate structural content
+    const validation = validateProvenance(provenance);
+    if (!validation.valid) {
+      return {
+        deny: true,
+        reason:
+          `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
+          `has structural gaps: ${validation.reasons.join(" ")} ` +
+          `The reviewer bot either did not assess these areas or the assessment failed to post.`,
+      };
+    }
+
+    // Check conclusion event — REQUEST_CHANGES means outstanding blocking findings
+    if (provenance.conclusion?.event === "REQUEST_CHANGES") {
+      return {
+        deny: true,
+        reason:
+          `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
+          `requested changes. Address the blocking findings before merging.`,
+      };
+    }
+
+    // Structured review is valid and fresh
+    return { deny: false };
+  }
+
+  // Legacy fallback: no provenance block found in any review — use text-matching
+  const hasSpec = reviews.some((r) => r.body && /spec[- ]verification/i.test(r.body));
+  if (!hasSpec) {
+    return {
+      deny: true,
+      reason:
+        `Review on PR #${pr} lacks spec-verification section. ` +
+        `Ensure the reviewer bot posts a review with spec verification before merging.`,
+    };
+  }
+
+  const hasDocImpact = reviews.some((r) => r.body && /documentation[- ]impact/i.test(r.body));
+  if (!hasDocImpact) {
+    return {
+      deny: true,
+      reason:
+        `Review on PR #${pr} lacks documentation-impact section. ` +
+        `Ensure the reviewer bot posts a review with documentation-impact assessment before merging.`,
+    };
+  }
+
+  // Legacy staleness check
+  if (headSha) {
+    const specReviews = sorted.filter((r) => r.body && /spec[- ]verification/i.test(r.body));
+    const latestReview = specReviews[0];
+    if (latestReview && latestReview.commit_id !== headSha) {
+      return {
+        deny: true,
+        reason:
+          `Review on PR #${pr} is stale — covers commit ${latestReview.commit_id.slice(0, 7)} ` +
+          `but PR HEAD is ${headSha.slice(0, 7)}. ` +
+          `Push a new commit or re-trigger the reviewer bot to review the latest changes.`,
+      };
+    }
+  }
+
+  return { deny: false };
+}
+
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
@@ -663,11 +857,27 @@ if (import.meta.main) {
   const headSha = prParts[1];
   if (!pr) process.exit(0);
 
-  // Get all reviews
+  // Get all reviews (include user.login for reviewer identity enforcement)
   const reviewsJson = execSync(["gh", "api", `repos/edobry/minsky/pulls/${pr}/reviews`]);
-  let reviews: Array<{ body: string; commit_id: string; submitted_at: string }>;
+  let reviews: Array<{
+    body: string;
+    commit_id: string;
+    submitted_at: string;
+    user_login?: string;
+  }>;
   try {
-    reviews = JSON.parse(reviewsJson.stdout.trim());
+    const raw = JSON.parse(reviewsJson.stdout.trim()) as Array<{
+      body: string;
+      commit_id: string;
+      submitted_at: string;
+      user?: { login?: string };
+    }>;
+    reviews = raw.map((r) => ({
+      body: r.body,
+      commit_id: r.commit_id,
+      submitted_at: r.submitted_at,
+      user_login: r.user?.login,
+    }));
   } catch {
     reviews = [];
   }
@@ -678,56 +888,27 @@ if (import.meta.main) {
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: `No review on PR #${pr}. Use /review-pr to submit a review before merging.`,
+        permissionDecisionReason: `No review on PR #${pr}. Ensure the reviewer bot posts a review before merging.`,
       },
     });
     process.exit(0);
   }
 
-  // Check that at least one review contains spec verification
-  const hasSpec = reviews.some((r) => r.body && /spec[- ]verification/i.test(r.body));
-  if (!hasSpec) {
+  // mt#2055: structured provenance inspection with text-matching fallback.
+  // Reviews posted by minsky-reviewer[bot] with output tools (mt#1395+) embed a
+  // <!-- minsky-review-provenance:{...} --> HTML comment carrying the structured
+  // tool-call summary. If a provenance block exists on a review covering HEAD,
+  // validate structurally. Otherwise fall back to legacy text-matching.
+  const provenanceResult = validateReviewContent(reviews, pr, headSha);
+  if (provenanceResult.deny && provenanceResult.reason) {
     writeOutput({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
         permissionDecision: "deny",
-        permissionDecisionReason: `Review on PR #${pr} lacks spec verification section. Use /review-pr to post a review that includes spec verification before merging.`,
+        permissionDecisionReason: provenanceResult.reason,
       },
     });
     process.exit(0);
-  }
-
-  // Check that at least one review contains documentation impact assessment
-  const hasDocImpact = reviews.some((r) => r.body && /documentation[- ]impact/i.test(r.body));
-  if (!hasDocImpact) {
-    writeOutput({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        permissionDecision: "deny",
-        permissionDecisionReason: `Review on PR #${pr} lacks documentation impact section. Use /review-pr to post a review that includes documentation impact assessment before merging.`,
-      },
-    });
-    process.exit(0);
-  }
-
-  // Check that the most recent review with spec verification covers the current HEAD
-  if (headSha) {
-    const specReviews = reviews
-      .filter((r) => r.body && /spec[- ]verification/i.test(r.body))
-      .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
-    const latestReview = specReviews[0];
-    if (latestReview && latestReview.commit_id !== headSha) {
-      writeOutput({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          permissionDecision: "deny",
-          permissionDecisionReason:
-            `Review on PR #${pr} is stale — covers commit ${latestReview.commit_id.slice(0, 7)} ` +
-            `but PR HEAD is ${headSha.slice(0, 7)}. Re-run /review-pr to review the latest changes.`,
-        },
-      });
-      process.exit(0);
-    }
   }
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
