@@ -16,10 +16,11 @@ import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { Credentials } from "./widgets/Credentials";
-// Promoted widgets — rendered at their dedicated page routes
 import { AgentsPage } from "./pages/AgentsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
-import { TasksPage } from "./pages/TasksPage";
+import { TasksLayout } from "./pages/TasksLayout";
+import { TasksListPage } from "./pages/TasksListPage";
+import { TasksGraphPage } from "./pages/TasksGraphPage";
 import { AsksPage } from "./pages/AsksPage";
 import { PageNavTiles } from "./pages/HomePage";
 
@@ -36,15 +37,13 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
 };
 
 // Prop-driven widgets: receive data from App-level polling.
-// agents, workstreams, task-graph are promoted to their own pages;
-// they still receive polling data from App state.
 const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
   "basic-health": BasicHealth,
 };
 
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
-const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph"]);
+const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -52,7 +51,7 @@ interface WidgetState {
 }
 
 // ---------------------------------------------------------------------------
-// Home page grid — small widgets + promoted-page entry tiles
+// Home page grid — small widgets + page nav tiles
 // ---------------------------------------------------------------------------
 
 interface HomePageProps {
@@ -237,11 +236,14 @@ export function App() {
         <Route
           path="/tasks"
           element={
-            <ErrorBoundary id="tasks-page">
-              <TasksPage data={taskGraphData} />
+            <ErrorBoundary id="tasks-layout">
+              <TasksLayout taskGraphData={taskGraphData} />
             </ErrorBoundary>
           }
-        />
+        >
+          <Route index element={<TasksListPage />} />
+          <Route path="graph" element={<TasksGraphPage />} />
+        </Route>
         <Route
           path="/asks"
           element={

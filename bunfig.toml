@@ -1,4 +1,5 @@
 [test]
+preload = ["./tests/setup.ts"]
 randomize = true
 # Standalone deployables under services/ are independent packages with their
 # own node_modules and test commands. Exclude them from the main test runner

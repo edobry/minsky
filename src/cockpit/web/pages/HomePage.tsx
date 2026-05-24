@@ -16,7 +16,7 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, GitBranch, Network, MessageCircleQuestion, ChevronRight } from "lucide-react";
+import { Bot, GitBranch, List, Network, MessageCircleQuestion, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
 export function PageNavTiles() {
   return (
     <section aria-label="Navigate to feature pages">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <EntryTile
           to="/agents"
           icon={Bot}
@@ -89,6 +89,12 @@ export function PageNavTiles() {
           icon={GitBranch}
           label="Workstreams"
           description="Parent tasks with child status counts"
+        />
+        <EntryTile
+          to="/tasks/list"
+          icon={List}
+          label="Task List"
+          description="Sortable, filterable task table"
         />
         <EntryTile
           to="/tasks"

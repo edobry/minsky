@@ -4938,6 +4938,16 @@
               "flags": ["--limit"],
               "description": "Maximum number of results to return",
               "takesValue": true
+            },
+            {
+              "flags": ["--association-type"],
+              "description": "Filter by association type (e.g., 'tracksTask'). Must be used together with associationTarget.",
+              "takesValue": true
+            },
+            {
+              "flags": ["--association-target"],
+              "description": "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
+              "takesValue": true
             }
           ]
         },
@@ -4989,6 +4999,11 @@
             {
               "flags": ["--confidence"],
               "description": "Confidence score (0–1), reserved for Phase 3",
+              "takesValue": true
+            },
+            {
+              "flags": ["--associations"],
+              "description": "Structured entity associations (e.g., { tracksTask: [\"mt#2053\"] }). See ADR-012 for type-string conventions.",
               "takesValue": true
             },
             {
@@ -5051,6 +5066,11 @@
             {
               "flags": ["--confidence"],
               "description": "New confidence score",
+              "takesValue": true
+            },
+            {
+              "flags": ["--associations"],
+              "description": "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
               "takesValue": true
             }
           ]
