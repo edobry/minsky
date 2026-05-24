@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   BUNDLE_BOOT_SMOKE_CHECK_NAME,
   BUNDLE_BOOT_SMOKE_OVERRIDE_ENV,
+  PROVENANCE_MARKER_START,
+  PROVENANCE_MARKER_END,
   REQUIRED_CHECKS_OVERRIDE_ENV,
   evaluateBundleBootSmokePresence,
   evaluateCheckRunsPresence,
@@ -10,7 +12,11 @@ import {
   parseBranchProtectionResponse,
   parseBundleBootSmokeResponse,
   parseCheckRunsResponse,
+  parseReviewProvenance,
   pickLatestRunByName,
+  validateProvenance,
+  validateReviewContent,
+  type ReviewProvenance,
 } from "./require-review-before-merge";
 
 // Shared fixtures — used across mt#1309, mt#1787, and mt#1938 test groups.
@@ -1268,5 +1274,220 @@ describe("evaluateRequiredChecksStatus (mt#1938)", () => {
       headSha
     );
     expect(result.deny).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#2055: Structured review provenance
+// ---------------------------------------------------------------------------
+
+const SPEC_VERIFICATION_REASON = "spec-verification";
+const DOC_IMPACT_REASON = "documentation-impact";
+const DOC_IMPACT_REASON_CAPITALIZED = "Documentation-impact";
+
+const VALID_PROVENANCE: ReviewProvenance = {
+  specVerification: [{ criterion: "SC1: test", status: "Met", evidence: "Found in foo.ts" }],
+  docImpact: { kind: "no-update-needed", evidence: "Internal refactor" },
+  findings: { blocking: 0, nonBlocking: 1 },
+  conclusion: { event: "APPROVE", summary: "Looks good" },
+  adoptionSweep: null,
+};
+
+function makeProvenanceComment(p: ReviewProvenance): string {
+  return `${PROVENANCE_MARKER_START}${JSON.stringify(p)}${PROVENANCE_MARKER_END}`;
+}
+
+function makeReview(
+  body: string,
+  commit_id = "abc1234567890",
+  submitted_at = "2026-05-23T12:00:00Z"
+) {
+  return { body, commit_id, submitted_at };
+}
+
+describe("parseReviewProvenance (mt#2055)", () => {
+  it("parses a valid provenance block from a review body", () => {
+    const body = `## Review\n\nSome text\n\n${makeProvenanceComment(VALID_PROVENANCE)}`;
+    const result = parseReviewProvenance(body);
+    expect(result).not.toBeNull();
+    if (!result) throw new Error("expected provenance");
+    expect(result.specVerification).toHaveLength(1);
+    expect(result.conclusion?.event).toBe("APPROVE");
+  });
+
+  it("returns null when no provenance marker exists", () => {
+    expect(parseReviewProvenance("## Review\n\nJust text")).toBeNull();
+  });
+
+  it("returns null for malformed JSON", () => {
+    expect(
+      parseReviewProvenance(`${PROVENANCE_MARKER_START}{broken${PROVENANCE_MARKER_END}`)
+    ).toBeNull();
+  });
+
+  it("returns null when end marker is missing", () => {
+    expect(parseReviewProvenance(`${PROVENANCE_MARKER_START}{"valid": true}`)).toBeNull();
+  });
+});
+
+describe("validateProvenance (mt#2055)", () => {
+  it("passes for a fully-valid provenance", () => {
+    const result = validateProvenance(VALID_PROVENANCE);
+    expect(result.valid).toBe(true);
+    expect(result.reasons).toEqual([]);
+  });
+
+  it("fails when specVerification is empty", () => {
+    const result = validateProvenance({ ...VALID_PROVENANCE, specVerification: [] });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("fails when specVerification has vacuous criterion", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [{ criterion: "  ", status: "Met", evidence: "OK" }],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("fails when specVerification has vacuous evidence", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [{ criterion: "SC1", status: "Met", evidence: "" }],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("fails when docImpact is null", () => {
+    const result = validateProvenance({ ...VALID_PROVENANCE, docImpact: null });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(DOC_IMPACT_REASON);
+  });
+
+  it("fails when docImpact evidence is vacuous", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      docImpact: { kind: "no-update-needed", evidence: "  " },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(DOC_IMPACT_REASON_CAPITALIZED);
+  });
+
+  it("reports multiple failures at once", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [],
+      docImpact: null,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toHaveLength(2);
+  });
+});
+
+describe("validateReviewContent (mt#2055)", () => {
+  const HEAD = "abc1234567890";
+
+  it("allows a review with valid provenance at HEAD", () => {
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(VALID_PROVENANCE)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(false);
+  });
+
+  it("denies a structured review that is stale (wrong commit)", () => {
+    const reviews = [
+      makeReview(`## Review\n${makeProvenanceComment(VALID_PROVENANCE)}`, "old1234567890"),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("stale");
+    expect(result.reason).toContain("old1234");
+  });
+
+  it("denies a structured review missing spec verification", () => {
+    const noSpec = { ...VALID_PROVENANCE, specVerification: [] };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(noSpec)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("denies a structured review missing documentation impact", () => {
+    const noDoc = { ...VALID_PROVENANCE, docImpact: null };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(noDoc)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain(DOC_IMPACT_REASON);
+  });
+
+  it("falls back to text-matching for legacy reviews (no provenance)", () => {
+    const reviews = [
+      makeReview(
+        "## Spec verification\n| SC1 | Met |\n\n## Documentation impact\n- no-update-needed",
+        HEAD
+      ),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(false);
+  });
+
+  it("denies legacy review missing spec verification text", () => {
+    const reviews = [makeReview("## Documentation impact\n- no-update-needed", HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("denies legacy review missing documentation impact text", () => {
+    const reviews = [makeReview("## Spec verification\n| SC1 | Met |", HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain(DOC_IMPACT_REASON);
+  });
+
+  it("denies stale legacy review", () => {
+    const reviews = [
+      makeReview(
+        "## Spec verification\n| SC1 | Met |\n\n## Documentation impact\n- no-update-needed",
+        "old1234567890"
+      ),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("stale");
+  });
+
+  it("uses the most recent review with provenance (skips older ones)", () => {
+    const reviews = [
+      makeReview(
+        `## Review\n${makeProvenanceComment(VALID_PROVENANCE)}`,
+        HEAD,
+        "2026-05-23T14:00:00Z"
+      ),
+      makeReview(
+        `## Review\n${makeProvenanceComment({ ...VALID_PROVENANCE, specVerification: [] })}`,
+        HEAD,
+        "2026-05-23T12:00:00Z"
+      ),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(false);
+  });
+
+  it("does not reference /review-pr in denial reasons", () => {
+    const noSpec = { ...VALID_PROVENANCE, specVerification: [] };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(noSpec)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).not.toContain("/review-pr");
+  });
+
+  it("legacy denial reasons do not reference /review-pr", () => {
+    const reviews = [makeReview("## No matching sections", HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).not.toContain("/review-pr");
   });
 });
