@@ -20,6 +20,7 @@ import { Credentials } from "./widgets/Credentials";
 import { AgentsPage } from "./pages/AgentsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksPage } from "./pages/TasksPage";
+import { AsksPage } from "./pages/AsksPage";
 import { PromotedPageTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
@@ -66,38 +67,38 @@ function HomePage({ widgets }: HomePageProps) {
         <section aria-label="System status">
           <div className="rounded-lg border border-border/40 bg-muted/20 p-3">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {widgets.map(({ meta, data }) => {
-              const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
-              const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
+              {widgets.map(({ meta, data }) => {
+                const SelfFetchingRenderer = SELF_FETCHING_RENDERERS[meta.id];
+                const PropDrivenRenderer = PROP_DRIVEN_RENDERERS[meta.id];
 
-              return (
-                <ErrorBoundary key={meta.id} id={meta.id}>
-                  {SelfFetchingRenderer ? (
-                    <SelfFetchingRenderer />
-                  ) : !PropDrivenRenderer ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>{meta.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="text-muted-foreground">
-                        <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
-                      </CardContent>
-                    </Card>
-                  ) : data === null ? (
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>{meta.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="text-muted-foreground">
-                        <p>Loading...</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <PropDrivenRenderer data={data} />
-                  )}
-                </ErrorBoundary>
-              );
-            })}
+                return (
+                  <ErrorBoundary key={meta.id} id={meta.id}>
+                    {SelfFetchingRenderer ? (
+                      <SelfFetchingRenderer />
+                    ) : !PropDrivenRenderer ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>{meta.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-muted-foreground">
+                          <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
+                        </CardContent>
+                      </Card>
+                    ) : data === null ? (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle>{meta.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-muted-foreground">
+                          <p>Loading...</p>
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <PropDrivenRenderer data={data} />
+                    )}
+                  </ErrorBoundary>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -238,6 +239,14 @@ export function App() {
           element={
             <ErrorBoundary id="tasks-page">
               <TasksPage data={taskGraphData} />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/asks"
+          element={
+            <ErrorBoundary id="asks-page">
+              <AsksPage />
             </ErrorBoundary>
           }
         />

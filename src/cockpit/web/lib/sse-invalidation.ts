@@ -57,8 +57,8 @@ export const CHANNEL_TO_QUERY_KEYS: Readonly<
   Record<string, ReadonlyArray<ReadonlyArray<string | number>>>
 > = {
   // Attention events — trigger refetch of the attention widget
-  [CHANNEL_ATTENTION_OPENED]: [["attention"]],
-  [CHANNEL_ATTENTION_CLOSED]: [["attention"]],
+  [CHANNEL_ATTENTION_OPENED]: [["attention"], ["asks"]],
+  [CHANNEL_ATTENTION_CLOSED]: [["attention"], ["asks"]],
 
   // Session events — trigger refetch of agents widget (session liveness)
   // Workstreams is prop-driven; will add once it migrates to useQuery.
@@ -73,7 +73,7 @@ export const CHANNEL_TO_QUERY_KEYS: Readonly<
   //     Attention widget's cohort can include blocking-class asks (per ADR-008
   //     §Ask kinds), so a new blocking event should trigger an attention refetch.
   [CHANNEL_TASK_STATUS_CHANGED]: [],
-  [CHANNEL_TASK_BLOCKING]: [["attention"]],
+  [CHANNEL_TASK_BLOCKING]: [["attention"], ["asks"]],
 
   // Credential invalidation — trigger refetch of the credentials widget.
   [CHANNEL_CREDENTIAL_INVALIDATED]: [["credentials"]],

@@ -13,13 +13,7 @@
  */
 import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import {
-  LayoutDashboard,
-  Bot,
-  GitBranch,
-  Network,
-  X,
-} from "lucide-react";
+import { LayoutDashboard, Bot, GitBranch, Network, MessageCircleQuestion, X } from "lucide-react";
 import { Button } from "./ui/button";
 import { cn } from "../lib/utils";
 
@@ -59,6 +53,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Task Graph",
     description: "Dependency graph view",
     icon: Network,
+  },
+  {
+    to: "/asks",
+    label: "Asks",
+    description: "Pending principal-attention asks",
+    icon: MessageCircleQuestion,
   },
 ];
 
@@ -129,9 +129,7 @@ export function NavSheet({ open, onOpenChange }: NavSheetProps) {
         <nav className="flex-1 overflow-y-auto py-2" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => {
             const isActive =
-              item.to === "/"
-                ? location.pathname === "/"
-                : location.pathname.startsWith(item.to);
+              item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to);
             const Icon = item.icon;
 
             return (
@@ -142,9 +140,7 @@ export function NavSheet({ open, onOpenChange }: NavSheetProps) {
                 className={cn(
                   "flex items-center gap-3 px-4 py-2.5 text-sm transition-colors",
                   "hover:bg-muted/60",
-                  isActive
-                    ? "bg-muted text-foreground font-medium"
-                    : "text-muted-foreground"
+                  isActive ? "bg-muted text-foreground font-medium" : "text-muted-foreground"
                 )}
                 aria-current={isActive ? "page" : undefined}
               >
@@ -162,9 +158,7 @@ export function NavSheet({ open, onOpenChange }: NavSheetProps) {
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-border flex-shrink-0">
-          <p className="text-xs text-muted-foreground">
-            Minsky Cockpit v0 — local only
-          </p>
+          <p className="text-xs text-muted-foreground">Minsky Cockpit v0 — local only</p>
         </div>
       </div>
     </>
