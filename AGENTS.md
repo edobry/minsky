@@ -2955,6 +2955,22 @@ Action-now language is permission to act, NOT permission to compress steps. Comp
 
 **Structural enforcement.** The `/restate-plan` skill (mt#1784, IMPLEMENTED 2026-05-14) operationalizes the three steps above as numbered process steps with required user-facing output. Invoke it explicitly when both trigger conditions hold (sequencing keywords in prior turn + action-now keywords in current turn), or self-trigger via the cues in the skill. See `.claude/skills/restate-plan/SKILL.md`. The skill is agent-invoked discipline, not harness-fired.
 
+## Security-surface changes require community-practice check
+
+When a spec proposes changing a CI/CD security surface — workflow trigger events, token scopes, secrets exposure models, permission boundaries, credential flows, or authentication mechanisms — the spec must document community practice for the same problem class before the approach can be encoded.
+
+Required before encoding the approach in a spec:
+
+1. **Security-implications search** — at least one web search for the security implications of the proposed approach. "pull_request_target security" would have surfaced the pwn-request literature for mt#1477 in under 30 seconds.
+2. **Community-practice search** — at least one web search for how the community solves the same problem class. The canonical reference for bot-commit workflow triggering is [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) (widely adopted and actively maintained, as of 2026-05-24).
+3. **Citation** — at least one authoritative community reference cited in the spec. If the proposed approach diverges from community practice, the spec must explain why the divergence is justified.
+
+**Generic-SE override:** "I know the GitHub docs well enough to design a solution from first principles." First-principles reasoning from docs misses the accumulated security research and battle-tested patterns the community has developed. The security literature exists precisely because docs-only reasoning produces approaches like `pull_request_target` that look correct in isolation but are known anti-patterns in practice.
+
+**Originating incident:** mt#1477 (filed ~2026-04-30) proposed migrating CI workflows from `pull_request` to `pull_request_target` to fix the App-token workflow trigger drop. The spec acknowledged some risks (fork PRs, secrets exposure) but treated them as acceptable tradeoffs. Research on 2026-05-24 revealed: (a) `pull_request_target` is a well-documented security anti-pattern — GitHub Security Lab calls it "pwn requests," ~1% of repos using it are exploitable; (b) the spec's factual premise was wrong — `session_commit` pushes via system keychain credentials, not the App token; (c) the community-standard fix is to use the App token for git push, requiring no workflow changes. Neither a security literature check nor a community-practice check was performed during spec authoring.
+
+**Structural enforcement.** `/plan-task` gate criterion (l) — when a spec proposes changing a CI/CD security surface, require documented community-practice check with at least one authoritative citation. Tracking task: mt#2090. Until gate (l) ships, this is corpus-tier discipline.
+
 ## How this is enforced
 
 Today: human-consulted. The agent reads this file before any preference-encoding action and checks whether the chosen default has a Minsky override here.
@@ -2987,6 +3003,9 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1196 — `block-git-gh-cli.ts` hook (post-hoc catcher for the bash-first reflex in git/gh; sibling structural enforcement to the new section)
 - mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
 - mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
+- Memory `22a55d66` — originating memory for `§Security-surface changes require community-practice check`
+- mt#2090 — gate criterion (l) implementation task for `§Security-surface changes require community-practice check`
+- mt#1477 — originating incident for `§Security-surface changes require community-practice check`
 
 # Memory Usage
 
