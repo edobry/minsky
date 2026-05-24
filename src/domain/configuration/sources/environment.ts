@@ -130,6 +130,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_SMOKE_CHECK", // .claude/hooks/require-review-before-merge.ts (mt#2060)
   "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
   "MINSKY_SKIP_WORKSPACE_COPY_CHECK", // src/hooks/pre-commit.ts (mt#1984) — workspace-COPY check override
+  "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
   // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
   // Many of these arguably belong in environmentMappings with a proper config
