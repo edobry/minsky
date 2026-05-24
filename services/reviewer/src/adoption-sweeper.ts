@@ -22,9 +22,9 @@
  * ## Cadence
  *
  * Default: 24 hours (86_400_000 ms). Configurable via
- * ADOPTION_SWEEPER_INTERVAL_MS. DEFAULT DISABLED until mt#1711 (env-var
- * wiring) ships and operator confirms the reviewer-service environment can
- * host another scheduler. Set ADOPTION_SWEEPER_ENABLED=true to activate.
+ * ADOPTION_SWEEPER_INTERVAL_MS. Disabled by default; set
+ * ADOPTION_SWEEPER_ENABLED=true to activate. Env-var wiring is in place
+ * (mt#1811); the sweeper only needs operator opt-in.
  *
  * ## Idempotent task creation
  *
@@ -97,7 +97,7 @@ import type { AdoptionSignal } from "@minsky/shared/adoption/signal-extraction";
 // ---------------------------------------------------------------------------
 
 export interface AdoptionSweeperConfig {
-  /** Whether the sweeper is enabled. Default: false (disabled until mt#1711 ships). */
+  /** Whether the sweeper is enabled. Default: false (operator opt-in). */
   enabled: boolean;
   /** Sweep interval in milliseconds. Default: 86_400_000 (24 hours). */
   intervalMs: number;
@@ -611,8 +611,8 @@ function buildFollowUpSpec(parentTaskId: string, signal: AdoptionSignal): string
  * Start the adoption sweeper on an in-process interval.
  *
  * Same pattern as merge-state-sweeper.ts. Opt-in via
- * ADOPTION_SWEEPER_ENABLED=true (disabled by default until mt#1711 ships).
- * Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN.
+ * ADOPTION_SWEEPER_ENABLED=true (disabled by default; env-var wiring
+ * is in place via mt#1811). Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN.
  *
  * Returns an object with a `stop()` method to clean up the interval, or null
  * if the sweeper is disabled or credentials are missing.
@@ -626,7 +626,7 @@ export function startAdoptionSweeper(
       event: "adoption_sweeper.disabled",
       message:
         "Adoption sweeper is disabled (ADOPTION_SWEEPER_ENABLED=false). " +
-        "Set ADOPTION_SWEEPER_ENABLED=true to activate (requires mt#1711 env-var wiring).",
+        "Set ADOPTION_SWEEPER_ENABLED=true to activate.",
     });
     return null;
   }
