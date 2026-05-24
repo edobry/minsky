@@ -194,6 +194,8 @@ async function processWatch(
   let notifyTitle = "";
   let notifyBody = "";
   let nextLastSeen: Record<string, unknown> | undefined;
+  let reviewerLogin: string | undefined;
+  let reviewState: string | undefined;
 
   switch (watch.event) {
     case "merged": {
@@ -210,6 +212,8 @@ async function processWatch(
       notifyTitle = result.title;
       notifyBody = result.body;
       nextLastSeen = result.nextLastSeen;
+      reviewerLogin = result.reviewerLogin;
+      reviewState = result.reviewState;
       break;
     }
     case "check-status-changed": {
@@ -326,15 +330,13 @@ async function processWatch(
   // Event emission for review-posted (mt#2095): best-effort, never throws.
   if (eventEmitter && watch.event === "review-posted") {
     try {
-      // Extract reviewer login from the notification body ("PR #N — STATE by LOGIN")
-      const reviewerMatch = notifyBody.match(/by (.+)$/);
       await eventEmitter.emit({
         eventType: "pr.review_posted",
         payload: {
           prNumber: watch.prNumber,
           repo: `${watch.prOwner}/${watch.prRepo}`,
-          reviewer: reviewerMatch?.[1] ?? "unknown",
-          state: notifyBody.match(/— (\S+) by/)?.[1] ?? "posted",
+          reviewer: reviewerLogin ?? "unknown",
+          state: reviewState ?? "posted",
         },
         relatedTaskId: ((watch.metadata as Record<string, unknown>)?.taskId as string) ?? undefined,
       });
@@ -360,6 +362,10 @@ interface EventHandlerResult {
    * need a cursor.
    */
   nextLastSeen?: Record<string, unknown>;
+  /** Structured review data for event emission (review-posted only). */
+  reviewerLogin?: string;
+  /** Review state for event emission (review-posted only). */
+  reviewState?: string;
 }
 
 /**
@@ -425,6 +431,8 @@ async function handleReviewPosted(
     title: "Minsky: PR review posted",
     body: `PR #${watch.prNumber} — ${latest.state} by ${latest.reviewerLogin ?? "unknown"}`,
     nextLastSeen: { lastReviewId: latest.id },
+    reviewerLogin: latest.reviewerLogin ?? undefined,
+    reviewState: latest.state,
   };
 }
 
