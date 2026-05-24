@@ -267,6 +267,21 @@ describe("retrospective skill suppression", () => {
     ];
     expect(hasRetrospectiveSkillInvocation(turnLines)).toBe(false);
   });
+
+  // main() gates BOTH surfaces (assistant-turn + user-correction) on
+  // hasRetrospectiveSkillInvocation — when it returns true, main() exits
+  // before either detection runs. This test verifies the predicate is
+  // correct; the gating logic is structural in main().
+  test("suppression predicate fires for top-level tool_use format", () => {
+    const turnLines = [
+      {
+        type: "tool_use",
+        name: "Skill",
+        input: { skill: "retrospective" },
+      },
+    ];
+    expect(hasRetrospectiveSkillInvocation(turnLines)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

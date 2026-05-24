@@ -403,18 +403,29 @@ export async function main(): Promise<void> {
 
   const allMatches: TriggerMatch[] = [];
 
+  // Check if /retrospective was already invoked in the prior turn — suppress ALL detection
+  let retrospectiveAlreadyInvoked = false;
+  try {
+    const turnLines = extractLastAssistantTurn(lines);
+    if (turnLines.length > 0 && hasRetrospectiveSkillInvocation(turnLines)) {
+      retrospectiveAlreadyInvoked = true;
+    }
+  } catch {
+    // fail-open
+  }
+
+  if (retrospectiveAlreadyInvoked) {
+    process.exit(0);
+  }
+
   // Surface 1: scan prior assistant turn for trigger phrases
   try {
     const turnLines = extractLastAssistantTurn(lines);
     if (turnLines.length > 0) {
-      if (hasRetrospectiveSkillInvocation(turnLines)) {
-        // Agent already invoked /retrospective in the prior turn — suppress
-      } else {
-        const assistantText = extractAssistantText(turnLines);
-        if (assistantText) {
-          const triggerMatches = detectTriggerPhrases(assistantText);
-          allMatches.push(...triggerMatches);
-        }
+      const assistantText = extractAssistantText(turnLines);
+      if (assistantText) {
+        const triggerMatches = detectTriggerPhrases(assistantText);
+        allMatches.push(...triggerMatches);
       }
     }
   } catch (err) {
@@ -441,10 +452,31 @@ export async function main(): Promise<void> {
   }
 
   // Log calibration record
+  const firstMatch = allMatches[0];
+  let transcriptExcerpt = "";
+  if (firstMatch) {
+    try {
+      const turnLines = extractLastAssistantTurn(lines);
+      const fullText =
+        firstMatch.family === "user-correction"
+          ? extractLastUserMessage(lines)
+          : extractAssistantText(turnLines);
+      const idx = fullText.indexOf(firstMatch.matchedPhrase);
+      if (idx >= 0) {
+        const start = Math.max(0, idx - 80);
+        const end = Math.min(fullText.length, idx + firstMatch.matchedPhrase.length + 80);
+        transcriptExcerpt = fullText.slice(start, end);
+      }
+    } catch {
+      // fail-open
+    }
+  }
+
   appendCalibrationRecord(input.cwd, {
     timestamp: new Date().toISOString(),
-    sessionId: input.session_id,
+    session_id: input.session_id,
     matches: allMatches.map((m) => ({ family: m.family, phrase: m.matchedPhrase })),
+    transcript_excerpt: transcriptExcerpt,
   });
 
   const reminder = buildReminder(allMatches);
