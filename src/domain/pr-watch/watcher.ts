@@ -325,16 +325,22 @@ async function processWatch(
 
   // Event emission for review-posted (mt#2095): best-effort, never throws.
   if (eventEmitter && watch.event === "review-posted") {
-    await eventEmitter.emit({
-      eventType: "pr.review_posted",
-      payload: {
-        prNumber: watch.prNumber,
-        repo: `${watch.prOwner}/${watch.prRepo}`,
-        reviewer: watch.watcherId,
-        state: "posted",
-      },
-      relatedTaskId: ((watch.metadata as Record<string, unknown>)?.taskId as string) ?? undefined,
-    });
+    try {
+      // Extract reviewer login from the notification body ("PR #N — STATE by LOGIN")
+      const reviewerMatch = notifyBody.match(/by (.+)$/);
+      await eventEmitter.emit({
+        eventType: "pr.review_posted",
+        payload: {
+          prNumber: watch.prNumber,
+          repo: `${watch.prOwner}/${watch.prRepo}`,
+          reviewer: reviewerMatch?.[1] ?? "unknown",
+          state: notifyBody.match(/— (\S+) by/)?.[1] ?? "posted",
+        },
+        relatedTaskId: ((watch.metadata as Record<string, unknown>)?.taskId as string) ?? undefined,
+      });
+    } catch {
+      // Best-effort: swallow any unexpected errors from emit
+    }
   }
 
   return { kind: "fired", watchId: watch.id, notified };

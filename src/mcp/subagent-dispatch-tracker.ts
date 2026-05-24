@@ -166,8 +166,8 @@ export class SubagentDispatchTracker {
    * Called from the MCP start-command once the DB connection is resolved.
    * Idempotent — subsequent calls replace the instance (useful for tests).
    */
-  static setInstance(db: PostgresJsDatabase): SubagentDispatchTracker {
-    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db);
+  static setInstance(db: PostgresJsDatabase, eventEmitter?: EventEmitter): SubagentDispatchTracker {
+    SubagentDispatchTracker._instance = new SubagentDispatchTracker(db, eventEmitter);
     return SubagentDispatchTracker._instance;
   }
 
