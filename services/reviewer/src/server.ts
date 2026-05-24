@@ -935,8 +935,7 @@ if (import.meta.main) {
   // Configurable via ADOPTION_SWEEPER_ENABLED, ADOPTION_SWEEPER_INTERVAL_MS,
   // ADOPTION_SWEEPER_LOOKBACK_DAYS.
   // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
-  // DEFAULT DISABLED until mt#1711 (env-var wiring) ships.
-  // Set ADOPTION_SWEEPER_ENABLED=true to activate.
+  // Disabled by default; set ADOPTION_SWEEPER_ENABLED=true to activate.
   startAdoptionSweeper(config, loadAdoptionSweeperConfig());
 
   // Start the webhook-event retention pruner (mt#1372).
