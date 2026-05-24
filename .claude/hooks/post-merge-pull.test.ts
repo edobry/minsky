@@ -7,7 +7,7 @@ import { runHook } from "./post-merge-pull";
 
 type ExecResult = { exitCode: number; stdout: string; stderr: string; timedOut?: boolean };
 
-/** Build a stub exec that matches commands by the first args and returns corresponding results. */
+/** Build a stub exec that returns responses sequentially by call order. */
 function makeExec(responses: ExecResult[]): (cmd: string[], opts?: { cwd?: string }) => ExecResult {
   let callIndex = 0;
   return (_cmd: string[], _opts?: { cwd?: string }) => {
@@ -236,7 +236,7 @@ describe("runHook — dirty tree, stash+pull+pop success", () => {
 });
 
 describe("runHook — dirty tree, stash pop conflict", () => {
-  it("warns about stash pop conflict but still exits 0 (main was advanced)", () => {
+  it("warns about conflicts and stash entry kept, exits 0 (main was advanced)", () => {
     const stderrMessages: string[] = [];
     const exitCodes: number[] = [];
 
@@ -260,11 +260,13 @@ describe("runHook — dirty tree, stash pop conflict", () => {
     expect(exitCodes).toEqual([0]);
     const combinedStderr = stderrMessages.join("");
     expect(combinedStderr).toContain("stash pop had conflicts");
-    expect(combinedStderr).toContain("git stash pop");
+    expect(combinedStderr).toContain("stash entry was kept");
+    expect(combinedStderr).toContain("git stash drop");
+    expect(combinedStderr).not.toContain("git stash pop");
   });
 });
 
-describe("runHook — dirty tree, pull fails, stash restored", () => {
+describe("runHook — dirty tree, pull fails, stash restored successfully", () => {
   it("restores stash on pull failure and exits 1", () => {
     const stderrMessages: string[] = [];
     const exitCodes: number[] = [];
@@ -274,7 +276,7 @@ describe("runHook — dirty tree, pull fails, stash restored", () => {
       { exitCode: 0, stdout: DIRTY_STATUS, stderr: "" }, // git status --porcelain (dirty)
       { exitCode: 0, stdout: STASH_SAVED, stderr: "" }, // git stash
       { exitCode: 1, stdout: "", stderr: "fatal: Not possible to fast-forward" }, // git pull fails
-      { exitCode: 0, stdout: "", stderr: "" }, // git stash pop (restore)
+      { exitCode: 0, stdout: "", stderr: "" }, // git stash pop (restore succeeds)
     ]);
 
     runHook(
@@ -287,5 +289,33 @@ describe("runHook — dirty tree, pull fails, stash restored", () => {
     expect(exitCodes).toEqual([1]);
     const combinedStderr = stderrMessages.join("");
     expect(combinedStderr).toContain("Not possible to fast-forward");
+  });
+});
+
+describe("runHook — dirty tree, pull fails, stash restore also fails", () => {
+  it("warns about stash restore conflict and exits 1", () => {
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: DIRTY_STATUS, stderr: "" }, // git status --porcelain (dirty)
+      { exitCode: 0, stdout: STASH_SAVED, stderr: "" }, // git stash
+      { exitCode: 1, stdout: "", stderr: "fatal: Not possible to fast-forward" }, // git pull fails
+      { exitCode: 1, stdout: "", stderr: "CONFLICT in scripts/cli-entry.ts" }, // git stash pop also fails
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([1]);
+    const combinedStderr = stderrMessages.join("");
+    expect(combinedStderr).toContain("stash restoration had conflicts");
+    expect(combinedStderr).toContain("stash entry was kept");
+    expect(combinedStderr).toContain("git stash drop");
   });
 });

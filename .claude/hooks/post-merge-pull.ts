@@ -15,9 +15,10 @@ const DIRTY_TREE_STDERR_MARKER = "Your local changes to the following files woul
 /**
  * Core hook logic, parameterized for testability.
  *
- * Strategy: if the working tree is dirty, stash before pulling and pop after.
- * This handles the common case where local experimental files (e.g., scripts/cli-entry.ts)
- * block the ff-only pull. If stash pop conflicts, warn explicitly but leave main advanced.
+ * Strategy: if the working tree has tracked modifications, stash before pulling
+ * and pop after. This handles the common case where local experimental files
+ * (e.g., scripts/cli-entry.ts) block the ff-only pull. If stash pop conflicts,
+ * warn explicitly but leave main advanced.
  */
 export function runHook(
   exec: typeof execSync,
@@ -29,17 +30,14 @@ export function runHook(
   const beforeResult = exec(["git", "rev-parse", "HEAD"], { cwd });
   const before = beforeResult.exitCode === 0 ? beforeResult.stdout : "unknown";
 
-  // Check if working tree is dirty
+  // Check if working tree has tracked modifications
   const statusResult = exec(["git", "status", "--porcelain"], { cwd });
   const isDirty = statusResult.exitCode === 0 && statusResult.stdout.trim().length > 0;
 
-  // Stash if dirty
+  // Stash tracked modifications if dirty
   let stashed = false;
   if (isDirty) {
-    const stashResult = exec(
-      ["git", "stash", "--include-untracked", "-m", "post-merge-pull: auto-stash"],
-      { cwd }
-    );
+    const stashResult = exec(["git", "stash", "-m", "post-merge-pull: auto-stash"], { cwd });
     stashed = stashResult.exitCode === 0 && !stashResult.stdout.includes("No local changes");
   }
 
@@ -49,7 +47,16 @@ export function runHook(
   if (pullResult.exitCode !== 0) {
     // Restore stash before reporting failure
     if (stashed) {
-      exec(["git", "stash", "pop"], { cwd });
+      const restoreResult = exec(["git", "stash", "pop"], { cwd });
+      if (restoreResult.exitCode !== 0) {
+        writeStderr(
+          "Pull failed and stash restoration had conflicts.\n" +
+            "Your working tree may have conflict markers. The stash entry was kept.\n" +
+            "Resolve conflicts, then run: git stash drop\n"
+        );
+        exit(1);
+        return;
+      }
     }
 
     const isStaleLock = STALE_LOCK_STDERR_MARKERS.every((marker) =>
@@ -85,10 +92,8 @@ export function runHook(
     if (popResult.exitCode !== 0) {
       writeStderr(
         "Post-merge pull succeeded but stash pop had conflicts.\n" +
-          "Your changes are in `git stash list`. Resolve with:\n" +
-          "  git stash pop  (then fix conflicts)\n" +
-          "  -- or --\n" +
-          "  git stash drop (to discard the stashed changes)\n"
+          "Your working tree has conflict markers; the stash entry was kept.\n" +
+          "Resolve the conflicts, then run: git stash drop\n"
       );
     }
   }
