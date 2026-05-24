@@ -66,13 +66,12 @@ export const CHANNEL_TO_QUERY_KEYS: Readonly<
   [CHANNEL_SESSION_SCOPE_CHANGED]: [["agents"]],
 
   // Task events:
-  //   - `task.status_changed` has no useQuery-based consumer yet (TaskGraph and
-  //     Workstreams are prop-driven via App-level polling). Mapped to empty
-  //     array; when a self-fetching task-data widget is added, route it here.
+  //   - `task.status_changed` triggers refetch of the task-list widget (mt#2078).
+  //     TaskGraph and Workstreams are still prop-driven via App-level polling.
   //   - `task.blocking` is intentionally routed to `["attention"]` because the
   //     Attention widget's cohort can include blocking-class asks (per ADR-008
   //     §Ask kinds), so a new blocking event should trigger an attention refetch.
-  [CHANNEL_TASK_STATUS_CHANGED]: [],
+  [CHANNEL_TASK_STATUS_CHANGED]: [["task-list"]],
   [CHANNEL_TASK_BLOCKING]: [["attention"]],
 
   // Credential invalidation — trigger refetch of the credentials widget.

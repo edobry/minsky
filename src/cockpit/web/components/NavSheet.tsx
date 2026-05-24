@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   Bot,
   GitBranch,
+  List,
   Network,
   X,
 } from "lucide-react";
@@ -33,6 +34,7 @@ interface NavItem {
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
+  exact?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -59,6 +61,13 @@ const NAV_ITEMS: NavItem[] = [
     label: "Task Graph",
     description: "Dependency graph view",
     icon: Network,
+    exact: true,
+  },
+  {
+    to: "/tasks/list",
+    label: "Task List",
+    description: "Flat sortable task table",
+    icon: List,
   },
 ];
 
@@ -129,8 +138,8 @@ export function NavSheet({ open, onOpenChange }: NavSheetProps) {
         <nav className="flex-1 overflow-y-auto py-2" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => {
             const isActive =
-              item.to === "/"
-                ? location.pathname === "/"
+              item.to === "/" || item.exact
+                ? location.pathname === item.to
                 : location.pathname.startsWith(item.to);
             const Icon = item.icon;
 
