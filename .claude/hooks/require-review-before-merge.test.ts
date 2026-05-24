@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   BUNDLE_BOOT_SMOKE_CHECK_NAME,
   BUNDLE_BOOT_SMOKE_OVERRIDE_ENV,
+  EXPECTED_REVIEWER_LOGIN,
   PROVENANCE_MARKER_START,
   PROVENANCE_MARKER_END,
   REQUIRED_CHECKS_OVERRIDE_ENV,
@@ -1300,9 +1301,10 @@ function makeProvenanceComment(p: ReviewProvenance): string {
 function makeReview(
   body: string,
   commit_id = "abc1234567890",
-  submitted_at = "2026-05-23T12:00:00Z"
+  submitted_at = "2026-05-23T12:00:00Z",
+  user_login = EXPECTED_REVIEWER_LOGIN
 ) {
-  return { body, commit_id, submitted_at };
+  return { body, commit_id, submitted_at, user_login };
 }
 
 describe("parseReviewProvenance (mt#2055)", () => {
@@ -1489,5 +1491,81 @@ describe("validateReviewContent (mt#2055)", () => {
     const result = validateReviewContent(reviews, "42", HEAD);
     expect(result.deny).toBe(true);
     expect(result.reason).not.toContain("/review-pr");
+  });
+
+  it("denies when conclusion.event is REQUEST_CHANGES", () => {
+    const reqChanges = {
+      ...VALID_PROVENANCE,
+      conclusion: { event: "REQUEST_CHANGES", summary: "Fix the bug" },
+    };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(reqChanges)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("requested changes");
+  });
+
+  it("allows when conclusion.event is COMMENT (not REQUEST_CHANGES)", () => {
+    const comment = {
+      ...VALID_PROVENANCE,
+      conclusion: { event: "COMMENT", summary: "Observations" },
+    };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(comment)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(false);
+  });
+
+  it("skips provenance reviews from non-bot reviewers (identity enforcement)", () => {
+    const reviews = [
+      makeReview(
+        `## Review\n${makeProvenanceComment(VALID_PROVENANCE)}`,
+        HEAD,
+        "2026-05-23T12:00:00Z",
+        "some-human"
+      ),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("accepts provenance reviews from the expected bot identity", () => {
+    const reviews = [
+      makeReview(
+        `## Review\n${makeProvenanceComment(VALID_PROVENANCE)}`,
+        HEAD,
+        "2026-05-23T12:00:00Z",
+        EXPECTED_REVIEWER_LOGIN
+      ),
+    ];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(false);
+  });
+});
+
+describe("parseReviewProvenance — defensive shape validation (mt#2055)", () => {
+  it("returns null for structurally invalid JSON (specVerification not an array)", () => {
+    const body = `${PROVENANCE_MARKER_START}{"specVerification":"not-array","docImpact":null,"findings":{"blocking":0,"nonBlocking":0},"conclusion":null,"adoptionSweep":null}${PROVENANCE_MARKER_END}`;
+    expect(parseReviewProvenance(body)).toBeNull();
+  });
+
+  it("returns null for missing fields (empty object)", () => {
+    const body = `${PROVENANCE_MARKER_START}{}${PROVENANCE_MARKER_END}`;
+    expect(parseReviewProvenance(body)).toBeNull();
+  });
+
+  it("returns null when specVerification entry has non-string criterion", () => {
+    const body = `${PROVENANCE_MARKER_START}{"specVerification":[{"criterion":123,"status":"Met","evidence":"ok"}],"docImpact":null,"findings":{"blocking":0,"nonBlocking":0},"conclusion":null,"adoptionSweep":null}${PROVENANCE_MARKER_END}`;
+    expect(parseReviewProvenance(body)).toBeNull();
+  });
+
+  it("returns null when findings has non-number blocking", () => {
+    const body = `${PROVENANCE_MARKER_START}{"specVerification":[],"docImpact":null,"findings":{"blocking":"many","nonBlocking":0},"conclusion":null,"adoptionSweep":null}${PROVENANCE_MARKER_END}`;
+    expect(parseReviewProvenance(body)).toBeNull();
+  });
+
+  it("accepts valid provenance with all fields present", () => {
+    const body = `text\n${PROVENANCE_MARKER_START}${JSON.stringify(VALID_PROVENANCE)}${PROVENANCE_MARKER_END}`;
+    const result = parseReviewProvenance(body);
+    expect(result).not.toBeNull();
   });
 });

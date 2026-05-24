@@ -660,7 +660,37 @@ export function parseReviewProvenance(body: string): ReviewProvenance | null {
   if (endIdx === -1) return null;
 
   try {
-    return JSON.parse(body.slice(jsonStart, endIdx)) as ReviewProvenance;
+    const parsed = JSON.parse(body.slice(jsonStart, endIdx));
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!Array.isArray(parsed.specVerification)) return null;
+    for (const sv of parsed.specVerification) {
+      if (!sv || typeof sv.criterion !== "string" || typeof sv.evidence !== "string") return null;
+    }
+    if (parsed.docImpact !== null) {
+      if (
+        !parsed.docImpact ||
+        typeof parsed.docImpact !== "object" ||
+        typeof parsed.docImpact.kind !== "string" ||
+        typeof parsed.docImpact.evidence !== "string"
+      )
+        return null;
+    }
+    if (
+      !parsed.findings ||
+      typeof parsed.findings.blocking !== "number" ||
+      typeof parsed.findings.nonBlocking !== "number"
+    )
+      return null;
+    if (parsed.conclusion !== null) {
+      if (
+        !parsed.conclusion ||
+        typeof parsed.conclusion !== "object" ||
+        typeof parsed.conclusion.event !== "string" ||
+        typeof parsed.conclusion.summary !== "string"
+      )
+        return null;
+    }
+    return parsed as ReviewProvenance;
   } catch {
     return null;
   }
@@ -697,7 +727,14 @@ export interface ReviewContentResult {
   reason?: string;
 }
 
-type ReviewEntry = { body: string; commit_id: string; submitted_at: string };
+export const EXPECTED_REVIEWER_LOGIN = "minsky-reviewer[bot]";
+
+type ReviewEntry = {
+  body: string;
+  commit_id: string;
+  submitted_at: string;
+  user_login?: string;
+};
 
 export function validateReviewContent(
   reviews: ReviewEntry[],
@@ -709,9 +746,13 @@ export function validateReviewContent(
     .sort((a, b) => new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime());
 
   // Try structured path: find the most recent review with a provenance block
+  // from the expected reviewer identity
   for (const review of sorted) {
     const provenance = parseReviewProvenance(review.body);
     if (!provenance) continue;
+
+    // Enforce reviewer identity when available
+    if (review.user_login && review.user_login !== EXPECTED_REVIEWER_LOGIN) continue;
 
     // Structured review found — check freshness
     if (headSha && review.commit_id !== headSha) {
@@ -733,6 +774,16 @@ export function validateReviewContent(
           `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
           `has structural gaps: ${validation.reasons.join(" ")} ` +
           `The reviewer bot either did not assess these areas or the assessment failed to post.`,
+      };
+    }
+
+    // Check conclusion event — REQUEST_CHANGES means outstanding blocking findings
+    if (provenance.conclusion?.event === "REQUEST_CHANGES") {
+      return {
+        deny: true,
+        reason:
+          `Bot review on PR #${pr} at commit ${(review.commit_id ?? "unknown").slice(0, 7)} ` +
+          `requested changes. Address the blocking findings before merging.`,
       };
     }
 
@@ -806,11 +857,27 @@ if (import.meta.main) {
   const headSha = prParts[1];
   if (!pr) process.exit(0);
 
-  // Get all reviews
+  // Get all reviews (include user.login for reviewer identity enforcement)
   const reviewsJson = execSync(["gh", "api", `repos/edobry/minsky/pulls/${pr}/reviews`]);
-  let reviews: Array<{ body: string; commit_id: string; submitted_at: string }>;
+  let reviews: Array<{
+    body: string;
+    commit_id: string;
+    submitted_at: string;
+    user_login?: string;
+  }>;
   try {
-    reviews = JSON.parse(reviewsJson.stdout.trim());
+    const raw = JSON.parse(reviewsJson.stdout.trim()) as Array<{
+      body: string;
+      commit_id: string;
+      submitted_at: string;
+      user?: { login?: string };
+    }>;
+    reviews = raw.map((r) => ({
+      body: r.body,
+      commit_id: r.commit_id,
+      submitted_at: r.submitted_at,
+      user_login: r.user?.login,
+    }));
   } catch {
     reviews = [];
   }
