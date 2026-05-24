@@ -398,7 +398,9 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
         "Call this once per criterion listed in the spec's 'Success Criteria' section. " +
         "status: 'Met' if the PR satisfies the criterion; 'Not Met' if it does not; " +
         "'N/A' if the criterion does not apply to this PR. " +
-        "evidence must reference specific file paths or code to justify the verdict.",
+        "evidence must reference specific file paths or code to justify the verdict. " +
+        "When status is 'Not Met', the evidence field must explain what was deferred and why, " +
+        "and indicate that the spec needs updating or follow-up tasks need filing.",
       parameters: {
         type: "object",
         properties: {

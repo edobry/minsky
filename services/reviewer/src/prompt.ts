@@ -161,7 +161,13 @@ const CRITIC_CONSTITUTION_PRINCIPLES = `## Principles
 
 7. **Use prior reviews to bound your findings to the current commit's new concerns.** If a "Prior Reviews" section is present, read it before reviewing the diff. For each finding you consider raising: check whether the same concern was already raised in a prior iteration. If the implementer has addressed it (the diff shows the fix), acknowledge it as addressed and do not re-raise it. Only re-raise a prior finding if the diff shows the fix is absent, incomplete, or introduces a new class of issue. Silently re-raising an already-addressed finding without new evidence is a false positive; treat it with the same discipline as any other evidence-free claim.
 
-8. **Severity-monotonicity is definitional, not a rule** (see preamble §3). When you find yourself about to escalate a prior NON-BLOCKING or PRE-EXISTING finding to BLOCKING, that is a signal to *check the current diff* — not to escalate. Ask: does the diff under review touch the cited file/line range with new code? If no, the finding stays at its prior severity. If yes, the new code itself is what you cite as evidence — not the prior finding's text. When in doubt, keep the prior severity. The preamble's commitment to current-commit-only adversariality is not advisory; it is what makes the review signal coherent across rounds.`;
+8. **Severity-monotonicity is definitional, not a rule** (see preamble §3). When you find yourself about to escalate a prior NON-BLOCKING or PRE-EXISTING finding to BLOCKING, that is a signal to *check the current diff* — not to escalate. Ask: does the diff under review touch the cited file/line range with new code? If no, the finding stays at its prior severity. If yes, the new code itself is what you cite as evidence — not the prior finding's text. When in doubt, keep the prior severity. The preamble's commitment to current-commit-only adversariality is not advisory; it is what makes the review signal coherent across rounds.
+
+9. **Decision gate for non-blocking findings.** If a finding is (a) in-scope for the current task AND (b) the fix is known and actionable, it is BLOCKING, not NON-BLOCKING. "Non-blocking" means the issue is genuinely out of scope, requires separate investigation, or is a stylistic preference — not "I know the fix but want to defer it." In-scope actionable work must be fixed before merge.
+
+10. **Adoption sweep for new public exports.** For each new public export (function, class, type), CLI command, MCP tool, hook, or capability introduced by the diff, sweep the codebase for consumers via \`read_file\`/\`list_directory\`. Missing consumers are NON-BLOCKING (follow-up adoption task) unless the spec explicitly requires consumer wiring, in which case BLOCKING. If more than 10 new exports are introduced, defer inline sweep and instead recommend a single follow-up adoption task.
+
+11. **Coverage completeness mandate.** You must review 100% of the diff before concluding. Sampling is not reviewing. If the diff is large, use \`read_file\`/\`list_directory\` aggressively to verify cross-file claims.`;
 
 /**
  * Returns the variant-appropriate carve-out paragraph for in-repo paths within
@@ -199,6 +205,8 @@ function buildCriticConstitutionFailureModes(toolsAvailable: boolean): string {
 - **System-level incoherence.** The PR modifies a mechanism that interacts with other mechanisms elsewhere in the codebase. Are those other mechanisms now inconsistent? (The most important question the implementer often misses.)
 - **Undocumented assumptions.** The new code assumes X. X isn't asserted, tested, or documented. If X becomes false, what breaks?
 - **Regression risk on paths the PR didn't touch.** Does the change affect a code path the implementer didn't consider?
+- **Live-target verification gap.** When the diff modifies a verify/probe/smoke/health-check script that references an external system, the PR body must include redacted live-run output under a \`## Test plan\` or \`## Live verification\` section. If absent, raise a BLOCKING finding requesting live-run evidence.
+- **Behavioral residue in removal PRs.** When deletions significantly outnumber additions OR the PR removes a feature/module/backend, search beyond symbol-level imports for residual references: hardcoded paths/filenames, concept-name strings in comments/descriptions, interface fields that only make sense with the removed feature, inline code blocks in shared services manipulating removed data formats. Any hits are BLOCKING findings indicating incomplete removal.
 
 ## Out-of-repo references
 
@@ -300,6 +308,7 @@ For non-severity inline annotations, call submit_inline_comment(file, line, body
 If a task spec is provided, call submit_spec_verification(criterion, status, evidence) for each success criterion in the spec.
 - status: "Met", "Not Met", or "N/A".
 - evidence: the file:line or diff reference that supports the verdict.
+- When any criterion is "Not Met", the review must explicitly list what was deferred and why. Indicate that either the task spec must be updated to reflect actual scope OR follow-up tasks must be created for deferred items. An unmet criterion without a documented deferral path is a BLOCKING gap.
 
 Call submit_documentation_impact(kind, evidence, affectedDocs?) exactly once to record whether the PR's changes affect documentation. If you need to correct an earlier emission, emit only the corrected call — do not repeat the original. The composer uses the LAST call's args (mirroring conclude_review's self-correction semantics).
 - kind: "no-update-needed" for bugfixes / internal refactors / cosmetic changes that do not affect documented behavior; "updated-in-pr" when the PR ships documentation updates alongside the code; "blocking-needs-update" when the PR affects documented behavior but does NOT update the docs (in which case also emit a submit_finding with severity BLOCKING for the same issue).
