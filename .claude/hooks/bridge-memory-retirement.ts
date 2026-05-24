@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // PostToolUse hook on `mcp__minsky__session_pr_merge` and
-// `mcp__minsky__tasks_status_set` (when result status = DONE): inject an
-// `additionalContext` reminder that bridge memories tagged with the completing
-// task's ID may exist, and prompt the agent to check redundancy and delete
-// if derivative.
+// `mcp__minsky__tasks_status_set` (when result status = DONE): search for
+// bridge memories tagged with the completing task's ID, and when candidates
+// exist inject an `additionalContext` reminder naming each memory (ID + name)
+// with the redundancy-check decision rule.
 //
 // Originating incident: 2026-05-23 mt#2056 closeout. Bridge memory `70ba7f79`
 // had a budget criterion with no retirement mechanism — no actor, no trigger,
@@ -13,14 +13,10 @@
 // structural fix that makes the retirement decision unavoidable at the right
 // moment.
 //
-// The hook does NOT auto-search or auto-delete — the redundancy check requires
-// comparing memory content against the task spec and PR body, which requires
-// context the hook can't perform. The agent has that context; the hook's job
-// is to ensure the agent is prompted to use it.
-//
 // Architecture: same shape as `.claude/hooks/drive-pr-to-convergence.ts`
-// (PostToolUse, inject additionalContext on success, informational — never
-// blocks). Uses `readInput()` and `writeOutput()` from `./types.ts`.
+// (PostToolUse, inject additionalContext on success, always exit 0,
+// informational only). Uses `readInput()`, `writeOutput()`, and
+// `execWithPath()` from `./types.ts`.
 //
 // Override env var: MINSKY_SKIP_BRIDGE_RETIREMENT — when set to 1/true/yes,
 // suppress the context injection and audit-log to stdout.
@@ -29,12 +25,13 @@
 // - Memory `76153081` — bridge memory retirement decision rule (behavioral
 //   bridge until this hook shipped)
 // - `.claude/hooks/drive-pr-to-convergence.ts` — architectural precedent
+// - `.claude/hooks/memory-search.ts` — pattern for minsky CLI invocation
 // - CLAUDE.md §Temporary mechanism budget — parent rule
 // - mt#2056 — originating task
 // - mt#2062 — this hook's tracking task
 // @see mt#2062
 
-import { readInput, writeOutput } from "./types";
+import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
 
 /** Override env var name (source of truth — used in tests and CLAUDE.md docs). */
@@ -44,10 +41,27 @@ export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_BRIDGE_RETIREMENT";
 const TARGET_TOOLS = new Set(["mcp__minsky__session_pr_merge", "mcp__minsky__tasks_status_set"]);
 
 /**
+ * Timeout for the `minsky memory search` subprocess call (ms).
+ * The hook's host cap is 10s (settings.json). We use 7s (70%) leaving
+ * headroom for process startup, stdout writes, and OS scheduling jitter.
+ */
+const SEARCH_TIMEOUT_MS = 7_000;
+
+/**
+ * Limit for `minsky memory search` results. Broader search so we don't miss
+ * bridge memories that don't rank at the very top.
+ */
+const SEARCH_LIMIT = 10;
+
+// ---------------------------------------------------------------------------
+// Tool input / result parsing
+// ---------------------------------------------------------------------------
+
+/**
  * Extract the task ID from the tool input, depending on which tool fired.
  *
- * - `session_pr_merge`: uses `input.tool_input.task` or `input.tool_input.taskId`
- * - `tasks_status_set`: uses `input.tool_input.taskId`
+ * - `session_pr_merge`: uses `tool_input.task` or `tool_input.taskId`
+ * - `tasks_status_set`: uses `tool_input.taskId`
  *
  * Returns null if the task ID cannot be determined.
  */
@@ -105,25 +119,181 @@ export function isDoneTransition(input: ToolHookInput): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Memory search and bridge-candidate filtering
+// ---------------------------------------------------------------------------
+
 /**
- * Build the additionalContext reminder for the agent.
- *
- * Named fields keep the message grounded in the specific task so the agent
- * doesn't need to infer the task ID from surrounding context.
+ * Minimal memory record shape from `minsky memory search --output json`.
+ * Only the fields needed for bridge-candidate detection and the reminder.
  */
-export function buildReminder(taskId: string): string {
+export interface MemoryRecordLite {
+  id: string;
+  name: string;
+  description: string;
+  content: string;
+  tags?: string[];
+}
+
+export interface MemorySearchResultLite {
+  record: MemoryRecordLite;
+  score: number;
+}
+
+export interface MemorySearchResponse {
+  results: MemorySearchResultLite[];
+  degraded: boolean;
+}
+
+/**
+ * Parse the JSON output from `minsky memory search --output json`.
+ *
+ * Returns null on parse failure or unexpected shape so the caller can skip
+ * silently (fail-open posture). Defensively validates the result array and
+ * drops entries that don't conform.
+ */
+export function parseSearchOutput(stdout: string): MemorySearchResponse | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    // Fallback: scan for a JSON object start (handles warning lines before output)
+    const lines = trimmed.split("\n");
+    const candidateStarts: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if ((lines[i] ?? "").trimStart().startsWith("{")) {
+        candidateStarts.push(i);
+      }
+    }
+    let fallback: unknown = null;
+    for (let i = candidateStarts.length - 1; i >= 0; i--) {
+      try {
+        fallback = JSON.parse(lines.slice(candidateStarts[i]).join("\n"));
+        break;
+      } catch {
+        // Try earlier candidate
+      }
+    }
+    if (fallback === null) return null;
+    parsed = fallback;
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const obj = parsed as Record<string, unknown>;
+
+  const rawResults = Array.isArray(obj["results"]) ? (obj["results"] as unknown[]) : [];
+  const degraded = obj["degraded"] === true;
+
+  const results: MemorySearchResultLite[] = [];
+  for (const item of rawResults) {
+    if (!item || typeof item !== "object") continue;
+    const entry = item as Record<string, unknown>;
+    const record = entry["record"] as Record<string, unknown> | undefined;
+    const score = entry["score"];
+    if (!record || typeof record !== "object" || typeof score !== "number") continue;
+    if (typeof record["id"] !== "string" || typeof record["name"] !== "string") continue;
+    const tags = Array.isArray(record["tags"])
+      ? (record["tags"] as unknown[]).filter((t): t is string => typeof t === "string")
+      : undefined;
+    results.push({
+      record: {
+        id: record["id"] as string,
+        name: record["name"] as string,
+        description:
+          typeof record["description"] === "string" ? (record["description"] as string) : "",
+        content: typeof record["content"] === "string" ? (record["content"] as string) : "",
+        tags,
+      },
+      score,
+    });
+  }
+
+  return { results, degraded };
+}
+
+/**
+ * Determine whether a memory record is bridge-shaped.
+ *
+ * A memory is a bridge candidate when ANY of:
+ * - its `tags` array contains `"bridge-memory"`
+ * - its `description` contains the word "bridge" (case-insensitive)
+ * - its `content` contains the phrase "Tracking task" (case-insensitive)
+ * - its `description` or `content` contains "bridge" (case-insensitive) and
+ *   the task ID
+ *
+ * The last condition catches bridge memories that mention the task ID even
+ * when they weren't explicitly tagged.
+ */
+export function isBridgeCandidate(record: MemoryRecordLite, taskId: string): boolean {
+  // Tag check
+  if (record.tags && record.tags.includes("bridge-memory")) return true;
+
+  const descLower = record.description.toLowerCase();
+  const contentLower = record.content.toLowerCase();
+  const taskIdLower = taskId.toLowerCase();
+
+  // "bridge" in description or content
+  if (descLower.includes("bridge") || contentLower.includes("bridge")) return true;
+
+  // "Tracking task" phrase (common bridge memory marker)
+  if (descLower.includes("tracking task") || contentLower.includes("tracking task")) return true;
+
+  // Task ID mentioned (belt-and-suspenders: catch task-ID-tagged memories)
+  if (descLower.includes(taskIdLower) || contentLower.includes(taskIdLower)) return true;
+
+  return false;
+}
+
+/**
+ * Run `minsky memory search` for the given task ID and return bridge-shaped
+ * candidates. Returns null on CLI error/timeout (fail-open — treat as no
+ * candidates so the hook exits silently).
+ */
+export function searchBridgeCandidates(
+  taskId: string,
+  timeoutMs: number = SEARCH_TIMEOUT_MS
+): MemoryRecordLite[] | null {
+  const result = execWithPath(
+    ["minsky", "memory", "search", taskId, "--limit", String(SEARCH_LIMIT), "--output", "json"],
+    { timeout: timeoutMs }
+  );
+
+  if (result.timedOut || result.exitCode !== 0) {
+    // Fail-open: don't emit context on search failure
+    return null;
+  }
+
+  const parsed = parseSearchOutput(result.stdout);
+  if (!parsed || parsed.degraded) {
+    return null;
+  }
+
+  return parsed.results.map((r) => r.record).filter((record) => isBridgeCandidate(record, taskId));
+}
+
+// ---------------------------------------------------------------------------
+// Reminder construction
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the additionalContext reminder when bridge candidates exist.
+ * Names each candidate (ID + name) so the agent has a concrete list to act on.
+ */
+export function buildReminder(taskId: string, candidates: MemoryRecordLite[]): string {
+  const candidateList = candidates.map((c) => `  - \`${c.id}\` — ${c.name}`).join("\n");
+
   return [
     `Task ${taskId} has just transitioned to DONE.`,
     "",
-    "**Bridge-memory retirement check (required):**",
-    `Search for bridge memories associated with this task via:`,
-    `  \`mcp__minsky__memory_search\` with query \`"${taskId}"\``,
+    `**Bridge-memory retirement check (required):**`,
+    `The following bridge-shaped memories were found for task ${taskId}:`,
     "",
-    "Filter results for bridge-shaped memories — any memory whose:",
-    "- tags include `bridge-memory`, OR",
-    "- description/content contains `bridge` or `Tracking task`",
+    candidateList,
     "",
-    "**Decision rule for each bridge candidate:**",
+    "**Decision rule for each candidate:**",
     "1. Compare the memory's content against the task spec and merged PR.",
     "2. If the memory's content is **redundant** with the spec + PR",
     "   (i.e., a reader can find the same information there) →",
@@ -134,20 +304,28 @@ export function buildReminder(taskId: string): string {
     "   bridge framing (remove `bridge-memory` tag, rewrite the description",
     '   as a standing rule rather than a "until X ships" interim).',
     "",
-    "Silent skip is acceptable only when `memory_search` returns zero bridge",
-    "candidates. A non-empty candidate list always requires an explicit",
-    'decision per rule (2) or (3) above — not a deferred "I\'ll check later".',
+    "A non-empty candidate list always requires an explicit decision per",
+    'rule (2) or (3) above — not a deferred "I\'ll check later".',
   ].join("\n");
 }
 
+// ---------------------------------------------------------------------------
+// Main decision function
+// ---------------------------------------------------------------------------
+
 /**
- * Main decision function. Returns the context string to inject, or null if
- * the hook should be silent (non-matching tool, failed result, not a DONE
- * transition, override env var set).
+ * Main decision function. Performs the memory search and returns the context
+ * string to inject, or null if the hook should be silent.
  *
- * Exported for testability.
+ * Silent paths: non-matching tool, failed result, not a DONE transition,
+ * override env var set, search error, or no bridge candidates found.
+ *
+ * Exported for testability with injectable deps.
  */
-export function decide(input: ToolHookInput): string | null {
+export function decide(
+  input: ToolHookInput,
+  searchFn: (taskId: string) => MemoryRecordLite[] | null = searchBridgeCandidates
+): string | null {
   // Non-matching tool: silent.
   if (!TARGET_TOOLS.has(input.tool_name)) return null;
 
@@ -155,7 +333,7 @@ export function decide(input: ToolHookInput): string | null {
   const override = process.env[OVERRIDE_ENV_VAR];
   if (override === "1" || override === "true" || override === "yes") {
     process.stdout.write(
-      `[bridge-memory-retirement] override active (${OVERRIDE_ENV_VAR}=${override}) — skipping reminder\n`
+      `[bridge-memory-retirement] override active (${OVERRIDE_ENV_VAR}=${override}) — skipping\n`
     );
     return null;
   }
@@ -163,17 +341,25 @@ export function decide(input: ToolHookInput): string | null {
   // Not a DONE transition: silent.
   if (!isDoneTransition(input)) return null;
 
-  // Extract task ID for the reminder.
+  // Extract task ID for the search.
   const taskId = extractTaskId(input);
   if (!taskId) return null;
 
-  return buildReminder(taskId);
+  // Search for bridge candidates. Fail-open: null = search error = silent.
+  const candidates = searchFn(taskId);
+  if (!candidates || candidates.length === 0) return null;
+
+  return buildReminder(taskId, candidates);
 }
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 /**
  * Main entrypoint. Reads ToolHookInput from stdin; emits HookOutput JSON to
- * stdout when the hook should fire. Always exits 0 — the hook is informational
- * and must never block the tool call's success surfacing.
+ * stdout when bridge candidates exist. Always exits 0 — the hook is
+ * informational and must never block the tool call's success surfacing.
  */
 async function main(): Promise<void> {
   let input: ToolHookInput;
