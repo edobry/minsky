@@ -56,8 +56,8 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     to: "/tasks",
-    label: "Task Graph",
-    description: "Dependency graph view",
+    label: "Tasks",
+    description: "List and graph views",
     icon: Network,
   },
 ];
