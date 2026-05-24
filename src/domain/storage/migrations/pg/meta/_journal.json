@@ -281,6 +281,13 @@
       "when": 1779800000000,
       "tag": "0039_agent_transcript_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1779886400000,
+      "tag": "0040_memory_associations",
+      "breakpoints": true
     }
   ]
 }
