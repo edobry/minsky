@@ -4,8 +4,8 @@
  * Structure (operator journey order):
  *   1. System section  — compact status cards (BasicHealth, Attention, Credentials)
  *      inside a subtle bordered panel; rendered by App.tsx's HomePage component.
- *   2. Nav section — generous tiles for the three promoted pages.
- *      Exported here as PromotedPageTiles, consumed by App.tsx.
+ *   2. Nav section — generous tiles linking to the feature pages.
+ *      Exported here as PageNavTiles, consumed by App.tsx.
  *
  * The two sections are intentionally different in visual weight:
  *   System  = dense, data-first cards enclosed in a muted bordered panel
@@ -74,7 +74,7 @@ function EntryTile({ to, icon: Icon, label, description, badge }: EntryTileProps
 // Promoted pages section — exported for use in App.tsx
 // ---------------------------------------------------------------------------
 
-export function PromotedPageTiles() {
+export function PageNavTiles() {
   return (
     <section aria-label="Navigate to feature pages">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">

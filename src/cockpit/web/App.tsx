@@ -21,7 +21,7 @@ import { AgentsPage } from "./pages/AgentsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { AsksPage } from "./pages/AsksPage";
-import { PromotedPageTiles } from "./pages/HomePage";
+import { PageNavTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -105,7 +105,7 @@ function HomePage({ widgets }: HomePageProps) {
       )}
 
       {/* Navigate section — below status: where am I going? */}
-      <PromotedPageTiles />
+      <PageNavTiles />
     </div>
   );
 }
