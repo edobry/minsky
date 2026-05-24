@@ -75,10 +75,24 @@ class TaskTitleCache {
   async getTitles(taskIds: string[]): Promise<Map<string, string>> {
     if (!this.isStale() && this.cache.size > 0) {
       const result = new Map<string, string>();
+      const missing: string[] = [];
       for (const id of taskIds) {
         const title = this.cache.get(id);
-        if (title != null) result.set(id, title);
+        if (title != null) {
+          result.set(id, title);
+        } else {
+          missing.push(id);
+        }
       }
+
+      if (missing.length > 0) {
+        await this.fetchAndCache(missing);
+        for (const id of missing) {
+          const title = this.cache.get(id);
+          if (title != null) result.set(id, title);
+        }
+      }
+
       return result;
     }
 
@@ -105,6 +119,32 @@ class TaskTitleCache {
       if (title != null) result.set(id, title);
     }
     return result;
+  }
+
+  private async fetchAndCache(ids: string[]): Promise<void> {
+    try {
+      const taskProvider = await this.getTaskProvider();
+      if (typeof taskProvider.getTasks === "function") {
+        const tasks = await taskProvider.getTasks(ids);
+        for (const task of tasks) {
+          this.cache.set(task.id, task.title);
+        }
+      } else {
+        const results = await Promise.all(
+          ids.map(async (displayId) => {
+            const task = await taskProvider.getTask(displayId);
+            return { displayId, title: task?.title ?? null };
+          })
+        );
+        for (const { displayId, title } of results) {
+          if (title != null) {
+            this.cache.set(displayId, title);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — missing IDs stay uncached
+    }
   }
 
   private async populate(taskIds: string[]): Promise<void> {

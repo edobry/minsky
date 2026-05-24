@@ -30,7 +30,7 @@ interface AgentRow {
 
 interface AgentsPayload {
   agents: AgentRow[];
-  totalCount?: number;
+  totalCount: number;
 }
 
 // Narrows the shared `WidgetData` envelope to the agents-specific payload shape.
@@ -38,7 +38,8 @@ function isAgentsPayload(payload: unknown): payload is AgentsPayload {
   return (
     typeof payload === "object" &&
     payload !== null &&
-    Array.isArray((payload as { agents?: unknown }).agents)
+    Array.isArray((payload as { agents?: unknown }).agents) &&
+    typeof (payload as { totalCount?: unknown }).totalCount === "number"
   );
 }
 

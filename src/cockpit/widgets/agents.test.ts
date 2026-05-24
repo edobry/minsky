@@ -389,4 +389,49 @@ describe("createAgentsWidget — pagination and caching", () => {
     const payload = data2.payload as { agents: AgentRow[] };
     expect(payload.agents[0]?.taskTitle).toBe("Title mt#100");
   });
+
+  test("cache read-through: second page fetches only unseen IDs", async () => {
+    const getTasksCalls: string[][] = [];
+    const taskProvider: TaskProviderLike = {
+      getTask: async () => null,
+      getTasks: async (ids: string[]) => {
+        getTasksCalls.push([...ids]);
+        return ids.map((id) => ({ id, title: `Title ${id}` }));
+      },
+    };
+
+    const page1Sessions = [
+      makeActiveSession({ sessionId: S1, taskId: "mt#100" }),
+      makeActiveSession({ sessionId: S2, taskId: "mt#200" }),
+    ];
+
+    const page2Sessions = [
+      makeActiveSession({ sessionId: S1, taskId: "mt#100" }),
+      makeActiveSession({ sessionId: S2, taskId: "mt#200" }),
+      makeActiveSession({ sessionId: S3, taskId: "mt#300" }),
+    ];
+
+    let currentSessions = page1Sessions;
+    const widget = createAgentsWidget(
+      async () => makeSessionProvider(currentSessions),
+      async () => taskProvider
+    );
+
+    // Page 1: warms cache with mt#100, mt#200
+    await widget.fetch({ id: "agents" });
+    expect(getTasksCalls.length).toBe(1);
+    expect(getTasksCalls[0]?.sort()).toEqual(["mt#100", "mt#200"]);
+
+    // Page 2: mt#300 is new — should fetch only mt#300
+    currentSessions = page2Sessions;
+    const data2 = await widget.fetch({ id: "agents" });
+    expect(getTasksCalls.length).toBe(2);
+    expect(getTasksCalls[1]).toEqual(["mt#300"]);
+
+    if (data2.state !== "ok") throw new Error("expected ok");
+    const agents = (data2.payload as { agents: AgentRow[] }).agents;
+    expect(agents.find((a) => a.sessionId === S3)?.taskTitle).toBe("Title mt#300");
+    // Cached titles still work
+    expect(agents.find((a) => a.sessionId === S1)?.taskTitle).toBe("Title mt#100");
+  });
 });
