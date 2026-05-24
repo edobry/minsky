@@ -23,31 +23,53 @@
  * @see mt#2071
  */
 
-import { resolve } from "path";
+import type { MemoryServiceSurface, MemoryServiceDb } from "../src/domain/memory/memory-service";
 
-const PROJECT_ROOT = resolve(import.meta.dirname, "..");
+async function buildMemoryService(): Promise<MemoryServiceSurface> {
+  const { initializeConfiguration, CustomConfigFactory } = await import(
+    "../src/domain/configuration"
+  );
+  const { createCliContainer } = await import("../src/composition/cli");
+  const { PersistenceProvider } = await import("../src/domain/persistence/types");
+  const { createEmbeddingServiceFromConfig } = await import(
+    "../src/domain/ai/embedding-service-factory"
+  );
+  const { createVectorStorageForDomain } = await import(
+    "../src/domain/storage/vector/vector-storage-factory"
+  );
+  const { MemoryService } = await import("../src/domain/memory");
+
+  await initializeConfiguration(new CustomConfigFactory(), {
+    workingDirectory: process.cwd(),
+  });
+
+  const container = await createCliContainer();
+  await container.initialize();
+
+  const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+  if (!persistence || !(persistence instanceof PersistenceProvider)) {
+    throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
+  }
+  if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+    throw new Error("Backfill requires a SQL-capable persistence provider (Postgres).");
+  }
+
+  const connection = await persistence.getDatabaseConnection();
+  if (!connection) {
+    throw new Error("Backfill requires an initialized Postgres database connection.");
+  }
+
+  const db = connection as MemoryServiceDb;
+  const embeddingService = await createEmbeddingServiceFromConfig();
+  const vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
+
+  return new MemoryService({ db, vectorStorage, embeddingService });
+}
 
 async function main() {
   const execute = process.argv.includes("--execute");
 
-  const { createMinskyContainer } = await import(
-    `${PROJECT_ROOT}/src/dependency-injection/container`
-  );
-
-  const container = await createMinskyContainer();
-  const memoryService = container.resolve("memoryService") as {
-    list: (filter: Record<string, unknown>) => Promise<
-      Array<{
-        id: string;
-        name: string;
-        content: string;
-        tags: string[];
-        associations: Record<string, string[]>;
-      }>
-    >;
-    update: (id: string, input: { associations: Record<string, string[]> }) => Promise<unknown>;
-  };
-
+  const memoryService = await buildMemoryService();
   const allMemories = await memoryService.list({});
 
   console.log(`Found ${allMemories.length} memories to scan.\n`);
