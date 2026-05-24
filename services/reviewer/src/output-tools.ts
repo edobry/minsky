@@ -488,8 +488,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
       name: "submit_documentation_impact",
       description:
         "Record whether the PR's changes affect any project documentation. " +
-        "Call this exactly once per review (zero only if the PR is purely internal and " +
-        "documentation impact does not apply — e.g., a tests-only refactor). " +
+        "Call this exactly once per review — every review MUST include this call. " +
         "kind: 'no-update-needed' for bugfix/internal-refactor/cosmetic PRs that do not " +
         "change documented behavior; 'updated-in-pr' when the PR ships documentation " +
         "updates alongside the code; 'blocking-needs-update' when the PR affects " +
