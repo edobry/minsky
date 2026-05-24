@@ -839,7 +839,7 @@ export function validateReviewContent(
 export type SmokeStatus = "pass" | "fail" | "skipped" | "absent";
 
 export function parseSmokeStatus(reviewBody: string): SmokeStatus {
-  const match = reviewBody.match(/\*{0,2}Smoke:\*{0,2}\s*`?(pass|fail|skipped)`?/i);
+  const match = reviewBody.match(/(?:^|\n)\s*\*{0,2}Smoke:\*{0,2}\s*`?(pass|fail|skipped)`?/i);
   if (!match || !match[1]) return "absent";
   return match[1].toLowerCase() as SmokeStatus;
 }
@@ -874,12 +874,10 @@ export function evaluateSmokeStatus(
   });
   if (hasPassingSmoke) return { deny: false };
 
-  const allBot = reviews.filter((r) => r.body).every((r) => r.user_login === expectedBotLogin);
+  const allBot = reviews.every((r) => r.user_login === expectedBotLogin);
   if (allBot) return { deny: false };
 
-  const hasNonBotReview = reviews.some(
-    (r) => r.body && r.user_login && r.user_login !== expectedBotLogin
-  );
+  const hasNonBotReview = reviews.some((r) => r.user_login && r.user_login !== expectedBotLogin);
   if (hasNonBotReview) {
     return {
       deny: true,

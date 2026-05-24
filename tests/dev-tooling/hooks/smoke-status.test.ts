@@ -44,6 +44,19 @@ describe("parseSmokeStatus", () => {
   it("returns absent for body with only bundle-boot-smoke (not the review Smoke field)", () => {
     expect(parseSmokeStatus("bundle-boot-smoke: success")).toBe("absent");
   });
+
+  it("returns absent for bundle-boot-smoke: skipped (anchoring — not a review Smoke field)", () => {
+    expect(parseSmokeStatus("bundle-boot-smoke: skipped")).toBe("absent");
+  });
+
+  it("returns absent for malformed Smoke values", () => {
+    expect(parseSmokeStatus("Smoke: nope")).toBe("absent");
+    expect(parseSmokeStatus("Smoke: maybe")).toBe("absent");
+  });
+
+  it("matches Smoke field at line start after other content", () => {
+    expect(parseSmokeStatus("## CI status\nAll green\n**Smoke:** `pass`\n## Summary")).toBe("pass");
+  });
 });
 
 describe("evaluateSmokeStatus", () => {
@@ -106,6 +119,21 @@ describe("evaluateSmokeStatus", () => {
     const result = evaluateSmokeStatus(reviews, "42", botLogin);
     expect(result.deny).toBe(true);
     expect(result.reason).toContain("Smoke: fail");
+  });
+
+  it("denies when human review has empty body (identity carve-out edge case)", () => {
+    const reviews = [
+      makeReview(botOnlyBody, botLogin),
+      {
+        body: "",
+        commit_id: "abc1234",
+        submitted_at: "2026-05-23T12:00:00Z",
+        user_login: "some-human",
+      },
+    ];
+    const result = evaluateSmokeStatus(reviews, "42", botLogin);
+    expect(result.deny).toBe(true);
+    expect(result.reason).toContain("lacks a Smoke: field");
   });
 
   it("permits on empty reviews array", () => {
