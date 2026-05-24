@@ -93,7 +93,8 @@ To populate `~/.config/minsky/railway-secrets.json`, create it manually with the
   "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url>",
   "MINSKY_POSTGRES_URL": "<supabase-url>",
   "MINSKY_SESSIONDB_POSTGRES_URL": "<supabase-url>",
-  "OPENAI_API_KEY": "<key>"
+  "OPENAI_API_KEY": "<key>",
+  "MINSKY_OAUTH_SIGNING_KEY": "<jwk-json-string>"
 }
 ```
 
@@ -168,7 +169,7 @@ The hosted Minsky MCP supports OAuth 2.1 in addition to the static-bearer-token 
 The InProcessOAuthProvider works with zero additional configuration in v1:
 
 - **Issuer URL** — derived from `req.hostname` + `req.protocol` (Express's `trust proxy 1` setting honors Railway's `X-Forwarded-Proto` / `X-Forwarded-Host`). Setting `MINSKY_OAUTH_ISSUER` is only necessary if the service runs behind multiple hostnames.
-- **Signing key** — when `MINSKY_OAUTH_SIGNING_KEY` is unset, the provider generates an ephemeral RSA-2048 keypair at startup and logs a WARN. **Tradeoff:** tokens are invalidated on every Railway redeploy. For v1 (claude.ai web acceptance) this is acceptable — users re-authorize when their token becomes invalid. Production hardening tracked separately.
+- **Signing key** — `MINSKY_OAUTH_SIGNING_KEY` is set as a sealed Railway secret containing a persistent RSA-2048 JWK (kty=RSA, use=sig, alg=RS256). Tokens survive Railway redeploys. The env var is registered in `environmentMappings` (path `oauth.signingKey`) so the config system maps it correctly — the auto-conversion fallback would produce the wrong path (`oauth.signing.key`). See "Signing-key rotation" below for generation and rotation instructions.
 
 ### Onboarding claude.ai web users
 
