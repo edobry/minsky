@@ -331,7 +331,7 @@ export function estimateTokens(text: string): number {
 export function renderResult(result: MemorySearchResultLite): string {
   const { record, score } = result;
   const scoreStr = score.toFixed(3);
-  return `### ${record.name} (${record.type}, score ${scoreStr})\n${record.description}\n\n${record.content}`;
+  return `### ${record.name} (${record.type}, id ${record.id.slice(0, 8)}, score ${scoreStr})\n${record.description}\n\n${record.content}`;
 }
 
 const ENVELOPE_HEADER =
