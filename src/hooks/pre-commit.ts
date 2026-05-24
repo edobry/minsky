@@ -9,7 +9,7 @@
 
 import { execAsync } from "../utils/exec";
 import { execGitWithTimeout } from "../utils/git-exec";
-import { stat } from "fs/promises";
+import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
 import { ProjectConfigReader } from "../domain/project/config-reader";
 import { log } from "../utils/logger";
@@ -24,6 +24,11 @@ import {
   isWorkspaceCopyOverrideTruthy,
   WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
 } from "./workspace-copy-detector";
+import {
+  detectMissingJournalEntries,
+  MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV,
+  type JournalEntry,
+} from "./migration-journal-check";
 
 export interface ESLintResult {
   filePath: string;
@@ -116,6 +121,16 @@ export class PreCommitHook {
       const workspaceCopyResult = await this.runWorkspaceCopyCheck();
       if (!workspaceCopyResult.success) {
         return workspaceCopyResult;
+      }
+
+      // Step 3d: Migration journal consistency (mt#2087). Verify that every
+      // SQL file under src/domain/storage/migrations/pg/ has a corresponding
+      // entry in meta/_journal.json. Prevents the mt#2086 class where a
+      // hand-written SQL file ships without a journal entry, making it
+      // invisible to Drizzle's migrator.
+      const migrationJournalResult = await this.runMigrationJournalCheck();
+      if (!migrationJournalResult.success) {
+        return migrationJournalResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -816,6 +831,74 @@ export class PreCommitHook {
         message: `Workspace-COPY check failed: ${errorMsg}`,
         exitCode: 1,
       };
+    }
+  }
+
+  private async runMigrationJournalCheck(): Promise<HookResult> {
+    if (isOverrideTruthy(process.env[MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:migration-journal] override ${MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV}=${process.env[MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — migration journal check skipped`
+      );
+      return {
+        success: true,
+        message: "Migration journal check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      const migrationsDir = join(this.projectRoot, "src/domain/storage/migrations/pg");
+      const metaDir = join(migrationsDir, "meta");
+
+      let sqlFiles: string[];
+      try {
+        const entries = await readdir(migrationsDir);
+        sqlFiles = entries.filter((f) => f.endsWith(".sql")).sort();
+      } catch {
+        return {
+          success: true,
+          message: "Migration journal check skipped (no migrations dir)",
+          exitCode: 0,
+        };
+      }
+
+      if (sqlFiles.length === 0) {
+        return {
+          success: true,
+          message: "Migration journal check skipped (no SQL files)",
+          exitCode: 0,
+        };
+      }
+
+      let journalEntries: JournalEntry[];
+      try {
+        const raw = String(await readFile(join(metaDir, "_journal.json"), "utf-8"));
+        const parsed = JSON.parse(raw) as { entries: JournalEntry[] };
+        journalEntries = parsed.entries ?? [];
+      } catch {
+        return {
+          success: false,
+          message: "Migration journal check failed: could not read meta/_journal.json",
+          exitCode: 1,
+        };
+      }
+
+      const result = detectMissingJournalEntries(sqlFiles, journalEntries);
+
+      if (result.success) {
+        return { success: true, message: result.message, exitCode: 0 };
+      }
+
+      log.cli("");
+      log.cli(result.message);
+      log.cli("");
+
+      return { success: false, message: "Migration journal consistency check failed", exitCode: 1 };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, message: `Migration journal check error: ${msg}`, exitCode: 1 };
     }
   }
 
