@@ -288,6 +288,13 @@
       "when": 1779886400000,
       "tag": "0040_memory_associations",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1748131869000,
+      "tag": "0041_system_events",
+      "breakpoints": true
     }
   ]
 }

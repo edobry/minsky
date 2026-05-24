@@ -65,6 +65,7 @@ export default {
     "./src/domain/storage/schemas/oauth-schema.ts",
     "./src/domain/storage/schemas/tool-embeddings.ts",
     "./src/domain/storage/schemas/wake-pending-schema.ts",
+    "./src/domain/storage/schemas/system-events-schema.ts",
     "./src/domain/detectors/dismissal-store.ts",
   ],
   out: "./src/domain/storage/migrations/pg",

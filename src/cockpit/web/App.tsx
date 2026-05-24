@@ -23,6 +23,7 @@ import { TasksListPage } from "./pages/TasksListPage";
 import { TasksGraphPage } from "./pages/TasksGraphPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { AsksPage } from "./pages/AsksPage";
+import { ActivityPage } from "./pages/ActivityPage";
 import { PageNavTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
@@ -252,6 +253,14 @@ export function App() {
           element={
             <ErrorBoundary id="asks-page">
               <AsksPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/activity"
+          element={
+            <ErrorBoundary id="activity-page">
+              <ActivityPage />
             </ErrorBoundary>
           }
         />

@@ -25,6 +25,7 @@ import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { memoryTypeEnum } from "./memory-embeddings";
 import { RELATIONSHIP_TYPE_VALUES } from "../../tasks/task-graph-service";
 import { taskRelationshipsTable, PARENT_RELATIONSHIP_TYPE } from "./task-relationships";
+import { SYSTEM_EVENT_TYPE_VALUES, systemEventTypeEnum } from "./system-events-schema";
 
 // ---------------------------------------------------------------------------
 // Migration-parsing helper
@@ -161,5 +162,27 @@ describe("Enum drift-check — task_relationships.type", () => {
     // explicit and testable without a live DB.
     const values: readonly string[] = RELATIONSHIP_TYPE_VALUES;
     expect(values).toContain(PARENT_RELATIONSHIP_TYPE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// system_event_type enum
+// ---------------------------------------------------------------------------
+
+describe("Enum drift-check — system_event_type", () => {
+  test("SYSTEM_EVENT_TYPE_VALUES matches the values registered in the pgEnum", () => {
+    const enumValues = [...systemEventTypeEnum.enumValues].sort();
+    const tsValues = [...SYSTEM_EVENT_TYPE_VALUES].sort();
+    expect(enumValues).toEqual(tsValues);
+  });
+
+  test("SYSTEM_EVENT_TYPE_VALUES matches the migration SQL", () => {
+    const migrationPath = join(MIGRATIONS_DIR, "0041_system_events.sql");
+    const sqlValues = parseSqlValueList(
+      migrationPath,
+      /CREATE TYPE "system_event_type" AS ENUM \(\s*([\s\S]*?)\s*\)/
+    );
+    const tsValues = [...SYSTEM_EVENT_TYPE_VALUES].sort();
+    expect(sqlValues).toEqual(tsValues);
   });
 });

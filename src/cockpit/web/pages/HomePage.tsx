@@ -16,7 +16,7 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, GitBranch, List, Network, MessageCircleQuestion, ChevronRight } from "lucide-react";
+import { Bot, GitBranch, List, Network, MessageCircleQuestion, Bell, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -107,6 +107,12 @@ export function PageNavTiles() {
           icon={MessageCircleQuestion}
           label="Asks"
           description="Respond to pending principal-attention asks"
+        />
+        <EntryTile
+          to="/activity"
+          icon={Bell}
+          label="Activity"
+          description="System event log — what happened while you were away"
         />
       </div>
     </section>

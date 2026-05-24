@@ -774,6 +774,47 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   });
 
   /**
+   * GET /api/activity — list system events for the activity feed (mt#2092)
+   *
+   * Query params:
+   *   - eventType: filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed)
+   *   - limit: max results (default 100, max 500)
+   *
+   * Returns: { events: SystemEvent[], total: number, limit: number }
+   */
+  app.get("/api/activity", async (req, res) => {
+    try {
+      const db = await getContextInspectorDb();
+      if (!db) {
+        res.status(503).json({
+          error: "DB unavailable — persistence provider does not support SQL",
+        });
+        return;
+      }
+
+      const { listEvents } = await import("../domain/events/query");
+      const eventType =
+        typeof req.query["eventType"] === "string" ? req.query["eventType"] : undefined;
+      const limitParam =
+        typeof req.query["limit"] === "string" ? parseInt(req.query["limit"], 10) : 100;
+      const limit = isNaN(limitParam) ? 100 : Math.min(Math.max(limitParam, 1), 500);
+
+      const events = await listEvents(db, {
+        eventType: eventType as
+          | import("../domain/storage/schemas/system-events-schema").SystemEventType
+          | undefined,
+        limit,
+      });
+
+      res.json({ events, total: events.length, limit });
+    } catch (err: unknown) {
+      res.status(500).json({
+        error: `Failed to list events: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  });
+
+  /**
    * GET /api/asks — list all pending operator-routed asks (mt#1916)
    *
    * Returns: { asks: Ask[], total: number }

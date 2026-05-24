@@ -40,6 +40,7 @@ import { registerDeploymentCommands } from "./deployment";
 import { registerObservabilityCommands } from "./observability";
 import { registerPrincipalCorpusCommands } from "./principal-corpus";
 import { registerForgeCommands } from "./forge";
+import { registerEventsCommands } from "./events";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -154,6 +155,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // is a no-op but matches the convention used by every other group.
   registerForgeCommands();
 
+  // Register events commands (system_events table — event log Phase 1a — mt#2092)
+  registerEventsCommands(container);
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -194,4 +198,5 @@ export {
   registerObservabilityCommands,
   registerPrincipalCorpusCommands,
   registerForgeCommands,
+  registerEventsCommands,
 };
