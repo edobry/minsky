@@ -101,6 +101,7 @@ import {
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { log } from "./logger";
+import { TimeoutError } from "./with-timeout";
 import { extractPgErrorContext } from "./webhook-events";
 
 /**
@@ -244,15 +245,20 @@ export interface CallWithRetryResult {
 }
 
 /**
- * Call the reviewer with single-retry-on-empty semantics (mt#1131).
+ * Call the reviewer with single-retry semantics for both empty output
+ * (mt#1131) and timeout (mt#2083).
  *
- * When a reasoning model exhausts its output budget on hidden reasoning
- * tokens the first call returns empty content. A second attempt with
- * `reasoningEffort: "low"` shifts the budget toward visible output and
- * usually succeeds. Only applied to OpenAI — Google and Anthropic have no
- * equivalent knob, so no retry is attempted for those providers.
+ * Two retry triggers, same shape — exactly one retry, no backoff:
  *
- * Exactly one retry. No backoff, no provider-fallback, no cascading retries.
+ *   1) Empty output: reasoning model exhausts its output budget on hidden
+ *      reasoning tokens. Retry with `reasoningEffort: "low"` to shift
+ *      the budget toward visible output. OpenAI only.
+ *
+ *   2) TimeoutError: transient provider-side latency caused the tool-loop
+ *      per-round timeout to fire. Retry with the same config — transient
+ *      slowness usually clears on the second attempt. All providers.
+ *      mt#2083 originating incident: PR #1252 (1-line bunfig.toml change)
+ *      timed out twice on the webhook path; sweeper succeeded ~100s later.
  *
  * Tool context (mt#1126) passes through to both attempts when provided, so
  * the retry gets the same file-access capabilities as the first call.
@@ -270,7 +276,27 @@ export async function callReviewerWithRetry(
   callReviewerFn: CallReviewerFn = callReviewer,
   outputToolsActive: boolean = false
 ): Promise<CallWithRetryResult> {
-  const first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
+  let first: ReviewOutput;
+  try {
+    first = await callReviewerFn(config, systemPrompt, userPrompt, tools);
+  } catch (err) {
+    if (!(err instanceof TimeoutError)) throw err;
+    log.warn("callReviewerWithRetry.timeout_retry", {
+      event: "callReviewerWithRetry.timeout_retry",
+      op: err.op,
+      timeoutMs: err.timeoutMs,
+      provider: config.provider,
+    });
+    const retry = await callReviewerFn(config, systemPrompt, userPrompt, tools);
+    const retryValidation = validateReviewOutput(retry, outputToolsActive);
+    return {
+      output: retry,
+      validation: retryValidation,
+      attempt: retryValidation.ok ? "retry-success" : "retry-failed",
+      retryAttempted: true,
+    };
+  }
+
   const firstValidation = validateReviewOutput(first, outputToolsActive);
   if (firstValidation.ok) {
     return {
@@ -349,13 +375,23 @@ export function decidePostSanitizeOutcome(
 /**
  * Decide whether tool-use is active for a given PR + provider combination.
  *
- * Gates on two axes (mt#1126 MVP + mt#1216 fork-access probe):
+ * Gates on three axes (mt#1126 MVP + mt#1216 fork-access probe + mt#2083
+ * scope-aware fast path):
  *
  *   1) Provider capability — only OpenAI has a tool-use loop wired up.
  *      Gemini and Anthropic fall back to the no-tools path with a warning
  *      log at the caller site.
  *
- *   2) Fork accessibility — the reviewer App is installed on the base repo;
+ *   2) PR scope — trivial and docs-only PRs skip the tool-use loop
+ *      entirely. The multi-round tool loop adds latency (each round is a
+ *      separate API call with its own timeout budget) that trivial diffs
+ *      don't need — the model can review a 1-line change in a single turn
+ *      without reading additional files. mt#2083: originating incident
+ *      PR #1252, where a 1-line bunfig.toml change timed out twice on
+ *      the webhook path because gpt-5's tool-loop round exceeded the
+ *      120s per-round budget under transient provider load.
+ *
+ *   3) Fork accessibility — the reviewer App is installed on the base repo;
  *      it may not have read access to forks. Public forks are typically
  *      readable via `contents: read` on the head repo, so we probe at
  *      review start (one `readFile` for a known file like README.md or
@@ -370,12 +406,19 @@ export function decidePostSanitizeOutcome(
 export async function decideToolsActive(
   config: ReviewerConfig,
   pr: Pick<PullRequestContext, "number" | "isForkedPR">,
-  probeForkAccess: () => Promise<boolean>
+  probeForkAccess: () => Promise<boolean>,
+  prScope?: PRScope
 ): Promise<{ toolsActive: boolean; reason?: string }> {
   if (config.provider !== "openai") {
     return {
       toolsActive: false,
       reason: `provider ${config.provider} does not yet support reviewer tools (mt#1126 MVP is OpenAI-only)`,
+    };
+  }
+  if (prScope === "trivial" || prScope === "docs-only") {
+    return {
+      toolsActive: false,
+      reason: `scope "${prScope}" — skipping tool-use loop for fast single-turn review (mt#2083)`,
     };
   }
   if (!pr.isForkedPR) {
@@ -1119,8 +1162,11 @@ async function runReviewBody(
   // fallback); if it succeeds, tools are enabled on the fork. Otherwise we
   // switch to the NO_TOOLS_SECTION prompt so the model marks cross-file
   // claims as NEEDS VERIFICATION.
-  const { toolsActive, reason } = await decideToolsActive(config, pr, () =>
-    defaultForkAccessProbe(octokit, pr)
+  const { toolsActive, reason } = await decideToolsActive(
+    config,
+    pr,
+    () => defaultForkAccessProbe(octokit, pr),
+    prScope
   );
 
   // Output tools (submit_finding, conclude_review, etc.) follow the same gate

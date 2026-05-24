@@ -27,6 +27,7 @@ import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, ReadFileResult } from "./tools";
 import type { SanitizeResult } from "./sanitize";
 import type { PRScope } from "./pr-scope";
+import { TimeoutError } from "./with-timeout";
 import type { PriorReview } from "./prior-review-summary";
 
 // Shared constant for the first-attempt trace string — used in multiple
@@ -386,6 +387,91 @@ describe("callReviewerWithRetry (mt#1131)", () => {
   });
 });
 
+// ----- callReviewerWithRetry — TimeoutError retry (mt#2083) -----
+
+describe("callReviewerWithRetry — TimeoutError retry (mt#2083)", () => {
+  const fakeConfig = {
+    provider: "openai",
+    providerApiKey: "fake",
+    providerModel: "gpt-5",
+  } as unknown as ReviewerConfig;
+
+  const substantive: ReviewOutput = {
+    text: "Findings: something substantive.\n\nAPPROVE",
+    provider: "openai",
+    model: "gpt-5",
+    tokensUsed: 500,
+    usage: { promptTokens: 3000, completionTokens: 500, totalTokens: 3500 },
+    toolCalls: [],
+  };
+
+  test("retries once on TimeoutError and succeeds", async () => {
+    let callCount = 0;
+    const fakeFn: CallReviewerFn = async () => {
+      callCount++;
+      if (callCount === 1)
+        throw new TimeoutError("openai.chat.completions.create.toolloop", 120000);
+      return substantive;
+    };
+    const result = await callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn);
+    expect(callCount).toBe(2);
+    expect(result.attempt).toBe("retry-success");
+    expect(result.retryAttempted).toBe(true);
+    expect(result.output.text).toContain("substantive");
+  });
+
+  test("retries once on TimeoutError — retry also times out → propagates", async () => {
+    const fakeFn: CallReviewerFn = async () => {
+      throw new TimeoutError("openai.chat.completions.create.toolloop", 120000);
+    };
+    await expect(
+      callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn)
+    ).rejects.toThrow(TimeoutError);
+  });
+
+  test("non-TimeoutError propagates without retry", async () => {
+    let callCount = 0;
+    const fakeFn: CallReviewerFn = async () => {
+      callCount++;
+      throw new Error("network failure");
+    };
+    await expect(
+      callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn)
+    ).rejects.toThrow("network failure");
+    expect(callCount).toBe(1);
+  });
+
+  test("timeout retry returning empty → falls through to empty-output retry path", async () => {
+    let callCount = 0;
+    const empty: ReviewOutput = {
+      text: "",
+      provider: "openai",
+      model: "gpt-5",
+      tokensUsed: 16000,
+      usage: {
+        promptTokens: 4000,
+        completionTokens: 0,
+        reasoningTokens: 16000,
+        totalTokens: 20000,
+      },
+      toolCalls: [],
+    };
+    const fakeFn: CallReviewerFn = async () => {
+      callCount++;
+      if (callCount === 1) throw new TimeoutError("test.op", 120000);
+      if (callCount === 2) return empty;
+      return substantive;
+    };
+    const result = await callReviewerWithRetry(fakeConfig, "sys", "user", undefined, fakeFn);
+    // First call: timeout → catch → retry call (callCount=2) returns empty
+    // Empty output from timeout-retry does NOT cascade to the empty-output retry
+    // (the timeout-retry branch returns directly).
+    expect(callCount).toBe(2);
+    expect(result.attempt).toBe("retry-failed");
+    expect(result.retryAttempted).toBe(true);
+  });
+});
+
 // ----- ReviewerToolContext integration -----
 //
 // Verify that a ReviewerToolContext with the correct shape can be constructed
@@ -612,6 +698,81 @@ describe("decideToolsActive", () => {
     );
     expect(result.toolsActive).toBe(false);
     expect(result.reason).toContain("provider anthropic");
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("OpenAI + trivial scope → inactive, probe NOT called (mt#2083)", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 500, isForkedPR: false },
+      probe,
+      "trivial"
+    );
+    expect(result.toolsActive).toBe(false);
+    expect(result.reason).toContain("trivial");
+    expect(result.reason).toContain("mt#2083");
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("OpenAI + docs-only scope → inactive, probe NOT called (mt#2083)", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 501, isForkedPR: false },
+      probe,
+      "docs-only"
+    );
+    expect(result.toolsActive).toBe(false);
+    expect(result.reason).toContain("docs-only");
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("OpenAI + normal scope → active (tools enabled)", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 502, isForkedPR: false },
+      probe,
+      "normal"
+    );
+    expect(result.toolsActive).toBe(true);
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("OpenAI + test-only scope → active (tools enabled)", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 503, isForkedPR: false },
+      probe,
+      "test-only"
+    );
+    expect(result.toolsActive).toBe(true);
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("OpenAI + no scope (backward compat) → active", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 504, isForkedPR: false },
+      probe
+    );
+    expect(result.toolsActive).toBe(true);
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  test("scope check fires before fork probe (trivial + forked → inactive, no probe)", async () => {
+    const probe = mock(async () => true);
+    const result = await decideToolsActive(
+      baseConfig("openai"),
+      { number: 505, isForkedPR: true },
+      probe,
+      "trivial"
+    );
+    expect(result.toolsActive).toBe(false);
+    expect(result.reason).toContain("trivial");
     expect(probe).not.toHaveBeenCalled();
   });
 });
