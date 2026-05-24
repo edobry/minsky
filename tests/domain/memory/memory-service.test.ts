@@ -179,6 +179,41 @@ function splitTopLevel(sql: string, keyword: string): string[] {
   return parts;
 }
 
+/**
+ * Evaluate a Drizzle SQL expression for associations update.
+ * Handles the single-statement JSONB merge pattern:
+ *   associations || $patch::jsonb  (merge)
+ *   (...) - $key                   (remove)
+ * Falls back to plain object assignment for non-SQL values.
+ */
+function evalAssociationsUpdate(
+  value: unknown,
+  current: Record<string, string[]>
+): Record<string, string[]> {
+  if (typeof value === "object" && value !== null && "getSQL" in value) {
+    const { params } = pgDialect.sqlToQuery((value as { getSQL: () => any }).getSQL());
+    const merged = { ...current };
+    for (const param of params) {
+      if (typeof param === "string") {
+        try {
+          const parsed = JSON.parse(param);
+          if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+            for (const [k, v] of Object.entries(parsed)) {
+              if (Array.isArray(v) && v.length > 0) merged[k] = v as string[];
+            }
+          } else if (typeof parsed === "string") {
+            delete merged[parsed];
+          }
+        } catch {
+          delete merged[param];
+        }
+      }
+    }
+    return merged;
+  }
+  return value as Record<string, string[]>;
+}
+
 let idCounter = 1;
 function genId(): string {
   return `mem-${String(idCounter++).padStart(4, "0")}`;
@@ -327,7 +362,12 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
                         ? { metadata: data["metadata"] as Record<string, unknown> | null }
                         : {}),
                       ...(data["associations"] !== undefined
-                        ? { associations: data["associations"] as Record<string, string[]> }
+                        ? {
+                            associations: evalAssociationsUpdate(
+                              data["associations"],
+                              row.associations
+                            ),
+                          }
                         : {}),
                       updated_at: new Date(),
                     };

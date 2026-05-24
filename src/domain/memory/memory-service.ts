@@ -245,31 +245,23 @@ export class MemoryService implements MemoryServiceSurface {
     if ("sourceSessionId" in input) updateData["sourceSessionId"] = input.sourceSessionId ?? null;
     if ("confidence" in input) updateData["confidence"] = input.confidence ?? null;
 
-    const needsTx = input.associations !== undefined;
-    const doUpdate = async (db: MemoryServiceDb) => {
-      if (input.associations !== undefined) {
-        const existing = await db
-          .select({ associations: memoriesTable.associations })
-          .from(memoriesTable)
-          .where(eq(memoriesTable.id, id));
-        const current = (existing[0]?.associations as Record<string, string[]>) ?? {};
-        const merged = { ...current };
-        for (const [key, value] of Object.entries(input.associations)) {
-          if (value.length === 0) {
-            delete merged[key];
-          } else {
-            merged[key] = value;
-          }
-        }
-        updateData["associations"] = merged;
+    if (input.associations !== undefined) {
+      const entries = Object.entries(input.associations);
+      const toMerge = Object.fromEntries(entries.filter(([, v]) => v.length > 0));
+      const toRemove = entries.filter(([, v]) => v.length === 0).map(([k]) => k);
+
+      let expr = sql`${memoriesTable.associations} || ${JSON.stringify(toMerge)}::jsonb`;
+      for (const key of toRemove) {
+        expr = sql`(${expr}) - ${key}`;
       }
+      updateData["associations"] = expr;
+    }
 
-      return db.update(memoriesTable).set(updateData).where(eq(memoriesTable.id, id)).returning();
-    };
-
-    const rows = needsTx
-      ? await this.deps.db.transaction((tx: MemoryServiceDb) => doUpdate(tx))
-      : await doUpdate(this.deps.db);
+    const rows = await this.deps.db
+      .update(memoriesTable)
+      .set(updateData)
+      .where(eq(memoriesTable.id, id))
+      .returning();
 
     const row = rows[0] as Record<string, unknown> | undefined;
     if (!row) return null;
