@@ -6,6 +6,7 @@
  *   GET /api/widgets          — enabled widget metadata list
  *   GET /api/widget/:id/data  — fetch a single widget's data
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
+ *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
  *   GET /                     — serves web/dist/index.html
@@ -585,6 +586,131 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       clearInterval(heartbeat);
       broker.detachClient(clientId);
     });
+  });
+
+  /**
+   * GET /api/asks — list all pending operator-routed asks (mt#1916)
+   *
+   * Returns: { asks: Ask[], total: number }
+   *
+   * Lists all suspended asks routed to "operator", sorted by priority.
+   * Used by the /asks management page for the full list view.
+   *
+   * Architecture note: the cockpit server is a direct domain-layer consumer
+   * (same as the mt#1147 resolve endpoint). MCP tools (asks_respond,
+   * asks_reconcile) are the agent-facing interface to the same domain
+   * operations — the cockpit backend does not route through MCP to itself.
+   */
+  app.get("/api/asks", async (_req, res) => {
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({
+          error: "Ask repository unavailable — persistence provider does not support SQL",
+        });
+        return;
+      }
+
+      const { isTerminal } = await import("../domain/ask/state-machine");
+      const { compareAskPriority } = await import("../domain/ask/pending-asks-for-window");
+
+      const suspended = await repo.listByState("suspended");
+      const operatorAsks = suspended.filter(
+        (a) => a.routingTarget === "operator" && !isTerminal(a.state)
+      );
+      operatorAsks.sort(compareAskPriority);
+
+      const asks = operatorAsks.map((a) => ({
+        id: a.id,
+        kind: a.kind,
+        state: a.state,
+        title: a.title,
+        question: a.question,
+        requestor: a.requestor,
+        routingTarget: a.routingTarget,
+        parentTaskId: a.parentTaskId,
+        parentSessionId: a.parentSessionId,
+        options: a.options,
+        contextRefs: a.contextRefs,
+        deadline: a.deadline,
+        createdAt: a.createdAt,
+        suspendedAt: a.suspendedAt,
+        windowKey: a.windowKey,
+        windowMissedCount: a.windowMissedCount ?? 0,
+        serviceStrategy: a.serviceStrategy,
+        metadata: a.metadata,
+      }));
+
+      res.json({ asks, total: asks.length });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: message });
+    }
+  });
+
+  /**
+   * POST /api/asks/:id/defer — defer an ask to the next service window (mt#1916)
+   *
+   * Transitions the ask back to "routed" state so it re-enters the routing
+   * queue and appears in the next window's cohort.
+   */
+  app.post("/api/asks/:id/defer", async (req, res) => {
+    const askId = req.params.id;
+    if (!askId) {
+      res.status(400).json({ error: "Ask ID required" });
+      return;
+    }
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({ error: "Ask repository unavailable" });
+        return;
+      }
+      const ask = await repo.transition(askId, "routed");
+      res.json({ ok: true, id: ask.id, state: ask.state });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not found")) {
+        res.status(404).json({ error: message });
+      } else if (message.includes("Invalid transition")) {
+        res.status(409).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  /**
+   * POST /api/asks/:id/escalate — mark an ask as principal-critical (mt#1916)
+   *
+   * Transitions the ask back to "routed" state with escalation semantics.
+   * Full escalation metadata (priority bump, visibility flag) is tracked
+   * in mt#1528; this endpoint provides the operator affordance now.
+   */
+  app.post("/api/asks/:id/escalate", async (req, res) => {
+    const askId = req.params.id;
+    if (!askId) {
+      res.status(400).json({ error: "Ask ID required" });
+      return;
+    }
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({ error: "Ask repository unavailable" });
+        return;
+      }
+      const ask = await repo.transition(askId, "routed");
+      res.json({ ok: true, id: ask.id, state: ask.state, escalated: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not found")) {
+        res.status(404).json({ error: message });
+      } else if (message.includes("Invalid transition")) {
+        res.status(409).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
   });
 
   /**
