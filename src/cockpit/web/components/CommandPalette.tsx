@@ -58,6 +58,7 @@ const PAGES: PalettePage[] = [
   { type: "page", path: "/agents", label: "Agents", description: "Sessions in flight" },
   { type: "page", path: "/workstreams", label: "Work Streams", description: "Active task workstreams" },
   { type: "page", path: "/tasks", label: "Task Graph", description: "Dependency graph view" },
+  { type: "page", path: "/tasks/list", label: "Task List", description: "Flat sortable task table" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -232,7 +233,7 @@ export function CommandPalette() {
           entityId = entity.id;
           break;
         case "ask":
-          path = "/";
+          path = `/?ask=${encodeURIComponent(entity.id)}`;
           label = entity.title;
           entityId = entity.id;
           break;
