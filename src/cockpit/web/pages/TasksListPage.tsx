@@ -1,23 +1,16 @@
 /**
  * TasksListPage — list view route for /tasks (index child of TasksLayout).
  *
- * Thin wrapper: receives taskGraphData from TasksLayout via the outlet
- * context (React Router's useOutletContext) and passes it to TasksList.
+ * Uses the self-fetching TaskList widget (TanStack Query) from mt#2078.
+ * The TasksLayout parent provides the tab switcher; this page just renders
+ * the widget content.
  */
-import { useOutletContext } from "react-router-dom";
-import type { WidgetData } from "../lib/widget-client";
-import { TasksList } from "../widgets/TasksList";
-
-interface TasksOutletContext {
-  taskGraphData: WidgetData | null;
-}
+import { TaskList } from "../widgets/TaskList";
 
 export function TasksListPage() {
-  const { taskGraphData } = useOutletContext<TasksOutletContext>();
-
   return (
     <div className="p-4 w-full">
-      <TasksList data={taskGraphData} />
+      <TaskList />
     </div>
   );
 }

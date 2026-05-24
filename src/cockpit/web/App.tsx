@@ -45,7 +45,7 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 
 // IDs of the three promoted widgets — App still polls their data so page routes
 // receive it without a separate fetch setup.
-const PROMOTED_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph"]);
+const PROMOTED_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
 
 interface WidgetState {
   meta: WidgetMeta;

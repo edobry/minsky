@@ -47,9 +47,9 @@ describe("queryKeysForChannel", () => {
       expect(keys).toContainEqual(["attention"]);
     });
 
-    it("minsky.task.status_changed → returns empty array (no self-fetching widgets for task data yet)", () => {
+    it("minsky.task.status_changed → invalidates task-list (mt#2078)", () => {
       const keys = queryKeysForChannel(CH_TASK_STATUS_CHANGED);
-      expect(Array.from(keys)).toHaveLength(0);
+      expect(keys).toContainEqual(["task-list"]);
     });
 
     it("minsky.credential.invalidated → invalidates credentials (mt#1426)", () => {

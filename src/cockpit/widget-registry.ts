@@ -15,6 +15,7 @@ import { basicHealthWidget } from "./widgets/basic-health";
 import { contextInspectorWidget } from "./widgets/context-inspector";
 import { credentialsWidget } from "./widgets/credentials";
 import { taskGraphWidget } from "./widgets/task-graph";
+import { taskListWidget } from "./widgets/task-list";
 import { workstreamsWidget } from "./widgets/workstreams";
 
 export type WidgetRegistry = Record<string, WidgetModule>;
@@ -29,5 +30,6 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "context-inspector": contextInspectorWidget,
   credentials: credentialsWidget,
   "task-graph": taskGraphWidget,
+  "task-list": taskListWidget,
   workstreams: workstreamsWidget,
 };
