@@ -48,6 +48,27 @@ indexed, and audited without text-parsing memory content.
 - **Volume:** hundreds to low thousands of memories, not millions. Query performance is
   not the primary constraint at current scale.
 
+## Migration Cost Estimates
+
+| Shape                 | Schema changes                     | New files                                                                    | LOC estimate                                                                                     | Agent-side complexity                                                | Ongoing maintenance                                                  |
+| --------------------- | ---------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **A: JSONB map**      | 1 column + 1 GIN index             | 0 new modules; migration file only                                           | ~50 LOC migration, ~80 LOC type/repo/service changes, ~100 LOC MCP command changes ≈ **230 LOC** | Inline in `memory_create`/`memory_update` — zero new calls           | Convention doc only; no new tables/repos to maintain                 |
+| **B: Junction table** | 1 new table + 3 BTree indexes      | New Drizzle schema file, new repository module, new or extended MCP commands | ~60 LOC migration, ~150 LOC schema/repo, ~120 LOC service, ~150 LOC MCP commands ≈ **480 LOC**   | Two-step flow (create → associate) or transaction wrapper in service | New table + repository + index maintenance; CASCADE behavior testing |
+| **C: Tag convention** | 0                                  | 0 new modules                                                                | ~0 LOC migration, ~60 LOC tag-filter on list, ~40 LOC convention parser ≈ **100 LOC**            | Simplest — just add strings to existing `tags` array                 | Convention parser maintenance; no schema enforcement                 |
+| **D: Graph layer**    | 1 new table + 4+ composite indexes | New domain module, new service, new MCP tool suite                           | ~80 LOC migration, ~200 LOC domain, ~150 LOC service, ~200 LOC MCP commands ≈ **630 LOC**        | New `entity_associate` / `entity_associations_list` tools            | Full new domain: schema, service, repository, tests, MCP surface     |
+
+**Notes on estimates:**
+
+- LOC counts are for production code only (tests add ~1× for each shape).
+- Shape A's estimate is grounded in the existing `supersededBy` field's implementation
+  pattern (`src/domain/memory/memory-service.ts:488-548`, `src/domain/storage/schemas/memory-embeddings.ts:40-56`)
+  — same schema + type + repository + service extension pattern, applied once.
+- Shape B's estimate is grounded in the `memory_embeddings` companion table pattern
+  (`src/domain/storage/schemas/memory-embeddings.ts:59-81`) — separate table with FK,
+  index, and lifecycle methods.
+- Shape D's estimate is grounded in the `ask` domain module
+  (`src/domain/ask/`) — new domain with policy, routing, service, and MCP commands.
+
 ## Decision
 
 **Adopt Shape A: generic `associations` JSONB map on the `memories` table**, with a
@@ -112,6 +133,12 @@ associations with task status in a single SQL query).
   that can't be expressed as an app-level loop over JSONB results
 - Referential integrity on target IDs becomes load-bearing (e.g., CASCADE delete when a
   task is deleted should auto-remove its memory associations)
+
+**Observability for escalation triggers:** the mt#2070 implementation should add a
+`memoryAssociations` section to `debug.systemInfo` reporting: total memories with
+non-empty associations, count by association type, and (when Postgres `pg_stat`
+extensions are available) the GIN index size and last-vacuum timestamp. This gives
+operators the data to evaluate escalation triggers without manual SQL queries.
 
 ### Shape C: Tagging convention extension
 
@@ -182,6 +209,21 @@ migratable into it (each key→value pair maps to an edge).
 
 The following type strings are the initial vocabulary. New types can be added without
 schema changes; they should be documented here (amend this ADR) before use.
+
+### ID normalization
+
+Target IDs in association values MUST use the canonical form for their entity type:
+
+- **Tasks:** `mt#NNNN` (e.g., `mt#2053`) — the `mt#` prefix is required, not bare numbers
+- **Sessions:** full session UUID (e.g., `962bb743-bbed-46d3-b27c-9ad600257635`)
+- **Rules:** filename with extension (e.g., `hook-files.mdc`) — relative to `.minsky/rules/`
+- **Skills:** skill name as invoked (e.g., `retrospective`) — matches `/skill-name` invocation
+- **PRs:** `PR#NNNN` (e.g., `PR#1243`) — the `PR#` prefix distinguishes from task IDs
+- **Asks:** ask ID as returned by the ask subsystem (format TBD with mt#1034)
+
+Agents and backfill scripts MUST normalize to these forms before writing. A `tracksTask`
+value of `"2053"` (bare number) or `"#2053"` (missing `mt` prefix) is malformed and will
+not match queries using the canonical form.
 
 | Type string               | Semantics                                                      | Direction           | Example                  |
 | ------------------------- | -------------------------------------------------------------- | ------------------- | ------------------------ |
