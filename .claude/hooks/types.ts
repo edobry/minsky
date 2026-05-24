@@ -170,7 +170,7 @@ export function readHostCap(
   projectDir?: string,
   options?: ReadHostCapOptions
 ): HostCapInfo {
-  const readFile = options?.readFile ?? ((p: string) => readFileSync(p, "utf8"));
+  const readFile = options?.readFile ?? ((p: string): string => readFileSync(p, "utf8") as string);
   const events = options?.events ?? ["PreToolUse"];
   const root = projectDir ?? process.env["CLAUDE_PROJECT_DIR"] ?? null;
   if (!root) {

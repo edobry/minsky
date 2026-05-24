@@ -124,6 +124,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_TWO_STRIKES_MODE", // .claude/hooks/two-strikes-record.ts
   "MINSKY_SKIP_BUNDLE_SMOKE", // .claude/hooks/require-review-before-merge.ts (mt#1787)
   "MINSKY_SKIP_REQUIRED_CHECKS", // .claude/hooks/require-review-before-merge.ts (mt#1938)
+  "MINSKY_SKIP_SMOKE_CHECK", // .claude/hooks/require-review-before-merge.ts (mt#2060)
   "MINSKY_SKIP_NUL_CHECK", // src/hooks/pre-commit.ts (mt#1824) — NUL-byte check override
   "MINSKY_SKIP_WORKSPACE_COPY_CHECK", // src/hooks/pre-commit.ts (mt#1984) — workspace-COPY check override
   "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
