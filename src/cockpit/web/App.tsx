@@ -42,9 +42,9 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
   "basic-health": BasicHealth,
 };
 
-// IDs of the three promoted widgets — App still polls their data so page routes
-// receive it without a separate fetch setup.
-const PROMOTED_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph"]);
+// IDs of widgets that have dedicated page routes — App still polls their data
+// so page routes receive it without a separate fetch setup.
+const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph"]);
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -210,7 +210,7 @@ export function App() {
   // Home page only receives the non-promoted, renderable widgets
   const homeWidgets = widgets.filter(
     (w) =>
-      !PROMOTED_WIDGET_IDS.has(w.meta.id) &&
+      !PAGE_ROUTE_WIDGET_IDS.has(w.meta.id) &&
       (SELF_FETCHING_RENDERERS[w.meta.id] || PROP_DRIVEN_RENDERERS[w.meta.id])
   );
 
