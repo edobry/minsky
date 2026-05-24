@@ -244,7 +244,23 @@ export class MemoryService implements MemoryServiceSurface {
     if ("sourceAgentId" in input) updateData["sourceAgentId"] = input.sourceAgentId ?? null;
     if ("sourceSessionId" in input) updateData["sourceSessionId"] = input.sourceSessionId ?? null;
     if ("confidence" in input) updateData["confidence"] = input.confidence ?? null;
-    if (input.associations !== undefined) updateData["associations"] = input.associations;
+
+    if (input.associations !== undefined) {
+      const existing = await this.deps.db
+        .select({ associations: memoriesTable.associations })
+        .from(memoriesTable)
+        .where(eq(memoriesTable.id, id));
+      const current = (existing[0]?.associations as Record<string, string[]>) ?? {};
+      const merged = { ...current };
+      for (const [key, value] of Object.entries(input.associations)) {
+        if (value.length === 0) {
+          delete merged[key];
+        } else {
+          merged[key] = value;
+        }
+      }
+      updateData["associations"] = merged;
+    }
 
     const rows = await this.deps.db
       .update(memoriesTable)

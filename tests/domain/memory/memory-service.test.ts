@@ -69,6 +69,7 @@ type MemoryRow = {
   confidence: number | null;
   superseded_by: string | null;
   metadata: Record<string, unknown> | null;
+  associations: Record<string, string[]>;
   created_at: Date;
   updated_at: Date;
   last_accessed_at: Date | null;
@@ -144,6 +145,17 @@ function evalSqlWhere(sql: string, params: unknown[], row: MemoryRow): boolean {
       .map((p) => Number(p.trim().slice(1)) - 1)
       .map((i) => params[i]);
     return paramNums.includes(row[colName]);
+  }
+
+  // Pattern: "memories"."associations" @> $N::jsonb (JSONB containment)
+  const containsMatch = /^"memories"\."associations" @> \$(\d+)::jsonb$/.exec(s.trim());
+  if (containsMatch) {
+    const paramIdx = Number(containsMatch[1]) - 1;
+    const needle = JSON.parse(params[paramIdx] as string) as Record<string, string[]>;
+    const haystack = row.associations ?? {};
+    return Object.entries(needle).every(([key, vals]) =>
+      vals.every((v) => (haystack[key] ?? []).includes(v))
+    );
   }
 
   // Unknown — pass through (permissive for test purposes)
@@ -256,6 +268,7 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
             confidence: data["confidence"] ?? null,
             superseded_by: data["supersededBy"] ?? data["superseded_by"] ?? null,
             metadata: (data["metadata"] as Record<string, unknown> | null | undefined) ?? null,
+            associations: (data["associations"] as Record<string, string[]>) ?? {},
             created_at: new Date(),
             updated_at: new Date(),
             last_accessed_at: null,
@@ -312,6 +325,9 @@ function createFakeDb(initialRows: MemoryRow[] = []): MemoryServiceDb & {
                         : {}),
                       ...("metadata" in data
                         ? { metadata: data["metadata"] as Record<string, unknown> | null }
+                        : {}),
+                      ...(data["associations"] !== undefined
+                        ? { associations: data["associations"] as Record<string, string[]> }
                         : {}),
                       updated_at: new Date(),
                     };
@@ -762,6 +778,7 @@ describe("MemoryService", () => {
         confidence: null,
         superseded_by: idB,
         metadata: null,
+        associations: {},
         created_at: new Date(),
         updated_at: new Date(),
         last_accessed_at: null,
@@ -781,6 +798,7 @@ describe("MemoryService", () => {
         confidence: null,
         superseded_by: idA,
         metadata: null,
+        associations: {},
         created_at: new Date(),
         updated_at: new Date(),
         last_accessed_at: null,
@@ -819,6 +837,7 @@ describe("MemoryService", () => {
           confidence: null,
           superseded_by: nextId,
           metadata: null,
+          associations: {},
           created_at: new Date(),
           updated_at: new Date(),
           last_accessed_at: null,
@@ -914,6 +933,7 @@ describe("MemoryService", () => {
         confidence: rec.confidence,
         superseded_by: rec.supersededBy,
         metadata: rec.metadata,
+        associations: rec.associations,
         created_at: rec.createdAt,
         updated_at: rec.updatedAt,
         last_accessed_at: rec.lastAccessedAt,
@@ -929,6 +949,150 @@ describe("MemoryService", () => {
       expect(fetched).not.toBeNull();
       if (!fetched) throw new Error("fetched is null");
       expect(fetched.id).toBe(rec.id);
+    });
+  });
+
+  // ── Associations (ADR-012) ──────────────────────────────────────────────
+
+  describe("associations", () => {
+    it("create with associations returns them in the record", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      const record = await svc.create({
+        type: "feedback",
+        name: "Bridge memory",
+        description: "desc",
+        content: "content",
+        scope: "project",
+        associations: { tracksTask: ["mt#2053"] },
+      });
+
+      expect(record.associations).toEqual({ tracksTask: ["mt#2053"] });
+    });
+
+    it("create without associations defaults to empty object", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      const record = await svc.create({
+        type: "feedback",
+        name: "No associations",
+        description: "desc",
+        content: "content",
+        scope: "user",
+      });
+
+      expect(record.associations).toEqual({});
+    });
+
+    it("update merges associations: adds new keys, replaces existing, removes empty", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      const record = await svc.create({
+        type: "feedback",
+        name: "Merge test",
+        description: "desc",
+        content: "content",
+        scope: "user",
+        associations: { tracksTask: ["mt#100"], relatedTask: ["mt#200"] },
+      });
+
+      const updated = await svc.update(record.id, {
+        associations: {
+          relatedTask: [],
+          originatesRule: ["hook-files.mdc"],
+        },
+      });
+
+      expect(updated).not.toBeNull();
+      if (!updated) throw new Error("updated is null");
+      expect(updated.associations).toEqual({
+        tracksTask: ["mt#100"],
+        originatesRule: ["hook-files.mdc"],
+      });
+    });
+
+    it("list filters by association type + target", async () => {
+      const db = createFakeDb();
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage: new MemoryVectorStorage(DIMENSIONS),
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "Has task",
+        description: "d",
+        content: "c",
+        scope: "user",
+        associations: { tracksTask: ["mt#500"] },
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "Different task",
+        description: "d",
+        content: "c2",
+        scope: "user",
+        associations: { tracksTask: ["mt#600"] },
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "No associations",
+        description: "d",
+        content: "c3",
+        scope: "user",
+      });
+
+      const filtered = await svc.list({
+        association: { type: "tracksTask", targetId: "mt#500" },
+      });
+
+      expect(filtered).toHaveLength(1);
+      const match = filtered[0];
+      if (!match) throw new Error("filtered[0] is undefined");
+      expect(match.name).toBe("Has task");
+    });
+
+    it("search results include associations field", async () => {
+      const db = createFakeDb();
+      const vectorStorage = new MemoryVectorStorage(DIMENSIONS);
+      const svc = new MemoryService({
+        db,
+        embeddingService: mockEmbeddingService,
+        vectorStorage,
+      });
+
+      await svc.create({
+        type: "feedback",
+        name: "Searchable",
+        description: "desc",
+        content: "unique searchable content",
+        scope: "user",
+        associations: { tracksTask: ["mt#999"] },
+      });
+
+      const results = await svc.search("unique searchable content");
+      expect(results.results.length).toBeGreaterThan(0);
+      const first = results.results[0];
+      if (!first) throw new Error("results.results[0] is undefined");
+      expect(first.record.associations).toEqual({ tracksTask: ["mt#999"] });
     });
   });
 });

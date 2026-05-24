@@ -361,7 +361,8 @@ const memoryUpdateParams = {
   },
   associations: {
     schema: z.record(z.string(), z.array(z.string())),
-    description: "Replace associations map (merge is caller's responsibility)",
+    description:
+      "Merge associations: new keys added, existing keys replaced, keys set to [] removed.",
     required: false as const,
   },
 } satisfies CommandParameterMap;
