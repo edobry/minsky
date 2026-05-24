@@ -650,7 +650,14 @@ export interface ReviewProvenance {
   docImpact: { kind: string; evidence: string; affectedDocs?: string[] } | null;
   findings: { blocking: number; nonBlocking: number };
   conclusion: { event: string; summary: string } | null;
-  adoptionSweep: null;
+  // adoptionSweep is null for legacy reviews (pre-mt#2059); an array for new reviews.
+  adoptionSweep: Array<{
+    symbol: string;
+    kind: string;
+    consumersFound: string[];
+    classification: string;
+    notes?: string;
+  }> | null;
 }
 
 export function parseReviewProvenance(body: string): ReviewProvenance | null {
@@ -691,6 +698,21 @@ export function parseReviewProvenance(body: string): ReviewProvenance | null {
         typeof parsed.conclusion.summary !== "string"
       )
         return null;
+    }
+    // adoptionSweep: accept null (legacy reviews) or an array of entries (mt#2059).
+    if (parsed.adoptionSweep !== null && parsed.adoptionSweep !== undefined) {
+      if (!Array.isArray(parsed.adoptionSweep)) return null;
+      for (const entry of parsed.adoptionSweep) {
+        if (
+          !entry ||
+          typeof entry !== "object" ||
+          typeof entry.symbol !== "string" ||
+          typeof entry.kind !== "string" ||
+          typeof entry.classification !== "string" ||
+          !Array.isArray(entry.consumersFound)
+        )
+          return null;
+      }
     }
     return parsed as ReviewProvenance;
   } catch {

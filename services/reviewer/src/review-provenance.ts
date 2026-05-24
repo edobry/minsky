@@ -26,12 +26,22 @@ export const ConclusionEntrySchema = z.object({
   summary: z.string().min(1),
 });
 
+export const AdoptionSweepEntrySchema = z.object({
+  symbol: z.string().min(1),
+  kind: z.enum(["function", "class", "type", "cli-command", "mcp-tool", "hook", "capability"]),
+  consumersFound: z.array(z.string()).default([]),
+  classification: z.enum(["Adopted", "Missing consumers"]),
+  notes: z.string().optional(),
+});
+
 export const ReviewProvenanceSchema = z.object({
   specVerification: z.array(SpecVerificationEntrySchema),
   docImpact: DocImpactEntrySchema.nullable(),
   findings: FindingsSummarySchema,
   conclusion: ConclusionEntrySchema.nullable(),
-  adoptionSweep: z.null(),
+  // adoptionSweep is null for legacy reviews (pre-mt#2059) that did not emit
+  // submit_adoption_sweep calls. For new reviews, it is an array of entries.
+  adoptionSweep: z.array(AdoptionSweepEntrySchema).nullable(),
 });
 
 export type ReviewProvenance = z.infer<typeof ReviewProvenanceSchema>;
@@ -42,6 +52,7 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
   let blocking = 0;
   let nonBlocking = 0;
   let conclusion: ReviewProvenance["conclusion"] = null;
+  const adoptionSweepEntries: NonNullable<ReviewProvenance["adoptionSweep"]> = [];
 
   for (const tc of toolCalls) {
     switch (tc.name) {
@@ -69,6 +80,15 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
           summary: tc.args.summary,
         };
         break;
+      case "submit_adoption_sweep":
+        adoptionSweepEntries.push({
+          symbol: tc.args.symbol,
+          kind: tc.args.kind,
+          consumersFound: tc.args.consumersFound,
+          classification: tc.args.classification,
+          notes: tc.args.notes,
+        });
+        break;
     }
   }
 
@@ -77,7 +97,9 @@ export function extractProvenance(toolCalls: ReadonlyArray<ReviewToolCall>): Rev
     docImpact,
     findings: { blocking, nonBlocking },
     conclusion,
-    adoptionSweep: null,
+    // Emit null (legacy-compatible) when no adoption-sweep calls were made;
+    // emit the array when at least one call was made.
+    adoptionSweep: adoptionSweepEntries.length > 0 ? adoptionSweepEntries : null,
   };
 }
 

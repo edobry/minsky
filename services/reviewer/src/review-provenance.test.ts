@@ -11,15 +11,25 @@ import type { ReviewToolCall } from "./output-tools";
 
 const DOC_IMPACT_NO_UPDATE = "no-update-needed" as const;
 
+// Tool name constants — prevents magic-string-duplication lint warnings.
+const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
+const TOOL_SUBMIT_DOCUMENTATION_IMPACT = "submit_documentation_impact";
+const TOOL_SUBMIT_FINDING = "submit_finding";
+const TOOL_SUBMIT_ADOPTION_SWEEP = "submit_adoption_sweep";
+const TOOL_CONCLUDE_REVIEW = "conclude_review";
+
+// Adoption-sweep classification constants.
+const ADOPTION_MISSING_CONSUMERS = "Missing consumers";
+
 describe("extractProvenance", () => {
   test("extracts spec verification entries", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_spec_verification",
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
         args: { criterion: "SC1: foo", status: "Met", evidence: "Found in bar.ts" },
       },
       {
-        name: "submit_spec_verification",
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
         args: { criterion: "SC2: baz", status: "Not Met", evidence: "Missing from qux.ts" },
       },
     ];
@@ -41,11 +51,11 @@ describe("extractProvenance", () => {
   test("extracts documentation impact (uses last call)", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_documentation_impact",
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
         args: { kind: DOC_IMPACT_NO_UPDATE, evidence: "Internal refactor" },
       },
       {
-        name: "submit_documentation_impact",
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
         args: {
           kind: "updated-in-pr",
           evidence: "Updated docs/foo.md",
@@ -65,7 +75,7 @@ describe("extractProvenance", () => {
   test("counts findings by severity", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "a.ts",
@@ -75,7 +85,7 @@ describe("extractProvenance", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "NON-BLOCKING",
           file: "b.ts",
@@ -85,7 +95,7 @@ describe("extractProvenance", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "BLOCKING",
           file: "c.ts",
@@ -95,7 +105,7 @@ describe("extractProvenance", () => {
         },
       },
       {
-        name: "submit_finding",
+        name: TOOL_SUBMIT_FINDING,
         args: {
           severity: "PRE-EXISTING",
           file: "d.ts",
@@ -114,7 +124,7 @@ describe("extractProvenance", () => {
   test("extracts conclusion", () => {
     const toolCalls: ReviewToolCall[] = [
       {
-        name: "conclude_review",
+        name: TOOL_CONCLUDE_REVIEW,
         args: { event: "APPROVE", summary: "Looks good" },
       },
     ];
@@ -149,6 +159,95 @@ describe("extractProvenance", () => {
     expect(result.docImpact).toBeNull();
     expect(result.findings).toEqual({ blocking: 0, nonBlocking: 0 });
     expect(result.conclusion).toBeNull();
+  });
+
+  test("adoptionSweep is null when no submit_adoption_sweep calls", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: { criterion: "SC1", status: "Met", evidence: "OK" },
+      },
+    ];
+
+    const result = extractProvenance(toolCalls);
+    expect(result.adoptionSweep).toBeNull();
+  });
+
+  test("extracts single Adopted adoption sweep entry", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: TOOL_SUBMIT_ADOPTION_SWEEP,
+          kind: "mcp-tool",
+          consumersFound: ["services/reviewer/src/providers.ts:276"],
+          classification: "Adopted",
+          notes: "Registered in OUTPUT_TOOL_NAMES.",
+        },
+      },
+    ];
+
+    const result = extractProvenance(toolCalls);
+    expect(result.adoptionSweep).not.toBeNull();
+    expect(result.adoptionSweep).toHaveLength(1);
+    const entry = result.adoptionSweep?.[0];
+    expect(entry?.symbol).toBe(TOOL_SUBMIT_ADOPTION_SWEEP);
+    expect(entry?.kind).toBe("mcp-tool");
+    expect(entry?.consumersFound).toEqual(["services/reviewer/src/providers.ts:276"]);
+    expect(entry?.classification).toBe("Adopted");
+    expect(entry?.notes).toBe("Registered in OUTPUT_TOOL_NAMES.");
+  });
+
+  test("extracts Missing consumers adoption sweep entry", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "newMcpTool",
+          kind: "mcp-tool",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+        },
+      },
+    ];
+
+    const result = extractProvenance(toolCalls);
+    expect(result.adoptionSweep).not.toBeNull();
+    expect(result.adoptionSweep).toHaveLength(1);
+    const entry = result.adoptionSweep?.[0];
+    expect(entry?.symbol).toBe("newMcpTool");
+    expect(entry?.classification).toBe(ADOPTION_MISSING_CONSUMERS);
+    expect(entry?.consumersFound).toEqual([]);
+    expect(entry?.notes).toBeUndefined();
+  });
+
+  test("extracts multiple adoption sweep entries", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "toolA",
+          kind: "function",
+          consumersFound: ["src/a.ts:10"],
+          classification: "Adopted",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "toolB",
+          kind: "mcp-tool",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+        },
+      },
+    ];
+
+    const result = extractProvenance(toolCalls);
+    expect(result.adoptionSweep).not.toBeNull();
+    expect(result.adoptionSweep).toHaveLength(2);
+    expect(result.adoptionSweep?.[0]?.symbol).toBe("toolA");
+    expect(result.adoptionSweep?.[1]?.symbol).toBe("toolB");
   });
 });
 
@@ -219,7 +318,7 @@ describe("parseProvenance", () => {
     expect(result).toBeNull();
   });
 
-  test("roundtrips correctly", () => {
+  test("roundtrips correctly with null adoptionSweep (legacy)", () => {
     const original: ReviewProvenance = {
       specVerification: [
         { criterion: "SC1: test", status: "Met", evidence: "Found" },
@@ -238,5 +337,36 @@ describe("parseProvenance", () => {
     const serialized = serializeProvenance(original);
     const parsed = parseProvenance(`Header text\n\n${serialized}`);
     expect(parsed).toEqual(original);
+  });
+
+  test("roundtrips correctly with adoptionSweep array (mt#2059)", () => {
+    const original: ReviewProvenance = {
+      specVerification: [{ criterion: "SC1", status: "Met", evidence: "OK" }],
+      docImpact: { kind: DOC_IMPACT_NO_UPDATE, evidence: "Internal" },
+      findings: { blocking: 0, nonBlocking: 0 },
+      conclusion: { event: "APPROVE", summary: "Good" },
+      adoptionSweep: [
+        {
+          symbol: "newMcpTool",
+          kind: "mcp-tool",
+          consumersFound: ["src/adapters/mcp/tools.ts:99"],
+          classification: "Adopted",
+          notes: "Wired in tools registry.",
+        },
+        {
+          symbol: "missingExport",
+          kind: "function",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+        },
+      ],
+    };
+
+    const serialized = serializeProvenance(original);
+    const parsed = parseProvenance(`Header text\n\n${serialized}`);
+    expect(parsed).toEqual(original);
+    expect(parsed?.adoptionSweep).toHaveLength(2);
+    expect(parsed?.adoptionSweep?.[0]?.symbol).toBe("newMcpTool");
+    expect(parsed?.adoptionSweep?.[1]?.classification).toBe(ADOPTION_MISSING_CONSUMERS);
   });
 });

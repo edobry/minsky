@@ -312,12 +312,22 @@ If a task spec is provided, call submit_spec_verification(criterion, status, evi
 - evidence: the file:line or diff reference that supports the verdict.
 - When any criterion is "Not Met", the review must explicitly list what was deferred and why. Indicate that either the task spec must be updated to reflect actual scope OR follow-up tasks must be created for deferred items. An unmet criterion without a documented deferral path is a BLOCKING gap.
 
+For each new public export introduced by this PR, call submit_adoption_sweep(symbol, kind, consumersFound, classification, notes?).
+- A "new public export" is any symbol added to the API surface: exported functions, classes, types, CLI subcommands, MCP tools, or hooks that callers outside the module can reference.
+- symbol: the fully-qualified name (e.g. "tasks_orchestrate", "submit_adoption_sweep", "/declare-framework").
+- kind: "function", "class", "type", "cli-command", "mcp-tool", "hook", or "capability".
+- consumersFound: search the codebase for existing consumers (callsites, imports, registrations) and list them. Empty array when none found.
+- classification: "Adopted" when consumers found; "Missing consumers" when none found.
+- Cost-bounding rule: when the PR introduces more than 10 new public exports, emit ONE call with kind "capability", symbol "<N> new exports (cost-bounding rule)", classification "Missing consumers", and a notes field recommending a follow-up adoption task. Do NOT emit N individual calls in this case.
+- When a spec criterion requires specific consumer wiring and it is absent, the missing-consumer finding is BLOCKING — also emit a submit_finding with severity BLOCKING for the same issue.
+- Omit this tool call entirely if the PR introduces no new public exports.
+
 Call submit_documentation_impact(kind, evidence, affectedDocs?) exactly once to record whether the PR's changes affect documentation. If you need to correct an earlier emission, emit only the corrected call — do not repeat the original. The composer uses the LAST call's args (mirroring conclude_review's self-correction semantics).
 - kind: "no-update-needed" for bugfixes / internal refactors / cosmetic changes that do not affect documented behavior; "updated-in-pr" when the PR ships documentation updates alongside the code; "blocking-needs-update" when the PR affects documented behavior but does NOT update the docs (in which case also emit a submit_finding with severity BLOCKING for the same issue).
 - evidence: justify the verdict, referencing specific docs or stating their absence.
 - affectedDocs: optional. List doc file paths for "updated-in-pr" (what the PR updated) or "blocking-needs-update" (what needs updating). Omit for "no-update-needed".
 
-Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` / \`submit_documentation_impact\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
+Your review is INCOMPLETE without a \`conclude_review(event, summary)\` call. After emitting all \`submit_finding\` / \`submit_inline_comment\` / \`submit_spec_verification\` / \`submit_adoption_sweep\` / \`submit_documentation_impact\` calls, your FINAL tool call MUST be \`conclude_review\`. Failure to emit conclude_review means the review cannot be posted with a verdict and will default to COMMENT regardless of your findings.
 - event: APPROVE if you have no blocking findings and no non-trivial concerns; REQUEST_CHANGES if any finding is BLOCKING or any spec criterion is Not Met; COMMENT otherwise (or if you are the same App identity as the PR author — GitHub blocks self-approval).
 - summary: 2-5 sentence executive summary describing overall quality, key findings, and verdict.
 
