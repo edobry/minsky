@@ -216,11 +216,16 @@ async function getSharedPersistenceService() {
   if (_sharedInitPromise) return _sharedInitPromise;
 
   _sharedInitPromise = (async () => {
-    const { PersistenceService } = await import("../../domain/persistence/service");
-    const svc = new PersistenceService();
-    await svc.initialize();
-    _sharedPersistenceService = svc;
-    return svc;
+    try {
+      const { PersistenceService } = await import("../../domain/persistence/service");
+      const svc = new PersistenceService();
+      await svc.initialize();
+      _sharedPersistenceService = svc;
+      return svc;
+    } catch (err) {
+      _sharedInitPromise = null;
+      throw err;
+    }
   })();
 
   return _sharedInitPromise;
