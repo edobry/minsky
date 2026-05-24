@@ -65,6 +65,7 @@ import { homedir } from "node:os";
 import { join, dirname } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
+import { applyServiceInstanceUpdate } from "./railway/lib";
 
 // ---------------------------------------------------------------------------
 // Manifest — service-specific constants. Everything that isn't a secret.
@@ -162,48 +163,16 @@ function railwayTry(args: string[]): ShResult {
   return sh("railway", args);
 }
 
-function readRailwayToken(): string {
-  const cfg = JSON.parse(readFileSync(expandTilde("~/.railway/config.json"), "utf8")) as {
-    user?: { accessToken?: string };
-  };
-  const token = cfg.user?.accessToken;
-  if (!token) {
-    throw new Error(
-      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
-    );
-  }
-  return token;
-}
+// mt#2013: readRailwayToken + graphql consolidated through
+// src/domain/deployment/railway/graphql-client.ts. The local copies are
+// retired; this script now inherits OAuth token-refresh transparently.
+import {
+  readRailwayToken,
+  railwayGraphQLAuthed,
+} from "../src/domain/deployment/railway/graphql-client";
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const token = readRailwayToken();
-  const res = await fetch("https://backboard.railway.com/graphql/v2", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-  const body = (await res.json()) as {
-    data?: T;
-    errors?: { message?: string; path?: (string | number)[] }[];
-  };
-  if (body.errors) {
-    // Sanitize: surface only message + path, never the full payload. If the
-    // Railway API ever echoes submitted variables in an error (for a mutation
-    // like variableCollectionUpsert), those variables may be secrets. Don't
-    // JSON.stringify the entire errors object for this reason.
-    const summary = body.errors
-      .map((e) => {
-        const path = e.path ? ` at ${e.path.join(".")}` : "";
-        return `${e.message ?? "unknown GraphQL error"}${path}`;
-      })
-      .join("; ");
-    throw new Error(`GraphQL error: ${summary}`);
-  }
-  if (!body.data) throw new Error(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
-  return body.data;
+  return railwayGraphQLAuthed<T>(query, variables);
 }
 
 // ---------------------------------------------------------------------------
@@ -578,22 +547,11 @@ async function patchServiceRootDirectory(
   environmentId: string,
   rootDirectory: string
 ): Promise<void> {
-  // Per Railway's schema, `rootDirectory` is top-level on ServiceInstanceUpdateInput
-  // (not nested under `source`). The CLI's `railway environment edit --json`
-  // form works too, but direct API gives cleaner error handling.
-  type R = { serviceInstanceUpdate: boolean };
-  await graphql<R>(
-    `
-      mutation ($serviceId: String!, $environmentId: String!, $input: ServiceInstanceUpdateInput!) {
-        serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
-      }
-    `,
-    {
-      serviceId,
-      environmentId,
-      input: { rootDirectory },
-    }
-  );
+  // Delegates to the hoisted applyServiceInstanceUpdate primitive in
+  // scripts/railway/lib.ts (mt#1964 R3). The local `graphql` helper above
+  // services this script's other GraphQL calls (variableCollectionUpsert,
+  // listRepoTriggers, etc.) and is not affected by this delegation.
+  await applyServiceInstanceUpdate(serviceId, environmentId, { rootDirectory });
 }
 
 // ---------------------------------------------------------------------------

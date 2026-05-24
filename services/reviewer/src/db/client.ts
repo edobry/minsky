@@ -9,8 +9,9 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as convergenceMetricsSchema from "./schemas/convergence-metrics-schema";
 import * as webhookEventsSchema from "./schemas/webhook-events-schema";
+import * as inflightReviewsSchema from "./schemas/inflight-reviews-schema";
 
-const schema = { ...convergenceMetricsSchema, ...webhookEventsSchema };
+const schema = { ...convergenceMetricsSchema, ...webhookEventsSchema, ...inflightReviewsSchema };
 
 /**
  * Resolve Postgres connection string from environment variables.

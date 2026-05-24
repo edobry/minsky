@@ -1122,13 +1122,84 @@ that class at the merge surface.
 1. Resolves the PR number — for `session_pr_merge`, via `gh pr list --head task/<id>`; for
    the `gh api PUT` bypass path, by extracting `<N>` from the URL pattern `/pulls/<N>/merge`.
 2. Fetches the PR body via `gh pr view <N> --json body`.
-3. Scans the body for trigger phrases (case-insensitive, 6 total — narrow set chosen
-   over speculative phrases per PR #1020 R1): `out-of-band`, `post-merge config`,
-   `Railway config change`, `serviceInstanceUpdate`, `rootDirectory`, `dockerfilePath`.
-   Each is either a literal substring of the mt#1681 PR body or a Railway/GraphQL
+3. Scans the body for trigger phrases (case-insensitive — 2 standalone + 3 pair-required
+   per mt#2002/mt#2019, down from 6 at the mt#1020 R1 count): `post-merge config`,
+   `serviceInstanceUpdate` (standalone), `Railway config change`, `rootDirectory`,
+   `dockerfilePath` (pair-required). `out-of-band` is a PAIR_PARTNER but not a trigger
+   (see Pair-requirement section below).
+   Each phrase is either a literal substring of the mt#1681 PR body or a Railway/GraphQL
    identifier with near-zero benign use.
 4. On match, blocks with a structured message naming each matched phrase, a short surrounding
    excerpt for context, and the override mechanism.
+
+**Markdown-aware filtering (mt#1707):** before substring scanning, the hook elides three
+markdown contexts that carry textual references rather than coordination instructions, per
+CommonMark:
+
+- **Inline code spans** — backtick-delimited with variable run length
+  (`` `rootDirectory` `` and `` ``rootDirectory`` `` both elided). The closing run must
+  match the opening run length and not be followed by another backtick.
+- **Fenced code blocks** — backtick OR tilde fences (3+ markers), opening line indented
+  up to 3 spaces, optional info string, CRLF-tolerant; closing fence matches the opening
+  marker exactly.
+- **Blockquote lines** — up to 3 leading spaces, one or more `>` markers (covers nested
+  quotes like `>>`), CRLF-tolerant.
+
+The elision pass replaces matched content with same-length whitespace, preserving
+character positions so excerpts in the denial message still slice from the ORIGINAL
+body and show real surrounding context. Trigger phrases in bare prose (e.g., "after
+merge, set rootDirectory to empty") continue to fire — only textual references in
+markdown contexts are filtered out. Originating false-positive: mt#1701 PR #1021
+(2026-05-09) DEPLOY.md docs update, where field-name references in code spans tripped
+the substring matcher and the author worked around it by paraphrasing in the PR body.
+
+**Known limitation:** CommonMark "lazy continuation" — a blockquote paragraph wrapped
+onto subsequent lines without a leading `>` marker — is not elided on the wrapped lines.
+The first marked line is still elided; only the wrapped continuation remains scannable.
+This is rare in PR bodies (CommonMark renderers do handle it, but humans usually repeat
+the `>` marker per line); flagged here so a future false-positive can be diagnosed
+quickly.
+
+**Pair-requirement (mt#2002, narrowed mt#2019):** the trigger phrases are split into two
+categories:
+
+- **STANDALONE phrases** (fire on any bare-prose occurrence): `post-merge config`,
+  `serviceInstanceUpdate`. These describe coordination shapes with no benign use pattern.
+  `out-of-band` was removed from this category in mt#2019 to prevent false positives
+  on architectural prose (e.g., "out-of-band consumers" describing module callers in
+  the import graph — originating incident mt#2010 PR #1217). It remains a PAIR_PARTNER.
+- **PAIR-REQUIRED phrases** (fire only when paired with a partner in the same
+  CommonMark paragraph): `rootDirectory`, `dockerfilePath`, `Railway config change`.
+  These are Railway/config-field identifiers that legitimately appear in PR bodies
+  as test-plan documentation, synthesizer-shipping descriptions, or synthesizer
+  cross-references.
+
+The PAIR_PARTNER phrases are `out-of-band` and `post-merge` (the bare `post-merge`
+form matches both `post-merge` and `post-merge config`). When a pair-required
+phrase appears in the SAME PARAGRAPH (text separated by a blank line) as a partner,
+the combination is the strong signal; when it appears alone, it's likely a reference.
+`out-of-band` is a PAIR_PARTNER (activates pair-required phrases when co-occurring)
+but is NOT itself a trigger — it doesn't fire alone on architectural prose.
+
+Originating false-positive cluster (mt#2002): PR #1028 self-fire on mt#1707 (docs
+referencing Railway field names); PR #1204 self-fire on mt#1964 chunk 1
+(synthesizer-shipping description). Both bypassed via `MINSKY_ACK_OOB_MERGE=1`
+before mt#2002 shipped; post-mt#2002 the bare-prose mentions are correctly suppressed
+unless a partner is in the same paragraph.
+
+Additional false-positive fixed by mt#2019: mt#2010 PR #1217 used "out-of-band
+consumers (smoke scripts, unit tests)" to describe module callers in architectural
+prose. The hook fired; the author worked around by rephrasing. After mt#2019,
+bare `out-of-band` in architectural prose no longer fires. The originating
+mt#1681 true-positive still fires via `serviceInstanceUpdate` in bare prose.
+
+**Known limitation:** historical-incident descriptions that put both a pair-required
+phrase AND a partner in the same paragraph (e.g., "mt#1681 PR #1013 (rootDirectory
+flip documented as out-of-band)") still fire under pair-requirement because the
+pair-partner is in the same paragraph. Resolving this without breaking the actual
+mt#1681-style coordination signal requires a different mechanism (e.g.,
+`## Originating-Context` heading exclusion or NLP-based intent classification) and
+is out of scope for mt#2002.
 
 **On block:** the hook denies with this shape:
 > "PR #N's body documents a coupled out-of-band step. Confirm the step is completed (or
@@ -1511,6 +1582,161 @@ with `Buffer.indexOf(0)` — a single memchr-class O(n) pass.
   non-ASCII identifiers); same family of "what the tool layer does to
   your content."
 
+## Workspace-COPY Pre-Commit Guard
+
+A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`, between
+the NUL-byte check and the TypeScript type check) reads root
+`package.json`'s `workspaces` glob, enumerates workspace directories
+containing a `package.json`, **discovers all Dockerfiles in the repo
+that run `bun install --frozen-lockfile`** (root + `services/*/Dockerfile`
++ `packages/*/Dockerfile`), and verifies each one has a
+`COPY <ws>/package.json ...` line for every workspace BEFORE the
+install step. Blocks the commit if any workspace is unaccounted for in
+any protected Dockerfile.
+
+The discovery is by trigger condition (has `bun install --frozen-lockfile`),
+not by hardcoded filename. The check applies to the *class* of
+"Dockerfiles that install against the root bun.lock" rather than to any
+specific instance; sub-project Dockerfiles that adopt frozen-lockfile
+installation are automatically protected without code changes (mt#1992).
+
+**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
+`runWorkspaceCopyCheck()`. Pure-function implementation:
+`src/hooks/workspace-copy-detector.ts` (key exports:
+`discoverProtectedDockerfiles`, `detectMissingWorkspaceCopies`,
+`runWorkspaceCopyCheck` returning per-Dockerfile results).
+
+**Why this check exists.**
+
+*Originating incident (mt#1977 / 2026-05-20T19:44Z).* PR #1186
+(mt#1934, marketing-site rebuild) added `services/site/` as a new
+workspace declared by root `package.json`'s
+`workspaces: ["packages/*", "services/*"]`. The regenerated `bun.lock`
+referenced `services/site`'s deps. The root Dockerfile's selective
+workspace-COPY block only copied `packages/shared/package.json` and
+`services/reviewer/package.json` — `services/site/package.json` was
+missed. Every Railway deploy from `57c2e868` onward failed at
+`RUN bun install --frozen-lockfile` with
+`error: lockfile had changes, but lockfile is frozen`. Production was
+stuck on the prior commit for ~75 minutes.
+
+*Generalization incident (mt#1991 / 2026-05-20T20:55Z, ~6 hours later).*
+The mt#1984 guard's original scope was root-Dockerfile-only. The same
+failure class hit `services/reviewer/Dockerfile` (a sub-project Dockerfile
+with its own `bun install --frozen-lockfile` step against the root
+lockfile). After mt#1934 added services/site as a workspace + mt#1983
+added winston, the reviewer Dockerfile's COPY block silently fell out
+of date: 8 consecutive FAILED Railway deploys over ~4 hours, until
+mt#1989 added a `deploy.config.ts` that gave the deployment_status MCP
+tool visibility into the reviewer service. mt#1991 hotfixed the
+Dockerfile; mt#1992 generalized this guard to walk all protected
+Dockerfiles, not just root.
+
+The local `bun install` SUCCEEDS because the full repo is mounted;
+Railway's selective COPY produces an incomplete tree, so the failure
+mode only surfaces in the deploy environment. The pre-commit check is
+the commit-time complement that catches the failure at the cheapest
+authoring stage, across every Dockerfile that would fail the same way.
+
+**Trigger condition.** Always — the check runs on every commit
+regardless of which files are staged. The cost is well under 50 ms
+(measured on an M1 Max workstation against the current repo with 2
+protected Dockerfiles); always-on coverage matters because the contract
+can be violated by a commit that doesn't itself touch any Dockerfile
+or package.json (e.g., the prior commit added a workspace, this commit
+is unrelated work — the broken state still blocks until someone
+notices).
+
+**On hit:** the step blocks with a structured message that groups
+violations by Dockerfile path — listing every missing workspace per
+file with the literal `COPY <ws>/package.json ./<ws>/package.json` line
+the operator must add, plus a "Why this is blocked" section pointing
+at mt#1984 / mt#1992 / mt#1977 / mt#1991 and an explanation of the
+Railway-build invariant. Each violating Dockerfile is named explicitly
+so the operator knows which file(s) to edit.
+
+**Allowlist (skipped from the check):**
+- Workspaces matched by the glob but lacking a `package.json` — these
+  aren't workspaces from bun's perspective (the glob walks for
+  `package.json`), so no COPY is required. The mt#1977 instance of this
+  is `services/minsky-mcp/`, a directory that matches `services/*` but
+  exists only as a service-config home (no package.json).
+- Dockerfiles with no `RUN bun install --frozen-lockfile` line — they
+  don't install against the root lockfile, so the workspace-COPY
+  invariant doesn't apply to them. Examples: a Dockerfile that uses
+  `npm ci`, or one that skips `--frozen-lockfile`, or one that doesn't
+  install at all. Such files are discovered, evaluated against the
+  trigger condition, and dropped from the protected set.
+- Repositories without a root `package.json` — silent short-circuit
+  (the check needs the root workspaces field to determine what to
+  protect; absent that there's no contract to check).
+- Repositories with a root `package.json` but NO protected Dockerfiles
+  — silent pass (the check ran but found nothing requiring the COPY
+  invariant; legitimate for repos without bun-frozen-lockfile installs).
+
+**Override mechanism:** Set `MINSKY_SKIP_WORKSPACE_COPY_CHECK=1` (or
+`true` / `yes`) in your environment before invoking the commit tool:
+
+```bash
+MINSKY_SKIP_WORKSPACE_COPY_CHECK=1 minsky session commit ...
+```
+
+The override emits an audit-log line to stdout naming the env-var value
+and the ISO timestamp. Use only when a COPY is genuinely omitted on
+purpose (very rare; the most likely justification is a workspace
+that doesn't ship in the runtime image AND is excluded from the
+production install by some other mechanism — in which case the better
+fix is to refactor the workspaces glob, not skip the check).
+
+**Env-var registration:** `MINSKY_SKIP_WORKSPACE_COPY_CHECK` is
+registered in `HOOK_ONLY_ENV_VARS` at
+`src/domain/configuration/sources/environment.ts` so the env-var-to-
+config dot-path parser skips it at boot (per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788).
+The override env-var name's source of truth lives in
+`src/hooks/workspace-copy-detector.ts` as the exported constant
+`WORKSPACE_COPY_CHECK_OVERRIDE_ENV` so the hook, the test, and the
+rule documentation cannot drift.
+
+**Glob-expander support.** The pure detector currently handles two
+glob forms: literal workspace paths (`packages/shared`) and single-`*`
+trailing globs (`packages/*`, `services/*`). Patterns with `**`,
+negations (`!packages/*-archived`), or character classes (`[abc]*`)
+are SKIPPED rather than mis-interpreted — the check is conservative
+and would prefer to under-flag than mis-flag. If Minsky's root
+`package.json` ever adopts those patterns the detector will need
+extension; a follow-up task should be filed at that time. The current
+patterns (`packages/*`, `services/*`) are fully covered.
+
+**Performance:** the check completes in well under 50 ms in practice
+(measured on an M1 Max workstation against the current repo: 3
+workspace package.json reads + 2 Dockerfile reads + 2 single-pass regex
+scans). Performance scales linearly with the number of protected
+Dockerfiles; current count is 2 (root + services/reviewer).
+
+**Cross-references:**
+- mt#1984 — original tracking task (root-Dockerfile-only scope)
+- mt#1992 — generalization task (this expansion; class-scoped instead
+  of instance-scoped per the narrow-rule-doesn't-generalize anti-pattern)
+- mt#1977 — originating incident; the 75-minute root-Dockerfile outage
+- mt#1991 — generalization incident; the 4-hour reviewer-Dockerfile
+  outage that proved the original scope was too narrow
+- mt#1934 / PR #1186 — the merge that introduced the workspace topology
+  change exposing both gaps
+- mt#1983 — added winston to services/site, making the lockfile entry
+  non-trivial and exposing mt#1991
+- mt#1989 — added services/reviewer/deploy.config.ts, giving
+  deployment_status MCP-tool visibility that surfaced mt#1991
+- Memory `bd2c08be` — bridge memory documenting the
+  narrow-rule-doesn't-generalize anti-pattern this expansion fixes
+- mt#1610 / mt#1624 / mt#1626 — contract-propagation gap family
+- mt#1726 — original selective-COPY Dockerfile refactor (the contract
+  this guard protects)
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+  contract this guard's override env-var conforms to)
+- mt#1824 — NUL-byte pre-commit guard (sibling pre-commit-step
+  convention this guard mirrors)
+
 ## Drive-PR-To-Convergence Reminder
 
 A PostToolUse hook on `mcp__minsky__session_pr_create` injects an
@@ -1574,6 +1800,233 @@ the hook exists to prevent.
   the webhook-miss fallback referenced in the reminder.
 - `feedback_bot_authored_pr_convergence` — bypass-merge mechanism the
   reminder points at on convergence.
+
+## Substrate-Bypass Detector
+
+A `UserPromptSubmit` hook that inspects the most-recent assistant turn in
+the session transcript and detects when the agent bypassed a canonical
+Minsky substrate (DB tables, skills, MCP tools, file-edit tools) in favor
+of an ad-hoc inline path. On match, the hook injects an `additionalContext`
+reminder naming each matched surface, the matched phrase, and the
+canonical substrate the agent should have used. This is the structural
+escalation (mt#2020) of the substrate-bypass pattern documented in
+memory `f6607043-be47-43e6-baec-47dbe40221c4` after five recurrences
+(R1-R5) across recommendation-time and action-execution-time surfaces
+confirmed memory-tier + corpus-rule-tier enforcement was insufficient.
+
+**Hook file:** `.claude/hooks/substrate-bypass-detector.ts`
+
+**Three trigger surfaces** (each exported as a separate pure detector
+function for testability):
+
+1. **Verbal-commitment detection.** Regex-matches first-person
+   future-action phrases (`I'd update X`, `I'll save Y`, `going forward
+   I'll Z`, `next session I'll W`, `I should file X`, etc.) in the
+   assistant text. Match fires ONLY when no corresponding tool_use line
+   in the same turn invokes one of the execution tools:
+   `mcp__minsky__memory_create`, `mcp__minsky__memory_update`,
+   `mcp__minsky__tasks_create`, `Edit`, `Write`,
+   `mcp__minsky__session_edit_file`, `mcp__minsky__session_write_file`,
+   `mcp__minsky__session_search_replace`. The verbal commitment
+   evaporates at end-of-turn unless the encoding tool is called same-turn.
+
+2. **Skill-bypass detection.** Heuristic match on inline retrospective
+   shape: assistant text contains 2+ section-heading markers
+   (`Acknowledgment`, `Categorization`, `Root cause` / `Root Cause`,
+   `Fixes`, `Retrospective:`) in the same turn. Match fires ONLY when no
+   tool_use line in the same turn invokes the `Skill` tool with
+   `skill: "retrospective"`. The inline retrospective shape bypasses
+   the canonical `/retrospective` skill which enforces Step 0 (premise
+   validation), Step 0.5 (triage), and Step 3 (recurrence check).
+
+3. **DB-substrate bypass detection.** Substring match on phrases
+   (`v1 reads JSONL`, `read JSONL directly`, `extend the DB later`,
+   `DB doesn't have`, `DB is incompatible`) combined with proximity-match
+   (same paragraph, ≤300 chars) to the word `transcript`. Targets the
+   specific bypass pattern from R3 (cockpit-context-inspector spec
+   session, 2026-05-21) where the agent framed an incomplete DB substrate
+   as "incompatible" and routed around it by reading on-disk JSONL
+   directly instead of extending `agent_transcripts` /
+   `agent_transcript_turns`.
+
+**Detection scope.** The hook inspects the lines between the
+second-to-last user message and the most-recent user message — i.e., the
+just-completed assistant turn. First-turn-of-session (no prior assistant
+turn) is silent.
+
+**On match:** the hook emits a `HookOutput` with
+`hookSpecificOutput.hookEventName: "UserPromptSubmit"` and
+`additionalContext` containing the matched surfaces (truncated phrases +
+canonical substrate), the required next action (call the bypassed
+canonical substrate NOW — not describe it, not defer it), and the
+override mechanism.
+
+**Override mechanism:** Set `MINSKY_ACK_SUBSTRATE_BYPASS=1` (or
+`true`/`yes`) in your environment before the user prompt to suppress the
+warning. The override emits an audit line to stdout naming the env-var
+value, session ID, and ISO timestamp:
+
+```bash
+MINSKY_ACK_SUBSTRATE_BYPASS=1 claude
+```
+
+The audit line is not valid JSON, so Claude Code's hook-output parser
+won't interpret it as a HookOutput envelope. This matches the
+sibling-hook audit convention in `parallel-work-guard.ts` and
+`check-branch-fresh.ts`. Use only when the bypass is intentional and
+acknowledged.
+
+**Env-var registration:** `MINSKY_ACK_SUBSTRATE_BYPASS` is registered in
+`HOOK_ONLY_ENV_VARS` at `src/domain/configuration/sources/environment.ts`
+so the env-var-to-config dot-path parser skips it at boot (per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788). The
+override env-var name's source of truth lives in
+`.claude/hooks/substrate-bypass-detector.ts` as the exported constant
+`OVERRIDE_ENV_VAR` so the hook, tests, and rule documentation cannot
+drift.
+
+**Fail-open posture:** any error reading the transcript, parsing JSONL
+lines, or running detection exits 0 with a `console.error` warning.
+The hook never blocks the user prompt — it is informational only.
+Empty or missing `transcript_path` (typical of the first turn of a
+session) also exits silently.
+
+**Originating incidents (R1-R5):**
+
+- **R1-R2 (2026-05-12, PR #1073 / mt#1783):** memory-search hook tune
+  session. User had explicitly sequenced "implement observability tool
+  FIRST, use hook tuning as its first test case" then said "do it now."
+  Agent compressed to in-house data extraction (grep + jq over
+  `/tmp/<hook>.log`) and skipped the SaaS evaluation step entirely —
+  build-path-as-research at action-execution time.
+- **R3 (2026-05-21, cockpit-context-inspector spec session):**
+  canonical-substrate bypass at v1/scope-defining time. Drafting the
+  cockpit-context-inspector spec, the existing transcripts-DB substrate
+  (mt#1313/mt#1324: `agent_transcripts`, `agent_transcript_turns`) was
+  missing attachment-line retention. Agent framed this as "DB
+  incompatible with v1 use case → route around by reading JSONL
+  directly." Accurate framing: "DB incomplete for v1 use case → extend
+  the canonical substrate."
+- **R4 (same session):** canonical-skill bypass at process-failure time.
+  User explicitly asked for a retrospective; agent wrote one inline using
+  the structural shape from the `/retrospective` skill rather than
+  invoking the skill — bypassing Step 0 premise validation, Step 0.5
+  triage, and Step 3 recurrence check.
+- **R5 (same session):** canonical-tool bypass at durable-artifact time.
+  In the inline retrospective, agent wrote "I'd update memory X" and
+  asked the user "Want me to add that update?" — both deferrals; no
+  `memory_update` call was made. Verbal commitment evaporated at
+  end-of-turn.
+
+**Tracking task:** mt#2020. **Originating memory:**
+`f6607043-be47-43e6-baec-47dbe40221c4`
+(`feedback_build_path_as_research_at_action_time` — R3-R5 extension).
+
+**Cross-references:**
+
+- `decision-defaults.mdc §Build vs buy` — corpus rule the hook escalates
+  from (R2 corpus extension landed 2026-05-12; this hook is the
+  hook-tier escalation per the `/retrospective` skill's repeated-failure
+  rule after R3-R5 confirmed the corpus tier was insufficient).
+- `feedback_build_path_as_research_at_action_time` (id `f6607043`) —
+  originating memory documenting R1-R5; updated to cite mt#2020 as the
+  structural escalation target.
+- `feedback_build_vs_buy_default_for_non_core` — R1 recommendation-time
+  slice of the same pattern family.
+- `/declare-framework` (mt#1789) — sibling skill enforcing framework
+  selection at recommendation time (this hook is the action-time
+  complement).
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+  contract this hook's override env-var conforms to).
+- mt#1622 — `skill-staleness-detector.ts` (sibling UserPromptSubmit
+  hook with the same context-injection shape).
+
+## Retrospective-Trigger Scanner
+
+A `UserPromptSubmit` hook that scans the prior assistant turn for
+retrospective-trigger phrases (R1–R4 families) and the current user prompt
+for user-correction signals, injecting `additionalContext` reminding the
+agent to invoke `/retrospective`. This is the structural escalation
+(mt#2057) of the retrospective skill's trigger-phrase family after four
+recurrences (R1–R4) proved memory-tier and corpus-tier enforcement
+insufficient.
+
+**Hook file:** `.claude/hooks/retrospective-trigger-scanner.ts`
+
+**Four trigger families (hardcoded as exported regex constants):**
+
+- **R1 (apology/contrition):** "I owe you an apology", "I should have
+  caught", "I was wrong about", "I made a mistake", "I conflated", etc.
+- **R2 (operational/explanatory prose):** "I didn't think it through",
+  "I went straight to X without checking", etc.
+- **R3 (future-behavior commitments):** "going forward I will", "from
+  now on I'll", "next time I'll", "I'll be more careful about", etc.
+- **R4 (decline-to-retrospective):** "fixing the symptom rather than
+  running a retrospective", "one-off issue", "no need for a full
+  retrospective", "skip the retrospective", etc.
+
+**Plus user-correction signals** in the current user prompt: "why did
+you do that?", "you keep doing this", "that's wrong", "how many times",
+etc.
+
+**False-positive suppression:** when the prior assistant turn contains a
+`Skill` tool call with `skill: "retrospective"`, ALL trigger-phrase
+detections are suppressed — the agent is already inside a retrospective
+and the phrases are legitimate output.
+
+**On match:** the hook emits a `HookOutput` with `additionalContext`
+naming each matched phrase, its R-family, and the required action: invoke
+`/retrospective` before any other action. The retrospective skill's
+Step 0.5 triage determines whether a full retrospective is warranted —
+the hook only ensures the agent enters the triage, not that it runs a
+full retrospective.
+
+**Calibration logging:** every fire logs a JSONL record to
+`.minsky/retrospective-trigger-calibration.jsonl` with timestamp,
+session ID, and matched phrases. Review after 10 fires — if >2 are
+false positives, tune the patterns.
+
+**Override mechanism:** Set `MINSKY_ACK_RETROSPECTIVE_TRIGGER=1` (or
+`true` / `yes`) in your environment to suppress the warning:
+
+```bash
+MINSKY_ACK_RETROSPECTIVE_TRIGGER=1 claude
+```
+
+The override emits an audit line to stdout naming the env-var value,
+session ID, and ISO timestamp. Use only when a trigger phrase is
+genuinely not a retrospective case (e.g., documenting trigger phrases
+in a rule file, discussing the hook's own patterns).
+
+**Env-var registration:** `MINSKY_ACK_RETROSPECTIVE_TRIGGER` is
+registered in `HOOK_ONLY_ENV_VARS` at
+`src/domain/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788.
+
+**Originating incidents:**
+
+- **R1 (2026-05-18):** shell-completions library survey — agent wrote
+  "I owe you the apology" without invoking `/retrospective`.
+- **R2 (2026-05-18):** same session — agent wrote "I didn't think it
+  through" without invoking `/retrospective`.
+- **R3 (2026-05-21):** cockpit-context-inspector session — agent wrote
+  "going forward I will" without encoding the commitment durably.
+- **R4 (2026-05-23, PR #1234 / mt#2053):** agent wrote "fixing the
+  symptom rather than running another retrospective" — explicitly
+  declining the retrospective trigger.
+
+**Cross-references:**
+
+- `feedback_self_recognized_failure_is_retrospective_trigger` (id
+  `1b36a19e`) — R1 family root memory (bridge; retires when this
+  hook ships).
+- `feedback_decline_to_retrospective_is_itself_a_trigger` (id
+  `13ccf86e`) — R4 memory (bridge; retires when this hook ships).
+- `.claude/skills/retrospective/SKILL.md` §When to invoke — the
+  canonical trigger list this hook mechanizes.
+- `.claude/hooks/substrate-bypass-detector.ts` — sibling
+  UserPromptSubmit hook (mt#2020) with the same architecture.
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration).
 
 # Task Lifecycle: External-Deliverable Closeout
 
@@ -1682,6 +2135,24 @@ documenting the outcome. To close such a task via this path:
 
   The `/implement-task` skill's §7 Convergence Checklist has a paired Preventive-phase sub-step that enforces the same probe at the PR-creation gate. This rule covers all artifact surfaces; the skill step covers the implement-task pipeline specifically.
 
+- **Probe before claiming a shared resource (mt#1965 → mt#1990).** Before recommending or taking action on a shared resource — a task, a branch, a deployed environment, a PR — probe for active claims by other actors. A status of `READY`, an empty PR-list filter, or any other "looks unclaimed" surface only means "no claim is currently visible to me" — not "nobody is working on it." Multi-agent task graphs contain agents mid-planning, mid-implementation, or about-to-start that don't surface on a single status read.
+
+  **Canonical probe sequence** (run in order; first hit indicates a collision):
+  1. **Task-status state-change check** — if the task's status changed without my action since session start (e.g., PLANNING → READY mid-session), another actor is in the task graph. Identify them before recommending the next step.
+  2. **Session probe** — `mcp__minsky__session_list` (filter by task if supported) to see if any agent has an open session bound to the task.
+  3. **PR probe** — `mcp__github__list_pull_requests` with `head:"task/mt-<id>"` or branch-name pattern matching.
+  4. **Recent-activity probe** — `mcp__minsky__git_log --grep="mt#<id>" --since="24 hours ago"` for commits by other actors.
+
+  **If a probe returns "another actor is here"**, do NOT recommend the same action as the next step. Surface the collision (which actor, what evidence) to the principal; let them resolve who continues.
+
+  **If all probes pass cleanly**, proceed — but record the probe outcome in the recommendation so the audit trail shows the check was done.
+
+  Originating incident: mt#1965 closeout (2026-05-20). After completing mt#1965 (OOB-merge guard agent-attestation gap investigation), the agent recommended `/implement-task mt#1964` without detecting that another agent had advanced mt#1964 PLANNING→READY during the same session. The status change was a visible signal not interpreted as evidence; the principal informed the agent of the collision. The substrate RFC (mt#1990) explores the structural fix — claim primitives, agent presence, status-machine intent states — that turns this probe sequence into a single substrate read. Until that ships, this rule is checklist-driven discipline.
+
+  This rule is the dual of `§Probe before deferring`: that rule guards the "skipping the easy path because I assume it's blocked" failure (claiming tooling is unavailable without verifying); this rule guards the "taking the easy path because I assume it's unclaimed" failure (recommending action on a shared resource without verifying who holds it). Both are instances of: at action-execution time, the agent defaults to the lowest-cost-check path without verifying the underlying assumption.
+
+  **Future structural enforcement:** mt#1990's RFC may propose making the four probes a single substrate query, or eliminating the need to probe entirely via active edges + presence broadcast. When that lands, this rule retires.
+
 - **No echo for progress summaries:** Execute actions directly. Use `echo` only for legitimate shell scripting, not to generate status reports or avoid real work.
 
 - **Fix or track all identified issues:** When a problem is found, either fix it immediately if in scope, or create a task. Never just describe problems without taking action.
@@ -1702,20 +2173,22 @@ documenting the outcome. To close such a task via this path:
 
 # Documentation Taxonomy
 
-Minsky has eight kinds of written artifacts. Each has a home, a title pattern, and a lifecycle. Picking the wrong type creates friction (RFCs in `docs/` won't get reviewed; ADRs in Notion drift from the code). This rule names them so the choice is mechanical, not improvised.
+Minsky has ten kinds of written artifacts. Each has a home, a title pattern, and a lifecycle. Picking the wrong type creates friction (RFCs in `docs/` won't get reviewed; ADRs in Notion drift from the code). This rule names them so the choice is mechanical, not improvised.
 
-## The eight categories
+## The ten categories
 
 | Type | Where | Title pattern | Lifecycle | Use when |
 | --- | --- | --- | --- | --- |
 | **ADR** | `docs/architecture/adr-NNN-<slug>.md` | `ADR-NNN: <topic>` | Proposed → Accepted → (Superseded by ADR-MMM) | Committing to one architectural option among alternatives; future readers will ask "why this and not that?" |
-| **RFC** | Notion under Minsky home (`33a937f0-3cb4-8197-a93e-cd4a98a94261`) | `RFC: <topic>` | Draft → Accepted → Implemented (or Declined / Superseded) | Strategic proposal opening discussion; multi-phase roadmap; cross-cutting architectural move |
-| **Design doc** | Notion under Minsky home | `Design: <feature>` | Draft → Implementing → Shipped (or Abandoned) | Concrete implementation plan, usually following an RFC or task spec |
-| **Position paper** | Notion under Minsky home | `Position: <thesis>` | Living | Arguing for a stance that should outlive specific implementation choices |
+| **RFC** | Notion under Minsky home (`33a937f0-3cb4-8197-a93e-cd4a98a94261`), cluster page [RFCs](https://www.notion.so/365937f03cb481abbdc9fd1e6f376d25) | `RFC: <topic>` | Draft → Accepted → Implemented (or Declined / Superseded) | Strategic proposal opening discussion; multi-phase roadmap; cross-cutting architectural move |
+| **Design doc** | Notion under Minsky home, cluster page [Design docs and architecture decisions](https://www.notion.so/365937f03cb481e79114f7a9e8dd8fd7) | `Design: <feature>` | Draft → Implementing → Shipped (or Abandoned) | Concrete implementation plan, usually following an RFC or task spec |
+| **Position paper** | Notion under Minsky home, cluster page [Position papers](https://www.notion.so/365937f03cb481a5a001e389f1a924cf) | `Position: <thesis>` | Living | Arguing for a stance that should outlive specific implementation choices |
 | **Architecture reference** | `docs/architecture/<feature>.md` | descriptive | Living | Engineering reference for a deployed subsystem |
-| **Engineering guide** | `docs/<topic>.md` | descriptive | Living | Setup, config, migration, ops, testing patterns |
-| **Incident memo** | `docs/incidents/<date>-<topic>.md` per-incident, Notion for cross-incident synthesis | descriptive | Static | Per-incident postmortems; cross-incident memos in Notion |
-| **Vision / Insight / Field notes** | Notion under Minsky home | `Vision: …`, `Insight: …`, `Field notes: …` | Living | Foundational theory, competitive positioning, operational observations |
+| **Engineering guide** | `docs/<topic>.md` (rare exceptions in Notion under cluster page [Engineering guides and setup](https://www.notion.so/365937f03cb481c8b245f94f9a826d2a)) | descriptive | Living | Setup, config, migration, ops, testing patterns |
+| **Incident memo** | `docs/incidents/<date>-<topic>.md` per-incident, Notion under cluster page [Incident memos and retrospectives](https://www.notion.so/365937f03cb48121a3cdde97250189a6) for cross-incident synthesis | descriptive | Static | Per-incident postmortems; cross-incident memos in Notion |
+| **Vision / Insight / Field notes** | Notion under Minsky home, cluster page [Vision, Insights, and Companion Principles](https://www.notion.so/365937f03cb48152afa2ca9b04f8db9f) | `Vision: …`, `Insight: …`, `Field notes: …` | Living | Foundational theory, observation of operational reality |
+| **Landscape analysis** | Notion under Minsky home, cluster page [Landscape analyses](https://www.notion.so/365937f03cb48132bacdf6cf474b813a) | `Analysis: <product>[ × <product>] × Minsky — <descriptor> (<month> <year>)` or `Analysis: <product> — <descriptor> & Minsky relevance (<month> <year>)` | Living (dated; revise on product pivots) | Adjacent-product read, ecosystem map, or competitive landscape analysis. Use the `/analyze-adjacent-product` skill for the semiotic methodology (Peirce / Barthes / Oswald); optionally extend with an architectural-overlap section per the established landscape-doc pattern. |
+| **Audit / strategic synthesis** | Notion under Minsky home, cluster page [Audits and strategic syntheses](https://www.notion.so/365937f03cb48108a822ccc8daef49da) | `Audit: <topic>` / `<topic>: <descriptor>` (un-prefixed strategic syntheses) / `Report: <topic>` | Static (dated) | Cross-cutting audit or meta-analysis of Minsky itself. Distinct from incident memos (bounded to one event) and from landscape analyses (about adjacent products). Surfaces strategic-level introspection: roadmap stalls, ownership gaps, identity-and-gap reports, operations-fit hierarchies. |
 
 ## Where each home is
 
@@ -1729,8 +2202,20 @@ Minsky has eight kinds of written artifacts. Each has a home, a title pattern, a
 
 **Notion under the Minsky home page** is for **strategic, persuasive, and observational** material that's read and discussed. Page IDs are stable; titles drift, so cross-link by ID.
 
-- Minsky home: `33a937f0-3cb4-8197-a93e-cd4a98a94261`
-- Mesh RFC (precedent): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+- Minsky home (top-level index): `33a937f0-3cb4-8197-a93e-cd4a98a94261`
+- Mesh RFC (retained as the canonical precedent for RFC-format citation; see `.claude/skills/draft-rfc/SKILL.md`): `33a937f0-3cb4-814f-8603-ff6faa52ec6b`
+
+**Cluster pages** (under Minsky home, post 2026-05-19 IA reorganization) — these are the navigable cluster indexes that each category resolves to. Listed in the categories table above; collected here for top-of-mind reference:
+
+- [Vision, Insights, and Companion Principles](https://www.notion.so/365937f03cb48152afa2ca9b04f8db9f) (`365937f0-3cb4-8152-afa2-ca9b04f8db9f`)
+- [RFCs](https://www.notion.so/365937f03cb481abbdc9fd1e6f376d25) (`365937f0-3cb4-81ab-bdc9-fd1e6f376d25`)
+- [Position papers](https://www.notion.so/365937f03cb481a5a001e389f1a924cf) (`365937f0-3cb4-81a5-a001-e389f1a924cf`)
+- [Design docs and architecture decisions](https://www.notion.so/365937f03cb481e79114f7a9e8dd8fd7) (`365937f0-3cb4-81e7-9114-f7a9e8dd8fd7`)
+- [Landscape analyses](https://www.notion.so/365937f03cb48132bacdf6cf474b813a) (`365937f0-3cb4-8132-bacd-f6cf474b813a`)
+- [Incident memos and retrospectives](https://www.notion.so/365937f03cb48121a3cdde97250189a6) (`365937f0-3cb4-8121-a3cd-de97250189a6`)
+- [Audits and strategic syntheses](https://www.notion.so/365937f03cb48108a822ccc8daef49da) (`365937f0-3cb4-8108-a822-ccc8daef49da`)
+- [Session logs, reframe memos, spike reports](https://www.notion.so/365937f03cb481a3a1a5e402899e12e0) (`365937f0-3cb4-81a3-a1a5-e402899e12e0`)
+- [Engineering guides and setup](https://www.notion.so/365937f03cb481c8b245f94f9a826d2a) (`365937f0-3cb4-81c8-b245-f94f9a826d2a`)
 
 ## Lifecycle conventions
 
@@ -1767,16 +2252,22 @@ A new subsystem proposal, a multi-phase roadmap, or a cross-cutting architectura
 
 Postmortem of one incident → Incident memo (repo). Synthesis across multiple incidents → Notion incident memo.
 
-Foundational theory, competitive positioning, observation of operational reality → Vision / Insight / Field notes.
+Foundational theory, observation of operational reality → Vision / Insight / Field notes.
+
+An adjacent product, framework, or platform that needs reading against Minsky's surfaces — competitive positioning, RFC support, build-vs-buy decisions → Landscape analysis. Use `/analyze-adjacent-product`.
+
+A cross-cutting introspection of Minsky itself — roadmap stall audit, ownership-gap analysis, identity-and-gap report, operations hierarchy — not bounded to a single event (that would be an incident memo) → Audit / strategic synthesis.
 
 ## Examples currently in Minsky
 
 - **ADRs:** `docs/architecture/adr-002-persistence-provider-architecture.md`, `adr-005-forgebackend-subinterfaces.md`, `adr-008-attention-allocation-subsystem.md`
 - **RFCs:** [`RFC: the mesh`](https://www.notion.so/33a937f03cb4814f8603ff6faa52ec6b), [`RFC: memory system roadmap`](https://www.notion.so/34a937f03cb48176906cd2bd814a6498), [`RFC: Braintrust trace shape for Minsky`](https://www.notion.so/35e937f03cb481baa6ddf1f571d1020a)
-- **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135)
+- **Position papers:** [Identity, Signing, and Provenance](https://www.notion.so/34a937f03cb48155b19ff194f669a4a7), [Reviewer output as a structured channel](https://www.notion.so/350937f03cb481b7b84dc6c80951e135), [Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1)
 - **Architecture references:** `docs/architecture/stdio-proxy.md`, `docs/architecture/bundling.md`
 - **Engineering guides:** `docs/configuration-guide.md`, `docs/deploy-minsky-railway.md`, `docs/testing-patterns.md`
-- **Vision/Insight:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4)
+- **Vision / Insight / Field notes:** [Vision & theory: the viable cognitive system](https://www.notion.so/33a937f03cb4815c8394d7fe62d61355), [Insight: Minsky as shift-left quality infrastructure](https://www.notion.so/33a937f03cb481199bbde69f3fc63de4), [Field notes from inside the harness (v4.1)](https://www.notion.so/33b937f03cb481b8810debaef5e24a66)
+- **Landscape analyses:** [LangGraph × Claude Agent SDK × Minsky](https://www.notion.so/340937f03cb481c8b4d1ca8bfcbcd67e), [Macro × Minsky](https://www.notion.so/365937f03cb481e0b19bfeeae10b033e), [Agent SDK landscape](https://www.notion.so/348937f03cb48161a31fe344ada6fb28), [6 Claude Code Plugins — ecosystem landscape](https://www.notion.so/341937f03cb4811f93ace3c2dc98eb12)
+- **Audits / strategic syntheses:** [Audit: how operations fits in Minsky's cognitive system hierarchy](https://www.notion.so/357937f03cb481a39a8bfc7d611579ae), [PR review-loop ownership](https://www.notion.so/358937f03cb4810ab11efc3d72bd0a06), [Minsky identity & gap report](https://www.notion.so/346937f03cb48133a6d1f9f013796767), [mt#1505 synthesis: roadmap stall audit + structural-process retrospective](https://www.notion.so/35a937f03cb481119a08f3c47bd8e6e7)
 
 ## How to apply
 
@@ -1792,6 +2283,8 @@ For RFC authoring specifically, use the `/draft-rfc` skill which encodes the ful
 
 For ADR authoring specifically, use the `/draft-adr` skill which walks the Michael-Nygard format with the numbered-file convention.
 
+For landscape-analysis authoring specifically, use the `/analyze-adjacent-product` skill which encodes the semiotic methodology (Peirce / Barthes / Oswald) and the established landscape-doc structure.
+
 ## Subsumes
 
 This rule subsumes the prior memory `Strategic RFCs and roadmap docs go in Notion, not repo docs/` — that memory covered the single repo-vs-Notion axis; this rule covers the full taxonomy. The prior memory remains as historical anchor but should be considered superseded.
@@ -1803,8 +2296,10 @@ This rule subsumes the prior memory `Strategic RFCs and roadmap docs go in Notio
 - `decision-defaults.mdc §User does not review PRs in the loop` — sibling rule on convergence discipline
 - `.claude/skills/draft-rfc/SKILL.md` — lifecycle skill for RFC authoring
 - `.claude/skills/draft-adr/SKILL.md` — format skill for ADR authoring
-- `.claude/skills/engineering-writing/SKILL.md` — writing-craft skill referenced by both
+- `.claude/skills/analyze-adjacent-product/SKILL.md` — semiotic methodology for landscape-analysis authoring (mt#1944, mt#1945)
+- `.claude/skills/engineering-writing/SKILL.md` — writing-craft skill referenced by all three
 - Originating context: 2026-05-12 documentation-process retrospective and the Braintrust trace RFC that demonstrated the lifecycle
+- 2026-05-19 Notion IA reorganization: the cluster pages linked in the table above were created to give the ~70-page corpus a navigable home. Landscape analyses and Audits / strategic syntheses were formally added as recognized categories (mt#1946); the prior 8-category formulation is superseded.
 
 # Principal Context
 
@@ -2193,89 +2688,6 @@ A mechanism with no invocation path is a stub. It may exist in the codebase, pas
 
 When compacting, preserve: current task ID and session path, file paths being edited, architectural decisions made this session, test failure details, and the current plan. Drop: full tool outputs (keep summaries), resolved debugging steps, verbose error messages already fixed.
 
-# MCP Tools
-
-Use MCP tools for all operations — never shell out to git/gh CLI:
-
-- `mcp__minsky__tasks_*` — task CRUD, status, specs, deps
-- `mcp__minsky__session_*` — session lifecycle, PRs, file operations
-- `mcp__minsky__rules_*` — project rules
-- `mcp__minsky__persistence_*` — database operations
-
-GitHub MCP PR-write tools are banned by a PreToolUse hook (see mt#1030) because they bypass TokenProvider and produce silent identity drift. Use the Minsky equivalents:
-
-- `mcp__github__create_pull_request` → `mcp__minsky__session_pr_create`
-- `mcp__github__update_pull_request` → `mcp__minsky__session_pr_edit`
-- `mcp__github__merge_pull_request` → `mcp__minsky__session_pr_merge`
-- `mcp__github__pull_request_review_write` → `mcp__minsky__session_pr_review_submit`
-
-Read-only GitHub tools (`get_*`, `list_*`, `search_*`, `pull_request_read`) remain available since identity doesn't matter for reads.
-
-## session_pr_review_submit identity routing (mt#1510)
-
-`session_pr_review_submit` accepts an optional `identity: "implementer" | "reviewer"` parameter that selects the GitHub App posting the review. Default mapping when `identity` is omitted:
-
-- `event: COMMENT` → `implementer` (`minsky-ai[bot]` App)
-- `event: APPROVE` or `event: REQUEST_CHANGES` → `reviewer` (`minsky-reviewer[bot]` App, when `github.reviewer.serviceAccount` is configured)
-
-APPROVE / REQUEST_CHANGES under the reviewer role require `github.reviewer.serviceAccount` to be present in config. When it is absent, the call throws a typed `MinskyError` naming the missing config key — the tool **never silently falls back to implementer** for those events, because that would re-introduce GitHub's self-approval block on bot-authored PRs. COMMENT events are not gated and use the implementer App regardless. Supersedes mt#1065's earlier event-type token workaround. Architectural narrative: Notion "Decision record: Phase 2 shipped" + memory `project_bot_identity.md` + ADR-006.
-
-## session_update and session_pr_create can force-push the branch
-
-`mcp__minsky__session_update` (and `mcp__minsky__session_pr_create`, which calls it internally) merges main onto the **local** session HEAD and force-pushes. If the remote `task/<id>` branch has been advanced beyond the session's local HEAD by another agent, the merge commit's parent is the stale local — NOT the advanced remote — and the force-push silently orphans the remote commits. The tool returns `{success: true}` with no warning. mt#1304 tracks the tool-level fix; until that lands, the agent must guard.
-
-**Pre-flight before calling `session_update` or `session_pr_create` on any session whose task has an open PR:**
-
-1. Read `mcp__minsky__session_get(task)` → note `lastCommitHash`.
-2. Read `mcp__minsky__session_pr_list(task)` (or `mcp__github__pull_request_read get` and inspect `head.sha`).
-3. If `lastCommitHash !== head.sha`: the remote has advanced. **Do NOT call session_update.** Surface to user, or do the analysis non-mutatively (see below).
-
-**Non-mutating alternatives** when you only need to read the current PR state: use `mcp__github__get_file_contents(ref="task/mt-N")` for files at the PR HEAD, or `mcp__github__pull_request_read(method="get_diff")` for the full diff. Edit the session only when you're actually committing — and only after confirming local-vs-origin parity.
-
-**Recovery if you orphaned commits**: the orphaned SHAs remain accessible on GitHub by SHA for some retention window. Restore via:
-
-```
-gh api -X PATCH /repos/<owner>/<repo>/git/refs/heads/<branch> \
-  -f sha=<orphaned-head-sha> -F force=true
-```
-
-Then surface the incident to the user; do NOT silently re-run session_update on the restored branch. See `feedback_session_update_can_force_push` memory for the failure-mode pattern.
-
-## Running commands in sessions
-
-Use `mcp__minsky__session_exec` to run shell commands inside a session workspace from the main agent context. The session directory is resolved automatically — no need to look up paths or `cd` into directories.
-
-```
-mcp__minsky__session_exec(task: "mt#123", command: "git status")
-mcp__minsky__session_exec(task: "mt#123", command: "bun test --preload ./tests/setup.ts --timeout=15000 src")
-mcp__minsky__session_exec(task: "mt#123", command: "bun run format:check")
-mcp__minsky__session_exec(task: "mt#123", command: "ls src/domain/")
-```
-
-Never substitute `git -C <session-path> <cmd>` or `SESSION=... && cd "$SESSION" && <cmd>` — use `session_exec`.
-
-**`session_exec` is not a git/gh escape hatch.** The same PreToolUse hook that blocks git/gh CLI on the `Bash` tool also blocks them on `session_exec` (mt#1196). Use Minsky MCP equivalents (`git_log`, `git_diff`, `git_status`, `git_pull`, `git_stash`, `git_reset`, `git_restore`, `session_commit`, `session_pr_merge`, etc.) for anything with a Minsky tool; `session_exec` is for commands that don't have one (build, test, format, custom scripts). For main-workspace `git status`/`git stash`/`git reset`/`git restore`/`git pull`, prefer the dedicated MCP tools (`git_status`, `git_stash`, `git_reset`, `git_restore`, `git_pull`) shipped by mt#1549 — `session_exec` carve-outs for these still apply only when running them inside a SESSION workspace (e.g., `session_exec(task, 'git stash')`). `git -C` is denied on both contexts because it could bypass other rules and point git at paths outside the session root. If you hit a real MCP-toolkit gap (e.g., `git show <ref>:<path>`, `git checkout --theirs`), stop and ask rather than rationalizing around it.
-
-## Local MCP daemon: optional proxy for /mcp-click-free reconnection
-
-If you frequently click `/mcp` to reconnect Minsky after merges that touch `src/`,
-switch your local Claude Code config from `minsky mcp start` to `minsky mcp proxy`:
-
-```jsonc
-{
-  "mcpServers": {
-    "minsky": {
-      "command": "minsky",
-      "args": ["mcp", "proxy"]  // was: ["mcp", "start"]
-    }
-  }
-}
-```
-
-The proxy transparently respawns the inner daemon on mt#1322 staleness exits without
-disconnecting Claude Code. Agent-callable restart via `__proxy_restart_server`.
-See `docs/architecture/stdio-proxy.md` for the architecture.
-
 # Decision Defaults
 
 When picking a default — a number, a tool, an approach, a UX shape — check whether Minsky has its own answer before reaching for the SE-textbook one. Pre-training emphasizes industry-average patterns; without a contrary anchor in this file, the textbook wins. Each entry below names the Minsky-grounded answer, the generic-SE alternative it overrides, and the originating memory.
@@ -2338,6 +2750,61 @@ When a workflow needs an external system action (creating a GitHub App, configur
 When introducing a "temporary," "escape hatch," "workaround," "interim," or "until X ships" mechanism: cite both a tracking task (the structural fix) AND an escalation threshold (count + window) at which the temporary framing has failed.
 
 **Generic-SE override:** "TODO: clean this up later." See `Work Completion §Temporary mechanism budget`.
+
+## Missing MCP tool — escalate, don't silently work around
+
+When you need a capability and (a) reach for bash before checking MCP, (b) the MCP tool exists but errors for the specific subject, or (c) no MCP tool covers the capability AND bash is denied by a hook: **escalate to the user** rather than silently abandoning the goal, switching to a non-equivalent workaround, or proceeding with degraded behavior.
+
+**The three sub-patterns:**
+
+1. **Bash-first reflex when MCP exists.** Reaching for `gh pr view`, `git pull`, `gh api`, etc. before checking whether `mcp__github__*` or `mcp__minsky__*` covers the same capability. Block-and-redirect hooks (mt#1196's `block-git-gh-cli.ts`, etc.) catch most of these post-hoc, but reaching for CLI first is the wrong default. MCP-first.
+
+2. **MCP tool exists but precondition fails for the specific subject.** Example: `mcp__minsky__deployment_status service:"reviewer"` returns "No deploy.config.ts found for service 'reviewer'". The tool exists; the subject isn't covered (the platform-neutral abstraction can't track services that only have a `railway.config.ts`). Silently moving to `ls` to investigate the filesystem is the failure mode. Escalate.
+
+3. **No MCP tool for the capability AND bash denied.** The agent has no fallback. The narrow git-only precedent (memory `b30bfabe`, "Known MCP-toolkit gaps") covers this case for git; the general principle applies to deployment, gh API surface beyond what's wrapped, Railway, and any other domain where MCP coverage is partial.
+
+**Required escalation form** (when any of (1)–(3) fires) — surface to the user with:
+
+- **Capability needed** — one sentence on what you need to do.
+- **What's missing** — no MCP tool / MCP tool errored / bash denied.
+- **Concrete options** — present as [a]/[b]/[c]/[d]:
+  - [a] add a new MCP tool for the capability,
+  - [b] add the config (or other precondition) the existing tool needs,
+  - [c] use a non-equivalent workaround Z with explicit acknowledgment,
+  - [d] accept the gap and proceed.
+
+**Anti-patterns (do NOT do any of these):**
+
+- Silently **abandon** the goal ("I'll skip the X check").
+- Silently **switch to a non-equivalent workaround** ("falling back to Y").
+- Proceed with **degraded behavior** the user doesn't know about.
+
+**Trigger-phrase self-recognition (STOP before any of these land in user-facing output):**
+
+- "I'll skip the X check / step"
+- "There's no MCP tool for Y so I'll Z"
+- "Falling back to [CLI / shell / non-equivalent]"
+- "No MCP tool covers this — proceeding with..."
+- "The MCP tool errored — moving on"
+
+**Generic-SE override:** "the agent's job is to keep moving — when a tool doesn't fit, find another path." That heuristic is correct for routine tooling friction, but the missing-MCP-tool case is exactly where silent workarounds accumulate undocumented capability gaps the user can't see and therefore can't prioritize closing.
+
+**Originating incident:** 2026-05-20 (mt#1983 close-out session). Three reaches in one 60-minute window — two correct-recovery (`gh pr view` denied → `mcp__github__pull_request_read`; `git pull` denied → `mcp__minsky__git_pull`), one silent abandon (`mcp__minsky__deployment_status service:"reviewer"` → "No deploy.config.ts found", agent moved to `ls` instead of escalating). User articulated: "whenever there's a missing MCP tool and you get denied the bash route, you should escalate this to me and ask for me to give you a new tool." See memory `3408717a` (bridge) and `b30bfabe` (narrow git-only precedent being generalized).
+
+**Why agent-discipline-tier, not hook-tier.** A PostToolUse hook could pattern-match on the trigger phrases in agent output, but string-match on natural language is brittle. The current tier is rule + memory bridge until the pattern recurs structurally past this rule. If this rule fails to prevent a future instance, escalate to hook-tier per `Work Completion §Process corrections require structural fixes`. Same escalation shape as `§Build vs buy` (memory → corpus rule → `/declare-framework` skill) and `§Subsystem-assignment verification` (memory → corpus rule, Phase 2 in mt#1873).
+
+**Cross-references:**
+
+- `error-investigation.mdc` — adjacent rule covering tool errors (2-strikes rule, workarounds-need-bug-task); covers tool errors, not capability gaps.
+- CLAUDE.md `§Using your tools` (system-prompt-level) — encourages MCP-first; doesn't cover the missing-tool escalation case.
+- Memory `b30bfabe` (Git and MCP tool usage) — narrow git-only precedent this rule generalizes.
+- Memory `3408717a` (bridge memory for this rule; retires when this section lands AND a subsequent missing-MCP-tool gap is caught by it).
+- Memory `39701a9a` (Stop and confirm when shared-state writes hit systemic tool errors) — adjacent rule for shared-state-write tool errors.
+- Memory `7f67af43` (session_update aborts on conflict without leaving markers) — concrete instance of the broader pattern in git domain.
+- mt#1196 — `block-git-gh-cli.ts` hook (catches CLI-first reflex post-hoc for git/gh; this rule covers domains the hook doesn't).
+- mt#1197 — git-toolkit gap filling (narrower, ongoing).
+- mt#1983 — originating session.
+- mt#1989 — concrete instance: filled the specific pattern-(2) gap (`services/reviewer/deploy.config.ts`) surfaced in the originating incident.
 
 ## User does not review PRs in the loop
 
@@ -2515,6 +2982,11 @@ Future: mt#1541 (Surface 1 policy-coverage detector) reads this file as its poli
 - mt#1797 — deferred Shape C tracking task (harness-agnostic working-notes surface)
 - mt#1868 — R5 escalation task (recommendation-time / subsystem-assignment-time enforcement)
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling rule on the confabulation pattern
+- Memory `3408717a` — bridge memory for `§Missing MCP tool — escalate, don't silently work around` (retires when the rule has caught a subsequent instance)
+- Memory `b30bfabe` (Git and MCP tool usage) — narrow git-only precedent generalized by `§Missing MCP tool — escalate, don't silently work around`
+- mt#1196 — `block-git-gh-cli.ts` hook (post-hoc catcher for the bash-first reflex in git/gh; sibling structural enforcement to the new section)
+- mt#1983 — originating session for `§Missing MCP tool — escalate, don't silently work around`
+- mt#1988 — implementation task for `§Missing MCP tool — escalate, don't silently work around`
 
 # Memory Usage
 
@@ -2604,6 +3076,33 @@ Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an 
 The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
 
 Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
+
+### Layered merge-protection model (mt#1938)
+
+A PR's path to `main` is protected by three independent layers, each covering a different surface. Knowing which layer protects which path matters when triaging a main-red incident or proposing new enforcement.
+
+| Layer | Surface covered | Mechanism | Owns origin path |
+| ----- | --------------- | --------- | ---------------- |
+| 1 — Agent-tool | Claude Code tool invocations (`mcp__minsky__session_pr_merge`, agent-context `gh api PUT /merge` via `Bash`/`session_exec`) | `.claude/hooks/require-review-before-merge.ts` — review presence + freshness + CI presence (mt#1309) + bundle-boot smoke (mt#1787) + required-checks status (mt#1938) | Agent-driven merges only. |
+| 2 — GitHub-tool | Operator-terminal `gh api PUT /merge`, `gh pr merge`, GitHub web UI | GitHub branch protection: `required_status_checks.contexts` + `enforce_admins: true` | Operator-side merges. **Load-bearing** for the user's normal merge path. |
+| 3 — Main-watch | Universal post-merge backstop | `.github/workflows/main-watch.yml` — fires on `workflow_run` failure on `main`, opens a P0 issue | Anything that gets past layers 1 and 2. |
+
+**Why this matters.** Claude Code's PreToolUse hook stack can only see Claude Code tool invocations — operator-terminal `gh api` calls and GitHub-UI clicks are outside its scope by construction. Layer 2 (GitHub branch protection) is the layer that covers the operator-API path with `enforce_admins: true`; without it, an admin token sails past the required-status-checks rule. Layer 3 catches anything that gets past layers 1 and 2, regardless of how the broken code arrived on main.
+
+The originating incident (PR #1163 / mt#1927, 2026-05-19) hit all three coverage holes at once: layer 1 didn't apply (operator-API path, outside Claude Code's view), layer 2 was permissive (`enforce_admins: false`), and layer 3 didn't exist. mt#1938 closes layer 1's generalization gap (CI status enforcement, not just presence), adds layer 3 (`main-watch.yml`), and ships the **opt-in** mechanism for the layer 2 flip via `scripts/set-branch-protection.ts --enforce-admins --apply`. The flip itself is deferred until layers 1 and 3 have been observed running in production.
+
+**Override env vars (audit-logged when used):**
+
+- `MINSKY_SKIP_BUNDLE_SMOKE=1` — bypasses layer 1's bundle-boot-smoke gate (mt#1787).
+- `MINSKY_SKIP_REQUIRED_CHECKS=1` — bypasses layer 1's required-checks status gate (mt#1938). Each override emits a stdout audit line naming the env-var value, PR number, HEAD sha, and ISO timestamp.
+
+**Branch-protection management.** Layer 2's desired config is declarative in `scripts/set-branch-protection.ts`. The default desired config keeps `enforce_admins: false` (matching current live state, so `--apply` is non-disruptive). To flip to `enforce_admins: true`, pass the explicit `--enforce-admins` flag — making the load-bearing change an operator-decided ceremony rather than a side effect of `--apply`. CLI surface:
+
+- `bun scripts/set-branch-protection.ts` — dry-run with default desired (enforce_admins=false). Notes the opt-in path.
+- `bun scripts/set-branch-protection.ts --check` — print live state + drift verdict; exits non-zero on drift.
+- `bun scripts/set-branch-protection.ts --apply` — write default desired (no enforce_admins change).
+- `bun scripts/set-branch-protection.ts --enforce-admins` — dry-run with enforce_admins=true (preview the load-bearing flip).
+- `bun scripts/set-branch-protection.ts --enforce-admins --apply` — opt-in flip to enforce_admins=true. Emits a stdout WARNING line documenting what changes and how to reverse.
 
 # Design Principle: Humility
 

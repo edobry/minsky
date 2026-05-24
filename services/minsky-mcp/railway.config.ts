@@ -38,36 +38,21 @@ export default defineRailwayConfig({
     OPENAI_API_KEY: secret("OPENAI_API_KEY"),
 
     // -------------------------------------------------------------------
-    // OAUTH ENV VARS (mt#1634, shipped May 2026)
-    //
-    // The InProcessOAuthProvider (mt#1663) reads two optional config keys:
-    //   - oauth.issuer (string URL, optional)
-    //   - oauth.signingKey (string, optional — env-var ref or inline JWK)
-    //
-    // Both are intentionally NOT set on this service in v1:
+    // OAUTH ENV VARS (mt#1634, shipped May 2026; mt#2073 persistent key)
     //
     // 1. `MINSKY_OAUTH_ISSUER` — when absent, InProcessOAuthProvider derives
     //    the issuer from the incoming request's Host/X-Forwarded-Host headers.
     //    This works correctly behind Railway's TLS terminator (`trust proxy 1`
     //    is set in startHttpServer in start-command.ts). Setting it explicitly
-    //    is only needed
-    //    if the service ever runs behind multiple hostnames.
+    //    is only needed if the service runs behind multiple hostnames.
     //
-    // 2. `MINSKY_OAUTH_SIGNING_KEY` — when absent, InProcessOAuthProvider
-    //    generates an ephemeral RSA-2048 keypair at first startup and logs a
-    //    WARN. The tradeoff: tokens issued by the prior process are invalid
-    //    after Railway redeploys (every push to main triggers a redeploy).
-    //    For v1 (claude.ai web wiring acceptance), this is acceptable — users
-    //    re-authorize on token-invalidation. For production hardening,
-    //    generate a persistent RSA JWK and set this var. The expected value
-    //    is the JWK JSON object as a string (kty=RSA, use=sig, alg=RS256),
-    //    NOT a raw hex string — oidc-provider parses this field as JWK JSON
-    //    and will fail provider initialization on a bare hex value.
-    //    Generate via `node -e 'require("jose").generateKeyPair("RS256")
-    //    .then(async ({privateKey}) => console.log(JSON.stringify(
-    //    await require("jose").exportJWK(privateKey))))'` or any RFC 7517
-    //    JWK generator. Tracking task for the production-posture migration:
-    //    see mt#1683 sibling work.
+    // 2. `MINSKY_OAUTH_SIGNING_KEY` — persistent RSA JWK (kty=RSA, use=sig,
+    //    alg=RS256) for OAuth token signing. Without this, tokens are
+    //    invalidated on every Railway redeploy. The value is a JWK JSON
+    //    object as a string, NOT a raw hex secret. See the "Signing-key
+    //    rotation" section in docs/deploy-minsky-railway.md for generation
+    //    and rotation instructions.
     // -------------------------------------------------------------------
+    MINSKY_OAUTH_SIGNING_KEY: secret("MINSKY_OAUTH_SIGNING_KEY"),
   },
 });

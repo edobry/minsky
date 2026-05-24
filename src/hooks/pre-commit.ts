@@ -19,6 +19,11 @@ import {
   isOverrideTruthy,
   NUL_BYTE_CHECK_OVERRIDE_ENV,
 } from "./nul-byte-detector";
+import {
+  runWorkspaceCopyCheck as runWorkspaceCopyDetector,
+  isWorkspaceCopyOverrideTruthy,
+  WORKSPACE_COPY_CHECK_OVERRIDE_ENV,
+} from "./workspace-copy-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -74,11 +79,10 @@ export class PreCommitHook {
         return formatResult;
       }
 
-      // Step 2: Console usage validation (~1s)
-      const consoleResult = await this.runConsoleValidation();
-      if (!consoleResult.success) {
-        return consoleResult;
-      }
+      // Console-usage validation moved into ESLint as the `custom/no-raw-console`
+      // rule (mt#1960). Step 2 ran the standalone regex-based `lint:console:strict`
+      // script; that script and its package.json scripts were retired with mt#1960.
+      // The AST-based ESLint pass below now catches raw `console.*` calls.
 
       // Step 3: Variable naming check (~1s)
       const variableResult = await this.runVariableNamingCheck();
@@ -99,6 +103,19 @@ export class PreCommitHook {
       const nulByteResult = await this.runNulByteCheck();
       if (!nulByteResult.success) {
         return nulByteResult;
+      }
+
+      // Step 3c: Workspace-COPY check (mt#1984 + mt#1992). Verify every
+      // workspace declared by root `package.json`'s `workspaces` glob has
+      // a corresponding `COPY <ws>/package.json` line in EVERY Dockerfile
+      // that runs `bun install --frozen-lockfile` (root + sub-project
+      // Dockerfiles under services/* and packages/*), placed BEFORE the
+      // install step. Prevents recurrence of mt#1977 (75-minute root-
+      // Dockerfile outage) and mt#1991 (4-hour reviewer-Dockerfile outage
+      // after the root-only check missed services/reviewer/Dockerfile).
+      const workspaceCopyResult = await this.runWorkspaceCopyCheck();
+      if (!workspaceCopyResult.success) {
+        return workspaceCopyResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -680,6 +697,129 @@ export class PreCommitHook {
   }
 
   /**
+   * Run the workspace-COPY check (mt#1984). Verify that every workspace
+   * declared by root `package.json`'s `workspaces` glob AND containing a
+   * `package.json` has a corresponding `COPY <ws>/package.json` line in
+   * the root `Dockerfile` BEFORE the `RUN bun install --frozen-lockfile`
+   * step.
+   *
+   * Originating incident: mt#1977 — PR #1186 (mt#1934, marketing-site
+   * rebuild) added `services/site/` as a workspace without updating the
+   * Dockerfile's selective-COPY list. Every Railway deploy from that
+   * point until the mt#1977 fix landed (~75 minutes later) failed with
+   *   `error: lockfile had changes, but lockfile is frozen`
+   *
+   * The local `bun install` SUCCEEDS because the full repo is mounted;
+   * the failure mode is Railway-specific (selective COPY produces an
+   * incomplete tree). This check is the commit-time complement to that
+   * deploy-time failure mode.
+   *
+   * Override: setting `MINSKY_SKIP_WORKSPACE_COPY_CHECK` to `1` / `true`
+   * / `yes` skips the check and emits a one-line audit message.
+   *
+   * See `src/hooks/workspace-copy-detector.ts` for the pure-function
+   * detector this method wraps.
+   */
+  private async runWorkspaceCopyCheck(): Promise<HookResult> {
+    if (isWorkspaceCopyOverrideTruthy(process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:workspace-copy-check] override ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=${process.env[WORKSPACE_COPY_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — workspace-COPY check skipped`
+      );
+      return {
+        success: true,
+        message: "Workspace-COPY check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      const results = runWorkspaceCopyDetector(this.projectRoot);
+
+      // Silent on happy path (per spec): no preamble, no pass/skip
+      // confirmation. Only the failure case below emits stdout.
+      // - null = "this repo has no root package.json we recognize" —
+      //   short-circuit silently.
+      if (results === null) {
+        return {
+          success: true,
+          message: "Workspace-COPY check inapplicable (no root package.json)",
+          exitCode: 0,
+        };
+      }
+
+      // No protected Dockerfiles discovered (e.g., a repo without any
+      // `RUN bun install --frozen-lockfile` step). Silent pass.
+      if (results.length === 0) {
+        return {
+          success: true,
+          message: "Workspace-COPY check inapplicable (no protected Dockerfiles)",
+          exitCode: 0,
+        };
+      }
+
+      const failing = results.filter((r) => r.missing.length > 0);
+      if (failing.length === 0) {
+        return {
+          success: true,
+          message: `Workspace-COPY check passed (${results.length} Dockerfile(s) verified)`,
+          exitCode: 0,
+        };
+      }
+
+      const totalMissing = failing.reduce((sum, r) => sum + r.missing.length, 0);
+
+      log.cli("");
+      log.cli(
+        `${failing.length} Dockerfile(s) missing workspace package.json COPY line(s). Commit blocked.`
+      );
+      log.cli("");
+      for (const r of failing) {
+        log.cli(`${r.dockerfileRelPath}:`);
+        for (const m of r.missing) {
+          log.cli(`   ${m.workspacePath}/  — add to ${r.dockerfileRelPath}:`);
+          log.cli(`     ${m.copyLineToAdd}`);
+        }
+        log.cli("");
+      }
+      log.cli("Why this is blocked:");
+      log.cli(
+        "   - Tracking tasks:       mt#1984 (root Dockerfile), mt#1992 (sub-project Dockerfiles)"
+      );
+      log.cli(
+        "   - Originating incidents: mt#1977 (75-minute outage), mt#1991 (4-hour reviewer outage)"
+      );
+      log.cli("");
+      log.cli("Background: root `package.json` declares workspaces (`packages/*`,");
+      log.cli("   `services/*`). When a new workspace is added, `bun.lock` regenerates");
+      log.cli("   with its dependencies. EVERY Dockerfile in the repo that runs");
+      log.cli("   `RUN bun install --frozen-lockfile` against that lockfile must include");
+      log.cli("   each workspace's package.json BEFORE the install step — otherwise the");
+      log.cli("   build container sees a workspace topology that doesn't match the lockfile");
+      log.cli('   and aborts with "lockfile had changes, but lockfile is frozen".');
+      log.cli("");
+      log.cli(
+        `If a COPY is intentionally omitted (rare), set ${WORKSPACE_COPY_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `Workspace-COPY check failed: ${totalMissing} missing COPY line(s) across ${failing.length} Dockerfile(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Workspace-COPY check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Workspace-COPY check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
+    }
+  }
+
+  /**
    * Run unit tests
    */
   private async runUnitTests(): Promise<HookResult> {
@@ -837,27 +977,6 @@ export class PreCommitHook {
   }
 
   /**
-   * Run console usage validation
-   */
-  private async runConsoleValidation(): Promise<HookResult> {
-    log.cli("🔇 Checking for console usage violations...");
-
-    try {
-      await execAsync("bun run lint:console:strict", {
-        cwd: this.projectRoot,
-        timeout: 30000,
-      });
-      log.cli("✅ No console usage violations found.");
-      return { success: true, message: "Console validation passed", exitCode: 0 };
-    } catch (error) {
-      log.cli("❌ Console usage violations found! These cause test output pollution.");
-      log.cli("💡 Replace console.* calls with logger.* or mock logger utilities");
-      log.cli("📖 See docs/testing/global-test-setup.md for guidance");
-      return { success: false, message: "Console usage violations found", exitCode: 1 };
-    }
-  }
-
-  /**
    * Run ESLint rule tooling tests
    */
   private async runESLintRuleTests(): Promise<HookResult> {
@@ -946,19 +1065,96 @@ export class PreCommitHook {
           timeout: 30000,
         });
       } catch (error) {
-        log.cli(`❌ Rules compile output for target "${target}" is stale.`);
-        log.cli(`💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`);
-        return {
-          success: false,
-          message: `Rules compile output for target "${target}" is stale`,
-          exitCode: 1,
-        };
+        const result = classifyCompileCheckError(error, target);
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
       }
     }
 
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+}
+
+/**
+ * Classify a failed `rules compile --check` subprocess error as either genuine
+ * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ *
+ * When the CLI detects stale output it prints a `[rules compile --check]` /
+ * `is STALE` marker to stdout before throwing. Any other non-zero exit means
+ * the compile command itself failed — telling the operator to "regenerate"
+ * would be misleading because the same error will recur.
+ *
+ * Exported for unit testing; not part of the public hook API.
+ */
+export function classifyCompileCheckError(
+  error: unknown,
+  target: string
+): { logLines: string[]; message: string } {
+  const execError = error as { stdout?: string; stderr?: string };
+  const stdout = execError.stdout ?? "";
+  const stderr = execError.stderr ?? "";
+
+  // The CLI emits a line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE
+  // to stdout only when it has verified the output is out-of-date. Match this
+  // with a per-target line-anchored regex so that near-misses (e.g. a note
+  // about "previous run detected STALE files", or a STALE marker for a
+  // different target) do not count.
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const staleLineRe = new RegExp(
+    `\\[rules compile --check\\] Target "${escapedTarget}" is STALE`,
+    "m"
+  );
+  const isGenuinelyStale = staleLineRe.test(stdout);
+
+  if (isGenuinelyStale) {
+    return {
+      logLines: [
+        `❌ Rules compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`,
+      ],
+      message: `Rules compile output for target "${target}" is stale`,
+    };
+  }
+
+  // Compile command errored. Surface the actual error so the operator knows
+  // what to fix — re-running "rules compile" will NOT help.
+  const rawDetail = stderr.trim() || stdout.trim();
+  const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
+
+  // Detect setup-incomplete: the CLI emits "Validation error: Developer setup incomplete"
+  // when the Minsky setup has not been run. Telling the operator to "regenerate" is
+  // misleading in that case — the correct action is to run the setup command.
+  const isSetupIncomplete = /Validation error: Developer setup incomplete/i.test(errorDetail);
+
+  const indented = errorDetail
+    .split("\n")
+    .map((line) => `   ${line}`)
+    .join("\n");
+
+  if (isSetupIncomplete) {
+    return {
+      logLines: [
+        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        indented,
+        `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
+        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+      ],
+      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+    };
+  }
+
+  return {
+    logLines: [
+      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      indented,
+      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+    ],
+    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+  };
 }
 
 // CLI entry point

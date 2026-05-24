@@ -12,11 +12,10 @@
  *
  *   1. The controller is aborted — SDKs that respect `signal` cancel
  *      their underlying request.
- *   2. A structured-shape JSON log line is emitted to stderr with
- *      `event: "timeout"`, the operation name, and elapsed-ms. This is
- *      the pre-mt#1255 idiom already used across the reviewer service;
- *      mt#1255 (PR #809) will migrate it alongside the other
- *      console.* call sites when it merges.
+ *   2. A structured-shape log line is emitted via the reviewer-local
+ *      winston logger (`log.error`) with `event: "timeout"`, the
+ *      operation name, and elapsed-ms. In STRUCTURED mode this lands
+ *      on stdout as a JSON line; in HUMAN mode as a colorised summary.
  *   3. A typed `TimeoutError` is thrown so the caller can distinguish
  *      timeouts from other failures.
  *
@@ -25,8 +24,10 @@
  * bounded by GC; correctness is unaffected because the caller has
  * already moved on.
  *
- * mt#1086.
+ * mt#1086. Logger adoption completed in mt#1982 (post-mt#1255 scope).
  */
+
+import { log } from "./logger";
 
 /**
  * Thrown by `withTimeout` when an operation exceeds its budget. Carries
@@ -77,16 +78,12 @@ export async function withTimeout<T>(
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
       const durationMs = Date.now() - start;
-      // Pre-mt#1255 idiom: structured-shape JSON to stderr. Will migrate
-      // to the winston logger when mt#1255 (PR #809) lands.
-      console.error(
-        JSON.stringify({
-          event: "timeout",
-          op,
-          timeoutMs,
-          durationMs,
-        })
-      );
+      log.error("timeout", {
+        event: "timeout",
+        op,
+        timeoutMs,
+        durationMs,
+      });
       controller.abort();
       reject(new TimeoutError(op, timeoutMs));
     }, timeoutMs);

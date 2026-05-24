@@ -315,22 +315,24 @@ describe("applyPostMergeStateSync — graceful degradation (SC#7)", () => {
     expect(result.sessionStatusUpdated).toBe(true);
   });
 
-  it("throws ResourceNotFoundError when session does not exist", async () => {
+  it("returns all-false result (no throw) when session does not exist (mt#1941 behavior change)", async () => {
     const sessionDB = new FakeSessionProvider({ initialSessions: [] });
     const taskService = new FakeTaskService();
     const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
 
-    let threw = false;
-    try {
-      await applyPostMergeStateSync(
-        { sessionId: "nonexistent-session", cleanupSession: false },
-        deps
-      );
-    } catch {
-      threw = true;
-    }
+    // mt#1941: session not found is now a graceful no-op, NOT an error.
+    // The DB record being gone is expected when a concurrent path already
+    // cleaned it up (webhook racing session_pr_merge).
+    const result = await applyPostMergeStateSync(
+      { sessionId: "nonexistent-session", cleanupSession: false },
+      deps
+    );
 
-    expect(threw).toBe(true);
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.pullRequestRecordUpdated).toBe(false);
+    expect(result.partialFailure).toBe(false);
+    expect(result.taskId).toBeUndefined();
   });
 
   it("continues to update session status even when task update fails", async () => {
@@ -619,5 +621,126 @@ describe("mergeSessionPr → applyPostMergeStateSync (regression guard SC#4)", (
     // Verify session is MERGED (applyPostMergeStateSync fired).
     const updated = await sessionDB.getSession(SESSION_ID);
     expect(updated?.status).toBe(SessionStatus.MERGED);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1941 — applyPostMergeStateSync: best-effort cleanup when session not in DB
+// ---------------------------------------------------------------------------
+//
+// Regression guard: when the session DB record is already gone (concurrent
+// cleanup from webhook path), applyPostMergeStateSync must NOT throw
+// "session not found". Instead it should:
+//   (a) Return an all-false result for DB effects (already done / no-op).
+//   (b) Best-effort remove the workspace dir using UUID path when cleanupSession=true.
+//   (c) Return sessionCleanup.performed=true when the dir existed and was removed.
+//   (d) Return sessionCleanup.performed=false when the dir does not exist.
+//   (e) Skip removal when cleanupSession=false.
+//
+// The "removes workspace dir" test uses real filesystem operations. The function
+// under test (applyPostMergeStateSync) calls existsSync/rmSync on real paths, so
+// we must create a real directory to observe the side-effect. The
+// custom/no-real-fs-in-tests rule is suppressed for this section only.
+// ---------------------------------------------------------------------------
+
+/* eslint-disable custom/no-real-fs-in-tests */
+import { mkdirSync, existsSync, rmSync } from "node:fs";
+/* eslint-enable custom/no-real-fs-in-tests */
+import { getSessionsDir } from "../../utils/paths";
+
+/** The trigger string used across mt#1941 tests (avoids magic-string duplication). */
+const MT1941_TRIGGER = "session_pr_merge" as const;
+
+describe("applyPostMergeStateSync — missing session record (mt#1941)", () => {
+  it("returns all-false result without throwing when session not in DB and cleanupSession=false", async () => {
+    // Empty DB — no session record
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    // Must NOT throw
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: false, trigger: MT1941_TRIGGER },
+      deps
+    );
+
+    expect(result.taskStatusUpdated).toBe(false);
+    expect(result.sessionStatusUpdated).toBe(false);
+    expect(result.pullRequestRecordUpdated).toBe(false);
+    expect(result.partialFailure).toBe(false);
+    expect(result.taskId).toBeUndefined();
+    // sessionCleanup not populated (cleanup skipped)
+    expect(result.sessionCleanup).toBeUndefined();
+  });
+
+  it("removes workspace dir and returns performed=true when session not in DB, dir exists, cleanupSession=true", async () => {
+    // Arrange: create the workspace dir under the real sessions path
+    const workspaceDir = `${getSessionsDir()}/${SESSION_ID}`;
+    /* eslint-disable custom/no-real-fs-in-tests */
+    // Justification: must create a real dir so existsSync/rmSync in production code work.
+    mkdirSync(workspaceDir, { recursive: true });
+    /* eslint-enable custom/no-real-fs-in-tests */
+
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    try {
+      const result = await applyPostMergeStateSync(
+        { sessionId: SESSION_ID, cleanupSession: true, trigger: MT1941_TRIGGER },
+        deps
+      );
+
+      // DB effects: all false (no record to update)
+      expect(result.taskStatusUpdated).toBe(false);
+      expect(result.sessionStatusUpdated).toBe(false);
+      expect(result.partialFailure).toBe(false);
+
+      // Cleanup: dir should be removed
+      expect(result.sessionCleanup?.performed).toBe(true);
+      expect(result.sessionCleanup?.directoriesRemoved).toContain(workspaceDir);
+      expect(result.sessionCleanup?.errors).toHaveLength(0);
+
+      // Verify directory is actually gone
+      /* eslint-disable custom/no-real-fs-in-tests */
+      // Justification: observing the real filesystem side-effect of cleanup.
+      expect(existsSync(workspaceDir)).toBe(false);
+      /* eslint-enable custom/no-real-fs-in-tests */
+    } finally {
+      /* eslint-disable custom/no-real-fs-in-tests */
+      // Justification: teardown of the real dir created above.
+      rmSync(workspaceDir, { recursive: true, force: true });
+      /* eslint-enable custom/no-real-fs-in-tests */
+    }
+  });
+
+  it("returns sessionCleanup.performed=false when session not in DB and dir does not exist", async () => {
+    // No workspace dir exists for SESSION_ID in the real sessions dir
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: true, trigger: MT1941_TRIGGER },
+      deps
+    );
+
+    expect(result.sessionCleanup?.performed).toBe(false);
+    expect(result.sessionCleanup?.directoriesRemoved).toHaveLength(0);
+    expect(result.sessionCleanup?.errors).toHaveLength(0);
+  });
+
+  it("skips workspace cleanup and omits sessionCleanup when cleanupSession=false and session not in DB", async () => {
+    const sessionDB = new FakeSessionProvider({ initialSessions: [] });
+    const taskService = new FakeTaskService();
+    const deps: PostMergeStateSyncDeps = { sessionDB, taskService };
+
+    const result = await applyPostMergeStateSync(
+      { sessionId: SESSION_ID, cleanupSession: false, trigger: MT1941_TRIGGER },
+      deps
+    );
+
+    // sessionCleanup not populated (cleanup skipped entirely)
+    expect(result.sessionCleanup).toBeUndefined();
   });
 });

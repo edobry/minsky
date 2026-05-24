@@ -1,12 +1,11 @@
 ---
 name: verify-task
 description: >-
-  Set DONE on the bypass-merge fallback path: confirm the PR is merged AND
-  the merge-commit body contains the canonical bypass-merge audit-trail
-  signature, then transition IN-REVIEW → DONE. The reviewer subagent (in
-  /review-pr) does the verification work; this skill only confirms the
-  closeout signal. Use when: "verify mt#X", "check mt#X is done",
-  "close out mt#X", "audit mt#X".
+  Set DONE on the bypass-merge fallback path: confirm the PR is merged AND the
+  merge-commit body contains the canonical bypass-merge audit-trail signature,
+  then transition IN-REVIEW → DONE. The reviewer subagent (in /review-pr) does
+  the verification work; this skill only confirms the closeout signal. Use when:
+  "verify mt#X", "check mt#X is done", "close out mt#X", "audit mt#X".
 user-invocable: true
 ---
 
@@ -104,6 +103,36 @@ Surface:
 > - Audit trail present in merge commit body
 >
 > The reviewer subagent's review and the merge-commit audit message are the verification artifacts.
+
+### 5. Audit bridge memories for retirement candidates
+
+After confirming DONE, search for bridge memories that cite this task as their retirement target.
+
+Call `mcp__minsky__memory_search` with query = the task ID being verified (e.g., `"mt#2053"`).
+
+For each result where the memory body contains any of these markers AND references the verified task ID:
+
+- `"Tracking task"` / `"tracking task"`
+- `"Retire when"` / `"retire when"`
+- `"bridge memory"` / `"Bridge memory"` / `"bridge"`
+- `"Budget:"` with a task reference
+
+Surface each candidate in agent output:
+
+> Bridge memory `<id>` (`<name>`) cites this task as retirement target.
+> Retirement criterion: "<quoted budget or tracking-task clause>"
+> Action: retire via `memory_delete` (if redundant with task spec + PR) or `memory_update` (if independent value remains). Proceed?
+
+**Conservative defaults:**
+
+- Do NOT auto-retire. Surface candidates and wait for explicit acknowledgment.
+- The search query is the task ID, scoped narrowly. If the task ID appears in many unrelated memories (passing references), list candidates but do not pressure action.
+- If no bridge memories cite the task, this step is silent — no output.
+
+**Decision rule for retirement** (per `feedback_bridge_memory_retirement_delete_if_redundant`):
+
+1. Check redundancy: is every fact in this memory also in the task spec, the PR body, or the merge commit? If yes, the memory is purely derivative — delete it.
+2. If the memory contains independent value not in the task/PR (a decision rule, a calibration datum, a cross-project pattern), keep the memory but update its content to reflect the new state and remove the "bridge" framing.
 
 ## Why no auditor dispatch?
 

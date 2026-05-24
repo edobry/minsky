@@ -938,3 +938,90 @@ describe("buildReviewPrompt — reviewThreads injection (mt#1345)", () => {
     expect(threadsIdx).toBeLessThan(diffIdx);
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#2058: Critic Constitution disciplines extension
+// ---------------------------------------------------------------------------
+
+const DECISION_GATE_PHRASE = "Decision gate for non-blocking findings";
+const ADOPTION_SWEEP_PHRASE = "Adoption sweep for new public exports";
+const COVERAGE_COMPLETENESS_PHRASE = "Coverage completeness mandate";
+const LIVE_TARGET_PHRASE = "Live-target verification gap";
+const BEHAVIORAL_RESIDUE_PHRASE = "Behavioral residue in removal PRs";
+const UNMET_CRITERIA_PHRASE = "spec must be updated to reflect actual scope";
+const FAILURE_MODES_HEADING = "## Failure modes";
+
+describe("Critic Constitution disciplines (mt#2058)", () => {
+  const constitution = buildCriticConstitution(true);
+
+  test("contains decision gate for non-blocking findings (principle 9)", () => {
+    expect(constitution).toContain(DECISION_GATE_PHRASE);
+    expect(constitution).toContain("in-scope for the current task");
+  });
+
+  test("contains adoption sweep mandate (principle 10)", () => {
+    expect(constitution).toContain(ADOPTION_SWEEP_PHRASE);
+    expect(constitution).toContain("new public export");
+  });
+
+  test("contains coverage completeness mandate (principle 11)", () => {
+    expect(constitution).toContain(COVERAGE_COMPLETENESS_PHRASE);
+    expect(constitution).toContain("100% of the diff");
+  });
+
+  test("contains live-target verification failure mode", () => {
+    expect(constitution).toContain(LIVE_TARGET_PHRASE);
+    expect(constitution).toContain("redacted live-run output");
+  });
+
+  test("contains behavioral residue failure mode", () => {
+    expect(constitution).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+    expect(constitution).toContain("incomplete removal");
+  });
+
+  test("contains spec-unmet-criteria protocol in output-tools format", () => {
+    const toolsConstitution = buildCriticConstitution(true, "normal", true);
+    expect(toolsConstitution).toContain(UNMET_CRITERIA_PHRASE);
+  });
+
+  test("new principles appear in the Principles section", () => {
+    const principlesStart = constitution.indexOf("## Principles");
+    const failureModesStart = constitution.indexOf(FAILURE_MODES_HEADING);
+    expect(principlesStart).toBeGreaterThan(-1);
+    expect(failureModesStart).toBeGreaterThan(-1);
+    const principlesSection = constitution.slice(principlesStart, failureModesStart);
+    expect(principlesSection).toContain(DECISION_GATE_PHRASE);
+    expect(principlesSection).toContain(ADOPTION_SWEEP_PHRASE);
+    expect(principlesSection).toContain(COVERAGE_COMPLETENESS_PHRASE);
+  });
+
+  test("new failure modes appear in the Failure modes section", () => {
+    const failureModesStart = constitution.indexOf(FAILURE_MODES_HEADING);
+    const outOfRepoStart = constitution.indexOf("## Out-of-repo references");
+    expect(failureModesStart).toBeGreaterThan(-1);
+    expect(outOfRepoStart).toBeGreaterThan(-1);
+    const failureSection = constitution.slice(failureModesStart, outOfRepoStart);
+    expect(failureSection).toContain(LIVE_TARGET_PHRASE);
+    expect(failureSection).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+  });
+
+  test("no-tools variant also includes the new disciplines", () => {
+    const noToolsConstitution = buildCriticConstitution(false);
+    expect(noToolsConstitution).toContain(DECISION_GATE_PHRASE);
+    expect(noToolsConstitution).toContain(LIVE_TARGET_PHRASE);
+    expect(noToolsConstitution).toContain(BEHAVIORAL_RESIDUE_PHRASE);
+    expect(noToolsConstitution).toContain(COVERAGE_COMPLETENESS_PHRASE);
+  });
+
+  test("trivial/docs scope calibration preserves constitution-mandated findings", () => {
+    const trivialConstitution = buildCriticConstitution(true, "trivial-or-docs");
+    expect(trivialConstitution).toContain("Constitution-mandated findings");
+    expect(trivialConstitution).toContain("retain their specified severity");
+  });
+
+  test("test-only scope calibration preserves constitution-mandated findings", () => {
+    const testOnlyConstitution = buildCriticConstitution(true, "test-only");
+    expect(testOnlyConstitution).toContain("Constitution-mandated findings");
+    expect(testOnlyConstitution).toContain("retain their specified severity");
+  });
+});

@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   type RailwayConfig,
   type CurrentVar,
-  assertHttpOk,
+  type RailwaySource,
+  type RailwayBuild,
   computeDiff,
   buildVariablePatches,
   buildAllSecretPatches,
@@ -14,10 +14,13 @@ import {
   buildDeletePatch,
   formatDiffOutput,
   summarizeDiff,
+  graphql,
+  applyServiceInstanceUpdate,
+  fetchServiceInstanceState,
+  computeServiceInstanceDiff,
+  flattenToServiceInstanceInput,
+  formatServiceInstanceDiff,
 } from "./lib";
-
-const RAILWAY_GRAPHQL_URL = "https://backboard.railway.com/graphql/v2";
-const GRAPHQL_TIMEOUT_MS = 30_000;
 
 const RAILWAY_SYSTEM_PREFIXES = ["RAILWAY_", "NIXPACKS_", "RAILPACK_"] as const;
 // Exact keys auto-injected by Railway that do not carry a recognizable prefix.
@@ -26,83 +29,6 @@ const RAILWAY_SYSTEM_KEYS = new Set(["PORT"] as const);
 function isPlatformInjectedVar(key: string): boolean {
   if (RAILWAY_SYSTEM_KEYS.has(key)) return true;
   return RAILWAY_SYSTEM_PREFIXES.some((prefix) => key.startsWith(prefix));
-}
-
-function readRailwayToken(): string {
-  const cfgPath = join(homedir(), ".railway", "config.json");
-  if (!existsSync(cfgPath)) {
-    throw new Error(
-      "Railway CLI is not authenticated (missing ~/.railway/config.json). Run: railway login"
-    );
-  }
-  const cfg = JSON.parse(readFileSync(cfgPath, "utf-8")) as {
-    user?: { accessToken?: string };
-  };
-  const token = cfg.user?.accessToken;
-  if (!token) {
-    throw new Error(
-      "Railway CLI is not authenticated (no user.accessToken in ~/.railway/config.json). Run: railway login"
-    );
-  }
-  return token;
-}
-
-async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-  const token = readRailwayToken();
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GRAPHQL_TIMEOUT_MS);
-
-  let res: Response;
-  try {
-    res = await fetch(RAILWAY_GRAPHQL_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, variables }),
-      signal: controller.signal,
-    });
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new Error(`Railway API request timed out after ${GRAPHQL_TIMEOUT_MS}ms`);
-    }
-    throw new Error(
-      `Railway API network error: ${err instanceof Error ? err.message : String(err)}`,
-      { cause: err }
-    );
-  } finally {
-    clearTimeout(timeoutId);
-  }
-
-  const bodyText = await res.text();
-
-  if (!res.ok) {
-    assertHttpOk(res.status, res.statusText, bodyText);
-  }
-
-  let body: { data?: T; errors?: { message?: string; path?: (string | number)[] }[] };
-  try {
-    body = JSON.parse(bodyText) as typeof body;
-  } catch (parseErr) {
-    // eslint-disable-next-line custom/no-unsafe-string-truncation -- Railway API HTTP response bodies are ASCII JSON/HTML error pages
-    const truncated = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
-    throw new Error(`Railway API returned non-JSON response (HTTP ${res.status}): ${truncated}`, {
-      cause: parseErr,
-    });
-  }
-
-  if (body.errors) {
-    const summary = body.errors
-      .map((e) => {
-        const path = e.path ? ` at ${e.path.join(".")}` : "";
-        return `${e.message ?? "unknown GraphQL error"}${path}`;
-      })
-      .join("; ");
-    throw new Error(`GraphQL error: ${summary}`);
-  }
-  if (!body.data) throw new Error(`GraphQL returned no data for query: ${query.slice(0, 80)}`);
-  return body.data;
 }
 
 async function fetchCurrentVariables(
@@ -177,6 +103,148 @@ async function loadConfig(serviceDir: string): Promise<RailwayConfig> {
   return config;
 }
 
+/**
+ * Deploy-trigger declarative config loaded from deploy.config.ts (mt#2000).
+ * Only the railway-platform variant is supported today (per mt#1730 v1).
+ * Returns null when:
+ *   - deploy.config.ts does not exist at the service-dir, OR
+ *   - deploy.config.ts exists but does NOT declare `source` or `build`
+ *     blocks (services that haven't been migrated yet skip the deploy-
+ *     trigger pass without error).
+ */
+interface DeployTriggerSpec {
+  source?: RailwaySource;
+  build?: RailwayBuild;
+}
+
+async function loadDeployConfig(serviceDir: string): Promise<DeployTriggerSpec | null> {
+  const configPath = resolve(serviceDir, "deploy.config.ts");
+  if (!existsSync(configPath)) return null;
+
+  type DeployModuleShape = {
+    platform: "railway" | string;
+    railway?: {
+      source?: RailwaySource;
+      build?: RailwayBuild;
+    };
+  };
+  type DeployModule = { default?: DeployModuleShape } | DeployModuleShape;
+
+  const mod = (await import(pathToFileURL(configPath).href)) as DeployModule;
+  // PR #1214 R1 BLOCKING #3: mirror loadConfig's ESM/CJS fallback so
+  // configs that export the object directly (not as default) also load.
+  const cfg =
+    mod && typeof mod === "object" && "default" in mod && mod.default != null
+      ? (mod.default as DeployModuleShape)
+      : (mod as DeployModuleShape);
+
+  if (!cfg || typeof cfg !== "object") return null;
+
+  if (cfg.platform !== "railway") {
+    // Surface non-railway platforms so the operator knows the deploy-trigger
+    // pass was deliberately skipped (vs. a silent miss).
+    console.warn(
+      `[apply] deploy.config.ts platform=${cfg.platform} is not "railway"; ` +
+        `deploy-trigger reconciliation skipped (only railway is supported in v1).`
+    );
+    return null;
+  }
+
+  if (!cfg.railway || typeof cfg.railway !== "object") {
+    console.warn(
+      `[apply] deploy.config.ts has platform=railway but no railway block; ` +
+        `deploy-trigger reconciliation skipped.`
+    );
+    return null;
+  }
+
+  const { source, build } = cfg.railway;
+  if (source === undefined && build === undefined) return null;
+  return { source, build };
+}
+
+/**
+ * Reconcile the deploy-trigger config (source + build blocks) against the
+ * live Railway service. Mirrors the env-var reconciliation flow:
+ *   - Fetch live state via fetchServiceInstanceState
+ *   - Compute diff via computeServiceInstanceDiff
+ *   - Print human-readable diff
+ *   - On --execute, apply via applyServiceInstanceUpdate (after flatten)
+ *   - Verify by re-reading
+ *
+ * No-op when `deployConfig` is null (no deploy.config.ts or no source/build
+ * blocks declared).
+ */
+async function reconcileDeployTrigger(
+  config: RailwayConfig,
+  deployConfig: DeployTriggerSpec | null,
+  execute: boolean
+): Promise<void> {
+  if (!deployConfig) {
+    console.log("");
+    console.log(
+      "Deploy-trigger reconciliation: skipped (no deploy.config.ts source/build blocks)."
+    );
+    return;
+  }
+
+  console.log("");
+  console.log("Fetching current Railway deploy-trigger state...");
+  const current = await fetchServiceInstanceState(config.environmentId, config.serviceId);
+  if (!current) {
+    throw new Error(
+      `Service ${config.serviceId} not found in environment ${config.environmentId} ` +
+        `(deploy-trigger read). Check the service/environment IDs in railway.config.ts.`
+    );
+  }
+
+  const diff = computeServiceInstanceDiff(deployConfig, current);
+  const actionableChanges = diff.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+
+  console.log("Deploy-trigger diff:");
+  const output = formatServiceInstanceDiff(diff);
+  for (const line of output.split("\n")) {
+    console.log(`  ${line}`);
+  }
+
+  if (actionableChanges.length === 0) {
+    console.log("");
+    console.log("Deploy-trigger: no changes.");
+    return;
+  }
+
+  if (!execute) {
+    console.log("");
+    console.log("Deploy-trigger dry-run complete. Pass --execute to apply changes.");
+    return;
+  }
+
+  console.log("");
+  console.log("Applying deploy-trigger changes...");
+  const input = flattenToServiceInstanceInput(deployConfig);
+  await applyServiceInstanceUpdate(config.serviceId, config.environmentId, input);
+  console.log(`  Applied: ${actionableChanges.length} deploy-trigger field change(s).`);
+
+  console.log("");
+  console.log("Verifying deploy-trigger (read-back)...");
+  const afterApply = await fetchServiceInstanceState(config.environmentId, config.serviceId);
+  if (!afterApply) {
+    console.log("WARNING: deploy-trigger read-back returned null (service vanished?).");
+    return;
+  }
+  const diffAfter = computeServiceInstanceDiff(deployConfig, afterApply);
+  const actionableAfter = diffAfter.filter((e) => e.kind === "ADD" || e.kind === "CHANGE");
+  if (actionableAfter.length === 0) {
+    console.log("Deploy-trigger read-back confirmed: no remaining changes.");
+  } else {
+    console.log("WARNING: deploy-trigger read-back shows remaining differences:");
+    const afterOutput = formatServiceInstanceDiff(diffAfter);
+    for (const line of afterOutput.split("\n")) {
+      console.log(`  ${line}`);
+    }
+  }
+}
+
 async function run(): Promise<void> {
   const args = process.argv.slice(2);
   const execute = args.includes("--execute");
@@ -212,6 +280,10 @@ async function run(): Promise<void> {
   }
 
   const config = await loadConfig(serviceDir);
+  // mt#2000: load deploy.config.ts (optional) for the deploy-trigger pass.
+  // Resolved once up-front so every early-return path can still fire the
+  // deploy-trigger reconciliation.
+  const deployConfig = await loadDeployConfig(serviceDir);
 
   const modeLabel = execute ? (prune ? "APPLY+PRUNE" : "APPLY") : "DRY-RUN";
   console.log(`Service:     ${config.serviceId}`);
@@ -266,12 +338,14 @@ async function run(): Promise<void> {
     } else {
       console.log("No changes.");
     }
+    await reconcileDeployTrigger(config, deployConfig, execute);
     return;
   }
 
   if (!execute) {
     console.log("");
     console.log("Dry-run complete. Pass --execute to apply changes.");
+    await reconcileDeployTrigger(config, deployConfig, execute);
     return;
   }
 
@@ -325,6 +399,8 @@ async function run(): Promise<void> {
       console.log(`  ${line}`);
     }
   }
+
+  await reconcileDeployTrigger(config, deployConfig, execute);
 }
 
 run().catch((err) => {

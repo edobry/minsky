@@ -21,8 +21,22 @@ import type { ReviewToolCall } from "./output-tools";
 const TOOL_SUBMIT_FINDING = "submit_finding";
 const TOOL_SUBMIT_INLINE_COMMENT = "submit_inline_comment";
 const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
+const TOOL_SUBMIT_DOCUMENTATION_IMPACT = "submit_documentation_impact";
+const TOOL_SUBMIT_ADOPTION_SWEEP = "submit_adoption_sweep";
 const TOOL_CONCLUDE_REVIEW = "conclude_review";
 const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
+
+// Section heading constants — the merge gate text-matches these in the rendered
+// body, so the literal strings are part of the contract.
+const SECTION_DOCUMENTATION_IMPACT = "## Documentation impact";
+const SECTION_SPEC_VERIFICATION = "## Spec verification";
+const SECTION_ADOPTION_SWEEP = "## Adoption sweep";
+
+// Documentation-impact kind constants — referenced across multiple test cases.
+const DOC_IMPACT_NO_UPDATE_NEEDED = "no-update-needed" as const;
+
+// Adoption-sweep classification constants — referenced across multiple test cases.
+const ADOPTION_MISSING_CONSUMERS = "Missing consumers";
 
 // ---------------------------------------------------------------------------
 // Test 1: Three findings + conclude APPROVE → body has summary, ordered
@@ -146,7 +160,7 @@ describe("composeReviewBody", () => {
     expect(result.event).toBe("REQUEST_CHANGES");
     expect(result.body).toContain("## Findings");
     expect(result.body).toContain("## Inline comments");
-    expect(result.body).toContain("## Spec verification");
+    expect(result.body).toContain(SECTION_SPEC_VERIFICATION);
 
     // Inline comment section
     expect(result.body).toContain("src/c.ts:42 — Consider using");
@@ -603,5 +617,382 @@ describe("composeReviewBody", () => {
     // No side must NOT be annotated
     expect(result.body).toContain("src/noside.ts:15");
     expect(result.body).not.toContain("src/noside.ts:15 (");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 13: submit_documentation_impact "no-update-needed" → section emitted,
+  // affectedDocs omitted from output when not provided
+  // -------------------------------------------------------------------------
+  test("13: documentation impact no-update-needed renders section without affected docs", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Pure internal refactor — no documented behavior changed.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Clean refactor." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**no-update-needed**");
+    expect(result.body).toContain("Pure internal refactor");
+    expect(result.body).not.toContain("Affected:");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 14: submit_documentation_impact "updated-in-pr" with affectedDocs →
+  // affected list rendered alongside kind + evidence
+  // -------------------------------------------------------------------------
+  test("14: documentation impact updated-in-pr with affectedDocs renders affected list", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "updated-in-pr",
+          evidence: "Added a new MINSKY_FOO env var; updated configuration guide.",
+          affectedDocs: ["docs/configuration-guide.md", "CLAUDE.md"],
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Code and docs in sync." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**updated-in-pr**");
+    expect(result.body).toContain("Added a new MINSKY_FOO env var");
+    expect(result.body).toContain("Affected: docs/configuration-guide.md, CLAUDE.md");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 15: submit_documentation_impact "blocking-needs-update" → section
+  // emitted; the reviewer is expected to ALSO emit a BLOCKING finding for the
+  // same issue (this test verifies the section emission only, not the finding)
+  // -------------------------------------------------------------------------
+  test("15: documentation impact blocking-needs-update renders section with affected docs", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "blocking-needs-update",
+          evidence: "Adds a new MCP tool but does not update docs/architecture.md tool inventory.",
+          affectedDocs: ["docs/architecture.md"],
+        },
+      },
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "BLOCKING",
+          file: "docs/architecture.md",
+          line: 1,
+          summary: "Architecture doc missing new MCP tool",
+          details:
+            "The new tool registration is not reflected in docs/architecture.md tool inventory. Update before merge.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Docs out of sync." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**blocking-needs-update**");
+    expect(result.body).toContain("Affected: docs/architecture.md");
+    // The companion BLOCKING finding is rendered in the Findings section
+    expect(result.body).toContain("## Findings");
+    expect(result.body).toContain("[BLOCKING] docs/architecture.md:1");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 16: no submit_documentation_impact call → no Documentation impact
+  // section in body (the merge gate will then deny — that's by design until
+  // the structural restructure of mt#2055 ships)
+  // -------------------------------------------------------------------------
+  test("16: absent documentation impact tool call → no section emitted", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_FINDING,
+        args: {
+          severity: "NON-BLOCKING",
+          file: "src/foo.ts",
+          line: 1,
+          summary: "minor nit",
+          details: "trivial nit details",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Fine." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).not.toContain(SECTION_DOCUMENTATION_IMPACT);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 16b: multiple submit_documentation_impact calls → LAST one wins
+  // (mirrors conclude_review self-correction semantics; prevents duplicate
+  // bullets when the model self-corrects)
+  // -------------------------------------------------------------------------
+  test("16b: multiple submit_documentation_impact calls → last wins (single bullet rendered)", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Initial verdict — internal refactor.",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: "updated-in-pr",
+          evidence: "Correction — actually updated docs/configuration-guide.md.",
+          affectedDocs: ["docs/configuration-guide.md"],
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Model self-corrected mid-review." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    // Last call wins
+    expect(result.body).toContain("**updated-in-pr**");
+    expect(result.body).toContain("Correction — actually updated");
+    expect(result.body).toContain("Affected: docs/configuration-guide.md");
+    // Earlier call must NOT be rendered
+    expect(result.body).not.toContain("**no-update-needed**");
+    expect(result.body).not.toContain("Initial verdict");
+    // Exactly one bullet in the Documentation impact section (find the next
+    // heading or end-of-body as the section terminator; can't use `\n\n` as
+    // a delimiter because it appears WITHIN the section between heading and
+    // body too).
+    const docSectionStart = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+    const afterStart = docSectionStart + SECTION_DOCUMENTATION_IMPACT.length;
+    const nextHeadingIdx = result.body.slice(afterStart).search(/\n## /);
+    const docSection =
+      nextHeadingIdx === -1
+        ? result.body.slice(docSectionStart)
+        : result.body.slice(docSectionStart, afterStart + nextHeadingIdx);
+    const bulletCount = (docSection.match(/^- \*\*/gm) ?? []).length;
+    expect(bulletCount).toBe(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 17: documentation impact section is rendered AFTER spec verification
+  // section when both are present (gate-relevant section ordering)
+  // -------------------------------------------------------------------------
+  test("17: documentation impact follows spec verification in body section order", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: {
+          criterion: "Tool registered",
+          status: "Met",
+          evidence: "output-tools.ts new entry",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: {
+          kind: DOC_IMPACT_NO_UPDATE_NEEDED,
+          evidence: "Adds an output tool; no end-user doc surface change.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "Internal tool addition." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const specIndex = result.body.indexOf(SECTION_SPEC_VERIFICATION);
+    const docIndex = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+    expect(specIndex).toBeGreaterThan(-1);
+    expect(docIndex).toBeGreaterThan(-1);
+    expect(docIndex).toBeGreaterThan(specIndex);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 18: zero submit_adoption_sweep calls → no ## Adoption sweep section
+  // -------------------------------------------------------------------------
+  test("18: zero submit_adoption_sweep calls → ## Adoption sweep section omitted", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: { kind: DOC_IMPACT_NO_UPDATE_NEEDED, evidence: "Refactor only." },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "No new public exports." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).not.toContain(SECTION_ADOPTION_SWEEP);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 19: one Adopted call → table with one row, no recommendation line
+  // -------------------------------------------------------------------------
+  test("19: one submit_adoption_sweep Adopted → table with one row, no recommendation", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: TOOL_SUBMIT_ADOPTION_SWEEP,
+          kind: "mcp-tool",
+          consumersFound: [
+            "services/reviewer/src/providers.ts:276 — included in OUTPUT_TOOL_NAMES",
+          ],
+          classification: "Adopted",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "New tool properly wired." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_ADOPTION_SWEEP);
+    // Table header row
+    expect(result.body).toContain("| Symbol | Kind | Consumers found | Classification | Notes |");
+    // The adopted row
+    expect(result.body).toContain(TOOL_SUBMIT_ADOPTION_SWEEP);
+    expect(result.body).toContain("mcp-tool");
+    expect(result.body).toContain("Adopted");
+    // No recommendation line when all are adopted
+    expect(result.body).not.toContain("Recommendation:");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 20: one Missing consumers call → table + recommendation line
+  // -------------------------------------------------------------------------
+  test("20: one submit_adoption_sweep Missing consumers → table with recommendation line", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "newMcpTool",
+          kind: "mcp-tool",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+          notes: "No registration found in any adapter file.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "REQUEST_CHANGES", summary: "Tool not wired." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_ADOPTION_SWEEP);
+    expect(result.body).toContain(ADOPTION_MISSING_CONSUMERS);
+    // Recommendation line appears when at least one missing
+    expect(result.body).toContain("Recommendation:");
+    expect(result.body).toContain("1 missing consumer");
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 21: cost-bounded call (>10 exports) → single capability row
+  // -------------------------------------------------------------------------
+  test("21: cost-bounded submit_adoption_sweep (>10 exports) → single capability row", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "12 new exports (cost-bounding rule)",
+          kind: "capability",
+          consumersFound: [],
+          classification: ADOPTION_MISSING_CONSUMERS,
+          notes: "Recommend filing a follow-up adoption task to wire these exports.",
+        },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "COMMENT", summary: "Cost-bounded adoption sweep." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    expect(result.body).toContain(SECTION_ADOPTION_SWEEP);
+    expect(result.body).toContain("12 new exports (cost-bounding rule)");
+    expect(result.body).toContain("capability");
+    expect(result.body).toContain(ADOPTION_MISSING_CONSUMERS);
+    expect(result.body).toContain("follow-up adoption task");
+    // Exactly one data row (only the single cost-bounded call, not 12 individual rows)
+    const tableRows = result.body.split("\n").filter((line: string) => {
+      return line.startsWith("| ") && !line.startsWith("| Symbol") && !line.startsWith("| ---");
+    });
+    expect(tableRows).toHaveLength(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // Test 22: adoption sweep section positioned between spec verification and
+  // documentation impact
+  // -------------------------------------------------------------------------
+  test("22: adoption sweep section positioned after spec verification and before documentation impact", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: TOOL_SUBMIT_SPEC_VERIFICATION,
+        args: { criterion: "SC1", status: "Met", evidence: "Found." },
+      },
+      {
+        name: TOOL_SUBMIT_ADOPTION_SWEEP,
+        args: {
+          symbol: "newExport",
+          kind: "function",
+          consumersFound: ["src/index.ts:10"],
+          classification: "Adopted",
+        },
+      },
+      {
+        name: TOOL_SUBMIT_DOCUMENTATION_IMPACT,
+        args: { kind: DOC_IMPACT_NO_UPDATE_NEEDED, evidence: "Internal function." },
+      },
+      {
+        name: TOOL_CONCLUDE_REVIEW,
+        args: { event: "APPROVE", summary: "All good." },
+      },
+    ];
+
+    const result = composeReviewBody(toolCalls);
+
+    const specIdx = result.body.indexOf(SECTION_SPEC_VERIFICATION);
+    const sweepIdx = result.body.indexOf(SECTION_ADOPTION_SWEEP);
+    const docIdx = result.body.indexOf(SECTION_DOCUMENTATION_IMPACT);
+
+    expect(specIdx).toBeGreaterThan(-1);
+    expect(sweepIdx).toBeGreaterThan(-1);
+    expect(docIdx).toBeGreaterThan(-1);
+
+    expect(sweepIdx).toBeGreaterThan(specIdx);
+    expect(docIdx).toBeGreaterThan(sweepIdx);
   });
 });

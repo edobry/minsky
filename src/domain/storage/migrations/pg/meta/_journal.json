@@ -267,6 +267,20 @@
       "when": 1779417000000,
       "tag": "0037_add_completed_status",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1779696000000,
+      "tag": "0038_principal_corpus_embeddings",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1779800000000,
+      "tag": "0039_agent_transcript_attachments",
+      "breakpoints": true
     }
   ]
 }

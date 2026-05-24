@@ -93,7 +93,8 @@ To populate `~/.config/minsky/railway-secrets.json`, create it manually with the
   "MINSKY_PERSISTENCE_POSTGRES_URL": "<supabase-url>",
   "MINSKY_POSTGRES_URL": "<supabase-url>",
   "MINSKY_SESSIONDB_POSTGRES_URL": "<supabase-url>",
-  "OPENAI_API_KEY": "<key>"
+  "OPENAI_API_KEY": "<key>",
+  "MINSKY_OAUTH_SIGNING_KEY": "<jwk-json-string>"
 }
 ```
 
@@ -163,12 +164,12 @@ GraphQL mutation (see `services/reviewer/DEPLOY.md` for a full worked example ag
 
 The hosted Minsky MCP supports OAuth 2.1 in addition to the static-bearer-token path. claude.ai web requires the OAuth flow as a precondition for adding remote MCP servers; mt#1634 shipped the full discovery + DCR + PKCE + RFC 8707 audience-binding flow backed by `oidc-provider`.
 
-### Required env vars (none new for v1)
+### Required env vars
 
-The InProcessOAuthProvider works with zero additional configuration in v1:
+The InProcessOAuthProvider works with minimal configuration:
 
 - **Issuer URL** — derived from `req.hostname` + `req.protocol` (Express's `trust proxy 1` setting honors Railway's `X-Forwarded-Proto` / `X-Forwarded-Host`). Setting `MINSKY_OAUTH_ISSUER` is only necessary if the service runs behind multiple hostnames.
-- **Signing key** — when `MINSKY_OAUTH_SIGNING_KEY` is unset, the provider generates an ephemeral RSA-2048 keypair at startup and logs a WARN. **Tradeoff:** tokens are invalidated on every Railway redeploy. For v1 (claude.ai web acceptance) this is acceptable — users re-authorize when their token becomes invalid. Production hardening tracked separately.
+- **Signing key** — `MINSKY_OAUTH_SIGNING_KEY` is set as a sealed Railway secret containing a persistent RSA-2048 JWK (kty=RSA, use=sig, alg=RS256). Tokens survive Railway redeploys. The env var is registered in `environmentMappings` (path `oauth.signingKey`) so the config system maps it correctly — the auto-conversion fallback would produce the wrong path (`oauth.signing.key`). See "Signing-key rotation" below for generation and rotation instructions.
 
 ### Onboarding claude.ai web users
 
@@ -355,6 +356,29 @@ This is the network primitive the rest of the agentic-infrastructure roadmap dep
 - **Webhook-driven integrations** following the reviewer pattern
 
 See mt#1129 for the scope boundary between this (transport + deploy + auth) and those downstream tasks (which own their own consumer-side wiring).
+
+## Deployment-platform MCP tools
+
+Agents observe Railway deploys via the platform-neutral MCP tools `deployment_wait-for-latest`,
+`deployment_status`, and `deployment_logs`. These wrap the same Railway GraphQL primitives
+used by `scripts/railway/{status,logs}.ts` but expose them through the agent-facing surface.
+The platform-agnostic abstraction (adapter interface, registry, configuration shape) lives in
+[`docs/deployment-platforms.md`](./deployment-platforms.md); this section covers Railway-specific
+details only.
+
+**Service declaration.** Each Railway service declares its deployment target in
+`services/<svc>/deploy.config.ts` (see the platform-agnostic doc for the schema). For Railway
+services the file imports project/environment/service IDs from the existing `railway.config.ts`
+env-var manifest, avoiding duplication.
+
+**Underlying calls.** The Railway adapter uses the same GraphQL endpoint and auth pattern as
+the existing scripts: `https://backboard.railway.com/graphql/v2` with bearer token from
+`~/.railway/config.json`. No fresh shell-out to the `railway` CLI is introduced. The
+`waitForLatestDeployment` operation polls the `SERVICE_DEPLOYMENTS_QUERY` until the latest
+deployment's status is in the terminal set (`SUCCESS / FAILED / CRASHED / CANCELLED / REMOVED / ERROR`).
+
+**Default cadence.** 10-second poll interval, 10-minute timeout. Tune via the tool's
+`timeoutSeconds` argument when calling.
 
 ## Auth notes
 

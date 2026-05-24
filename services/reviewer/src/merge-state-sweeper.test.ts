@@ -25,6 +25,7 @@ import {
 import { resetMcpClientSessions } from "./mcp-client";
 import type { ReviewerConfig } from "./config";
 import type { Octokit } from "@octokit/rest";
+import { silenceConsoleLogs } from "./test-helpers/log-capture";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -67,13 +68,11 @@ type FetchHandler = (url: string, init: RequestInit) => Promise<Response>;
 let originalFetch: typeof globalThis.fetch;
 let fetchHandler: FetchHandler | null = null;
 
-// Store original console methods to restore after each test.
-// The sweeper calls console.warn and console.log internally. Replacing them
-// per-test prevents cross-file contamination when bun test runs files in
-// parallel with other tests that use spyOn(console, "warn").
-let originalConsoleWarn: typeof console.warn;
-let originalConsoleLog: typeof console.log;
-let originalConsoleError: typeof console.error;
+// The sweeper emits structured log lines via the reviewer-local winston
+// logger (routed to process.stdout). Per-test silencing keeps `bun test`
+// output clean and isolates tests from each other when bun runs files in
+// parallel.
+let stdoutSilencer: { restore: () => void } | null = null;
 
 beforeEach(() => {
   originalFetch = globalThis.fetch;
@@ -125,21 +124,19 @@ beforeEach(() => {
     throw new Error(`fetch called but no handler installed: ${url}`);
   }) as typeof globalThis.fetch;
 
-  // Isolate console to prevent sweeper's internal console calls from
-  // contaminating concurrent test files' console spies.
-  originalConsoleWarn = console.warn;
-  originalConsoleLog = console.log;
-  originalConsoleError = console.error;
-  console.warn = () => {};
-  console.log = () => {};
-  console.error = () => {};
+  // Silence stdout for the test body — the sweeper's structured log lines
+  // would otherwise flood `bun test` output. Tests in this file do not
+  // assert on captured logs; they exercise the sweeper's behavior via its
+  // returned MergeStateSweepResult.
+  stdoutSilencer = silenceConsoleLogs();
 });
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  console.warn = originalConsoleWarn;
-  console.log = originalConsoleLog;
-  console.error = originalConsoleError;
+  if (stdoutSilencer) {
+    stdoutSilencer.restore();
+    stdoutSilencer = null;
+  }
 });
 
 /** Build a fake Response with given JSON body. */

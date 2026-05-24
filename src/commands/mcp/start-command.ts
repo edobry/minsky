@@ -10,30 +10,33 @@ import { Command } from "commander";
 // remain top-level since TS erases them at runtime.
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
+import { RetryingInitController } from "../../mcp/init-retry";
 import { log } from "../../utils/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
 import { createProjectContext } from "../../types/project";
 import { exit } from "../../utils/process";
-import { registerDebugTools } from "../../adapters/mcp/debug";
-import { registerGitTools } from "../../adapters/mcp/git";
-import { registerRepoTools } from "../../adapters/mcp/repo";
-import { registerInitTools } from "../../adapters/mcp/init";
-import { registerRulesTools } from "../../adapters/mcp/rules";
-import { registerSessionTools } from "../../adapters/mcp/session";
+import { CommandCategory } from "../../adapters/shared/command-registry";
+import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
-import { registerPersistenceTools } from "../../adapters/mcp/persistence";
-import { registerTaskTools } from "../../adapters/mcp/tasks";
-import { registerChangesetTools } from "../../adapters/mcp/changeset";
-import { registerConfigTools } from "../../adapters/mcp/config";
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
-import { registerValidateTools } from "../../adapters/mcp/validate";
-import { registerMcpManagementTools } from "../../adapters/mcp/mcp-commands";
 import { registerKnowledgeResources } from "../../adapters/mcp/knowledge-resources";
-import { registerMemoryTools } from "../../adapters/mcp/memory";
-import { registerDetectorsTools } from "../../adapters/mcp/detectors";
+import { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { buildAndStartScheduler } from "./scheduler-wiring";
+
+// Re-export the dispatch table for consumers that prefer importing from
+// `start-command.ts`. Source of truth: `./discovery-config.ts` — a side-
+// effect-free module that smoke scripts and unit tests can import without
+// pulling in the MCP-server / HTTP / OAuth dependency graph.
+//
+// mt#2037: the prior exclusion-constant re-export was deleted alongside
+// the constant itself. No in-repo consumers ever imported it; out-of-repo
+// consumers (if any exist) would need to update their imports to remove
+// the deleted symbol. The deletion is intentional, not a backward-compat
+// break — the symbol has zero realistic consumers per the mt#2017 caller-
+// graph analysis.
+export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
 import { setHostedMode } from "../../domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
 import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
@@ -200,6 +203,23 @@ export function injectAgentIdMeta(
 
 /**
  * Register all MCP tool adapters on the given command mapper.
+ *
+ * Uses a discovery loop over `Object.values(CommandCategory)` (mt#2010,
+ * subsumes mt#1521). Categories in `MCP_CATEGORY_ADAPTERS` use their
+ * per-category adapter(s) (preserving per-command overrides); categories
+ * without an entry are auto-bridged via `registerSharedCommandsWithMcp`.
+ *
+ * Native MCP tools (session-workspace, session-files, session-edit-tools)
+ * register directly via `commandMapper.addCommand` rather than going through
+ * the shared command registry, so they are NOT covered by the discovery loop —
+ * they are invoked explicitly below.
+ *
+ * mt#2037: the prior narrowed-deployment opt-out (mt#1521 / mt#1227 / mt#1254
+ * hook) was deleted per the mt#2017 investigation — none of the realistic
+ * narrowing use cases needed the boot-time function-parameter shape.
+ * Per-request narrowing belongs at OAuth-scope (mt#1666); per-deployment
+ * belongs at env-var read in `createStartCommand`. See ADR-011 §Retraction
+ * and the inline comment in discovery-config.ts.
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
@@ -225,33 +245,36 @@ async function registerAllTools(
     );
   }
 
-  // Register debug tools first to ensure they're available for debugging
-  registerDebugTools(commandMapper, container);
-
-  // Register main application tools
-  log.debug("[MCP] About to register task tools");
-  registerTaskTools(commandMapper, container);
-  log.debug("[MCP] About to register session tools");
-  registerSessionTools(commandMapper, container);
+  // Native MCP tools — registered directly via commandMapper.addCommand
+  // (NOT bridged through the shared command registry). These are session
+  // file/edit tools with bespoke runtime semantics; the discovery loop
+  // below covers everything else.
   registerSessionWorkspaceTools(commandMapper, container);
   registerSessionFileTools(commandMapper, container);
   registerSessionEditTools(commandMapper, container);
 
-  // Register persistence tools for agent querying
-  log.debug("[MCP] About to register persistence tools");
-  registerPersistenceTools(commandMapper, container);
-
-  registerGitTools(commandMapper, container);
-  registerRepoTools(commandMapper, container);
-
-  registerInitTools(commandMapper, container);
-  registerRulesTools(commandMapper, container);
-  registerConfigTools(commandMapper, container);
-  registerChangesetTools(commandMapper, container);
-  registerValidateTools(commandMapper, container);
-  registerMcpManagementTools(commandMapper, container);
-  registerMemoryTools(commandMapper, container);
-  registerDetectorsTools(commandMapper, container);
+  // Discovery loop: every CommandCategory gets bridged exactly once. Dispatch
+  // to per-category adapter(s) if registered; otherwise auto-bridge with no
+  // overrides. New categories added to the enum + registered with shared
+  // commands surface in MCP `tools/list` without editing this file.
+  for (const category of Object.values(CommandCategory)) {
+    const adapters = MCP_CATEGORY_ADAPTERS[category];
+    if (adapters && adapters.length > 0) {
+      log.debug(`[MCP] Registering category ${category} via ${adapters.length} adapter(s)`);
+      for (const adapter of adapters) {
+        adapter(commandMapper, container);
+      }
+    } else {
+      // Auto-bridge: no per-category adapter, no overrides. The bridge
+      // function is idempotent on empty categories (CORE has no commands),
+      // so this is safe to call unconditionally.
+      log.debug(`[MCP] Auto-bridging category ${category} (no per-category adapter)`);
+      registerSharedCommandsWithMcp(commandMapper, {
+        categories: [category],
+        container,
+      });
+    }
+  }
 }
 
 /**
@@ -1015,28 +1038,80 @@ export function createStartCommand(
         // HTTP mode, preAction (`src/cli.ts`) has already initialized
         // synchronously — no defer needed (Profile B is long-lived).
         if (container && transportType === "stdio" && !container.has("persistence")) {
-          const initPromise = container.initialize().then(() => {
-            profileCheckpoint("background_container_initialized");
-          });
-
-          // PR #1063 R2 BLOCKING: attach a SIDE-EFFECT-ONLY log catch on a
-          // FORKED reference (not the one passed to setInitPromise). This
-          // consumes the rejection so Node never emits `unhandledRejection`
-          // if init fails and no tool call ever awaits — the side `.catch`
-          // attaches a handler to a copy of the chain, preventing the
-          // unhandled-rejection hazard. The ORIGINAL `initPromise` remains
-          // rejecting; when a tool call awaits via `server.initPromise`
-          // (see server.ts CallTool handler), the error surfaces to the
-          // MCP client with the actual root cause (DB connection failure,
-          // missing config, etc.) — NOT a downstream "Service ... is not
-          // available" symptom.
-          initPromise.catch((err: unknown) => {
-            log.error("[mt#1751] background container.initialize() failed", {
-              error: getErrorMessage(err),
+          // mt#1962: retry-aware controller. Pre-mt#1962 this site stored a
+          // single long-lived `Promise<void>` whose rejection would poison
+          // every subsequent tool call indefinitely (promises are at-most-
+          // once; the side-effect-only `.catch` for logging didn't reset
+          // the original promise's rejected state). A single transient
+          // init failure (DB unreachable, missing migrations folder, slow
+          // Postgres handshake, port collision) became a hard outage that
+          // required `proxy_restart_server` or process kill to clear.
+          //
+          // The controller tracks attempt state and re-invokes the
+          // initializer on demand when a prior attempt rejected (subject
+          // to a 30s default backoff so repeated failures don't tight-
+          // loop the database; tunable via MINSKY_MCP_INIT_RETRY_INTERVAL_MS
+          // for environments with different recovery cadences). Concurrent
+          // tool calls during an in-flight retry collapse to a single
+          // `container.initialize()` invocation.
+          const DEFAULT_INIT_RETRY_INTERVAL_MS = 30_000;
+          const rawInterval = Number.parseInt(
+            process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS ?? "",
+            10
+          );
+          const minRetryIntervalMs =
+            Number.isFinite(rawInterval) && rawInterval > 0
+              ? rawInterval
+              : DEFAULT_INIT_RETRY_INTERVAL_MS;
+          if (rawInterval && minRetryIntervalMs !== rawInterval) {
+            log.warn("[mt#1962] MINSKY_MCP_INIT_RETRY_INTERVAL_MS invalid; using default", {
+              raw: process.env.MINSKY_MCP_INIT_RETRY_INTERVAL_MS,
+              defaultMs: DEFAULT_INIT_RETRY_INTERVAL_MS,
             });
+          }
+          log.debug("[mt#1962] init retry controller", { minRetryIntervalMs });
+          const initController = new RetryingInitController({
+            initializer: () =>
+              container.initialize().then(() => {
+                profileCheckpoint("background_container_initialized");
+              }),
+            minRetryIntervalMs,
+            onAttemptSettled: (result) => {
+              if (result.error === undefined) {
+                if (result.attempt > 1) {
+                  // PR #1188 R1 NB1: success-on-retry is good news, not an
+                  // actionable warning. Operators expect WARN to be actionable;
+                  // log at info instead so transient self-heal doesn't generate
+                  // alert noise.
+                  log.info("[mt#1962] container.initialize() succeeded on retry", {
+                    attempt: result.attempt,
+                  });
+                }
+                return;
+              }
+              log.error("[mt#1962] container.initialize() failed", {
+                attempt: result.attempt,
+                consecutiveFailures: result.consecutiveFailures,
+                error: getErrorMessage(result.error),
+              });
+            },
           });
 
-          server.setInitPromise(initPromise);
+          // PR #1063 R2 BLOCKING (preserved across mt#1962): kick off the
+          // first attempt eagerly in the background, preserving mt#1751's
+          // cold-start optimization (DI runs while the MCP `initialize`
+          // handshake proceeds in parallel). The side-effect-only `.catch`
+          // on a FORKED reference consumes the rejection so Node never
+          // emits `unhandledRejection` if init fails and no tool call ever
+          // awaits — the controller's internal state stays intact and a
+          // later tool-call `awaitReady()` surfaces the rejection (or
+          // triggers a retry, subject to backoff). The structured log line
+          // is emitted via `onAttemptSettled`, not from here.
+          initController.awaitReady().catch(() => {
+            // Side-effect-only; controller logs via onAttemptSettled.
+          });
+
+          server.setInitController(initController);
           profileCheckpoint("background_init_kicked_off");
         }
 
@@ -1355,10 +1430,12 @@ export function createStartCommand(
           }
         };
 
-        const proc = process as Record<string, unknown>;
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGTERM", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGINT", cleanup);
-        (proc["on"] as (signal: string, handler: () => void) => void)("SIGHUP", cleanup);
+        // process.on is on the NodeJS.Process EventEmitter API; direct call
+        // satisfies both TS and the no-excessive-as-unknown lint rule.
+        // Retired prior bracket-notation cast workaround per mt#1981.
+        process.on("SIGTERM", cleanup);
+        process.on("SIGINT", cleanup);
+        process.on("SIGHUP", cleanup);
 
         // When the Claude Code parent closes its stdio pipe (without sending a signal),
         // trigger the same shutdown path (mt#1417). The `shutdownInFlight` guard

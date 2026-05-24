@@ -33,6 +33,7 @@ import {
 } from "./middleware/wake-enrichment";
 import { DisconnectTracker, STDIO_SESSION_KEY } from "./disconnect-tracker";
 import { writeDaemonState } from "./daemon-state";
+import type { InitController } from "./init-retry";
 
 /**
  * Transport type for MCP server
@@ -263,8 +264,27 @@ export class MinskyMCPServer {
    *
    * Null in HTTP mode (init runs synchronously via preAction) and in tests
    * that pre-populate the container.
+   *
+   * mt#1962: superseded by `initController` for the production stdio path —
+   * the controller adds demand-driven retry on rejected attempts so a single
+   * transient init failure no longer poisons the daemon. `setInitPromise` is
+   * retained as the no-retry single-attempt API for tests and any caller
+   * that wants the legacy behavior. Exactly one of `initPromise` /
+   * `initController` is set at any time — each setter clears the other
+   * (symmetric mutual exclusivity).
    */
   private initPromise: Promise<void> | null = null;
+
+  /**
+   * mt#1962: DI initialization controller. When set via `setInitController`,
+   * CallTool dispatch calls `awaitReady()` instead of awaiting `initPromise`
+   * directly. The controller tracks attempt state and re-invokes the
+   * underlying initializer on demand (next tool call) when a prior attempt
+   * rejected, subject to a backoff cap. Exactly one of `initPromise` /
+   * `initController` is set at any time — each setter clears the other
+   * (symmetric mutual exclusivity).
+   */
+  private initController: InitController | null = null;
 
   // For HTTP transport: map sessionId → {server, transport, lastActiveAt}.
   // Each MCP session owns its own Server instance because the SDK's Server
@@ -487,7 +507,25 @@ export class MinskyMCPServer {
       },
       {
         capabilities: {
-          tools: {},
+          // listChanged: true advertises that the server may emit
+          // `notifications/tools/list_changed`. The stdio proxy (mt#2011)
+          // emits this notification on inner-server respawn so Claude Code
+          // refreshes its tools/list cache without needing `/mcp` reconnect.
+          // Per MCP spec, clients SHOULD ignore the notification when the
+          // server has not advertised this capability.
+          //
+          // In direct-start mode (no proxy), the inner server itself does
+          // not emit `notifications/tools/list_changed` — Minsky has no
+          // in-process tool-set mutation today (PR #1216 R1 NON-BLOCKING 1).
+          // The capability advertisement is therefore inert in direct mode.
+          // We advertise unconditionally for two reasons: (a) the proxy is
+          // the operator-recommended deployment path, and (b) advertising a
+          // capability the server can deliver under SOME deployment shape is
+          // spec-permissible (the spec frames `listChanged: true` as
+          // "server MAY send", not "server WILL always send"). If direct-
+          // start emits start to support in-process tool mutation in the
+          // future, this declaration is already correct; no change needed.
+          tools: { listChanged: true },
           resources: {},
           prompts: {},
           logging: {},
@@ -902,17 +940,26 @@ export class MinskyMCPServer {
           // DI-dependent tool call pays the cost. After the first await
           // resolves, the promise is settled and subsequent awaits are O(1).
           //
+          // mt#1962: prefer `initController.awaitReady()` when set — it adds
+          // demand-driven retry so a transient init failure recovers on the
+          // next tool call (subject to backoff). Falls back to `initPromise`
+          // for callers using the legacy single-attempt API (tests).
+          //
           // Tools that declare `requiresInit: false` skip the await — this
           // gates the latency to DI-dependent tools only, so read-only
           // debug tools (`debug_echo`, `debug_listMethods`) respond
-          // immediately even if init is still in flight. The name-based
-          // allowlist below opts out specific shared-command-bridge tools
-          // that don't carry the explicit field through their registration
-          // pipeline.
-          const requiresInit =
-            tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(request.params.name);
-          if (this.initPromise && requiresInit) {
-            await this.initPromise;
+          // immediately even if init is still in flight. The DI-free
+          // allowlist is checked against the resolved tool's CANONICAL
+          // (dotted) name, not the request-provided name — so Claude
+          // Desktop clients invoking via the underscored alias (mt#1779
+          // dual-registration) still hit the fast path.
+          const requiresInit = tool.requiresInit !== false && !DI_FREE_TOOL_NAMES.has(tool.name);
+          if (requiresInit) {
+            if (this.initController) {
+              await this.initController.awaitReady();
+            } else if (this.initPromise) {
+              await this.initPromise;
+            }
           }
 
           // mt#1792: lazy handler resolution. Resolve the getHandler thunk on
@@ -1177,6 +1224,32 @@ export class MinskyMCPServer {
    */
   setInitPromise(p: Promise<void>): void {
     this.initPromise = p;
+    // mt#1962: symmetric mutual exclusivity — setInitPromise clears any
+    // previously-set controller, mirroring setInitController clearing
+    // initPromise. This prevents the silent-ignore failure mode where
+    // both fields are populated and the controller branch wins
+    // unconditionally in the CallTool handler.
+    this.initController = null;
+  }
+
+  /**
+   * mt#1962: Set the DI initialization controller for stdio mode.
+   *
+   * When set, every CallTool dispatch calls `initController.awaitReady()`
+   * before invoking the tool handler. The controller is responsible for
+   * retrying transient init failures (subject to its own backoff policy);
+   * a single rejected attempt no longer poisons the daemon.
+   *
+   * Clears any previously-set `initPromise` so the controller is the
+   * single source of truth (symmetric with `setInitPromise` clearing
+   * `initController`).
+   *
+   * Called from `src/commands/mcp/start-command.ts` for stdio mode after
+   * `registerAllTools` returns but before `server.start()` resolves.
+   */
+  setInitController(controller: InitController): void {
+    this.initController = controller;
+    this.initPromise = null;
   }
 
   /**
@@ -1341,6 +1414,7 @@ export class MinskyMCPServer {
       pid: number;
       on(event: ProcSignal, listener: () => void): void;
       removeListener(event: ProcSignal, listener: () => void): void;
+      listenerCount(event: ProcSignal): number;
       kill(pid: number, signal: ProcSignal): void;
     };
 
@@ -1364,11 +1438,22 @@ export class MinskyMCPServer {
           error: getErrorMessage(err),
         });
       }
-      // Re-emit the signal with our handler removed so default behavior
-      // (typically termination) takes over. Without this, the process would
-      // hang because Node's default handler only runs when no listener is
-      // attached.
+      // Remove our own listener so we don't re-enter on the kernel-default
+      // re-emit below, and so the post-removal listenerCount reflects only
+      // OTHER registered handlers.
       proc.removeListener(signal, listeners[signal]);
+
+      // mt#1987: only re-emit when there are no other listeners. When
+      // `start-command.ts` (or any other module) has registered a graceful-
+      // shutdown handler (e.g. the `cleanup` async closure that drains the
+      // DB pool and exits cleanly), defer to it — re-emitting SIGTERM mid-
+      // tick races against the cleanup handler and causes the kernel default
+      // to fire before the JS handler can run, exiting with `signal:SIGTERM`
+      // / code:null and bypassing the cleanup path entirely. Standalone
+      // usages (tests that construct an MCPServer without a cleanup handler)
+      // still get the kernel-default termination because the listenerCount
+      // is 0 after our removal.
+      if (proc.listenerCount(signal) > 0) return;
       proc.kill(proc.pid, signal);
     };
 

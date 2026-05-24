@@ -27,6 +27,7 @@ import noSkippedTests from "./eslint-rules/no-skipped-tests.js";
 import noUnsafeStringTruncation from "./eslint-rules/no-unsafe-string-truncation.js";
 import noEscapeDeployContext from "./eslint-rules/no-escape-deploy-context.js";
 import noUnregisteredMinskyEnvVar from "./eslint-rules/no-unregistered-minsky-env-var.js";
+import noRawConsole from "./eslint-rules/no-raw-console.js";
 
 export default [
   js.configs.recommended,
@@ -135,6 +136,7 @@ export default [
           "no-unsafe-string-truncation": noUnsafeStringTruncation,
           "no-escape-deploy-context": noEscapeDeployContext,
           "no-unregistered-minsky-env-var": noUnregisteredMinskyEnvVar,
+          "no-raw-console": noRawConsole,
         },
       },
     },
@@ -153,6 +155,26 @@ export default [
       // === VARIABLE NAMING RULES ===
       "custom/no-non-ascii-identifiers": "error", // Prevents non-ASCII characters in identifier names (enforces ensure-ascii-code-symbols rule)
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
+
+      // === LOGGING DISCIPLINE (mt#1960) ===
+      // Prevents raw `console.*` calls; route through the structured logger.
+      // Per-directory excludes live in their own config blocks below.
+      "custom/no-raw-console": [
+        "error",
+        {
+          // Allowed-pattern strings — substring match against the call's source text.
+          // Mirrors the legacy `scripts/lint-console-usage.ts` allowedPatterns list.
+          allowedPatterns: [
+            'console.error("Failed to import test monitoring data"',
+            'console.warn("⚠️ Failed to load test monitoring data"',
+            'console.log("old"',
+            'console.log("new"',
+            "Mock cleanup for directory",
+            '"🔇 Global test setup"',
+            '"📊 Loaded existing test monitoring data"',
+          ],
+        },
+      ],
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Jest migration patterns only
@@ -514,21 +536,115 @@ export default [
     files: ["src/utils/logger.ts"],
     rules: {
       "no-console": "off",
+      // Logger implementation legitimately uses console under the hood
+      "custom/no-raw-console": "off",
     },
   },
   {
-    files: ["**/test/**", "**/*.test.ts", "**/tests/**"],
+    files: ["**/test/**", "**/*.test.ts", "**/*.test.js", "**/tests/**"],
     rules: {
       // Tests can use console and any type freely
       "no-console": "off",
       "@typescript-eslint/no-explicit-any": "off",
+      // Tests run isolated; console output is the canonical test-debug surface
+      "custom/no-raw-console": "off",
     },
   },
   {
-    files: ["debug-*.ts", "test-*.ts", "scripts/*.ts"],
+    files: ["debug-*.ts", "test-*.ts", "scripts/*.ts", "scripts/**/*.ts"],
     rules: {
       "no-console": "off", // Allow console in debug/test scripts
       "no-magic-numbers": "off", // Allow magic numbers in debug scripts
+      // Scripts and debug entrypoints legitimately use console for CLI output
+      "custom/no-raw-console": "off",
+    },
+  },
+  // === custom/no-raw-console — TSX/JSX coverage parity with legacy script (mt#1960) ===
+  // The main config block above only registers rules for `**/*.ts` and `**/*.js`.
+  // The retired `scripts/lint-console-usage.ts` script also scanned `**/*.tsx` and
+  // `**/*.jsx`, so we add a focused block here that enables ONLY this rule on those
+  // file types — without bringing the other 30+ rules into TSX/JSX scope (which would
+  // be a scope creep beyond the migration intent).
+  {
+    files: ["**/*.tsx", "**/*.jsx"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: "latest",
+        sourceType: "module",
+        ecmaFeatures: { jsx: true },
+      },
+    },
+    plugins: {
+      custom: {
+        rules: {
+          "no-raw-console": noRawConsole,
+        },
+      },
+    },
+    rules: {
+      "custom/no-raw-console": [
+        "error",
+        {
+          allowedPatterns: [
+            'console.error("Failed to import test monitoring data"',
+            'console.warn("⚠️ Failed to load test monitoring data"',
+            'console.log("old"',
+            'console.log("new"',
+            "Mock cleanup for directory",
+            '"🔇 Global test setup"',
+            '"📊 Loaded existing test monitoring data"',
+          ],
+        },
+      ],
+      // `js.configs.recommended` (loaded at top of file with no `files` scope)
+      // would otherwise apply `no-undef` and `no-unused-vars` to these TSX/JSX
+      // files for the first time. TypeScript already covers `no-undef` and the
+      // `@typescript-eslint/no-unused-vars` rule (limited to .ts/.js above)
+      // covers unused-vars in the rest of the codebase. Keep this block narrow
+      // to the `no-raw-console` migration intent.
+      "no-undef": "off",
+      "no-unused-vars": "off",
+    },
+  },
+  // === custom/no-raw-console — additional CLI / test-utility excludes (mt#1960) ===
+  // Match the legacy `scripts/lint-console-usage.ts` allowlist. These files legitimately
+  // emit to stdout (CLI tools, test runners, test utilities, naming-fixer scripts).
+  {
+    files: [
+      "**/test-quality-cli.ts",
+      "**/test-runner.ts",
+      "**/test-monitor.ts",
+      "**/session-test-utilities.ts",
+      "**/consolidated-utilities/**",
+      "**/*-cli.ts",
+      "src/commands/**",
+      // Claude Code hooks emit to stdout to inject additionalContext / audit lines.
+      // The console-output pattern IS the public interface of a hook, not a debug
+      // smell. The pre-existing console usage in these files predates mt#1960.
+      ".claude/hooks/**",
+      // ESLint rule files themselves use `console.warn` for diagnostic-time messages
+      // that the rule emits to the developer (e.g., misconfiguration warnings). The
+      // rule runtime is not equivalent to application code — keep the exemption.
+      "eslint-rules/*.js",
+      // Drizzle config loaders + root-level CLI tools that predate the standardized
+      // logger. Treated as scripts.
+      "drizzle*.config.ts",
+      "*-tool.ts",
+      // Reviewer-service operator scripts (smoke tests, replay harnesses,
+      // calibration measurements, benchmarks). These are CLI tools whose
+      // stdout output IS the operator-visible result — routing through the
+      // structured logger would inject JSON metadata into output the
+      // operator wants to read directly. The reviewer service's production
+      // code path under services/reviewer/src/ uses the local winston
+      // logger via `log.*` (mt#1255 + mt#1982); this exemption applies
+      // only to the operator-script subdirectory.
+      "services/reviewer/scripts/**",
+    ],
+    rules: {
+      "custom/no-raw-console": "off",
     },
   },
   // Add a second max-lines rule for error at 1500 lines

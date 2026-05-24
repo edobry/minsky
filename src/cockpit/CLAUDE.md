@@ -63,6 +63,17 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 
 **Drill-down navigation.** Dashboard → entity detail → action → back. Breadcrumbs when depth exceeds 2. Keyboard shortcuts for back/forward. Command palette (`Cmd+K`) for cross-entity jumps when navigation depth would otherwise be tedious. (Command palette ships when mt#1773 lands the `<Command>` primitive.)
 
+## Operator dev loop
+
+`minsky cockpit start` writes a per-workspace state file at
+`~/.local/state/minsky/cockpit/<workspace-key>.json` (workspace key = session ID or
+`"main"`) and launches a shared dev chromium with `--remote-debugging-port=9222` for
+chrome-devtools-mcp attachment. Owners: `src/cockpit/lifecycle.ts` (state file) and
+`src/cockpit/dev-chromium.ts` (chromium spawn + state at `~/.local/state/minsky/dev-chromium.json`).
+mt#1887's port-recovery (`src/cockpit/port-recovery.ts`) reads recognition state from
+the lifecycle module so per-workspace cockpits don't false-positive each other. Opt-out:
+`--no-dev-chromium`. Full architecture: [`docs/architecture/cockpit.md#operator-dev-loop`](../../docs/architecture/cockpit.md). Tracking task: mt#1904.
+
 ## Future architecture decision
 
 **Express → Hono migration (deferred).** Cockpit's server is Express today (`src/cockpit/server.ts`, ~10 routes). The skill research strongly flagged Hono as a better Bun fit (native TypeScript RPC, ~10KB, Zod validators, multi-runtime). Migration ROI doesn't materialize at the current server surface size. Revisit when Cockpit grows past ~25 routes or hits a multi-runtime requirement.

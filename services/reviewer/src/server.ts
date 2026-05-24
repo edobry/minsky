@@ -147,7 +147,7 @@ export function createApp(
    * so any future change to the helper's default does not silently regress
    * the inflight-drain behavior on shutdown.
    *
-   * Observability: `callMcp` emits structured `console.warn` events with the
+   * Observability: `callMcp` emits structured `log.warn` events with the
    * `at_merge_handler.mcp` prefix; the legacy
    * `at_merge_handler.mcp_fetch_error` event is preserved.
    */
@@ -324,14 +324,12 @@ export function createApp(
     });
 
     if (!sessionLookupText) {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.session_lookup_failed",
-          delivery_id: deliveryId,
-          taskId,
-          reason: "no_content",
-        })
-      );
+      log.warn("at_merge_handler.session_lookup_failed", {
+        event: "at_merge_handler.session_lookup_failed",
+        delivery_id: deliveryId,
+        taskId,
+        reason: "no_content",
+      });
       return;
     }
 
@@ -344,24 +342,20 @@ export function createApp(
       };
       sessionId = parsed.session?.sessionId ?? parsed.sessionId ?? null;
     } catch {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.session_lookup_parse_error",
-          delivery_id: deliveryId,
-          taskId,
-        })
-      );
+      log.warn("at_merge_handler.session_lookup_parse_error", {
+        event: "at_merge_handler.session_lookup_parse_error",
+        delivery_id: deliveryId,
+        taskId,
+      });
       return;
     }
 
     if (!sessionId) {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.session_not_found",
-          delivery_id: deliveryId,
-          taskId,
-        })
-      );
+      log.warn("at_merge_handler.session_not_found", {
+        event: "at_merge_handler.session_not_found",
+        delivery_id: deliveryId,
+        taskId,
+      });
       return;
     }
 
@@ -399,18 +393,16 @@ export function createApp(
       if (!syncText) {
         // Tool unavailable on every attempt would be the same outcome; no
         // point retrying. The sweeper picks this up.
-        console.warn(
-          JSON.stringify({
-            event: "at_merge_handler.sync_tool_unavailable",
-            delivery_id: deliveryId,
-            taskId,
-            sessionId,
-            attempt,
-            message:
-              "session.apply_post_merge_state_sync returned no content. " +
-              "The merge-state sweeper will catch this.",
-          })
-        );
+        log.warn("at_merge_handler.sync_tool_unavailable", {
+          event: "at_merge_handler.sync_tool_unavailable",
+          delivery_id: deliveryId,
+          taskId,
+          sessionId,
+          attempt,
+          message:
+            "session.apply_post_merge_state_sync returned no content. " +
+            "The merge-state sweeper will catch this.",
+        });
         return;
       }
 
@@ -423,19 +415,17 @@ export function createApp(
         parsedSync = JSON.parse(syncText) as Record<string, unknown>;
       } catch (parseErr) {
         const errMsg = parseErr instanceof Error ? parseErr.message : String(parseErr);
-        console.warn(
-          JSON.stringify({
-            event: "at_merge_handler.sync_parse_error",
-            delivery_id: deliveryId,
-            taskId,
-            sessionId,
-            attempt,
-            error: errMsg,
-            message:
-              "apply_post_merge_state_sync returned non-JSON or malformed response. " +
-              "Treating as indeterminate (not success). The merge-state sweeper will backstop.",
-          })
-        );
+        log.warn("at_merge_handler.sync_parse_error", {
+          event: "at_merge_handler.sync_parse_error",
+          delivery_id: deliveryId,
+          taskId,
+          sessionId,
+          attempt,
+          error: errMsg,
+          message:
+            "apply_post_merge_state_sync returned non-JSON or malformed response. " +
+            "Treating as indeterminate (not success). The merge-state sweeper will backstop.",
+        });
         return;
       }
 
@@ -459,17 +449,15 @@ export function createApp(
       const success = parsedSync.success === true;
 
       if (!partialFailure && success) {
-        console.log(
-          JSON.stringify({
-            event: "at_merge_handler.sync_complete",
-            delivery_id: deliveryId,
-            taskId,
-            sessionId,
-            mergeSha,
-            mergedAt,
-            attempt,
-          })
-        );
+        log.info("at_merge_handler.sync_complete", {
+          event: "at_merge_handler.sync_complete",
+          delivery_id: deliveryId,
+          taskId,
+          sessionId,
+          mergeSha,
+          mergedAt,
+          attempt,
+        });
         return;
       }
 
@@ -477,44 +465,40 @@ export function createApp(
       const attemptsRemaining = MAX_ATTEMPTS - 1 - attempt;
       if (attemptsRemaining > 0) {
         const delayMs = RETRY_DELAYS_MS[attempt] ?? 0;
-        console.warn(
-          JSON.stringify({
-            event: "at_merge_handler.sync_partial_failure_retry",
-            delivery_id: deliveryId,
-            taskId,
-            sessionId,
-            mergeSha,
-            mergedAt,
-            attempt,
-            attemptsRemaining,
-            delayMs,
-            sessionUpdateError,
-            taskUpdateError,
-            missingSuccess: !success,
-          })
-        );
-        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-        continue;
-      }
-
-      // All attempts exhausted. The sweeper (mt#1752) still backstops.
-      console.error(
-        JSON.stringify({
-          event: "at_merge_handler.sync_retry_exhausted",
+        log.warn("at_merge_handler.sync_partial_failure_retry", {
+          event: "at_merge_handler.sync_partial_failure_retry",
           delivery_id: deliveryId,
           taskId,
           sessionId,
           mergeSha,
           mergedAt,
-          attempts: MAX_ATTEMPTS,
+          attempt,
+          attemptsRemaining,
+          delayMs,
           sessionUpdateError,
           taskUpdateError,
           missingSuccess: !success,
-          message:
-            "apply_post_merge_state_sync reported partial failure on every retry. " +
-            "The merge-state sweeper will backstop on its next cycle (mt#1752).",
-        })
-      );
+        });
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+        continue;
+      }
+
+      // All attempts exhausted. The sweeper (mt#1752) still backstops.
+      log.error("at_merge_handler.sync_retry_exhausted", {
+        event: "at_merge_handler.sync_retry_exhausted",
+        delivery_id: deliveryId,
+        taskId,
+        sessionId,
+        mergeSha,
+        mergedAt,
+        attempts: MAX_ATTEMPTS,
+        sessionUpdateError,
+        taskUpdateError,
+        missingSuccess: !success,
+        message:
+          "apply_post_merge_state_sync reported partial failure on every retry. " +
+          "The merge-state sweeper will backstop on its next cycle (mt#1752).",
+      });
       return;
     }
   }
@@ -564,17 +548,15 @@ export function createApp(
     // pull_request.merged at the webhook dispatch layer, so we guard here.
     if (!isMergedClosedPayload(payload)) {
       // Closed without merge — not a state-sync trigger.
-      console.log(
-        JSON.stringify({
-          event: "at_merge_handler.skip_not_merged",
-          delivery_id: deliveryId,
-          pr: (payload as Record<string, unknown>)["pull_request"]
-            ? ((payload as Record<string, unknown>)["pull_request"] as Record<string, unknown>)[
-                "number"
-              ]
-            : null,
-        })
-      );
+      log.info("at_merge_handler.skip_not_merged", {
+        event: "at_merge_handler.skip_not_merged",
+        delivery_id: deliveryId,
+        pr: (payload as Record<string, unknown>)["pull_request"]
+          ? ((payload as Record<string, unknown>)["pull_request"] as Record<string, unknown>)[
+              "number"
+            ]
+          : null,
+      });
       return;
     }
 
@@ -587,45 +569,39 @@ export function createApp(
     // Attempt to extract taskId from the head branch name.
     const taskId = extractTaskIdFromBranch(headRef);
 
-    console.log(
-      JSON.stringify({
-        event: "at_merge_handler.received",
-        delivery_id: deliveryId,
-        pr: prNumber,
-        headRef,
-        taskId,
-        mergeSha,
-        mergedAt,
-      })
-    );
+    log.info("at_merge_handler.received", {
+      event: "at_merge_handler.received",
+      delivery_id: deliveryId,
+      pr: prNumber,
+      headRef,
+      taskId,
+      mergeSha,
+      mergedAt,
+    });
 
     if (!taskId) {
       // Not a Minsky task branch — skip silently. Non-Minsky PRs are expected.
-      console.log(
-        JSON.stringify({
-          event: "at_merge_handler.skip_non_task_branch",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          headRef,
-        })
-      );
+      log.info("at_merge_handler.skip_non_task_branch", {
+        event: "at_merge_handler.skip_non_task_branch",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        headRef,
+      });
       return;
     }
 
     // Call applyPostMergeStateSync via Minsky MCP (fire-and-forget, detached).
     // The MCP path keeps the domain logic in Minsky core, not the reviewer service.
     if (!cfg.mcpUrl || !cfg.mcpToken) {
-      console.warn(
-        JSON.stringify({
-          event: "at_merge_handler.mcp_not_configured",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          taskId,
-          message:
-            "MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set — cannot call apply_post_merge_state_sync. " +
-            "The merge-state sweeper will catch this when it next runs.",
-        })
-      );
+      log.warn("at_merge_handler.mcp_not_configured", {
+        event: "at_merge_handler.mcp_not_configured",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        taskId,
+        message:
+          "MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN not set — cannot call apply_post_merge_state_sync. " +
+          "The merge-state sweeper will catch this when it next runs.",
+      });
       return;
     }
 
@@ -638,15 +614,13 @@ export function createApp(
       deliveryId
     ).catch((err: unknown) => {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(
-        JSON.stringify({
-          event: "at_merge_handler.sync_error",
-          delivery_id: deliveryId,
-          pr: prNumber,
-          taskId,
-          error: message,
-        })
-      );
+      log.error("at_merge_handler.sync_error", {
+        event: "at_merge_handler.sync_error",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        taskId,
+        error: message,
+      });
     });
 
     inflight.add(syncPromise);
@@ -860,26 +834,61 @@ if (import.meta.main) {
     specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
   });
 
-  // Register graceful shutdown handlers for SIGTERM and SIGINT.
-  // On signal: stop accepting new connections, drain in-flight reviews (max 25s), then exit.
-  process.on("SIGTERM", () => {
+  // Register graceful shutdown handlers for SIGTERM, SIGINT, SIGHUP.
+  // On signal: emit shutdown_signal log line (mt#1966 SC#3) so future
+  // restart-cause investigations can see WHICH signal triggered the shutdown,
+  // then stop accepting new connections, drain in-flight reviews (max 25s), then exit.
+  //
+  // The shutdown_signal log line was the load-bearing observability gap during
+  // mt#1963 — the 2026-05-20 restart window showed no signal in retained logs,
+  // making the restart cause invisible. Adding the log on signal arrival closes
+  // that gap for future incidents.
+  function handleShutdownSignal(signal: "SIGTERM" | "SIGINT" | "SIGHUP"): void {
+    const uptimeSec = process.uptime();
+    log.warn("shutdown_signal", {
+      event: "shutdown_signal",
+      signal,
+      uptime_sec: Math.round(uptimeSec * 1000) / 1000,
+    });
     gracefulShutdown().catch((err: unknown) => {
       log.error("shutdown_error", {
         event: "shutdown_error",
+        signal,
         error: err instanceof Error ? err.message : String(err),
       });
       process.exitCode = 1;
     });
-  });
+  }
+  process.on("SIGTERM", () => handleShutdownSignal("SIGTERM"));
+  process.on("SIGINT", () => handleShutdownSignal("SIGINT"));
+  process.on("SIGHUP", () => handleShutdownSignal("SIGHUP"));
 
-  process.on("SIGINT", () => {
-    gracefulShutdown().catch((err: unknown) => {
-      log.error("shutdown_error", {
-        event: "shutdown_error",
-        error: err instanceof Error ? err.message : String(err),
-      });
-      process.exitCode = 1;
+  // Uncaught-exception and unhandled-rejection handlers (mt#1966 SC#3).
+  // These fire on bugs the normal try/catch chain doesn't reach. Without
+  // these, a crash exits silently with no log line — the 2026-05-20 mt#1963
+  // window suggested either a silent crash or a Railway-side signal; we
+  // couldn't tell because neither path emitted a log. The handlers below
+  // make BOTH paths observable. The handlers do not attempt graceful
+  // shutdown — by the time they fire the process state is undefined and
+  // the right move is fail-fast with diagnostics in the log.
+  process.on("uncaughtException", (err: Error) => {
+    log.error("uncaught_exception", {
+      event: "uncaught_exception",
+      uptime_sec: Math.round(process.uptime() * 1000) / 1000,
+      error: err.message,
+      stack: err.stack?.slice(0, 1000),
     });
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason: unknown) => {
+    const err = reason instanceof Error ? reason : new Error(String(reason));
+    log.error("unhandled_rejection", {
+      event: "unhandled_rejection",
+      uptime_sec: Math.round(process.uptime() * 1000) / 1000,
+      error: err.message,
+      stack: err.stack?.slice(0, 1000),
+    });
+    process.exit(1);
   });
 
   // Start the periodic sweeper safety net (mt#1260).
@@ -888,14 +897,16 @@ if (import.meta.main) {
   // Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
   // SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
-  startSweeper(config, loadSweeperConfig());
+  startSweeper(config, loadSweeperConfig(), db);
 
-  // Start the PR-watch scheduler (mt#1618).
+  // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
   // that registered PR watches fire automatically without manual operator action.
   // Configurable via PR_WATCH_ENABLED, PR_WATCH_POLL_INTERVAL_MS.
   // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
-  // Opt-in: disabled by default; set PR_WATCH_ENABLED=true to activate.
+  // Enabled by default post-mt#1899 (was opt-in pre-mt#1725 because the
+  // agent-context delivery path wasn't wired yet); set PR_WATCH_ENABLED=false
+  // to disable (e.g., local dev to avoid polling GitHub from a workstation).
   startPrWatchScheduler(config, loadPrWatchSchedulerConfig());
 
   // Start the Asks-reconcile scheduler (mt#1636).
@@ -924,8 +935,7 @@ if (import.meta.main) {
   // Configurable via ADOPTION_SWEEPER_ENABLED, ADOPTION_SWEEPER_INTERVAL_MS,
   // ADOPTION_SWEEPER_LOOKBACK_DAYS.
   // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
-  // DEFAULT DISABLED until mt#1711 (env-var wiring) ships.
-  // Set ADOPTION_SWEEPER_ENABLED=true to activate.
+  // Disabled by default; set ADOPTION_SWEEPER_ENABLED=true to activate.
   startAdoptionSweeper(config, loadAdoptionSweeperConfig());
 
   // Start the webhook-event retention pruner (mt#1372).

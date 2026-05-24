@@ -16,7 +16,8 @@
  *
  * The full acceptance test (register a watch, post a review, observe fire
  * within 1 polling interval without manual operator action) requires:
- *   (a) A running Minsky instance with `PR_WATCH_ENABLED=true`
+ *   (a) A running Minsky instance with the PR-watch scheduler enabled
+ *       (default ON post-mt#1899; set PR_WATCH_ENABLED=false to disable)
  *   (b) A running reviewer service with `PR_WATCH_POLL_INTERVAL_MS` set low
  *   (c) A GitHub token with PR read + review-post permissions
  *
@@ -283,7 +284,7 @@ async function main(): Promise<void> {
         "The production GithubPrClient can reach the real GitHub API. " +
         "To verify the full end-to-end fire path (watch registers → event fires → " +
         "operator-notify fires without manual action), run against a deployed instance " +
-        "with PR_WATCH_ENABLED=true and PR_WATCH_POLL_INTERVAL_MS=10000."
+        "with PR_WATCH_POLL_INTERVAL_MS=10000 (scheduler is enabled by default post-mt#1899)."
     );
     process.exit(0);
   }

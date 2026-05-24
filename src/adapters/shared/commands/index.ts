@@ -36,7 +36,10 @@ import { registerAttentionCommands } from "./attention";
 import { registerWindowCommands } from "./window";
 import { registerUnaskedDirectionCommands } from "./unasked-direction";
 import { registerEpicDecompositionCommands } from "./epic-decomposition";
+import { registerDeploymentCommands } from "./deployment";
 import { registerObservabilityCommands } from "./observability";
+import { registerPrincipalCorpusCommands } from "./principal-corpus";
+import { registerForgeCommands } from "./forge";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -136,8 +139,20 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // noticer family — mt#1710)
   registerEpicDecompositionCommands(container);
 
+  // Register deployment commands (platform-agnostic deploy observation — mt#1730)
+  registerDeploymentCommands();
+
   // Register observability commands (Braintrust smoke-test etc. — mt#1795)
   registerObservabilityCommands();
+
+  // Register principal-corpus commands (principal-scoped semantic search — mt#1930).
+  // No container arg — commands read persistence from ctx at execute time.
+  registerPrincipalCorpusCommands();
+
+  // Register forge commands (forge-agnostic CI / check-runs / branch-protection /
+  // labels — mt#1957). Side-effect imports happen at module load; the call here
+  // is a no-op but matches the convention used by every other group.
+  registerForgeCommands();
 
   // Additional command categories can be registered here as they're implemented
 }
@@ -160,6 +175,7 @@ export {
   registerAsksCommands,
   registerPrWatchCommands,
   registerReviewerWatchCommands,
+  registerDeploymentCommands,
   registerChangesetCommands,
   registerValidateCommands,
   registerMcpCommands,
@@ -176,4 +192,6 @@ export {
   registerUnaskedDirectionCommands,
   registerEpicDecompositionCommands,
   registerObservabilityCommands,
+  registerPrincipalCorpusCommands,
+  registerForgeCommands,
 };

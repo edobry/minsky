@@ -33,6 +33,7 @@ import { resolveRepository } from "../repository";
 import type { PersistenceProvider, SqlCapablePersistenceProvider } from "../persistence/types";
 import { ProvenanceService } from "../provenance/provenance-service";
 import { AuthorshipTier } from "../provenance/types";
+import { formatBranchProtectionLine } from "./branch-protection-formatter";
 import { buildMergeTrailers, type MergeIdentity } from "../provenance/authorship-labels";
 import { resolveMergeToken } from "../provenance/merge-token-resolution";
 import { AuthorshipJudge } from "../provenance/authorship-judge";
@@ -43,6 +44,8 @@ import { getConfiguration } from "../configuration/index";
 import type { ResolvedConfig } from "../configuration/types";
 import { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
 import type { AskRepository } from "../ask/repository";
+import { existsSync, rmSync } from "node:fs";
+import { getSessionsDir } from "../../utils/paths";
 
 // Re-export for backward compatibility with any consumers importing from this module.
 export { BOT_IDENTITY_LOGIN, REVIEWER_BOT_LOGIN } from "../constants";
@@ -179,11 +182,56 @@ export async function applyPostMergeStateSync(
   // Fetch current session record (fresh read — no cache).
   const sessionRecord = await sessionDB.getSession(sessionId);
   if (!sessionRecord) {
-    throw new ResourceNotFoundError(
-      `applyPostMergeStateSync: session "${sessionId}" not found`,
-      "session",
-      sessionId
-    );
+    // Session DB record is already gone — likely removed by a concurrent call
+    // (e.g., webhook fired and completed cleanup before session_pr_merge reached
+    // this function). This is the mt#1941 ordering bug: the atomic merge triggers
+    // a webhook which runs applyPostMergeStateSync first, deleting the DB record,
+    // and then mergeSessionPr calls this function and finds the record missing.
+    //
+    // Best-effort workspace cleanup: derive the dir from the UUID directly
+    // (path = getSessionsDir()/<uuid>) and remove it if it still exists.
+    // This prevents the workspace from being orphaned on disk when the DB
+    // record is already gone.
+    const workspaceDir = `${getSessionsDir()}/${sessionId}`;
+    const cleanupPerformed = existsSync(workspaceDir);
+    let cleanupError: string | undefined;
+    if (cleanupSession && cleanupPerformed) {
+      try {
+        rmSync(workspaceDir, { recursive: true, force: true });
+        log.info(
+          `applyPostMergeStateSync: session "${sessionId}" not in DB — cleaned up orphaned workspace dir`,
+          { workspaceDir, trigger }
+        );
+      } catch (err) {
+        cleanupError = `Failed to remove orphaned workspace dir ${workspaceDir}: ${getErrorMessage(err)}`;
+        log.error(cleanupError, { sessionId, trigger });
+      }
+    } else {
+      log.debug(
+        `applyPostMergeStateSync: session "${sessionId}" not in DB (already cleaned up by concurrent call)`,
+        { trigger, workspaceDir, dirExists: cleanupPerformed }
+      );
+    }
+
+    // Return an all-false result: DB effects are no-ops (record gone), but
+    // sessionCleanup reflects what happened to the workspace dir.
+    return {
+      sessionId,
+      taskId: undefined,
+      taskStatusUpdated: false,
+      sessionStatusUpdated: false,
+      pullRequestRecordUpdated: false,
+      partialFailure: false,
+      ...(cleanupSession
+        ? {
+            sessionCleanup: {
+              performed: cleanupPerformed && !cleanupError,
+              directoriesRemoved: cleanupPerformed && !cleanupError ? [workspaceDir] : [],
+              errors: cleanupError ? [cleanupError] : [],
+            },
+          }
+        : {}),
+    };
   }
 
   const taskId = sessionRecord.taskId;
@@ -583,7 +631,14 @@ export async function mergeSessionPr(
       if (!params.json) {
         const approvals = approvalStatus.approvals?.length || 0;
         const required = approvalStatus.requiredApprovals ?? 0;
-        const branchProtection = required > 0 ? `enabled (requires ${required})` : `not configured`;
+        // mt#2007: read the full branch-protection shape (status checks,
+        // dismiss-stale, enforce_admins, force_push, deletion, etc.) from the
+        // metadata block populated in github-pr-approval.ts. The previous
+        // "required > 0 ? configured : not configured" collapse misreported
+        // every protection state where reviews=0 but other protections were
+        // active.
+        const bp = approvalStatus.metadata?.github?.branchProtection;
+        const branchProtection = formatBranchProtectionLine(bp);
         const approvalLine =
           required > 0
             ? `${approvals}/${required} approvals`

@@ -121,6 +121,16 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       tc.name === "submit_spec_verification"
   );
 
+  const documentationImpacts = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_documentation_impact" }> =>
+      tc.name === "submit_documentation_impact"
+  );
+
+  const adoptionSweepCalls = toolCalls.filter(
+    (tc): tc is Extract<ReviewToolCall, { name: "submit_adoption_sweep" }> =>
+      tc.name === "submit_adoption_sweep"
+  );
+
   const concludeCalls = toolCalls.filter(
     (tc): tc is Extract<ReviewToolCall, { name: "conclude_review" }> =>
       tc.name === "conclude_review"
@@ -225,6 +235,63 @@ export function composeReviewBody(toolCalls: ReviewToolCall[]): ComposeReviewRes
       const status = escapeTableCell(tc.args.status);
       const evidence = escapeTableCell(tc.args.evidence);
       lines.push(`| ${criterion} | ${status} | ${evidence} |`);
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  // Section 4b: Adoption sweep (optional)
+  //
+  // Emitted when the model calls submit_adoption_sweep. Positioned AFTER
+  // spec verification and BEFORE documentation impact. Section is omitted
+  // entirely when no submit_adoption_sweep calls were made.
+  if (adoptionSweepCalls.length > 0) {
+    const lines: string[] = [
+      "## Adoption sweep",
+      "",
+      "| Symbol | Kind | Consumers found | Classification | Notes |",
+      "| --- | --- | --- | --- | --- |",
+    ];
+    let missingConsumersCount = 0;
+    for (const tc of adoptionSweepCalls) {
+      const symbol = escapeTableCell(tc.args.symbol);
+      const kind = escapeTableCell(tc.args.kind);
+      const consumers = escapeTableCell(
+        tc.args.consumersFound.length > 0 ? tc.args.consumersFound.join(", ") : "—"
+      );
+      const classification = escapeTableCell(tc.args.classification);
+      const notes = escapeTableCell(tc.args.notes ?? "");
+      lines.push(`| ${symbol} | ${kind} | ${consumers} | ${classification} | ${notes} |`);
+      if (tc.args.classification === "Missing consumers") {
+        missingConsumersCount++;
+      }
+    }
+    if (missingConsumersCount > 0) {
+      lines.push(
+        "",
+        `Recommendation: file a follow-up adoption task to wire ${missingConsumersCount} missing consumer${missingConsumersCount === 1 ? "" : "s"}.`
+      );
+    }
+    sections.push(lines.join("\n"));
+  }
+
+  // Section 5: Documentation impact (optional)
+  //
+  // Emitted when the model calls submit_documentation_impact. The merge-gate
+  // hook (.claude/hooks/require-review-before-merge.ts) text-matches
+  // /documentation[- ]impact/i on the rendered body, so the literal section
+  // heading "## Documentation impact" must remain.
+  //
+  // Multi-call handling: the prompt instructs the model to call this tool
+  // exactly once per review. In practice the model may emit more than one
+  // (self-correction, retries). Mirror the conclude_review pattern and use
+  // the LAST call's args — newer emissions supersede older ones. Single bullet
+  // rendered regardless of N to avoid duplicate-content drift.
+  const lastDocImpact = documentationImpacts[documentationImpacts.length - 1];
+  if (lastDocImpact !== undefined) {
+    const lines: string[] = ["## Documentation impact", ""];
+    lines.push(`- **${lastDocImpact.args.kind}** — ${lastDocImpact.args.evidence}`);
+    if (lastDocImpact.args.affectedDocs && lastDocImpact.args.affectedDocs.length > 0) {
+      lines.push(`  Affected: ${lastDocImpact.args.affectedDocs.join(", ")}`);
     }
     sections.push(lines.join("\n"));
   }

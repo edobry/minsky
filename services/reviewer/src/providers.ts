@@ -16,7 +16,8 @@ import OpenAI from "openai";
 import type { ReviewerConfig } from "./config";
 import type { ReviewerToolContext, DirEntry, ReadFileResult } from "./tools";
 import { OUTPUT_TOOL_DEFINITIONS, parseToolCall, type ReviewToolCall } from "./output-tools";
-import { withTimeout } from "./with-timeout";
+import { withTimeout, TimeoutError } from "./with-timeout";
+import { log } from "./logger";
 
 /**
  * Default model timeout used when callOpenAIWithClient is called without an
@@ -27,6 +28,80 @@ import { withTimeout } from "./with-timeout";
  * mt#1086.
  */
 const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
+
+/**
+ * Default retry-on-timeout ceiling for the openai.chat.completions.create.toolloop
+ * inner call. mt#1969: when a single inner SDK call times out at the primary
+ * `timeoutMs` cap, we retry ONCE with this reduced ceiling. Rationale: if the
+ * model is genuinely slow at the primary cap, a shorter retry forces the failure
+ * surface to fire faster (instead of compounding wall-clock on a hopeless retry);
+ * if the slow path was transient provider-side load on the first attempt, the
+ * second attempt usually completes in normal-cadence time (~80-90s per the
+ * `feedback_reviewer_bot_actual_latency_calibration_data` empirical baseline).
+ *
+ * Tunable via REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS at process-env load time.
+ */
+const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 90_000;
+
+/**
+ * Read the toolloop-retry config from process env at call time. Defaults match
+ * the empirically-grounded values above. mt#1969.
+ */
+function resolveToolloopRetryConfig(): { enabled: boolean; retryTimeoutMs: number } {
+  const rawEnabled = process.env["REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT"];
+  const enabled = rawEnabled === undefined ? true : rawEnabled === "true" || rawEnabled === "1";
+  const rawMs = process.env["REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS"];
+  const parsedMs = rawMs ? parseInt(rawMs, 10) : NaN;
+  const retryTimeoutMs =
+    Number.isFinite(parsedMs) && parsedMs > 0 ? parsedMs : DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS;
+  return { enabled, retryTimeoutMs };
+}
+
+/**
+ * Run the toolloop SDK call with a single retry on TimeoutError (mt#1969).
+ *
+ * Behavior:
+ *   - First attempt uses the caller-supplied `primaryTimeoutMs` (production
+ *     default 120s from config.ts → DEFAULT_MODEL_TIMEOUT_MS).
+ *   - On TimeoutError AND retry-enabled (REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT,
+ *     default "true"), emits a `toolloop.timeout_retry` log line and retries
+ *     once with REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS (default 90s).
+ *   - If the retry also times out OR retry is disabled, the TimeoutError
+ *     propagates to the toolloop caller and surfaces in logs as the existing
+ *     `sweeper.retrigger_failed` / equivalent shape.
+ *
+ * Why retry with a SMALLER ceiling, not a larger one: the goal is to recover
+ * transient provider-side slowness, not mask sustained slowness. A larger
+ * retry ceiling would just inflate wall-clock on hopeless retries. A smaller
+ * ceiling preserves the "fail fast on genuinely-stuck" property while
+ * giving transient hiccups a second chance.
+ *
+ * Non-TimeoutError throws (e.g., HTTP 4xx/5xx from OpenAI, schema validation,
+ * etc.) propagate without retry — they aren't timeout-class issues and the
+ * retry doesn't address them.
+ */
+export async function callToolloopWithRetry<T>(
+  op: string,
+  round: number,
+  primaryTimeoutMs: number,
+  fn: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+  try {
+    return await withTimeout(op, primaryTimeoutMs, fn);
+  } catch (err) {
+    if (!(err instanceof TimeoutError)) throw err;
+    const { enabled, retryTimeoutMs } = resolveToolloopRetryConfig();
+    if (!enabled) throw err;
+    log.warn("toolloop.timeout_retry", {
+      event: "toolloop.timeout_retry",
+      op,
+      round,
+      primary_timeout_ms: primaryTimeoutMs,
+      retry_timeout_ms: retryTimeoutMs,
+    });
+    return await withTimeout(`${op}.retry`, retryTimeoutMs, fn);
+  }
+}
 
 export interface ReviewUsage {
   promptTokens?: number;
@@ -43,8 +118,9 @@ export interface ReviewOutput {
   model: string;
   /**
    * Structured output tool calls emitted by the model during review. Each
-   * entry is a parsed, validated discriminated-union call (submit_finding,
-   * submit_inline_comment, submit_spec_verification, or conclude_review).
+   * entry is a parsed, validated discriminated-union call: submit_finding,
+   * submit_inline_comment, submit_spec_verification, submit_documentation_impact,
+   * submit_thread_resolve, or conclude_review.
    * Always an array — never undefined; empty when no output tools were called.
    */
   toolCalls: ReviewToolCall[];
@@ -201,9 +277,10 @@ const OUTPUT_TOOL_NAMES = new Set<string>(OUTPUT_TOOL_DEFINITIONS.map((t) => t.f
 
 /**
  * All tools registered with the model in the tool-use loop: the two
- * read-only reviewer tools (read_file, list_directory) plus the four
+ * read-only reviewer tools (read_file, list_directory) plus the six
  * structured output tools (submit_finding, submit_inline_comment,
- * submit_spec_verification, conclude_review).
+ * submit_spec_verification, submit_documentation_impact, submit_thread_resolve,
+ * conclude_review).
  *
  * OutputToolDefinition.function.parameters uses a concrete shape (type, properties,
  * required, additionalProperties) while OpenAI's FunctionParameters is typed as
@@ -295,18 +372,16 @@ async function forceConcludeReview(
 }> {
   // Runtime guard: if the conclude_review tool definition is missing (refactor
   // slip in OUTPUT_TOOL_DEFINITIONS), skip the forced pass and let composition-
-  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted on
-  // stdout (via console.log) for parity with all other reviewer.* JSON events
-  // so log-pipeline ingestion picks it up; the `severity: "error"` field is
-  // available for dashboards/alerts that want to escalate it.
+  // side recovery (mt#1413) handle the missing-conclude_review case. Emitted via
+  // log.info for parity with all other reviewer.* JSON events so log-pipeline
+  // ingestion picks it up; the `severity: "error"` field is available for
+  // dashboards/alerts that want to escalate it.
   if (!CONCLUDE_REVIEW_TOOL_DEF) {
-    console.log(
-      JSON.stringify({
-        event: "reviewer.conclude_review_tool_def_missing",
-        provider: "openai",
-        severity: "error",
-      })
-    );
+    log.info("reviewer.conclude_review_tool_def_missing", {
+      event: "reviewer.conclude_review_tool_def_missing",
+      provider: "openai",
+      severity: "error",
+    });
     return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
   }
 
@@ -364,26 +439,22 @@ async function forceConcludeReview(
       // Observability parity with main-loop output tool calls: emit the same
       // shape so downstream metrics tracking `reviewer.output_tool_call`
       // counts include the forced-path conclude_review emission.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.output_tool_call",
-          provider: "openai",
-          tool: "conclude_review",
-          count: accumulatedToolCalls.length,
-        })
-      );
+      log.info("reviewer.output_tool_call", {
+        event: "reviewer.output_tool_call",
+        provider: "openai",
+        tool: "conclude_review",
+        count: accumulatedToolCalls.length,
+      });
       return { ...tokenUsage, emitted: true };
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.log(
-        JSON.stringify({
-          event: "reviewer.output_tool_call_parse_error",
-          provider: "openai",
-          tool: "conclude_review",
-          phase: "post_loop_forced",
-          error: errMsg,
-        })
-      );
+      log.info("reviewer.output_tool_call_parse_error", {
+        event: "reviewer.output_tool_call_parse_error",
+        provider: "openai",
+        tool: "conclude_review",
+        phase: "post_loop_forced",
+        error: errMsg,
+      });
       // Malformed forced call: do not append. Composition-side severity-derived
       // event recovery (mt#1413) handles the absent-conclude_review case.
       return { ...tokenUsage, emitted: false };
@@ -516,8 +587,11 @@ export async function callOpenAIWithClient(
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
-    const response = await withTimeout(
+    // mt#1969: retry-on-timeout once with a reduced ceiling to recover
+    // transient provider-side slowness. See callToolloopWithRetry's docstring.
+    const response = await callToolloopWithRetry(
       "openai.chat.completions.create.toolloop",
+      round,
       timeoutMs,
       (signal) =>
         client.chat.completions.create(
@@ -595,25 +669,21 @@ export async function callOpenAIWithClient(
           const parsed = parseToolCall(fnName, toolCall.function.arguments);
           accumulatedToolCalls.push(parsed);
           const count = accumulatedToolCalls.length;
-          console.log(
-            JSON.stringify({
-              event: "reviewer.output_tool_call",
-              provider: "openai",
-              tool: fnName,
-              count,
-            })
-          );
+          log.info("reviewer.output_tool_call", {
+            event: "reviewer.output_tool_call",
+            provider: "openai",
+            tool: fnName,
+            count,
+          });
           resultContent = JSON.stringify({ ok: true, recorded: true });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          console.log(
-            JSON.stringify({
-              event: "reviewer.output_tool_call_parse_error",
-              provider: "openai",
-              tool: fnName,
-              error: errMsg,
-            })
-          );
+          log.info("reviewer.output_tool_call_parse_error", {
+            event: "reviewer.output_tool_call_parse_error",
+            provider: "openai",
+            tool: fnName,
+            error: errMsg,
+          });
           // Malformed call: do NOT add to accumulatedToolCalls; return an error
           // envelope so the model can self-correct.
           resultContent = JSON.stringify({ ok: false, error: `parse_error: ${errMsg}` });
@@ -712,32 +782,28 @@ export async function callOpenAIWithClient(
       totalCompletionTokens += forced.completionTokens;
       totalReasoningTokens += forced.reasoningTokens;
 
-      console.log(
-        JSON.stringify({
-          event: "reviewer.conclude_review_reminder",
-          provider: "openai",
-          mode: "post_loop_forced",
-          fired_at_turn: totalRoundsUsed,
-          reminder_count: 1,
-          finally_emitted: forced.emitted,
-          gate_branch: gateBranch,
-        })
-      );
+      log.info("reviewer.conclude_review_reminder", {
+        event: "reviewer.conclude_review_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        reminder_count: 1,
+        finally_emitted: forced.emitted,
+        gate_branch: gateBranch,
+      });
     } catch (err: unknown) {
       // API error (network, rate limit, etc.) on the forced call. Log and
       // fall through; composition-side recovery handles the missing event.
-      console.log(
-        JSON.stringify({
-          event: "reviewer.conclude_review_reminder",
-          provider: "openai",
-          mode: "post_loop_forced",
-          fired_at_turn: totalRoundsUsed,
-          reminder_count: 1,
-          finally_emitted: false,
-          gate_branch: gateBranch,
-          error: err instanceof Error ? err.message : String(err),
-        })
-      );
+      log.info("reviewer.conclude_review_reminder", {
+        event: "reviewer.conclude_review_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        reminder_count: 1,
+        finally_emitted: false,
+        gate_branch: gateBranch,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -785,7 +851,7 @@ async function callGoogle(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider google does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }
@@ -826,7 +892,7 @@ async function callAnthropic(
   tools?: ReviewerToolContext
 ): Promise<ReviewOutput> {
   if (tools) {
-    console.warn(
+    log.warn(
       "provider anthropic does not yet support reviewer tools (mt#1126 MVP is OpenAI-only); falling back to no-tools path"
     );
   }

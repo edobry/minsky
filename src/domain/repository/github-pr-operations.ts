@@ -1,8 +1,9 @@
 /**
  * GitHub PR lifecycle operations extracted from GitHubBackend.
  *
- * Contains: createPullRequest, updatePullRequest, mergePullRequest,
- * getPullRequestDetails, getPullRequestDiff, getPRReviewThreads.
+ * Contains: createPullRequest, updatePullRequest, closePullRequest,
+ * mergePullRequest, getPullRequestDetails, getPullRequestDiff,
+ * getPRReviewThreads.
  *
  * Each function receives its dependencies explicitly (Octokit, owner/repo,
  * session helpers) so the main class stays a thin delegation layer.
@@ -364,6 +365,127 @@ export async function updatePullRequest(
     if (error instanceof MinskyError) throw error;
     handleOctokitError(error, {
       operation: "update pull request",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+  }
+}
+
+/**
+ * Close a GitHub pull request without merging. Optionally posts a comment
+ * before flipping the state, so the closure note is visible chronologically
+ * before the close event in the PR timeline.
+ *
+ * Refuses to operate on already-closed or already-merged PRs with a clear
+ * error rather than returning a silent success. The merged check uses
+ * `pulls.get`'s `merged` field — GitHub's `pulls.update` with `state: closed`
+ * on a merged PR is a no-op, but the caller deserves to know.
+ *
+ * Tracking task: mt#1955.
+ */
+export async function closePullRequest(
+  gh: GitHubContext,
+  options: {
+    prIdentifier?: string | number;
+    session?: string;
+    comment?: string;
+  },
+  getSessionDB: () => Promise<SessionProviderInterface>
+): Promise<PRInfo> {
+  // Resolve PR number (mirror updatePullRequest's resolution flow)
+  let prNumber: number;
+  if (options.prIdentifier) {
+    prNumber =
+      typeof options.prIdentifier === "string"
+        ? parseInt(options.prIdentifier, 10)
+        : options.prIdentifier;
+    if (isNaN(prNumber)) {
+      throw new MinskyError(`Invalid PR number: ${options.prIdentifier}`);
+    }
+  } else if (options.session) {
+    const sessionDB = await getSessionDB();
+    const sessionRecord = await sessionDB.getSession(options.session);
+    if (!sessionRecord) {
+      throw new MinskyError(`Session '${options.session}' not found`);
+    }
+
+    if (sessionRecord.pullRequest?.number) {
+      prNumber =
+        typeof sessionRecord.pullRequest.number === "string"
+          ? parseInt(sessionRecord.pullRequest.number, 10)
+          : sessionRecord.pullRequest.number;
+    } else {
+      throw new MinskyError(
+        `No PR recorded for session '${options.session}'. Use 'session pr create' to create a PR first.`
+      );
+    }
+  } else {
+    throw new MinskyError("Either prIdentifier or session must be provided");
+  }
+
+  try {
+    const githubToken = await gh.getToken();
+    const octokit = createOctokit(githubToken);
+
+    // Fetch current state so we can refuse already-closed or merged PRs
+    // BEFORE doing any side-effects (comment post or state flip). This is
+    // the idempotency + safety guard called out by mt#1955 SC #4.
+    const { data: currentPr } = await octokit.rest.pulls.get({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+    });
+
+    if (currentPr.merged) {
+      throw new MinskyError(
+        `Cannot close PR #${prNumber}: already merged at ${currentPr.merged_at}. Closing a merged PR via the close endpoint is a no-op; refusing rather than silently succeeding.`
+      );
+    }
+    if (currentPr.state === "closed") {
+      throw new MinskyError(
+        `Cannot close PR #${prNumber}: already closed at ${currentPr.closed_at}.`
+      );
+    }
+
+    // Post the closure comment BEFORE the state flip so it appears
+    // chronologically before the close event in the PR timeline. PR
+    // comments are issue comments at the API level (mt#1955 SC #3).
+    if (options.comment && options.comment.length > 0) {
+      await octokit.rest.issues.createComment({
+        owner: gh.owner,
+        repo: gh.repo,
+        issue_number: prNumber,
+        body: options.comment,
+      });
+      log.debug(`Posted closure comment on PR #${prNumber}`);
+    }
+
+    // Flip state to closed via the pulls.update endpoint
+    const response = await octokit.rest.pulls.update({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+      state: "closed",
+    });
+
+    log.debug(`Closed GitHub PR #${prNumber} without merging`);
+
+    return {
+      number: response.data.number,
+      url: response.data.html_url,
+      state: response.data.state as "open" | "closed" | "merged",
+      metadata: {
+        owner: gh.owner,
+        repo: gh.repo,
+        commentPosted: Boolean(options.comment && options.comment.length > 0),
+        closedAt: response.data.closed_at ?? undefined,
+      },
+    };
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "close pull request",
       owner: gh.owner,
       repo: gh.repo,
       prNumber,

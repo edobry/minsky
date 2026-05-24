@@ -766,6 +766,22 @@ export function registerDetectorsCommandsWithMcp(
 }
 
 /**
+ * Register principal-corpus commands with MCP (mt#1930 — `principal_corpus.*`).
+ *
+ * Follows the MEMORY single-path model — invoked once via the per-category
+ * adapter `registerPrincipalCorpusTools` in `start-command.ts`.
+ */
+export function registerPrincipalCorpusCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.PRINCIPAL_CORPUS],
+    ...config,
+  });
+}
+
+/**
  * Register authorship commands with MCP.
  *
  * This is the **least-privilege MCP entry point** for the authorship namespace.
@@ -820,39 +836,23 @@ export function registerProvenanceCommandsWithMcp(
 }
 
 /**
- * Register all main command categories with MCP.
+ * Register forge commands with MCP (forge-agnostic CI / check-runs /
+ * branch-protection / labels — mt#1957). Follows the per-category function
+ * pattern used by every other category bridged through the shared registry.
  *
- * MEMORY and DETECTORS are intentionally NOT in this list. Their commands are
- * registered solely via the per-category adapters (`registerMemoryTools`,
- * `registerDetectorsTools`) invoked by `start-command.ts`. The dual-registration
- * shape that other categories exhibit (listed here AND independently registered
- * in start-command) is a latent silent-overwrite hazard via
- * `MinskyMCPServer.addTool()`'s Map semantics; mt#1521 owns the structural
- * source-of-truth resolution that may apply this same exclusion to the other
- * categories. Until then, MEMORY and DETECTORS are the model.
+ * Historical note: `registerAllMainCommandsWithMcp` was deleted in mt#2010 —
+ * it had zero production callers (the production path was per-category
+ * adapters in `start-command.ts`), and the silent-overwrite hazard it
+ * documented (dual registration via Map semantics) is now structurally
+ * impossible because `start-command.ts`'s discovery loop bridges each
+ * `CommandCategory` exactly once. See ADR-011.
  */
-export function registerAllMainCommandsWithMcp(
+export function registerForgeCommandsWithMcp(
   commandMapper: CommandMapper,
   config: Omit<McpSharedCommandConfig, "categories"> = {}
 ): void {
   registerSharedCommandsWithMcp(commandMapper, {
-    categories: [
-      CommandCategory.TASKS,
-      CommandCategory.GIT,
-      CommandCategory.REPO,
-      CommandCategory.SESSION,
-      CommandCategory.RULES,
-      CommandCategory.CONFIG,
-      CommandCategory.INIT,
-      CommandCategory.DEBUG,
-      CommandCategory.PERSISTENCE,
-      CommandCategory.MCP,
-      CommandCategory.KNOWLEDGE,
-      CommandCategory.PROVENANCE,
-      CommandCategory.AUTHORSHIP,
-      CommandCategory.WORKSPACE,
-      CommandCategory.TRANSCRIPTS,
-    ],
+    categories: [CommandCategory.FORGE],
     ...config,
   });
 }

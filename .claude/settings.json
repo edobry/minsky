@@ -50,6 +50,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-checks-on-bypass-merge.ts",
+            "timeout": 30,
+            "statusMessage": "Checking required CI status before bypass-merge..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/block-git-gh-cli.ts",
             "timeout": 5,
             "statusMessage": "Checking for git/gh CLI..."
@@ -81,7 +87,13 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/require-session-for-main-workspace-edits.ts",
             "timeout": 5,
             "statusMessage": "Checking main-workspace edit guard..."
-          },
+          }
+        ]
+      },
+      {
+        "_comment": "mt#2029 R1 consolidation: single PreToolUse block for policy-coverage-detector covering both Claude Code native write tools and MCP session write tools. Consolidating eliminates the double-invocation hazard the prior two-block layout had (if a future matcher refactor accidentally overlapped, both blocks would fire and skew calibration). require-session-for-main-workspace-edits stays in its own native-only block above (session tools are by definition session-scoped, so its guard doesn't apply there).",
+        "matcher": "Edit|Write|NotebookEdit|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace|mcp__minsky__session_write_file",
+        "hooks": [
           {
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/policy-coverage-detector.ts",
@@ -249,6 +261,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__session_pr_merge|mcp__minsky__tasks_status_set",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bridge-memory-retirement.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for bridge memories to retire..."
+          }
+        ]
+      },
+      {
         "matcher": "Bash|Edit|Write|Read|Grep|Glob|mcp__.*",
         "hooks": [
           {
@@ -286,6 +309,18 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/mcp-daemon-staleness-detector.ts",
             "timeout": 5,
             "statusMessage": "Checking for MCP daemon staleness..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/substrate-bypass-detector.ts",
+            "timeout": 15,
+            "statusMessage": "Checking for substrate bypass in prior turn..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/retrospective-trigger-scanner.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for retrospective trigger phrases..."
           }
         ]
       }

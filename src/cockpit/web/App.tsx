@@ -4,11 +4,17 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
-import { fetchWidgets, fetchWidgetData, type WidgetMeta, type WidgetData } from "./lib/widget-client";
+import {
+  fetchWidgets,
+  fetchWidgetData,
+  type WidgetMeta,
+  type WidgetData,
+} from "./lib/widget-client";
 import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
+import { ContextInspector } from "./widgets/ContextInspector";
 import { Credentials } from "./widgets/Credentials";
 // Promoted widgets — rendered at their dedicated page routes
 import { AgentsPage } from "./pages/AgentsPage";
@@ -24,6 +30,7 @@ import { PromotedPageTiles } from "./pages/HomePage";
 // ---------------------------------------------------------------------------
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   attention: Attention,
+  "context-inspector": ContextInspector,
   credentials: Credentials,
 };
 
@@ -160,9 +167,7 @@ export function App() {
         fetchWidgetData(meta.id)
           .then((data) => {
             if (!cancelled) {
-              setWidgets((prev) =>
-                prev.map((w) => (w.meta.id === meta.id ? { ...w, data } : w))
-              );
+              setWidgets((prev) => prev.map((w) => (w.meta.id === meta.id ? { ...w, data } : w)));
             }
           })
           .catch(() => {});

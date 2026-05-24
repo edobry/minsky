@@ -21,6 +21,25 @@ export type { RepositoryStatus };
 // Re-export check types so consumers don't need to import from github-pr-checks directly
 export type { ChecksResult, CheckRunResult } from "./github-pr-checks";
 
+// Re-export workflow-run types
+export type { WorkflowRun, ListWorkflowRunsOptions } from "./github-workflow-runs";
+
+// Re-export branch-protection types
+export type {
+  BranchProtection,
+  RequiredStatusChecks,
+  RequiredPullRequestReviews,
+  BranchRestrictions,
+} from "./github-branch-protection";
+
+// Re-export label types
+export type {
+  Label,
+  CreateLabelParams,
+  UpdateLabelParams,
+  ListLabelsOptions,
+} from "./github-labels";
+
 // Define ValidationResult with compatibility for both interfaces
 export interface ValidationResult {
   valid: boolean;
@@ -226,6 +245,13 @@ export interface UpdatePROptions {
   session?: string;
 }
 
+export interface ClosePROptions {
+  prIdentifier?: string | number;
+  session?: string;
+  /** Optional comment to post before the state flip (mt#1955). */
+  comment?: string;
+}
+
 export interface MergePROptions {
   /** Authorship tier from provenance — used to select the correct token and build trailers. */
   authorshipTier?: import("../provenance/types").AuthorshipTier;
@@ -238,6 +264,7 @@ export interface MergePROptions {
 export interface PullRequestOperations {
   create(options: CreatePROptions): Promise<PRInfo>;
   update(options: UpdatePROptions): Promise<PRInfo>;
+  close(options: ClosePROptions): Promise<PRInfo>;
   merge(
     prIdentifier: string | number,
     session?: string,
@@ -265,6 +292,59 @@ export interface PullRequestOperations {
 export interface CIStatusOperations {
   getChecksForRef(headSha: string): Promise<ChecksResult>;
   getChecksForPR(prNumber: number): Promise<ChecksResult>;
+}
+
+export interface WorkflowRunsOperations {
+  /**
+   * List workflow runs for the configured repository, with optional filters.
+   */
+  list(
+    options?: import("./github-workflow-runs").ListWorkflowRunsOptions
+  ): Promise<import("./github-workflow-runs").WorkflowRun[]>;
+  /**
+   * Download and return the logs for a specific workflow run as a text string.
+   */
+  viewLogs(runId: number): Promise<string>;
+}
+
+export interface BranchProtectionOperations {
+  /**
+   * Get the current branch protection configuration for the given branch.
+   */
+  get(branch: string): Promise<import("./github-branch-protection").BranchProtection>;
+  /**
+   * Replace the branch protection configuration for the given branch.
+   */
+  set(
+    branch: string,
+    config: import("./github-branch-protection").BranchProtection
+  ): Promise<import("./github-branch-protection").BranchProtection>;
+}
+
+export interface LabelOperations {
+  /**
+   * Create a new label on the repository.
+   */
+  create(
+    params: import("./github-labels").CreateLabelParams
+  ): Promise<import("./github-labels").Label>;
+  /**
+   * List all labels on the repository (collects all pages).
+   */
+  list(
+    options?: import("./github-labels").ListLabelsOptions
+  ): Promise<import("./github-labels").Label[]>;
+  /**
+   * Update an existing label (rename, recolor, or change description).
+   */
+  update(
+    currentName: string,
+    params: import("./github-labels").UpdateLabelParams
+  ): Promise<import("./github-labels").Label>;
+  /**
+   * Delete a label from the repository.
+   */
+  delete(name: string): Promise<void>;
 }
 
 export interface ReviewOperations {
@@ -305,6 +385,21 @@ export interface ReviewOperations {
    * `undefined` as "listing not supported on this backend."
    */
   listReviews?(prIdentifier: string | number): Promise<ReviewListEntry[]>;
+
+  /**
+   * Return the PR's creation timestamp (ISO-8601 string).
+   *
+   * Introduced for mt#2043: `session_pr_wait_for_review` uses this to default
+   * the `since` filter to PR creation time so reviews posted BEFORE the wait
+   * was invoked are still matched. Without this, the wait tool is blind to
+   * reviews that landed during the gap between PR creation and the agent's
+   * follow-up wait call.
+   *
+   * Non-GitHub backends may not implement this; callers should treat
+   * `undefined` as "PR-creation-time lookup not supported on this backend"
+   * and fall back to call-start time (the previous default).
+   */
+  getPullRequestCreatedAt?(prIdentifier: string | number): Promise<string>;
 
   /**
    * Mark a GitHub PR review thread as resolved.
@@ -402,6 +497,12 @@ export type ForgeType = "github" | "gitlab" | "bitbucket";
 
 export interface ForgeBackend extends RepositoryBackend {
   readonly forgeType: ForgeType;
+  /** Grouped workflow-run operations (list, view logs) */
+  readonly workflowRuns: WorkflowRunsOperations;
+  /** Grouped branch-protection operations (get, set) */
+  readonly branchProtection: BranchProtectionOperations;
+  /** Grouped label operations (create, list, update, delete) */
+  readonly labels: LabelOperations;
 }
 
 /**

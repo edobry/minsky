@@ -31,9 +31,14 @@ import { Transform, type Readable, type Writable } from "stream";
 import { log } from "../../utils/logger";
 import {
   PROXY_RESTART_TOOL_NAME,
+  PROXY_RESTART_NUDGE_TEXT,
+  PROXY_READY_PROBE_ID_PREFIX,
   augmentToolsListResponse,
+  buildReadyProbeRequest,
+  buildToolsListChangedNotification,
   makeToolCallResponse,
   isProxyRestartRequest,
+  isReadyProbeResponse,
   type JsonRpcMessage,
 } from "./tools";
 
@@ -50,6 +55,14 @@ const RESPAWN_DELAY_MS = 200;
 const MAX_CONSECUTIVE_FAILURES = 5;
 /** Window to count failures (ms). */
 const FAILURE_WINDOW_MS = 60_000;
+/**
+ * Timeout (ms) for the ping-based readiness probe sent after each child
+ * respawn (mt#2011). On timeout the proxy emits
+ * `notifications/tools/list_changed` upstream anyway as a best-effort
+ * fallback; better to race with the inner's startup than to silently leave
+ * Claude Code's tools cache stale.
+ */
+const READY_PROBE_TIMEOUT_MS = 2000;
 
 export interface ProxyOptions {
   /** Command to spawn as the inner MCP server. Default: "minsky" */
@@ -94,6 +107,41 @@ export class MinskyStdioProxy {
   private child: ChildProcess | null = null;
   private isShuttingDown = false;
   private recentFailures: number[] = [];
+  /**
+   * Number of times `spawnChild()` has been invoked successfully across the
+   * proxy's lifetime. Used to (a) decide whether to emit
+   * `notifications/tools/list_changed` upstream (only on respawns, not the
+   * initial spawn — Claude Code's session-start initialize has not yet
+   * completed on the first spawn and a notification then would be premature),
+   * and (b) generate unique ids for the ping readiness probe so stale
+   * responses from prior respawns cannot accidentally resolve the current
+   * probe.
+   */
+  private spawnCount = 0;
+  /**
+   * Currently outstanding readiness probe. Cleared when the matching response
+   * arrives (or the timeout fires). The id is the same value carried on the
+   * `ping` request id; the outbound transform compares against this to
+   * recognise the probe response and trigger upstream notification emission.
+   */
+  private pendingProbe: {
+    id: string;
+    timeoutHandle: ReturnType<typeof setTimeout>;
+    /**
+     * Completes the probe — clears `this.pendingProbe`, conditionally writes
+     * `notifications/tools/list_changed` upstream, then resolves the
+     * `spawnChild()` promise. Idempotent: safe to call from either the probe
+     * response path or the timeout path.
+     */
+    complete: (reason: "response" | "timeout") => void;
+    /**
+     * Cancel the probe without emitting `notifications/tools/list_changed`.
+     * Used when a new `spawnChild()` invocation supersedes the prior child
+     * before its probe completed (crash-then-respawn). Resolves the prior
+     * `spawnChild()` promise without notification side-effects.
+     */
+    cancel: () => void;
+  } | null = null;
 
   /**
    * Transform stream that sits on the inbound path (stdin → child.stdin).
@@ -116,12 +164,39 @@ export class MinskyStdioProxy {
     this.childArgs = options.childArgs ?? DEFAULT_CHILD_ARGS;
   }
 
-  /** Start the proxy: spawn child and wire stdio. */
+  /**
+   * Start the proxy: install signal handlers, spawn the initial inner
+   * child, wire the stdio transforms, and await the readiness probe.
+   *
+   * Resolves once the initial spawn has completed and the inner has
+   * confirmed readiness via the ping probe (or the 2s timeout has fired
+   * as fallback). Initial-spawn failures (spawn ENOENT, pipe wiring
+   * errors, probe-write failures) reject `start()` so the CLI can
+   * surface them to the operator with a non-zero exit code.
+   *
+   * `start()` does NOT block until process exit (PR #1216 R2 fix); for
+   * that long-running lifetime, call `waitForExit()` after `start()`
+   * resolves. Splitting the two methods lets callers perform additional
+   * setup between "proxy is ready" and "block until shutdown" — and lets
+   * tests await `start()` without hanging.
+   */
   async start(): Promise<void> {
     this.setupSignalHandlers();
-    this.spawnChild();
+    await this.spawnChild();
+  }
 
-    // Keep process alive until shutdown.
+  /**
+   * Block until the proxy process exits. The CLI entrypoint calls this
+   * after `start()` resolves; the proxy stays alive as a daemon until
+   * SIGTERM/SIGINT (handled in `setupSignalHandlers`) or an unrecoverable
+   * crash (handled in `onChildClose`).
+   *
+   * Split from `start()` in PR #1216 R2: prior to the split, `start()`
+   * itself awaited this lifetime promise, which made it impossible for
+   * callers to do anything after the proxy was up. See R2 reviewer
+   * BLOCKING 3 for the original concern.
+   */
+  async waitForExit(): Promise<void> {
     await new Promise<void>((resolve) => {
       proc.once("exit", resolve);
     });
@@ -130,9 +205,37 @@ export class MinskyStdioProxy {
   /**
    * Spawn the inner server child process and wire stdio pipes.
    * Called on initial start and on each respawn.
+   *
+   * Returns a Promise that resolves when the post-spawn readiness probe
+   * (mt#2011) completes — either because the inner responded to the
+   * synthesized `ping` request (semantic readiness signal: the inner's
+   * protocol layer is operational), or because the
+   * `READY_PROBE_TIMEOUT_MS` fallback elapsed. On respawns (spawnCount > 1)
+   * the probe completion also writes `notifications/tools/list_changed`
+   * upstream so Claude Code refreshes its `tools/list` cache without
+   * needing `/mcp` reconnect.
+   *
+   * The async return shape lets `handleProxyRestart()` `await spawnChild()`
+   * and send its tool-call success response only after the notification has
+   * been emitted (ensuring Claude Code sees notification-then-response, not
+   * response-then-notification with a race window in between). `start()`
+   * and `onChildClose()` ignore the returned promise (fire-and-forget) since
+   * they do not need to sequence anything after probe completion.
    */
-  spawnChild(): void {
+  async spawnChild(): Promise<void> {
     if (this.isShuttingDown) return;
+
+    // Cancel any probe outstanding from a prior child (mt#2011). The prior
+    // child's stdio is being replaced; that probe will never receive a
+    // response. Cancelling clears its timeout, resolves the prior
+    // spawnChild() promise, and DOES NOT emit a stale notification — the
+    // new probe will emit one if appropriate.
+    if (this.pendingProbe !== null) {
+      log.debug("[proxy] Cancelling pending probe from prior child", {
+        probeId: this.pendingProbe.id,
+      });
+      this.pendingProbe.cancel();
+    }
 
     log.debug("[proxy] Spawning inner MCP server", {
       command: this.childCommand,
@@ -176,7 +279,126 @@ export class MinskyStdioProxy {
     (child as unknown as { _proxyCloseHandler: typeof closeHandler })._proxyCloseHandler =
       closeHandler;
 
-    log.debug("[proxy] Inner MCP server spawned", { pid: child.pid });
+    this.spawnCount += 1;
+    log.debug("[proxy] Inner MCP server spawned", {
+      pid: child.pid,
+      spawnCount: this.spawnCount,
+    });
+
+    // Send the ping readiness probe and await its completion (response or
+    // timeout). On respawns (spawnCount > 1), completion also writes
+    // `notifications/tools/list_changed` upstream.
+    const emitToolsListChanged = this.spawnCount > 1;
+    await this.runReadyProbe(child, emitToolsListChanged);
+  }
+
+  /**
+   * Send a `ping` request to the freshly-spawned child and resolve when the
+   * matching response arrives (the outbound transform intercepts it and calls
+   * `pendingProbe.complete("response")`) or when `READY_PROBE_TIMEOUT_MS`
+   * elapses. When `emitNotification` is true, completion writes
+   * `notifications/tools/list_changed` to `process.stdout` so Claude Code
+   * refreshes its tools cache (mt#2011).
+   *
+   * The probe id carries the reserved `__proxy_ready_probe_<spawnCount>`
+   * prefix; the outbound transform recognises it by prefix and discards
+   * the response (it is never forwarded upstream).
+   */
+  private runReadyProbe(child: ChildProcess, emitNotification: boolean): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (this.isShuttingDown) {
+        resolve();
+        return;
+      }
+
+      const probeId = `${PROXY_READY_PROBE_ID_PREFIX}${this.spawnCount}`;
+      let completed = false;
+
+      const complete = (reason: "response" | "timeout"): void => {
+        if (completed) return;
+        completed = true;
+
+        // Clear pendingProbe iff it still refers to this probe (defensive:
+        // a subsequent respawn may have already overwritten it).
+        if (this.pendingProbe?.id === probeId) {
+          clearTimeout(this.pendingProbe.timeoutHandle);
+          this.pendingProbe = null;
+        }
+
+        // Defensive guard (PR #1216 R1 NON-BLOCKING 2): if the timeout fires
+        // for a child that has already exited (rare race where the close
+        // handler hasn't yet scheduled the respawn-side cancel), skip the
+        // notification — the subsequent respawn's probe will emit one with
+        // a live child. Race detection: `this.child` is set to the most-
+        // recent spawned child; we cancelled-or-completed any prior probe
+        // at the top of spawnChild(), so if `this.child !== child` here, a
+        // newer spawn has already taken over and is responsible for its
+        // own notification.
+        const childStillCurrent =
+          reason === "response" || (this.child === child && child.exitCode === null);
+
+        if (emitNotification && childStillCurrent) {
+          log.debug("[proxy] Emitting tools/list_changed notification", {
+            probeId,
+            reason,
+          });
+          try {
+            (proc.stdout as Writable).write(
+              `${JSON.stringify(buildToolsListChangedNotification())}\n`
+            );
+          } catch (err) {
+            log.error("[proxy] Failed to write tools/list_changed", {
+              error: (err as Error).message,
+            });
+          }
+        } else if (emitNotification && !childStillCurrent) {
+          log.debug("[proxy] Skipping tools/list_changed — child no longer current", {
+            probeId,
+            reason,
+            childExitCode: child.exitCode,
+          });
+        } else {
+          log.debug("[proxy] Initial spawn — skipping tools/list_changed", {
+            probeId,
+            reason,
+          });
+        }
+
+        resolve();
+      };
+
+      const cancel = (): void => {
+        if (completed) return;
+        completed = true;
+        if (this.pendingProbe?.id === probeId) {
+          clearTimeout(this.pendingProbe.timeoutHandle);
+          this.pendingProbe = null;
+        }
+        // Resolve the spawnChild() promise WITHOUT emitting the notification
+        // — the new spawn will emit if appropriate.
+        resolve();
+      };
+
+      const timeoutHandle = setTimeout(() => complete("timeout"), READY_PROBE_TIMEOUT_MS);
+      this.pendingProbe = {
+        id: probeId,
+        timeoutHandle,
+        complete,
+        cancel,
+      };
+
+      try {
+        const probeRequest = buildReadyProbeRequest(probeId);
+        (child.stdin as Writable).write(`${JSON.stringify(probeRequest)}\n`);
+        log.debug("[proxy] Ready probe sent", { probeId });
+      } catch (err) {
+        log.error("[proxy] Failed to send ready probe", {
+          probeId,
+          error: (err as Error).message,
+        });
+        complete("timeout");
+      }
+    });
   }
 
   /**
@@ -218,7 +440,14 @@ export class MinskyStdioProxy {
     // Schedule respawn.
     log.debug("[proxy] Scheduling respawn", { delayMs: RESPAWN_DELAY_MS, cause });
     setTimeout(() => {
-      this.spawnChild();
+      // Fire-and-forget: spawnChild() is now async (mt#2011) because it
+      // awaits the readiness probe; onChildClose does not need to sequence
+      // anything after probe completion. The probe handles its own logging
+      // on failure, and notification emission is internal to the probe's
+      // completion path.
+      void this.spawnChild().catch((err: Error) => {
+        log.error("[proxy] Respawn after close failed", { error: err.message });
+      });
     }, RESPAWN_DELAY_MS);
   }
 
@@ -318,8 +547,11 @@ export class MinskyStdioProxy {
 
   /**
    * Create the outbound transform stream.
-   * Inspects each line for `tools/list` responses.
-   * Augments matching responses with `__proxy_restart_server`.
+   * Inspects each line for two interception cases:
+   *   1. `tools/list` responses — augmented with `__proxy_restart_server`.
+   *   2. Readiness-probe responses (mt#2011) — swallowed (not forwarded
+   *      upstream); triggers `pendingProbe.complete("response")` which on
+   *      respawns also writes `notifications/tools/list_changed` upstream.
    * All other lines are forwarded verbatim.
    *
    * Framing contract: same `\r\n` normalization as the inbound transform —
@@ -327,6 +559,7 @@ export class MinskyStdioProxy {
    * regardless of the inner server's line-ending style.
    */
   private createOutboundTransform(): Transform {
+    const proxy = this;
     let outBuffer = "";
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -347,6 +580,37 @@ export class MinskyStdioProxy {
         let outputLine = line;
         try {
           const msg = JSON.parse(line) as JsonRpcMessage;
+          if (isReadyProbeResponse(msg)) {
+            // Swallow ANY response carrying the reserved
+            // `__proxy_ready_probe_` id prefix — never forward upstream
+            // (mt#2011, PR #1216 R1 BLOCKING 1). The id namespace is
+            // reserved by the proxy; no compliant client should ever send
+            // a request with this prefix, so a response with the prefix is
+            // always either:
+            //   (a) the response to a currently-outstanding probe — trigger
+            //       `pendingProbe.complete("response")` which emits
+            //       `notifications/tools/list_changed` upstream on respawns
+            //       (spawnCount > 1).
+            //   (b) a LATE response arriving after the 2s timeout has
+            //       already fired and cleared `pendingProbe` — swallow it
+            //       silently (the timeout path already emitted the
+            //       notification best-effort; emitting again would be a
+            //       duplicate, and forwarding the response upstream would
+            //       leak proxy-internal traffic onto the wire).
+            //   (c) a STALE response from a prior probe whose child was
+            //       superseded by a respawn — swallow silently for the
+            //       same reason as (b).
+            const probe = proxy.pendingProbe;
+            if (probe !== null && probe.id === msg.id) {
+              probe.complete("response");
+            } else {
+              log.debug("[proxy] Swallowed late/stale probe response", {
+                id: msg.id,
+                pendingProbeId: probe?.id ?? null,
+              });
+            }
+            continue;
+          }
           const augmented = augmentToolsListResponse(msg);
           if (augmented !== msg) {
             outputLine = JSON.stringify(augmented);
@@ -411,18 +675,26 @@ export class MinskyStdioProxy {
       this.tearDownPipes();
     }
 
-    // Spawn the fresh child.
-    this.spawnChild();
-
-    // Wait a short moment for the child to start before responding.
-    // The inner server emits its ready signal; the initialize handshake
-    // happens transparently between Claude Code and child over the pipe.
-    await new Promise<void>((resolve) => setTimeout(resolve, 300));
+    // Spawn the fresh child and await its readiness probe (mt#2011). The
+    // probe is the semantic ready signal — successful ping response = inner's
+    // protocol layer is operational. Completion also emits
+    // `notifications/tools/list_changed` upstream so Claude Code refreshes
+    // its tools cache before this method writes the tool-call success
+    // response below; the client therefore sees notification-then-response,
+    // not response-then-notification with a race window in between.
+    // Replaces the prior blanket 300ms wait.
+    await this.spawnChild();
 
     // Send the tool-call response back to Claude Code.
+    // Append the operator nudge (mt#2031): Claude Code's deferred-tools cache
+    // currently doesn't refresh on notifications/tools/list_changed, so the
+    // operator still needs to /mcp reconnect to see newly-registered tools in
+    // ToolSearch. Surface this in the response so the operator sees the cause
+    // and the upstream link instead of silent failure. Retire when mt#2030
+    // closes (anthropics/claude-code#4118 lands).
     const response = makeToolCallResponse(
       request,
-      `${PROXY_RESTART_TOOL_NAME}: inner server restarted at ${new Date().toISOString()}`
+      `${PROXY_RESTART_TOOL_NAME}: inner server restarted at ${new Date().toISOString()}\n\n${PROXY_RESTART_NUDGE_TEXT}`
     );
     (proc.stdout as Writable).write(`${JSON.stringify(response)}\n`);
 
@@ -509,8 +781,15 @@ export class MinskyStdioProxy {
 
 /**
  * Main entry point — called from the CLI subcommand.
+ *
+ * `start()` resolves after the initial spawn + readiness probe; failures
+ * during that phase propagate as a rejected promise so the CLI surfaces
+ * them with a non-zero exit code. After start succeeds, `waitForExit()`
+ * blocks until the proxy process is terminated (SIGTERM, SIGINT, or
+ * unrecoverable crash).
  */
 export async function runProxy(options: ProxyOptions = {}): Promise<void> {
   const proxy = new MinskyStdioProxy(options);
   await proxy.start();
+  await proxy.waitForExit();
 }

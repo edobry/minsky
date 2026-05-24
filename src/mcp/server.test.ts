@@ -1490,3 +1490,54 @@ describe("MinskyMCPServer instructions option — mt#1625 spike", () => {
     await server.close();
   });
 });
+
+describe("MinskyMCPServer init setters — mt#1962 symmetric mutual-exclusivity (PR #1188 R1 B1)", () => {
+  test("setInitPromise clears any previously-set initController", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const { RetryingInitController } = await import("./init-retry");
+    const server = new MinskyMCPServer({
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    // Set a controller first.
+    const controllerInitCount = { n: 0 };
+    const controller = new RetryingInitController({
+      initializer: async () => {
+        controllerInitCount.n++;
+      },
+    });
+    server.setInitController(controller);
+    expect((server as unknown as { initController: unknown }).initController).toBe(controller);
+
+    // Now overlay a promise — controller must be cleared.
+    const promise = Promise.resolve();
+    server.setInitPromise(promise);
+    expect((server as unknown as { initController: unknown }).initController).toBeNull();
+    expect((server as unknown as { initPromise: unknown }).initPromise).toBe(promise);
+
+    await server.close();
+  });
+
+  test("setInitController clears any previously-set initPromise", async () => {
+    const { MinskyMCPServer } = await import("./server");
+    const { RetryingInitController } = await import("./init-retry");
+    const server = new MinskyMCPServer({
+      transportType: "stdio",
+      projectContext: { repositoryPath: "/mock/test-repo" },
+    });
+
+    const promise = Promise.resolve();
+    server.setInitPromise(promise);
+    expect((server as unknown as { initPromise: unknown }).initPromise).toBe(promise);
+
+    const controller = new RetryingInitController({
+      initializer: async () => {},
+    });
+    server.setInitController(controller);
+    expect((server as unknown as { initPromise: unknown }).initPromise).toBeNull();
+    expect((server as unknown as { initController: unknown }).initController).toBe(controller);
+
+    await server.close();
+  });
+});

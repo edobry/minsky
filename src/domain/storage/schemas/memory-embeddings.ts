@@ -50,6 +50,7 @@ export const memoriesTable = pgTable(
     confidence: real("confidence"),
     supersededBy: uuid("superseded_by"),
     metadata: jsonb("metadata"),
+    associations: jsonb("associations").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
     lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }),
@@ -62,6 +63,8 @@ export const memoriesTable = pgTable(
     index("idx_memories_source_agent_id").on(table.sourceAgentId),
     // Lineage traversal index
     index("idx_memories_superseded_by").on(table.supersededBy),
+    // GIN index for JSONB containment queries (@>) on associations
+    index("idx_memories_associations").using("gin", table.associations),
   ]
 );
 

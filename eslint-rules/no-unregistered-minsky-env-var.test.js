@@ -22,6 +22,10 @@ function srcFile(...parts) {
   return path.join(repoRoot, "src", ...parts);
 }
 
+function claudeHookFile(...parts) {
+  return path.join(repoRoot, ".claude", "hooks", ...parts);
+}
+
 const tsTester = new RuleTester({
   languageOptions: {
     parser: tsParser,
@@ -80,6 +84,28 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
     {
       code: "const v = process.env.MINSKY_TOTALLY_BOGUS_NAME;",
       filename: srcFile("legacy", "loader.js"),
+    },
+    // mt#1994: .claude/hooks/**/*.ts is in scope. Registered env vars pass.
+    {
+      code: 'if (process.env.MINSKY_ACK_OOB_MERGE === "1") {}',
+      filename: claudeHookFile("block-out-of-band-merge.ts"),
+    },
+    {
+      code: 'const skip = process.env.MINSKY_SKIP_SKILL_STALENESS === "1";',
+      filename: claudeHookFile("skill-staleness-detector.ts"),
+    },
+    // mt#1994: .js files in .claude/hooks/ are out of scope (consistent with
+    // the src/ extension-gate — only .ts files are linted).
+    {
+      code: "const v = process.env.MINSKY_TOTALLY_BOGUS_HOOK_NAME;",
+      filename: claudeHookFile("legacy-hook.js"),
+    },
+    // mt#1994: files outside both src/ AND .claude/hooks/ remain out of scope.
+    // (e.g., scripts/, services/, .github/workflows/ — those have their own
+    // boot lifecycles separate from the MCP config loader.)
+    {
+      code: "const v = process.env.MINSKY_OUT_OF_SCOPE_FOR_SCRIPTS;",
+      filename: path.join(repoRoot, "scripts", "deploy.ts"),
     },
   ],
   invalid: [
@@ -141,6 +167,25 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
           data: {
             name: "MINSKY_TEST_ONLY_NEW",
             configPath: "test.only.new",
+          },
+        },
+      ],
+    },
+    // mt#1994: unregistered env var read in a .claude/hooks/ file fires. This
+    // is the regression-anchor case — without this rule extension, a future
+    // hook author could introduce a `process.env.MINSKY_NEW_OVERRIDE` read in
+    // a hook file and the operator following the override-set instructions
+    // would hit a CLI boot crash because the env-var-to-config dot-path parser
+    // doesn't know to skip it.
+    {
+      code: 'if (process.env.MINSKY_NEWLY_INTRODUCED_HOOK_VAR === "1") {}',
+      filename: claudeHookFile("new-hook-with-override.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_NEWLY_INTRODUCED_HOOK_VAR",
+            configPath: "newly.introduced.hook.var",
           },
         },
       ],

@@ -199,7 +199,13 @@ mechanism (Claude Code only)`, a `UserPromptSubmit` hook invokes `memory_search`
 
 - **Class:** C (agent-driven poll, server-side)
 - **Shape:** MCP tool that polls the forge until a review appears (or timeout). Default
-  filters new reviews only; `reviewer: "minsky-reviewer[bot]"` filters identity.
+  `since` is the PR's `created_at` timestamp (mt#2043), so pre-existing reviews on the PR
+  match by default; `reviewer: "minsky-reviewer[bot]"` filters identity. On timeout the
+  result includes `lastSeenReviews` (each entry annotated with a `rejectionReason`) and
+  `sinceUsed` so the caller can diagnose the miss without a separate
+  `pull_request_read get_reviews` round-trip. Backends that don't implement
+  `ReviewOperations.getPullRequestCreatedAt` fall back to call-start (the pre-mt#2043
+  default) for the `since` threshold.
 - **Fit:** **today's correct answer for "babysit a PR through reviewer-bot iteration."**
   See worked example §6.
 - **Latency:** typical 30s–2min after push; bounded by the call's `timeoutSeconds`
@@ -451,9 +457,12 @@ The tool blocks server-side until a matching review appears or the timeout elaps
 Returns the review payload; the agent unblocks with full context. **This is Class C
 (agent-driven poll) but server-side, so the agent doesn't burn context per poll.**
 
-If the bot has already posted on this HEAD before the call, the default `since: <call-time>`
-filter ignores the existing review. Fetch existing reviews via `session_pr_get` or
-`pull_request_read get_reviews` first.
+If the bot has already posted on this HEAD before the call, the default `since` is the
+PR's `created_at` timestamp (mt#2043) so the existing review matches on the first poll —
+no separate `session_pr_get` / `pull_request_read get_reviews` pre-fetch needed. Backends
+that don't implement `ReviewOperations.getPullRequestCreatedAt` fall back to call-start
+(the pre-mt#2043 default), in which case a manual pre-fetch is still required. Pass an
+explicit `since` to narrow the window past a known-stale review.
 
 ### 6.2 Bridged pattern (post-§5 implementation)
 

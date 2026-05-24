@@ -67,10 +67,50 @@ export class RuleSuggestionError extends Error {
 }
 
 // Context Analysis Types
+//
+// Canonical harness-agnostic context-analysis shapes. Originally designed during the
+// Cursor-cannibalization era (mt#082 → mt#461) but never adopted by the synthesis path
+// (`src/commands/context/`), which defines its own `AnalysisResult` shape in
+// `generate-types.ts`. mt#2033 (Path A) makes these canonical shapes load-bearing for
+// the first time by adopting them in the observation path (mt#2022 onward).
+//
+// Two consumers, two source values for the `ContextAnalysisResult.source` discriminator:
+//   - "synthesized" — "what context should be assembled from current workspace state"
+//                     (synthesis path; not yet migrated to these types — see mt#2040)
+//   - "observed"    — "what context actually was during a specific harness session"
+//                     (observation path; mt#2022 adopts this surface)
+//
+// The diff between the two surfaces (mt#2039) exposes harness-specific overhead.
+// Synthesis-path migration to the canonical shape is filed as mt#2040 (Path B follow-up).
 
 export interface ContextElement {
-  /** Type of context element */
-  type: "rule" | "file" | "conversation" | "metadata" | "other";
+  /**
+   * Type of context element.
+   *
+   * Synthesis-path kinds (Cursor-replication era + general): rule / file / conversation
+   * / metadata / other.
+   *
+   * Observation-path kinds (per-harness reality): hook-injection / skill-body /
+   * tool-result / tool-schema / deferred-tool-catalog / mcp-instructions / system-prompt
+   * / user-prompt / assistant-text / assistant-thinking.
+   */
+  type: // Synthesis-path kinds
+  | "rule"
+    | "file"
+    | "conversation"
+    | "metadata"
+    | "other"
+    // Observation-path kinds (mt#2033 Path A, 2026-05-21)
+    | "hook-injection"
+    | "skill-body"
+    | "tool-result"
+    | "tool-schema"
+    | "deferred-tool-catalog"
+    | "mcp-instructions"
+    | "system-prompt"
+    | "user-prompt"
+    | "assistant-text"
+    | "assistant-thinking";
 
   /** Unique identifier for this element */
   id: string;
@@ -139,6 +179,19 @@ export interface ContextAnalysisRequest {
 }
 
 export interface ContextAnalysisResult {
+  /**
+   * Which surface produced this analysis.
+   *
+   * - "synthesized" — assembled from current workspace state via the synthesis path
+   *                   (canonical harness-agnostic baseline of what context should be).
+   * - "observed"    — extracted from an actual harness session's transcript via the
+   *                   observation path (per-harness reality of what context actually was).
+   *
+   * Required (not optional) so every analysis result can be classified at the call site
+   * without inference. mt#2039 (cross-surface comparison pane) discriminates on this field.
+   */
+  source: "synthesized" | "observed";
+
   /** Summary information */
   summary: {
     /** Total token count for target model */
@@ -302,4 +355,72 @@ export class ContextAnalysisError extends Error {
     super(message);
     this.name = "ContextAnalysisError";
   }
+}
+
+// ── Observation-path snapshot (mt#2022) ──────────────────────────────────────
+//
+// A `SessionContextSnapshot` is the observation-path's primary output: the
+// categorized, chronologically-ordered set of context blocks that an actual
+// harness session received. Assembled from the canonical transcripts substrate
+// (`agent_transcripts.transcript` jsonb + `agent_transcript_attachments` rows)
+// by the `assembleSessionContextSnapshot` function in
+// `src/domain/transcripts/session-context-snapshot.ts`.
+//
+// The snapshot's `blocks` are typed against the canonical `ContextElement.type`
+// enum (mt#2033) and discriminated as `source: "observed"` — matching the
+// `ContextAnalysisResult` discriminator. Downstream consumers (mt#2023 inspector,
+// mt#2024 composition pane, mt#2025 origin graph) read from this shape.
+
+/** A single chronological block in a `SessionContextSnapshot`. */
+export interface SessionContextSnapshotBlock {
+  /** Stable per-session block ID (synthesized from session id + position). */
+  id: string;
+
+  /** Unified taxonomy from mt#2033; covers both synthesis and observation kinds. */
+  type: ContextElement["type"];
+
+  /** Observation-path blocks are always "observed". */
+  source: "observed";
+
+  /** Block content — raw text for turn blocks; structured payload for attachments. */
+  content: unknown;
+
+  /**
+   * Originating JSONL `parentUuid` — the harness-emitted external UUID that
+   * Claude Code uses to chain lines (attachment → preceding turn/attachment,
+   * turn → preceding turn). NOT a synthesized block `id` from this snapshot's
+   * namespace; downstream consumers wanting in-snapshot navigation can build
+   * a `uuid → blockId` map themselves (uuids appear on the underlying JSONL
+   * but are not exposed on the block shape yet — file a follow-up if the
+   * inspector UI needs them).
+   *
+   * Renamed from `parentId` per PR #1229 reviewer feedback; the old name
+   * implied resolution within the snapshot's id-namespace, which the value
+   * does not satisfy.
+   */
+  parentUuid?: string;
+
+  /** ISO-8601 timestamp from the originating JSONL line. */
+  timestamp: string;
+
+  /** For turn blocks: 0-indexed position in the transcript array. Unset otherwise. */
+  turnIndex?: number;
+
+  /** Original JSONL line type (`user` / `assistant` / `attachment` / `system`). */
+  rawJsonlType: string;
+}
+
+/** Full categorized context for one harness session, observed (not synthesized). */
+export interface SessionContextSnapshot {
+  /** The harness-native agent session ID this snapshot was assembled from. */
+  agentSessionId: string;
+
+  /** Source harness (`"claude_code"`, etc.). */
+  harness: string;
+
+  /** Categorized blocks in chronological order (ascending timestamp). */
+  blocks: SessionContextSnapshotBlock[];
+
+  /** When this snapshot was assembled (ISO-8601 UTC). */
+  assembledAt: string;
 }

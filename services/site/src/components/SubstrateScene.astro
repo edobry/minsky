@@ -1,0 +1,120 @@
+---
+interface Props {
+  eyebrow: string;
+  /** Three- to four-word conceptual headline. */
+  title: string;
+  body: string;
+  /** Optional path under /screenshots/* to a real product screenshot. */
+  screenshot?: string;
+  /** Optional alt text for the screenshot. */
+  screenshotAlt?: string;
+  /** If true, the caption renders on the right (alternating sections). */
+  reverse?: boolean;
+}
+
+import ProductFrame from "./ProductFrame.astro";
+
+const { eyebrow, title, body, screenshot, screenshotAlt, reverse = false } =
+  Astro.props;
+---
+
+<section class:list={["substrate-scene", reverse && "reverse"]}>
+  <div class="scene-grid">
+    <div class="scene-caption">
+      <p class="eyebrow">{eyebrow}</p>
+      <h2 class="scene-title">{title}</h2>
+      <p class="scene-body">{body}</p>
+    </div>
+    <div class="scene-product">
+      <ProductFrame>
+        {
+          screenshot ? (
+            <img src={screenshot} alt={screenshotAlt ?? title} loading="lazy" />
+          ) : (
+            <div class="scene-placeholder">
+              <p class="system-speaks">{title}</p>
+              <p class="scene-placeholder-note">
+                Screenshot to land in Phase 3 — see mt#1934 spec
+                Success Criterion 3.
+              </p>
+            </div>
+          )
+        }
+      </ProductFrame>
+    </div>
+  </div>
+</section>
+
+<style>
+  .substrate-scene {
+    padding: 4.5rem 1.5rem;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-text-primary) 4%, transparent);
+  }
+  .scene-grid {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  @media (min-width: 960px) {
+    .scene-grid {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 5rem;
+    }
+    .substrate-scene.reverse .scene-grid {
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    }
+    .substrate-scene.reverse .scene-caption {
+      order: 2;
+    }
+    .substrate-scene.reverse .scene-product {
+      order: 1;
+    }
+  }
+
+  .scene-caption {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  .scene-title {
+    font-family: var(--font-sans);
+    font-size: clamp(1.625rem, 3vw, 2.125rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.018em;
+    color: var(--color-text-primary);
+    margin: 0;
+  }
+  .scene-body {
+    font-family: var(--font-sans);
+    font-size: 1.0625rem;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    max-width: 32rem;
+    margin: 0;
+  }
+
+  .scene-product img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 4px;
+  }
+
+  .scene-placeholder {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 1.5rem 0;
+  }
+  .scene-placeholder-note {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-text-subtle);
+    margin: 0;
+  }
+</style>

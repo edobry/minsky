@@ -8,7 +8,7 @@
  *   - Missing required fields throw.
  *   - Invalid JSON in argsJson throws.
  *   - Unknown tool name throws.
- *   - OUTPUT_TOOL_DEFINITIONS length is 5 with the required structure.
+ *   - OUTPUT_TOOL_DEFINITIONS length is 7 with the required structure.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -17,6 +17,7 @@ import {
   parseToolCall,
   type ConcludeReviewArgs,
   type ReviewToolCall,
+  type SubmitDocumentationImpactArgs,
   type SubmitFindingArgs,
   type SubmitInlineCommentArgs,
   type SubmitSpecVerificationArgs,
@@ -28,6 +29,7 @@ import {
 const TOOL_SUBMIT_FINDING = "submit_finding";
 const TOOL_SUBMIT_INLINE_COMMENT = "submit_inline_comment";
 const TOOL_SUBMIT_SPEC_VERIFICATION = "submit_spec_verification";
+const TOOL_SUBMIT_DOCUMENTATION_IMPACT = "submit_documentation_impact";
 const TOOL_CONCLUDE_REVIEW = "conclude_review";
 const TOOL_SUBMIT_THREAD_RESOLVE = "submit_thread_resolve";
 
@@ -240,6 +242,66 @@ describe("parseToolCall — submit_spec_verification", () => {
 });
 
 // ---------------------------------------------------------------------------
+// submit_documentation_impact
+// ---------------------------------------------------------------------------
+
+describe("parseToolCall — submit_documentation_impact", () => {
+  const BASE_ARGS: SubmitDocumentationImpactArgs = {
+    kind: "no-update-needed",
+    evidence: "Pure internal refactor — no documented behavior changed.",
+  };
+
+  test("parses with kind no-update-needed and no affectedDocs", () => {
+    const result = parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(BASE_ARGS));
+    expect(result.name).toBe(TOOL_SUBMIT_DOCUMENTATION_IMPACT);
+    expect(result.args).toEqual(BASE_ARGS);
+  });
+
+  test("parses with kind updated-in-pr and affectedDocs", () => {
+    const args: SubmitDocumentationImpactArgs = {
+      kind: "updated-in-pr",
+      evidence: "Updated configuration guide for new env var.",
+      affectedDocs: ["docs/configuration-guide.md", "CLAUDE.md"],
+    };
+    const result = parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(args));
+    if (result.name !== TOOL_SUBMIT_DOCUMENTATION_IMPACT) throw new Error("unreachable");
+    expect(result.args.kind).toBe("updated-in-pr");
+    expect(result.args.affectedDocs).toEqual(["docs/configuration-guide.md", "CLAUDE.md"]);
+  });
+
+  test("parses with kind blocking-needs-update", () => {
+    const args: SubmitDocumentationImpactArgs = {
+      kind: "blocking-needs-update",
+      evidence: "Adds a new MCP tool but does not update docs/architecture.md tool inventory.",
+      affectedDocs: ["docs/architecture.md"],
+    };
+    const result = parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(args));
+    if (result.name !== TOOL_SUBMIT_DOCUMENTATION_IMPACT) throw new Error("unreachable");
+    expect(result.args.kind).toBe("blocking-needs-update");
+  });
+
+  test("throws on invalid kind enum", () => {
+    const args = { ...BASE_ARGS, kind: "needs-clarification" };
+    expect(() => parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on missing evidence", () => {
+    const { evidence: _omit, ...args } = BASE_ARGS;
+    expect(() => parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on empty evidence", () => {
+    const args = { ...BASE_ARGS, evidence: "" };
+    expect(() => parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(args))).toThrow();
+  });
+
+  test("throws on affectedDocs containing an empty string", () => {
+    const args = { ...BASE_ARGS, kind: "updated-in-pr" as const, affectedDocs: [""] };
+    expect(() => parseToolCall(TOOL_SUBMIT_DOCUMENTATION_IMPACT, JSON.stringify(args))).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // conclude_review
 // ---------------------------------------------------------------------------
 
@@ -437,8 +499,8 @@ describe("parseToolCall — submit_inline_comment — inReplyTo", () => {
 // ---------------------------------------------------------------------------
 
 describe("OUTPUT_TOOL_DEFINITIONS", () => {
-  test("has exactly 5 entries", () => {
-    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(5);
+  test("has exactly 7 entries", () => {
+    expect(OUTPUT_TOOL_DEFINITIONS).toHaveLength(7);
   });
 
   test("each entry has type: function", () => {
@@ -481,13 +543,34 @@ describe("OUTPUT_TOOL_DEFINITIONS", () => {
     }
   });
 
-  test("tool names match the expected five", () => {
+  test("tool names match the expected seven", () => {
     const names = OUTPUT_TOOL_DEFINITIONS.map((d) => d.function.name);
     expect(names).toContain(TOOL_SUBMIT_FINDING);
     expect(names).toContain(TOOL_SUBMIT_INLINE_COMMENT);
     expect(names).toContain(TOOL_SUBMIT_SPEC_VERIFICATION);
+    expect(names).toContain(TOOL_SUBMIT_DOCUMENTATION_IMPACT);
+    expect(names).toContain("submit_adoption_sweep");
     expect(names).toContain(TOOL_CONCLUDE_REVIEW);
     expect(names).toContain(TOOL_SUBMIT_THREAD_RESOLVE);
+  });
+
+  test("submit_documentation_impact requires kind and evidence", () => {
+    const def = OUTPUT_TOOL_DEFINITIONS.find(
+      (d) => d.function.name === TOOL_SUBMIT_DOCUMENTATION_IMPACT
+    );
+    if (!def) throw new Error(`${TOOL_SUBMIT_DOCUMENTATION_IMPACT} not found`);
+    const required = def.function.parameters.required ?? [];
+    expect(required).toContain("kind");
+    expect(required).toContain("evidence");
+  });
+
+  test("submit_documentation_impact does NOT require affectedDocs (optional)", () => {
+    const def = OUTPUT_TOOL_DEFINITIONS.find(
+      (d) => d.function.name === TOOL_SUBMIT_DOCUMENTATION_IMPACT
+    );
+    if (!def) throw new Error(`${TOOL_SUBMIT_DOCUMENTATION_IMPACT} not found`);
+    const required = def.function.parameters.required ?? [];
+    expect(required).not.toContain("affectedDocs");
   });
 
   test("submit_finding requires severity, file, line, summary, details", () => {
