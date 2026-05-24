@@ -98,6 +98,30 @@ async function resolveAsk(id: string, payload: unknown): Promise<void> {
   }
 }
 
+async function deferAsk(id: string): Promise<void> {
+  const res = await fetch(`/api/asks/${id}/defer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`defer failed (${res.status}): ${text}`);
+  }
+}
+
+async function escalateAsk(id: string): Promise<void> {
+  const res = await fetch(`/api/asks/${id}/escalate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`escalate failed (${res.status}): ${text}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -212,11 +236,13 @@ interface Filters {
 interface AskDetailProps {
   ask: AskItem;
   onResolve: (ask: AskItem, optionLetter: string) => void;
+  onDefer: (ask: AskItem) => void;
+  onEscalate: (ask: AskItem) => void;
   resolving: boolean;
   onClose: () => void;
 }
 
-function AskDetail({ ask, onResolve, resolving, onClose }: AskDetailProps) {
+function AskDetail({ ask, onResolve, onDefer, onEscalate, resolving, onClose }: AskDetailProps) {
   const ks = kindStyle(ask.kind);
   const deadlineStr = formatDeadlineRemaining(ask.deadline);
   const isOverdue = deadlineStr === "overdue";
@@ -359,14 +385,52 @@ function AskDetail({ ask, onResolve, resolving, onClose }: AskDetailProps) {
                   </Button>
                 );
               })}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resolving}
+                onClick={() => onDefer(ask)}
+                className="text-muted-foreground"
+              >
+                Defer
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={resolving}
+                onClick={() => onEscalate(ask)}
+                className="text-muted-foreground"
+              >
+                Escalate
+              </Button>
             </div>
           </div>
         )}
 
         {!hasOptions && (
-          <p className="text-xs text-muted-foreground italic">
-            No in-widget response for {ask.kind} — resolve via CLI or MCP.
-          </p>
+          <div className="flex flex-wrap gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={resolving}
+              onClick={() => onDefer(ask)}
+              className="text-muted-foreground"
+            >
+              Defer
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={resolving}
+              onClick={() => onEscalate(ask)}
+              className="text-muted-foreground"
+            >
+              Escalate
+            </Button>
+            <p className="text-xs text-muted-foreground italic self-center">
+              No response options — defer/escalate or resolve via CLI.
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -509,6 +573,40 @@ export function AsksPage() {
     resolveMutation.mutate({ ask, optionLetter });
   }
 
+  const deferMutation = useMutation({
+    mutationFn: async (askId: string) => {
+      await deferAsk(askId);
+    },
+    onMutate: () => setResolvingId(selectedAskId),
+    onSettled: () => {
+      setResolvingId(null);
+      setSelectedAskId(null);
+      void queryClient.invalidateQueries({ queryKey: ["asks"] });
+      void queryClient.invalidateQueries({ queryKey: ["attention"] });
+    },
+  });
+
+  const escalateMutation = useMutation({
+    mutationFn: async (askId: string) => {
+      await escalateAsk(askId);
+    },
+    onMutate: () => setResolvingId(selectedAskId),
+    onSettled: () => {
+      setResolvingId(null);
+      setSelectedAskId(null);
+      void queryClient.invalidateQueries({ queryKey: ["asks"] });
+      void queryClient.invalidateQueries({ queryKey: ["attention"] });
+    },
+  });
+
+  function handleDefer(ask: AskItem) {
+    deferMutation.mutate(ask.id);
+  }
+
+  function handleEscalate(ask: AskItem) {
+    escalateMutation.mutate(ask.id);
+  }
+
   const selectedAsk = asks.find((a) => a.id === selectedAskId) ?? null;
 
   if (query.isError) {
@@ -525,6 +623,8 @@ export function AsksPage() {
         <AskDetail
           ask={selectedAsk}
           onResolve={handleResolve}
+          onDefer={handleDefer}
+          onEscalate={handleEscalate}
           resolving={resolvingId === selectedAsk.id}
           onClose={() => setSelectedAskId(null)}
         />
@@ -577,8 +677,18 @@ export function AsksPage() {
           <select
             value={`${controls.sortKey}_${controls.sortDir}`}
             onChange={(e) => {
-              const [key] = e.target.value.split("_") as [SortKey, SortDir];
-              controls.setSort(key);
+              const [newKey, newDir] = e.target.value.split("_") as [SortKey, SortDir];
+              if (newKey === controls.sortKey && newDir === controls.sortDir) {
+                return;
+              }
+              // setSort(newKey) on a different key always produces defaultSortDir ("desc")
+              // setSort(sameKey) toggles direction
+              const afterFirstCall: SortDir =
+                newKey !== controls.sortKey ? "desc" : controls.sortDir === "asc" ? "desc" : "asc";
+              controls.setSort(newKey);
+              if (afterFirstCall !== newDir) {
+                controls.setSort(newKey);
+              }
             }}
             className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
             aria-label="Sort order"

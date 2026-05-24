@@ -585,6 +585,71 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   });
 
   /**
+   * POST /api/asks/:id/defer — defer an ask to the next service window (mt#1916)
+   *
+   * Transitions the ask back to "routed" state so it re-enters the routing
+   * queue and appears in the next window's cohort.
+   */
+  app.post("/api/asks/:id/defer", async (req, res) => {
+    const askId = req.params.id;
+    if (!askId) {
+      res.status(400).json({ error: "Ask ID required" });
+      return;
+    }
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({ error: "Ask repository unavailable" });
+        return;
+      }
+      const ask = await repo.transition(askId, "routed");
+      res.json({ ok: true, id: ask.id, state: ask.state });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not found")) {
+        res.status(404).json({ error: message });
+      } else if (message.includes("Invalid transition")) {
+        res.status(409).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  /**
+   * POST /api/asks/:id/escalate — mark an ask as principal-critical (mt#1916)
+   *
+   * Transitions the ask back to "routed" state with escalation semantics.
+   * Full escalation metadata (priority bump, visibility flag) is tracked
+   * in mt#1528; this endpoint provides the operator affordance now.
+   */
+  app.post("/api/asks/:id/escalate", async (req, res) => {
+    const askId = req.params.id;
+    if (!askId) {
+      res.status(400).json({ error: "Ask ID required" });
+      return;
+    }
+    try {
+      const repo = askRepoOverride ?? (await getServerAskRepository());
+      if (!repo) {
+        res.status(503).json({ error: "Ask repository unavailable" });
+        return;
+      }
+      const ask = await repo.transition(askId, "routed");
+      res.json({ ok: true, id: ask.id, state: ask.state, escalated: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("not found")) {
+        res.status(404).json({ error: message });
+      } else if (message.includes("Invalid transition")) {
+        res.status(409).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  /**
    * POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
    *
    * Body: { responder: "operator", payload: unknown, attentionCost?: {...} }
