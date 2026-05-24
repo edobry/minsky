@@ -166,7 +166,13 @@ async function getServerAskRepository(): Promise<
 // pattern as AskRepository above).
 // ---------------------------------------------------------------------------
 
+interface TaskDetailDeps {
+  taskService: import("../domain/tasks/taskService").TaskServiceInterface;
+  taskGraphService: import("../domain/tasks/task-graph-service").TaskGraphService;
+}
+
 let _cachedTaskService: import("../domain/tasks/taskService").TaskServiceInterface | null = null;
+let _cachedTaskDetailDeps: TaskDetailDeps | null = null;
 
 async function getServerTaskService(): Promise<
   import("../domain/tasks/taskService").TaskServiceInterface | null
@@ -184,6 +190,45 @@ async function getServerTaskService(): Promise<
     });
     _cachedTaskService = taskService;
     return _cachedTaskService;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lazy-cached task detail deps (TaskService + TaskGraphService).
+ * TaskGraphService requires a raw Drizzle DB connection — same init path
+ * as the task-graph widget (src/cockpit/widgets/task-graph.ts).
+ * Falls back to taskService-only when the DB connection is unavailable
+ * (non-SQL providers); in that case the endpoint omits parent/children/deps.
+ */
+async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
+  if (_cachedTaskDetailDeps) return _cachedTaskDetailDeps;
+  try {
+    const { PersistenceService } = await import("../domain/persistence/service");
+    const { createConfiguredTaskService } = await import("../domain/tasks/taskService");
+    const { TaskGraphService } = await import("../domain/tasks/task-graph-service");
+
+    const svc = new PersistenceService();
+    await svc.initialize();
+    const provider = svc.getProvider();
+
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+      persistenceProvider: provider,
+    });
+
+    const sqlProvider =
+      provider as import("../domain/persistence/types").SqlCapablePersistenceProvider;
+    const db = await sqlProvider.getDatabaseConnection?.();
+    if (!db) return null;
+
+    const taskGraphService = new TaskGraphService(
+      db as import("drizzle-orm/postgres-js").PostgresJsDatabase
+    );
+
+    _cachedTaskDetailDeps = { taskService, taskGraphService };
+    return _cachedTaskDetailDeps;
   } catch {
     return null;
   }
@@ -442,6 +487,142 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       res.json({ state: "degraded", reason: `Widget crashed: ${message}` });
+    }
+  });
+
+  /**
+   * GET /api/tasks/:id — task detail for the drill-down page (mt#1918).
+   *
+   * Returns: { task, spec, parent, children, deps }
+   * Uses the shared task-detail deps singleton (TaskService + TaskGraphService).
+   * IMPORTANT: This route must be registered BEFORE /api/tasks (the list
+   * endpoint) so Express evaluates it first. Express matches routes in
+   * registration order; the parameterised /:id would otherwise never fire
+   * because /api/tasks (exact) would catch same-length paths first — but to
+   * be safe we register /:id before the exact /api/tasks route.
+   */
+  app.get("/api/tasks/:id", async (req, res) => {
+    const rawId = req.params.id;
+    if (!rawId) {
+      res.status(400).json({ error: "Task ID required" });
+      return;
+    }
+    // Accept both URL-encoded (mt%231918) and raw (mt#1918) forms
+    const taskId = decodeURIComponent(rawId);
+
+    try {
+      const taskDetailDeps = await getServerTaskDetailDeps();
+      if (!taskDetailDeps) {
+        res.status(503).json({
+          error: "Task service unavailable — persistence provider not ready",
+        });
+        return;
+      }
+
+      const { taskService, taskGraphService } = taskDetailDeps;
+      const { formatTaskIdForDisplay } = await import("../domain/tasks/task-id-utils");
+
+      // Fetch task metadata and spec in parallel — they don't depend on each other
+      const [taskResult, specResult] = await Promise.allSettled([
+        taskService.getTask(taskId),
+        taskService.getTaskSpecContent(taskId).catch(() => null),
+      ]);
+
+      if (taskResult.status === "rejected") {
+        const reason =
+          taskResult.reason instanceof Error
+            ? taskResult.reason.message
+            : String(taskResult.reason);
+        if (reason.toLowerCase().includes("not found")) {
+          res.status(404).json({ error: `Task ${taskId} not found` });
+        } else {
+          res.status(500).json({ error: reason });
+        }
+        return;
+      }
+
+      const task = taskResult.value;
+      if (!task) {
+        res.status(404).json({ error: `Task ${taskId} not found` });
+        return;
+      }
+
+      const specContent =
+        specResult.status === "fulfilled" && specResult.value ? specResult.value.content : null;
+
+      // Fetch parent, children, and deps in parallel via TaskGraphService
+      // listDependencies → outgoing (what this task depends on)
+      // listDependents  → incoming (what depends on this task)
+      const [parentIdResult, childIdsResult, outgoingIdsResult, incomingIdsResult] =
+        await Promise.allSettled([
+          taskGraphService.getParent(taskId),
+          taskGraphService.listChildren(taskId),
+          taskGraphService.listDependencies(taskId),
+          taskGraphService.listDependents(taskId),
+        ]);
+
+      // Collect all referenced task IDs so we can batch-fetch their metadata
+      const referencedIds = new Set<string>();
+      if (parentIdResult.status === "fulfilled" && parentIdResult.value) {
+        referencedIds.add(parentIdResult.value);
+      }
+      if (childIdsResult.status === "fulfilled") {
+        for (const id of childIdsResult.value ?? []) referencedIds.add(id);
+      }
+      if (outgoingIdsResult.status === "fulfilled") {
+        for (const id of outgoingIdsResult.value ?? []) referencedIds.add(id);
+      }
+      if (incomingIdsResult.status === "fulfilled") {
+        for (const id of incomingIdsResult.value ?? []) referencedIds.add(id);
+      }
+
+      // Batch-fetch metadata for all referenced tasks
+      const refTasksArr =
+        referencedIds.size > 0 ? await taskService.getTasks([...referencedIds]) : [];
+      const refTaskMap = new Map(refTasksArr.map((t) => [t.id, t]));
+
+      function taskRef(id: string): { id: string; title: string; status: string } {
+        const t = refTaskMap.get(id);
+        return {
+          id: formatTaskIdForDisplay(id),
+          title: t?.title ?? "",
+          status: ((t?.status ?? "TODO") as string).toUpperCase(),
+        };
+      }
+
+      const parentId = parentIdResult.status === "fulfilled" ? parentIdResult.value : null;
+      const parent = parentId ? taskRef(parentId) : null;
+
+      const childIds = childIdsResult.status === "fulfilled" ? (childIdsResult.value ?? []) : [];
+      const children = childIds.map(taskRef);
+
+      const outgoingIds =
+        outgoingIdsResult.status === "fulfilled" ? (outgoingIdsResult.value ?? []) : [];
+      const incomingIds =
+        incomingIdsResult.status === "fulfilled" ? (incomingIdsResult.value ?? []) : [];
+
+      const taskDeps = {
+        outgoing: outgoingIds.map(taskRef),
+        incoming: incomingIds.map(taskRef),
+      };
+
+      res.json({
+        task: {
+          id: formatTaskIdForDisplay(task.id),
+          title: task.title ?? "",
+          status: (task.status ?? "TODO").toUpperCase(),
+          kind: task.kind ?? "implementation",
+          tags: task.tags ?? [],
+        },
+        spec: specContent,
+        parent,
+        children,
+        deps: taskDeps,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`[tasks] GET /api/tasks/:id — internal error: ${message}`);
+      res.status(500).json({ error: "An internal error occurred while fetching the task." });
     }
   });
 

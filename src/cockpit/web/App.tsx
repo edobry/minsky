@@ -21,6 +21,7 @@ import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksLayout } from "./pages/TasksLayout";
 import { TasksListPage } from "./pages/TasksListPage";
 import { TasksGraphPage } from "./pages/TasksGraphPage";
+import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { AsksPage } from "./pages/AsksPage";
 import { PageNavTiles } from "./pages/HomePage";
 
@@ -243,6 +244,8 @@ export function App() {
         >
           <Route index element={<TasksListPage />} />
           <Route path="graph" element={<TasksGraphPage />} />
+          {/* React Router v7 matches literal "graph" before ":id" so no conflict */}
+          <Route path=":id" element={<TaskDetailPage />} />
         </Route>
         <Route
           path="/asks"

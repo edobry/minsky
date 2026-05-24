@@ -7,7 +7,8 @@
  * Uses useListControls with prefix "tl" for URL param persistence.
  * Status filter is multi-select via comma-separated URL param values.
  */
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -396,24 +397,15 @@ function TaskTableHeader({
 }
 
 // ---------------------------------------------------------------------------
-// Task row
+// Task row — navigates to /tasks/:id on click
 // ---------------------------------------------------------------------------
 
-function TaskRowItem({
-  task,
-  expanded,
-  onToggle,
-}: {
-  task: TaskListItem;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
+function TaskRowItem({ task }: { task: TaskListItem }) {
   return (
     <div className="border-b border-border last:border-0">
-      <button
-        onClick={onToggle}
+      <Link
+        to={`/tasks/${encodeURIComponent(task.id)}`}
         className="flex items-center gap-3 py-1.5 w-full text-left hover:bg-muted/30 transition-colors rounded-sm"
-        aria-expanded={expanded}
       >
         <div className="flex-shrink-0 w-24">
           <StatusBadge status={task.status} />
@@ -430,32 +422,7 @@ function TaskRowItem({
         <span className="text-xs font-mono text-muted-foreground flex-shrink-0 w-16">
           {task.parentId ?? "—"}
         </span>
-      </button>
-      {expanded && (
-        <div className="pl-28 pr-4 pb-2 pt-1 bg-muted/10 rounded-b-sm">
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-            <span><span className="font-medium text-foreground">ID:</span> {task.id}</span>
-            <span><span className="font-medium text-foreground">Status:</span> {task.status}</span>
-            <span><span className="font-medium text-foreground">Kind:</span> {task.kind}</span>
-            {task.parentId && (
-              <span><span className="font-medium text-foreground">Parent:</span> {task.parentId}</span>
-            )}
-          </div>
-          {task.tags.length > 0 && (
-            <div className="flex gap-1 mt-1.5">
-              <span className="text-xs font-medium text-foreground mr-1">Tags:</span>
-              {task.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      </Link>
     </div>
   );
 }
@@ -518,7 +485,6 @@ function taskSortFn(a: TaskListItem, b: TaskListItem, key: TaskSortKey, dir: Sor
 function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
   const filterFn = useCallback(taskFilterFn, []);
   const sortFn = useCallback(taskSortFn, []);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const kinds = [...new Set(tasks.map((t) => t.kind))].sort();
 
@@ -599,8 +565,6 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
             <TaskRowItem
               key={task.id}
               task={task}
-              expanded={expandedId === task.id}
-              onToggle={() => setExpandedId(expandedId === task.id ? null : task.id)}
             />
           ))}
           <PaginationBar
