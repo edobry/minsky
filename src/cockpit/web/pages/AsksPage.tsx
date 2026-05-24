@@ -227,6 +227,7 @@ type SortKey = "age" | "priority" | "kind";
 interface Filters {
   kind: string;
   requestor: string;
+  cohort: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -513,17 +514,19 @@ export function AsksPage() {
 
   const uniqueKinds = [...new Set(asks.map((a) => a.kind))].sort();
   const uniqueRequestors = [...new Set(asks.map((a) => a.requestor))].sort();
+  const uniqueCohorts = [...new Set(asks.map((a) => a.windowKey ?? "(none)"))].sort();
 
   const controls = useListControls<AskItem, SortKey, Filters>({
     items: asks,
     defaultPageSize: 25,
     defaultSortKey: "age",
     defaultSortDir: "desc",
-    defaultFilters: { kind: "all", requestor: "all" },
+    defaultFilters: { kind: "all", requestor: "all", cohort: "all" },
     prefix: "asks",
     filterFn: (item, filters) => {
       if (filters.kind !== "all" && item.kind !== filters.kind) return false;
       if (filters.requestor !== "all" && item.requestor !== filters.requestor) return false;
+      if (filters.cohort !== "all" && (item.windowKey ?? "(none)") !== filters.cohort) return false;
       return true;
     },
     sortFn: (a, b, key, dir) => {
@@ -670,6 +673,20 @@ export function AsksPage() {
             {uniqueRequestors.map((r) => (
               <option key={r} value={r}>
                 {r.length > 30 ? r.slice(0, 30) + "..." : r}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={controls.filters.cohort}
+            onChange={(e) => controls.setFilter("cohort", e.target.value)}
+            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
+            aria-label="Filter by cohort"
+          >
+            <option value="all">All cohorts</option>
+            {uniqueCohorts.map((c) => (
+              <option key={c} value={c}>
+                {c}
               </option>
             ))}
           </select>
