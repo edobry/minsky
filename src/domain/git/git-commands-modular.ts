@@ -125,6 +125,7 @@ export class ModularGitCommandsManager {
     remote?: string;
     force?: boolean;
     debug?: boolean;
+    authToken?: string;
   }): Promise<PushResult> {
     return await this.getOperations().push.execute(params);
   }

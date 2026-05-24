@@ -8,6 +8,7 @@ import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { safeShellQuote } from "../../utils/exec";
 import type { AskRepository } from "../ask/repository";
+import type { TokenProvider } from "../auth/token-provider";
 import { checkFreshnessCas, cleanupFreshnessMarker } from "./freshness-marker";
 
 /**
@@ -129,7 +130,8 @@ export async function sessionCommit(
     noFiles?: boolean;
   },
   sessionProvider: import("./types").SessionProviderInterface,
-  askRepository?: AskRepository
+  askRepository?: AskRepository,
+  tokenProvider?: TokenProvider
 ): Promise<{
   success: boolean;
   nothingToCommit?: boolean;
@@ -388,8 +390,24 @@ export async function sessionCommit(
       }
 
       // Always push changes in session context - commit and push should be atomic
+      // mt#1477: when a token provider is available, use the App installation
+      // token for push authentication so pull_request workflows trigger.
+      let authToken: string | undefined;
+      if (tokenProvider?.isServiceAccountConfigured()) {
+        try {
+          authToken = await tokenProvider.getToken("implementer");
+        } catch (tokenErr) {
+          log.warn(
+            `[session.commit] Failed to get App token for push auth; falling back to system credentials: ${
+              tokenErr instanceof Error ? tokenErr.message : String(tokenErr)
+            }`
+          );
+        }
+      }
+
       const pushResult = await pushFromParams({
         repo: workdir,
+        authToken,
       });
 
       // Collect commit metadata and changed files

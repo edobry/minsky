@@ -98,6 +98,7 @@ export async function pushFromParams(params: {
   remote?: string;
   force?: boolean;
   debug?: boolean;
+  authToken?: string;
 }): Promise<PushResult> {
   return await modularGitCommandsManager.pushFromParams(params);
 }

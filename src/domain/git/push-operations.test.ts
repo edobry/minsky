@@ -237,4 +237,39 @@ describe("pushImpl", () => {
     const pushCall = calls.find((c) => c.command.startsWith("git -C '/tmp/work' push"));
     expect(pushCall?.command).toBe(PUSH);
   });
+
+  test("includes credential override flags when authToken is set (mt#1477)", async () => {
+    const token = "ghs_test_token_abc123";
+    const encoded = Buffer.from(`x-access-token:${token}`).toString("base64");
+    const { deps, calls } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-1477\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [/^git -C '\/tmp\/work' -c credential\.helper= -c/, { stdout: "" }],
+    ]);
+
+    const result = await pushImpl({ repoPath: WORKDIR, authToken: token }, deps);
+
+    expect(result).toEqual({ workdir: WORKDIR, pushed: true });
+    const pushCall = calls.find((c) => c.command.includes("push"));
+    expect(pushCall).toBeDefined();
+    expect(pushCall?.command).toContain("-c credential.helper=");
+    expect(pushCall?.command).toContain(`AUTHORIZATION: basic ${encoded}`);
+    expect(pushCall?.command).toContain("http.https://github.com/.extraheader=");
+    expect(pushCall?.command).toContain("push 'origin' 'task/mt-1477'");
+  });
+
+  test("does not include credential flags when authToken is absent", async () => {
+    const { deps, calls } = makeDeps([
+      [CMD_REV_PARSE_BRANCH, { stdout: "task/mt-1477\n" }],
+      [CMD_REMOTE, { stdout: "origin\n" }],
+      [`git -C '/tmp/work' push 'origin' 'task/mt-1477'`, { stdout: "" }],
+    ]);
+
+    const result = await pushImpl({ repoPath: WORKDIR }, deps);
+
+    expect(result).toEqual({ workdir: WORKDIR, pushed: true });
+    const pushCall = calls.find((c) => c.command.includes("push"));
+    expect(pushCall?.command).not.toContain("credential.helper");
+    expect(pushCall?.command).not.toContain("extraheader");
+  });
 });

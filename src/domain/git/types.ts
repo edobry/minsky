@@ -273,6 +273,8 @@ export interface PushOptions {
   remote?: string;
   force?: boolean;
   debug?: boolean;
+  /** GitHub App installation token for push authentication (mt#1477). */
+  authToken?: string;
 }
 
 export interface PushResult {

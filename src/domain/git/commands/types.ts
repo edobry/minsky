@@ -138,6 +138,7 @@ export interface PushChangesParams {
   branch: string;
   remote?: string;
   force?: boolean;
+  authToken?: string;
 }
 
 export interface MergeChangesParams {
