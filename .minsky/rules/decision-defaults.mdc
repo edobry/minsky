@@ -281,7 +281,7 @@ When a spec proposes changing a CI/CD security surface — workflow trigger even
 Required before encoding the approach in a spec:
 
 1. **Security-implications search** — at least one web search for the security implications of the proposed approach. "pull_request_target security" would have surfaced the pwn-request literature for mt#1477 in under 30 seconds.
-2. **Community-practice search** — at least one web search for how the community solves the same problem class. The canonical reference for bot-commit workflow triggering is [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) (2.8k stars, 114 releases, actively maintained).
+2. **Community-practice search** — at least one web search for how the community solves the same problem class. The canonical reference for bot-commit workflow triggering is [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request) (widely adopted and actively maintained, as of 2026-05-24).
 3. **Citation** — at least one authoritative community reference cited in the spec. If the proposed approach diverges from community practice, the spec must explain why the divergence is justified.
 
 **Generic-SE override:** "I know the GitHub docs well enough to design a solution from first principles." First-principles reasoning from docs misses the accumulated security research and battle-tested patterns the community has developed. The security literature exists precisely because docs-only reasoning produces approaches like `pull_request_target` that look correct in isolation but are known anti-patterns in practice.

@@ -55,6 +55,7 @@ a status transition; everything else is investigation and gate-check.
   - (j) Premise label verification (letter `i` intentionally skipped to avoid confusion
     with the Roman-numeral premise-audit labels `(i)`/`(ii)`/`(iii)`/`(iv)` used in Step 2.5)
   - (k) Third-party tool/dependency verification
+  - (l) Security-surface community-practice check
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -476,6 +477,69 @@ at spec-authoring time`) is the precedent memory this gate formalizes; once this
 that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
 (Surface 1 policy-coverage detector, graduating to enforcing mode).
 
+#### Gate criterion (l) — Security-surface community-practice check
+
+When the spec proposes changing a CI/CD security surface — workflow trigger events, token
+scopes, secrets exposure models, permission boundaries, credential flows, or authentication
+mechanisms — the agent must verify that community practice and the security literature have
+been consulted BEFORE the spec can proceed to READY. A spec that proposes a security-model
+change without documenting external knowledge is incomplete.
+
+Rationale: mt#1477 (filed ~2026-04-30) proposed migrating CI workflows from `pull_request`
+to `pull_request_target` to fix the App-token workflow trigger drop. The spec acknowledged
+some risks (fork PRs, secrets exposure) but treated them as acceptable tradeoffs, without
+checking whether the security community had already assessed the approach. Research on
+2026-05-24 revealed: `pull_request_target` is a well-documented security anti-pattern
+("pwn requests," per GitHub Security Lab); the spec's factual premise about which token
+the push uses was wrong; and the community-standard fix (GitHub App token for git push,
+per peter-evans/create-pull-request) was never evaluated. A single web search would have
+surfaced the pwn-request literature in under 30 seconds.
+
+**Trigger condition.** This criterion fires when the spec contains any of:
+
+- A proposal to change a GitHub Actions workflow trigger event (e.g., `pull_request` →
+  `pull_request_target`, adding `workflow_dispatch`, changing `push` branch filters)
+- A proposal to change token scopes, credential flows, or authentication mechanisms
+  (e.g., switching from PAT to App token, adding secrets to workflows, changing push
+  credentials)
+- A proposal to change permission boundaries or secrets exposure models (e.g., elevating
+  workflow permissions, adding `secrets.*` references, changing branch protection rules)
+
+If none of these apply, this criterion passes automatically. State that explicitly:
+"(l) No security-surface change found — criterion passes."
+
+**Required checks (when triggered).** For each identified security-surface change:
+
+| Check | How to verify | Block condition |
+| --- | --- | --- |
+| Security implications | Web search for security implications of the proposed approach (e.g., "pull_request_target security") | Known anti-pattern in security literature (e.g., GitHub Security Lab, OWASP, CVE databases) with no justification for divergence |
+| Community practice | Web search for how the community solves the same problem class (e.g., "GitHub Actions bot token push doesn't trigger workflow") | Community-standard solution exists and differs from proposed approach, with no justification for divergence |
+| Citation | At least one authoritative community reference cited in the spec | No citation present |
+
+**Check steps:**
+
+1. Read the spec and identify any security-surface change (workflow triggers, token scopes,
+   credential flows, permission changes). If none, record "(l) passes — no security-surface
+   change."
+2. For each identified change, run both searches (security implications + community practice).
+3. Record findings: name the community-standard approach, cite the authoritative reference,
+   and note any known anti-pattern warnings.
+4. Any check that hits a block condition is a blocking gap. Summarize with the check name
+   and finding (e.g., "Security implications: `pull_request_target` is a known 'pwn request'
+   anti-pattern per GitHub Security Lab").
+5. Evidence lives in the spec text under `## Context` as
+   `Security-surface check: <change description>` — include the community-standard approach,
+   the authoritative citation, and the security-implications finding.
+
+A spec that proposes a security-model change without running these checks does not satisfy
+this criterion. The approach must be grounded in community practice, not first-principles
+reasoning from documentation alone.
+
+Cross-reference: memory `22a55d66` (`Security-surface changes require community-practice
+check before spec authoring`) is the originating memory. Corpus rule:
+`decision-defaults.mdc §Security-surface changes require community-practice check`.
+Originating incident: mt#1477.
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -594,6 +658,32 @@ running any verification checks:
    license, maintenance signal, install path, and canonical URL for the chosen replacement.
 
 To re-run the gate after fixes: `/plan-task mt#XXXX`
+```
+
+**Example (l) failure.** For a task that proposes migrating CI workflows from `pull_request`
+to `pull_request_target` to fix bot-token workflow trigger drops:
+
+```
+## Gap Report for mt#1477 (PLANNING — not yet READY)
+
+### Blocking gaps
+- (l) Security-surface community-practice check: spec proposes changing workflow trigger
+  event from `pull_request` to `pull_request_target` but no community-practice or
+  security-literature check was documented. Security implications search
+  ("pull_request_target security") surfaces GitHub Security Lab's "pwn requests" write-up —
+  `pull_request_target` is a well-documented anti-pattern (~1% of repos using it are
+  exploitable). Community practice search ("GitHub Actions bot token push doesn't trigger
+  workflow") surfaces peter-evans/create-pull-request as the canonical reference — the
+  community-standard fix is to use the GitHub App token for git push, not to change the
+  workflow trigger. Both checks block.
+
+### Required actions before READY
+1. Document the security-implications finding (pwn requests) in the spec's ## Context.
+2. Evaluate the community-standard approach (App token for git push) as the primary fix.
+3. If diverging from community practice, explain why in the spec with cited justification.
+4. Add `Security-surface check: workflow trigger migration` evidence block to ## Context.
+
+To re-run the gate after fixes: `/plan-task mt#1477`
 ```
 
 ## State transition map
