@@ -478,7 +478,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       return;
     }
     try {
-      const data = await widget.fetch({ id: req.params.id });
+      const query: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.query)) {
+        if (typeof v === "string") query[k] = v;
+      }
+      const data = await widget.fetch({ id: req.params.id, query });
       res.json(data);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

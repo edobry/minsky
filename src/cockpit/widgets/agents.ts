@@ -50,10 +50,136 @@ export interface AgentRow {
 /** Full payload returned by this widget when state === "ok" */
 export interface AgentsPayload {
   agents: AgentRow[];
+  totalCount: number;
 }
 
 /** Terminal session statuses that should be filtered out */
 const TERMINAL_STATUSES: Set<SessionStatus> = new Set([SessionStatus.MERGED, SessionStatus.CLOSED]);
+
+const DEFAULT_TASK_TITLE_TTL_MS = 60_000;
+
+class TaskTitleCache {
+  private cache = new Map<string, string>();
+  private lastPopulatedAt = 0;
+  private populatePromise: Promise<void> | null = null;
+
+  constructor(
+    private readonly getTaskProvider: () => Promise<TaskProviderLike>,
+    private readonly ttlMs: number = DEFAULT_TASK_TITLE_TTL_MS
+  ) {}
+
+  private isStale(): boolean {
+    return Date.now() - this.lastPopulatedAt > this.ttlMs;
+  }
+
+  async getTitles(taskIds: string[]): Promise<Map<string, string>> {
+    if (!this.isStale() && this.cache.size > 0) {
+      const result = new Map<string, string>();
+      const missing: string[] = [];
+      for (const id of taskIds) {
+        const title = this.cache.get(id);
+        if (title != null) {
+          result.set(id, title);
+        } else {
+          missing.push(id);
+        }
+      }
+
+      if (missing.length > 0) {
+        await this.fetchAndCache(missing);
+        for (const id of missing) {
+          const title = this.cache.get(id);
+          if (title != null) result.set(id, title);
+        }
+      }
+
+      return result;
+    }
+
+    if (this.populatePromise) {
+      await this.populatePromise;
+      const result = new Map<string, string>();
+      for (const id of taskIds) {
+        const title = this.cache.get(id);
+        if (title != null) result.set(id, title);
+      }
+      return result;
+    }
+
+    this.populatePromise = this.populate(taskIds);
+    try {
+      await this.populatePromise;
+    } finally {
+      this.populatePromise = null;
+    }
+
+    const result = new Map<string, string>();
+    for (const id of taskIds) {
+      const title = this.cache.get(id);
+      if (title != null) result.set(id, title);
+    }
+    return result;
+  }
+
+  private async fetchAndCache(ids: string[]): Promise<void> {
+    try {
+      const taskProvider = await this.getTaskProvider();
+      if (typeof taskProvider.getTasks === "function") {
+        const tasks = await taskProvider.getTasks(ids);
+        for (const task of tasks) {
+          this.cache.set(task.id, task.title);
+        }
+      } else {
+        const results = await Promise.all(
+          ids.map(async (displayId) => {
+            const task = await taskProvider.getTask(displayId);
+            return { displayId, title: task?.title ?? null };
+          })
+        );
+        for (const { displayId, title } of results) {
+          if (title != null) {
+            this.cache.set(displayId, title);
+          }
+        }
+      }
+    } catch {
+      // Non-fatal — missing IDs stay uncached
+    }
+  }
+
+  private async populate(taskIds: string[]): Promise<void> {
+    try {
+      const taskProvider = await Promise.race([
+        this.getTaskProvider(),
+        new Promise<TaskProviderLike>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("Task provider init timeout (5s)")), 5000)
+        ),
+      ]);
+
+      if (typeof taskProvider.getTasks === "function") {
+        const tasks = await taskProvider.getTasks(taskIds);
+        for (const task of tasks) {
+          this.cache.set(task.id, task.title);
+        }
+      } else {
+        const results = await Promise.all(
+          taskIds.map(async (displayId) => {
+            const task = await taskProvider.getTask(displayId);
+            return { displayId, title: task?.title ?? null };
+          })
+        );
+        for (const { displayId, title } of results) {
+          if (title != null) {
+            this.cache.set(displayId, title);
+          }
+        }
+      }
+      this.lastPopulatedAt = Date.now();
+    } catch {
+      // Task provider failure is non-fatal — rows degrade to taskTitle: null.
+    }
+  }
+}
 
 /**
  * Map a SessionRecord to an AgentRow.
@@ -126,74 +252,62 @@ export function createAgentsWidget(
   getProvider: () => Promise<SessionProviderInterface>,
   getTaskProvider?: () => Promise<TaskProviderLike>
 ): WidgetModule {
+  const titleCache = getTaskProvider ? new TaskTitleCache(getTaskProvider) : null;
+
   return {
     id: "agents",
     title: "Agents",
     updateMode: { type: "polling", intervalMs: 5000 },
-    async fetch(_ctx: WidgetContext): Promise<WidgetData> {
+    async fetch(ctx: WidgetContext): Promise<WidgetData> {
       try {
         const provider = await getProvider();
-        const records = await provider.listSessions();
 
-        const filtered = records.filter((r) => {
-          // Filter terminal statuses
+        const limit = ctx.query?.limit ? parseInt(ctx.query.limit, 10) : undefined;
+        const offset = ctx.query?.offset ? parseInt(ctx.query.offset, 10) : undefined;
+        const isPaginated = limit != null && !isNaN(limit);
+
+        // Fetch all non-terminal sessions for total count + liveness filtering.
+        // DB-level status filtering is not yet available in SessionListOptions,
+        // so we fetch all and filter in JS. The limit/offset is applied post-filter.
+        const allRecords = await provider.listSessions();
+
+        const filtered = allRecords.filter((r) => {
           if (r.status && TERMINAL_STATUSES.has(r.status)) return false;
-          // Filter orphaned liveness
           const liveness = deriveSessionLiveness(r);
           if (liveness === "orphaned") return false;
           return true;
         });
 
-        // Batch-fetch task titles for all unique non-null taskIds in one pass.
-        // Using Promise.all avoids sequential awaits (no client-side waterfall).
-        const taskTitleMap = new Map<string, string>();
-        if (getTaskProvider) {
-          try {
-            const taskProvider = await Promise.race([
-              getTaskProvider(),
-              new Promise<TaskProviderLike>((_resolve, reject) =>
-                setTimeout(() => reject(new Error("Task provider init timeout (5s)")), 5000)
-              ),
-            ]);
-            const uniqueTaskIds = Array.from(
-              new Set(
-                filtered
-                  .map((r) => r.taskId)
-                  .filter((id): id is string => id != null)
-                  .map(formatTaskIdForDisplay)
-              )
-            );
+        const totalCount = filtered.length;
 
-            if (typeof taskProvider.getTasks === "function") {
-              const tasks = await taskProvider.getTasks(uniqueTaskIds);
-              for (const task of tasks) {
-                taskTitleMap.set(task.id, task.title);
-              }
-            } else {
-              const results = await Promise.all(
-                uniqueTaskIds.map(async (displayId) => {
-                  const task = await taskProvider.getTask(displayId);
-                  return { displayId, title: task?.title ?? null };
-                })
-              );
-              for (const { displayId, title } of results) {
-                if (title != null) {
-                  taskTitleMap.set(displayId, title);
-                }
-              }
+        const page = isPaginated ? filtered.slice(offset ?? 0, (offset ?? 0) + limit) : filtered;
+
+        // Batch-fetch task titles — uses TTL cache to avoid re-querying on each poll.
+        const taskTitleMap = new Map<string, string>();
+        if (titleCache) {
+          const uniqueTaskIds = Array.from(
+            new Set(
+              page
+                .map((r) => r.taskId)
+                .filter((id): id is string => id != null)
+                .map(formatTaskIdForDisplay)
+            )
+          );
+          if (uniqueTaskIds.length > 0) {
+            const titles = await titleCache.getTitles(uniqueTaskIds);
+            for (const [id, title] of titles) {
+              taskTitleMap.set(id, title);
             }
-          } catch {
-            // Task provider failure is non-fatal — rows degrade to taskTitle: null.
           }
         }
 
-        const agents: AgentRow[] = filtered.map((r) => {
+        const agents: AgentRow[] = page.map((r) => {
           const displayTaskId = r.taskId ? formatTaskIdForDisplay(r.taskId) : null;
           const taskTitle = displayTaskId ? (taskTitleMap.get(displayTaskId) ?? null) : null;
           return toAgentRow(r, taskTitle);
         });
 
-        const payload: AgentsPayload = { agents };
+        const payload: AgentsPayload = { agents, totalCount };
         return { state: "ok", payload };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

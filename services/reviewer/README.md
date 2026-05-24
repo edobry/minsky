@@ -158,11 +158,21 @@ Outbound model and GitHub API calls are wrapped with `AbortController` timeouts.
 
 **Defaults:**
 
-- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s is sized for `gpt-5` with `reasoning_effort=high` on a Tier-3 PR, which regularly takes 60-90s end-to-end. Lower it for faster fail-fast on stuck rounds; raise it if you regularly see legitimate completions exceeding 2 min.
+- `REVIEWER_MODEL_TIMEOUT_MS=120000` — model API calls (OpenAI / Anthropic / Google). 120s per tool-loop round; gpt-5 with `reasoning_effort=low` on a normal PR takes ~80-100s. Trivial and docs-only PRs skip the tool loop entirely (mt#2083 scope-aware fast path) and complete in a single API call.
+- `REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS=120000` — retry ceiling when a tool-loop round times out. Matches the primary timeout (mt#2083; was 90s pre-mt#2083 but that was shorter than healthy-case latency). Tunable at call time without redeploy.
+- `REVIEWER_TOOLLOOP_RETRY_ON_TIMEOUT=true` — enable/disable the per-round timeout retry. Default `"true"`.
 - `REVIEWER_GITHUB_TIMEOUT_MS=30000` — GitHub REST and GraphQL calls. 30s is generous; happy-path GitHub calls return in <5s. Lower it if you want to surface GitHub-side latency faster.
 
-**Validation:** both env vars must parse as positive integers. `0`, negative numbers, decimals, non-numeric strings, and whitespace-padded values are rejected at boot with a clear error pointing at the env var name. The reviewer will not start with malformed timeout config — by design, since silent NaN coercion would produce infinite waits, defeating the point.
+**Healthy budgets by PR size (mt#2083):**
 
-**Observing timeouts:** when a call exceeds its budget, a structured-shape JSON log is emitted to stderr with `event: "timeout"`, the operation name (e.g. `openai.chat.completions.create.toolloop`, `github.pulls.listFiles`), the configured `timeoutMs`, and elapsed `durationMs`. Then a typed `TimeoutError` propagates through `runReview`, gets caught by the detached-review handler in `server.ts`, and is logged as `review_error` with the timeout's operation name in `error`. The webhook returns 200 immediately on receipt regardless (ack-immediate per mt#1191); the sweeper (mt#1260) catches missed reviews on its next pass, so GitHub-level retry is not required here.
+| PR scope                      | Tool loop                         | Expected latency | Timeout budget                      |
+| ----------------------------- | --------------------------------- | ---------------- | ----------------------------------- |
+| Trivial (≤10 lines, ≤3 files) | Skipped (single-turn, 16K tokens) | ~30-60s          | 120s primary                        |
+| Docs-only                     | Skipped (single-turn, 16K tokens) | ~30-60s          | 120s primary                        |
+| Normal / test-only            | Active (multi-round, 32K tokens)  | ~80-100s         | 120s primary + 120s retry per round |
+
+**Validation:** timeout env vars must parse as positive integers. `0`, negative numbers, decimals, non-numeric strings, and whitespace-padded values are rejected at boot with a clear error pointing at the env var name. The reviewer will not start with malformed timeout config — by design, since silent NaN coercion would produce infinite waits, defeating the point.
+
+**Observing timeouts:** when a call exceeds its budget, a structured-shape JSON log is emitted to stderr with `event: "timeout"`, the operation name (e.g. `openai.chat.completions.create.toolloop`, `github.pulls.listFiles`), the configured `timeoutMs`, and elapsed `durationMs`. Then a typed `TimeoutError` propagates through `runReview` where `callReviewerWithRetry` retries once (mt#2083). If the retry also fails, the error is caught by the detached-review handler in `server.ts` and logged as `review_error`. The webhook returns 200 immediately on receipt regardless (ack-immediate per mt#1191); the sweeper (mt#1260) catches missed reviews on its next pass, so GitHub-level retry is not required here.
 
 **Tuning advice:** start with the defaults. If model timeouts fire on legitimate review activity, the right move is usually to lower `reasoning_effort` rather than to raise the timeout — a model that needs >2 min on a Tier-3 PR is usually exhausting reasoning budget without producing useful output. If GitHub timeouts fire, check that the reviewer App's installation token is current and that you aren't rate-limited.

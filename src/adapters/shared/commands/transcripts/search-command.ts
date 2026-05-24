@@ -53,7 +53,9 @@ export function registerTranscriptSearchCommand(
       "Search agent transcript turns by semantic similarity. " +
       "Embeds the query text and returns the nearest-neighbor turns " +
       "ranked by cosine distance (pgvector). " +
-      "Optionally filter by role (user/assistant), date range, or session UUID.",
+      "Optionally filter by role (user/assistant), date range, or session UUID. " +
+      "Coverage: sessions are auto-ingested on MCP server boot; " +
+      "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
     parameters: {
       query: {
         schema: z.string(),

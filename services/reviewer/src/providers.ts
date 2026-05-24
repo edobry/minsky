@@ -32,16 +32,18 @@ const DEFAULT_MODEL_TIMEOUT_MS = 120_000;
 /**
  * Default retry-on-timeout ceiling for the openai.chat.completions.create.toolloop
  * inner call. mt#1969: when a single inner SDK call times out at the primary
- * `timeoutMs` cap, we retry ONCE with this reduced ceiling. Rationale: if the
- * model is genuinely slow at the primary cap, a shorter retry forces the failure
- * surface to fire faster (instead of compounding wall-clock on a hopeless retry);
- * if the slow path was transient provider-side load on the first attempt, the
- * second attempt usually completes in normal-cadence time (~80-90s per the
- * `feedback_reviewer_bot_actual_latency_calibration_data` empirical baseline).
+ * `timeoutMs` cap, we retry ONCE with this ceiling.
+ *
+ * mt#2083: raised from 90s to 120s (matching the primary timeout). The original
+ * 90s was designed to "fail fast on genuinely-stuck" retries, but empirical
+ * latency data shows normal gpt-5 reviews take ~80-100s — the 90s retry was
+ * shorter than healthy-case latency, causing retries to fail even when the
+ * provider-side transient had cleared. Matching the primary timeout gives the
+ * retry the same budget as the first attempt.
  *
  * Tunable via REVIEWER_TOOLLOOP_RETRY_TIMEOUT_MS at process-env load time.
  */
-const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 90_000;
+const DEFAULT_TOOLLOOP_RETRY_TIMEOUT_MS = 120_000;
 
 /**
  * Read the toolloop-retry config from process env at call time. Defaults match
