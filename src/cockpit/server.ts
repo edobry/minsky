@@ -536,6 +536,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    *
    * Lists all suspended asks routed to "operator", sorted by priority.
    * Used by the /asks management page for the full list view.
+   *
+   * Architecture note: the cockpit server is a direct domain-layer consumer
+   * (same as the mt#1147 resolve endpoint). MCP tools (asks_respond,
+   * asks_reconcile) are the agent-facing interface to the same domain
+   * operations — the cockpit backend does not route through MCP to itself.
    */
   app.get("/api/asks", async (_req, res) => {
     try {
