@@ -335,6 +335,8 @@ export function evaluateBundleBootSmokePresence(
 // hook-only in src/domain/configuration/sources/environment.ts (mt#1788 rule).
 export const REQUIRED_CHECKS_OVERRIDE_ENV = "MINSKY_SKIP_REQUIRED_CHECKS";
 
+export const SMOKE_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_SMOKE_CHECK";
+
 export interface BranchProtectionParseSuccess {
   ok: true;
   requiredChecks: string[];
@@ -830,6 +832,67 @@ export function validateReviewContent(
   return { deny: false };
 }
 
+// ---------------------------------------------------------------------------
+// Smoke-status enforcement (mt#2060)
+// ---------------------------------------------------------------------------
+
+export type SmokeStatus = "pass" | "fail" | "skipped" | "absent";
+
+export function parseSmokeStatus(reviewBody: string): SmokeStatus {
+  const match = reviewBody.match(/\*{0,2}Smoke:\*{0,2}\s*`?(pass|fail|skipped)`?/i);
+  if (!match || !match[1]) return "absent";
+  return match[1].toLowerCase() as SmokeStatus;
+}
+
+export interface SmokeCheckResult {
+  deny: boolean;
+  reason?: string;
+}
+
+export function evaluateSmokeStatus(
+  reviews: ReviewEntry[],
+  pr: string,
+  expectedBotLogin: string
+): SmokeCheckResult {
+  for (const review of reviews) {
+    if (!review.body) continue;
+    const status = parseSmokeStatus(review.body);
+    if (status === "fail") {
+      return {
+        deny: true,
+        reason:
+          `Review on PR #${pr} reports Smoke: fail. ` +
+          `Smoke failures block merge regardless of CI status.`,
+      };
+    }
+  }
+
+  const hasPassingSmoke = reviews.some((r) => {
+    if (!r.body) return false;
+    const s = parseSmokeStatus(r.body);
+    return s === "pass" || s === "skipped";
+  });
+  if (hasPassingSmoke) return { deny: false };
+
+  const allBot = reviews.filter((r) => r.body).every((r) => r.user_login === expectedBotLogin);
+  if (allBot) return { deny: false };
+
+  const hasNonBotReview = reviews.some(
+    (r) => r.body && r.user_login && r.user_login !== expectedBotLogin
+  );
+  if (hasNonBotReview) {
+    return {
+      deny: true,
+      reason:
+        `Non-bot review on PR #${pr} lacks a Smoke: field. ` +
+        `Per /review-pr §6.3, the smoke test must be run and its outcome ` +
+        `recorded in the review body (Smoke: pass | fail | skipped).`,
+    };
+  }
+
+  return { deny: false };
+}
+
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
@@ -909,6 +972,29 @@ if (import.meta.main) {
       },
     });
     process.exit(0);
+  }
+
+  // mt#2060: Smoke-status enforcement — block on Smoke: fail in any review;
+  // require Smoke field in non-bot reviews. Bot reviews legitimately lack
+  // a Smoke field because the bot runs in a GitHub App container with no shell.
+  const skipSmokeCheck = process.env[SMOKE_CHECK_OVERRIDE_ENV];
+  if (skipSmokeCheck && /^(1|true|yes)$/i.test(skipSmokeCheck)) {
+    process.stdout.write(
+      `[require-review-before-merge] smoke check skipped via ${SMOKE_CHECK_OVERRIDE_ENV}=${skipSmokeCheck} ` +
+        `(PR #${pr}, HEAD ${headSha?.slice(0, 7) ?? "(unknown)"}, ${new Date().toISOString()})\n`
+    );
+  } else {
+    const smokeResult = evaluateSmokeStatus(reviews, pr, EXPECTED_REVIEWER_LOGIN);
+    if (smokeResult.deny && smokeResult.reason) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: smokeResult.reason,
+        },
+      });
+      process.exit(0);
+    }
   }
 
   // mt#1309: regression-detection for the GitHub Actions webhook-miss class.
