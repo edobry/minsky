@@ -1331,6 +1331,14 @@ export function createStartCommand(
           })
           .catch(() => {}); // Embedding sweep is best-effort
 
+        // Fire-and-forget background transcript ingest for new JSONL sessions (mt#2051)
+        import("../../adapters/shared/commands/transcripts/startup-transcript-ingest")
+          .then(({ triggerStartupTranscriptIngest }) => {
+            if (!container) return;
+            return triggerStartupTranscriptIngest(container.get("persistence"));
+          })
+          .catch(() => {}); // Transcript ingest is best-effort
+
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start
         // path — never from `minsky --help` or any CLI-only code path.

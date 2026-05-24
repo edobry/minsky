@@ -57,7 +57,9 @@ export function registerTranscriptSearchTextCommand(
       "Search agent transcript turns by full-text search (FTS). " +
       "Uses Postgres plainto_tsquery against the fts_text GENERATED column. " +
       "Results are ranked by ts_rank (higher = more relevant). " +
-      "Optionally filter by role (user/assistant), date range, or session UUID.",
+      "Optionally filter by role (user/assistant), date range, or session UUID. " +
+      "Coverage: sessions are auto-ingested on MCP server boot; " +
+      "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
     parameters: {
       query: {
         schema: z.string(),

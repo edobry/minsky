@@ -48,7 +48,9 @@ export function registerTranscriptGetCommand(
     description:
       "Return all turns for an agent session in turn_index order. " +
       "Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). " +
-      "Throws if the session is not found.",
+      "Throws if the session is not found. " +
+      "Coverage: sessions are auto-ingested on MCP server boot; " +
+      "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
     parameters: {
       sessionId: {
         schema: z.string(),
