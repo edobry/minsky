@@ -35,6 +35,7 @@ import type {
   MemoryRecord,
   MemoryCreateInput,
   MemorySearchResult,
+  MemoryAssociations,
 } from "../../../../domain/memory/types";
 import { MEMORY_TYPES, MEMORY_SCOPES } from "../../../../domain/memory/types";
 import { checkDerivation } from "../../../../domain/memory/validation";
@@ -67,6 +68,8 @@ export interface MemoryListParams {
   stale?: boolean;
   stalenessDays?: number;
   limit?: number;
+  associationType?: string;
+  associationTarget?: string;
 }
 
 export interface MemoryLineageParams {
@@ -84,6 +87,7 @@ export interface MemoryCreateParams {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
+  associations?: MemoryAssociations;
   force?: boolean;
 }
 
@@ -99,6 +103,7 @@ export interface MemoryUpdateParams {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
+  associations?: MemoryAssociations;
 }
 
 export interface MemoryDeleteParams {
@@ -211,6 +216,18 @@ const memoryListParams = {
     description: "Maximum number of results to return",
     required: false as const,
   },
+  associationType: {
+    schema: z.string(),
+    description:
+      "Filter by association type (e.g., 'tracksTask'). Must be used together with associationTarget.",
+    required: false as const,
+  },
+  associationTarget: {
+    schema: z.string(),
+    description:
+      "Filter by association target ID (e.g., 'mt#2053'). Must be used together with associationType.",
+    required: false as const,
+  },
 } satisfies CommandParameterMap;
 
 const memoryLineageParams = {
@@ -270,6 +287,12 @@ const memoryCreateParams = {
   confidence: {
     schema: z.number().nullable(),
     description: "Confidence score (0–1), reserved for Phase 3",
+    required: false as const,
+  },
+  associations: {
+    schema: z.record(z.string(), z.array(z.string())),
+    description:
+      'Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). See ADR-012 for type-string conventions.',
     required: false as const,
   },
   force: {
@@ -334,6 +357,11 @@ const memoryUpdateParams = {
   confidence: {
     schema: z.number().nullable(),
     description: "New confidence score",
+    required: false as const,
+  },
+  associations: {
+    schema: z.record(z.string(), z.array(z.string())),
+    description: "Replace associations map (merge is caller's responsibility)",
     required: false as const,
   },
 } satisfies CommandParameterMap;
@@ -623,6 +651,10 @@ export function registerMemoryCommands(
         excludeSuperseded: params.excludeSuperseded,
         stale: params.stale,
         stalenessDays: params.stalenessDays,
+        association:
+          params.associationType && params.associationTarget
+            ? { type: params.associationType, targetId: params.associationTarget }
+            : undefined,
       });
 
       if (params.limit !== undefined) {
@@ -670,6 +702,7 @@ export function registerMemoryCommands(
         sourceAgentId: params.sourceAgentId ?? null,
         sourceSessionId: params.sourceSessionId ?? null,
         confidence: params.confidence ?? null,
+        associations: params.associations,
       };
 
       const record = await service.create(input);

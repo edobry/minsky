@@ -115,6 +115,7 @@ function rowToRecord(row: Record<string, any>): MemoryRecord {
     confidence: row["confidence"] ?? null,
     supersededBy: row["superseded_by"] ?? row["supersededBy"] ?? null,
     metadata: (row["metadata"] as Record<string, unknown> | null | undefined) ?? null,
+    associations: (row["associations"] as Record<string, string[]> | null | undefined) ?? {},
     createdAt: row["created_at"] ?? row["createdAt"] ?? new Date(),
     updatedAt: row["updated_at"] ?? row["updatedAt"] ?? new Date(),
     lastAccessedAt: row["last_accessed_at"] ?? row["lastAccessedAt"] ?? null,
@@ -153,6 +154,7 @@ export class MemoryService implements MemoryServiceSurface {
         sourceSessionId: input.sourceSessionId ?? null,
         confidence: input.confidence ?? null,
         supersededBy: null,
+        associations: input.associations ?? {},
       })
       .returning();
 
@@ -206,6 +208,11 @@ export class MemoryService implements MemoryServiceSurface {
         or(isNull(memoriesTable.lastAccessedAt), lt(memoriesTable.lastAccessedAt, threshold))
       );
     }
+    if (filter?.association) {
+      const { type: assocType, targetId } = filter.association;
+      const containsObj = { [assocType]: [targetId] };
+      conditions.push(sql`${memoriesTable.associations} @> ${JSON.stringify(containsObj)}::jsonb`);
+    }
 
     const baseQuery = this.deps.db.select().from(memoriesTable);
     const filteredQuery = conditions.length > 0 ? baseQuery.where(and(...conditions)) : baseQuery;
@@ -237,6 +244,7 @@ export class MemoryService implements MemoryServiceSurface {
     if ("sourceAgentId" in input) updateData["sourceAgentId"] = input.sourceAgentId ?? null;
     if ("sourceSessionId" in input) updateData["sourceSessionId"] = input.sourceSessionId ?? null;
     if ("confidence" in input) updateData["confidence"] = input.confidence ?? null;
+    if (input.associations !== undefined) updateData["associations"] = input.associations;
 
     const rows = await this.deps.db
       .update(memoriesTable)

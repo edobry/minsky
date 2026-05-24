@@ -33,6 +33,13 @@ export const MEMORY_TYPES = {
   reference: "reference",
 } as const satisfies { [K in MemoryType]: K };
 
+/**
+ * Generic map of association type strings to arrays of target IDs.
+ * Keys follow the ADR-012 type-string convention (camelCase, describes the relationship).
+ * Examples: { tracksTask: ["mt#2053"], relatedTask: ["mt#1234"] }
+ */
+export type MemoryAssociations = Record<string, string[]>;
+
 export const MEMORY_SCOPES = {
   project: "project",
   user: "user",
@@ -66,6 +73,8 @@ export interface MemoryRecord {
   supersededBy: string | null;
   /** Arbitrary metadata written by supersede() to record supersession reason/timestamp */
   metadata: Record<string, unknown> | null;
+  /** Structured entity associations (e.g., { tracksTask: ["mt#2053"] }). See ADR-012. */
+  associations: MemoryAssociations;
   createdAt: Date;
   updatedAt: Date;
   lastAccessedAt: Date | null;
@@ -88,6 +97,8 @@ export interface MemoryCreateInput {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
+  /** Optional structured entity associations. Defaults to {} if not provided. */
+  associations?: MemoryAssociations;
 }
 
 /**
@@ -104,6 +115,8 @@ export interface MemoryUpdateInput {
   sourceAgentId?: string | null;
   sourceSessionId?: string | null;
   confidence?: number | null;
+  /** Optional structured entity associations. Replaces the map; merge is caller's responsibility. */
+  associations?: MemoryAssociations;
 }
 
 // --- Search types ---
@@ -135,6 +148,12 @@ export interface MemoryListFilter {
    * Ignored unless stale is true.
    */
   stalenessDays?: number;
+  /**
+   * Filter by association containment. Returns only memories where
+   * associations[type] contains targetId.
+   * Example: { type: "tracksTask", targetId: "mt#2053" }
+   */
+  association?: { type: string; targetId: string };
 }
 
 /**

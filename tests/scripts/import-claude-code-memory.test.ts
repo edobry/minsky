@@ -42,6 +42,7 @@ function makeRecord(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
     confidence: null,
     supersededBy: null,
     metadata: null,
+    associations: {},
     createdAt: new Date("2025-01-01"),
     updatedAt: new Date("2025-01-01"),
     lastAccessedAt: null,
