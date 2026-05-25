@@ -112,6 +112,12 @@ export interface ReviewUsage {
   totalTokens?: number;
 }
 
+export interface TimingData {
+  roundLatenciesMs: number[];
+  timeoutCount: number;
+  retryOutcomes: string[];
+}
+
 export interface ReviewOutput {
   text: string;
   tokensUsed?: number;
@@ -126,6 +132,7 @@ export interface ReviewOutput {
    * Always an array — never undefined; empty when no output tools were called.
    */
   toolCalls: ReviewToolCall[];
+  timing?: TimingData;
 }
 
 /**
@@ -523,11 +530,13 @@ export async function callOpenAIWithClient(
 
   // No tools provided — preserve original single-turn behavior.
   if (!tools) {
+    const noToolsStart = Date.now();
     const response = await withTimeout(
       "openai.chat.completions.create.notools",
       timeoutMs,
       (signal) => client.chat.completions.create({ ...baseParams, messages }, { signal })
     );
+    const noToolsDurationMs = Date.now() - noToolsStart;
     const text = response.choices[0]?.message?.content ?? "";
     const usage = response.usage;
     return {
@@ -542,6 +551,11 @@ export async function callOpenAIWithClient(
       provider: "openai",
       model,
       toolCalls: [],
+      timing: {
+        roundLatenciesMs: [noToolsDurationMs],
+        timeoutCount: 0,
+        retryOutcomes: [],
+      },
     };
   }
 
@@ -586,26 +600,42 @@ export async function callOpenAIWithClient(
   /** How many rounds the main loop actually ran (1-indexed for logging). */
   let totalRoundsUsed = 0;
 
+  const roundLatenciesMs: number[] = [];
+  let timeoutCount = 0;
+  const retryOutcomes: string[] = [];
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const isLastRound = round === MAX_TOOL_ROUNDS - 1;
 
     // mt#1969: retry-on-timeout once with a reduced ceiling to recover
     // transient provider-side slowness. See callToolloopWithRetry's docstring.
-    const response = await callToolloopWithRetry(
-      "openai.chat.completions.create.toolloop",
-      round,
-      timeoutMs,
-      (signal) =>
-        client.chat.completions.create(
-          {
-            ...baseParams,
-            messages,
-            // On the last round, force the model to respond with text only.
-            ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
-          },
-          { signal }
-        )
-    );
+    const roundStart = Date.now();
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await callToolloopWithRetry(
+        "openai.chat.completions.create.toolloop",
+        round,
+        timeoutMs,
+        (signal) =>
+          client.chat.completions.create(
+            {
+              ...baseParams,
+              messages,
+              // On the last round, force the model to respond with text only.
+              ...(isLastRound ? {} : { tools: ALL_TOOL_DEFINITIONS, tool_choice: "auto" }),
+            },
+            { signal }
+          )
+      );
+    } catch (err) {
+      roundLatenciesMs.push(Date.now() - roundStart);
+      if (err instanceof TimeoutError) {
+        timeoutCount++;
+        retryOutcomes.push("timeout");
+      }
+      throw err;
+    }
+    roundLatenciesMs.push(Date.now() - roundStart);
 
     totalRoundsUsed = round + 1;
 
@@ -824,6 +854,11 @@ export async function callOpenAIWithClient(
     provider: "openai",
     model,
     toolCalls: accumulatedToolCalls,
+    timing: {
+      roundLatenciesMs,
+      timeoutCount,
+      retryOutcomes,
+    },
   };
 }
 
@@ -868,9 +903,11 @@ async function callGoogle(
   // AbortSignal to its underlying HTTPS request as of @google/generative-ai
   // v0.21, so the abort is best-effort: the SDK call may continue running
   // in the background after timeout, but the caller has moved on.
+  const googleStart = Date.now();
   const response = await withTimeout("google.generateContent", config.modelTimeoutMs, () =>
     model.generateContent(userPrompt)
   );
+  const googleDurationMs = Date.now() - googleStart;
   const text = response.response.text();
   const usage = response.response.usageMetadata;
   return {
@@ -884,6 +921,11 @@ async function callGoogle(
     provider: "google",
     model: config.providerModel,
     toolCalls: [],
+    timing: {
+      roundLatenciesMs: [googleDurationMs],
+      timeoutCount: 0,
+      retryOutcomes: [],
+    },
   };
 }
 
@@ -902,6 +944,7 @@ async function callAnthropic(
   const client = new Anthropic({ apiKey: config.providerApiKey });
   // mt#1086: wrap in withTimeout. Anthropic SDK accepts `signal` in the
   // second arg (RequestOptions); it propagates to the underlying fetch.
+  const anthropicStart = Date.now();
   const response = await withTimeout("anthropic.messages.create", config.modelTimeoutMs, (signal) =>
     client.messages.create(
       {
@@ -913,6 +956,7 @@ async function callAnthropic(
       { signal }
     )
   );
+  const anthropicDurationMs = Date.now() - anthropicStart;
 
   const text = response.content
     .filter((block): block is Anthropic.TextBlock => block.type === "text")
@@ -931,5 +975,10 @@ async function callAnthropic(
     provider: "anthropic",
     model: config.providerModel,
     toolCalls: [],
+    timing: {
+      roundLatenciesMs: [anthropicDurationMs],
+      timeoutCount: 0,
+      retryOutcomes: [],
+    },
   };
 }

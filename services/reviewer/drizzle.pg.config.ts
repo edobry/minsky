@@ -30,7 +30,12 @@ function getPostgresConnectionString(): string {
 }
 
 export default {
-  schema: ["./src/db/schemas/convergence-metrics-schema.ts"],
+  schema: [
+    "./src/db/schemas/convergence-metrics-schema.ts",
+    "./src/db/schemas/webhook-events-schema.ts",
+    "./src/db/schemas/inflight-reviews-schema.ts",
+    "./src/db/schemas/review-timing-schema.ts",
+  ],
   out: "./migrations/pg",
   dialect: "postgresql",
   dbCredentials: {

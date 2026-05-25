@@ -22,6 +22,13 @@
       "when": 1747526400000,
       "tag": "0002_inflight_reviews",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779698798525,
+      "tag": "0003_groovy_wrecker",
+      "breakpoints": true
     }
   ]
 }

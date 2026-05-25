@@ -60,6 +60,7 @@ import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
 import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
+import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -805,6 +806,8 @@ export interface RunReviewDeps {
    * and to verify recorder errors do not propagate.
    */
   metricsRecorder?: (db: ReviewerDb, input: ConvergenceMetricInput) => Promise<void>;
+
+  timingRecorder?: (db: ReviewerDb, input: ReviewTimingInput) => Promise<void>;
 }
 
 export async function runReview(
@@ -1184,6 +1187,7 @@ async function runReviewBody(
   // once with reasoningEffort="low" before giving up. Tools pass through to
   // both attempts. outputToolsActive is passed so validateReviewOutput treats
   // non-empty toolCalls as a success signal on the output-tools path.
+  const reviewCallStart = Date.now();
   const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
     config,
     systemPrompt,
@@ -1192,6 +1196,7 @@ async function runReviewBody(
     callReviewer,
     outputToolsActive
   );
+  const totalWallClockMs = Date.now() - reviewCallStart;
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.
@@ -1648,6 +1653,27 @@ async function runReviewBody(
       )
     );
 
+    // mt#2088: persist per-review timing data.
+    const timingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await timingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber: pr.number,
+        headSha: pr.headSha,
+        iterationIndex: priorReviewIngestion.iterationCount + 1,
+        totalWallClockMs,
+        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+        timeoutCount: output.timing?.timeoutCount ?? 0,
+        retryCount: retryAttempted ? 1 : 0,
+        retryOutcomes: output.timing?.retryOutcomes ?? [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: outputToolsActive,
+        provider: output.provider,
+        model: output.model,
+      });
+    }
+
     const reviewerLogin = reviewerIdentity.login;
     return {
       status: "reviewed",
@@ -1812,6 +1838,27 @@ async function runReviewBody(
     };
     // Fire-and-forget: await but errors are swallowed inside recordConvergenceMetric.
     await recorder(deps.db, metricInput);
+  }
+
+  // mt#2088: persist per-review timing data (prose path).
+  const timingWriterProse = deps.timingRecorder ?? recordReviewTiming;
+  if (deps.db !== undefined) {
+    await timingWriterProse(deps.db, {
+      prOwner: owner,
+      prRepo: repo,
+      prNumber: pr.number,
+      headSha: pr.headSha,
+      iterationIndex,
+      totalWallClockMs,
+      perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+      timeoutCount: output.timing?.timeoutCount ?? 0,
+      retryCount: retryAttempted ? 1 : 0,
+      retryOutcomes: output.timing?.retryOutcomes ?? [],
+      scopeClassification: prScope ?? null,
+      toolUseActive: outputToolsActive,
+      provider: output.provider,
+      model: output.model,
+    });
   }
 
   return {
