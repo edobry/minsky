@@ -387,8 +387,9 @@ class. It appears at the top of `src/cli.ts` (runtime) and `tests/setup.ts` (tes
 ```
 
 Classes are used for stateful services; pure functions for stateless logic.
-The container is wired in `src/composition/cli.ts` (CLI entry) and `src/composition/test.ts`
-(test fakes via `set()`).
+The container is wired in `src/composition/domain.ts` (portable domain bootstrap),
+`src/composition/cli.ts` (CLI entry, delegates to domain bootstrap), and
+`src/composition/test.ts` (test fakes via `set()`).
 
 ---
 

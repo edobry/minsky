@@ -891,7 +891,7 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
-  container?: import("../../composition/types").AppContainerInterface
+  externalContainer?: import("../../composition/types").AppContainerInterface
 ): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the MCP server");
@@ -924,6 +924,15 @@ export function createStartCommand(
         // `src/cli.ts` so all checkpoint `t=` values are relative to the
         // SAME baseline (set at cli.ts module load).
         profileCheckpoint("action_entry");
+
+        // mt#2098: When no container is passed (standalone MCP server boot
+        // without the CLI composition root), create one from the portable
+        // domain bootstrap. This makes the MCP server independently bootable.
+        let container = externalContainer;
+        if (!container) {
+          const { createDomainContainer } = await import("../../composition/domain");
+          container = await createDomainContainer();
+        }
 
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
