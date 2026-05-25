@@ -988,8 +988,8 @@ export class PreCommitHook {
       );
 
       if (executableEntryPoints.length === 0) {
-        log.cli("✅ No hook files staged.");
-        return { success: true, message: "No hook files to check", exitCode: 0 };
+        log.cli("✅ No executable entry points staged.");
+        return { success: true, message: "No executable entry points to check", exitCode: 0 };
       }
 
       const nonExecutable: string[] = [];
@@ -1023,17 +1023,17 @@ export class PreCommitHook {
       }
 
       if (nonExecutable.length > 0) {
-        log.cli("❌ Hook files missing execute permission! Commit blocked.");
+        log.cli("❌ Executable entry points missing execute permission! Commit blocked.");
         log.cli(`🔧 Fix with: chmod +x ${nonExecutable.join(" ")}`);
         return {
           success: false,
-          message: `Hook files missing +x: ${nonExecutable.join(", ")}`,
+          message: `Files missing +x: ${nonExecutable.join(", ")}`,
           exitCode: 1,
         };
       }
 
-      log.cli("✅ All hook files have execute permission.");
-      return { success: true, message: "Hook permission check passed", exitCode: 0 };
+      log.cli("✅ All executable entry points have execute permission.");
+      return { success: true, message: "Execute permission check passed", exitCode: 0 };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       log.error(`❌ Hook permission check failed: ${errorMsg}`);
