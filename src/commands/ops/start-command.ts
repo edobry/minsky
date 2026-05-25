@@ -221,7 +221,7 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
   const { extractAdoptionSignals, buildGrepPattern } = await import(
     "@minsky/shared/adoption/signal-extraction"
   );
-  const { execAsync } = await import("../../utils/exec");
+  const { execAsync, safeShellQuote } = await import("../../utils/exec");
 
   const startedAt = new Date().toISOString();
   log.info("adoption_sweeper.run_started", {
@@ -297,11 +297,13 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
           for (const signal of signals) {
             try {
               // Count production callsites via git grep.
+              // Use safeShellQuote (mt#1742) to prevent shell injection from
+              // signal patterns that contain metacharacters.
               const pattern = buildGrepPattern(signal);
               let callsiteCount = 0;
               try {
                 const { stdout } = await execAsync(
-                  `git -C "${workspaceRoot}" grep -l -e "${pattern.replace(/"/g, '\\"')}" -- "src/**/*.ts" 2>/dev/null || true`
+                  `git -C ${safeShellQuote(workspaceRoot)} grep -l -e ${safeShellQuote(pattern)} -- 'src/**/*.ts' 2>/dev/null || true`
                 );
                 const lines = stdout.trim().split("\n").filter(Boolean);
                 callsiteCount = lines.length;
@@ -458,6 +460,12 @@ function startHealthServer(port: number, host: string, loops: OpsLoopSlot[]): { 
           loops: loops.map((s) => ({
             name: s.meta.name,
             enabled: s.meta.enabled,
+            // scheduled reflects whether the setInterval handle is active.
+            // When enabled=true but scheduled=false, the interval was stopped
+            // (e.g., during shutdown drain). Exposes actual scheduling state
+            // rather than just the configured enabled flag.
+            scheduled: s.handle !== null,
+            isRunning: s.isRunning,
             intervalMs: s.meta.intervalMs,
             lastRunAt: s.meta.lastRunAt,
             lastErrorAt: s.meta.lastErrorAt,
@@ -564,13 +572,26 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
       });
 
       // Graceful shutdown handler.
+      //
+      // Sequence:
+      // 1. Stop all setInterval handles so no NEW ticks fire.
+      // 2. Wait up to DRAIN_TIMEOUT_MS for any IN-FLIGHT ticks to complete.
+      //    (Each tick sets slot.isRunning = true and clears it in .finally().)
+      // 3. Stop HTTP server.
+      // 4. Close domain container (DB connections etc.).
+      // 5. Exit 0.
+      //
+      // The drain prevents process.exit() from tearing down the event loop
+      // while a tick is mid-flight and holding DB connections / pending awaits.
+      const DRAIN_TIMEOUT_MS = 5_000;
+
       const shutdown = async (signal: string) => {
         log.info("ops_service.shutdown", {
           event: "ops_service.shutdown",
           signal,
         });
 
-        // Stop all loop intervals.
+        // Step 1: Stop all loop intervals so no new ticks fire.
         for (const slot of loops) {
           if (slot.handle) {
             clearInterval(slot.handle);
@@ -578,10 +599,26 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
           }
         }
 
-        // Stop HTTP server.
+        // Step 2: Drain in-flight ticks. Poll until all isRunning flags clear,
+        // or DRAIN_TIMEOUT_MS elapses.
+        const drainStart = Date.now();
+        while (loops.some((s) => s.isRunning)) {
+          if (Date.now() - drainStart > DRAIN_TIMEOUT_MS) {
+            const stillRunning = loops.filter((s) => s.isRunning).map((s) => s.meta.name);
+            log.warn("ops_service.drain_timeout", {
+              event: "ops_service.drain_timeout",
+              loops: stillRunning,
+              message: `Drain timeout (${DRAIN_TIMEOUT_MS}ms) exceeded. Proceeding with shutdown.`,
+            });
+            break;
+          }
+          await new Promise<void>((r) => setTimeout(r, 50));
+        }
+
+        // Step 3: Stop HTTP server.
         httpServer.stop();
 
-        // Close domain container (DB connections etc.).
+        // Step 4: Close domain container (DB connections etc.).
         try {
           await initializedContainer.close();
         } catch (err) {
@@ -592,6 +629,7 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
           });
         }
 
+        // Step 5: Exit cleanly.
         process.exit(0);
       };
 
