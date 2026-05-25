@@ -874,10 +874,10 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     const connection = await persistence.getDatabaseConnection();
     if (!connection) return false;
 
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
-    SubagentDispatchTracker.setInstance(
-      connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
-    );
+    const { createEventEmitter } = await import("../../domain/events/emitter");
+    SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
   } catch (err) {
     log.debug("[mt#1738] buildSubagentDispatchTracker threw", {
