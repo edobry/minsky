@@ -33,7 +33,7 @@ on:
     # PRECONDITION FOR ADDING A NEW PUSH-ON-MAIN WORKFLOW: extend this list.
     # The mt#1947 retrospective notes this is a manual-discipline gap; mt#1947
     # post-merge follow-up will track tooling (lint rule or CI smoke) to enforce.
-    workflows: ["CI", "Bundle Boot Smoke", "Test Quality Check"]
+    workflows: ["CI", "Bundle Boot Smoke", "Test Quality Check", "Deploy MCP"]
     types: [completed]
     branches: [main]
 
