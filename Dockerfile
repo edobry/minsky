@@ -122,4 +122,9 @@ RUN mkdir -p dist/storage/migrations && cp -r src/domain/storage/migrations/pg d
 # Default: start MCP over HTTP with auth required. The MINSKY_MCP_AUTH_TOKEN
 # env var must be set for this to succeed. $PORT expands at container start
 # via the shell form.
-CMD bun run dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth
+#
+# --preload: Bun 1.2.23's bundler reorders `import "reflect-metadata"` after
+# other init calls in the flattened bundle, causing tsyringe's polyfill check
+# to fire before the polyfill is installed. Preloading reflect-metadata
+# ensures it runs before the bundle evaluates, regardless of bundler ordering.
+CMD bun --preload ./node_modules/reflect-metadata/Reflect.js dist/minsky.js mcp start --http --host 0.0.0.0 --port $PORT --require-auth
