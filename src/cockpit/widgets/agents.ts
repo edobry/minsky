@@ -60,6 +60,7 @@ const DEFAULT_TASK_TITLE_TTL_MS = 60_000;
 
 class TaskTitleCache {
   private cache = new Map<string, string>();
+  private attempted = new Set<string>();
   private lastPopulatedAt = 0;
   private populatePromise: Promise<void> | null = null;
 
@@ -80,7 +81,7 @@ class TaskTitleCache {
         const title = this.cache.get(id);
         if (title != null) {
           result.set(id, title);
-        } else {
+        } else if (!this.attempted.has(id)) {
           missing.push(id);
         }
       }
@@ -142,6 +143,9 @@ class TaskTitleCache {
           }
         }
       }
+      for (const id of ids) {
+        this.attempted.add(id);
+      }
     } catch {
       // Non-fatal — missing IDs stay uncached
     }
@@ -175,6 +179,9 @@ class TaskTitleCache {
         }
       }
       this.lastPopulatedAt = Date.now();
+      for (const id of taskIds) {
+        this.attempted.add(id);
+      }
     } catch {
       // Task provider failure is non-fatal — rows degrade to taskTitle: null.
     }
