@@ -5,6 +5,11 @@
  * server, ops service, reviewer, test scripts — can call createDomainContainer()
  * to get a fully initialized domain service graph.
  *
+ * Configuration initialization is handled idempotently: if setupConfiguration()
+ * has already been called (e.g., the CLI entry point initializes config at
+ * module top-level for error-boundary and import-ordering reasons), the guard
+ * skips. If not yet initialized, the bootstrap handles it.
+ *
  * Does NOT call container.initialize() — the caller controls when async
  * services start. Call container.initialize() when you're ready to pay the
  * DB connection cost.
@@ -17,31 +22,18 @@ import { TsyringeContainer } from "./container";
 import type { AppContainerInterface } from "./types";
 import { NoopClientCapabilityRegistry } from "../mcp/client-capabilities";
 
-export interface DomainContainerOptions {
-  /**
-   * Skip configuration setup. Use when the caller has already called
-   * setupConfiguration() with its own error boundary (e.g., the CLI
-   * entry point in cli.ts).
-   */
-  skipConfigSetup?: boolean;
-}
-
 /**
  * Create a container with all domain service factories registered.
  *
- * Handles configuration initialization internally (idempotent) unless
- * skipConfigSetup is true. Does NOT call initialize() — the caller
- * controls when async services start.
+ * Handles configuration initialization idempotently — safe to call whether
+ * or not setupConfiguration() has already been invoked. Does NOT call
+ * initialize() — the caller controls when async services start.
  */
-export async function createDomainContainer(
-  options?: DomainContainerOptions
-): Promise<AppContainerInterface> {
-  if (!options?.skipConfigSetup) {
-    const { isConfigurationInitialized } = await import("../domain/configuration");
-    if (!isConfigurationInitialized()) {
-      const { setupConfiguration } = await import("../config-setup");
-      await setupConfiguration();
-    }
+export async function createDomainContainer(): Promise<AppContainerInterface> {
+  const { isConfigurationInitialized } = await import("../domain/configuration");
+  if (!isConfigurationInitialized()) {
+    const { setupConfiguration } = await import("../config-setup");
+    await setupConfiguration();
   }
 
   const container = new TsyringeContainer();

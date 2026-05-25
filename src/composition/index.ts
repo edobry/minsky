@@ -11,7 +11,6 @@ export { TsyringeContainer } from "./container";
 export { TOKENS } from "./tokens";
 export { createCliContainer } from "./cli";
 export { createDomainContainer } from "./domain";
-export type { DomainContainerOptions } from "./domain";
 export { createTestContainer } from "./test";
 export type {
   AppServices,

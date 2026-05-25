@@ -4,8 +4,7 @@ describe("createDomainContainer", () => {
   test("creates a container with all domain service factories registered", async () => {
     const { createDomainContainer } = await import("./domain");
 
-    // skipConfigSetup: true because test setup handles config
-    const container = await createDomainContainer({ skipConfigSetup: true });
+    const container = await createDomainContainer();
 
     expect(container).toBeDefined();
     expect(typeof container.initialize).toBe("function");
