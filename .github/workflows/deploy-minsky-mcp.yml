@@ -29,6 +29,11 @@ permissions:
   contents: read
   packages: write
 
+# Only one deploy at a time; cancel in-progress runs on new pushes.
+concurrency:
+  group: deploy-minsky-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   IMAGE: ghcr.io/edobry/minsky
 
@@ -116,8 +121,9 @@ jobs:
 
           echo "Railway API response: ${RESPONSE}"
 
-          if echo "${RESPONSE}" | grep -q '"errors"'; then
-            echo "::error::Railway redeploy failed — check the response above"
+          if echo "${RESPONSE}" | jq -e '.errors // empty' > /dev/null 2>&1; then
+            echo "::error::Railway redeploy failed"
+            echo "${RESPONSE}" | jq '.errors'
             exit 1
           fi
 
