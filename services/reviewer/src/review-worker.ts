@@ -825,6 +825,8 @@ export async function runReview(
     buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown")
   );
 
+  const runReviewStart = Date.now();
+
   const octokit = await createOctokit(config);
 
   const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber, config.githubTimeoutMs);
@@ -855,6 +857,26 @@ export async function runReview(
 
   const routing = decideRouting(tier, config);
   if (!routing.shouldReview) {
+    // mt#2088: timing on routing-skip path.
+    const skipTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await skipTimingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber,
+        headSha: pr.headSha,
+        iterationIndex: 0,
+        totalWallClockMs: Date.now() - runReviewStart,
+        perRoundLatenciesMs: [],
+        timeoutCount: 0,
+        retryCount: 0,
+        retryOutcomes: [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: false,
+        provider: config.provider,
+        model: config.providerModel,
+      });
+    }
     return { status: "skipped", reason: routing.reason, tier };
   }
 
@@ -890,6 +912,24 @@ export async function runReview(
           head_sha: pr.headSha,
           acquired_by: markerResult.heldBy,
           delivery_id: deliveryId,
+        });
+        // mt#2088: timing on concurrent-inflight skip path.
+        const inflightTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+        await inflightTimingWriter(deps.db, {
+          prOwner: owner,
+          prRepo: repo,
+          prNumber,
+          headSha: pr.headSha,
+          iterationIndex: 0,
+          totalWallClockMs: Date.now() - runReviewStart,
+          perRoundLatenciesMs: [],
+          timeoutCount: 0,
+          retryCount: 0,
+          retryOutcomes: [],
+          scopeClassification: prScope ?? null,
+          toolUseActive: false,
+          provider: config.provider,
+          model: config.providerModel,
         });
         return {
           status: "skipped",
