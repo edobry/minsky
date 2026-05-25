@@ -59,6 +59,11 @@ function resolveToolloopRetryConfig(): { enabled: boolean; retryTimeoutMs: numbe
   return { enabled, retryTimeoutMs };
 }
 
+export interface ToolloopRetryResult<T> {
+  result: T;
+  retriedOnTimeout: boolean;
+}
+
 /**
  * Run the toolloop SDK call with a single retry on TimeoutError (mt#1969).
  *
@@ -87,9 +92,10 @@ export async function callToolloopWithRetry<T>(
   round: number,
   primaryTimeoutMs: number,
   fn: (signal: AbortSignal) => Promise<T>
-): Promise<T> {
+): Promise<ToolloopRetryResult<T>> {
   try {
-    return await withTimeout(op, primaryTimeoutMs, fn);
+    const result = await withTimeout(op, primaryTimeoutMs, fn);
+    return { result, retriedOnTimeout: false };
   } catch (err) {
     if (!(err instanceof TimeoutError)) throw err;
     const { enabled, retryTimeoutMs } = resolveToolloopRetryConfig();
@@ -101,7 +107,8 @@ export async function callToolloopWithRetry<T>(
       primary_timeout_ms: primaryTimeoutMs,
       retry_timeout_ms: retryTimeoutMs,
     });
-    return await withTimeout(`${op}.retry`, retryTimeoutMs, fn);
+    const result = await withTimeout(`${op}.retry`, retryTimeoutMs, fn);
+    return { result, retriedOnTimeout: true };
   }
 }
 
@@ -611,8 +618,9 @@ export async function callOpenAIWithClient(
     // transient provider-side slowness. See callToolloopWithRetry's docstring.
     const roundStart = Date.now();
     let response: OpenAI.Chat.Completions.ChatCompletion;
+    let retriedOnTimeout = false;
     try {
-      response = await callToolloopWithRetry(
+      const retryResult = await callToolloopWithRetry(
         "openai.chat.completions.create.toolloop",
         round,
         timeoutMs,
@@ -627,15 +635,21 @@ export async function callOpenAIWithClient(
             { signal }
           )
       );
+      response = retryResult.result;
+      retriedOnTimeout = retryResult.retriedOnTimeout;
     } catch (err) {
       roundLatenciesMs.push(Date.now() - roundStart);
       if (err instanceof TimeoutError) {
         timeoutCount++;
-        retryOutcomes.push("timeout");
+        retryOutcomes.push("timeout-unrecovered");
       }
       throw err;
     }
     roundLatenciesMs.push(Date.now() - roundStart);
+    if (retriedOnTimeout) {
+      timeoutCount++;
+      retryOutcomes.push("timeout-recovered");
+    }
 
     totalRoundsUsed = round + 1;
 

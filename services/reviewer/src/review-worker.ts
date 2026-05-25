@@ -977,6 +977,7 @@ async function runReviewBody(
   scopeBucket: ScopeBucket,
   _routing: TierRoutingDecision
 ): Promise<ReviewResult> {
+  const reviewStartTime = Date.now();
   // Confirm the reviewer identity is distinct from the PR author. If they
   // happen to match (misconfiguration, same App used for both roles), we
   // cannot APPROVE and must fall back to COMMENT — GitHub blocks
@@ -1187,7 +1188,6 @@ async function runReviewBody(
   // once with reasoningEffort="low" before giving up. Tools pass through to
   // both attempts. outputToolsActive is passed so validateReviewOutput treats
   // non-empty toolCalls as a success signal on the output-tools path.
-  const reviewCallStart = Date.now();
   const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
     config,
     systemPrompt,
@@ -1196,7 +1196,7 @@ async function runReviewBody(
     callReviewer,
     outputToolsActive
   );
-  const totalWallClockMs = Date.now() - reviewCallStart;
+  const totalWallClockMs = Date.now() - reviewStartTime;
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.
@@ -1235,6 +1235,26 @@ async function runReviewBody(
           model: output.model,
         })
       );
+    }
+    // mt#2088: timing on empty-output error path.
+    const emptyTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await emptyTimingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber: pr.number,
+        headSha: pr.headSha,
+        iterationIndex: priorReviewIngestion.iterationCount + 1,
+        totalWallClockMs,
+        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+        timeoutCount: output.timing?.timeoutCount ?? 0,
+        retryCount: retryAttempted ? 1 : 0,
+        retryOutcomes: output.timing?.retryOutcomes ?? [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: outputToolsActive,
+        provider: output.provider,
+        model: output.model,
+      });
     }
     return {
       status: "error",
@@ -1762,6 +1782,26 @@ async function runReviewBody(
           model: output.model,
         })
       );
+    }
+    // mt#2088: timing on CoT-leakage error path.
+    const cotTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await cotTimingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber: pr.number,
+        headSha: pr.headSha,
+        iterationIndex: priorReviewIngestion.iterationCount + 1,
+        totalWallClockMs,
+        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+        timeoutCount: output.timing?.timeoutCount ?? 0,
+        retryCount: retryAttempted ? 1 : 0,
+        retryOutcomes: output.timing?.retryOutcomes ?? [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: outputToolsActive,
+        provider: output.provider,
+        model: output.model,
+      });
     }
     return {
       status: "error",
