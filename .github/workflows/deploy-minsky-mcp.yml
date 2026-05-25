@@ -1,0 +1,130 @@
+name: Deploy MCP
+
+# mt#2104 — CI-built Docker image → GHCR → Railway deploy pipeline.
+#
+# Builds the Docker image, smoke-tests it (boot + /health probe), and on
+# push to main pushes to GHCR and triggers a Railway redeploy. On PRs the
+# Docker build + smoke runs without pushing or deploying — this closes the
+# mt#2103 coverage gap where the bundle-boot-smoke tested the local build
+# but not the Docker build, missing a Bun-version-specific bundler
+# regression that only surfaced in the Docker/Railway environment.
+#
+# Prerequisites (one-time setup):
+# 1. RAILWAY_TOKEN secret in GitHub Actions (Railway dashboard > Account >
+#    Tokens > create; add as repo secret).
+# 2. Railway minsky-mcp service configured to use image source
+#    ghcr.io/edobry/minsky:latest (Railway dashboard > service > Settings >
+#    Source > Docker Image).
+# 3. GHCR package visibility set to match repo visibility (ghcr.io Settings
+#    > Manage access > set visibility).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+# Only one deploy at a time; cancel in-progress runs on new pushes.
+concurrency:
+  group: deploy-minsky-mcp-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/edobry/minsky
+
+jobs:
+  docker-build-smoke:
+    name: docker-build-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t $IMAGE:ci .
+
+      - name: Boot container and probe /health
+        run: |
+          set -euo pipefail
+
+          PORT=$(( 30000 + RANDOM % 20000 ))
+          echo "Boot port: $PORT"
+
+          docker run --rm -d --name minsky-smoke \
+            -e PORT=$PORT \
+            -e MINSKY_MCP_AUTH_TOKEN=smoke-test \
+            -p $PORT:$PORT \
+            $IMAGE:ci
+
+          cleanup() {
+            docker stop minsky-smoke 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          DEADLINE=$(( $(date +%s) + 30 ))
+          while [ "$(date +%s)" -lt $DEADLINE ]; do
+            if curl -fsS "http://127.0.0.1:$PORT/health" > /tmp/health.json 2>/dev/null; then
+              echo "/health responded within deadline:"
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            sleep 0.5
+          done
+
+          echo "/health did not respond 200 within 30s"
+          docker logs minsky-smoke 2>&1 | tail -50 || true
+          exit 1
+
+      - name: Login to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          docker tag $IMAGE:ci $IMAGE:latest
+          docker tag $IMAGE:ci $IMAGE:sha-${SHORT_SHA}
+          docker push $IMAGE:latest
+          docker push $IMAGE:sha-${SHORT_SHA}
+          echo "Pushed: $IMAGE:latest, $IMAGE:sha-${SHORT_SHA}"
+
+      - name: Trigger Railway redeploy
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${RAILWAY_TOKEN:-}" ]; then
+            echo "::warning::RAILWAY_TOKEN not set — skipping Railway redeploy. Add the secret to enable auto-deploy."
+            exit 0
+          fi
+
+          # Railway service identifiers from services/minsky-mcp/railway.config.ts
+          SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
+          ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
+
+          RESPONSE=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
+            -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}")
+
+          echo "Railway API response: ${RESPONSE}"
+
+          if echo "${RESPONSE}" | jq -e '.errors // empty' > /dev/null 2>&1; then
+            echo "::error::Railway redeploy failed"
+            echo "${RESPONSE}" | jq '.errors'
+            exit 1
+          fi
+
+          echo "Railway redeploy triggered successfully"
