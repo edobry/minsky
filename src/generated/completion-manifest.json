@@ -5282,7 +5282,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID.",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--limit"],
@@ -5350,7 +5350,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID.",
+          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--limit"],
@@ -5382,7 +5382,7 @@
         },
         {
           "name": "get",
-          "description": "Return all turns for an agent session in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the session is not found.",
+          "description": "Return all turns for an agent session in turn_index order. Optionally slice to a turn range using the turnRange parameter (format: 'start-end', e.g. '10-20'). Throws if the session is not found. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
           "options": [
             {
               "flags": ["--turn-range"],
@@ -5560,6 +5560,70 @@
             {
               "flags": ["--json"],
               "description": "Output in JSON format"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "events",
+      "description": "EVENTS commands",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "List system events with optional filters (event type, time range, task ID)",
+          "options": [
+            {
+              "flags": ["--event-type"],
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed)",
+              "takesValue": true,
+              "values": ["ask.created", "task.auto_created", "pr.review_posted", "subagent.failed"]
+            },
+            {
+              "flags": ["--since"],
+              "description": "Lower bound (inclusive) — ISO-8601 timestamp",
+              "takesValue": true
+            },
+            {
+              "flags": ["--until"],
+              "description": "Upper bound (inclusive) — ISO-8601 timestamp",
+              "takesValue": true
+            },
+            {
+              "flags": ["--related-task-id"],
+              "description": "Filter by related task ID (e.g. mt#123)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--limit"],
+              "description": "Maximum number of results (default: 50, max: 500)",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "emit",
+          "description": "Emit a system event — remote emission surface for the adoption sweeper and other out-of-process producers",
+          "options": [
+            {
+              "flags": ["--payload"],
+              "description": "Structured event payload — shape varies by event type",
+              "takesValue": true
+            },
+            {
+              "flags": ["--actor"],
+              "description": "Who emitted the event (AgentId or human-readable identifier)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--related-task-id"],
+              "description": "Related Minsky task ID (e.g. mt#123)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--related-session-id"],
+              "description": "Related Minsky session ID",
+              "takesValue": true
             }
           ]
         }

@@ -301,6 +301,13 @@ export async function initializeConfiguration(
 }
 
 /**
+ * Check if the configuration system has been initialized.
+ */
+export function isConfigurationInitialized(): boolean {
+  return globalProvider !== null;
+}
+
+/**
  * Get the global configuration provider
  *
  * @throws Error if configuration hasn't been initialized
