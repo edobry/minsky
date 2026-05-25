@@ -183,6 +183,10 @@ export async function createCli(container: AppContainerInterface): Promise<Comma
     // not `minsky completions complete`, so this MUST be top-level.
     cli.addCommand(createCompletionServerCommand(), { hidden: true });
   }
+  if (needsAll || requestedCommand === "ops") {
+    const { createOpsCommand } = await import("./commands/ops/index");
+    cli.addCommand(createOpsCommand(container));
+  }
 
   // Set error handler
   cli.configureOutput({
