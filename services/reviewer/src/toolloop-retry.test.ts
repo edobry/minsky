@@ -84,7 +84,7 @@ describe("mt#1969 callToolloopWithRetry", () => {
       calls++;
       return "ok";
     });
-    expect(result).toBe("ok");
+    expect(result).toEqual({ result: "ok", retriedOnTimeout: false });
     expect(calls).toBe(1);
   });
 
@@ -92,7 +92,7 @@ describe("mt#1969 callToolloopWithRetry", () => {
     process.env[ENV_RETRY_TIMEOUT_MS] = "500";
     const { fn, getCount } = makeFlakyFn(200, "retry-ok");
     const result = await callToolloopWithRetry(TEST_OP, 0, 50, fn);
-    expect(result).toBe("retry-ok");
+    expect(result).toEqual({ result: "retry-ok", retriedOnTimeout: true });
     expect(getCount()).toBe(2);
   });
 
@@ -127,7 +127,7 @@ describe("mt#1969 callToolloopWithRetry", () => {
     process.env[ENV_RETRY_TIMEOUT_MS] = "500";
     const { fn, getCount } = makeFlakyFn(200, "ok");
     const result = await callToolloopWithRetry(TEST_OP, 0, 50, fn);
-    expect(result).toBe("ok");
+    expect(result).toEqual({ result: "ok", retriedOnTimeout: true });
     expect(getCount()).toBe(2);
   });
 
@@ -137,7 +137,7 @@ describe("mt#1969 callToolloopWithRetry", () => {
     process.env[ENV_RETRY_TIMEOUT_MS] = "not-a-number";
     const { fn, getCount } = makeFlakyFn(200, "ok");
     const result = await callToolloopWithRetry(TEST_OP, 0, 50, fn);
-    expect(result).toBe("ok");
+    expect(result).toEqual({ result: "ok", retriedOnTimeout: true });
     expect(getCount()).toBe(2);
   });
 });

@@ -64,13 +64,14 @@ export const REVIEWER_TABLES_SCHEMA = "public";
  * Source of truth for the post-migration self-check.
  *
  * Order matches the migration sequence (0000 → convergence_metrics,
- * 0001 → webhook_events, 0002 → inflight_reviews). Update this list
- * whenever a new reviewer migration adds a table.
+ * 0001 → webhook_events, 0002 → inflight_reviews, 0003 → review_timing).
+ * Update this list whenever a new reviewer migration adds a table.
  */
 export const REVIEWER_EXPECTED_TABLES = [
   "reviewer_convergence_metrics",
   "reviewer_webhook_events",
   "reviewer_inflight_reviews",
+  "review_timing",
 ] as const;
 
 /**

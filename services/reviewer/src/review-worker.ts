@@ -60,6 +60,7 @@ import { eq, and, lt, asc } from "drizzle-orm";
 import type { ReviewerDb } from "./db/client";
 import { convergenceMetricsTable } from "./db/schemas/convergence-metrics-schema";
 import { type ConvergenceMetricInput, recordConvergenceMetric } from "./metrics";
+import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
@@ -805,6 +806,8 @@ export interface RunReviewDeps {
    * and to verify recorder errors do not propagate.
    */
   metricsRecorder?: (db: ReviewerDb, input: ConvergenceMetricInput) => Promise<void>;
+
+  timingRecorder?: (db: ReviewerDb, input: ReviewTimingInput) => Promise<void>;
 }
 
 export async function runReview(
@@ -821,6 +824,8 @@ export async function runReview(
     "runReview_start",
     buildRunReviewStartLog(deliveryId, owner, repo, prNumber, headSha ?? "unknown")
   );
+
+  const runReviewStart = Date.now();
 
   const octokit = await createOctokit(config);
 
@@ -852,6 +857,26 @@ export async function runReview(
 
   const routing = decideRouting(tier, config);
   if (!routing.shouldReview) {
+    // mt#2088: timing on routing-skip path.
+    const skipTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await skipTimingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber,
+        headSha: pr.headSha,
+        iterationIndex: 0,
+        totalWallClockMs: Date.now() - runReviewStart,
+        perRoundLatenciesMs: [],
+        timeoutCount: 0,
+        retryCount: 0,
+        retryOutcomes: [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: false,
+        provider: config.provider,
+        model: config.providerModel,
+      });
+    }
     return { status: "skipped", reason: routing.reason, tier };
   }
 
@@ -887,6 +912,24 @@ export async function runReview(
           head_sha: pr.headSha,
           acquired_by: markerResult.heldBy,
           delivery_id: deliveryId,
+        });
+        // mt#2088: timing on concurrent-inflight skip path.
+        const inflightTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+        await inflightTimingWriter(deps.db, {
+          prOwner: owner,
+          prRepo: repo,
+          prNumber,
+          headSha: pr.headSha,
+          iterationIndex: 0,
+          totalWallClockMs: Date.now() - runReviewStart,
+          perRoundLatenciesMs: [],
+          timeoutCount: 0,
+          retryCount: 0,
+          retryOutcomes: [],
+          scopeClassification: prScope ?? null,
+          toolUseActive: false,
+          provider: config.provider,
+          model: config.providerModel,
         });
         return {
           status: "skipped",
@@ -974,6 +1017,7 @@ async function runReviewBody(
   scopeBucket: ScopeBucket,
   _routing: TierRoutingDecision
 ): Promise<ReviewResult> {
+  const reviewStartTime = Date.now();
   // Confirm the reviewer identity is distinct from the PR author. If they
   // happen to match (misconfiguration, same App used for both roles), we
   // cannot APPROVE and must fall back to COMMENT — GitHub blocks
@@ -1192,6 +1236,7 @@ async function runReviewBody(
     callReviewer,
     outputToolsActive
   );
+  const totalWallClockMs = Date.now() - reviewStartTime;
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
   // on reasoning before producing visible output, yielding empty content.
@@ -1230,6 +1275,26 @@ async function runReviewBody(
           model: output.model,
         })
       );
+    }
+    // mt#2088: timing on empty-output error path.
+    const emptyTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await emptyTimingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber: pr.number,
+        headSha: pr.headSha,
+        iterationIndex: priorReviewIngestion.iterationCount + 1,
+        totalWallClockMs,
+        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+        timeoutCount: output.timing?.timeoutCount ?? 0,
+        retryCount: retryAttempted ? 1 : 0,
+        retryOutcomes: output.timing?.retryOutcomes ?? [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: outputToolsActive,
+        provider: output.provider,
+        model: output.model,
+      });
     }
     return {
       status: "error",
@@ -1648,6 +1713,27 @@ async function runReviewBody(
       )
     );
 
+    // mt#2088: persist per-review timing data.
+    const timingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await timingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber: pr.number,
+        headSha: pr.headSha,
+        iterationIndex: priorReviewIngestion.iterationCount + 1,
+        totalWallClockMs,
+        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+        timeoutCount: output.timing?.timeoutCount ?? 0,
+        retryCount: retryAttempted ? 1 : 0,
+        retryOutcomes: output.timing?.retryOutcomes ?? [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: outputToolsActive,
+        provider: output.provider,
+        model: output.model,
+      });
+    }
+
     const reviewerLogin = reviewerIdentity.login;
     return {
       status: "reviewed",
@@ -1737,6 +1823,26 @@ async function runReviewBody(
         })
       );
     }
+    // mt#2088: timing on CoT-leakage error path.
+    const cotTimingWriter = deps.timingRecorder ?? recordReviewTiming;
+    if (deps.db !== undefined) {
+      await cotTimingWriter(deps.db, {
+        prOwner: owner,
+        prRepo: repo,
+        prNumber: pr.number,
+        headSha: pr.headSha,
+        iterationIndex: priorReviewIngestion.iterationCount + 1,
+        totalWallClockMs,
+        perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+        timeoutCount: output.timing?.timeoutCount ?? 0,
+        retryCount: retryAttempted ? 1 : 0,
+        retryOutcomes: output.timing?.retryOutcomes ?? [],
+        scopeClassification: prScope ?? null,
+        toolUseActive: outputToolsActive,
+        provider: output.provider,
+        model: output.model,
+      });
+    }
     return {
       status: "error",
       reason: outcome.reason,
@@ -1812,6 +1918,27 @@ async function runReviewBody(
     };
     // Fire-and-forget: await but errors are swallowed inside recordConvergenceMetric.
     await recorder(deps.db, metricInput);
+  }
+
+  // mt#2088: persist per-review timing data (prose path).
+  const timingWriterProse = deps.timingRecorder ?? recordReviewTiming;
+  if (deps.db !== undefined) {
+    await timingWriterProse(deps.db, {
+      prOwner: owner,
+      prRepo: repo,
+      prNumber: pr.number,
+      headSha: pr.headSha,
+      iterationIndex,
+      totalWallClockMs,
+      perRoundLatenciesMs: output.timing?.roundLatenciesMs ?? [],
+      timeoutCount: output.timing?.timeoutCount ?? 0,
+      retryCount: retryAttempted ? 1 : 0,
+      retryOutcomes: output.timing?.retryOutcomes ?? [],
+      scopeClassification: prScope ?? null,
+      toolUseActive: outputToolsActive,
+      provider: output.provider,
+      model: output.model,
+    });
   }
 
   return {
