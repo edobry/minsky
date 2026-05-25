@@ -969,7 +969,8 @@ export class PreCommitHook {
   }
 
   /**
-   * Check that all .claude/hooks/*.ts files staged for commit have execute permission
+   * Check that all shebang-bearing entry points staged for commit have execute permission.
+   * Covers .claude/hooks/*.ts (hook files) and scripts/cli-entry.ts (CLI binary entry).
    */
   private async runHookPermissionCheck(): Promise<HookResult> {
     log.cli("🔐 Checking hook file permissions...");
@@ -982,17 +983,17 @@ export class PreCommitHook {
       );
 
       const stagedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
-      const hookFiles = stagedFiles.filter(
-        (f) => f.startsWith(".claude/hooks/") && f.endsWith(".ts")
+      const executableEntryPoints = stagedFiles.filter(
+        (f) => (f.startsWith(".claude/hooks/") && f.endsWith(".ts")) || f === "scripts/cli-entry.ts"
       );
 
-      if (hookFiles.length === 0) {
+      if (executableEntryPoints.length === 0) {
         log.cli("✅ No hook files staged.");
         return { success: true, message: "No hook files to check", exitCode: 0 };
       }
 
       const nonExecutable: string[] = [];
-      for (const file of hookFiles) {
+      for (const file of executableEntryPoints) {
         // Use fs.stat programmatically instead of `execAsync("test -x \"${file}\" ...")`
         // (mt#1829): file paths from `git diff --cached --name-only` are
         // git-controlled and may contain shell metacharacters. Programmatic
