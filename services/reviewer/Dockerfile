@@ -35,9 +35,11 @@ COPY services/cockpit/package.json ./services/cockpit/package.json
 # helper and is not present in --production deps anyway).
 RUN bun install --frozen-lockfile --production --ignore-scripts
 
-# Source for the workspace shared package and the reviewer service.
+# Source for workspace packages and the reviewer service.
 COPY packages/shared/src ./packages/shared/src
 COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
+COPY packages/domain/src ./packages/domain/src
+COPY packages/domain/tsconfig.json ./packages/domain/tsconfig.json
 COPY services/reviewer/src ./services/reviewer/src
 COPY services/reviewer/migrations ./services/reviewer/migrations
 COPY services/reviewer/tsconfig.json ./services/reviewer/tsconfig.json
