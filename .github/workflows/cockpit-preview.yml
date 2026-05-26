@@ -6,7 +6,7 @@
 #
 # Prerequisites (one-time manual setup):
 #   1. Railway project + service created for cockpit-preview
-#   2. RAILWAY_TOKEN secret set on this repo (scoped to the cockpit project)
+#   2. RAILWAY_COCKPIT_TOKEN secret set on this repo (scoped to the cockpit project)
 #   3. Real resource IDs in services/cockpit/railway.config.ts
 #   4. Read-only Supabase DB role created (see scripts/supabase-preview-role.sql)
 
@@ -17,7 +17,6 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - "src/cockpit/**"
-      - "vite.config.ts"
       - "services/cockpit/**"
 
 concurrency:
@@ -29,7 +28,9 @@ jobs:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -63,7 +64,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const body = `### Cockpit Preview 🖥️
+            const body = `### Cockpit Preview
 
             **Preview URL:** ${{ steps.url.outputs.url }}
 
