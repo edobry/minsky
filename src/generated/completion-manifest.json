@@ -4016,7 +4016,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | github | anthropic | railway). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
