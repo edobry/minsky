@@ -45,6 +45,8 @@ RUN bun install --frozen-lockfile --production --ignore-scripts
 COPY tsconfig.json ./
 COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
 COPY packages/shared/src ./packages/shared/src
+COPY packages/domain/tsconfig.json ./packages/domain/tsconfig.json
+COPY packages/domain/src ./packages/domain/src
 COPY .minsky/config.yaml ./.minsky/config.yaml
 COPY src ./src
 COPY services/cockpit/src ./services/cockpit/src
