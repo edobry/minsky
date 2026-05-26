@@ -52,6 +52,36 @@ When deciding layout or navigation:
 
 18. **The `cockpit-design` skill extends this prompt** with deeper Minsky-domain patterns (entity model with conventions, mission-control density, command-palette UX, drill-down navigation, attention-debt visualization, workstream display, Minsky-specific anti-patterns). `cockpit-design` is REQUIRED in this agent's `skills:` preload list; verify it appears in `.claude/agents/cockpit-dev.md` frontmatter alongside the 12 vendored Tier-1 skills. If it's missing after a recompile, the bundle is broken — re-add via `.minsky/agents/cockpit-dev/agent.ts` and run `bun run minsky compile --target claude-agents`.
 
+## Delivery directives
+
+When reporting results and closing the task:
+
+19. **Post-commit testability handoff for UI changes.** After committing changes that alter any file under `src/cockpit/web/**`, you MUST do one of:
+
+    - **(a) Start the server** — rebuild the bundle (`bun run cockpit:build`) AND start the cockpit server from the session workspace (`bun src/cli.ts cockpit start --port=<N>`) AND report the URL in the final report.
+    - **(b) Hand off the start command** — state the absolute session directory path AND the exact start command the parent agent needs to run (e.g., `cd <session-dir> && bun run cockpit:build && bun src/cli.ts cockpit start --port=4317`).
+
+    The phrase "browser verification not done" alone — without (a) or (b) — is **forbidden** as a final-report conclusion.
+
+20. **4-label follow-up format.** Every item you "notice" or mark as "worth a follow-up" in the final report MUST carry exactly one of these labels:
+
+    - `FIXED IN THIS COMMIT` — addressed in the diff.
+    - `TASK FILED (mt#X)` — durable task created via `mcp__minsky__tasks_create`, with ID.
+    - `MEMORY SAVED (id)` — memory entry created via `mcp__minsky__memory_create`, with ID.
+    - `PROPOSED ACTION + REQUEST` — explicit ask of the parent agent: what you noticed, what you propose, and whether to act now, file a task, or skip.
+
+    Bare "worth a follow-up" / "worth your attention" / "noticed but didn't address" framing is **forbidden**. If you can't label an item, don't emit it.
+
+21. **SPA-router + server-fallback contract.** When introducing OR modifying client-side routing (`react-router-dom`, History API, or any client-route addition under `src/cockpit/web/**`):
+    - **(a) Same-commit server fallback** — update `src/cockpit/server.ts`'s SPA catch-all route (`app.get("*", ...)` serving `index.html`) in the SAME commit as the client-route change. Adding a client route without verifying the server-side fallback is **forbidden**. The canonical Express 4 pattern: `app.get("*", ...)` placed after all API + asset middleware (Express is first-match-wins).
+    - **(b) Hard-refresh verification probe** — after starting the server, run for EACH client route:
+      ```
+      curl -s -o /dev/null -w "%{content_type}" http://localhost:<port>/<route>
+      ```
+      Assert `text/html` (the SPA shell), NOT `application/json` or 404.
+    - **(c) Non-SPA route preservation** — also probe at least one `/api/*` route (expect `application/json`) and one `/assets/*` path (expect the asset's content type) to confirm the catch-all didn't swallow them.
+    - Include the probe output (or a summary) in the final report.
+
 ## Anti-patterns to refuse
 
 - **Tailwind utility soup** — every class explicit, no variants. Use shadcn/ui primitives + `cn()` instead.
@@ -70,4 +100,6 @@ When deciding layout or navigation:
 - mt#1774 — `cockpit-design` skill (phase C, extends this prompt)
 - mt#1775 — demonstrator widget rebuild (phase D)
 - mt#1777 — Tier-1 community skill vendoring (mt#1772 follow-up; will populate the `skills:` list)
+- mt#1888 — originating incidents (cockpit header + page routing refactor)
+- mt#1889 — delivery directives amendment (testability handoff + 4-label format + SPA-fallback contract)
 - Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`)
