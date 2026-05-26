@@ -12,15 +12,15 @@ import type {
   ChangesetListOptions,
   ChangesetSearchOptions,
   ChangesetStatus,
-} from "../../../../domain/changeset/types";
+} from "@minsky/domain/changeset/types";
 import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../../common-parameters";
 
 /**
@@ -157,12 +157,12 @@ async function executeChangesetList(
   try {
     // Resolve repository (lazy-imported to defer domain loading)
     const { getRepositoryBackendFromConfig } = await import(
-      "../../../../domain/session/repository-backend-detection"
+      "@minsky/domain/session/repository-backend-detection"
     );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service (lazy-imported)
-    const { createChangesetService } = await import("../../../../domain/changeset/index");
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
 
     // Build list options
@@ -247,12 +247,12 @@ async function executeChangesetSearch(
   try {
     // Resolve repository (lazy-imported to defer domain loading)
     const { getRepositoryBackendFromConfig } = await import(
-      "../../../../domain/session/repository-backend-detection"
+      "@minsky/domain/session/repository-backend-detection"
     );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service (lazy-imported)
-    const { createChangesetService } = await import("../../../../domain/changeset/index");
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
 
     // Build search options
@@ -339,12 +339,12 @@ async function executeChangesetGet(
   try {
     // Resolve repository (lazy-imported to defer domain loading)
     const { getRepositoryBackendFromConfig } = await import(
-      "../../../../domain/session/repository-backend-detection"
+      "@minsky/domain/session/repository-backend-detection"
     );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service (lazy-imported)
-    const { createChangesetService } = await import("../../../../domain/changeset/index");
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
 
     // Get changeset
@@ -402,7 +402,7 @@ async function executeChangesetGet(
     // Show diff stats if available (for details mode)
     if ("diffStats" in changeset) {
       const details =
-        changeset as import("../../../../domain/changeset/adapter-interface").ChangesetDetails;
+        changeset as import("@minsky/domain/changeset/adapter-interface").ChangesetDetails;
       log.cli(
         `\nChanges: ${details.diffStats.filesChanged} files, +${details.diffStats.additions}/-${details.diffStats.deletions}`
       );
@@ -426,12 +426,12 @@ async function executeChangesetInfo(
   try {
     // Resolve repository (lazy-imported to defer domain loading)
     const { getRepositoryBackendFromConfig } = await import(
-      "../../../../domain/session/repository-backend-detection"
+      "@minsky/domain/session/repository-backend-detection"
     );
     const { repoUrl } = await getRepositoryBackendFromConfig();
 
     // Create changeset service (lazy-imported)
-    const { createChangesetService } = await import("../../../../domain/changeset/index");
+    const { createChangesetService } = await import("@minsky/domain/changeset/index");
     const changesetService = await createChangesetService(repoUrl);
     const platform = await changesetService.getPlatform();
 

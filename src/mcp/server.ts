@@ -11,20 +11,20 @@ import {
   isInitializeRequest,
   McpError,
 } from "@modelcontextprotocol/sdk/types.js";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
 import { createProjectContextFromCwd } from "../types/project";
-import { getErrorMessage, getErrorMessageWithCause } from "../errors/index";
+import { getErrorMessage, getErrorMessageWithCause } from "@minsky/domain/errors/index";
 import { StalenessDetector } from "./staleness-detector";
 import { createDiagnosticCapture, type DiagnosticCapture } from "./diagnostic-capture";
 import { toClaudeDesktopName, shouldEmitDesktopAliases } from "./tool-name";
 import type { Request, Response } from "express";
 import { randomUUID } from "crypto";
-import { resolveAgentId } from "../domain/agent-identity/resolve";
-import type { RequestExtras } from "../domain/agent-identity/layer2";
-import type { AppContainerInterface } from "../composition/types";
+import { resolveAgentId } from "@minsky/domain/agent-identity/resolve";
+import type { RequestExtras } from "@minsky/domain/agent-identity/layer2";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { MCPClientCapabilityRegistry } from "./client-capabilities";
-import type { MemoryServiceSurface } from "../domain/memory/memory-service";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import { enrichToolResponse } from "./middleware/memory-enrichment";
 import {
   enrichWakeResponse,
@@ -1309,7 +1309,7 @@ export class MinskyMCPServer {
     if (taskId && this.container.has("sessionProvider")) {
       const sessionProvider = this.container.get(
         "sessionProvider"
-      ) as import("../domain/session/types").SessionProviderInterface;
+      ) as import("@minsky/domain/session/types").SessionProviderInterface;
       // Normalize taskId: strip "mt#" prefix to match storage format
       const storageTaskId = taskId.replace(/^mt#/i, "");
       const record = await sessionProvider.getSessionByTaskId(storageTaskId);
@@ -1326,7 +1326,7 @@ export class MinskyMCPServer {
     if (!this.container?.has("sessionProvider")) return;
     const sessionProvider = this.container.get(
       "sessionProvider"
-    ) as import("../domain/session/types").SessionProviderInterface;
+    ) as import("@minsky/domain/session/types").SessionProviderInterface;
     await sessionProvider.updateSession(sessionName, { agentId });
     log.debug("agentId written to session record", { session: sessionName, agentId });
   }

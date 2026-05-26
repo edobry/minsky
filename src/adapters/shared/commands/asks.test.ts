@@ -19,12 +19,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { createAsk, respondToAsk, validateAsksCreateParams } from "./asks";
-import { FakeAskRepository } from "../../../domain/ask/repository";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import {
   getServiceWindowDefault,
   SERVICE_WINDOW_DEFAULTS,
-} from "../../../domain/ask/service-window-defaults";
-import { ValidationError } from "../../../errors/index";
+} from "@minsky/domain/ask/service-window-defaults";
+import { ValidationError } from "@minsky/domain/errors/index";
 
 // ---------------------------------------------------------------------------
 // Fixtures

@@ -10,8 +10,8 @@ import "reflect-metadata";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { createConfigWriter } from "../src/domain/configuration/config-writer";
-import { configurationSchema } from "../src/domain/configuration/schemas";
+import { createConfigWriter } from "@minsky/domain/configuration/config-writer";
+import { configurationSchema } from "@minsky/domain/configuration/schemas";
 import * as YAML from "yaml";
 
 const N = 10;

@@ -17,7 +17,7 @@ import {
 import { createPrincipalCorpusSearchCommand } from "./principal-corpus/search-command";
 import { createPrincipalCorpusSimilarCommand } from "./principal-corpus/similar-command";
 import { createPrincipalCorpusIndexEmbeddingsCommand } from "./principal-corpus/index-embeddings-command";
-import type { PersistenceProvider } from "../../../domain/persistence/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 /**
  * Pull the persistence provider out of the execution context. Use from

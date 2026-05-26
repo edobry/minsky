@@ -5,10 +5,10 @@
  * Provides CLI wrappers for session-aware MCP file tools.
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type SessionCommandDependencies, type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionEditFileCommandParams } from "./session-parameters";
-import { readTextFile } from "../../../../utils/fs";
+import { readTextFile } from "@minsky/shared/fs";
 
 interface SessionEditFileParams {
   name?: string;
@@ -101,14 +101,14 @@ async function callSessionEditFileMcpTool(args: {
   content: string;
   dryRun: boolean;
   createDirs: boolean;
-  sessionProvider?: import("../../../../domain/session/index").SessionProviderInterface;
+  sessionProvider?: import("@minsky/domain/session/index").SessionProviderInterface;
 }): Promise<Record<string, unknown>> {
   const { writeFile, stat } = await import("fs/promises");
   const { dirname } = await import("path");
   const { mkdir } = await import("fs/promises");
-  const { SessionPathResolver } = await import("../../../../domain/session/session-path-resolver");
+  const { SessionPathResolver } = await import("@minsky/domain/session/session-path-resolver");
   const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
-  const { createSuccessResponse } = await import("../../../../domain/schemas");
+  const { createSuccessResponse } = await import("@minsky/domain/schemas");
 
   const pathResolver = new SessionPathResolver(args.sessionProvider);
   const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);

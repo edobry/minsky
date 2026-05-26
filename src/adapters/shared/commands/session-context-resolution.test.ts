@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, mock } from "bun:test";
-import { CommandExecutionContext } from "../../../schemas/command-registry";
+import { CommandExecutionContext } from "@minsky/domain/schemas/command-registry";
 import { TEST_PATHS, ERROR_MESSAGES } from "../../../utils/test-utils/test-constants";
 
 describe("Session Context Resolution Architecture Issues", () => {

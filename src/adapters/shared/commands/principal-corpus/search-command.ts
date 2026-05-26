@@ -7,8 +7,8 @@ import { z } from "zod";
 import { composeParams, CommonParameters } from "../../common-parameters";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
-import { createPrincipalCorpusService } from "../../../../domain/principal-corpus/principal-corpus-service";
-import type { TweetMetadata } from "../../../../domain/principal-corpus/types";
+import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
+import type { TweetMetadata } from "@minsky/domain/principal-corpus/types";
 import { resolvePersistenceFromCtx } from "../principal-corpus";
 
 export interface PrincipalCorpusSearchParams {

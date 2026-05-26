@@ -18,8 +18,8 @@
  * @see mt#1350 — ClaudeCodeTranscriptSource
  */
 
-import { log } from "../../../../utils/logger";
-import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
+import { log } from "@minsky/shared/logger";
+import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 
 const INIT_RETRY_DELAY_MS = 5_000;
 
@@ -40,10 +40,10 @@ export async function triggerStartupTranscriptIngest(
   }
 
   const { ClaudeCodeTranscriptSource } = await import(
-    "../../../../domain/transcripts/claude-code-transcript-source"
+    "@minsky/domain/transcripts/claude-code-transcript-source"
   );
   const { AgentTranscriptIngestService } = await import(
-    "../../../../domain/transcripts/agent-transcript-ingest-service"
+    "@minsky/domain/transcripts/agent-transcript-ingest-service"
   );
 
   const source = new ClaudeCodeTranscriptSource();

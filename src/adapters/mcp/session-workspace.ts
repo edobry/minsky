@@ -6,9 +6,9 @@ import type { CommandMapper } from "../../mcp/command-mapper";
 import { readFile, writeFile, mkdir, readdir, unlink, stat } from "fs/promises";
 import { dirname, relative } from "path";
 import { z } from "zod";
-import { log } from "../../utils/logger";
-import { SessionPathResolver } from "../../domain/session/session-path-resolver";
-import { getErrorMessage } from "../../errors/index";
+import { log } from "@minsky/shared/logger";
+import { SessionPathResolver } from "@minsky/domain/session/session-path-resolver";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   FileReadSchema,
   FileWriteSchema,
@@ -24,8 +24,8 @@ import {
   FileDeleteParameters,
   DirectoryCreateParameters,
   GrepSearchParameters,
-} from "../../domain/schemas";
-import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
+} from "@minsky/domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "@minsky/domain/schemas";
 
 /**
  * Utility function to process file content with line range support
@@ -96,7 +96,7 @@ function processFileContentWithLineRange(
  * time but is bound by the time any handler dispatches (mt#1799).
  */
 function createPathResolver(
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): SessionPathResolver {
   return new SessionPathResolver(() =>
     container?.has("sessionProvider") ? container.get("sessionProvider") : undefined
@@ -108,7 +108,7 @@ function createPathResolver(
  */
 export function registerSessionWorkspaceTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   const pathResolver = createPathResolver(container);
 

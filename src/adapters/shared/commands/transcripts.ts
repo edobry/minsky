@@ -17,9 +17,9 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/index";
-import type { AppContainerInterface } from "../../../composition/types";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerTranscriptIndexEmbeddingsCommand } from "./transcripts/index-embeddings-command";
 import { registerTranscriptSearchCommand } from "./transcripts/search-command";
 import { registerTranscriptSimilarCommand } from "./transcripts/similar-command";
@@ -95,7 +95,7 @@ export function registerTranscriptCommands(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -117,12 +117,12 @@ export function registerTranscriptCommands(
 
       // ── Build TranscriptSource ───────────────────────────────────────────
       const { ClaudeCodeTranscriptSource } = await import(
-        "../../../domain/transcripts/claude-code-transcript-source"
+        "@minsky/domain/transcripts/claude-code-transcript-source"
       );
       const source = new ClaudeCodeTranscriptSource();
 
       const { AgentTranscriptIngestService } = await import(
-        "../../../domain/transcripts/agent-transcript-ingest-service"
+        "@minsky/domain/transcripts/agent-transcript-ingest-service"
       );
       const svc = new AgentTranscriptIngestService(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
@@ -143,7 +143,7 @@ export function registerTranscriptCommands(
 
       // Single-session mode.
       // Locate the session in discovered sessions to get full DiscoveredSession metadata.
-      let found: import("../../../domain/transcripts/transcript-source").DiscoveredSession | null =
+      let found: import("@minsky/domain/transcripts/transcript-source").DiscoveredSession | null =
         null;
       for await (const sess of source.discoverSessions()) {
         if (sess.agentSessionId === sessionId) {

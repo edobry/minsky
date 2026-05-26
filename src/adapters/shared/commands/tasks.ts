@@ -12,7 +12,7 @@ import {
   modularTasksManager,
   registerTasksCommands as modularRegisterTasksCommands,
 } from "./tasks-modular";
-import type { AppContainerInterface } from "../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Register task commands function (Backward Compatibility)

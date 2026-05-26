@@ -16,9 +16,9 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { MemoryService, type MemoryServiceDb } from "../../../src/domain/memory/memory-service";
-import { MemoryVectorStorage } from "../../../src/domain/storage/vector/memory-vector-storage";
-import type { MemoryRecord } from "../../../src/domain/memory/types";
+import { MemoryService, type MemoryServiceDb } from "@minsky/domain/memory/memory-service";
+import { MemoryVectorStorage } from "@minsky/domain/storage/vector/memory-vector-storage";
+import type { MemoryRecord } from "@minsky/domain/memory/types";
 
 // ── Deterministic mock embedding service ─────────────────────────────────────
 

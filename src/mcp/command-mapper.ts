@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 import type { ProjectContext } from "../types/project";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { MinskyMCPServer, ToolDefinition } from "./server";
 
 /**

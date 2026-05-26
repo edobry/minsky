@@ -4,7 +4,7 @@
  * Constructs and registers all session commands (and changeset aliases)
  * in the shared command registry.
  */
-import type { AppContainerInterface } from "../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./session/types";
 import {
   createSessionListCommand,

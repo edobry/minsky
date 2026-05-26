@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
   detectAgentHarness,
   hasNativeSubagentSupport,
-} from "../../../src/domain/runtime/harness-detection";
+} from "@minsky/domain/runtime/harness-detection";
 
 describe("detectAgentHarness", () => {
   const savedEnv: Record<string, string | undefined> = {};

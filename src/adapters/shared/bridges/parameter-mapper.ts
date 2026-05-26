@@ -9,8 +9,8 @@ import { Command, Option } from "commander";
 import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
 import { paramNameToFlag } from "../schema-bridge";
-import { getErrorMessage } from "../../../errors/index";
-import { formatZodError } from "../../../domain/schemas/validation-utils";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { formatZodError } from "@minsky/domain/schemas/validation-utils";
 
 /**
  * Configuration options for parameter mapping

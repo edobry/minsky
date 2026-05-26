@@ -3,7 +3,7 @@ import {
   TaskGraphService,
   type RelationshipType,
   type TaskRelationship,
-} from "../../../src/domain/tasks/task-graph-service";
+} from "@minsky/domain/tasks/task-graph-service";
 
 function createInMemoryRepo(initial: Array<[string, string, RelationshipType?]> = []) {
   // Store edges as "from→to→type"

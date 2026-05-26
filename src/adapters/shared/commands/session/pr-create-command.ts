@@ -12,19 +12,19 @@ import {
   SessionConflictError,
   ValidationError,
   getErrorMessage,
-} from "../../../../errors/index";
-import { McpErrorCode } from "../../../../errors/mcp-error-codes";
-import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/errors/index";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { log } from "@minsky/shared/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCreateCommandParams } from "./session-parameters";
-import { sessionPrCreate } from "../../../../domain/session/commands/pr-subcommands";
-import type { SessionPrCreateDependencies } from "../../../../domain/session/commands/pr-create-subcommand";
+import { sessionPrCreate } from "@minsky/domain/session/commands/pr-subcommands";
+import type { SessionPrCreateDependencies } from "@minsky/domain/session/commands/pr-create-subcommand";
 import { composeConventionalTitle } from "./pr-conventional-title";
-import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "../../../../domain/git/conventional-commit-types";
-import { DrizzleAskRepository } from "../../../../domain/ask/repository";
-import type { SqlCapablePersistenceProvider } from "../../../../domain/persistence/types";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
+import { CONVENTIONAL_COMMIT_TYPES_DISPLAY } from "@minsky/domain/git/conventional-commit-types";
+import { DrizzleAskRepository } from "@minsky/domain/ask/repository";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 /** Minimal container interface required by buildSessionPrCreateDeps. */
 type PrCreateDepContainer = { has(key: string): boolean; get(key: string): unknown };
@@ -81,7 +81,7 @@ export async function checkIfPrCanBeRefreshed(
     let sessionId: string | undefined = params.sessionId;
     if (!sessionId && params.task) {
       const { resolveSessionContextWithFeedback } = await import(
-        "../../../../domain/session/session-context-resolver"
+        "@minsky/domain/session/session-context-resolver"
       );
       const resolved = await resolveSessionContextWithFeedback({
         sessionId: params.sessionId,
@@ -124,7 +124,7 @@ export async function validateNoPrExists(
   if (!sessionId && params.task) {
     try {
       const { resolveSessionContextWithFeedback } = await import(
-        "../../../../domain/session/session-context-resolver"
+        "@minsky/domain/session/session-context-resolver"
       );
       const resolvedContext = await resolveSessionContextWithFeedback({
         sessionId: params.sessionId,
@@ -238,7 +238,7 @@ export async function executeSessionPrCreate(
       let sessionId = params.sessionId;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
         const resolvedContext = await resolveSessionContextWithFeedback({
           task: params.task,
@@ -261,9 +261,9 @@ export async function executeSessionPrCreate(
     if (params.type) {
       try {
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
-        const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
+        const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
         const resolved = await resolveSessionContextWithFeedback({
           sessionId: params.sessionId,

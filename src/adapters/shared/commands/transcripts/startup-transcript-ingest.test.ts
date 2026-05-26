@@ -1,6 +1,6 @@
 import { describe, it, expect, mock } from "bun:test";
 import { triggerStartupTranscriptIngest } from "./startup-transcript-ingest";
-import type { BasePersistenceProvider } from "../../../../domain/persistence/types";
+import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 
 describe("triggerStartupTranscriptIngest", () => {
   it("returns early when persistence provider lacks sql capability", async () => {

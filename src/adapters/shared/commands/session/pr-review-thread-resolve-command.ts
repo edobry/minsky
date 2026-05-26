@@ -20,10 +20,10 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrReviewThreadResolveCommandParams } from "./session-parameters";
-import { sessionPrReviewThreadResolve } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrReviewThreadResolve } from "@minsky/domain/session/commands/pr-subcommands";
 
 export function createSessionPrReviewThreadResolveCommand(
   getDeps: LazySessionDeps

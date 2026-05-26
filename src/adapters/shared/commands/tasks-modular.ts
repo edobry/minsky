@@ -7,8 +7,8 @@
  */
 import { sharedCommandRegistry } from "../command-registry";
 import { CommandCategory } from "../command-registry";
-import { log } from "../../../utils/logger";
-import type { AppContainerInterface } from "../../../composition/types";
+import { log } from "@minsky/shared/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { createAllTaskCommands } from "./tasks/registry-setup";
 
 /**

@@ -5,7 +5,7 @@
  * (registers tools) and `server.ts` (emits / dispatches by name).
  */
 
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Produce a Claude-Desktop-validator-compatible variant of a tool name.

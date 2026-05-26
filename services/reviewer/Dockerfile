@@ -14,6 +14,7 @@ COPY package.json bun.lock ./
 # Listing only manifests (not src) keeps this layer cacheable until a
 # package.json changes.
 COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/domain/package.json ./packages/domain/package.json
 # services/site is also a workspace declared by root package.json. The root
 # bun.lock includes its workspace entries, so --frozen-lockfile at line ~24
 # requires services/site/package.json in the build context even though the

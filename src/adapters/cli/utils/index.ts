@@ -3,8 +3,8 @@
  *
  * Common utilities for the CLI interface
  */
-import { ensureError, getErrorMessage } from "../../../errors/index";
-import { log } from "../../../utils/logger";
+import { ensureError, getErrorMessage } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 
 // Re-export shared options functions needed by other modules
 export {

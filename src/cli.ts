@@ -9,8 +9,8 @@ profileCheckpoint("cli_top");
 
 // CRITICAL: Import and setup config FIRST before any other imports that might use configuration
 // This ensures the custom configuration system is initialized before any code tries to access it
-import { setupConfiguration } from "./config-setup";
-import { ConfigValidationError } from "./domain/configuration/loader";
+import { setupConfiguration } from "@minsky/domain/config-setup";
+import { ConfigValidationError } from "@minsky/domain/configuration/loader";
 
 // Wait for configuration to be initialized before proceeding with other imports.
 // Schema-validation failures get a clean one-line user-facing error here at
@@ -40,11 +40,11 @@ try {
 profileCheckpoint("config_setup_complete");
 
 import { Command } from "commander";
-import { log } from "./utils/logger";
-import { exit } from "./utils/process";
+import { log } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
 import { setupCommonCommandCustomizations, cliFactory } from "./adapters/cli/cli-command-factory";
-import { validateError } from "./schemas/error";
-import type { AppContainerInterface } from "./composition/types";
+import { validateError } from "@minsky/domain/schemas/error";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { isMcpStartStdio, isCompletionInvocation } from "./cli-discriminators";
 profileCheckpoint("cli_imports_complete");
 

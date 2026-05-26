@@ -22,7 +22,7 @@
 import { desc } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
-import { agentTranscriptsTable } from "../../domain/storage/schemas/agent-transcripts-schema";
+import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 
 /** Shape of a single session-picker row */

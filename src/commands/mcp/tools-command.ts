@@ -1,8 +1,8 @@
 import { Command } from "commander";
 import { spawn } from "child_process";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
-import { exit } from "../../utils/process";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { exit } from "@minsky/shared/process";
 
 /**
  * Create the MCP "tools" subcommand for listing available tools.

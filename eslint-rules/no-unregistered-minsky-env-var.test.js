@@ -2,7 +2,7 @@
  * @fileoverview Tests for no-unregistered-minsky-env-var ESLint rule (mt#1788).
  *
  * The rule reads the canonical allowlists by parsing the source text of
- * `src/domain/configuration/sources/environment.ts` at rule-load time. The
+ * `packages/domain/src/configuration/sources/environment.ts` at rule-load time. The
  * tests below assume that file's allowlists contain at least the entries
  * that exist on main when this PR landed (e.g., `MINSKY_LOG_MODE` in
  * `environmentMappings`, `MINSKY_FORCE_PARALLEL` in `HOOK_ONLY_ENV_VARS`).

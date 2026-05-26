@@ -16,8 +16,8 @@ import {
   type SessionResolver,
   type WakeServiceSurface,
 } from "./wake-enrichment";
-import { FakeWakePendingRepository } from "../../domain/ask/wake-pending-repository";
-import type { WakeSignalPayload } from "../../domain/ask/wake-on-respond";
+import { FakeWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
+import type { WakeSignalPayload } from "@minsky/domain/ask/wake-on-respond";
 
 // ---------------------------------------------------------------------------
 // Test fixtures

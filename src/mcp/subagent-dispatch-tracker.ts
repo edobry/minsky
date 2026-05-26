@@ -45,10 +45,10 @@ import {
   type SubagentInvocationInsert,
   type SubagentInvocationOutcome,
   SUBAGENT_INVOCATION_OUTCOME_VALUES,
-} from "../domain/storage/schemas/subagent-invocations-schema";
-import { log } from "../utils/logger";
-import { getErrorMessage } from "../errors/index";
-import type { EventEmitter } from "../domain/events/emitter";
+} from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { EventEmitter } from "@minsky/domain/events/emitter";
 
 // ---------------------------------------------------------------------------
 // Escalation threshold constants (tunable from a single place)

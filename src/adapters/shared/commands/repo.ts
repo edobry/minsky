@@ -16,7 +16,7 @@ import {
   CommandCategory,
   type CommandParameterMap,
 } from "../command-registry";
-import { execAsync } from "../../../utils/exec";
+import { execAsync } from "@minsky/shared/exec";
 
 // Workspace root override for testing
 let workspaceRootOverride: string | null = null;

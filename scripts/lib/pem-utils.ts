@@ -7,4 +7,4 @@
  * @see mt#1087
  */
 
-export { pemToPkcs8ArrayBuffer } from "../../src/domain/setup/github-app/pem-utils";
+export { pemToPkcs8ArrayBuffer } from "@minsky/domain/setup/github-app/pem-utils";

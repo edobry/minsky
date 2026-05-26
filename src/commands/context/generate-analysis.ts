@@ -4,7 +4,7 @@
  * Handles token analysis, model context windows, and optimization suggestions.
  */
 
-import { DefaultTokenizationService } from "../../domain/ai/tokenization/index";
+import { DefaultTokenizationService } from "@minsky/domain/ai/tokenization/index";
 import type {
   GenerateResult,
   GenerateOptions,

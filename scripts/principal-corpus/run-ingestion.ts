@@ -16,10 +16,10 @@
 import "reflect-metadata";
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { setupConfiguration } from "../../src/config-setup";
-import { parseTwitterArchive } from "../../src/domain/principal-corpus/tweet-archive-parser";
-import { classifyAndFilterTweets } from "../../src/domain/principal-corpus/relevance-filter";
-import { createPrincipalCorpusService } from "../../src/domain/principal-corpus/principal-corpus-service";
-import type { TweetRecord } from "../../src/domain/principal-corpus/types";
+import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
+import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevance-filter";
+import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
+import type { TweetRecord } from "@minsky/domain/principal-corpus/types";
 
 /**
  * Required inputs (one of the two must be set):
@@ -128,7 +128,7 @@ async function main() {
     `[ingest] kept ${kept.length} tweets (relevance ≥ ${RELEVANCE_THRESHOLD}) for embedding`
   );
 
-  const { resolvePersistenceProvider } = await import("../../src/domain/persistence/factory");
+  const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
   const persistence = await resolvePersistenceProvider();
   if (!persistence) {
     throw new Error("Could not resolve persistence provider — check config and DB availability");

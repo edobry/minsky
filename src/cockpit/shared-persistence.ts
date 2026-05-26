@@ -8,8 +8,8 @@
  * Init-coalescing: concurrent callers await the same initialization promise.
  * Failure-reset: if initialize() rejects, the promise is cleared so retries work.
  */
-import type { PersistenceService } from "../domain/persistence/service";
-import type { PersistenceProvider } from "../domain/persistence/types";
+import type { PersistenceService } from "@minsky/domain/persistence/service";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 
 let _instance: PersistenceService | null = null;
 let _initPromise: Promise<PersistenceService> | null = null;
@@ -20,7 +20,7 @@ export async function getSharedPersistenceService(): Promise<PersistenceService>
 
   _initPromise = (async () => {
     try {
-      const { PersistenceService } = await import("../domain/persistence/service");
+      const { PersistenceService } = await import("@minsky/domain/persistence/service");
       const svc = new PersistenceService();
       await svc.initialize();
       _instance = svc;

@@ -34,8 +34,8 @@
  */
 
 import type { CommandExecutionContext } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * Base interface for similarity search results
@@ -172,7 +172,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
         // Optional diagnostics in details mode
         if (params.details) {
           try {
-            const { getConfiguration } = await import("../../../domain/configuration");
+            const { getConfiguration } = await import("@minsky/domain/configuration");
             const cfg = await getConfiguration();
             const provider = cfg.embeddings?.provider || cfg.ai?.defaultProvider || "openai";
             const model = cfg.embeddings?.model || "text-embedding-3-small";
@@ -191,7 +191,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
         let enhancedResults: EnhancedSearchResult[];
         if (config.enhanceResults) {
           // Need workspace path for enhancement
-          const { resolveWorkspacePath } = await import("../../../domain/workspace");
+          const { resolveWorkspacePath } = await import("@minsky/domain/workspace");
           const workspacePath = await resolveWorkspacePath({});
           enhancedResults = await config.enhanceResults(results, workspacePath);
         } else {

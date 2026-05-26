@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { mock } from "bun:test";
-import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
+import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
   isSessionWorkspace,
@@ -10,7 +10,7 @@ import {
   getSessionFromRepo,
   getCurrentSession,
   resolveWorkspacePath,
-} from "../../../src/domain/workspace.js";
+} from "@minsky/domain/workspace";
 import { join } from "path";
 
 // Set up automatic mock cleanup

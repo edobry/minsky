@@ -7,12 +7,12 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrReviewSubmitCommandParams } from "./session-parameters";
-import { sessionPrReviewSubmit } from "../../../../domain/session/commands/pr-subcommands";
-import type { ReviewComment } from "../../../../domain/repository/github-pr-review";
-import type { TokenRole } from "../../../../domain/auth/token-provider";
+import { sessionPrReviewSubmit } from "@minsky/domain/session/commands/pr-subcommands";
+import type { ReviewComment } from "@minsky/domain/repository/github-pr-review";
+import type { TokenRole } from "@minsky/domain/auth/token-provider";
 
 export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {

@@ -3,10 +3,10 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrGetCommandParams } from "./session-parameters";
-import { sessionPrGet } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrGet } from "@minsky/domain/session/commands/pr-subcommands";
 import { formatPrTitleLine } from "./pr-shared-helpers";
 
 export function createSessionPrGetCommand(getDeps: LazySessionDeps): CommandDefinition {

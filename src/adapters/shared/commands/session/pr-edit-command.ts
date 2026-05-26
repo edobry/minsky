@@ -12,16 +12,16 @@ import {
   SessionConflictError,
   ValidationError,
   getErrorMessage,
-} from "../../../../errors/index";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrEditCommandParams } from "./session-parameters";
-import { sessionPrEdit } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrEdit } from "@minsky/domain/session/commands/pr-subcommands";
 import { composeConventionalTitle } from "./pr-conventional-title";
 import {
   CONVENTIONAL_COMMIT_TYPE_ALTERNATION,
   CONVENTIONAL_COMMIT_TYPES_DISPLAY,
-} from "../../../../domain/git/conventional-commit-types";
+} from "@minsky/domain/git/conventional-commit-types";
 
 export interface SessionPrEditParams {
   sessionId?: string;
@@ -88,7 +88,7 @@ export async function executeSessionPrEdit(
       let sessionId = params.sessionId;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
         const resolvedContext = await resolveSessionContextWithFeedback({
           task: params.task,
@@ -110,16 +110,16 @@ export async function executeSessionPrEdit(
     let finalTitle: string | undefined = params.title;
     if (params.title) {
       const { assertValidPrTitle } = await import(
-        "../../../../domain/session/validation/title-validation"
+        "@minsky/domain/session/validation/title-validation"
       );
       assertValidPrTitle(params.title);
 
       if (params.type) {
         try {
           const { resolveSessionContextWithFeedback } = await import(
-            "../../../../domain/session/session-context-resolver"
+            "@minsky/domain/session/session-context-resolver"
           );
-          const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
+          const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
           const resolved = await resolveSessionContextWithFeedback({
             sessionId: params.sessionId,

@@ -15,11 +15,11 @@ import {
   resolveDeploymentConfig,
   type DeploymentRecord,
   type LogLine,
-} from "../../../domain/deployment";
+} from "@minsky/domain/deployment";
 // Side-effect import registers built-in adapters with the registry.
-import "../../../domain/deployment";
+import "@minsky/domain/deployment";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Parameter schemas

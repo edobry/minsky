@@ -18,8 +18,8 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   listFindingsSessions,
   readFindings,
@@ -27,7 +27,7 @@ import {
   appendSignatureSeed,
   type FindingsRecord,
   type StoredFinding,
-} from "../../../domain/detectors/unasked-direction-store";
+} from "@minsky/domain/detectors/unasked-direction-store";
 
 // ---------------------------------------------------------------------------
 // Output shapes

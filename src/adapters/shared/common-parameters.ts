@@ -8,8 +8,8 @@
 
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
-import { isQualifiedTaskId } from "../../domain/tasks/task-id";
-import { getAvailableBackendsString } from "../../domain/tasks/taskConstants";
+import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
+import { getAvailableBackendsString } from "@minsky/domain/tasks/taskConstants";
 
 /**
  * Core common parameters used across multiple command categories

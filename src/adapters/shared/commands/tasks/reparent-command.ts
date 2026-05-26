@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 
 const tasksReparentParams = {

@@ -6,14 +6,14 @@
  */
 import { select, isCancel, cancel } from "@clack/prompts";
 import { type CommandExecutionContext } from "../../command-registry";
-import { getTaskStatusFromParams, setTaskStatusFromParams } from "../../../../domain/tasks";
-import { ValidationError } from "../../../../errors/index";
-import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
+import { getTaskStatusFromParams, setTaskStatusFromParams } from "@minsky/domain/tasks";
+import { ValidationError } from "@minsky/domain/errors/index";
+import { TASK_STATUS } from "@minsky/domain/tasks/taskConstants";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 import { isInteractive } from "../../../../utils/interactive";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 /**
  * Parameters for tasks status get command

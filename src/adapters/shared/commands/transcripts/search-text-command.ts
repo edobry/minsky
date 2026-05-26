@@ -30,9 +30,9 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import type { AppContainerInterface } from "../../../../composition/types";
-import type { TranscriptTurnResult } from "../../../../domain/transcripts/transcript-fts-service";
+import { log } from "@minsky/shared/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { TranscriptTurnResult } from "@minsky/domain/transcripts/transcript-fts-service";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -108,7 +108,7 @@ export function registerTranscriptSearchTextCommand(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -131,7 +131,7 @@ export function registerTranscriptSearchTextCommand(
       // ── Construct service and search ─────────────────────────────────────
       // FTS search does not need EmbeddingService — skip that part of the pattern.
       const { TranscriptFtsService } = await import(
-        "../../../../domain/transcripts/transcript-fts-service"
+        "@minsky/domain/transcripts/transcript-fts-service"
       );
       const svc = new TranscriptFtsService(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase

@@ -13,7 +13,7 @@ import type {
   AnnotatedReview,
   SessionPrWaitForReviewMatch,
   SessionPrWaitForReviewTimeout,
-} from "../../../../domain/session/commands/pr-wait-for-review-subcommand";
+} from "@minsky/domain/session/commands/pr-wait-for-review-subcommand";
 
 const REVIEWER_BOT = "minsky-reviewer[bot]";
 

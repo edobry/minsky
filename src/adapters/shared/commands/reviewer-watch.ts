@@ -15,14 +15,14 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   MissedReviewDedupState,
   runReviewerWatchCycle,
   type ReviewerWatchConfig,
   type ReviewerWatchCycleResult,
-} from "../../../domain/reviewer-watch";
-import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
+} from "@minsky/domain/reviewer-watch";
+import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client";
 
 // ---------------------------------------------------------------------------
@@ -66,11 +66,11 @@ function resolveWatchConfig(params: {
 
 /** Build a TokenProvider from the project's standard configuration. */
 async function buildTokenProviderFromConfig(): Promise<{
-  tokenProvider: import("../../../domain/auth").TokenProvider;
+  tokenProvider: import("@minsky/domain/auth").TokenProvider;
 }> {
   try {
-    const { getConfiguration } = await import("../../../domain/configuration/index");
-    const { createTokenProvider } = await import("../../../domain/auth");
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
     const cfg = getConfiguration();
     const userToken = cfg.github?.token ?? "";
     const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);

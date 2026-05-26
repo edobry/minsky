@@ -23,7 +23,7 @@ import path from "path";
 import os from "os";
 import { spawn, type ChildProcess } from "child_process";
 import { atomicWriteJSON, getStateDir } from "./lifecycle";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Configuration constants
