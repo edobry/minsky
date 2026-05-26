@@ -337,7 +337,7 @@ The webhook-miss class is a _reliability_ gate against the cross-identity `minsk
 
 **Prerequisite checks before merging:**
 
-1. `minsky-reviewer[bot]` has posted APPROVE (or COMMENT with "would have approved" signal when findings are all addressed)
+1. `minsky-reviewer[bot]` has posted APPROVE
 2. CI is green (all required checks passing)
 3. No `REQUEST_CHANGES` reviews outstanding that haven't been resolved or dismissed
 
@@ -351,8 +351,8 @@ The at-merge handler sets DONE atomically. This is the normal path — no bypass
 
 **Fallback: `gh api PUT` bypass (convergence-failure cases only).** Use the bypass ONLY when the reviewer bot cannot converge:
 
-- **(a) CoT leakage** — reviewer-bot fires chain-of-thought leakage errors twice consecutively on the same HEAD (per memory `af0b6aac`).
-- **(b) Self-reversal** — round N's BLOCKING contradicts an earlier round's accepted fix (per memory `06aebe02`).
+- **(a) CoT leakage** — reviewer-bot fires chain-of-thought leakage errors twice consecutively on the same HEAD.
+- **(b) Self-reversal** — round N's BLOCKING contradicts an earlier round's accepted fix.
 - **(c) Reviewer silence** — reviewer-bot silent for >5 minutes after diagnosing per §7a (webhook miss, service down).
 
 ```
@@ -370,7 +370,7 @@ The `merge_method=merge` flag is **required**. Minsky preserves merge commits pe
 
 This is not optional. Without an audit trail, the bypass is indistinguishable from a merge that skipped review.
 
-References: `feedback_self_authored_pr_merge_constraints`, `feedback_reviewer_bot_cot_leakage_forces_bypass` (memory `af0b6aac`), `feedback_reviewer_bot_self_reversal_is_bypass_signal` (memory `06aebe02`).
+References: `feedback_self_authored_pr_merge_constraints`; see `/implement-task` SKILL.md §9 for the full bypass-merge diagnostic ladder.
 
 ### 9. Review body format
 
