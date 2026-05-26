@@ -7,11 +7,11 @@ import {
   type CommandDefinition,
   type CommandExecutionContext,
 } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
-import { log } from "../../../../utils/logger";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import { type SessionCommandDependencies, type LazySessionDeps } from "./types";
 import { sessionPrCloseCommandParams } from "./session-parameters";
-import { sessionPrClose } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrClose } from "@minsky/domain/session/commands/pr-subcommands";
 
 export interface SessionPrCloseParams {
   sessionId?: string;
@@ -76,7 +76,7 @@ export async function executeSessionPrClose(
       let sessionId = params.sessionId;
       if (!sessionId && params.task) {
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
         const resolvedContext = await resolveSessionContextWithFeedback({
           task: params.task,

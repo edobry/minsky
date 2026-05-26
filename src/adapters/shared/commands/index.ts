@@ -5,7 +5,7 @@
  * This file serves as the central point for registering all shared commands.
  */
 
-import type { AppContainerInterface } from "../../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { registerGitCommands } from "./git";
 import { registerRepoCommands } from "./repo";
 import { registerTasksCommands } from "./tasks";

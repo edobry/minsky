@@ -14,7 +14,7 @@ import {
   composeMemoryBundle,
   INSTRUCTIONS_BUNDLE_ENV_VAR,
 } from "./memory-bundle";
-import type { MemoryRecord } from "../../domain/memory/types";
+import type { MemoryRecord } from "@minsky/domain/memory/types";
 
 // ---------------------------------------------------------------------------
 // Helpers

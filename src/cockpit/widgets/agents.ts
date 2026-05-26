@@ -13,10 +13,10 @@
  * for production use (no DI container needed).
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import type { SessionProviderInterface, SessionRecord } from "../../domain/session/types";
-import { SessionStatus } from "../../domain/session/types";
-import { deriveSessionLiveness } from "../../domain/session/types";
-import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
+import type { SessionProviderInterface, SessionRecord } from "@minsky/domain/session/types";
+import { SessionStatus } from "@minsky/domain/session/types";
+import { deriveSessionLiveness } from "@minsky/domain/session/types";
+import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
 
 /**
  * Minimal interface for task title look-up. Keeps coupling thin and test
@@ -339,7 +339,7 @@ let _cachedProvider: SessionProviderInterface | null = null;
 async function defaultProviderFactory(): Promise<SessionProviderInterface> {
   if (_cachedProvider) return _cachedProvider;
 
-  const { createSessionProvider } = await import("../../domain/session/session-db-adapter");
+  const { createSessionProvider } = await import("@minsky/domain/session/session-db-adapter");
 
   const svc = await getSharedPersistenceService();
   const provider = await createSessionProvider(undefined, {
@@ -365,7 +365,7 @@ let _cachedTaskProvider: TaskProviderLike | null = null;
 async function defaultTaskProviderFactory(): Promise<TaskProviderLike> {
   if (_cachedTaskProvider) return _cachedTaskProvider;
 
-  const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
+  const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
   const svc = await getSharedPersistenceService();
   const persistenceProvider = svc.getProvider();

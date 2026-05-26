@@ -16,7 +16,7 @@ import type { WidgetModule, WidgetData, WidgetContext } from "./types";
 import { createAgentsWidget } from "./widgets/agents";
 import { createAttentionWidget } from "./widgets/attention";
 import type { AttentionPayload, AttentionAsk } from "./widgets/attention";
-import { FakeAskRepository } from "../domain/ask/repository";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
 import type { AgentRow } from "./widgets/agents";
 import { createTaskGraphWidget } from "./widgets/task-graph";
 import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
@@ -26,8 +26,8 @@ import type {
   SessionProviderInterface,
   SessionRecord,
   SessionListOptions,
-} from "../domain/session/types";
-import { SessionStatus } from "../domain/session/types";
+} from "@minsky/domain/session/types";
+import { SessionStatus } from "@minsky/domain/session/types";
 
 // ---------------------------------------------------------------------------
 // Test helpers

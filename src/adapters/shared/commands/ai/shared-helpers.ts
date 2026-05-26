@@ -4,8 +4,8 @@
  * Provides getResolvedConfig() used across all AI command sub-modules.
  */
 
-import { getConfiguration } from "../../../../domain/configuration";
-import type { ResolvedConfig, BackendConfig } from "../../../../domain/configuration/types";
+import { getConfiguration } from "@minsky/domain/configuration";
+import type { ResolvedConfig, BackendConfig } from "@minsky/domain/configuration/types";
 
 /**
  * Get resolved configuration, mapped to ResolvedConfig for domain service

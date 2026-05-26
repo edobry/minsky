@@ -52,7 +52,7 @@ async function run(): Promise<void> {
   console.log("");
 
   // Bootstrap persistence
-  const { PersistenceService } = await import("../src/domain/persistence/service");
+  const { PersistenceService } = await import("@minsky/domain/persistence/service");
   const service = new PersistenceService();
   await service.initialize({ backend: "postgres", postgres: { connectionString } });
 

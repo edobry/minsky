@@ -12,7 +12,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { checkDerivation, type DerivationIssue } from "../../../src/domain/memory/validation";
+import { checkDerivation, type DerivationIssue } from "@minsky/domain/memory/validation";
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 

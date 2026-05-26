@@ -50,10 +50,10 @@
  * @see mt#1314 — added `instructions` option to the MCP Server constructor
  */
 
-import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
-import type { MemoryRecord } from "../../domain/memory/types";
-import { log } from "../../utils/logger";
-import { safeTruncate } from "../../utils/safe-truncate";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { MemoryRecord } from "@minsky/domain/memory/types";
+import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 // ---------------------------------------------------------------------------
 // Constants

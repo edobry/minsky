@@ -7,11 +7,11 @@
  */
 
 import { z } from "zod";
-import { MinskyError } from "../../errors/index";
+import { MinskyError } from "@minsky/domain/errors/index";
 import {
   validateCommandDefinition,
   validateCommandRegistrationOptions,
-} from "../../schemas/command-registry";
+} from "@minsky/domain/schemas/command-registry";
 
 /** Brand symbol for validated command context (ADR-004 Phase 2) */
 declare const ValidatedBrand: unique symbol;
@@ -70,7 +70,7 @@ export interface CommandExecutionContext {
   /** Workspace path for the current context */
   workspacePath?: string;
   /** DI container — provides access to services via typed dependency resolution. */
-  container?: import("../../composition/types").AppContainerInterface;
+  container?: import("@minsky/domain/composition/types").AppContainerInterface;
 }
 
 /**

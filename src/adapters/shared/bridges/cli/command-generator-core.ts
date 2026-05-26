@@ -5,7 +5,7 @@
  * Extracted from cli-bridge.ts as part of modularization effort.
  */
 import { Command } from "commander";
-import { log } from "../../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { handleCliError } from "../../../cli/utils/error-handler";
 import { outputResult } from "../../../cli/utils/index";
 import {
@@ -20,7 +20,7 @@ import {
 } from "./command-customization-manager";
 import { type ParameterProcessor } from "./parameter-processor";
 import { type CommandResultFormatter } from "./result-formatter";
-import { guardProjectSetup } from "../../../../domain/configuration/guard";
+import { guardProjectSetup } from "@minsky/domain/configuration/guard";
 
 /**
  * CLI-specific execution context
@@ -41,7 +41,7 @@ export interface CommandGeneratorDependencies {
   parameterProcessor: ParameterProcessor;
   resultFormatter: CommandResultFormatter;
   /** Callback to retrieve the DI container at action time. Injected by the CLI composition root. */
-  getContainer?: () => import("../../../../composition/types").AppContainerInterface | undefined;
+  getContainer?: () => import("@minsky/domain/composition/types").AppContainerInterface | undefined;
 }
 
 /**

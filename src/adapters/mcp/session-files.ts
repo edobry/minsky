@@ -5,18 +5,18 @@
 import { mkdir, stat, rename } from "fs/promises";
 import { join, relative, dirname } from "path";
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { SessionPathResolver } from "../../domain/session/session-path-resolver";
+import { SessionPathResolver } from "@minsky/domain/session/session-path-resolver";
 export { SessionPathResolver };
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   FileMoveSchema,
   FileRenameSchema,
   FileOperationResponse,
   FileMoveParameters,
   FileRenameParameters,
-} from "../../domain/schemas";
-import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
+} from "@minsky/domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "@minsky/domain/schemas";
 
 /**
  * Create a SessionPathResolver wired to lazily look up the sessionProvider
@@ -25,7 +25,7 @@ import { createSuccessResponse, createErrorResponse } from "../../domain/schemas
  * time but is bound by the time any handler dispatches (mt#1799).
  */
 function createPathResolver(
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): SessionPathResolver {
   return new SessionPathResolver(() =>
     container?.has("sessionProvider") ? container.get("sessionProvider") : undefined
@@ -37,7 +37,7 @@ function createPathResolver(
  */
 export function registerSessionFileTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   const pathResolver = createPathResolver(container);
 

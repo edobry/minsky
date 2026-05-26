@@ -13,8 +13,8 @@ import {
   validateZodParseResult,
   type McpCommandRequest,
   type McpCommandResponse,
-} from "../../../schemas/runtime";
-import { validateError } from "../../../schemas/error";
+} from "@minsky/domain/schemas/runtime";
+import { validateError } from "@minsky/domain/schemas/error";
 
 /**
  * MCP-specific execution context

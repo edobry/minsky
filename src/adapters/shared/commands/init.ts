@@ -2,7 +2,7 @@ import { z } from "zod";
 import { existsSync } from "fs";
 import * as path from "path";
 import { select, isCancel, cancel, text, confirm } from "@clack/prompts";
-import { getErrorMessage } from "../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -13,10 +13,10 @@ import {
   initializeProjectFromParams,
   detectRepositoryBackend,
   type ResolvedRepositoryConfig,
-} from "../../../domain/init";
-import { TaskBackend } from "../../../domain/configuration/backend-detection";
-import { log } from "../../../utils/logger";
-import { ValidationError } from "../../../errors/index";
+} from "@minsky/domain/init";
+import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
+import { log } from "@minsky/shared/logger";
+import { ValidationError } from "@minsky/domain/errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
 import { isInteractive } from "../../../utils/interactive";
 // Removed unused initParamsSchema import

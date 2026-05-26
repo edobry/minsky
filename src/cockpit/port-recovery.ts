@@ -16,7 +16,7 @@
 
 import { execSync, spawn, type SpawnOptions } from "child_process";
 import { readCurrentCockpitState } from "./lifecycle";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // The project's narrowed `process` type omits EventEmitter methods like
 // `kill`. Cast to a Node-shaped surface for the signal-handling APIs we

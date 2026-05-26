@@ -14,13 +14,13 @@ import {
   type CommandParameterMap,
   type InferParams,
 } from "../../command-registry";
-import type { ChangesetStatus } from "../../../../domain/changeset/types";
+import type { ChangesetStatus } from "@minsky/domain/changeset/types";
 import { CommonParameters, composeParams } from "../../common-parameters";
-import { getCurrentSession } from "../../../../domain/workspace";
-import { getRepositoryBackendFromConfig } from "../../../../domain/session/repository-backend-detection";
-import { createChangesetService } from "../../../../domain/changeset/index";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
+import { getCurrentSession } from "@minsky/domain/workspace";
+import { getRepositoryBackendFromConfig } from "@minsky/domain/session/repository-backend-detection";
+import { createChangesetService } from "@minsky/domain/changeset/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   sessionPrCreateCommandParams,
   sessionPrEditCommandParams,
@@ -92,7 +92,7 @@ async function executeSessionChangesetList(
     let sessionFilter: string | undefined;
     if (!params.all) {
       try {
-        const { execAsync } = await import("../../../../utils/exec");
+        const { execAsync } = await import("@minsky/shared/exec");
         if (!ctx?.container) {
           throw new Error("DI container not available in execution context");
         }
@@ -200,7 +200,7 @@ async function executeSessionChangesetGet(
     // If no ID specified, try to find current session's changeset
     if (!changesetId) {
       try {
-        const { execAsync: execAsyncFn } = await import("../../../../utils/exec");
+        const { execAsync: execAsyncFn } = await import("@minsky/shared/exec");
         if (!ctx?.container) {
           throw new Error("DI container not available in execution context");
         }

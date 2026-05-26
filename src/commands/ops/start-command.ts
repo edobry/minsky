@@ -38,8 +38,8 @@
  */
 
 import { Command } from "commander";
-import type { AppContainerInterface } from "../../composition/types";
-import { log } from "../../utils/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -221,7 +221,7 @@ async function adoptionSweeperTick(container: AppContainerInterface): Promise<vo
   const { extractAdoptionSignals, buildGrepPattern } = await import(
     "@minsky/shared/adoption/signal-extraction"
   );
-  const { execAsync, safeShellQuote } = await import("../../utils/exec");
+  const { execAsync, safeShellQuote } = await import("@minsky/shared/exec");
 
   const startedAt = new Date().toISOString();
   log.info("adoption_sweeper.run_started", {
@@ -527,7 +527,7 @@ export function createOpsStartCommand(externalContainer?: AppContainerInterface)
       // Boot the domain container.
       let container = externalContainer;
       if (!container) {
-        const { createDomainContainer } = await import("../../composition/domain");
+        const { createDomainContainer } = await import("@minsky/domain/composition/domain");
         container = await createDomainContainer();
       }
 

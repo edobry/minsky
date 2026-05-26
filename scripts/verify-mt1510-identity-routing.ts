@@ -57,14 +57,14 @@
 // the reflect-metadata polyfill before any decorated class is touched.
 import "reflect-metadata";
 
-import { createTokenProvider } from "../src/domain/auth";
+import { createTokenProvider } from "@minsky/domain/auth";
 import {
   CustomConfigFactory,
   getConfiguration,
   initializeConfiguration,
-} from "../src/domain/configuration";
-import { submitReview } from "../src/domain/repository/github-pr-review";
-import type { TokenRole } from "../src/domain/auth/token-provider";
+} from "@minsky/domain/configuration";
+import { submitReview } from "@minsky/domain/repository/github-pr-review";
+import type { TokenRole } from "@minsky/domain/auth/token-provider";
 
 const OWNER = process.env.MT1510_OWNER;
 const REPO = process.env.MT1510_REPO;

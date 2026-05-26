@@ -20,9 +20,9 @@
  *     git_log + session_pr_list integration is ready.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
-import type { TaskServiceInterface } from "../../domain/tasks/taskService";
-import type { TaskGraphService } from "../../domain/tasks/task-graph-service";
+import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored verbatim in Workstreams.tsx (no server imports
@@ -282,8 +282,8 @@ async function defaultDepsFactory(): Promise<WorkstreamsDeps> {
     return _cachedDeps;
   }
 
-  const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
-  const { TaskGraphService } = await import("../../domain/tasks/task-graph-service");
+  const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+  const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
@@ -295,7 +295,7 @@ async function defaultDepsFactory(): Promise<WorkstreamsDeps> {
 
   // TaskGraphService needs a raw Drizzle DB connection
   const sqlProvider =
-    provider as import("../../domain/persistence/types").SqlCapablePersistenceProvider;
+    provider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
   const db = await sqlProvider.getDatabaseConnection();
   const taskGraphService = new TaskGraphService(
     db as import("drizzle-orm/postgres-js").PostgresJsDatabase

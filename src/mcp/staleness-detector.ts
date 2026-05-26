@@ -7,7 +7,7 @@
  */
 
 import { execSync } from "child_process";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /** How often to re-check git HEAD (milliseconds) */
 const CHECK_INTERVAL_MS = 60_000; // 60 seconds

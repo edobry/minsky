@@ -28,7 +28,7 @@
 
 import { spawn, type ChildProcess } from "child_process";
 import { Transform, type Readable, type Writable } from "stream";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   PROXY_RESTART_TOOL_NAME,
   PROXY_RESTART_NUDGE_TEXT,

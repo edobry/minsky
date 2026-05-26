@@ -19,9 +19,9 @@
  * @see src/cockpit/server.ts                         (HTTP wiring)
  */
 
-import type { ChannelListener } from "../domain/mesh/postgres-channel-listener";
+import type { ChannelListener } from "@minsky/domain/mesh/postgres-channel-listener";
 import { matchesTopic } from "./topic-filter";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // ---------------------------------------------------------------------------
 // Public types

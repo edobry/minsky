@@ -9,7 +9,7 @@ import { StreamableHTTPServerTransport as SdkStreamableHTTPServerTransport } fro
 import express from "express";
 import type { AddressInfo } from "net";
 import { setupTestMocks } from "../utils/test-utils/mocking";
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 // Shared HTTP content-type constants used across integration tests
 const CONTENT_TYPE_JSON = "application/json";

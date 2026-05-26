@@ -5,11 +5,11 @@
  */
 
 import { Octokit } from "@octokit/rest";
-import { getConfiguration } from "../../domain/configuration/index";
-import { environmentMappings } from "../../domain/configuration/sources/environment";
-import { getUserConfigDir } from "../../domain/configuration/sources/user";
-import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
-import { log } from "../../utils/logger";
+import { getConfiguration } from "@minsky/domain/configuration/index";
+import { environmentMappings } from "@minsky/domain/configuration/sources/environment";
+import { getUserConfigDir } from "@minsky/domain/configuration/sources/user";
+import { getGitHubBackendConfig } from "@minsky/domain/tasks/githubBackendConfig";
+import { log } from "@minsky/shared/logger";
 
 interface TestOptions {
   verbose?: boolean;

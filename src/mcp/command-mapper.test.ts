@@ -9,7 +9,7 @@ import { z } from "zod";
 import type { ProjectContext } from "../types/project";
 import type { MinskyMCPServer, ToolDefinition } from "./server";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { FileWriteSchema } from "../domain/schemas/file-schemas";
+import { FileWriteSchema } from "@minsky/domain/schemas/file-schemas";
 import { sessionCommitCommandParams } from "../adapters/shared/commands/session-parameters";
 import { sessionStartCommandParams } from "../adapters/shared/commands/session/session-parameters";
 import { convertParametersToZodSchema } from "../adapters/mcp/shared-command-integration";

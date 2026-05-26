@@ -7,10 +7,10 @@
  * Called from start-command.ts after the DI container is initialized.
  */
 
-import type { AppContainerInterface } from "../../composition/types";
-import type { KnowledgeSyncScheduler } from "../../domain/knowledge/ingestion/scheduler";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { KnowledgeSyncScheduler } from "@minsky/domain/knowledge/ingestion/scheduler";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * Build and start a `KnowledgeSyncScheduler` from configured knowledge sources.
@@ -27,7 +27,7 @@ export async function buildAndStartScheduler(
   container?: AppContainerInterface
 ): Promise<KnowledgeSyncScheduler | null> {
   try {
-    const { getConfiguration } = await import("../../domain/configuration");
+    const { getConfiguration } = await import("@minsky/domain/configuration");
     const cfg = getConfiguration();
 
     const knowledgeBases =
@@ -49,40 +49,40 @@ export async function buildAndStartScheduler(
 
     // Build the embedding service (reads AI config) and vector storage.
     const { createEmbeddingServiceFromConfig } = await import(
-      "../../domain/ai/embedding-service-factory"
+      "@minsky/domain/ai/embedding-service-factory"
     );
     const embeddingService = await createEmbeddingServiceFromConfig();
 
     const persistence = container?.has("persistence") ? container.get("persistence") : undefined;
-    let vectorStorage: import("../../domain/storage/vector/types").VectorStorage;
+    let vectorStorage: import("@minsky/domain/storage/vector/types").VectorStorage;
 
     if (persistence) {
       const { createVectorStorageForDomain } = await import(
-        "../../domain/storage/vector/vector-storage-factory"
+        "@minsky/domain/storage/vector/vector-storage-factory"
       );
       vectorStorage = await createVectorStorageForDomain("knowledge", 1536, persistence);
     } else {
       log.warn("[scheduler] No persistence provider — using in-memory vector storage");
       const { MemoryVectorStorage } = await import(
-        "../../domain/storage/vector/memory-vector-storage"
+        "@minsky/domain/storage/vector/memory-vector-storage"
       );
       vectorStorage = new MemoryVectorStorage(1536);
     }
 
-    const deps: import("../../domain/knowledge/ingestion/sync-runner").SyncRunnerDeps = {
+    const deps: import("@minsky/domain/knowledge/ingestion/sync-runner").SyncRunnerDeps = {
       embeddingService,
       vectorStorage,
     };
 
     // Build SchedulerSource list from configured sources.
-    const { KnowledgeSyncScheduler } = await import("../../domain/knowledge/ingestion/scheduler");
+    const { KnowledgeSyncScheduler } = await import("@minsky/domain/knowledge/ingestion/scheduler");
 
-    const sources: import("../../domain/knowledge/ingestion/scheduler").SchedulerSource[] = [];
+    const sources: import("@minsky/domain/knowledge/ingestion/scheduler").SchedulerSource[] = [];
 
     for (const src of schedulableSources) {
       try {
         const provider = await buildProviderForSource(
-          src as import("../../domain/knowledge/types").KnowledgeSourceConfig
+          src as import("@minsky/domain/knowledge/types").KnowledgeSourceConfig
         );
         sources.push({
           name: src.name,
@@ -129,8 +129,8 @@ export async function buildAndStartScheduler(
  * Mirrors the private createProvider logic in KnowledgeService.
  */
 async function buildProviderForSource(
-  config: import("../../domain/knowledge/types").KnowledgeSourceConfig
-): Promise<import("../../domain/knowledge/types").KnowledgeSourceProvider> {
+  config: import("@minsky/domain/knowledge/types").KnowledgeSourceConfig
+): Promise<import("@minsky/domain/knowledge/types").KnowledgeSourceProvider> {
   switch (config.type) {
     case "notion": {
       const token =
@@ -146,7 +146,7 @@ async function buildProviderForSource(
         );
       }
       const notionConfig =
-        config as import("../../domain/knowledge/types").KnowledgeSourceConfig & {
+        config as import("@minsky/domain/knowledge/types").KnowledgeSourceConfig & {
           rootPageId?: string;
         };
       if (!notionConfig.rootPageId) {
@@ -155,7 +155,7 @@ async function buildProviderForSource(
         );
       }
       const { NotionKnowledgeProvider } = await import(
-        "../../domain/knowledge/providers/notion-provider"
+        "@minsky/domain/knowledge/providers/notion-provider"
       );
       return new NotionKnowledgeProvider(notionConfig.rootPageId, token, config.name, {
         excludePatterns: config.sync?.excludePatterns,
@@ -174,7 +174,7 @@ async function buildProviderForSource(
         throw new Error(`Google Docs auth credentials not found for source "${config.name}".`);
       }
 
-      let serviceAccountKey: import("../../domain/knowledge/providers/google-docs-provider").GoogleDocsProviderOptions["serviceAccountKey"];
+      let serviceAccountKey: import("@minsky/domain/knowledge/providers/google-docs-provider").GoogleDocsProviderOptions["serviceAccountKey"];
       if (serviceAccountJsonStr) {
         try {
           serviceAccountKey = JSON.parse(serviceAccountJsonStr) as typeof serviceAccountKey;
@@ -192,7 +192,7 @@ async function buildProviderForSource(
       }
 
       const { GoogleDocsKnowledgeProvider } = await import(
-        "../../domain/knowledge/providers/google-docs-provider"
+        "@minsky/domain/knowledge/providers/google-docs-provider"
       );
       return new GoogleDocsKnowledgeProvider(config.name, {
         accessToken,

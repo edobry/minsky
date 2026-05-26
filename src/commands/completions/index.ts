@@ -16,7 +16,7 @@
  * `isCompletionInvocation` in `src/cli-discriminators.ts`.
  */
 import { Command } from "commander";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * The user-facing `completions` command (install/uninstall/emit verbs).

@@ -34,7 +34,7 @@
 import { existsSync, readdirSync, statSync } from "fs";
 import { join } from "path";
 
-import { readTextFileSync } from "../utils/fs";
+import { readTextFileSync } from "@minsky/shared/fs";
 
 /**
  * Env var that, when truthy (`1`, `true`, `yes`), skips the workspace-

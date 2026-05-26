@@ -6133,6 +6133,28 @@
           "description": "Emit the fish completion script to stdout"
         }
       ]
+    },
+    {
+      "name": "ops",
+      "description": "Ops service commands — background domain loops and health endpoint",
+      "subcommands": [
+        {
+          "name": "start",
+          "description": "Start the ops service — boots the domain container and runs background loops",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "HTTP port for the health endpoint (default: 8081)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--host"],
+              "description": "HTTP host (default: 0.0.0.0)",
+              "takesValue": true
+            }
+          ]
+        }
+      ]
     }
   ],
   "options": [

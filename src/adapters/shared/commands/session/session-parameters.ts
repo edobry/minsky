@@ -5,7 +5,7 @@
  * Extracted from session.ts as part of modularization effort.
  */
 import { z } from "zod";
-import { CONVENTIONAL_COMMIT_TYPES } from "../../../../domain/git/conventional-commit-types";
+import { CONVENTIONAL_COMMIT_TYPES } from "@minsky/domain/git/conventional-commit-types";
 
 /**
  * Common parameter building blocks for session commands

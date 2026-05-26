@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { parseGlobs } from "../../../src/utils/rules-helpers";
+import { parseGlobs } from "@minsky/domain/utils/rules-helpers";
 
 describe("Rules CLI Helper Functions", () => {
   // Note: readContentFromFileIfExists tests are skipped to avoid global fs mocking

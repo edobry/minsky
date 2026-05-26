@@ -23,12 +23,12 @@ import {
   type CommandParameterMap,
   type CommandDefinition,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
-import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
-import type { VectorStorage } from "../../../../domain/storage/vector/types";
-import type { MemoryServiceSurface } from "../../../../domain/memory/memory-service";
-import type { MemoryServiceDb } from "../../../../domain/memory/memory-service";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
+import type { VectorStorage } from "@minsky/domain/storage/vector/types";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 import type {
   MemoryType,
   MemoryScope,
@@ -36,9 +36,9 @@ import type {
   MemoryCreateInput,
   MemorySearchResult,
   MemoryAssociations,
-} from "../../../../domain/memory/types";
-import { MEMORY_TYPES, MEMORY_SCOPES } from "../../../../domain/memory/types";
-import { checkDerivation } from "../../../../domain/memory/validation";
+} from "@minsky/domain/memory/types";
+import { MEMORY_TYPES, MEMORY_SCOPES } from "@minsky/domain/memory/types";
+import { checkDerivation } from "@minsky/domain/memory/validation";
 
 // ─── Zod enum helpers ────────────────────────────────────────────────────────
 
@@ -486,7 +486,7 @@ async function resolveMemoryService(
   if (deps?.createMemoryService) {
     // Provide minimal no-op stubs so factory can be called from tests
     const { MemoryVectorStorage } = await import(
-      "../../../../domain/storage/vector/memory-vector-storage"
+      "@minsky/domain/storage/vector/memory-vector-storage"
     );
     const noopEmbedding: EmbeddingService = {
       generateEmbedding: async () => [],
@@ -514,20 +514,20 @@ async function resolveMemoryService(
     : undefined;
 
   const { createEmbeddingServiceFromConfig } = await import(
-    "../../../../domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
   const embeddingService = await createEmbeddingServiceFromConfig();
 
   let vectorStorage: VectorStorage;
   if (persistence) {
     const { createVectorStorageForDomain } = await import(
-      "../../../../domain/storage/vector/vector-storage-factory"
+      "@minsky/domain/storage/vector/vector-storage-factory"
     );
     vectorStorage = await createVectorStorageForDomain("memory", 1536, persistence);
   } else {
     log.warn("[memory] No persistence provider; using in-memory vector storage");
     const { MemoryVectorStorage } = await import(
-      "../../../../domain/storage/vector/memory-vector-storage"
+      "@minsky/domain/storage/vector/memory-vector-storage"
     );
     vectorStorage = new MemoryVectorStorage(1536);
   }
@@ -542,7 +542,7 @@ async function resolveMemoryService(
     );
   }
 
-  const { PersistenceProvider } = await import("../../../../domain/persistence/types");
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
   if (!(persistence instanceof PersistenceProvider)) {
     throw new Error(
       "Memory service requires a PersistenceProvider instance; got incompatible DI binding."
@@ -565,7 +565,7 @@ async function resolveMemoryService(
 
   const db = connection as MemoryServiceDb;
 
-  const { MemoryService: MemoryServiceClass } = await import("../../../../domain/memory");
+  const { MemoryService: MemoryServiceClass } = await import("@minsky/domain/memory");
   return new MemoryServiceClass({ db, vectorStorage, embeddingService });
 }
 

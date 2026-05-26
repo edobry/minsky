@@ -5,9 +5,9 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
-import { ValidationError } from "../../../../errors/index";
-import { log } from "../../../../utils/logger";
-import { isQualifiedTaskId } from "../../../../domain/tasks/task-id";
+import { ValidationError } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
+import { isQualifiedTaskId } from "@minsky/domain/tasks/task-id";
 
 /**
  * Common interface for task command parameters
@@ -124,7 +124,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
         Array.isArray((result as Record<string, unknown>).tasks)
       ) {
         // Import formatTaskIdForDisplay locally to avoid circular dependencies
-        const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+        const { formatTaskIdForDisplay } = require("@minsky/domain/tasks/task-id-utils");
         const tasks = (result as Record<string, unknown>).tasks as Array<Record<string, unknown>>;
 
         if (tasks.length === 0) {
@@ -155,7 +155,7 @@ export abstract class BaseTaskCommand<TParams = BaseTaskParams, TResult = unknow
 
         const task = taskResult.task;
         if (task && typeof task === "object" && !Array.isArray(task)) {
-          const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+          const { formatTaskIdForDisplay } = require("@minsky/domain/tasks/task-id-utils");
           const taskObj = task as Record<string, unknown>;
           const displayId = formatTaskIdForDisplay(taskObj.id);
 

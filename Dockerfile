@@ -53,6 +53,7 @@ COPY package.json bun.lock ./
 #   so the workspaces glob skips it. The MCP server's source lives under
 #   root `src/` and is bundled directly by the `bun build` step below.
 COPY packages/shared/package.json ./packages/shared/package.json
+COPY packages/domain/package.json ./packages/domain/package.json
 COPY services/site/package.json ./services/site/package.json
 COPY services/reviewer/package.json ./services/reviewer/package.json
 COPY services/cockpit/package.json ./services/cockpit/package.json
@@ -95,6 +96,8 @@ RUN bun install --frozen-lockfile --production --ignore-scripts
 COPY tsconfig.json ./tsconfig.json
 COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
 COPY packages/shared/src ./packages/shared/src
+COPY packages/domain/tsconfig.json ./packages/domain/tsconfig.json
+COPY packages/domain/src ./packages/domain/src
 COPY .minsky/config.yaml ./.minsky/config.yaml
 COPY src ./src
 
@@ -118,7 +121,7 @@ RUN bun build --target=bun --outfile=dist/minsky.js src/cli.ts
 # loop on 2026-05-12 because the source-relative path `../../storage/...`
 # resolved outside `/app`. mt#1787's bundle-boot-smoke CI gate now catches
 # any future regression of this exact class at PR time before merge.
-RUN mkdir -p dist/storage/migrations && cp -r src/domain/storage/migrations/pg dist/storage/migrations/pg
+RUN mkdir -p dist/storage/migrations && cp -r packages/domain/src/storage/migrations/pg dist/storage/migrations/pg
 
 # Default: start MCP over HTTP with auth required. The MINSKY_MCP_AUTH_TOKEN
 # env var must be set for this to succeed. $PORT expands at container start

@@ -12,8 +12,8 @@
  * @see mt#2100 — simplify: remove skipConfigSetup
  */
 
-import { createDomainContainer } from "./domain";
-import type { AppContainerInterface } from "./types";
+import { createDomainContainer } from "@minsky/domain/composition/domain";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Create a container with real service factories for CLI usage.

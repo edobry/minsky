@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { createStartCommand } from "./start-command";
-import type { AppContainerInterface } from "../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Create the cockpit command

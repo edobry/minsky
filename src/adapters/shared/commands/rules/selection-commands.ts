@@ -7,13 +7,13 @@ import {
   type CommandDefinition,
   type CommandParameterMap,
 } from "../../command-registry";
-import { resolveWorkspacePath } from "../../../../domain/workspace";
+import { resolveWorkspacePath } from "@minsky/domain/workspace";
 import {
   enableRule,
   disableRule,
   getRulesConfig,
   getRulesPresets,
-} from "../../../../domain/rules/rules-command-operations";
+} from "@minsky/domain/rules/rules-command-operations";
 
 export function registerSelectionCommands(targetRegistry: {
   registerCommand: <T extends CommandParameterMap>(cmd: CommandDefinition<T>) => void;

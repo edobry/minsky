@@ -12,8 +12,8 @@ import type {
   MemoryRecord,
   MemoryCreateInput,
   MemorySearchResult,
-} from "../../../../domain/memory/types";
-import type { MemoryServiceSurface } from "../../../../domain/memory/memory-service";
+} from "@minsky/domain/memory/types";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 
 // ─── Command IDs ──────────────────────────────────────────────────────────────
 

@@ -36,7 +36,7 @@ import {
   RailwayApiError,
   getValidRailwayToken,
   railwayGraphQL,
-} from "../../src/domain/deployment/railway/graphql-client";
+} from "@minsky/domain/deployment/railway/graphql-client";
 
 // Re-export under historical script-side names so the existing test surface
 // (`status.test.ts` imports AuthError/ApiError from this module) keeps working.
@@ -45,7 +45,7 @@ import {
 export {
   RailwayAuthError as AuthError,
   RailwayApiError as ApiError,
-} from "../../src/domain/deployment/railway/graphql-client";
+} from "@minsky/domain/deployment/railway/graphql-client";
 
 const DEFAULT_LIMIT = 5;
 

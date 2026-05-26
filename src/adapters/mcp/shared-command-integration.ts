@@ -12,13 +12,13 @@ import {
   type CommandExecutionContext,
   type CommandParameterMap,
 } from "../shared/command-registry";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { redact } from "../../utils/redaction";
 import { z } from "zod";
-import { guardProjectSetup } from "../../domain/configuration/guard";
-import type { StrikeTracker } from "../../domain/ask/strike-tracker";
-import { normalizeErrorSignature } from "../../domain/ask/strike-tracker";
-import type { AskRepository } from "../../domain/ask/repository";
+import { guardProjectSetup } from "@minsky/domain/configuration/guard";
+import type { StrikeTracker } from "@minsky/domain/ask/strike-tracker";
+import { normalizeErrorSignature } from "@minsky/domain/ask/strike-tracker";
+import type { AskRepository } from "@minsky/domain/ask/repository";
 
 /**
  * Test whether a Zod schema accepts boolean values.
@@ -181,7 +181,7 @@ export interface McpSharedCommandConfig {
   /** Whether to enable debug logging */
   debug?: boolean;
   /** DI container — passed from MCP startup, avoids getAppContainer() Service Locator */
-  container?: import("../../composition/types").AppContainerInterface;
+  container?: import("@minsky/domain/composition/types").AppContainerInterface;
   /**
    * Optional 2-strikes tracker (mt#1464).
    * When provided, every MCP tool error increments the counter; a 2nd identical

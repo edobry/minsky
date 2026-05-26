@@ -40,12 +40,10 @@ export function createSessionGeneratePromptCommand(getDeps: LazySessionDeps): Co
     description: "Generate a complete subagent prompt for session work",
     parameters: promptCommandParams,
     execute: withErrorLogging("session.generate_prompt", async (params) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
-      const { generateSubagentPrompt } = await import(
-        "../../../../domain/session/prompt-generation"
-      );
+      const { SessionService } = await import("@minsky/domain/session/session-service");
+      const { generateSubagentPrompt } = await import("@minsky/domain/session/prompt-generation");
       const { resolveSessionDirectory } = await import(
-        "../../../../domain/session/resolve-session-directory"
+        "@minsky/domain/session/resolve-session-directory"
       );
 
       const deps = await getDeps();

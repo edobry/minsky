@@ -15,11 +15,11 @@ import { z } from "zod";
 import { composeParams, CommonParameters } from "../../common-parameters";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { CommandParameterMap } from "../../schema-bridge";
-import { parseTwitterArchive } from "../../../../domain/principal-corpus/tweet-archive-parser";
-import { createPrincipalCorpusService } from "../../../../domain/principal-corpus/principal-corpus-service";
-import { classifyAndFilterTweets } from "../../../../domain/principal-corpus/relevance-filter";
+import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
+import { createPrincipalCorpusService } from "@minsky/domain/principal-corpus/principal-corpus-service";
+import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevance-filter";
 import { resolvePersistenceFromCtx } from "../principal-corpus";
-import type { TweetRecord } from "../../../../domain/principal-corpus/types";
+import type { TweetRecord } from "@minsky/domain/principal-corpus/types";
 import { readFileSync, existsSync, writeFileSync } from "fs";
 
 export interface PrincipalCorpusIndexEmbeddingsParams {
@@ -101,7 +101,7 @@ export class PrincipalCorpusIndexEmbeddingsCommand {
     skipped: number;
     failed: number;
   }> {
-    const { log } = await import("../../../../utils/logger");
+    const { log } = await import("@minsky/shared/logger");
     const isJson = Boolean(params.json) || ctx.format === "json";
 
     if (!isJson) log.cli(`[principal-corpus] parsing ${params.archivePath}...`);

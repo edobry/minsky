@@ -26,8 +26,8 @@ import type { SseClient, SseEvent } from "./sse-broker";
 import {
   PostgresChannelListener,
   createNoopChannelListener,
-} from "../domain/mesh/postgres-channel-listener";
-import { log } from "../utils/logger";
+} from "@minsky/domain/mesh/postgres-channel-listener";
+import { log } from "@minsky/shared/logger";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -44,14 +44,16 @@ const INDEX_HTML = path.join(WEB_DIST_DIR, "index.html");
 export interface CredentialModuleOverride {
   getCredentialProvider: (id: string) =>
     | {
-        validate: (token: string) => Promise<import("../domain/credentials").CredentialCheckResult>;
+        validate: (
+          token: string
+        ) => Promise<import("@minsky/domain/credentials").CredentialCheckResult>;
       }
     | undefined;
   addCredential: (
     provider: string,
     token: string
-  ) => Promise<import("../domain/credentials").AddCredentialResult>;
-  listCredentials: () => Promise<import("../domain/credentials").CredentialListing[]>;
+  ) => Promise<import("@minsky/domain/credentials").AddCredentialResult>;
+  listCredentials: () => Promise<import("@minsky/domain/credentials").CredentialListing[]>;
   removeCredential: (provider: string) => Promise<{ removed: boolean }>;
 }
 
@@ -65,7 +67,7 @@ export interface CockpitServerOptions {
    * When absent, the server lazily initialises a DrizzleAskRepository from
    * the default PersistenceService (same pattern as attention.ts).
    */
-  overrideAskRepository?: import("../domain/ask/repository").AskRepository;
+  overrideAskRepository?: import("@minsky/domain/ask/repository").AskRepository;
   /**
    * Override the SseBroker used by the /api/events endpoint (used in tests).
    * When absent, the server lazily initialises a real broker backed by a
@@ -128,15 +130,15 @@ async function getContextInspectorDb(): Promise<
 // AskRepository lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 
-let _cachedServerAskRepo: import("../domain/ask/repository").AskRepository | null = null;
+let _cachedServerAskRepo: import("@minsky/domain/ask/repository").AskRepository | null = null;
 
 async function getServerAskRepository(): Promise<
-  import("../domain/ask/repository").AskRepository | null
+  import("@minsky/domain/ask/repository").AskRepository | null
 > {
   if (_cachedServerAskRepo) return _cachedServerAskRepo;
   try {
     const { getSharedPersistenceService } = await import("./shared-persistence");
-    const { DrizzleAskRepository } = await import("../domain/ask/repository");
+    const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
     const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
     if (
@@ -162,20 +164,21 @@ async function getServerAskRepository(): Promise<
 // ---------------------------------------------------------------------------
 
 interface TaskDetailDeps {
-  taskService: import("../domain/tasks/taskService").TaskServiceInterface;
-  taskGraphService: import("../domain/tasks/task-graph-service").TaskGraphService;
+  taskService: import("@minsky/domain/tasks/taskService").TaskServiceInterface;
+  taskGraphService: import("@minsky/domain/tasks/task-graph-service").TaskGraphService;
 }
 
-let _cachedTaskService: import("../domain/tasks/taskService").TaskServiceInterface | null = null;
+let _cachedTaskService: import("@minsky/domain/tasks/taskService").TaskServiceInterface | null =
+  null;
 let _cachedTaskDetailDeps: TaskDetailDeps | null = null;
 
 async function getServerTaskService(): Promise<
-  import("../domain/tasks/taskService").TaskServiceInterface | null
+  import("@minsky/domain/tasks/taskService").TaskServiceInterface | null
 > {
   if (_cachedTaskService) return _cachedTaskService;
   try {
     const { getSharedPersistenceService } = await import("./shared-persistence");
-    const { createConfiguredTaskService } = await import("../domain/tasks/taskService");
+    const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
     const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
     const taskService = await createConfiguredTaskService({
@@ -197,8 +200,8 @@ async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
   if (_cachedTaskDetailDeps) return _cachedTaskDetailDeps;
   try {
     const { getSharedPersistenceService } = await import("./shared-persistence");
-    const { createConfiguredTaskService } = await import("../domain/tasks/taskService");
-    const { TaskGraphService } = await import("../domain/tasks/task-graph-service");
+    const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
+    const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
     const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
@@ -209,7 +212,7 @@ async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
     });
 
     const sqlProvider =
-      provider as import("../domain/persistence/types").SqlCapablePersistenceProvider;
+      provider as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
     const db = await sqlProvider.getDatabaseConnection?.();
     if (!db) return null;
 
@@ -514,7 +517,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
 
       const { taskService, taskGraphService } = taskDetailDeps;
-      const { formatTaskIdForDisplay } = await import("../domain/tasks/task-id-utils");
+      const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
 
       // Fetch task metadata and spec in parallel — they don't depend on each other
       const [taskResult, specResult] = await Promise.allSettled([
@@ -636,7 +639,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         });
         return;
       }
-      const { formatTaskIdForDisplay } = await import("../domain/tasks/task-id-utils");
+      const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
       const tasks = await taskService.listTasks({});
       const taskList = tasks.slice(0, 500).map((t) => ({
         id: formatTaskIdForDisplay(t.id),
@@ -786,7 +789,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
 
-      const { listEvents } = await import("../domain/events/query");
+      const { listEvents } = await import("@minsky/domain/events/query");
       const eventType =
         typeof req.query["eventType"] === "string" ? req.query["eventType"] : undefined;
       const limitParam =
@@ -795,7 +798,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
 
       const events = await listEvents(db, {
         eventType: eventType as
-          | import("../domain/storage/schemas/system-events-schema").SystemEventType
+          | import("@minsky/domain/storage/schemas/system-events-schema").SystemEventType
           | undefined,
         limit,
       });
@@ -831,8 +834,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
 
-      const { isTerminal } = await import("../domain/ask/state-machine");
-      const { compareAskPriority } = await import("../domain/ask/pending-asks-for-window");
+      const { isTerminal } = await import("@minsky/domain/ask/state-machine");
+      const { compareAskPriority } = await import("@minsky/domain/ask/pending-asks-for-window");
 
       const suspended = await repo.listByState("suspended");
       const operatorAsks = suspended.filter(
@@ -988,7 +991,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         responder: (body.responder ?? "operator") as "operator",
         payload: (body.payload ?? {}) as Record<string, unknown>,
         attentionCost: body.attentionCost as
-          | import("../domain/ask/types").AttentionCost
+          | import("@minsky/domain/ask/types").AttentionCost
           | undefined,
       };
 
@@ -1098,7 +1101,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     }
 
     try {
-      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credMod = credModuleOverride ?? (await import("@minsky/domain/credentials"));
       const credentialProvider = credMod.getCredentialProvider(provider);
       if (!credentialProvider) {
         credentialError(res, 400, "unknown_provider", `Unknown credential provider: ${provider}.`);
@@ -1148,7 +1151,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     }
 
     try {
-      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credMod = credModuleOverride ?? (await import("@minsky/domain/credentials"));
       const credentialProvider = credMod.getCredentialProvider(provider);
       if (!credentialProvider) {
         credentialError(res, 400, "unknown_provider", `Unknown credential provider: ${provider}.`);
@@ -1187,7 +1190,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    */
   app.get("/api/credentials", async (_req, res) => {
     try {
-      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credMod = credModuleOverride ?? (await import("@minsky/domain/credentials"));
       const credentials = await credMod.listCredentials();
       res.json({ credentials });
     } catch (err) {
@@ -1215,7 +1218,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     }
 
     try {
-      const credMod = credModuleOverride ?? (await import("../domain/credentials"));
+      const credMod = credModuleOverride ?? (await import("@minsky/domain/credentials"));
       const credentialProvider = credMod.getCredentialProvider(providerId);
       if (!credentialProvider) {
         credentialError(
@@ -1306,7 +1309,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
 
       const { assembleSessionContextSnapshot } = await import(
-        "../domain/transcripts/session-context-snapshot"
+        "@minsky/domain/transcripts/session-context-snapshot"
       );
       const snapshot = await assembleSessionContextSnapshot(db, sessionId);
 

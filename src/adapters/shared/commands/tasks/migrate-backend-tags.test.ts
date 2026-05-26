@@ -10,7 +10,7 @@
 
 import { describe, it, expect, mock, beforeEach } from "bun:test";
 import { TasksMigrateBackendCommand } from "./migrate-backend-command";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 describe("Migration Tag Preservation (mt#758 regression)", () => {
   const SOURCE_TASK = {

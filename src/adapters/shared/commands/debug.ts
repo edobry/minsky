@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
 

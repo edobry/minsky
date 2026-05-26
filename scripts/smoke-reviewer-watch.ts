@@ -32,11 +32,11 @@ import {
   MissedReviewDedupState,
   runReviewerWatchCycle,
   type ReviewerWatchConfig,
-} from "../src/domain/reviewer-watch";
+} from "@minsky/domain/reviewer-watch";
 import { makeProductionMissedReviewClient } from "../src/adapters/shared/commands/reviewer-watch-github-client";
-import { createTokenProvider } from "../src/domain/auth";
-import type { OperatorNotify } from "../src/domain/notify/operator-notify";
-import { getConfiguration } from "../src/domain/configuration/index";
+import { createTokenProvider } from "@minsky/domain/auth";
+import type { OperatorNotify } from "@minsky/domain/notify/operator-notify";
+import { getConfiguration } from "@minsky/domain/configuration/index";
 
 class NoopOperatorNotify implements OperatorNotify {
   bellCalls = 0;

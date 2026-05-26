@@ -3,7 +3,7 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerGitCommandsWithMcp } from "./shared-command-integration";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers git tools with the MCP command mapper
@@ -23,7 +23,7 @@ import { log } from "../../utils/logger";
  */
 export function registerGitTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug("Registering git commands via shared command integration");
 

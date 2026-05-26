@@ -4,7 +4,7 @@
  * Handles human-readable output of analysis results and CSV export.
  */
 
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import type {
   GenerateOptions,
   AnalysisResult,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { composeConventionalTitle, stripTaskIdPrefix } from "./pr-conventional-title";
-import { ValidationError } from "../../../../errors";
+import { ValidationError } from "@minsky/domain/errors";
 
 // Shared expected output for the mt#1265 stripping tests
 const EXPECTED_MT1265_FEAT_FOO = "feat(mt#1265): foo";

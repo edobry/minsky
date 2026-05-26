@@ -15,7 +15,7 @@
 import "reflect-metadata";
 import { readFileSync, existsSync } from "fs";
 import { setupConfiguration } from "../../src/config-setup";
-import type { MemeplexEntry } from "../../src/domain/principal-corpus/memeplex-synthesizer";
+import type { MemeplexEntry } from "@minsky/domain/principal-corpus/memeplex-synthesizer";
 
 const MEMEPLEX_IN = "tmp/principal-corpus-memeplexes.json";
 
@@ -42,7 +42,7 @@ async function main() {
     process.exit(2);
   }
 
-  const { resolvePersistenceProvider } = await import("../../src/domain/persistence/factory");
+  const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
   const persistence = await resolvePersistenceProvider();
   if (!persistence) {
     throw new Error("Could not resolve persistence provider — check config and DB availability");
@@ -62,15 +62,15 @@ async function main() {
     throw new Error("Could not obtain DB connection from persistence provider");
   }
 
-  const { MemoryService } = await import("../../src/domain/memory/memory-service");
+  const { MemoryService } = await import("@minsky/domain/memory/memory-service");
   const { createEmbeddingServiceFromConfig } = await import(
-    "../../src/domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
   const { createMemoryVectorStorageFromConfig } = await import(
-    "../../src/domain/storage/vector/vector-storage-factory"
+    "@minsky/domain/storage/vector/vector-storage-factory"
   );
-  const { getEmbeddingDimension } = await import("../../src/domain/ai/embedding-models");
-  const { getConfiguration } = await import("../../src/domain/configuration");
+  const { getEmbeddingDimension } = await import("@minsky/domain/ai/embedding-models");
+  const { getConfiguration } = await import("@minsky/domain/configuration");
 
   const cfg = getConfiguration();
   const cfgRecord = cfg as Record<string, unknown>;

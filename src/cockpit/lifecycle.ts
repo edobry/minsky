@@ -18,7 +18,7 @@
 
 import fs from "fs";
 import path from "path";
-import { getMinskyStateDir, getSessionsDir } from "../utils/paths";
+import { getMinskyStateDir, getSessionsDir } from "@minsky/shared/paths";
 
 // ---------------------------------------------------------------------------
 // State directory

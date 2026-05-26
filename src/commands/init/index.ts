@@ -7,7 +7,7 @@
  */
 import { Command } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 export function createInitCommand(): Command {
   const cmd = new Command("init");

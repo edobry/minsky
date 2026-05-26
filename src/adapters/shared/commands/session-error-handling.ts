@@ -5,8 +5,8 @@
  * extracted from the main session commands file for better organization.
  */
 
-import { MinskyError } from "../../../errors/index";
-import { getErrorMessage } from "../../../errors/index";
+import { MinskyError } from "@minsky/domain/errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * Handle session PR command errors with user-friendly messages

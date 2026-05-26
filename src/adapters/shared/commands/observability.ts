@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
-import { getErrorMessage } from "../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * Read a config value with a fallback. Returns the fallback when the path
@@ -52,7 +52,7 @@ export function registerObservabilityCommands(): void {
     },
     async execute(params, _ctx) {
       try {
-        const { getConfigurationProvider } = await import("../../../domain/configuration/index");
+        const { getConfigurationProvider } = await import("@minsky/domain/configuration/index");
         const provider = getConfigurationProvider();
 
         const apiKeyPath = "observability.providers.braintrust.apiKey";

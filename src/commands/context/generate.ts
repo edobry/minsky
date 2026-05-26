@@ -6,13 +6,13 @@
  */
 
 import { Command } from "commander";
-import { log } from "../../utils/logger";
-import { TaskStatus } from "../../domain/tasks/taskConstants";
+import { log } from "@minsky/shared/logger";
+import { TaskStatus } from "@minsky/domain/tasks/taskConstants";
 import {
   getContextComponentRegistry,
   registerDefaultComponents,
   getComponentHelp,
-} from "../../domain/context/components/index";
+} from "@minsky/domain/context/components/index";
 
 import type {
   GenerateRequest,

@@ -15,7 +15,7 @@ import { describe, test, expect } from "bun:test";
 import * as crypto from "crypto";
 import * as path from "path";
 import { runImport, type FsAdapter } from "../../scripts/import-claude-code-memory";
-import type { MemoryServiceSurface } from "../../src/domain/memory/memory-service";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import type {
   MemoryRecord,
   MemoryCreateInput,
@@ -23,7 +23,7 @@ import type {
   MemorySearchResponse,
   MemoryListFilter,
   MemorySearchOptions,
-} from "../../src/domain/memory/types";
+} from "@minsky/domain/memory/types";
 
 // ─── Fake MemoryServiceSurface ────────────────────────────────────────────────
 

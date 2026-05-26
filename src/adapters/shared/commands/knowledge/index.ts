@@ -17,10 +17,10 @@ import {
   type CommandParameterMap,
   type CommandDefinition,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
-import type { EmbeddingService } from "../../../../domain/ai/embeddings/types";
-import type { VectorStorage } from "../../../../domain/storage/vector/types";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { EmbeddingService } from "@minsky/domain/ai/embeddings/types";
+import type { VectorStorage } from "@minsky/domain/storage/vector/types";
 import type {
   KnowledgeSourceConfig,
   SyncReport,
@@ -28,17 +28,17 @@ import type {
   ChunkResult,
   ChunkFreshness,
   ChunkId,
-} from "../../../../domain/knowledge/types";
-import type { KnowledgeService } from "../../../../domain/knowledge/knowledge-service";
-import { classifyFreshness } from "../../../../domain/knowledge/reconciliation/freshness";
-import { rankByAuthority } from "../../../../domain/knowledge/reconciliation/authority-ranker";
-import { buildRedundanciesFromMetadata } from "../../../../domain/knowledge/reconciliation/redundancy-reader";
+} from "@minsky/domain/knowledge/types";
+import type { KnowledgeService } from "@minsky/domain/knowledge/knowledge-service";
+import { classifyFreshness } from "@minsky/domain/knowledge/reconciliation/freshness";
+import { rankByAuthority } from "@minsky/domain/knowledge/reconciliation/authority-ranker";
+import { buildRedundanciesFromMetadata } from "@minsky/domain/knowledge/reconciliation/redundancy-reader";
 import {
   AnthropicNliClassifier,
   detectConflicts,
   type NliClassifier,
   type ClassifiableChunk,
-} from "../../../../domain/knowledge/reconciliation/conflicts";
+} from "@minsky/domain/knowledge/reconciliation/conflicts";
 
 // ─── Parameter shapes ────────────────────────────────────────────────────────
 
@@ -187,7 +187,7 @@ export function registerKnowledgeCommands(
       } else {
         // Create real embedding service from config
         const { createEmbeddingServiceFromConfig } = await import(
-          "../../../../domain/ai/embedding-service-factory"
+          "@minsky/domain/ai/embedding-service-factory"
         );
         const embeddingService = await createEmbeddingServiceFromConfig();
         embeddingFn = embeddingService.generateEmbedding.bind(embeddingService);
@@ -208,7 +208,7 @@ export function registerKnowledgeCommands(
           const cfg = await deps.getConfig();
           reconciliationConfig = cfg.knowledgeReconciliation;
         } else {
-          const { getConfiguration } = await import("../../../../domain/configuration");
+          const { getConfiguration } = await import("@minsky/domain/configuration");
           const cfg = getConfiguration();
           reconciliationConfig = (cfg as { knowledgeReconciliation?: typeof reconciliationConfig })
             .knowledgeReconciliation;
@@ -270,7 +270,7 @@ export function registerKnowledgeCommands(
         }
         // Otherwise: deps provided but nliClassifier not set → skip NLI (test path)
 
-        let conflicts: import("../../../../domain/knowledge/types").ChunkConflict[] = [];
+        let conflicts: import("@minsky/domain/knowledge/types").ChunkConflict[] = [];
         if (nliClassifier && chunks.length >= 2) {
           const classifiableChunks: ClassifiableChunk[] = chunks.map((c) => ({
             id: c.id,
@@ -347,7 +347,7 @@ export function registerKnowledgeCommands(
       if (getConfig) {
         config = await getConfig();
       } else {
-        const { getConfiguration } = await import("../../../../domain/configuration");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const cfg = getConfiguration();
         config = { knowledgeBases: (cfg.knowledgeBases as KnowledgeSourceConfig[]) ?? [] };
       }
@@ -362,13 +362,13 @@ export function registerKnowledgeCommands(
 
       // Create a minimal EmbeddingService and VectorStorage to satisfy KnowledgeService deps,
       // then use it only for provider creation (fetch does not need embeddings).
-      const { KnowledgeService } = await import("../../../../domain/knowledge/knowledge-service");
+      const { KnowledgeService } = await import("@minsky/domain/knowledge/knowledge-service");
       const noopEmbeddingService: EmbeddingService = {
         generateEmbedding: async () => [],
         generateEmbeddings: async () => [],
       };
       const { MemoryVectorStorage } = await import(
-        "../../../../domain/storage/vector/memory-vector-storage"
+        "@minsky/domain/storage/vector/memory-vector-storage"
       );
       const noopVectorStorage = new MemoryVectorStorage(1);
 
@@ -411,7 +411,7 @@ export function registerKnowledgeCommands(
           );
         }
         const { NotionKnowledgeProvider } = await import(
-          "../../../../domain/knowledge/providers/notion-provider"
+          "@minsky/domain/knowledge/providers/notion-provider"
         );
         provider = new NotionKnowledgeProvider(notionConfig.rootPageId, token, sourceConfig.name, {
           excludePatterns: sourceConfig.sync?.excludePatterns,
@@ -452,7 +452,7 @@ export function registerKnowledgeCommands(
       if (getConfig) {
         config = await getConfig();
       } else {
-        const { getConfiguration } = await import("../../../../domain/configuration");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const cfg = getConfiguration();
         config = { knowledgeBases: (cfg.knowledgeBases as KnowledgeSourceConfig[]) ?? [] };
       }
@@ -484,7 +484,7 @@ export function registerKnowledgeCommands(
       if (getConfig) {
         config = await getConfig();
       } else {
-        const { getConfiguration } = await import("../../../../domain/configuration");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const cfg = getConfiguration();
         config = { knowledgeBases: (cfg.knowledgeBases as KnowledgeSourceConfig[]) ?? [] };
       }
@@ -494,7 +494,7 @@ export function registerKnowledgeCommands(
       if (createKnowledgeServiceFn) {
         // Use injected factory (test path — skip real service creation)
         const { MemoryVectorStorage } = await import(
-          "../../../../domain/storage/vector/memory-vector-storage"
+          "@minsky/domain/storage/vector/memory-vector-storage"
         );
         const noopEmbed: EmbeddingService = {
           generateEmbedding: async () => [],
@@ -508,7 +508,7 @@ export function registerKnowledgeCommands(
       } else {
         // Create real services
         const { createEmbeddingServiceFromConfig } = await import(
-          "../../../../domain/ai/embedding-service-factory"
+          "@minsky/domain/ai/embedding-service-factory"
         );
         const embeddingService = await createEmbeddingServiceFromConfig();
 
@@ -520,19 +520,19 @@ export function registerKnowledgeCommands(
 
         if (persistence) {
           const { createVectorStorageForDomain } = await import(
-            "../../../../domain/storage/vector/vector-storage-factory"
+            "@minsky/domain/storage/vector/vector-storage-factory"
           );
           vectorStorage = await createVectorStorageForDomain("knowledge", 1536, persistence);
         } else {
           log.warn("[knowledge.sync] No persistence provider; using in-memory vector storage");
           const { MemoryVectorStorage } = await import(
-            "../../../../domain/storage/vector/memory-vector-storage"
+            "@minsky/domain/storage/vector/memory-vector-storage"
           );
           vectorStorage = new MemoryVectorStorage(1536);
         }
 
         const { KnowledgeService: KnowledgeServiceClass } = await import(
-          "../../../../domain/knowledge/knowledge-service"
+          "@minsky/domain/knowledge/knowledge-service"
         );
         service = new KnowledgeServiceClass({ embeddingService, vectorStorage, config });
       }

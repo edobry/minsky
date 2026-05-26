@@ -13,7 +13,7 @@ import {
   buildSubprocessFailurePayload,
   SUBPROCESS_OUTPUT_TRUNCATE_LIMIT,
 } from "./workflow-commands";
-import { McpErrorCode } from "../../../../errors/mcp-error-codes";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
 
 const SUMMARY_CONTRACT_MAX = 120;
 

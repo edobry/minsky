@@ -5,11 +5,11 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrChecksCommandParams } from "./session-parameters";
-import { sessionPrChecks } from "../../../../domain/session/commands/pr-subcommands";
-import type { CheckRunResult } from "../../../../domain/repository/github-pr-checks";
+import { sessionPrChecks } from "@minsky/domain/session/commands/pr-subcommands";
+import type { CheckRunResult } from "@minsky/domain/repository/github-pr-checks";
 
 // ── Formatting helpers ───────────────────────────────────────────────────
 

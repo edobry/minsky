@@ -4,7 +4,7 @@
  * Handles chart rendering (bar, pie, tree) and detailed breakdowns.
  */
 
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { safeTruncate } from "../../utils/safe-truncate.ts";
 import type {
   GenerateOptions,

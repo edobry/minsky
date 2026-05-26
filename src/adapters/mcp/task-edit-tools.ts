@@ -10,7 +10,7 @@
  */
 import { z } from "zod";
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { countOccurrences } from "./session-edit-tools";
 
 // ========================
@@ -71,7 +71,7 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
 
 export function registerTaskEditTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   // Marker-based spec patching — lazy handler (mt#1792)
   commandMapper.addCommand({
@@ -104,15 +104,15 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         { autoIndexTaskEmbedding },
         { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
-        import("../../domain/tasks"),
-        import("../../domain/ai/edit-pattern-service"),
+        import("@minsky/domain/tasks"),
+        import("@minsky/domain/ai/edit-pattern-service"),
         import("../shared/commands/tasks/auto-index-embedding"),
-        import("../../domain/schemas"),
+        import("@minsky/domain/schemas"),
       ]);
 
       function getTaskDeps(
-        c?: import("../../composition/types").AppContainerInterface
-      ): import("../../domain/tasks").TaskServiceDeps {
+        c?: import("@minsky/domain/composition/types").AppContainerInterface
+      ): import("@minsky/domain/tasks").TaskServiceDeps {
         if (c?.has("persistence")) {
           return {
             persistenceProvider: c.get("persistence"),
@@ -246,14 +246,14 @@ Make all edits to a task spec in a single call instead of multiple calls to the 
         { autoIndexTaskEmbedding },
         { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
-        import("../../domain/tasks"),
+        import("@minsky/domain/tasks"),
         import("../shared/commands/tasks/auto-index-embedding"),
-        import("../../domain/schemas"),
+        import("@minsky/domain/schemas"),
       ]);
 
       function getTaskDeps(
-        c?: import("../../composition/types").AppContainerInterface
-      ): import("../../domain/tasks").TaskServiceDeps {
+        c?: import("@minsky/domain/composition/types").AppContainerInterface
+      ): import("@minsky/domain/tasks").TaskServiceDeps {
         if (c?.has("persistence")) {
           return {
             persistenceProvider: c.get("persistence"),

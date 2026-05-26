@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { CommandCategory, defineCommand } from "../../command-registry";
 import { CommonParameters, ConfigParameters, composeParams } from "../../common-parameters";
 
@@ -42,7 +42,7 @@ export const configValidateRegistration = defineCommand({
   }),
   execute: async (params, _ctx) => {
     const { getConfigurationProvider, validateConfiguration } = await import(
-      "../../../../domain/configuration/index"
+      "@minsky/domain/configuration/index"
     );
     const provider = getConfigurationProvider();
     const validationResult = validateConfiguration();
@@ -88,9 +88,9 @@ export const configDoctorRegistration = defineCommand({
     // Perform lightweight diagnostics without external calls
     const diagnostics: Array<{ check: string; status: string; message: string }> = [];
     const { getConfigurationProvider, validateConfiguration } = await import(
-      "../../../../domain/configuration/index"
+      "@minsky/domain/configuration/index"
     );
-    const { getUserConfigDir } = await import("../../../../domain/configuration/sources/user");
+    const { getUserConfigDir } = await import("@minsky/domain/configuration/sources/user");
     const { existsSync, writeFileSync, unlinkSync } = await import("fs");
     const { join } = await import("path");
 
@@ -197,7 +197,7 @@ export const configDoctorRegistration = defineCommand({
         });
       } else {
         const { createEmbeddingServiceFromConfig } = await import(
-          "../../../../domain/ai/embedding-service-factory"
+          "@minsky/domain/ai/embedding-service-factory"
         );
         const embeddingService = await createEmbeddingServiceFromConfig();
         await embeddingService.generateEmbedding("test");
@@ -229,7 +229,7 @@ export const configDoctorRegistration = defineCommand({
       const provider = ctx.container?.has("persistence")
         ? (ctx.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").PersistenceProvider)
+          ) as import("@minsky/domain/persistence/types").PersistenceProvider)
         : null;
       if (provider) {
         if (provider.capabilities.sql) {

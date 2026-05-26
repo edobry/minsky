@@ -1,0 +1,25 @@
+{
+  "name": "@minsky/domain",
+  "version": "0.1.0",
+  "description": "Minsky domain layer — core business logic, independent of interface concerns.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./auth": "./src/auth/index.ts",
+    "./configuration": "./src/configuration/index.ts",
+    "./credentials": "./src/credentials/index.ts",
+    "./deployment": "./src/deployment/index.ts",
+    "./errors": "./src/errors/index.ts",
+    "./memory": "./src/memory/index.ts",
+    "./provenance": "./src/provenance/index.ts",
+    "./reviewer-watch": "./src/reviewer-watch/index.ts",
+    "./schemas": "./src/schemas/index.ts",
+    "./session": "./src/session/index.ts",
+    "./setup/github-app": "./src/setup/github-app/index.ts",
+    "./tasks": "./src/tasks/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@minsky/shared": "workspace:*"
+  }
+}

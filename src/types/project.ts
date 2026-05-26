@@ -4,9 +4,9 @@
  */
 
 import path from "path";
-import type { SyncFsLike } from "../domain/interfaces/fs-like";
-import { createRealSyncFs } from "../domain/interfaces/fs-like";
-import { log } from "../utils/logger";
+import type { SyncFsLike } from "@minsky/domain/interfaces/fs-like";
+import { createRealSyncFs } from "@minsky/domain/interfaces/fs-like";
+import { log } from "@minsky/shared/logger";
 
 /**
  * ProjectContext represents the context information for a Minsky project.

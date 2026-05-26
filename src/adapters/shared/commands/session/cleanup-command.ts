@@ -22,11 +22,11 @@ export function createSessionCleanupCommand(getDeps: LazySessionDeps): CommandDe
         identifyFilesystemOrphanDirs,
         parseDuration,
         sessionHasUncommittedChanges,
-      } = await import("../../../../domain/session/session-cleanup");
+      } = await import("@minsky/domain/session/session-cleanup");
       const { deleteSessionImpl } = await import(
-        "../../../../domain/session/session-lifecycle-operations"
+        "@minsky/domain/session/session-lifecycle-operations"
       );
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       const { existsSync, rmSync } = await import("node:fs");
 
       const deps = await getDeps();
