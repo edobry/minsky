@@ -68,6 +68,12 @@ export const taskCreationParams = {
       "Tags/labels for thematic batching (can be repeated, e.g., --tag di-cleanup --tag test-quality)",
     required: false,
   },
+  kind: {
+    schema: z.string().optional(),
+    description:
+      "Workflow kind for the task (e.g., 'implementation', 'umbrella'). Defaults to 'implementation'.",
+    required: false,
+  },
 };
 
 /**
@@ -159,6 +165,12 @@ export const taskEditParams = {
     schema: z.union([z.string(), z.array(z.string())]).optional(),
     description:
       "Set tags (replaces existing tags, can be repeated, e.g., --tag di-cleanup --tag test-quality)",
+    required: false,
+  },
+  kind: {
+    schema: z.string().optional(),
+    description:
+      "Reclassify the task's workflow kind (e.g., 'implementation', 'umbrella'). Validated against the workflow registry.",
     required: false,
   },
   execute: {
