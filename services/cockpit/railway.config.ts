@@ -3,17 +3,16 @@
 //   bun scripts/railway/apply.ts services/cockpit            # dry-run
 //   bun scripts/railway/apply.ts services/cockpit --execute  # apply
 //
-// PLACEHOLDER IDs: projectId / environmentId / serviceId below are
-// placeholders. Replace with real values after creating the Railway project
-// and service. The synthesizer fails fast on unknown IDs, so incorrect
-// values are loud.
+// Resource IDs below are for the `cockpit-preview` Railway project in
+// workspace `Eugene Dobry's Projects`. The synthesizer fails fast on
+// unknown IDs, so a typo is loud, not silent. If the service is ever
+// recreated, update all three values together.
 import { defineRailwayConfig, secret } from "../../scripts/railway/lib";
 
 export default defineRailwayConfig({
-  // TODO(mt#2096): replace with real Railway resource IDs after project creation
-  projectId: "PLACEHOLDER_PROJECT_ID",
-  environmentId: "PLACEHOLDER_ENVIRONMENT_ID",
-  serviceId: "PLACEHOLDER_SERVICE_ID",
+  projectId: "62db6727-ed10-415e-afc5-7188c9983c81",
+  environmentId: "cc3d2bc3-13cc-4061-9633-cd58f48dc3fe",
+  serviceId: "83273eef-b451-42af-b3e4-7e1c42b8bb50",
   variables: {
     // Read-only Supabase connection string — uses a dedicated DB role with
     // SELECT-only permissions. Defense-in-depth data layer paired with the
