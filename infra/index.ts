@@ -31,9 +31,7 @@ const minskyMcpServiceId = "a7c5195f-55de-472a-87e4-34e921a15171";
 export const minskyMcpService = new railway.Service("minsky-mcp", {
   projectId: minskyMcpProject,
   name: "minsky-mcp",
-  sourceRepo: "edobry/minsky",
-  sourceRepoBranch: "main",
-  rootDirectory: "/",
+  sourceImage: "ghcr.io/edobry/minsky:latest",
 });
 
 defineVariables("minsky-mcp", minskyMcpEnv, minskyMcpServiceId, {
