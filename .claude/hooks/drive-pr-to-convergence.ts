@@ -2,41 +2,30 @@
 // PostToolUse hook on `mcp__minsky__session_pr_create`: when PR creation
 // succeeds, inject an `additionalContext` reminder that the agent's required
 // next action is to drive the PR to convergence (via `session_pr_wait-for-review`
-// or a Chinese-wall reviewer subagent on webhook-miss) — NOT to end the turn
+// with `minsky-reviewer[bot]` as the review surface) — NOT to end the turn
 // with deferral language like "ping me when done" / "let me know when ready."
 //
 // Originating incidents:
 //   - 2026-05-12 PR #1076 (mt#1791): agent ended turn with "ping me to wire
 //     the SDK once merged and you've set the key." User had to poke.
 //   - 2026-04-22 PR #677 (mt#1057): agent created PR and ended turn without
-//     invoking /review-pr; required user-initiated correction. Originated
-//     mt#1066's `require-review-after-pr-create.ts` proposal (PR #684,
-//     superseded by this hook).
+//     driving to convergence; required user-initiated correction.
+//   - 2026-05-26 PRs #1298, #1304, #1313: agent proactively dispatched
+//     Chinese-wall reviewer subagents instead of waiting for the bot.
+//     Retrospective: the old hook text instructed "/review-pr" as fallback.
 //
 // This hook is the structural escalation of two adjacent corpus rules:
-//   - `decision-defaults.mdc §User does not review PRs in the loop` —
-//     drives the rule that the agent (not the user) is responsible for
-//     PR convergence
-//   - The "Slow-ask variant" under that section (added 2026-05-12 R4) —
-//     "ping me when done" / "let me know when ready" is the same anti-
-//     pattern as "ready for your review", just deferred in time
-//
-// Both rules failed memory-tier and corpus-tier enforcement (the rules
-// were loaded into context when the violating turns happened). Per the
-// retrospective skill's escalation policy, the tier escalates to hook.
+//   - `decision-defaults.mdc §User does not review PRs in the loop`
+//   - The "Slow-ask variant" under that section (added 2026-05-12 R4)
 //
 // The hook is INFORMATIONAL — it injects guidance, does NOT block any
 // tool call. Failure paths and non-matching tools exit silently.
 //
-// Supersedes the abandoned mt#1066 / PR #684 (`require-review-after-pr-create.ts`)
-// which addressed a narrower slice (/review-pr only). This hook's reminder
-// covers both /review-pr-as-fallback and the broader drive-to-convergence
-// discipline.
-//
-// @see mt#1793 — this task
-// @see mt#1066 / PR #684 — superseded predecessor
+// @see mt#1793 — original task
+// @see mt#2122 — updated to remove /review-pr fallback (2026-05-26)
 // @see decision-defaults.mdc §User does not review PRs in the loop
 // @see feedback_drive_pr_to_convergence_dont_end_on_ping_me — bridge memory
+// @see memory 5695cd2b — never dispatch reviewer subagents in convergence loop
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
@@ -45,9 +34,11 @@ import type { ToolHookInput, HookOutput } from "./types";
  * The reminder injected into the agent's next context after `session_pr_create`
  * succeeds. The text encodes the discipline at three levels:
  *
- *   1. Required next action (positive): `session_pr_wait-for-review` or
- *      reviewer subagent on webhook-miss.
- *   2. Forbidden behavior (negative): deferral language as turn-closing.
+ *   1. Required next action (positive): `session_pr_wait-for-review` with
+ *      `minsky-reviewer[bot]`. On webhook-miss: empty commit wake, re-wait,
+ *      then bypass merge.
+ *   2. Forbidden behavior (negative): deferral language as turn-closing,
+ *      and dispatching reviewer subagents.
  *   3. Reference to the corpus rules so the agent can re-read them on the
  *      next turn if context budget allows.
  */
@@ -56,14 +47,18 @@ export const DRIVE_TO_CONVERGENCE_REMINDER = [
   "rule in `decision-defaults.mdc` — the user is NOT the next actor.",
   "",
   "**Required next action (do not end the turn here):**",
-  "- Call `mcp__minsky__session_pr_wait-for-review` to block until",
-  "  `minsky-reviewer[bot]` posts (typical 30s–2min after push).",
-  "- On webhook-miss (>5min silent): diagnose per `feedback_self_authored_pr_merge_constraints`",
-  "  step 5; dispatch `/review-pr` for a Chinese-wall reviewer subagent if",
-  "  the bot is unhealthy.",
+  "- Call `mcp__minsky__session_pr_wait-for-review` with `reviewer: 'minsky-reviewer[bot]'`",
+  "  to block until the reviewer bot posts (typical 30s–2min after push).",
+  "- On webhook-miss (>5min silent): push an empty commit to wake the webhook",
+  "  (`session_commit` with `noFiles: true, noStage: true`), then re-wait.",
+  "  If still silent after the second wait, proceed to bypass merge.",
   "- On APPROVE: call `mcp__minsky__session_pr_merge`.",
   "- On CHANGES_REQUESTED: apply fixes per §7 Convergence Checklist (class-",
   "  not-instance + cascade-defense), push, re-wait.",
+  "",
+  "**Do NOT dispatch a reviewer subagent or invoke /review-pr.**",
+  "The reviewer bot (`minsky-reviewer[bot]`) is the only review surface.",
+  "See memory `5695cd2b` for the full rationale.",
   "",
   "**Forbidden — these phrases end the turn prematurely:**",
   '- "Ping me when done"',
