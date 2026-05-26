@@ -627,7 +627,7 @@ describe("applyServiceInstanceUpdate() — mt#1964 chunk 1", () => {
   test("passes through all source + build fields when set", async () => {
     const { fake, calls } = makeFakeGraphql();
     const input: ServiceInstanceUpdateInput = {
-      repo: "edobry/minsky",
+      source: { repo: "edobry/minsky" },
       branch: "main",
       rootDirectory: "services/reviewer",
       builder: "DOCKERFILE",
@@ -764,7 +764,7 @@ describe("flattenToServiceInstanceInput() — mt#2000", () => {
     };
     const input = flattenToServiceInstanceInput(desired);
     expect(input).toEqual({
-      repo: "edobry/minsky",
+      source: { repo: "edobry/minsky" },
       branch: "main",
       rootDirectory: "services/site",
       builder: "DOCKERFILE",
@@ -775,7 +775,7 @@ describe("flattenToServiceInstanceInput() — mt#2000", () => {
   test("sparse-input preserves only declared fields", () => {
     const desired = { source: { repo: "x", branch: "y" } };
     const input = flattenToServiceInstanceInput(desired);
-    expect(input).toEqual({ repo: "x", branch: "y" });
+    expect(input).toEqual({ source: { repo: "x" }, branch: "y" });
   });
 
   test("empty desired returns empty input", () => {
