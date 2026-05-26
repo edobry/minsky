@@ -60,6 +60,10 @@ export default [
       "*.tmp",
       // Exclude Claude Code agent worktrees
       ".claude/worktrees/**",
+      // Exclude Pulumi-generated SDK and infra build artifacts
+      "infra/sdks/**",
+      "infra/bin/**",
+      "infra/node_modules/**",
       // Exclude ESLint rule test fixtures (intentionally contain rule violations)
       "eslint-rules/__fixtures__/**",
     ],
