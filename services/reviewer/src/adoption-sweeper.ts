@@ -551,6 +551,24 @@ async function checkTaskAdoption(
             signalName: signal.name,
             followUpTaskId: newId,
           });
+
+          // Emit task.auto_created event via MCP (mt#2134).
+          // Best-effort: failure is logged but never blocks the sweep.
+          try {
+            await callMcpTool(deps.mcpUrl, deps.mcpToken, "events_emit", {
+              eventType: "task.auto_created",
+              payload: {
+                taskId: newId,
+                title: followUpTitle,
+                createdBy: "adoption-sweeper",
+                sourceRule: signal.name,
+              },
+              actor: "adoption-sweeper",
+              relatedTaskId: taskId,
+            });
+          } catch {
+            // Best-effort: swallow event emission failures
+          }
         }
       } catch (createErr) {
         const msg = createErr instanceof Error ? createErr.message : String(createErr);
