@@ -9,7 +9,6 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@pulumi/pulumi": "^3.113.0",
-    "@pulumi/railway": "file:sdks/railway"
+    "@pulumi/pulumi": "^3.113.0"
   }
 }
