@@ -64,6 +64,12 @@ import { type ReviewTimingInput, recordReviewTiming } from "./review-timing";
 import { classifyPRScope, scopeBucketFor, type PRScope, type ScopeBucket } from "./pr-scope";
 import { buildCriticConstitution, buildReviewPrompt } from "./prompt";
 import { callReviewer, type ReviewOutput, type ReviewUsage } from "./providers";
+import {
+  shouldChunkReview,
+  chunkFiles,
+  buildChunkDiff,
+  buildChunkedReviewPrompt,
+} from "./chunked-review";
 import type { PriorReview } from "./prior-review-summary";
 import {
   countAcknowledgedFindings,
@@ -1155,17 +1161,21 @@ async function runReviewBody(
     }
   }
 
-  const userPrompt = buildReviewPrompt({
+  const basePromptInput = {
     prNumber: pr.number,
     prTitle: pr.title,
     prBody: pr.body,
     taskSpec,
-    diff: promptDiff,
     authorshipTier: tier,
     branchName: pr.branchName,
     baseBranch: pr.baseBranch,
     priorReviews: priorReviewsMarkdown || undefined,
     reviewThreads: reviewThreads.length > 0 ? reviewThreads : undefined,
+  };
+
+  const userPrompt = buildReviewPrompt({
+    ...basePromptInput,
+    diff: promptDiff,
   });
 
   // Construct the tool context for this PR's HEAD ref. The model can use these
@@ -1234,23 +1244,140 @@ async function runReviewBody(
     log.warn(`[mt#1126/mt#1216] Running review without tools: ${reason}`);
   }
 
-  // Only pass toolContext when tools are actually active — otherwise the
-  // provider's no-tools fallback path would fire a second warning log on
-  // every review.
-  //
-  // callReviewerWithRetry (mt#1131) wraps callReviewer with single-retry-on-
-  // empty semantics: if the first call returns empty on OpenAI, it retries
-  // once with reasoningEffort="low" before giving up. Tools pass through to
-  // both attempts. outputToolsActive is passed so validateReviewOutput treats
-  // non-empty toolCalls as a success signal on the output-tools path.
-  const { output, validation, attempt, retryAttempted } = await callReviewerWithRetry(
-    config,
-    systemPrompt,
-    userPrompt,
-    toolsActive ? toolContext : undefined,
-    callReviewer,
-    outputToolsActive
-  );
+  // Chunked review gate (mt#2120): when the diff is large, split into
+  // per-file chunks and review each chunk separately to avoid 1M+ token
+  // prompts that cause cascading timeouts.
+  const totalDiffLines = promptDiff.split("\n").length;
+  const useChunkedReview = outputToolsActive && shouldChunkReview(pr.fileEntries, totalDiffLines);
+
+  let output: ReviewOutput;
+  let validation: { ok: true } | { ok: false; reason: string };
+  let attempt: ReviewAttemptTrace;
+  let retryAttempted: boolean;
+
+  if (useChunkedReview) {
+    const chunks = chunkFiles(pr.fileEntries);
+
+    // Fallback: if fileEntries was empty (listFiles error/cap) but diff
+    // was large, chunks is []. Fall through to single-pass rather than
+    // hard-failing with a skip notice.
+    if (chunks.length === 0) {
+      log.info("reviewer.chunked_review_fallback_single_pass", {
+        event: "reviewer.chunked_review_fallback_single_pass",
+        owner,
+        repo,
+        pr: prNumber,
+        reason: "zero_chunks_from_empty_file_entries",
+        totalDiffLines,
+      });
+      const result = await callReviewerWithRetry(
+        config,
+        systemPrompt,
+        userPrompt,
+        toolsActive ? toolContext : undefined,
+        callReviewer,
+        outputToolsActive
+      );
+      output = result.output;
+      validation = result.validation;
+      attempt = result.attempt;
+      retryAttempted = result.retryAttempted;
+    } else {
+      log.info("reviewer.chunked_review_start", {
+        event: "reviewer.chunked_review_start",
+        owner,
+        repo,
+        pr: prNumber,
+        totalFiles: pr.fileEntries.length,
+        totalDiffLines,
+        chunkCount: chunks.length,
+        filesPerChunk: chunks.map((c) => c.files.length),
+      });
+
+      const allToolCalls: ReviewOutput["toolCalls"] = [];
+      let totalPromptTokens = 0;
+      let totalCompletionTokens = 0;
+      let totalReasoningTokens = 0;
+      let lastText = "";
+      const allRoundLatencies: number[] = [];
+      let totalTimeoutCount = 0;
+      const allRetryOutcomes: string[] = [];
+
+      for (const chunk of chunks) {
+        const chunkDiff = buildChunkDiff(chunk, pr.diff);
+        const chunkPrompt = buildChunkedReviewPrompt(basePromptInput, chunk, chunkDiff);
+
+        const chunkResult = await callReviewerWithRetry(
+          config,
+          systemPrompt,
+          chunkPrompt,
+          toolsActive ? toolContext : undefined,
+          callReviewer,
+          outputToolsActive
+        );
+
+        allToolCalls.push(...chunkResult.output.toolCalls);
+        totalPromptTokens += chunkResult.output.usage?.promptTokens ?? 0;
+        totalCompletionTokens += chunkResult.output.usage?.completionTokens ?? 0;
+        totalReasoningTokens += chunkResult.output.usage?.reasoningTokens ?? 0;
+        lastText = chunkResult.output.text || lastText;
+
+        if (chunkResult.output.timing) {
+          allRoundLatencies.push(...chunkResult.output.timing.roundLatenciesMs);
+          totalTimeoutCount += chunkResult.output.timing.timeoutCount;
+          allRetryOutcomes.push(...chunkResult.output.timing.retryOutcomes);
+        }
+
+        log.info("reviewer.chunked_review_chunk_complete", {
+          event: "reviewer.chunked_review_chunk_complete",
+          owner,
+          repo,
+          pr: prNumber,
+          chunkIndex: chunk.index,
+          totalChunks: chunk.totalChunks,
+          toolCalls: chunkResult.output.toolCalls.length,
+          promptTokens: chunkResult.output.usage?.promptTokens ?? 0,
+        });
+      }
+
+      const totalTokens = totalPromptTokens + totalCompletionTokens;
+      output = {
+        text: lastText,
+        tokensUsed: totalTokens,
+        usage: {
+          promptTokens: totalPromptTokens,
+          completionTokens: totalCompletionTokens,
+          reasoningTokens: totalReasoningTokens,
+          totalTokens,
+        },
+        provider: config.provider,
+        model: config.providerModel,
+        toolCalls: allToolCalls,
+        timing: {
+          roundLatenciesMs: allRoundLatencies,
+          timeoutCount: totalTimeoutCount,
+          retryOutcomes: allRetryOutcomes,
+        },
+      };
+      validation = validateReviewOutput(output, outputToolsActive);
+      attempt = "first-attempt-success";
+      retryAttempted = false;
+    } // close the chunks.length > 0 else block
+  } else {
+    // Single-pass mode (existing behavior for small PRs)
+    const result = await callReviewerWithRetry(
+      config,
+      systemPrompt,
+      userPrompt,
+      toolsActive ? toolContext : undefined,
+      callReviewer,
+      outputToolsActive
+    );
+    output = result.output;
+    validation = result.validation;
+    attempt = result.attempt;
+    retryAttempted = result.retryAttempted;
+  }
   const totalWallClockMs = Date.now() - reviewStartTime;
 
   // Empty-output guard: GPT-5 reasoning models can exhaust max_completion_tokens
