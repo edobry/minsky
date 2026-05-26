@@ -1,6 +1,10 @@
 {
   "name": "minsky-infra",
   "main": "index.ts",
+  "scripts": {
+    "generate-sdk": "pulumi package add terraform-provider terraform-community-providers/railway",
+    "prepare": "test -d sdks/railway || bun run generate-sdk"
+  },
   "devDependencies": {
     "@types/node": "^18",
     "typescript": "^5.0.0"
