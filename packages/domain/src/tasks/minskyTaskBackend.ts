@@ -78,7 +78,7 @@ export class MinskyTaskBackend implements TaskBackend {
 
     const query = this.db.select().from(tasksTable);
     const rows = conditions.length > 0 ? await query.where(and(...conditions)) : await query;
-    return rows.map((row) => this.mapDbRowToTask(row));
+    return rows.map((row: (typeof rows)[number]) => this.mapDbRowToTask(row));
   }
   async getTask(id: string): Promise<Task | null> {
     const rows = await this.db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
@@ -93,7 +93,7 @@ export class MinskyTaskBackend implements TaskBackend {
   async getTasks(ids: string[]): Promise<Task[]> {
     if (ids.length === 0) return [];
     const rows = await this.db.select().from(tasksTable).where(inArray(tasksTable.id, ids));
-    return rows.map((row) => this.mapDbRowToTask(row));
+    return rows.map((row: (typeof rows)[number]) => this.mapDbRowToTask(row));
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
@@ -406,7 +406,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .from(tasksTable)
       .where(like(tasksTable.id, "mt#%"));
 
-    const maxId = rows.reduce((acc, row) => {
+    const maxId = rows.reduce((acc: number, row: (typeof rows)[number]) => {
       const num = parseInt(row.id.replace("mt#", ""), 10);
       return !isNaN(num) && num > acc ? num : acc;
     }, 0);

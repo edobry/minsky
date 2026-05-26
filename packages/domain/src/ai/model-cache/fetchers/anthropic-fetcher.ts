@@ -47,7 +47,9 @@ export class AnthropicModelFetcher implements ModelFetcher {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as {
+          data?: Array<{ id: string; display_name?: string; created_at?: string; type?: string }>;
+        };
         const models = data.data || [];
 
         const cachedModels: CachedProviderModel[] = models

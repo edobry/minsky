@@ -76,7 +76,7 @@ export class MorphModelFetcher implements TypedModelFetcher<"morph"> {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
-        const data = await response.json();
+        const data = (await response.json()) as { data?: unknown[] };
 
         // Handle OpenAI-compatible response format
         if (!data.data || !Array.isArray(data.data)) {

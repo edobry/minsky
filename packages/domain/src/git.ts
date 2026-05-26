@@ -149,7 +149,8 @@ export class GitService implements GitServiceInterface {
     const fs = await import("fs/promises");
     return cloneImpl(options, {
       execAsync,
-      mkdir: fs.mkdir,
+      mkdir: fs.mkdir as typeof fs.mkdir &
+        ((path: string, options?: { recursive?: boolean }) => Promise<void>),
       readdir: fs.readdir,
       access: fs.access,
       rm: fs.rm,
