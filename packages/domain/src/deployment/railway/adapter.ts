@@ -172,6 +172,7 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
       timestamp: e.timestamp,
       severity: e.severity,
       message: e.message,
+      ...(e.attributes?.length ? { attributes: e.attributes } : {}),
     }));
   }
 }
