@@ -60,11 +60,12 @@ The `minsky-site` Railway project + service already exist (pre-date this monorep
 2. **Root directory:** `services/site` (was repo root pre-absorb).
 3. **Cleanup:** the project carries three leftover `Postgres*` services from the prior scaffold. The Astro static site needs no database; pruning them is a principal-authorized followup.
 
-To synthesize env vars from this source after the above is in place:
+To manage Railway env vars via Pulumi (mt#2110):
 
 ```bash
-bun scripts/railway/apply.ts services/site            # dry-run
-bun scripts/railway/apply.ts services/site --execute  # apply
+cd infra
+PULUMI_CONFIG_PASSPHRASE="" pulumi preview --refresh   # dry-run
+PULUMI_CONFIG_PASSPHRASE="" pulumi up --refresh        # apply
 ```
 
 ## Phase progress (mt#1934)

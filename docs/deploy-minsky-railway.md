@@ -29,52 +29,35 @@ Railway auto-detects the `Dockerfile` at repo root and builds from it.
 
 ## Managing environment variables (canonical path)
 
-**Use the TypeScript synthesizer (`scripts/railway/apply.ts`), not `railway variables --set`.**
+**Use Pulumi (`infra/index.ts`), not `railway variables --set`.**
 
-All production env-var state for `minsky-mcp` is captured in `services/minsky-mcp/railway.config.ts`. Changes go through that file and are applied via the synthesizer. Direct `railway variables --set` calls are error-prone (no audit trail, no idempotency, values can drift silently) and should not be used for ongoing management.
+All production env-var state is declared in `infra/index.ts` using the Pulumi Railway provider (mt#2110). Direct `railway variables --set` calls are error-prone (no audit trail, no idempotency, values drift silently) and should not be used for ongoing management.
 
-### Synthesizer workflow
-
-```bash
-# Preview changes (dry-run — default)
-bun scripts/railway/apply.ts services/minsky-mcp
-
-# Apply changes (adds/updates only — deletions shown as WOULD-PRUNE, not applied)
-bun scripts/railway/apply.ts services/minsky-mcp --execute
-
-# Apply changes AND delete variables not in config (destructive — see --prune below)
-bun scripts/railway/apply.ts services/minsky-mcp --execute --prune
-```
-
-The synthesizer:
-
-1. Reads `services/minsky-mcp/railway.config.ts` (desired state)
-2. Fetches current Railway variables via GraphQL (actual state)
-3. Computes a typed diff and prints it
-4. On `--execute`: applies ADD/CHANGE-VALUE/CHANGE-SEALED-FLAG entries via `railway environment edit --json` and reads back to confirm
-5. On `--execute --prune`: also deletes REMOVE entries (variables present in Railway but absent from config)
-
-### Deletion policy (--prune)
-
-By default, `--execute` only applies ADD/CHANGE-VALUE/CHANGE-SEALED-FLAG entries. Variables present in Railway but absent from `railway.config.ts` are shown in dry-run output as `WOULD-PRUNE` but are **not deleted**. This protects Railway-injected variables (`RAILWAY_*` auto-vars) and any operator-set out-of-band variables from silent deletion.
-
-To delete variables not declared in config, pass `--prune` explicitly:
+### Pulumi workflow
 
 ```bash
-# Dry-run: see what would be deleted (WOULD-PRUNE lines)
-bun scripts/railway/apply.ts services/minsky-mcp
+cd infra
 
-# Apply deletions too
-bun scripts/railway/apply.ts services/minsky-mcp --execute --prune
+# First-time setup: install deps and generate the Railway TF bridge SDK
+npm install
+PULUMI_CONFIG_PASSPHRASE="" pulumi package add terraform-provider terraform-community-providers/railway
+
+# Configure Railway token (once per machine)
+PULUMI_CONFIG_PASSPHRASE="" pulumi config set railway:token "$RAILWAY_TOKEN" --secret
+
+# Preview changes (dry-run)
+PULUMI_CONFIG_PASSPHRASE="" pulumi preview --refresh
+
+# Apply changes
+PULUMI_CONFIG_PASSPHRASE="" pulumi up --refresh
 ```
 
-When to use `--prune`:
+Pulumi:
 
-- Removing a variable that was previously in config and you want it gone from Railway
-- Cleaning up test variables applied manually during debugging
-- First verified that every WOULD-PRUNE entry is intentionally out-of-spec
-
-Do NOT use `--prune` if WOULD-PRUNE shows `RAILWAY_*` auto-injected variables — those are managed by Railway and will reappear after the next deploy.
+1. Reads `infra/index.ts` (desired state)
+2. Refreshes live Railway state via the TF provider's Railway API calls
+3. Computes a diff and prints it
+4. On `pulumi up`: applies creates/updates/deletes and records new state
 
 ### Secret handling
 
@@ -98,7 +81,7 @@ To populate `~/.config/minsky/railway-secrets.json`, create it manually with the
 }
 ```
 
-Secret vars are applied with `isSealed: true` on Railway — after sealing, the Railway dashboard and CLI hide the value (write-only). The synthesizer handles idempotency: if a var is already sealed on Railway, it classifies as NO-CHANGE without comparing values (sealed vars return `null` from the GraphQL API).
+Secret vars are stored encrypted in Pulumi config (`pulumi config set --secret secrets:<key> <value>`) and applied with Railway's sealed variable semantics. After sealing, the Railway dashboard and CLI hide the value (write-only).
 
 ### Initial setup (one-time only)
 
@@ -113,7 +96,7 @@ railway variables --set MINSKY_PERSISTENCE_BACKEND=postgres
 railway variables --set MINSKY_PERSISTENCE_POSTGRES_URL=<your-supabase-postgres-url>
 ```
 
-After initial bootstrap, switch to the synthesizer: run a dry-run to verify the config file matches production state, then use `--execute` for all subsequent changes.
+After initial bootstrap, switch to Pulumi: run `pulumi preview --refresh` to verify the state matches production, then use `pulumi up --refresh` for all subsequent changes.
 
 > **Why two vars:** the persistence layer reads `persistence.backend` (the backend selector) and `persistence.postgres.connectionString` (the URL) as separate fields. The legacy single-var shortcut (`MINSKY_POSTGRES_URL` — populating only the connection string) does not change the backend selector, so the service silently falls back to its SQLite default and every schema-dependent MCP call fails with `no such table: ...`. See mt#1224.
 >
@@ -193,8 +176,8 @@ When `MINSKY_MCP_AUTH_TOKEN` is unset and the OAuth provider IS wired (Postgres 
 To rotate the signing key in production:
 
 1. Generate a new RSA JWK (kty=RSA, use=sig, alg=RS256). The value MUST be a JWK JSON object as a string — NOT a raw hex secret. Example generator: `node -e 'const jose = require("jose"); jose.generateKeyPair("RS256").then(async ({privateKey}) => console.log(JSON.stringify(await jose.exportJWK(privateKey))))'`.
-2. Set `MINSKY_OAUTH_SIGNING_KEY` to the new JWK JSON via the synthesizer (`services/minsky-mcp/railway.config.ts`).
-3. Apply via `bun scripts/railway/apply.ts services/minsky-mcp --execute`.
+2. Set `MINSKY_OAUTH_SIGNING_KEY` via Pulumi: `cd infra && PULUMI_CONFIG_PASSPHRASE="" pulumi config set --secret secrets:minsky-oauth-signing-key '<new-jwk-json>'`
+3. Apply via `PULUMI_CONFIG_PASSPHRASE="" pulumi up --refresh`.
 4. Trigger redeploy. All issued access tokens become invalid immediately; clients re-authorize.
 
 For zero-downtime rotation (multiple keys advertised in JWKS during a transition window): `oidc-provider` supports an array of signing keys via `jwks.keys` config — staging a new key while the old one is still advertised lets clients pick up the new key before the old is removed. Wiring this through `InProcessOAuthProvider` is out of scope for v1; tracked as a follow-up.
@@ -361,14 +344,14 @@ See mt#1129 for the scope boundary between this (transport + deploy + auth) and 
 
 Agents observe Railway deploys via the platform-neutral MCP tools `deployment_wait-for-latest`,
 `deployment_status`, and `deployment_logs`. These wrap the same Railway GraphQL primitives
-used by `scripts/railway/{status,logs}.ts` but expose them through the agent-facing surface.
+used by `src/domain/deployment/railway/graphql-client.ts` and exposed through the agent-facing surface.
 The platform-agnostic abstraction (adapter interface, registry, configuration shape) lives in
 [`docs/deployment-platforms.md`](./deployment-platforms.md); this section covers Railway-specific
 details only.
 
 **Service declaration.** Each Railway service declares its deployment target in
 `services/<svc>/deploy.config.ts` (see the platform-agnostic doc for the schema). For Railway
-services the file imports project/environment/service IDs from the existing `railway.config.ts`
+services the file declares project/environment/service IDs inline (previously imported from the now-retired `railway.config.ts`; canonical IaC source is `infra/index.ts`)
 env-var manifest, avoiding duplication.
 
 **Underlying calls.** The Railway adapter uses the same GraphQL endpoint and auth pattern as
