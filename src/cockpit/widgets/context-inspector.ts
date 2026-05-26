@@ -119,9 +119,8 @@ let _cachedDb: PostgresJsDatabase | null = null;
 async function defaultDbFactory(): Promise<PostgresJsDatabase> {
   if (_cachedDb) return _cachedDb;
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const { getSharedPersistenceService } = await import("../shared-persistence");
+  const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
   if (

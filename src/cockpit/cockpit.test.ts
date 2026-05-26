@@ -22,7 +22,11 @@ import { createTaskGraphWidget } from "./widgets/task-graph";
 import type { GraphNode, GraphEdge, TaskGraphDeps } from "./widgets/task-graph";
 import { createWorkstreamsWidget } from "./widgets/workstreams";
 import type { WorkstreamCard, WorkstreamsDeps } from "./widgets/workstreams";
-import type { SessionProviderInterface, SessionRecord } from "../domain/session/types";
+import type {
+  SessionProviderInterface,
+  SessionRecord,
+  SessionListOptions,
+} from "../domain/session/types";
 import { SessionStatus } from "../domain/session/types";
 
 // ---------------------------------------------------------------------------
@@ -227,7 +231,13 @@ describe("Cockpit server", () => {
    */
   function makeMockProvider(records: SessionRecord[]): SessionProviderInterface {
     return {
-      listSessions: async () => records,
+      listSessions: async (options?: SessionListOptions) => {
+        const excluded = options?.statusNotIn;
+        if (excluded && excluded.length > 0) {
+          return records.filter((r) => !r.status || !excluded.includes(r.status));
+        }
+        return records;
+      },
       getSession: async () => null,
       getSessionByTaskId: async () => null,
       addSession: async () => {},

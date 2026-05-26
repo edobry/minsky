@@ -270,10 +270,10 @@ export function createWorkstreamsWidget(getDeps: () => Promise<WorkstreamsDeps>)
 // ---------------------------------------------------------------------------
 // Default production widget
 //
-// Uses lazily-initialised singletons so the cockpit server can register
-// this without a DI container. The same bootstrap pattern as task-graph.ts:
-// `new PersistenceService() + .initialize() + getProvider()`.
+// Uses the cockpit-wide PersistenceService singleton (shared-persistence.ts).
 // ---------------------------------------------------------------------------
+
+import { getSharedPersistenceService } from "../shared-persistence";
 
 let _cachedDeps: WorkstreamsDeps | null = null;
 
@@ -282,12 +282,10 @@ async function defaultDepsFactory(): Promise<WorkstreamsDeps> {
     return _cachedDeps;
   }
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
   const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
   const { TaskGraphService } = await import("../../domain/tasks/task-graph-service");
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
   const taskService = await createConfiguredTaskService({
