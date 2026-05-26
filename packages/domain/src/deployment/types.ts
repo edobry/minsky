@@ -65,6 +65,11 @@ export interface DeploymentRecord {
  */
 export type LogType = "build" | "deploy";
 
+export interface LogAttribute {
+  key: string;
+  value: string;
+}
+
 export interface LogLine {
   /** ISO8601 timestamp. */
   timestamp: string;
@@ -72,6 +77,8 @@ export interface LogLine {
   severity: string;
   /** Log message. */
   message: string;
+  /** Structured attributes parsed from JSON log output (Railway). Empty when unavailable. */
+  attributes: LogAttribute[];
 }
 
 export interface WaitForLatestOptions {
