@@ -1,7 +1,11 @@
 #!/usr/bin/env bun
 import "reflect-metadata";
-import { createCockpitServer, initServerSseBroker } from "../../../src/cockpit/server";
+import { setupConfiguration } from "../../../src/config-setup";
 import { log } from "../../../src/utils/logger";
+
+await setupConfiguration();
+
+const { createCockpitServer, initServerSseBroker } = await import("../../../src/cockpit/server");
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
