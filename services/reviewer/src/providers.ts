@@ -337,7 +337,9 @@ const DOC_IMPACT_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null = D
 
 /** User message injected before the post-loop forced doc-impact pass. */
 const DOC_IMPACT_REMINDER_USER_MSG =
-  "Your review is incomplete — no documentation-impact assessment was submitted. Call submit_documentation_impact(kind, evidence) now.";
+  "Your review is incomplete — you must emit a `submit_documentation_impact` tool call now. " +
+  'Provide a JSON object with: `kind` (one of "no-update-needed", "updated-in-pr", "blocking-needs-update"), ' +
+  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths).";
 
 /**
  * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
@@ -896,11 +898,12 @@ export async function callOpenAIWithClient(
     }
   }
 
+  // Snapshot main-loop output count BEFORE forced passes so the conclude
+  // gate's gate_branch discriminator reflects main-loop behavior, not
+  // forced-pass side-effects (mt#2115 reviewer finding).
+  const mainLoopOutputCount = accumulatedToolCalls.length;
+
   // Post-loop forced submit_documentation_impact pass (mt#2115).
-  //
-  // If the model did NOT emit submit_documentation_impact during the main
-  // loop, run one forced API call before conclude_review so the doc-impact
-  // assessment is available when the model formulates its conclusion.
   const hasDocImpact = accumulatedToolCalls.some((tc) => tc.name === "submit_documentation_impact");
   if (!hasDocImpact) {
     try {
@@ -968,7 +971,7 @@ export async function callOpenAIWithClient(
   // Composition-side severity-derived event recovery (mt#1413) remains the
   // safety net if the forced pass fails to emit a parseable conclude_review.
   const hasConcludeReview = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
-  const hasEmittedOutputCalls = accumulatedToolCalls.length > 0;
+  const hasEmittedOutputCalls = mainLoopOutputCount > 0;
   if (!hasConcludeReview) {
     // Discriminator for audit log: which gate branch fired.
     const gateBranch: "emitted_no_conclude" | "emitted_nothing" = hasEmittedOutputCalls

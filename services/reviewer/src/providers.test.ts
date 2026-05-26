@@ -1267,8 +1267,8 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     expect(reminderLogs).toHaveLength(0);
   });
 
-  test("forced pass fires (emitted_no_conclude) when no main-loop output tools (mt#1639 + mt#2115)", async () => {
-    // Doc-impact forced pass adds a tool call, making hasEmittedOutputCalls=true.
+  test("forced pass fires (emitted_nothing branch) when no main-loop output tools (mt#1639 + mt#2115)", async () => {
+    // Main-loop emitted nothing; gate_branch uses mainLoopOutputCount snapshot.
     const { client, capturedParams } = makeFakeClient([
       // Round 0: read_file call (no output tools)
       {
@@ -1349,11 +1349,11 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
         e !== null &&
         (e as Record<string, unknown>)["event"] === CONCLUDE_REVIEW_REMINDER_EVENT
     );
-    // Forced-pass log fires with emitted_no_conclude (doc-impact added a tool call).
+    // gate_branch uses mainLoopOutputCount snapshot — main loop emitted nothing.
     expect(reminderLogs).toHaveLength(1);
     const log = reminderLogs[0] as Record<string, unknown>;
     expect(log["finally_emitted"]).toBe(true);
-    expect(log["gate_branch"]).toBe(GATE_BRANCH_NO_CONCLUDE);
+    expect(log["gate_branch"]).toBe("emitted_nothing");
     expect(log["reminder_count"]).toBe(1);
     expect(log["fired_at_turn"]).toBe(2);
   });
@@ -1735,8 +1735,8 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
 
   // ----- mt#1639: gate_branch discriminator tests -----
 
-  test("mt#1639 + mt#2115: gate_branch:'emitted_no_conclude' when main loop produces zero output calls", async () => {
-    // Doc-impact forced pass makes hasEmittedOutputCalls=true.
+  test("mt#1639 + mt#2115: gate_branch:'emitted_nothing' preserved when main loop produces zero output calls", async () => {
+    // gate_branch uses mainLoopOutputCount snapshot, not post-forced-pass count.
     const { client } = makeFakeClient([
       // Round 0: exits immediately with no tool calls at all
       {
@@ -1781,7 +1781,7 @@ describe("callOpenAIWithClient conclude_review post-loop forced pass (mt#1471)",
     );
     expect(reminderLogs).toHaveLength(1);
     const log = reminderLogs[0] as Record<string, unknown>;
-    expect(log["gate_branch"]).toBe(GATE_BRANCH_NO_CONCLUDE);
+    expect(log["gate_branch"]).toBe("emitted_nothing");
     expect(log["finally_emitted"]).toBe(true);
     expect(log["reminder_count"]).toBe(1);
     expect(log["fired_at_turn"]).toBe(1); // 1 main-loop round
