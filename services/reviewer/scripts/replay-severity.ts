@@ -22,6 +22,7 @@
  *   bun services/reviewer/scripts/replay-severity.ts
  *   bun services/reviewer/scripts/replay-severity.ts --pr=743 --iteration=3 --attempts=3
  *   bun services/reviewer/scripts/replay-severity.ts --corpus=default --attempts=3
+ *   bun services/reviewer/scripts/replay-severity.ts --corpus=verification --verification-mode --attempts=3
  *
  * Skips gracefully when OPENAI_API_KEY or GITHUB_TOKEN is absent.
  *
@@ -200,6 +201,51 @@ const DEFAULT_CORPUS: ReadonlyArray<CorpusEntry> = [
   },
 ];
 
+/**
+ * Verification-mode corpus for mt#1673 (mt#1656 Fix 1 SC#3 validation).
+ *
+ * Tests the verification-mode preamble (priorReviewsPresent=true) against
+ * historical multi-round PRs to validate two properties:
+ *   1. Legitimate R≥2 catches survive (no false APPROVEs)
+ *   2. Bikeshedding-class findings are suppressed
+ *
+ * PR #920 (mt#1465, 6 rounds): R3+R4 contradicted R2 — legitimate catches.
+ * PR #872 (mt#1309, 4 rounds): R3 caught real defensive bug missed by R1+R2.
+ * PR #922 (mt#1496, 28 rounds): canonical bikeshedding extreme.
+ */
+const VERIFICATION_CORPUS: ReadonlyArray<CorpusEntry> = [
+  {
+    prNumber: 920,
+    iteration: 3,
+    notes: "mt#1465 6-round PR; R3 contradicted R2 — legitimate catch (severity inflation fix)",
+  },
+  {
+    prNumber: 920,
+    iteration: 4,
+    notes: "mt#1465 6-round PR; R4 contradicted R2 — legitimate catch (severity inflation fix)",
+  },
+  {
+    prNumber: 872,
+    iteration: 3,
+    notes: "mt#1309 4-round PR; R3 caught real defensive bug (CI check_runs gate) missed by R1+R2",
+  },
+  {
+    prNumber: 922,
+    iteration: 8,
+    notes: "mt#1496 28-round PR; R8 bikeshedding extreme (severity recovery layer)",
+  },
+  {
+    prNumber: 922,
+    iteration: 15,
+    notes: "mt#1496 28-round PR; R15 bikeshedding extreme (mid-run)",
+  },
+  {
+    prNumber: 922,
+    iteration: 22,
+    notes: "mt#1496 28-round PR; R22 bikeshedding extreme (late-run)",
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Argument parsing
 // ---------------------------------------------------------------------------
@@ -215,6 +261,8 @@ interface ParsedArgs {
   baseline: boolean;
   /** When true, apply mt#1496 applyMonotonicityRecovery between callOpenAIWithClient and composeReviewBody. */
   recovery: boolean;
+  /** When true, pass priorReviewsPresent=true to buildCriticConstitution for R≥2 entries (mt#1656 Fix 1). */
+  verificationMode: boolean;
 }
 
 function parseArgs(): ParsedArgs {
@@ -226,6 +274,7 @@ function parseArgs(): ParsedArgs {
   let iterationOverride: number | undefined;
   let baseline = false;
   let recovery = false;
+  let verificationMode = false;
 
   for (const arg of args) {
     if (arg.startsWith("--pr=")) {
@@ -241,10 +290,14 @@ function parseArgs(): ParsedArgs {
       model = arg.slice("--model=".length).trim();
     } else if (arg === "--corpus=default") {
       // explicit no-op for clarity
+    } else if (arg === "--corpus=verification") {
+      corpus = [...VERIFICATION_CORPUS];
     } else if (arg === "--baseline") {
       baseline = true;
     } else if (arg === "--recovery") {
       recovery = true;
+    } else if (arg === "--verification-mode") {
+      verificationMode = true;
     }
   }
 
@@ -262,7 +315,7 @@ function parseArgs(): ParsedArgs {
     process.exit(2);
   }
 
-  return { corpus, attemptsPerEntry, model, baseline, recovery };
+  return { corpus, attemptsPerEntry, model, baseline, recovery, verificationMode };
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +456,8 @@ interface PerAttemptSeverityResult extends AttemptResult {
   priorReviewsMarkdownChars: number;
   /** When --recovery is active, the audit entries from applyMonotonicityRecovery for this attempt. */
   downgrades?: DowngradeAuditEntry[];
+  /** Whether the verification-mode preamble was active for this attempt (mt#1656 Fix 1). */
+  verificationModeActive?: boolean;
 }
 
 interface PerEntryResult {
@@ -421,7 +476,8 @@ async function replayEntry(
   ctx: FetchedIterationContext,
   attemptsPerEntry: number,
   baseline: boolean,
-  recovery: boolean
+  recovery: boolean,
+  verificationMode: boolean
 ): Promise<PerEntryResult> {
   // KNOWN LIMITATION: the harness wires no-op tool handlers (readFile and
   // listDirectory always return null) while declaring tools-available in
@@ -449,9 +505,13 @@ async function replayEntry(
   // mt#1497 will re-run with real handlers to get production-fidelity
   // absolute numbers.
   const toolsAvailable = true;
+  // verification mode: pass priorReviewsPresent=true for R≥2 entries (iteration > 1)
+  // where prior reviews exist. This swaps in the mt#1656 verification-mode preamble.
+  const priorReviewsPresent =
+    verificationMode && ctx.iteration > 1 && ctx.priorReviewsMarkdown.length > 0;
   const systemPrompt = baseline
     ? buildBaselinePrompt(toolsAvailable)
-    : buildCriticConstitution(toolsAvailable, "normal", true);
+    : buildCriticConstitution(toolsAvailable, "normal", true, priorReviewsPresent);
   const userPrompt = buildReviewPrompt({
     prNumber: ctx.prNumber,
     prTitle: ctx.title,
@@ -551,6 +611,7 @@ async function replayEntry(
       inflation,
       priorReviewsMarkdownChars: ctx.priorReviewsMarkdown.length,
       ...(recovery ? { downgrades } : {}),
+      ...(priorReviewsPresent ? { verificationModeActive: true } : {}),
     };
 
     attempts.push(attemptResult);
@@ -560,7 +621,7 @@ async function replayEntry(
         `rate=${inflation.inflationRate.toFixed(2)} concludeEvent=${baseAttempt.concludeEvent} ` +
         `priorMd=${ctx.priorReviewsMarkdown.length}c${
           recovery ? ` downgrades=${downgrades.length}` : ""
-        }`
+        }${priorReviewsPresent ? " verification-mode=ON" : ""}`
     );
 
     if (inflation.inflatedFindings.length > 0) {
@@ -639,12 +700,14 @@ interface RunResult {
   promptVariant: "baseline" | "post-restructure";
   /** Whether mt#1496 applyMonotonicityRecovery was active for this run. */
   recoveryEnabled: boolean;
+  /** Whether mt#1656 verification-mode preamble was active for R≥2 entries. */
+  verificationModeEnabled: boolean;
   summary: AggregateSummary;
   perEntry: PerEntryResult[];
 }
 
 async function main() {
-  const { corpus, attemptsPerEntry, model, baseline, recovery } = parseArgs();
+  const { corpus, attemptsPerEntry, model, baseline, recovery, verificationMode } = parseArgs();
   const runStartedAt = new Date().toISOString();
 
   console.log("=== Severity-Monotonicity Replay (mt#1465) ===");
@@ -653,11 +716,16 @@ async function main() {
     `Prompt variant: ${baseline ? "baseline (pre-mt#1465)" : "post-restructure (mt#1465 sub-fix 2)"}`
   );
   console.log(`Recovery: ${recovery ? "enabled (mt#1496 applyMonotonicityRecovery)" : "disabled"}`);
+  console.log(
+    `Verification mode: ${verificationMode ? "enabled (mt#1656 Fix 1 priorReviewsPresent=true for R>=2)" : "disabled"}`
+  );
   const resolvedOutputFilename = baseline
     ? "replay-severity-baseline-results.json"
     : recovery
       ? "replay-severity-recovery-results.json"
-      : "replay-severity-results.json";
+      : verificationMode
+        ? "replay-verification-mode-results.json"
+        : "replay-severity-results.json";
   console.log(`Output: services/reviewer/scripts/${resolvedOutputFilename}`);
   console.log(`Corpus entries: ${corpus.map((e) => `#${e.prNumber}@R${e.iteration}`).join(", ")}`);
   console.log(`Attempts per entry: ${attemptsPerEntry}`);
@@ -726,7 +794,8 @@ async function main() {
       ctx,
       attemptsPerEntry,
       baseline,
-      recovery
+      recovery,
+      verificationMode
     );
     result.notes = entry.notes;
     perEntry.push(result);
@@ -739,6 +808,7 @@ async function main() {
     model,
     promptVariant: baseline ? "baseline" : "post-restructure",
     recoveryEnabled: recovery,
+    verificationModeEnabled: verificationMode,
     summary,
     perEntry,
   };
