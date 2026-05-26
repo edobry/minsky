@@ -143,7 +143,9 @@ async function runAsksReconcileDomain(
     const operatorNotify = new SystemOperatorNotify();
 
     // Build composite wake sink (logging + persistent)
-    const sinks = [new LoggingWakeSignalSink()];
+    const sinks: import("@minsky/domain/ask/wake-on-respond").WakeSignalSink[] = [
+      new LoggingWakeSignalSink(),
+    ];
     try {
       sinks.push(new PersistentWakeSignalSink(new DrizzleWakePendingRepository(db)));
     } catch (err: unknown) {

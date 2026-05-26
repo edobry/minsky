@@ -171,6 +171,17 @@ export interface MergeStateSweepResult {
 export interface MergeStateSweeperDeps {
   sessionProvider: SessionProviderInterface;
   taskService: TaskServiceInterface;
+  /**
+   * Test seam for applyPostMergeStateSync. When provided, replaces the real
+   * domain-import call. Allows unit tests to verify sync is triggered with the
+   * correct arguments without requiring a live DB connection.
+   */
+  applySyncFn?: (params: {
+    sessionId: string;
+    mergeSha?: string;
+    mergedAt?: string;
+    trigger: string;
+  }) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,21 +305,23 @@ export async function runMergeStateSweep(
 
           // Call applyPostMergeStateSync domain function directly.
           // TOCTOU accept: idempotent — calling twice produces the same final state.
-          const { applyPostMergeStateSync } = await import(
-            "@minsky/domain/session/session-merge-operations"
-          );
-          await applyPostMergeStateSync(
-            {
-              sessionId,
-              mergeSha: livePr.merge_commit_sha ?? undefined,
-              mergedAt: livePr.merged_at ?? undefined,
-              trigger: "sweeper",
-            },
-            {
+          const syncParams = {
+            sessionId,
+            mergeSha: livePr.merge_commit_sha ?? undefined,
+            mergedAt: livePr.merged_at ?? undefined,
+            trigger: "sweeper",
+          };
+          if (deps.applySyncFn) {
+            await deps.applySyncFn(syncParams);
+          } else {
+            const { applyPostMergeStateSync } = await import(
+              "@minsky/domain/session/session-merge-operations"
+            );
+            await applyPostMergeStateSync(syncParams, {
               sessionDB: deps.sessionProvider,
               taskService: deps.taskService,
-            }
-          );
+            });
+          }
 
           result.syncsTriggered++;
           log.info("merge_state_sweeper.sync_triggered", {

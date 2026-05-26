@@ -21,10 +21,18 @@ const schema = {
 
 /**
  * Resolve Postgres connection string from environment variables.
- * Matches root drizzle.pg.config.ts resolution order.
+ *
+ * Resolution order (mt#2121 — align with domain's canonical env var):
+ *   1. MINSKY_PERSISTENCE_POSTGRES_URL — canonical name used by the domain container
+ *   2. MINSKY_SESSIONDB_POSTGRES_URL   — legacy name (pre-mt#2121)
+ *   3. MINSKY_POSTGRES_URL             — broader legacy fallback
+ *   4. Development default
  */
 function resolveConnectionString(): string {
-  const url = process.env.MINSKY_SESSIONDB_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
+  const url =
+    process.env.MINSKY_PERSISTENCE_POSTGRES_URL ||
+    process.env.MINSKY_SESSIONDB_POSTGRES_URL ||
+    process.env.MINSKY_POSTGRES_URL;
   if (url) {
     return url;
   }

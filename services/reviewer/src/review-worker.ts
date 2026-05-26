@@ -71,6 +71,8 @@ import {
   summarizePriorReviews,
 } from "./prior-review-summary";
 import { resolveTaskSpec, type TaskSpecFetchResult } from "./task-spec-fetch";
+import type { TaskServiceInterface } from "@minsky/domain/tasks";
+import type { BasePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
   decideRouting,
   resolveTier,
@@ -808,6 +810,19 @@ export interface RunReviewDeps {
   metricsRecorder?: (db: ReviewerDb, input: ConvergenceMetricInput) => Promise<void>;
 
   timingRecorder?: (db: ReviewerDb, input: ReviewTimingInput) => Promise<void>;
+
+  /**
+   * Domain TaskService for task-spec fetch (mt#2121 direct domain import).
+   * When absent, resolveTaskSpec returns status: "disabled".
+   */
+  taskService?: TaskServiceInterface | null;
+
+  /**
+   * Domain persistence provider for authorship-tier lookup via ProvenanceService
+   * (mt#2121 direct domain import). When absent, tier resolution falls back to
+   * the PR-body marker or the hybrid default.
+   */
+  persistenceProvider?: BasePersistenceProvider | null;
 }
 
 export async function runReview(
@@ -830,7 +845,7 @@ export async function runReview(
   const octokit = await createOctokit(config);
 
   const pr = await fetchPullRequestContext(octokit, owner, repo, prNumber, config.githubTimeoutMs);
-  const tier = await resolveTier(prNumber, pr.body, config);
+  const tier = await resolveTier(prNumber, pr.body, deps.persistenceProvider ?? null);
 
   // Classify the PR scope (mt#1188): drives prompt-variant selection to
   // reduce false REQUEST_CHANGES on trivial / docs-only PRs (PR #703 trigger).
@@ -855,7 +870,7 @@ export async function runReview(
 
   const scopeBucket = scopeBucketFor(prScope);
 
-  const routing = decideRouting(tier, config);
+  const routing = decideRouting(tier, config.tier2Enabled);
   if (!routing.shouldReview) {
     // mt#2088: timing on routing-skip path.
     const skipTimingWriter = deps.timingRecorder ?? recordReviewTiming;
@@ -1027,13 +1042,13 @@ async function runReviewBody(
   const reviewerIdentity = await getAppIdentity(config);
   const isSelfReview = reviewerIdentity.login.toLowerCase() === prAuthorLogin.toLowerCase();
 
-  // Fetch the task spec via the hosted Minsky MCP if configured. Never blocks —
-  // unreachable MCP, missing task, or PR with no mt# reference all produce
+  // Fetch the task spec via the domain TaskService if configured. Never blocks —
+  // missing service, missing task, or PR with no mt# reference all produce
   // taskSpec: null with a structured fetchResult the server logs.
   const { taskSpec, fetchResult: taskSpecFetch } = await resolveTaskSpec({
     branchName: pr.branchName,
     prTitle: pr.title,
-    config,
+    taskService: deps.taskService ?? null,
   });
 
   // Fetch prior bot reviews on this PR. Non-blocking — errors produce an empty
