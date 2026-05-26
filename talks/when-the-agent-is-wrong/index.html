@@ -20,8 +20,8 @@
       --signal-cyan-dim: #0080A0;
       --warn-amber: #F59E0B;
       --warn-red: #DC2626;
-      --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
-      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     }
 
     .reveal {
@@ -588,9 +588,9 @@ export * from "../../src/domain/config";</code></pre>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.js"></script>
-  <script>
+  <script type="module">
+    import Reveal from 'https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.esm.js';
+    import Notes from 'https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.esm.js';
     Reveal.initialize({
       hash: true,
       slideNumber: true,
@@ -599,7 +599,7 @@ export * from "../../src/domain/config";</code></pre>
       margin: 0.04,
       transition: "none",
       backgroundTransition: "none",
-      plugins: [RevealNotes]
+      plugins: [Notes]
     });
   </script>
 </body>
