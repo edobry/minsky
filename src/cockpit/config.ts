@@ -1,3 +1,4 @@
+// cockpit-preview smoke test trigger (mt#2117 — safe to remove after verification)
 /**
  * Cockpit config loader (mt#1144)
  *
