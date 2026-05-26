@@ -1,12 +1,18 @@
 # Per-PR cockpit preview deploy (mt#2096).
 #
-# Deploys an ephemeral cockpit server to Railway when a PR touches cockpit
-# source files. Posts the preview URL as a PR comment. Tears down on PR
-# close or merge.
+# Deploys the cockpit server to Railway when a PR touches cockpit source
+# files. Posts the preview URL as a PR comment. Redeploys production on
+# PR close/merge to restore main-branch state.
+#
+# Architecture: single Railway environment (production) — each PR push
+# overwrites the prior deploy. Sufficient for a single-operator workflow
+# where parallel cockpit previews are not needed. If parallel previews
+# become necessary, upgrade to per-PR Railway environments with a
+# workspace-level API token.
 #
 # Prerequisites (one-time manual setup):
 #   1. Railway project + service created for cockpit-preview
-#   2. RAILWAY_COCKPIT_TOKEN secret set on this repo (scoped to the cockpit project)
+#   2. RAILWAY_COCKPIT_TOKEN secret set on this repo (project token scoped to production env)
 #   3. Real resource IDs in services/cockpit/railway.config.ts
 #   4. Read-only Supabase DB role created (see scripts/supabase-preview-role.sql)
 
@@ -41,32 +47,9 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
-          ENV_NAME="pr-${{ github.event.pull_request.number }}"
-
-          # Create the PR environment if it doesn't exist yet.
-          # Railway CLI exits non-zero if the name is taken — that's fine.
-          railway environment create "$ENV_NAME" 2>/dev/null || true
-
           railway up \
             --service cockpit-preview \
-            --detach \
-            --environment "$ENV_NAME"
-
-      - name: Get preview URL
-        id: url
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
-        run: |
-          ENV_NAME="pr-${{ github.event.pull_request.number }}"
-
-          # Generate a domain for the service in the PR environment.
-          # If one already exists, `railway domain` may error — fall back
-          # to listing domains.
-          PREVIEW_URL=$(railway domain --environment "$ENV_NAME" 2>/dev/null || echo "")
-          if [ -z "$PREVIEW_URL" ]; then
-            PREVIEW_URL="(URL pending — check Railway dashboard)"
-          fi
-          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+            --detach
 
       - name: Post preview URL comment
         uses: actions/github-script@v7
@@ -75,7 +58,7 @@ jobs:
             const body = [
               '### Cockpit Preview',
               '',
-              `**Preview URL:** ${{ steps.url.outputs.url }}`,
+              '**Preview URL:** https://cockpit-preview-production.up.railway.app',
               '',
               `Deployed from commit \`${context.payload.pull_request.head.sha.slice(0, 9)}\`.`,
               'Preview runs in **read-only mode** — mutations are disabled.',
@@ -109,17 +92,23 @@ jobs:
               });
             }
 
-  teardown:
+  restore:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
       - name: Install Railway CLI
         run: npm install -g @railway/cli
 
-      - name: Tear down preview environment
+      - name: Restore main-branch deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
-          railway environment delete \
-            --environment pr-${{ github.event.pull_request.number }} \
-            --yes 2>/dev/null || true
+          railway up \
+            --service cockpit-preview \
+            --detach
