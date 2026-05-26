@@ -2,7 +2,7 @@
 // PostToolUse hook on `mcp__minsky__session_pr_create`: when PR creation
 // succeeds, inject an `additionalContext` reminder that the agent's required
 // next action is to drive the PR to convergence (via `session_pr_wait-for-review`
-// or a Chinese-wall reviewer subagent on webhook-miss) — NOT to end the turn
+// with `minsky-reviewer[bot]` as the review surface) — NOT to end the turn
 // with deferral language like "ping me when done" / "let me know when ready."
 //
 // Originating incidents:
@@ -56,20 +56,24 @@ export const DRIVE_TO_CONVERGENCE_REMINDER = [
   "rule in `decision-defaults.mdc` — the user is NOT the next actor.",
   "",
   "**Required next action (do not end the turn here):**",
-  "- Call `mcp__minsky__session_pr_wait-for-review` to block until",
-  "  `minsky-reviewer[bot]` posts (typical 30s–2min after push).",
-  "- On webhook-miss (>5min silent): diagnose per `feedback_self_authored_pr_merge_constraints`",
-  "  step 5; dispatch `/review-pr` for a Chinese-wall reviewer subagent if",
-  "  the bot is unhealthy.",
+  "- Call `mcp__minsky__session_pr_wait-for-review` with `reviewer: 'minsky-reviewer[bot]'`",
+  "  to block until the reviewer bot posts (typical 30s–2min after push).",
+  "- On webhook-miss (>5min silent): push an empty commit to wake the webhook",
+  "  (`session_commit` with `noFiles: true, noStage: true`), then re-wait.",
+  "  If still silent after the second wait, proceed to bypass merge.",
   "- On APPROVE: call `mcp__minsky__session_pr_merge`.",
   "- On CHANGES_REQUESTED: apply fixes per §7 Convergence Checklist (class-",
   "  not-instance + cascade-defense), push, re-wait.",
   "",
+  "**Do NOT dispatch a reviewer subagent or invoke /review-pr.**",
+  "The reviewer bot (`minsky-reviewer[bot]`) is the only review surface.",
+  "See memory `5695cd2b` for the full rationale.",
+  "",
   "**Forbidden — these phrases end the turn prematurely:**",
-  '- "Ping me when done"',
-  '- "Let me know when merged"',
-  '- "I\'ll wait for your signal"',
-  '- "Ready for your review/merge"',
+  '"- "Ping me when done"',
+  '"- "Let me know when merged"',
+  '"- "I\'ll wait for your signal"',
+  '"- "Ready for your review/merge"',
   "- Any equivalent deferral that ends the turn before merge.",
   "",
   "The slow-ask variant (deferring to a later user ping) is forbidden under",

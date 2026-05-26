@@ -93,9 +93,9 @@ describe("drive-pr-to-convergence hook (mt#1793)", () => {
       expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("session_pr_wait-for-review");
     });
 
-    test("names the webhook-miss fallback (/review-pr / Chinese-wall reviewer)", () => {
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("/review-pr");
-      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("Chinese-wall");
+    test("names the webhook-miss fallback (empty commit wake, not reviewer dispatch)", () => {
+      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("empty commit");
+      expect(DRIVE_TO_CONVERGENCE_REMINDER).toContain("Do NOT dispatch a reviewer subagent");
     });
 
     test("forbids the originating deferral phrases", () => {
