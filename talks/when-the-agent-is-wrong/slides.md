@@ -12,7 +12,10 @@ mdc: true
 fonts:
   sans: Geist
   mono: JetBrains Mono
+css: unocss
 ---
+
+<style src="./style.css"></style>
 
 <div class="center-slide">
 <span class="eyebrow">Case study</span>
