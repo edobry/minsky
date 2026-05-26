@@ -41,20 +41,28 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
+          ENV_NAME="pr-${{ github.event.pull_request.number }}"
+
+          # Create the PR environment if it doesn't exist yet.
+          # Railway CLI exits non-zero if the name is taken — that's fine.
+          railway environment create "$ENV_NAME" 2>/dev/null || true
+
           railway up \
             --service cockpit-preview \
             --detach \
-            --environment pr-${{ github.event.pull_request.number }}
+            --environment "$ENV_NAME"
 
       - name: Get preview URL
         id: url
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
         run: |
-          # Railway generates a domain for the service in the PR environment.
-          # The exact mechanism depends on Railway project config — the domain
-          # may be auto-generated or need explicit creation via `railway domain`.
-          PREVIEW_URL=$(railway domain --environment pr-${{ github.event.pull_request.number }} 2>/dev/null || echo "")
+          ENV_NAME="pr-${{ github.event.pull_request.number }}"
+
+          # Generate a domain for the service in the PR environment.
+          # If one already exists, `railway domain` may error — fall back
+          # to listing domains.
+          PREVIEW_URL=$(railway domain --environment "$ENV_NAME" 2>/dev/null || echo "")
           if [ -z "$PREVIEW_URL" ]; then
             PREVIEW_URL="(URL pending — check Railway dashboard)"
           fi
@@ -64,16 +72,17 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const body = `### Cockpit Preview
+            const body = [
+              '### Cockpit Preview',
+              '',
+              `**Preview URL:** ${{ steps.url.outputs.url }}`,
+              '',
+              `Deployed from commit \`${context.payload.pull_request.head.sha.slice(0, 9)}\`.`,
+              'Preview runs in **read-only mode** — mutations are disabled.',
+              '',
+              `_Updated by [Cockpit Preview](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})._`,
+            ].join('\n');
 
-            **Preview URL:** ${{ steps.url.outputs.url }}
-
-            This preview was deployed from commit ${{ github.event.pull_request.head.sha }}.
-            Preview runs in read-only mode — mutations are disabled.
-
-            _Updated by the [Cockpit Preview](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow._`;
-
-            // Find existing comment to update (avoid spam)
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
