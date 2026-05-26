@@ -33,7 +33,7 @@
 
 import { execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { emitBraintrustEvent } from "../../src/domain/observability/braintrust";
+import { emitBraintrustEvent } from "../../packages/domain/src/observability/braintrust";
 import { appendFileSync, existsSync, renameSync, statSync, unlinkSync } from "node:fs";
 
 // ---------------------------------------------------------------------------
