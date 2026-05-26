@@ -315,11 +315,12 @@ describe("redaction acceptance: mcpToken never emitted", () => {
 // ---------------------------------------------------------------------------
 
 describe("redaction acceptance: 401 error log does not contain bearer token", () => {
-  test("simulates a callAuthorshipGet 401 error log — artifactId present, token absent", () => {
+  test("simulates a mcp-client 401 error log — artifactId present, token absent", () => {
     const secretToken = "secret-bearer-value-xyz";
     const artifactId = "42";
 
-    // Simulate the exact message that callAuthorshipGet produces on HTTP 401:
+    // Simulate the error message shape produced by mcp-client on HTTP 401
+    // (callAuthorshipGet was removed in mt#2121; this tests the log format, not the function):
     // log.error(`[mcp-client] authorship.get(${artifactId}) HTTP 401 Unauthorized`)
     // with NO context that includes the token (the function never passes mcpToken to log.error).
     const errorMsg = `[mcp-client] authorship.get(${artifactId}) HTTP 401 Unauthorized`;
