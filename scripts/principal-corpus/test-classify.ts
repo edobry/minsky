@@ -6,8 +6,8 @@
 
 import "reflect-metadata";
 import { setupConfiguration } from "../../src/config-setup";
-import { parseTwitterArchive } from "../../src/domain/principal-corpus/tweet-archive-parser";
-import { classifyAndFilterTweets } from "../../src/domain/principal-corpus/relevance-filter";
+import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
+import { classifyAndFilterTweets } from "@minsky/domain/principal-corpus/relevance-filter";
 
 async function main() {
   const args = new Map<string, string>();

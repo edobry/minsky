@@ -2,10 +2,10 @@ import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import type { CommandExecutionContext } from "../../command-registry";
 import { createTaskSimilarityService } from "./similarity-commands";
 import { tasksIndexEmbeddingsParams } from "./task-parameters";
-import { listTasksFromParams, getTaskFromParams } from "../../../../domain/tasks/taskCommands";
-import { elementAt } from "../../../../utils/array-safety";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import { listTasksFromParams, getTaskFromParams } from "@minsky/domain/tasks/taskCommands";
+import { elementAt } from "@minsky/shared/array-safety";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
@@ -44,7 +44,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
         },
         { taskService: this.getTaskService?.() }
       );
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       const changed = await service.indexTask(task.id);
       if (!(params.json || ctx.format === "json")) {
         log.cli(`${task.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
@@ -76,7 +76,7 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand<TasksIndexEmbed
     let failed = 0;
     let quotaExhausted = false;
     let quotaError: string | undefined;
-    const { log } = await import("../../../../utils/logger");
+    const { log } = await import("@minsky/shared/logger");
     if (!(params.json || ctx.format === "json")) {
       log.cli(`Indexing embeddings for ${tasks.length} task(s)...`);
     }

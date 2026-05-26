@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import "reflect-metadata";
 import { createCockpitServer, initServerSseBroker } from "../../../src/cockpit/server";
 import { log } from "../../../src/utils/logger";
 

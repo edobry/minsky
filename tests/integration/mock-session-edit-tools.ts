@@ -64,10 +64,8 @@ async function loggingApplyEditPattern(
   try {
     // Recreate the logic from the actual applyEditPattern function with logging
     // Use the same import pattern as session-edit-tools.ts
-    const { DefaultAICompletionService } = await import(
-      "../../src/domain/ai/completion-service.js"
-    );
-    const { getConfiguration } = await import("../../src/domain/configuration/index.js");
+    const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
 
     const config = getConfiguration();
     console.log("\n📋 AI CONFIGURATION:");

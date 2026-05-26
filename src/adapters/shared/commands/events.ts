@@ -14,17 +14,17 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   SYSTEM_EVENT_TYPE_VALUES,
   type SystemEventType,
   type SystemEvent,
-} from "../../../domain/storage/schemas/system-events-schema";
-import { listEvents } from "../../../domain/events/query";
-import { DrizzleEventEmitter } from "../../../domain/events/emitter";
-import type { SystemEventInput } from "../../../domain/events/emitter";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+} from "@minsky/domain/storage/schemas/system-events-schema";
+import { listEvents } from "@minsky/domain/events/query";
+import { DrizzleEventEmitter } from "@minsky/domain/events/emitter";
+import type { SystemEventInput } from "@minsky/domain/events/emitter";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 // ---------------------------------------------------------------------------
 // DB connection helper (mirrors asks.ts pattern)

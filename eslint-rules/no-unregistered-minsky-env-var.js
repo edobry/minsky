@@ -5,7 +5,7 @@
  * env-var-namespace-conflict class (mt#1610, mt#1624, mt#1785).
  *
  * The Minsky env-var-to-config dot-path parser at
- * `src/domain/configuration/sources/environment.ts` auto-converts every
+ * `packages/domain/src/configuration/sources/environment.ts` auto-converts every
  * `MINSKY_FOO_BAR` env var seen at boot into a `foo.bar` config-path write.
  * Any path the strict config schema doesn't know about throws a validation
  * error at root level (`Unrecognized key: "foo"`), failing the config loader
@@ -27,7 +27,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve, sep as pathSep, normalize as pathNormalize } from "node:path";
 
-const REGISTRATION_FILE_POSIX = "src/domain/configuration/sources/environment.ts";
+const REGISTRATION_FILE_POSIX = "packages/domain/src/configuration/sources/environment.ts";
 // OS-specific form for cross-platform endsWith() checks (PR #1089 R1 BLOCKING #1).
 const REGISTRATION_FILE_NATIVE = REGISTRATION_FILE_POSIX.split("/").join(pathSep);
 
@@ -185,7 +185,7 @@ export default {
 
         // Compute the dot-path the loader would auto-map this to, so the
         // operator can see the exact key the config schema would reject.
-        // Mirrors src/domain/configuration/sources/environment.ts logic:
+        // Mirrors packages/domain/src/configuration/sources/environment.ts logic:
         // `MINSKY_FOO_BAR_BAZ` → `foo.bar.baz`.
         const configPath = name
           .replace(/^MINSKY_/, "")

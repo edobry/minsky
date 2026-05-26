@@ -7,9 +7,9 @@
  */
 
 import { readFileSync } from "fs";
-import { validatePrContent } from "../domain/session/pr-validation";
+import { validatePrContent } from "@minsky/domain/session/pr-validation";
 
-import { log } from "../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Main function to check commit message using imported validation

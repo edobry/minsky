@@ -4,9 +4,9 @@ import {
   createProjectContext,
   createProjectContextFromCwd,
 } from "./project";
-import type { SyncFsLike } from "../domain/interfaces/fs-like";
+import type { SyncFsLike } from "@minsky/domain/interfaces/fs-like";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
-import { getErrorMessage } from "../errors/message-templates";
+import { getErrorMessage } from "@minsky/domain/errors/message-templates";
 
 describe("ProjectContext", () => {
   let mockFs: ReturnType<typeof createMockFilesystem>;

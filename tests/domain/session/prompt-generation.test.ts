@@ -9,7 +9,7 @@ import {
   type GeneratePromptParams,
   type PromptType,
   type SkillLoader,
-} from "../../../src/domain/session/prompt-generation";
+} from "@minsky/domain/session/prompt-generation";
 
 const MCP_SESSION_COMMIT = "mcp__minsky__session_commit";
 const MCP_SESSION_PR_CREATE = "mcp__minsky__session_pr_create";

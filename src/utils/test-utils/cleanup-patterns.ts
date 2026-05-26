@@ -9,7 +9,7 @@ import { tmpdir } from "os";
 import { mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
-import { processChdir } from "../process";
+import { processChdir } from "@minsky/shared/process";
 
 /**
  * Working Directory Cleanup Pattern

@@ -34,7 +34,7 @@ export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepa
 
     const provider = ctx.container.get(
       "persistence"
-    ) as import("../../../../domain/persistence/types").PersistenceProvider;
+    ) as import("@minsky/domain/persistence/types").PersistenceProvider;
     if (!provider.capabilities.sql) {
       return this.formatResult(
         { success: false, message: "SQL not supported by current provider" },
@@ -91,7 +91,7 @@ export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepa
     };
 
     if (!isJson) {
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       if (dryRun) {
         log.cli("[dry-run] No changes applied.");
         log.cli(`  Orphaned embeddings found: ${orphansFound}`);

@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 
 describe("createDomainContainer", () => {
   test("creates a container with all domain service factories registered", async () => {
-    const { createDomainContainer } = await import("./domain");
+    const { createDomainContainer } = await import("@minsky/domain/composition/domain");
 
     const container = await createDomainContainer();
 

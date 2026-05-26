@@ -21,8 +21,8 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
-import { MinskyError } from "../../../errors/index";
-import { log } from "../../../utils/logger";
+import { MinskyError } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 
 // ── Internal helper: resolve a ForgeBackend from config ───────────────────
 
@@ -35,12 +35,12 @@ import { log } from "../../../utils/logger";
  */
 async function resolveForgeBackend() {
   const { getRepositoryBackendFromConfig } = await import(
-    "../../../domain/session/repository-backend-detection"
+    "@minsky/domain/session/repository-backend-detection"
   );
   const { createRepositoryBackend, RepositoryBackendType } = await import(
-    "../../../domain/repository/index"
+    "@minsky/domain/repository/index"
   );
-  const { createSessionProvider } = await import("../../../domain/session/session-db-adapter");
+  const { createSessionProvider } = await import("@minsky/domain/session/session-db-adapter");
 
   const { repoUrl, backendType, github } = await getRepositoryBackendFromConfig();
 
@@ -223,7 +223,7 @@ sharedCommandRegistry.registerCommand({
     // Pass config as BranchProtection — the impl validates at the API level
     const updated = await backend.branchProtection.set(
       branch,
-      config as import("../../../domain/repository/github-branch-protection").BranchProtection
+      config as import("@minsky/domain/repository/github-branch-protection").BranchProtection
     );
     return { success: true, branch, protection: updated };
   },

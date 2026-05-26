@@ -11,11 +11,11 @@ import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { RetryingInitController } from "../../mcp/init-retry";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { createProjectContext } from "../../types/project";
-import { exit } from "../../utils/process";
+import { exit } from "@minsky/shared/process";
 import { CommandCategory } from "../../adapters/shared/command-registry";
 import { registerSharedCommandsWithMcp } from "../../adapters/mcp/shared-command-integration";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
@@ -37,10 +37,10 @@ import { buildAndStartScheduler } from "./scheduler-wiring";
 // break — the symbol has zero realistic consumers per the mt#2017 caller-
 // graph analysis.
 export { MCP_CATEGORY_ADAPTERS } from "./discovery-config";
-import { setHostedMode } from "../../domain/configuration/guard";
+import { setHostedMode } from "@minsky/domain/configuration/guard";
 import { MCPClientCapabilityRegistry } from "../../mcp/client-capabilities";
-import type { MemoryServiceSurface } from "../../domain/memory/memory-service";
-import type { AppContainerInterface } from "../../composition/types";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { isEnrichmentEnabled } from "../../mcp/middleware/memory-enrichment";
 import {
   isInstructionsBundleEnabled,
@@ -51,8 +51,8 @@ import {
 // Sole call site is inside `if (transportType === "http" && container)`
 // block, so stdio mode never needs it. The type imports below are erased
 // at runtime by TypeScript and stay top-level.
-import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
-import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
+import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 import { profileCheckpoint } from "../../utils/cold-start-profile";
 
 const DEFAULT_HTTP_PORT = 3000;
@@ -223,7 +223,7 @@ export function injectAgentIdMeta(
  */
 async function registerAllTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): Promise<void> {
   // mt#1751: Tool handlers (which need persistence) await the server's
   // `initPromise` before dispatching, so the container is NOT eagerly
@@ -751,7 +751,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return null;
 
-    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     if (!(persistence instanceof PersistenceProvider)) return null;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return null;
@@ -760,7 +760,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     if (!connection) return null;
 
     const { DrizzleWakePendingRepository } = await import(
-      "../../domain/ask/wake-pending-repository"
+      "@minsky/domain/ask/wake-pending-repository"
     );
     const wakeRepo = new DrizzleWakePendingRepository(
       connection as import("drizzle-orm/postgres-js").PostgresJsDatabase
@@ -769,7 +769,7 @@ async function buildWakeServiceForBridge(container: AppContainerInterface): Prom
     const sessionProvider = container.has("sessionProvider")
       ? (container.get(
           "sessionProvider"
-        ) as import("../../domain/session/types").SessionProviderInterface)
+        ) as import("@minsky/domain/session/types").SessionProviderInterface)
       : undefined;
 
     const resolver: import("../../mcp/middleware/wake-enrichment").SessionResolver = {
@@ -810,7 +810,7 @@ async function buildMemoryServiceForSpike(
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return null;
 
-    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     if (!(persistence instanceof PersistenceProvider)) return null;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return null;
@@ -819,12 +819,12 @@ async function buildMemoryServiceForSpike(
     if (!connection) return null;
 
     const { createEmbeddingServiceFromConfig } = await import(
-      "../../domain/ai/embedding-service-factory"
+      "@minsky/domain/ai/embedding-service-factory"
     );
     const embeddingService = await createEmbeddingServiceFromConfig();
 
     const { createVectorStorageForDomain } = await import(
-      "../../domain/storage/vector/vector-storage-factory"
+      "@minsky/domain/storage/vector/vector-storage-factory"
     );
     const vectorStorage = await createVectorStorageForDomain(
       "memory",
@@ -832,8 +832,8 @@ async function buildMemoryServiceForSpike(
       persistence
     );
 
-    const { MemoryService } = await import("../../domain/memory");
-    type MemoryServiceDb = import("../../domain/memory/memory-service").MemoryServiceDb;
+    const { MemoryService } = await import("@minsky/domain/memory");
+    type MemoryServiceDb = import("@minsky/domain/memory/memory-service").MemoryServiceDb;
     return new MemoryService({
       db: connection as MemoryServiceDb,
       vectorStorage,
@@ -866,7 +866,7 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
     const persistence = container.has("persistence") ? container.get("persistence") : undefined;
     if (!persistence) return false;
 
-    const { PersistenceProvider } = await import("../../domain/persistence/types");
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
     if (!(persistence instanceof PersistenceProvider)) return false;
     if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
       return false;
@@ -876,7 +876,7 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
 
     const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
     const { SubagentDispatchTracker } = await import("../../mcp/subagent-dispatch-tracker");
-    const { createEventEmitter } = await import("../../domain/events/emitter");
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
     SubagentDispatchTracker.setInstance(db, createEventEmitter(db));
     return true;
   } catch (err) {
@@ -891,7 +891,7 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
-  externalContainer?: import("../../composition/types").AppContainerInterface
+  externalContainer?: import("@minsky/domain/composition/types").AppContainerInterface
 ): Command {
   const startCommand = new Command("start");
   startCommand.description("Start the MCP server");
@@ -930,7 +930,7 @@ export function createStartCommand(
         // domain bootstrap. This makes the MCP server independently bootable.
         let container = externalContainer;
         if (!container) {
-          const { createDomainContainer } = await import("../../composition/domain");
+          const { createDomainContainer } = await import("@minsky/domain/composition/domain");
           container = await createDomainContainer();
         }
 
@@ -1225,11 +1225,11 @@ export function createStartCommand(
                 // Read oauth config from the configuration subsystem (best-effort).
                 // Falls back to undefined so the provider uses its defaults
                 // (provider = "in-process", issuer derived from request host).
-                let oauthConfig: import("../../domain/configuration/schemas/oauth").OAuthConfig;
+                let oauthConfig: import("@minsky/domain/configuration/schemas/oauth").OAuthConfig;
                 try {
-                  const { getConfiguration } = await import("../../domain/configuration/index");
+                  const { getConfiguration } = await import("@minsky/domain/configuration/index");
                   const fullConfig = getConfiguration() as {
-                    oauth?: import("../../domain/configuration/schemas/oauth").OAuthConfig;
+                    oauth?: import("@minsky/domain/configuration/schemas/oauth").OAuthConfig;
                   };
                   oauthConfig = fullConfig.oauth;
                 } catch {
@@ -1238,7 +1238,7 @@ export function createStartCommand(
                 // mt#1719 Intervention 2: function-local dynamic import.
                 // OAuth provider pulls in oidc-provider + Koa middleware
                 // closure; deferring keeps it off the stdio import graph.
-                const { resolveOAuthProvider } = await import("../../domain/oauth/registry");
+                const { resolveOAuthProvider } = await import("@minsky/domain/oauth/registry");
                 oauthProvider = resolveOAuthProvider(oauthConfig, {
                   db,
                   endpointPath: normalizeEndpointPath(options.endpoint),

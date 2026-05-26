@@ -22,7 +22,7 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
     description: "List all sessions",
     parameters: sessionListCommandParams,
     execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const { parseTime } = await import("../../../../utils/result-handling/filters");
       const deps = await getDeps();
       const service = new SessionService(deps);
@@ -65,7 +65,7 @@ export function createSessionGetCommand(getDeps: LazySessionDeps): CommandDefini
     description: "Get details of a specific session",
     parameters: sessionGetCommandParams,
     execute: withErrorLogging("session.get", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -115,7 +115,7 @@ export function createSessionStartCommand(getDeps: LazySessionDeps): CommandDefi
         );
       }
 
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -150,7 +150,7 @@ export function createSessionDirCommand(getDeps: LazySessionDeps): CommandDefini
     description: "Get the directory of a session",
     parameters: sessionDirCommandParams,
     execute: withErrorLogging("session.dir", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -177,7 +177,7 @@ export function createSessionSearchCommand(getDeps: LazySessionDeps): CommandDef
       const query = params.query as string;
       const limit = params.limit as number | undefined;
 
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       const deps = await getDeps();
       const sessions = await deps.sessionProvider.listSessions();
 
@@ -234,8 +234,8 @@ export function createSessionExecCommand(getDeps: LazySessionDeps): CommandDefin
       "session_exec because they're the recommended escape hatch.",
     parameters: sessionExecCommandParams,
     execute: withErrorLogging("session.exec", async (params: Record<string, unknown>) => {
-      const { executeCommand } = await import("../../../../utils/exec");
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { executeCommand } = await import("@minsky/shared/exec");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 

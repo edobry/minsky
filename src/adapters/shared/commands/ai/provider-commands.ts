@@ -6,18 +6,18 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { exit } from "../../../../utils/process";
+import { log } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
 import {
   createCompletionService,
   createConfigService,
   createModelCacheServiceWithFetchers,
-} from "../../../../domain/ai/service-factory";
+} from "@minsky/domain/ai/service-factory";
 import {
   requireAIProviders,
   testProviderConnectivity,
   getProviderStatuses,
-} from "../../../../domain/ai/provider-operations";
+} from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig } from "./shared-helpers";
 
 /**

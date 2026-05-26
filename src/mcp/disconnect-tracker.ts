@@ -67,8 +67,8 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { log } from "../utils/logger";
-import { emitBraintrustEvent } from "../domain/observability/braintrust";
+import { log } from "@minsky/shared/logger";
+import { emitBraintrustEvent } from "@minsky/domain/observability/braintrust";
 
 /**
  * The kind of event recorded.

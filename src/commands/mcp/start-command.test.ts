@@ -10,8 +10,8 @@ import {
   validateOAuthBearer,
   injectAgentIdMeta,
 } from "./start-command";
-import type { OAuthIdentityProvider, OAuthValidationResult } from "../../domain/oauth/types";
-import { AGENT_ID_META_KEY } from "../../domain/agent-identity/layer2";
+import type { OAuthIdentityProvider, OAuthValidationResult } from "@minsky/domain/oauth/types";
+import { AGENT_ID_META_KEY } from "@minsky/domain/agent-identity/layer2";
 
 // ---------------------------------------------------------------------------
 // Helpers for integration tests

@@ -6,15 +6,15 @@
  */
 
 import { z } from "zod";
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import {
   CommandCategory,
   type CommandDefinition,
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { runMinskyCompile } from "../../../../domain/compile/compile";
+import { log } from "@minsky/shared/logger";
+import { runMinskyCompile } from "@minsky/domain/compile/compile";
 
 const compileCommandParams = {
   target: {

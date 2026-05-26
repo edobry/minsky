@@ -15,11 +15,11 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerPrincipalCorpusCommandsWithMcp } from "./shared-command-integration";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 export function registerPrincipalCorpusTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug("Registering principal-corpus commands via shared command integration");
 

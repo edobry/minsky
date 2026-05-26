@@ -23,21 +23,21 @@
  * @see mt#2071
  */
 
-import type { MemoryServiceSurface, MemoryServiceDb } from "../src/domain/memory/memory-service";
+import type { MemoryServiceSurface, MemoryServiceDb } from "@minsky/domain/memory/memory-service";
 
 async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
-    "../src/domain/configuration"
+    "@minsky/domain/configuration"
   );
   const { createCliContainer } = await import("../src/composition/cli");
-  const { PersistenceProvider } = await import("../src/domain/persistence/types");
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
   const { createEmbeddingServiceFromConfig } = await import(
-    "../src/domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
   const { createVectorStorageForDomain } = await import(
-    "../src/domain/storage/vector/vector-storage-factory"
+    "@minsky/domain/storage/vector/vector-storage-factory"
   );
-  const { MemoryService } = await import("../src/domain/memory");
+  const { MemoryService } = await import("@minsky/domain/memory");
 
   await initializeConfiguration(new CustomConfigFactory(), {
     workingDirectory: process.cwd(),

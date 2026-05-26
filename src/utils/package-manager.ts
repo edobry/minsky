@@ -4,8 +4,8 @@
 import { join } from "path";
 import { existsSync, readdirSync, readFileSync } from "fs";
 import { execSync } from "child_process";
-import { log } from "./logger";
-import { getErrorMessage } from "../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 /**
  * Supported package manager types

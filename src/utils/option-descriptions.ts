@@ -7,7 +7,7 @@
  * Descriptions are organized by functional area for easier maintenance.
  */
 
-import { TASK_STATUS_VALUES } from "../domain/tasks/taskConstants";
+import { TASK_STATUS_VALUES } from "@minsky/domain/tasks/taskConstants";
 
 // ------------------------------------------------------------------
 // Repository Resolution

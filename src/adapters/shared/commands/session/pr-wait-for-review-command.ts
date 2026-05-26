@@ -12,14 +12,14 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "../../../../errors/index";
+} from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrWaitForReviewCommandParams } from "./session-parameters";
-import { sessionPrWaitForReview } from "../../../../domain/session/commands/pr-subcommands";
+import { sessionPrWaitForReview } from "@minsky/domain/session/commands/pr-subcommands";
 import type {
   SessionPrWaitForReviewMatch,
   SessionPrWaitForReviewTimeout,
-} from "../../../../domain/session/commands/pr-wait-for-review-subcommand";
+} from "@minsky/domain/session/commands/pr-wait-for-review-subcommand";
 
 /**
  * Render the text-mode message for a successful match. Exported for unit

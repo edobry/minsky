@@ -18,10 +18,13 @@
  * Frontend mirrors the shape in Attention.tsx — keep in sync.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import type { AskRepository } from "../../domain/ask/repository";
-import type { Ask } from "../../domain/ask/types";
-import { pendingAsksForWindow, compareAskPriority } from "../../domain/ask/pending-asks-for-window";
-import { isTerminal } from "../../domain/ask/state-machine";
+import type { AskRepository } from "@minsky/domain/ask/repository";
+import type { Ask } from "@minsky/domain/ask/types";
+import {
+  pendingAsksForWindow,
+  compareAskPriority,
+} from "@minsky/domain/ask/pending-asks-for-window";
+import { isTerminal } from "@minsky/domain/ask/state-machine";
 import { getSharedPersistenceService } from "../shared-persistence";
 
 // ---------------------------------------------------------------------------
@@ -198,7 +201,7 @@ const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
 async function defaultDepsFactory(): Promise<AttentionDeps> {
   if (!_cachedRepo) {
-    const { DrizzleAskRepository } = await import("../../domain/ask/repository");
+    const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
 
     const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();

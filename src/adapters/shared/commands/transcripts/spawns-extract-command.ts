@@ -34,10 +34,10 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
-import type { AppContainerInterface } from "../../../../composition/types";
-import type { SpawnsPipelineRunResult } from "../../../../domain/transcripts/agent-spawns-pipeline";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SpawnsPipelineRunResult } from "@minsky/domain/transcripts/agent-spawns-pipeline";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ export function registerTranscriptSpawnsExtractCommand(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -125,7 +125,7 @@ export function registerTranscriptSpawnsExtractCommand(
 
       // ── Construct pipeline ────────────────────────────────────────────────
       const { AgentSpawnsPipeline } = await import(
-        "../../../../domain/transcripts/agent-spawns-pipeline"
+        "@minsky/domain/transcripts/agent-spawns-pipeline"
       );
 
       const pipeline = new AgentSpawnsPipeline(

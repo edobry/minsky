@@ -11,7 +11,7 @@
  * with code that already imports from there.
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
-import type { AppContainerInterface } from "../../composition/types";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import { CommandCategory } from "../../adapters/shared/command-registry";
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";

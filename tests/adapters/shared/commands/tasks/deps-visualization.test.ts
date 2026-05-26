@@ -4,7 +4,7 @@ describe("Task Dependencies Visualization - DOT Quote Escaping", () => {
   beforeAll(async () => {
     // Initialize configuration for any tests that might need it
     const { initializeConfiguration, CustomConfigFactory } = await import(
-      "../../../../../src/domain/configuration/index"
+      "@minsky/domain/configuration/index"
     );
     await initializeConfiguration(new CustomConfigFactory(), {
       enableCache: true,

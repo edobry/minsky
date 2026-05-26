@@ -11,10 +11,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import {
-  MinskyTaskBackend,
-  type MinskyBackendDb,
-} from "../../../src/domain/tasks/minskyTaskBackend";
+import { MinskyTaskBackend, type MinskyBackendDb } from "@minsky/domain/tasks/minskyTaskBackend";
 
 // ── Minimal in-memory fake DB ─────────────────────────────────────────────────
 //

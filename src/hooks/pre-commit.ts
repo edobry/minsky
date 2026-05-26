@@ -7,12 +7,12 @@
  * Minsky's own infrastructure for consistent configuration and error handling.
  */
 
-import { execAsync } from "../utils/exec";
-import { execGitWithTimeout } from "../utils/git-exec";
+import { execAsync } from "@minsky/shared/exec";
+import { execGitWithTimeout } from "@minsky/domain/utils/git-exec";
 import { stat, readdir, readFile } from "fs/promises";
 import { join } from "path";
-import { ProjectConfigReader } from "../domain/project/config-reader";
-import { log } from "../utils/logger";
+import { ProjectConfigReader } from "@minsky/domain/project/config-reader";
+import { log } from "@minsky/shared/logger";
 import {
   detectNulByteViolations,
   isPathAllowlisted,

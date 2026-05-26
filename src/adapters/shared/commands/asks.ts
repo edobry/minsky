@@ -19,41 +19,41 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { ValidationError } from "../../../errors/index";
-import { log } from "../../../utils/logger";
+import { ValidationError } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import {
   DrizzleAskRepository,
   type AskRepository,
   type CreateAskInput,
-} from "../../../domain/ask/repository";
-import { ConcurrentTransitionError } from "../../../domain/ask/repository";
-import type { Ask, AskKind, AskState, AskOption, ContextRef } from "../../../domain/ask/types";
-import { reconcile, type ReconcileResult } from "../../../domain/ask/reconciler";
+} from "@minsky/domain/ask/repository";
+import { ConcurrentTransitionError } from "@minsky/domain/ask/repository";
+import type { Ask, AskKind, AskState, AskOption, ContextRef } from "@minsky/domain/ask/types";
+import { reconcile, type ReconcileResult } from "@minsky/domain/ask/reconciler";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
   PersistentWakeSignalSink,
   type WakeSignalSink,
-} from "../../../domain/ask/wake-on-respond";
-import { DrizzleWakePendingRepository } from "../../../domain/ask/wake-pending-repository";
+} from "@minsky/domain/ask/wake-on-respond";
+import { DrizzleWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
 import {
   policyFirstRoute,
   type RoutedAsk,
   type SuspendedAsk,
   type PolicyFirstRouteOptions,
   isSuspendedAsk,
-} from "../../../domain/ask/router";
+} from "@minsky/domain/ask/router";
 import {
   dispatchToElicitation,
   type ElicitationClosedAsk,
-} from "../../../domain/ask/transports/elicitation";
-import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+} from "@minsky/domain/ask/transports/elicitation";
+import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import type { ClientCapabilityRegistry } from "../../../mcp/client-capabilities";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
-import { getServiceWindowDefault } from "../../../domain/ask/service-window-defaults";
-import { createEventEmitter } from "../../../domain/events/emitter";
+import { getServiceWindowDefault } from "@minsky/domain/ask/service-window-defaults";
+import { createEventEmitter } from "@minsky/domain/events/emitter";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -749,8 +749,8 @@ export function registerAsksCommands(container?: AppContainerInterface): void {
 
         let tokenProvider;
         try {
-          const { getConfiguration } = await import("../../../domain/configuration/index");
-          const { createTokenProvider } = await import("../../../domain/auth");
+          const { getConfiguration } = await import("@minsky/domain/configuration/index");
+          const { createTokenProvider } = await import("@minsky/domain/auth");
           const cfg = getConfiguration();
           const userToken = cfg.github?.token ?? "";
           const githubCfg = cfg.github ?? {};

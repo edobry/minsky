@@ -15,9 +15,9 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { TasksListCommand, TasksGetCommand } from "./crud-commands";
-import { FakeAskRepository } from "../../../../domain/ask/repository";
-import type { AskRepository } from "../../../../domain/ask/repository";
-import type { Ask, AskKind } from "../../../../domain/ask/types";
+import { FakeAskRepository } from "@minsky/domain/ask/repository";
+import type { AskRepository } from "@minsky/domain/ask/repository";
+import type { Ask, AskKind } from "@minsky/domain/ask/types";
 import type { CommandExecutionContext } from "../../command-registry";
 
 // ---------------------------------------------------------------------------

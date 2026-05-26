@@ -13,7 +13,7 @@ import { z } from "zod";
 import { homedir } from "os";
 import { join } from "path";
 import { confirm, isCancel, note } from "@clack/prompts";
-import { getErrorMessage, ValidationError } from "../../../errors/index";
+import { getErrorMessage, ValidationError } from "@minsky/domain/errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -31,7 +31,7 @@ import {
   type AppManifestSpec,
   type AppProvisioner,
   type CredentialStore,
-} from "../../../domain/setup/github-app";
+} from "@minsky/domain/setup/github-app";
 
 /**
  * Test seam: dependency overrides for `setup.github-app`.

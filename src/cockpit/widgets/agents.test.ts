@@ -12,8 +12,8 @@ import type {
   SessionProviderInterface,
   SessionRecord,
   SessionListOptions,
-} from "../../domain/session/types";
-import { SessionStatus } from "../../domain/session/types";
+} from "@minsky/domain/session/types";
+import { SessionStatus } from "@minsky/domain/session/types";
 
 // ---------------------------------------------------------------------------
 // Helpers

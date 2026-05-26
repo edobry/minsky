@@ -11,11 +11,11 @@
 import "reflect-metadata";
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { setupConfiguration } from "../../src/config-setup";
-import { parseTwitterArchive } from "../../src/domain/principal-corpus/tweet-archive-parser";
+import { parseTwitterArchive } from "@minsky/domain/principal-corpus/tweet-archive-parser";
 import {
   synthesizeMemeplexes,
   type TweetForSynthesis,
-} from "../../src/domain/principal-corpus/memeplex-synthesizer";
+} from "@minsky/domain/principal-corpus/memeplex-synthesizer";
 
 /**
  * Required inputs (CLI args or env vars; no defaults — see run-ingestion.ts):

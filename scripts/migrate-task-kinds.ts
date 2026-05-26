@@ -80,7 +80,7 @@ const connectionString: string = dbUrl;
 
 console.log("Connecting to database...");
 
-const { PersistenceService } = await import("../src/domain/persistence/service.ts");
+const { PersistenceService } = await import("@minsky/domain/persistence/service");
 const service = new PersistenceService();
 
 try {
@@ -106,9 +106,9 @@ if (!db) {
 // Load schemas
 // ---------------------------------------------------------------------------
 
-const { tasksTable } = await import("../src/domain/storage/schemas/task-embeddings.ts");
+const { tasksTable } = await import("@minsky/domain/storage/schemas/task-embeddings");
 const { taskRelationshipsTable, PARENT_RELATIONSHIP_TYPE } = await import(
-  "../src/domain/storage/schemas/task-relationships.ts"
+  "@minsky/domain/storage/schemas/task-relationships"
 );
 
 // ---------------------------------------------------------------------------
@@ -173,7 +173,7 @@ console.log(`Found ${tasksWithChildren.size} tasks with at least one child.`);
 
 console.log("Fetching sessions for PR association check...");
 
-const { postgresSessions } = await import("../src/domain/storage/schemas/session-schema.ts");
+const { postgresSessions } = await import("@minsky/domain/storage/schemas/session-schema");
 
 type SessionRow = {
   taskId: string | null;

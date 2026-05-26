@@ -28,8 +28,8 @@ import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
 import type { SubagentInvocationInput } from "../../../mcp/subagent-dispatch-tracker";
-import type { SubagentInvocationOutcome } from "../../../domain/storage/schemas/subagent-invocations-schema";
-import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "../../../domain/storage/schemas/subagent-invocations-schema";
+import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 import { registerDebugCommands } from "./debug";
 import { sharedCommandRegistry } from "../command-registry";
 

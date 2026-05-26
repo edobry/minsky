@@ -20,9 +20,9 @@
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import postgres from "postgres";
 import { randomUUID } from "crypto";
-import { withPgPoolRetry } from "../../src/domain/persistence/postgres-retry";
-import { PostgresPersistenceProvider } from "../../src/domain/persistence/providers/postgres-provider";
-import { PostgresVectorStorage } from "../../src/domain/storage/vector/postgres-vector-storage";
+import { withPgPoolRetry } from "@minsky/domain/persistence/postgres-retry";
+import { PostgresPersistenceProvider } from "@minsky/domain/persistence/providers/postgres-provider";
+import { PostgresVectorStorage } from "@minsky/domain/storage/vector/postgres-vector-storage";
 
 export interface SaturationSuiteOptions {
   /** Postgres connection string for the target pooler. */

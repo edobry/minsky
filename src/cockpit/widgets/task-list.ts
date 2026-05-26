@@ -8,8 +8,8 @@
  * Same bootstrap pattern as task-graph.ts: factory + lazy singleton deps.
  */
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import { formatTaskIdForDisplay } from "../../domain/tasks/task-id-utils";
-import type { TaskServiceInterface } from "../../domain/tasks/taskService";
+import { formatTaskIdForDisplay } from "@minsky/domain/tasks/task-id-utils";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 // ---------------------------------------------------------------------------
 // Public shapes — mirrored in TaskList.tsx (no server imports on frontend)
@@ -80,7 +80,7 @@ async function defaultDepsFactory(): Promise<TaskListDeps> {
   if (_cachedDeps) return _cachedDeps;
 
   const { getSharedPersistenceService } = await import("../shared-persistence");
-  const { createConfiguredTaskService } = await import("../../domain/tasks/taskService");
+  const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();

@@ -5,7 +5,7 @@
  * output, with and without per-value source annotations.
  */
 
-import { TaskBackend } from "../../../../domain/configuration/backend-detection";
+import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 import {
   getBackendDisplayName,
   getSessionBackendDisplayName,

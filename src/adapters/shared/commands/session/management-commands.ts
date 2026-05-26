@@ -4,7 +4,7 @@
  * Factories for session management operations (delete, update, migrate-backend).
  */
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { ValidationError } from "../../../../errors/index";
+import { ValidationError } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import {
   sessionDeleteCommandParams,
@@ -30,7 +30,7 @@ export function createSessionDeleteCommand(getDeps: LazySessionDeps): CommandDef
       }
     },
     execute: withErrorLogging("session.delete", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -60,7 +60,7 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
     parameters: sessionUpdateCommandParams,
     mutating: true,
     execute: withErrorLogging("session.update", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -108,10 +108,10 @@ export function createSessionMigrateBackendCommand(getDeps: LazySessionDeps): Co
       async (params: Record<string, unknown>) => {
         const deps = await getDeps();
         const { resolveSessionContextWithFeedback } = await import(
-          "../../../../domain/session/session-context-resolver"
+          "@minsky/domain/session/session-context-resolver"
         );
         const { extractGitHubInfoFromUrl } = await import(
-          "../../../../domain/session/repository-backend-detection"
+          "@minsky/domain/session/repository-backend-detection"
         );
 
         const sessionProvider = deps.sessionProvider;
@@ -288,9 +288,7 @@ export function createSessionMigrateCommand(getDeps: LazySessionDeps): CommandDe
     parameters: sessionMigrateCommandParams,
     execute: withErrorLogging("session.migrate", async (params: Record<string, unknown>) => {
       const deps = await getDeps();
-      const { SessionMigrationService } = await import(
-        "../../../../domain/session/migration-command"
-      );
+      const { SessionMigrationService } = await import("@minsky/domain/session/migration-command");
 
       const service = new SessionMigrationService(deps.sessionProvider);
 

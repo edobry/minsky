@@ -3,7 +3,7 @@ import {
   TaskGraphService,
   type RelationshipType,
   type TaskRelationship,
-} from "../../../../../src/domain/tasks/task-graph-service";
+} from "@minsky/domain/tasks/task-graph-service";
 import { createTasksReparentCommand } from "../../../../../src/adapters/shared/commands/tasks/reparent-command";
 
 // Minimal in-memory repository — mirrors the one in task-graph-service.test.ts

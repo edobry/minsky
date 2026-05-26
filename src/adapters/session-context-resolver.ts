@@ -5,8 +5,8 @@
  * is handled at the interface adapter layer, keeping domain logic pure.
  */
 
-import { log } from "../utils/logger";
-import { ValidationError } from "../errors/index";
+import { log } from "@minsky/shared/logger";
+import { ValidationError } from "@minsky/domain/errors/index";
 
 /**
  * Session context resolution result
