@@ -566,8 +566,13 @@ async function checkTaskAdoption(
               actor: "adoption-sweeper",
               relatedTaskId: taskId,
             });
-          } catch {
-            // Best-effort: swallow event emission failures
+          } catch (emitErr: unknown) {
+            log.warn("adoption_sweeper.event_emit_failed", {
+              event: "adoption_sweeper.event_emit_failed",
+              parentTaskId: taskId,
+              followUpTaskId: newId,
+              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+            });
           }
         }
       } catch (createErr) {

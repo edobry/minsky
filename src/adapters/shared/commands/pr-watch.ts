@@ -419,8 +419,13 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
               }
             }
           }
-        } catch {
-          // Best-effort: proceed without event emission
+        } catch (emitErr: unknown) {
+          log.warn(
+            "pr.watch.run: EventEmitter resolution failed (proceeding without event emission)",
+            {
+              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+            }
+          );
         }
 
         return runWatcher(prWatchRepository, githubClient, operatorNotify, wakeSink, eventEmitter);
