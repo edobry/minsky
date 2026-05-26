@@ -1,15 +1,15 @@
 /**
- * Railway GraphQL client primitives — shared between the v1
- * RailwayDeploymentAdapter and the existing scripts/railway/ bun scripts.
+ * Railway GraphQL client primitives for the RailwayDeploymentAdapter.
  *
- * Originally extracted from scripts/railway/status.ts and scripts/railway/logs.ts
- * as part of mt#1730; the bun scripts were intended to re-export these primitives
- * (via scripts/railway/lib.ts) but the consolidation was only partial. mt#2013
- * completes the consolidation AND adds OAuth refresh-token handling so the
+ * Originally extracted from scripts/railway/ as part of mt#1730; mt#2013
+ * completed the consolidation and added OAuth refresh-token handling so the
  * access token (which Railway expires within ~5 hours) renews transparently
  * mid-process without requiring an operator-side `railway login`.
  *
- * Tracking tasks: mt#1730 (consolidation), mt#2013 (refresh + final consolidation).
+ * The scripts/railway/ directory was retired in mt#2110 (Pulumi migration);
+ * this module is now the sole Railway GraphQL client in the codebase.
+ *
+ * Tracking tasks: mt#1730, mt#2013, mt#2110.
  */
 
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
