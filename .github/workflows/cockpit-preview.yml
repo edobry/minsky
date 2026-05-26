@@ -59,7 +59,7 @@ jobs:
         run: |
           echo "Waiting for preview to come up..."
           for i in $(seq 1 60); do
-            HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" "$PREVIEW_URL/api/health" 2>/dev/null || echo "000")
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL/api/health" 2>/dev/null || echo "000")
             if [ "$HTTP_CODE" = "200" ]; then
               echo "Health endpoint: 200 OK"
               break
@@ -74,9 +74,10 @@ jobs:
           # Verify the domain layer initialized (not just Express serving).
           # /api/widgets returns the widget registry; an empty array or error
           # means the config/persistence layer failed to boot.
-          WIDGETS=$(curl -sf "$PREVIEW_URL/api/widgets" 2>/dev/null || echo "FETCH_FAILED")
-          if [ "$WIDGETS" = "FETCH_FAILED" ]; then
-            echo "FAIL: /api/widgets returned non-200"
+          WIDGETS=$(curl -s "$PREVIEW_URL/api/widgets" 2>/dev/null || echo "FETCH_FAILED")
+          if echo "$WIDGETS" | grep -q '"status":"error"'; then
+            echo "FAIL: /api/widgets returned error response"
+            echo "Response: $WIDGETS"
             exit 1
           fi
           WIDGET_COUNT=$(echo "$WIDGETS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo "0")
@@ -87,9 +88,9 @@ jobs:
           fi
           echo "Widget API: $WIDGET_COUNT widgets registered"
 
-          # Verify preview mode blocks mutations
-          MUTATION_CODE=$(curl -sf -o /dev/null -w "%{http_code}" -X POST "$PREVIEW_URL/api/asks/smoke-test/resolve" \
-            -H "Content-Type: application/json" -d '{"responder":"operator","payload":{}}' 2>/dev/null || echo "000")
+          # Verify preview mode blocks mutations (curl WITHOUT -f so 403 is captured)
+          MUTATION_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$PREVIEW_URL/api/asks/smoke-test/resolve" \
+            -H "Content-Type: application/json" -d '{"responder":"operator","payload":{}}')
           if [ "$MUTATION_CODE" != "403" ]; then
             echo "FAIL: POST to mutation endpoint returned $MUTATION_CODE (expected 403)"
             exit 1
