@@ -1623,4 +1623,33 @@ describe("Cockpit server", () => {
     const ids = body.map((w) => w.id);
     expect(ids).toContain("credentials");
   });
+
+  // 14. Preview-mode guard (mt#2096)
+  test("preview mode blocks POST requests with 403", async () => {
+    process.env.MINSKY_COCKPIT_PREVIEW = "true";
+    try {
+      const url = await server({ overrideConfig: DEFAULT_CONFIG });
+      const res = await fetch(`${url}/api/asks/fake-id/resolve`, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ responder: "operator", payload: {} }),
+      });
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string; preview: boolean };
+      expect(body.preview).toBe(true);
+    } finally {
+      delete process.env.MINSKY_COCKPIT_PREVIEW;
+    }
+  });
+
+  test("preview mode allows GET requests", async () => {
+    process.env.MINSKY_COCKPIT_PREVIEW = "true";
+    try {
+      const url = await server({ overrideConfig: DEFAULT_CONFIG });
+      const res = await fetch(`${url}/api/health`);
+      expect(res.status).toBe(200);
+    } finally {
+      delete process.env.MINSKY_COCKPIT_PREVIEW;
+    }
+  });
 });

@@ -421,6 +421,21 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   const app = express();
   app.use(express.json());
 
+  // Preview-mode guard (mt#2096): block mutation endpoints in preview deploys.
+  // Defense-in-depth API layer — paired with a read-only Supabase DB role.
+  if (process.env.MINSKY_COCKPIT_PREVIEW === "true") {
+    app.use("/api", (req, res, next) => {
+      if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+        next();
+        return;
+      }
+      res.status(403).json({
+        error: "Preview mode: mutations are disabled",
+        preview: true,
+      });
+    });
+  }
+
   // --- API endpoints ---
 
   /** GET /api/health */
