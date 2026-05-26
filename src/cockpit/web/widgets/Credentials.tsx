@@ -58,7 +58,7 @@ interface ProviderMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Static provider metadata — matches the three registered providers.
+// Static provider metadata — matches the four registered providers.
 // Kept inline rather than fetching from the server to avoid a dependency
 // on a new API endpoint; the provider list is stable and small.
 // ---------------------------------------------------------------------------
@@ -83,6 +83,13 @@ const PROVIDER_META: ProviderMeta[] = [
     displayName: "Anthropic",
     acquireUrl: "https://console.anthropic.com/settings/keys",
     scopeGuidance: "API key from the Anthropic console. Used for Claude model access.",
+  },
+  {
+    id: "railway",
+    displayName: "Railway",
+    acquireUrl: "https://railway.app/account/tokens",
+    scopeGuidance:
+      "Account or workspace API token. Used by Pulumi for Railway IaC management.",
   },
 ];
 
