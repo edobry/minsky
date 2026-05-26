@@ -64,9 +64,14 @@ export interface PullRequestContext {
   /**
    * List of file paths changed by this PR (relative to repo root).
    * Used by the scope classifier (mt#1188) to determine docs-only / test-only.
-   * Fetched from the pulls.listFiles endpoint alongside the diff.
+   * Derived from `fileEntries` for backward compatibility.
    */
   filesChanged: string[];
+  /**
+   * Per-file entries with patch, additions, deletions, and status (mt#2120).
+   * Used by chunked review to build per-chunk prompts from per-file patches.
+   */
+  fileEntries: PrFileEntry[];
   /**
    * Authoritative changed-files count from the PR API (`pulls.get` →
    * `changed_files`). The classifier compares this against
@@ -86,9 +91,19 @@ export interface PullRequestContext {
  */
 export const MAX_FILES_FETCHED = 1000;
 
+export interface PrFileEntry {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+}
+
 /**
  * Fetch the list of files changed by a PR, following Link headers via
- * octokit.paginate. Returns an array of filename strings.
+ * octokit.paginate. Returns per-file entries with patch, additions,
+ * deletions, and status. The `patch` field is omitted by GitHub for
+ * files >1MB or binary files.
  *
  * Safety cap: if more than MAX_FILES_FETCHED files are returned the cap is
  * exceeded and [] is returned (scope classifier falls through to normal).
@@ -102,17 +117,16 @@ export async function fetchListFiles(
   owner: string,
   repo: string,
   prNumber: number,
-  // mt#1086: per-call timeout. Optional + defaulted so existing test
-  // sites and scripts that call this directly continue to work; production
-  // callers pass `config.githubTimeoutMs`.
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
-): Promise<string[]> {
-  let allFiles: Array<{ filename: string }>;
+): Promise<PrFileEntry[]> {
+  let allFiles: Array<{
+    filename: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+  }>;
   try {
-    // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
-    // via `request: { signal }` so the underlying HTTP request is
-    // actually cancelled when the timeout fires (not just the
-    // Promise.race short-circuited locally).
     allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, (signal) =>
       octokit.paginate(octokit.rest.pulls.listFiles, {
         owner,
@@ -146,7 +160,13 @@ export async function fetchListFiles(
     return [];
   }
 
-  return allFiles.map((f) => f.filename);
+  return allFiles.map((f) => ({
+    filename: f.filename,
+    status: f.status,
+    additions: f.additions,
+    deletions: f.deletions,
+    patch: f.patch,
+  }));
 }
 
 export async function fetchPullRequestContext(
@@ -159,7 +179,7 @@ export async function fetchPullRequestContext(
   // max(timeoutMs) rather than 3*timeoutMs.
   timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
 ): Promise<PullRequestContext> {
-  const [prResponse, diffResponse, filesChanged] = await Promise.all([
+  const [prResponse, diffResponse, fileEntries] = await Promise.all([
     // mt#1086 PR #969 R2 BLOCKING #1: propagate AbortSignal to Octokit
     // via `request: { signal }` so abort actually cancels the request.
     withTimeout("github.pulls.get", timeoutMs, (signal) =>
@@ -202,7 +222,8 @@ export async function fetchPullRequestContext(
     baseBranch: pr.base.ref,
     diff,
     headSha: pr.head.sha,
-    filesChanged,
+    filesChanged: fileEntries.map((f) => f.filename),
+    fileEntries,
     changedFilesCount: pr.changed_files,
   };
 }

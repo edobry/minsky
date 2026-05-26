@@ -265,7 +265,18 @@ describe("fetchPriorReviews", () => {
  * fetchListFiles calls octokit.paginate(octokit.rest.pulls.listFiles, ...).
  */
 function buildListFilesOctokit(
-  paginateImpl: (endpoint: unknown, options: unknown) => Promise<Array<{ filename: string }>>
+  paginateImpl: (
+    endpoint: unknown,
+    options: unknown
+  ) => Promise<
+    Array<{
+      filename: string;
+      status?: string;
+      additions?: number;
+      deletions?: number;
+      patch?: string;
+    }>
+  >
 ): Octokit {
   return {
     paginate: mock(paginateImpl),
@@ -279,7 +290,9 @@ function buildListFilesOctokit(
 
 describe("fetchListFiles", () => {
   test("calls octokit.paginate (not listFiles directly) to follow Link headers", async () => {
-    const octokit = buildListFilesOctokit(async () => [{ filename: "src/foo.ts" }]);
+    const octokit = buildListFilesOctokit(async () => [
+      { filename: "src/foo.ts", status: "modified", additions: 10, deletions: 5 },
+    ]);
 
     await fetchListFiles(octokit, "owner", "repo", 42);
 
@@ -290,15 +303,32 @@ describe("fetchListFiles", () => {
     ).toHaveLength(0);
   });
 
-  test("returns filenames from all pages on success", async () => {
+  test("returns file entries with patch data on success", async () => {
     const octokit = buildListFilesOctokit(async () => [
-      { filename: "src/foo.ts" },
-      { filename: "src/bar.ts" },
-      { filename: "README.md" },
+      {
+        filename: "src/foo.ts",
+        status: "modified",
+        additions: 10,
+        deletions: 5,
+        patch: "@@ -1,5 +1,10 @@",
+      },
+      { filename: "src/bar.ts", status: "added", additions: 20, deletions: 0 },
+      {
+        filename: "README.md",
+        status: "modified",
+        additions: 3,
+        deletions: 1,
+        patch: "@@ -1 +1 @@",
+      },
     ]);
 
     const result = await fetchListFiles(octokit, "owner", "repo", 1);
-    expect(result).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
+    expect(result).toHaveLength(3);
+    expect(result[0]?.filename).toBe("src/foo.ts");
+    expect(result[0]?.patch).toBe("@@ -1,5 +1,10 @@");
+    expect(result[1]?.filename).toBe("src/bar.ts");
+    expect(result[1]?.patch).toBeUndefined();
+    expect(result.map((f) => f.filename)).toEqual(["src/foo.ts", "src/bar.ts", "README.md"]);
   });
 
   test("returns [] and emits pr_scope_listfiles_error structured log on paginate error", async () => {
@@ -307,7 +337,7 @@ describe("fetchListFiles", () => {
     });
 
     const { logs, restore } = captureConsoleLogs();
-    let result: string[];
+    let result: import("./github-client").PrFileEntry[];
     try {
       result = await fetchListFiles(octokit, "owner", "repo", 7);
     } finally {
@@ -322,14 +352,16 @@ describe("fetchListFiles", () => {
   });
 
   test("returns [] and emits pr_scope_files_cap_exceeded when file count exceeds MAX_FILES_FETCHED", async () => {
-    // Create MAX_FILES_FETCHED + 1 files to exceed the cap.
     const tooManyFiles = Array.from({ length: MAX_FILES_FETCHED + 1 }, (_, i) => ({
       filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
     }));
     const octokit = buildListFilesOctokit(async () => tooManyFiles);
 
     const { logs, restore } = captureConsoleLogs();
-    let result: string[];
+    let result: import("./github-client").PrFileEntry[];
     try {
       result = await fetchListFiles(octokit, "owner", "repo", 99);
     } finally {
@@ -344,17 +376,18 @@ describe("fetchListFiles", () => {
     expect(capLog?.cap).toBe(MAX_FILES_FETCHED);
   });
 
-  test("returns filenames (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
-    // MAX_FILES_FETCHED files — exactly at the limit, not over it.
+  test("returns entries (not []) when file count is exactly at the cap boundary (not exceeded)", async () => {
     const exactlyAtCap = Array.from({ length: MAX_FILES_FETCHED }, (_, i) => ({
       filename: `src/file${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 0,
     }));
     const octokit = buildListFilesOctokit(async () => exactlyAtCap);
 
     const result = await fetchListFiles(octokit, "owner", "repo", 1);
-    // Should return filenames, not fall back to []
     expect(result).toHaveLength(MAX_FILES_FETCHED);
-    expect(result[0]).toBe("src/file0.ts");
+    expect(result[0]?.filename).toBe("src/file0.ts");
   });
 });
 
