@@ -35,7 +35,7 @@ const CALIBRATION_LOG = ".minsky/retrospective-trigger-calibration.jsonl";
 // Trigger family types
 // ---------------------------------------------------------------------------
 
-export type TriggerFamily = "R1" | "R2" | "R3" | "R4" | "user-correction";
+export type TriggerFamily = "R1" | "R2" | "R3" | "R4" | "R5" | "user-correction";
 
 export interface TriggerMatch {
   family: TriggerFamily;
@@ -98,6 +98,22 @@ export const R4_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// R5: Finding-reframing — agent describes a finding that implies its own
+// prior action was wrong, without using first-person failure language.
+// E.g., "X is considered an anti-pattern" (when the agent was doing X).
+// Originating incident: 2026-05-25/26 barrel re-export (mt#2108).
+// ---------------------------------------------------------------------------
+
+export const R5_PATTERNS: RegExp[] = [
+  /\b(approach|pattern|method)\s+I\s+was\s+(using|implementing|following)\b[^.]*\banti[- ]?pattern\b/i,
+  /\b(approach|pattern|method)\s+I\s+(chose|picked|selected|used)\b[^.]*\b(wrong|incorrect)\b/i,
+  /\bI\b[^.]*\bcommunity\s+consensus\s+is\s+against\b/i,
+  /\b(should\s+be\s+honest|to\s+be\s+honest)\b[^.]*\b(anti[- ]?pattern|wrong|incorrect|mistake)\b/i,
+  /\bI\b[^.]*\bresearch\s+(shows|confirms|reveals|indicates)\b[^.]*\b(wrong|anti[- ]?pattern|incorrect)\b/i,
+  /\bI\s+was\s+(implementing|using|building|creating)\b[^.]*\b(anti[- ]?pattern|wrong approach|incorrect)\b/i,
+];
+
+// ---------------------------------------------------------------------------
 // User correction signals (detected in the current user prompt)
 // ---------------------------------------------------------------------------
 
@@ -121,6 +137,7 @@ const FAMILY_PATTERNS: Array<{ family: TriggerFamily; patterns: RegExp[] }> = [
   { family: "R2", patterns: R2_PATTERNS },
   { family: "R3", patterns: R3_PATTERNS },
   { family: "R4", patterns: R4_PATTERNS },
+  { family: "R5", patterns: R5_PATTERNS },
 ];
 
 // ---------------------------------------------------------------------------
