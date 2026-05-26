@@ -22,6 +22,7 @@ import type { AskRepository } from "../../domain/ask/repository";
 import type { Ask } from "../../domain/ask/types";
 import { pendingAsksForWindow, compareAskPriority } from "../../domain/ask/pending-asks-for-window";
 import { isTerminal } from "../../domain/ask/state-machine";
+import { getSharedPersistenceService } from "../shared-persistence";
 
 // ---------------------------------------------------------------------------
 // Public payload shapes — mirrored in Attention.tsx; keep in sync.
@@ -197,11 +198,9 @@ const CHANNEL_ATTENTION_CLOSED = "minsky.attention_window_closed";
 
 async function defaultDepsFactory(): Promise<AttentionDeps> {
   if (!_cachedRepo) {
-    const { PersistenceService } = await import("../../domain/persistence/service");
     const { DrizzleAskRepository } = await import("../../domain/ask/repository");
 
-    const svc = new PersistenceService();
-    await svc.initialize();
+    const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
 
     // Try to get DB connection via SQL capability
