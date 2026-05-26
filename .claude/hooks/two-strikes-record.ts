@@ -42,7 +42,7 @@ import {
   TwoStrikesTracker,
   type TrackerSnapshot,
   type TrackerMode,
-} from "../../src/domain/two-strikes/tracker";
+} from "../../packages/domain/src/two-strikes/tracker";
 
 // ---------------------------------------------------------------------------
 // Hook dependencies (injected for tests; defaults wire to fs/os/env)
