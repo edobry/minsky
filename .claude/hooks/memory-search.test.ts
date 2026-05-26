@@ -21,7 +21,7 @@ import {
 // mt#1778 R1 NON-BLOCKING #1: read shared-emitter API directly from its
 // canonical module rather than through the hook's re-export, which was
 // fragile coupling per reviewer feedback.
-import { readBraintrustConfig } from "../../src/domain/observability/braintrust";
+import { readBraintrustConfig } from "../../packages/domain/src/observability/braintrust";
 
 const TRUNCATION_MARKER_TEXT = TRUNCATION_MARKER.trim();
 
