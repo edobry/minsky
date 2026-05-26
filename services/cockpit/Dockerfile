@@ -24,7 +24,7 @@ RUN bun install --frozen-lockfile --ignore-scripts
 
 COPY vite.config.ts ./
 COPY tailwind.config.ts ./
-COPY postcss.config.cjs ./
+COPY postcss.config.js ./
 COPY src/cockpit/web ./src/cockpit/web
 
 RUN bunx vite build --config vite.config.ts
