@@ -1,17 +1,9 @@
 /**
  * Deployment-target declaration for the `minsky-reviewer-webhook` Railway service.
  *
- * Platform-agnostic in shape; v1 only supports `"railway"`. Project/service
- * IDs are imported from `./railway.config.ts` to avoid duplication — that
- * file is the env-var synthesizer manifest and the canonical source for
- * Railway identifiers (see its header for the resource-ID-update protocol
- * if the service is ever recreated).
- *
- * Mirrors the shape of `services/site/deploy.config.ts`. The reviewer is
- * built from a Dockerfile (`services/reviewer/Dockerfile`) while services/site
- * uses Nixpacks; both ship to Railway as separately-deployed services, and
- * `defineDeployment`'s discriminator gates only on `platform: "railway"` plus
- * the three IDs — the underlying build method is irrelevant to the abstraction.
+ * Platform-agnostic in shape; v1 only supports `"railway"`. Railway IDs
+ * are inlined here — the canonical IaC source is now `infra/index.ts`
+ * (Pulumi with TF bridge, mt#2110).
  *
  * # Consumer (how this file is found)
  *
@@ -20,42 +12,23 @@
  *
  *     resolve(projectRoot, "services", service, "deploy.config.ts")
  *
- * So `mcp__minsky__deployment_status service:"reviewer"` mechanically reads
- * this file — no registry update or service-name mapping is required.
- * `listServicesWithDeployConfig` walks `services/` and includes any
- * directory containing `deploy.config.ts`; the current walk returns
- * `["minsky-mcp", "reviewer", "site"]` (sorted) as of mt#2001 chunk 3.
- *
  * See docs/deployment-platforms.md for the full design.
  */
 
 import { defineDeployment } from "@minsky/shared/deployment-config";
-import railwayConfig from "./railway.config";
 
 export default defineDeployment({
   platform: "railway",
   railway: {
-    projectId: railwayConfig.projectId,
-    environmentId: railwayConfig.environmentId,
-    serviceId: railwayConfig.serviceId,
-    // Source + build declared per mt#2001 — match live Railway state
-    // discovered 2026-05-21 via `fetchServiceInstanceState`. The synthesizer
-    // (mt#2000) reports clean diff against this declaration.
+    projectId: "41e5ee9c-49e6-44ff-9bfe-7f03d0e94d4b",
+    environmentId: "b3ea3f5d-8560-40ea-8824-17fe3ca0b32a",
+    serviceId: "3913e8a4-81ab-465a-aad8-b76b5e3f66ed",
     source: {
       repo: "edobry/minsky",
-      // branch is write-through (not on serviceInstance read); declared
-      // as conventional "main" — synthesizer reports ADD on first run.
       branch: "main",
-      // Empty string = repo root. The reviewer build context is the repo
-      // root because the Dockerfile uses workspace COPY semantics
-      // (services/reviewer/Dockerfile copies from / to enable the
-      // @minsky/shared workspace dep).
       rootDirectory: "",
     },
     build: {
-      // Live state has RAILPACK builder despite dockerfilePath being set —
-      // RAILPACK is Railway's evolved build system; it picks up the
-      // Dockerfile path automatically when declared.
       builder: "RAILPACK",
       dockerfilePath: "services/reviewer/Dockerfile",
     },
