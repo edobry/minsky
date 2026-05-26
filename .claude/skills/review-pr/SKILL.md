@@ -291,16 +291,15 @@ Each comment body must carry a severity prefix: `[BLOCKING] ...` or `[NON-BLOCKI
 
 **Event selection:**
 
-- Use `event: "APPROVE"` only if you are not the PR author and there are no blocking issues. GitHub blocks self-approval at the platform level; when `minsky-ai[bot]` opened the PR and is also submitting the review, APPROVE will fail. The human approves Tier-3 PRs (see mt#1065 for the review-time token-routing fix that will make this automatic).
+- Use `event: "APPROVE"` only if you are not the PR author and there are no blocking issues. GitHub blocks self-approval at the platform level; when `minsky-ai[bot]` opened the PR and the same App identity submits the review, APPROVE will fail. Since mt#1073 (two-App identity), `minsky-reviewer[bot]` (id 278512143) is a SEPARATE identity from `minsky-ai[bot]` (id 277592531), so the reviewer bot CAN and DOES submit APPROVE on bot-authored PRs.
 - Use `event: "COMMENT"` if you are the PR author, if the review is from the same identity that opened the PR, or if there are only non-blocking issues.
 - Use `event: "REQUEST_CHANGES"` if there are blocking issues or unmet spec criteria.
 
-**Self-authored bot PRs (Tier-3 default flow):** When the PR was opened by `minsky-ai[bot]` — primary cue is the PR `user.login` field; the `authorship/co-authored` label is the secondary cue but may not always be applied — the merge will not converge through APPROVE submitted by the same App identity. Plan for this from the start, not as an exception:
+**Bot-authored PRs (Tier-3 default flow):** When the PR was opened by `minsky-ai[bot]` — primary cue is the PR `user.login` field; the `authorship/co-authored` label is the secondary cue but may not always be applied — the normal merge path is `session_pr_merge` after `minsky-reviewer[bot]` posts APPROVE:
 
-- The cross-identity reviewer (`minsky-reviewer[bot]`) is the only in-tool path to a non-self APPROVE.
-- If the reviewer bot's APPROVE never lands within branch protection's required-review window, the merge requires either a human APPROVE in the GitHub UI or a `gh api PUT /repos/.../pulls/N/merge` bypass. See `feedback_self_authored_pr_merge_constraints` and `feedback_gh_api_bypass` in memory (paths under `~/.claude/projects/-Users-edobry-Projects-minsky/memory/`) for the bypass pattern (use `merge_method=merge`, never `squash`).
-- Before invoking the bypass, confirm the repo's branch protection allows the chosen `merge_method` (some configurations restrict to `squash` or `rebase`). The Minsky convention is `merge` to preserve PR-branch history per `docs/pr-workflow.md`.
-- mt#1065 is the planned fix for review-time token routing that will make this automatic.
+- `minsky-reviewer[bot]` is a separate GitHub App identity from `minsky-ai[bot]` (mt#1073). GitHub's self-approval block does NOT apply. The reviewer bot submits APPROVE when all blocking findings are addressed. Production evidence: PRs #1256, #1258 (2026-05-24), #1282 (2026-05-25).
+- After reviewer-bot APPROVE, call `session_pr_merge` — the standard merge path. The at-merge handler sets DONE atomically.
+- The `gh api PUT /merge` bypass is a **convergence-failure fallback only** — use it when: (a) CoT leakage errors prevent a clean review, (b) the bot enters a self-reversal loop, or (c) reviewer silence after multiple webhook-wake attempts. See §8 for the bypass protocol.
 
 **Stale CHANGES_REQUESTED dismissal:** When `minsky-reviewer[bot]` (or any prior reviewer) left a `CHANGES_REQUESTED` review on a commit that is no longer HEAD and the BLOCKING finding has been addressed in a subsequent commit, dismiss the stale review with:
 
@@ -328,21 +327,33 @@ After pushing a follow-up commit that addresses BLOCKING findings, `minsky-revie
 - **Bypass merge** via `gh api PUT /repos/.../pulls/N/merge` (`merge_method=merge`, with audit message naming the substantive fixes that landed). Only after BLOCKING findings are addressed and the remaining gap is the missing reviewer signal.
 - **Track the instance** in `project_mt1110_calibration_data.md` so the calibration work has data points.
 
-The webhook-miss class is distinct from the same-App-identity APPROVE block above: same-App is a _structural_ gate (when `minsky-ai[bot]` is both author and reviewer, GitHub rejects the APPROVE — see step 7 event selection), webhook-miss is a _reliability_ gate against the cross-identity `minsky-reviewer[bot]` failing to fire. Recognize which one you're hitting before choosing a recovery path.
+The webhook-miss class is a _reliability_ gate against the cross-identity `minsky-reviewer[bot]` failing to fire. Since mt#1073 (two-App identity), `minsky-reviewer[bot]` CAN submit APPROVE on `minsky-ai[bot]`-authored PRs — the self-approval block only applies when the SAME App identity authors and reviews. The webhook-miss bypass is for cases where the reviewer bot never fires, not for identity constraints.
 
 ### 8. Bot-authored PR merge
 
 **This section applies when the PR author is `minsky-ai[bot]` or any bot identity.**
 
-GitHub structurally blocks self-approval: a PR author cannot APPROVE their own PR. When `minsky-ai[bot]` opened the PR and the same App identity is submitting the review, the reviewer can only post `COMMENT` — never `APPROVE`. This is a platform constraint, not a configuration issue.
+**Default path: `session_pr_merge` after reviewer-bot APPROVE.** Since mt#1073 (two-App identity) and mt#1656 (verification-mode preamble), `minsky-reviewer[bot]` CAN and DOES submit APPROVE on `minsky-ai[bot]`-authored PRs. The two Apps have separate GitHub identities (reviewer: id 278512143, author: id 277592531), so GitHub's self-approval block does not apply.
 
 **Prerequisite checks before merging:**
 
-1. Chinese-wall reviewer subagent has cleared all blocking findings (review posted to GitHub)
+1. `minsky-reviewer[bot]` has posted APPROVE (or COMMENT with "would have approved" signal when findings are all addressed)
 2. CI is green (all required checks passing)
-3. No `REQUEST_CHANGES` reviews outstanding that haven't been resolved
+3. No `REQUEST_CHANGES` reviews outstanding that haven't been resolved or dismissed
 
-**Merge command (use `gh api PUT` bypass):**
+**Merge command (standard path):**
+
+```
+mcp__minsky__session_pr_merge(task: "mt#<id>")
+```
+
+The at-merge handler sets DONE atomically. This is the normal path — no bypass needed.
+
+**Fallback: `gh api PUT` bypass (convergence-failure cases only).** Use the bypass ONLY when the reviewer bot cannot converge:
+
+- **(a) CoT leakage** — reviewer-bot fires chain-of-thought leakage errors twice consecutively on the same HEAD (per memory `af0b6aac`).
+- **(b) Self-reversal** — round N's BLOCKING contradicts an earlier round's accepted fix (per memory `06aebe02`).
+- **(c) Reviewer silence** — reviewer-bot silent for >5 minutes after diagnosing per §7a (webhook miss, service down).
 
 ```
 gh api -X PUT /repos/<owner>/<repo>/pulls/<N>/merge \
@@ -353,13 +364,13 @@ gh api -X PUT /repos/<owner>/<repo>/pulls/<N>/merge \
 
 The `merge_method=merge` flag is **required**. Minsky preserves merge commits per `docs/pr-workflow.md`. The `merge_method=squash` value is hook-blocked — using it will fail at the pre-merge hook.
 
-**Audit trail requirement:** The commit message must document the bypass:
+**Audit trail requirement (bypass only):** The commit message must document the bypass:
 
 > "Bot self-approval bypass per feedback_self_authored_pr_merge_constraints — Chinese-wall review cleared, CI green."
 
 This is not optional. Without an audit trail, the bypass is indistinguishable from a merge that skipped review.
 
-References: `feedback_self_authored_pr_merge_constraints`, `feedback_gh_api_bypass`.
+References: `feedback_self_authored_pr_merge_constraints`, `feedback_reviewer_bot_cot_leakage_forces_bypass` (memory `af0b6aac`), `feedback_reviewer_bot_self_reversal_is_bypass_signal` (memory `06aebe02`).
 
 ### 9. Review body format
 
@@ -434,7 +445,7 @@ During the 2026-04-28 reviewer structural-output session, 9 PRs were merged in a
 
 Without the parallel pattern (sequential: wait for CI, then wait for reviewer), the same 9 PRs would have required approximately 12 hours at ~5–10 min overhead per PR plus reviewer subagent latency. The parallel pattern halved the wall-clock time.
 
-This pattern is now canonical operating procedure for bot-authored PRs.
+**Historical note (pre-mt#1073).** This session predates mt#1073 (two-App identity) and mt#1656 (verification-mode preamble). At the time, `minsky-reviewer[bot]` could only post COMMENT (not APPROVE) on bot-authored PRs, making the `gh api PUT` bypass the only merge path. Since mt#1073 shipped (2026-04-23) and mt#1656 shipped (2026-05-24), the reviewer bot CAN and DOES submit APPROVE, and the standard `session_pr_merge` path is the default. The parallel reviewer+CI poll pattern remains valuable for wall-clock efficiency; only the bypass-as-default framing is retired.
 
 ## Worked example: 3-section dispatch with parent aggregation
 
@@ -553,4 +564,4 @@ This is the structural shape mt#1485 formalizes: subagents read, parent judges. 
 - **Documentation impact is mandatory.** The review must include a documentation impact section. The pre-merge hook will reject merges without it. If docs need updating but aren't updated in the PR, that's a blocking finding.
 - **Attribute AI involvement** per user preferences.
 - **Parallel reviewer + CI poll saves 5–10 min per merge.** Always dispatch both in the same tool-call message.
-- **Bot-authored PRs require the `gh api PUT` bypass.** Self-approval is structurally blocked by GitHub; never attempt to APPROVE a PR from the same App identity that opened it.
+- **Bot-authored PRs merge via `session_pr_merge` after reviewer-bot APPROVE.** `minsky-reviewer[bot]` is a separate identity from `minsky-ai[bot]` (mt#1073); APPROVE works. The `gh api PUT` bypass is a convergence-failure fallback only (CoT leakage, self-reversal, reviewer silence) — not the default path.
