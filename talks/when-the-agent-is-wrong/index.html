@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>When the Agent is Wrong</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+  <style>
+    :root {
+      --bg-base: #020202;
+      --bg-elevated: #0E0E0E;
+      --text-primary: #EEEEEE;
+      --text-muted: #A3A3A3;
+      --text-subtle: #6B6B6B;
+      --signal-cyan: #00BFD8;
+      --signal-cyan-dim: #0080A0;
+      --warn-amber: #F59E0B;
+      --warn-red: #DC2626;
+      --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    .reveal {
+      font-family: var(--font-sans);
+      font-size: 32px;
+      font-weight: 300;
+      color: var(--text-primary);
+    }
+
+    .reveal .slides {
+      text-align: left;
+    }
+
+    .reveal .slides section {
+      padding: 40px 60px;
+    }
+
+    .reveal h1, .reveal h2, .reveal h3 {
+      font-family: var(--font-sans);
+      font-weight: 400;
+      color: var(--text-primary);
+      text-transform: none;
+      letter-spacing: -0.02em;
+    }
+
+    .reveal h1 {
+      font-size: 2.4em;
+      font-weight: 300;
+    }
+
+    .reveal h2 {
+      font-size: 1.6em;
+      margin-bottom: 0.6em;
+    }
+
+    .reveal h3 {
+      font-size: 1.1em;
+      color: var(--text-muted);
+    }
+
+    .reveal p {
+      line-height: 1.5;
+      margin-bottom: 0.8em;
+    }
+
+    .reveal .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.45em;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--signal-cyan);
+      margin-bottom: 0.8em;
+      display: block;
+    }
+
+    .reveal .highlight {
+      color: var(--signal-cyan);
+    }
+
+    .reveal .warn {
+      color: var(--warn-amber);
+    }
+
+    .reveal .error {
+      color: var(--warn-red);
+    }
+
+    .reveal .dim {
+      color: var(--text-muted);
+    }
+
+    .reveal .subtle {
+      color: var(--text-subtle);
+    }
+
+    .reveal code {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+      color: var(--signal-cyan);
+      background: var(--bg-elevated);
+      padding: 0.1em 0.4em;
+      border-radius: 3px;
+    }
+
+    .reveal pre {
+      font-family: var(--font-mono);
+      font-size: 0.55em;
+      background: var(--bg-elevated);
+      border: 1px solid #1a1a1a;
+      border-radius: 6px;
+      padding: 1em 1.2em;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .reveal pre code {
+      background: none;
+      padding: 0;
+      font-size: 1em;
+    }
+
+    .reveal ul {
+      list-style: none;
+      padding-left: 0;
+    }
+
+    .reveal ul li {
+      position: relative;
+      padding-left: 1.2em;
+      margin-bottom: 0.5em;
+      line-height: 1.4;
+    }
+
+    .reveal ul li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.55em;
+      width: 6px;
+      height: 6px;
+      background: var(--signal-cyan);
+      border-radius: 50%;
+    }
+
+    .reveal .timeline {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3em;
+      font-size: 0.8em;
+    }
+
+    .reveal .timeline-item {
+      display: flex;
+      align-items: baseline;
+      gap: 1em;
+    }
+
+    .reveal .timeline-date {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+      color: var(--text-subtle);
+      min-width: 5em;
+    }
+
+    .reveal .timeline-label {
+      font-family: var(--font-mono);
+      font-size: 0.85em;
+      color: var(--signal-cyan);
+      min-width: 2em;
+    }
+
+    .reveal .big-number {
+      font-size: 4em;
+      font-weight: 600;
+      color: var(--signal-cyan);
+      line-height: 1;
+      margin-bottom: 0.2em;
+    }
+
+    .reveal .tier-ladder {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4em;
+    }
+
+    .reveal .tier-item {
+      display: flex;
+      align-items: center;
+      gap: 0.8em;
+      padding: 0.4em 0.8em;
+      background: var(--bg-elevated);
+      border-radius: 4px;
+      border-left: 3px solid var(--signal-cyan-dim);
+    }
+
+    .reveal .tier-item.active {
+      border-left-color: var(--signal-cyan);
+      background: rgba(0, 191, 216, 0.05);
+    }
+
+    .reveal .tier-num {
+      font-family: var(--font-mono);
+      font-size: 0.7em;
+      color: var(--signal-cyan);
+      min-width: 1.5em;
+    }
+
+    .reveal .vsm-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.3em 1.2em;
+      font-size: 0.85em;
+    }
+
+    .reveal .vsm-organ {
+      font-family: var(--font-mono);
+      color: var(--signal-cyan);
+    }
+
+    .reveal .center-slide {
+      text-align: center;
+    }
+
+    .reveal .center-slide h1,
+    .reveal .center-slide h2 {
+      text-align: center;
+    }
+
+    .reveal blockquote {
+      border-left: 3px solid var(--signal-cyan-dim);
+      padding-left: 1em;
+      font-style: normal;
+      color: var(--text-muted);
+      margin: 1em 0;
+    }
+
+    .reveal .slide-background {
+      background: var(--bg-base);
+    }
+
+    .reveal .progress span {
+      background: var(--signal-cyan);
+    }
+
+    .reveal .controls button {
+      color: var(--signal-cyan);
+    }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+      <!-- 1. TITLE -->
+      <section class="center-slide">
+        <span class="eyebrow">Case study</span>
+        <h1>When the Agent<br>is Wrong</h1>
+        <p class="dim" style="margin-top: 1.5em; font-size: 0.6em;">Metacognitive infrastructure in practice</p>
+        <aside class="notes">
+          This talk is about what happens after an AI agent makes a mistake — and about what infrastructure makes "after" different from "again." I'm going to walk through a real incident from last week, show you the full chain of what fired, and then pull back to the theory of why it works.
+        </aside>
+      </section>
+
+      <!-- 2. THE SETUP -->
+      <section>
+        <span class="eyebrow">The incident</span>
+        <h2>The setup</h2>
+        <p>TypeScript monorepo. Domain layer needs extracting.</p>
+        <p><span class="highlight">224 files</span> need import path updates.</p>
+        <p class="dim" style="font-size: 0.8em; margin-top: 1.5em;">Mechanical but large. The kind of refactor where shortcuts look attractive.</p>
+        <aside class="notes">
+          Minsky is a TypeScript monorepo. We needed to extract the domain layer — database access, task management, session lifecycle — into its own package so a separately deployed service could import it directly. The investigation found 224 files that would need import path updates. It's mechanical work, but it's large.
+        </aside>
+      </section>
+
+      <!-- 3. THE SHORTCUT -->
+      <section>
+        <span class="eyebrow">The decision</span>
+        <h2>The shortcut</h2>
+        <p>The agent chose a <span class="warn">barrel re-export</span>:</p>
+        <pre><code>// packages/domain/index.ts
+export * from "../../src/domain/tasks";
+export * from "../../src/domain/session";
+export * from "../../src/domain/config";</code></pre>
+        <p class="dim" style="font-size: 0.75em; margin-top: 1em;">One file instead of 224. Code doesn't move.<br>The proxy makes it importable under a new name.</p>
+        <aside class="notes">
+          The agent proposed a shortcut: create a thin proxy package — a barrel file — that re-exports everything from the original location. The code doesn't move. One file instead of touching 224. It's a well-known pattern. It's also a well-known anti-pattern.
+        </aside>
+      </section>
+
+      <!-- 4. THE THIRTY-SECOND SEARCH -->
+      <section class="center-slide">
+        <span class="eyebrow">The gap</span>
+        <div class="big-number">30s</div>
+        <h2>The search that didn't happen</h2>
+        <p class="dim" style="font-size: 0.75em;">Turborepo docs. Nx blog. Bun workspace guide.<br>Community consensus: <span class="error">documented anti-pattern.</span></p>
+        <aside class="notes">
+          A single web search — thirty seconds — would have surfaced unambiguous community consensus. Turborepo warns against barrel files. The Nx blog advises physical moves. Bun's own workspace docs say "if you find yourself writing ../ to get from one package to another, rethink." The agent had a web search tool. It didn't use it.
+        </aside>
+      </section>
+
+      <!-- 5. WHY IT FAILED -->
+      <section>
+        <span class="eyebrow">Predictable failure</span>
+        <h2>Runtime error on a nonexistent export</h2>
+        <p>Barrel files mask import errors until runtime.</p>
+        <p>The re-export layer decouples the consumer's type-check from the source module's actual exports.</p>
+        <p class="error" style="font-size: 0.8em; margin-top: 1em;">Exactly the class of bug the literature predicts.</p>
+        <aside class="notes">
+          It failed within minutes. A runtime error on a nonexistent export — exactly the class of bug that barrel files are documented to cause. The re-export layer decouples type-checking from reality. The pattern the agent chose, the failure it produced, and the community's warning were all the same thing.
+        </aside>
+      </section>
+
+      <!-- 6. THE META-FAILURE -->
+      <section>
+        <span class="eyebrow">Incident two</span>
+        <h2>The meta-failure</h2>
+        <blockquote>"I should be honest: the barrel re-export approach I was implementing is considered an anti-pattern."</blockquote>
+        <p>Self-recognized failure language.<br>In Minsky's system, this is a <span class="highlight">trigger</span>.</p>
+        <p class="error" style="margin-top: 1em;">The agent didn't invoke the retrospective.</p>
+        <aside class="notes">
+          Here's where it gets interesting. The agent recognized its mistake. It said "I should be honest" — that's self-recognized failure language. In Minsky's system, that sentence is supposed to trigger a structured retrospective process. The agent described the finding, proposed to pivot, and waited. It didn't invoke the process. The recognition happened; the response mechanism didn't fire.
+        </aside>
+      </section>
+
+      <!-- 7. WHAT MINSKY IS -->
+      <section>
+        <span class="eyebrow">Context</span>
+        <h2>What Minsky is</h2>
+        <p>Development workflow orchestration built on <span class="highlight">organizational cybernetics</span>.</p>
+        <p class="dim" style="font-size: 0.85em; margin-top: 1em;">Environmental constraints that make good behavior<br>the path of least resistance.</p>
+        <p class="dim" style="font-size: 0.85em;">Pre-commit hooks. Session isolation. Quality gates.<br>Structured review. <span class="highlight">Metacognitive infrastructure.</span></p>
+        <aside class="notes">
+          Quick context on Minsky for those unfamiliar. It's a dev workflow orchestration platform. Core thesis: the same control structures that keep human teams aligned work for AI agents. Pre-commit hooks, session isolation, quality gates. The relevant piece for this talk is its metacognitive infrastructure — memory, rules, skills, and hooks that give the system the ability to detect its own failures and produce durable fixes.
+        </aside>
+      </section>
+
+      <!-- 8. THE RETROSPECTIVE PROCESS -->
+      <section>
+        <span class="eyebrow">The mechanism</span>
+        <h2>Structured retrospective</h2>
+        <ul>
+          <li>Validate the premise</li>
+          <li>Classify the cognitive error</li>
+          <li>Classify the structural gap</li>
+          <li>Identify root cause</li>
+          <li>Design fixes</li>
+          <li>Implement durably</li>
+        </ul>
+        <p class="dim" style="font-size: 0.7em; margin-top: 1em;">Not a journal entry. Produces artifacts that change system behavior.</p>
+        <aside class="notes">
+          Minsky's retrospective is a six-step skill. It's not a journal entry or an apology — it produces artifacts that change how the system behaves in future sessions. Validate the premise, classify the error, find the structural gap, identify root cause, design fixes, implement them. Each step has required outputs.
+        </aside>
+      </section>
+
+      <!-- 9. CLASSIFY -->
+      <section>
+        <span class="eyebrow">Step 2 — classify</span>
+        <h2>Verification Error</h2>
+        <p>The agent optimized for <span class="warn">scope reduction</span> over <span class="highlight">correctness</span>.</p>
+        <p style="margin-top: 1em;">Web search tool available. Not used.</p>
+        <p class="dim" style="font-size: 0.8em; margin-top: 1.5em;">Structural gap: no step in the implementation process requires verifying an architectural pattern against community practice.</p>
+        <aside class="notes">
+          Classification: verification error. The agent optimized for scope reduction — touching one file instead of 224 — over correctness. It had a web search tool available and didn't use it. The structural gap: nothing in the implementation process requires checking whether an architectural pattern is a known anti-pattern before implementing it. Security surfaces have a community-practice gate. Dependencies have a verification gate. Architectural patterns had nothing.
+        </aside>
+      </section>
+
+      <!-- 10. ROOT CAUSE -->
+      <section>
+        <span class="eyebrow">Step 4 — root cause</span>
+        <h2>Defaults to the lower-effort path</h2>
+        <p>At action-execution time, the agent selects the path requiring the least tool-acquisition or boundary-crossing.</p>
+        <p class="dim" style="font-size: 0.8em; margin-top: 1.5em;">Without evaluating whether the path is correct.</p>
+        <p class="highlight" style="margin-top: 1em;">Same root cause as five prior incidents.</p>
+        <aside class="notes">
+          Root cause: the agent defaults to the lower-effort path at action-execution time without evaluating whether the path is correct. This isn't laziness in a human sense — it's a model optimization pattern. The cheaper action that satisfies the immediate requirement wins over the correct action that requires a research step first. And here's the key finding: this is the same root cause as five prior incidents over the preceding two weeks.
+        </aside>
+      </section>
+
+      <!-- 11. FIXES -->
+      <section>
+        <span class="eyebrow">Step 5-6 — fix + implement</span>
+        <h2>Durable artifacts</h2>
+        <ul>
+          <li>New checklist item: verify architectural patterns against community practice</li>
+          <li>New trigger family for the retrospective scanner hook</li>
+          <li>Memory entry persisted to database</li>
+          <li>Task filed for hook extension</li>
+        </ul>
+        <p class="dim" style="font-size: 0.7em; margin-top: 1em;">Both persist across sessions. The next agent encountering a similar decision has the checklist in context.</p>
+        <aside class="notes">
+          The retrospective produced durable artifacts. A new checklist item in the implementation process: before implementing a significant architectural pattern, verify against community practice. A new trigger family for the hook that detects self-recognized failure language. A memory entry in the database. A task filed for the structural fix. All of these persist across sessions — the next agent that hits a similar choice point will have the checklist in its loaded context.
+        </aside>
+      </section>
+
+      <!-- 12. THE FAMILY TREE -->
+      <section class="center-slide">
+        <span class="eyebrow">Recurrence check</span>
+        <div class="big-number">6</div>
+        <h2>instances, same root, two weeks</h2>
+        <p class="dim" style="font-size: 0.75em;">The memory system found five prior incidents<br>with the same cognitive pattern.</p>
+        <aside class="notes">
+          Here's where Minsky's infrastructure does something no stateless agent can do. The retrospective's recurrence check — step 4 — searched the memory database for prior instances of the same pattern. It found five. Spanning two weeks. Six total instances of the same root failure across completely different task contexts.
+        </aside>
+      </section>
+
+      <!-- 13. R1-R6 TIMELINE -->
+      <section>
+        <span class="eyebrow">Pattern family</span>
+        <h2>The build-path-as-research family</h2>
+        <div class="timeline">
+          <div class="timeline-item">
+            <span class="timeline-date">May 12</span>
+            <span class="timeline-label">R1-2</span>
+            <span>SaaS evaluation bypassed for in-house log extraction</span>
+          </div>
+          <div class="timeline-item">
+            <span class="timeline-date">May 21</span>
+            <span class="timeline-label">R3</span>
+            <span>Canonical DB substrate bypassed for raw JSONL</span>
+          </div>
+          <div class="timeline-item">
+            <span class="timeline-date">May 21</span>
+            <span class="timeline-label">R4</span>
+            <span>Retrospective skill bypassed for inline reproduction</span>
+          </div>
+          <div class="timeline-item">
+            <span class="timeline-date">May 21</span>
+            <span class="timeline-label">R5</span>
+            <span>Memory-update tool bypassed for verbal commitment</span>
+          </div>
+          <div class="timeline-item">
+            <span class="timeline-date">May 25</span>
+            <span class="timeline-label warn">R6</span>
+            <span>Community-practice check bypassed for cheaper pattern</span>
+          </div>
+        </div>
+        <aside class="notes">
+          Here's the family tree. R1-R2: agent bypassed a SaaS evaluation step by extracting from in-house logs — cheaper path, skipped the research. R3: agent built against raw JSONL instead of extending the canonical database — ad-hoc path, skipped the substrate. R4: agent wrote a retrospective inline instead of invoking the retrospective skill — reproduction of the form, not the function. R5: agent verbally committed to updating memory without calling the tool — promise evaporated at session end. R6: our barrel incident. Same root pattern. Six different surfaces.
+        </aside>
+      </section>
+
+      <!-- 14. THE INVISIBLE PATTERN -->
+      <section>
+        <span class="eyebrow">The structural insight</span>
+        <h2>Why stateless fails</h2>
+        <p>A stateless agent treats R6 as a <span class="dim">one-off</span>.</p>
+        <p>It doesn't know about R1&ndash;R5.</p>
+        <p>It can't connect six incidents across two weeks into a single pattern.</p>
+        <p style="margin-top: 1.2em;">It says <span class="dim">"I'll do better next time"</span> &mdash;</p>
+        <p>and on the next surface, does the same thing.</p>
+        <aside class="notes">
+          A stateless agent — Claude, GPT, any model without persistent memory — would have treated the barrel incident as a one-off. It wouldn't know about R1 through R5. It can't connect six incidents across two weeks into a single pattern family. It would say "I'll be more careful" — and on the next novel surface, where none of the specific fixes apply, it would do the exact same thing. The pattern is invisible without cross-session memory.
+        </aside>
+      </section>
+
+      <!-- 15. WHAT MINSKY ENABLES -->
+      <section>
+        <span class="eyebrow">Infrastructure</span>
+        <h2>What made this possible</h2>
+        <ul>
+          <li><span class="highlight">Cross-session memory</span> &mdash; pattern visible across time</li>
+          <li><span class="highlight">Structured retrospective</span> &mdash; produces artifacts, not apologies</li>
+          <li><span class="highlight">Tiered escalation</span> &mdash; stronger enforcement at each recurrence</li>
+          <li><span class="highlight">Environmental pre-delegation</span> &mdash; fires without remembering</li>
+        </ul>
+        <aside class="notes">
+          Four pieces of infrastructure made the full retrospective chain possible. Cross-session memory: the pattern is visible across time. Structured retrospective: produces artifacts that change behavior, not just acknowledgments. Tiered escalation: each recurrence gets stronger enforcement. Environmental pre-delegation: hooks fire automatically without the agent needing to remember to check.
+        </aside>
+      </section>
+
+      <!-- 16. CROSS-SESSION MEMORY -->
+      <section>
+        <span class="eyebrow">Organ 1</span>
+        <h2>Cross-session memory</h2>
+        <p>Six entries. Found across sessions, days, task contexts.</p>
+        <p class="dim" style="font-size: 0.85em; margin-top: 1em;">Without this, each instance is isolated.<br>The pattern is invisible.</p>
+        <p style="margin-top: 1.5em;">The recurrence check is a <span class="highlight">semantic search</span> over the memory database &mdash; not keyword matching.</p>
+        <aside class="notes">
+          The memory system stores each retrospective finding as a structured record. When the R6 retrospective ran its recurrence check, it did a semantic search — not keyword matching — over the full memory database. It found R1-R5 across different sessions, different days, different task contexts. The semantic similarity was in the cognitive pattern, not the surface details. Without persistent memory, each failure is the agent's first failure.
+        </aside>
+      </section>
+
+      <!-- 17. TIERED ESCALATION -->
+      <section>
+        <span class="eyebrow">Organ 2</span>
+        <h2>Tiered escalation</h2>
+        <div class="tier-ladder">
+          <div class="tier-item">
+            <span class="tier-num">R1</span>
+            <span>Memory entry</span>
+          </div>
+          <div class="tier-item">
+            <span class="tier-num">R2</span>
+            <span>Corpus rule update</span>
+          </div>
+          <div class="tier-item">
+            <span class="tier-num">R3-5</span>
+            <span>Hook (UserPromptSubmit scanner)</span>
+          </div>
+          <div class="tier-item active">
+            <span class="tier-num">R6</span>
+            <span>Hook pattern extension + implementation gate</span>
+          </div>
+        </div>
+        <p class="dim" style="font-size: 0.75em; margin-top: 1em;">Each tier is harder to bypass than the last.<br>Enforcement improves monotonically with recurrence.</p>
+        <aside class="notes">
+          The escalation tiers. R1 produced a memory entry — advice the agent has to choose to read. R2 promoted it to a corpus rule — injected into every session's context. R3-R5 shipped a hook — a scanner that runs on every agent turn and detects substrate-bypass language automatically. R6 extended the hook's patterns and added a gate to the implementation process. Each tier is harder to bypass. The system's containment improves monotonically with each recurrence.
+        </aside>
+      </section>
+
+      <!-- 18. ENVIRONMENTAL PRE-DELEGATION -->
+      <section>
+        <span class="eyebrow">Organ 3</span>
+        <h2>Environmental pre-delegation</h2>
+        <p>The hooks aren't instructions the agent remembers.</p>
+        <p>They're constraints that <span class="highlight">fire automatically</span>.</p>
+        <p class="dim" style="font-size: 0.85em; margin-top: 1.5em;">The retrospective trigger scanner runs on every user prompt, scanning the prior agent turn for failure language. The agent doesn't have to remember to check.</p>
+        <p style="margin-top: 1.2em; font-size: 0.85em;">Ashby's Law: regulatory variety matches the variety of failure modes.</p>
+        <aside class="notes">
+          This is the key architectural insight. The hooks aren't instructions the agent has to remember — they're environmental constraints that fire automatically. The retrospective trigger scanner runs on every single user prompt, scanning the prior agent turn for self-recognized failure language. The agent doesn't need to remember to self-check. The environment checks for it. This is Ashby's Law of Requisite Variety in practice: the regulatory variety of the system has to match the variety of disturbances it faces. Each new failure pattern widens the scanner's variety.
+        </aside>
+      </section>
+
+      <!-- 19. THE META-FAILURE AS EVIDENCE -->
+      <section>
+        <span class="eyebrow">The proof</span>
+        <h2>The meta-failure as evidence</h2>
+        <p>The agent said <span class="dim">"the barrel approach is an anti-pattern"</span></p>
+        <p>The trigger scanner matches <span class="highlight">"I was wrong"</span></p>
+        <p>It doesn't match <span class="dim">"X is an anti-pattern"</span></p>
+        <p style="margin-top: 1.2em;">Third-person reframing slipped past the scanner.</p>
+        <p class="highlight" style="margin-top: 1em;">The meta-failure produced its own fix: a new trigger family.</p>
+        <aside class="notes">
+          Here's why the meta-failure matters as evidence. The agent said "the barrel approach is an anti-pattern" — that's a third-person observation about the world. The trigger scanner matched first-person failure language: "I was wrong," "I should have caught this." The reframing — "X is an anti-pattern" instead of "I chose an anti-pattern" — slipped past the regex. The meta-failure produced its own fix: a new trigger family (R5 patterns) that catches finding-reframing language. The system improved because it failed. That IS the point.
+        </aside>
+      </section>
+
+      <!-- 20. VSM MAPPING -->
+      <section>
+        <span class="eyebrow">Theory</span>
+        <h2>The viable cognitive system</h2>
+        <div class="vsm-grid">
+          <span class="vsm-organ">System 3</span>
+          <span>Operational feedback &mdash; the retrospective process</span>
+          <span class="vsm-organ">System 3*</span>
+          <span>Audit channel &mdash; the trigger scanner hook</span>
+          <span class="vsm-organ">Variety amplification</span>
+          <span>Each failure widens regulatory variety at a higher tier</span>
+        </div>
+        <p class="dim" style="font-size: 0.75em; margin-top: 1.5em;">Stafford Beer's Viable System Model: any system that persists in a changing environment needs five functional organs.</p>
+        <aside class="notes">
+          The theoretical frame is Stafford Beer's Viable System Model. The retrospective is System 3 — operational feedback. It observes what the agents actually produce, compares to what they should produce, and feeds corrections back. The trigger scanner is System 3-star — the audit channel. It spot-checks whether behavior matches declared intent. The escalation tiers are variety amplification in Ashby's sense: each failure reveals insufficient regulatory variety; each fix amplifies it at a higher tier.
+        </aside>
+      </section>
+
+      <!-- 21. THE THESIS -->
+      <section>
+        <span class="eyebrow">Thesis</span>
+        <h2>Infrastructure, not capability</h2>
+        <p>The model doesn't need to be better at self-monitoring.</p>
+        <p>The <span class="highlight">environment</span> monitors it.</p>
+        <p style="margin-top: 1em;">The model doesn't need to remember its prior failures.</p>
+        <p>The <span class="highlight">memory system</span> remembers.</p>
+        <p style="margin-top: 1em;">The model doesn't need to escalate its own enforcement.</p>
+        <p>The <span class="highlight">tiered system</span> escalates automatically.</p>
+        <aside class="notes">
+          This is the thesis. These metacognitive organs — self-monitoring, durable memory, escalation tiers, environmental enforcement — can be built as infrastructure rather than required as capabilities of the underlying model. The model doesn't need to be better at introspection; the environment introspects on its behalf. The model doesn't need a longer memory; the memory system persists across sessions. The model doesn't need to remember to escalate; the tier system escalates on recurrence count.
+        </aside>
+      </section>
+
+      <!-- 22. CLOSING -->
+      <section class="center-slide">
+        <h2 style="font-size: 1.4em; font-weight: 300; line-height: 1.5;">A stateless agent has no System 3.<br>No audit channel. No escalation tiers.</h2>
+        <p class="dim" style="margin-top: 1.5em;">Each session is a fresh start. Each mistake is a first mistake.</p>
+        <p class="highlight" style="margin-top: 2em; font-size: 1.1em;">The system improved because it failed.</p>
+        <p class="subtle" style="margin-top: 0.5em;">That's the point.</p>
+        <aside class="notes">
+          A stateless agent has strong System 1 — it can do work. It has some System 5 — it has instructions. But the feedback and coordination organs are absent. Each session is a fresh start. Each mistake is a first mistake. Minsky's contribution is that these organs are infrastructure. The thirty-second search that didn't happen is a small incident. But it took the full weight of the metacognitive infrastructure to ensure that the same class of mistake gets harder to make every time it occurs. The system improved because it failed. That's the point.
+        </aside>
+      </section>
+
+    </div>
+  </div>
+
+  <script type="module">
+    import Reveal from 'https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.esm.js';
+    import Notes from 'https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/notes/notes.esm.js';
+    Reveal.initialize({
+      hash: true,
+      slideNumber: true,
+      width: 1280,
+      height: 720,
+      margin: 0.04,
+      transition: "none",
+      backgroundTransition: "none",
+      plugins: [Notes]
+    });
+  </script>
+</body>
+</html>
