@@ -451,7 +451,7 @@ export async function runSweep(
     // the null tier → defaults to Tier 2 behavior. This matches the Sprint A
     // fail-open policy for sweeper context.
     const tier = extractTierFromPRBody(pr.body);
-    const routing = decideRouting(tier, config);
+    const routing = decideRouting(tier, config.tier2Enabled);
     if (!routing.shouldReview) {
       continue;
     }

@@ -70,7 +70,7 @@ export class OpenAIModelFetcher implements ModelFetcher {
           );
         }
 
-        const data: OpenAIModelsListResponse = await response.json();
+        const data: OpenAIModelsListResponse = (await response.json()) as OpenAIModelsListResponse;
 
         if (!data.data || !Array.isArray(data.data)) {
           throw new ModelFetchError(

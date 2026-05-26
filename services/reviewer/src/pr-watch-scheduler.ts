@@ -30,19 +30,16 @@
  *   that gap, no commit revisited the default. mt#1899's investigation found
  *   no remaining blocker, so the default was flipped to match the
  *   sweeper convention (`SWEEPER_ENABLED` / `MERGE_STATE_SWEEPER_ENABLED`
- *   defaults — see services/reviewer/railway.config.ts).
- * - `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` — used to call `pr_watch_run` via
- *   the Minsky MCP server (existing wiring in server.ts); required when this
- *   scheduler is enabled.
+ *   defaults — see services/reviewer/deploy.config.ts).
  *
  * ## Invocation mechanism
  *
- * The scheduler calls the Minsky MCP `pr_watch_run` tool via the service's
- * existing `mcpClient` infrastructure. This is the same pattern used by the
- * reviewer service for task-spec fetches (task-spec-fetch.ts). It preserves
- * the clean boundary between the reviewer service (GitHub-facing) and the
- * Minsky core (PR-watch domain): the watcher logic lives in Minsky, the
- * scheduler trigger lives in the reviewer service.
+ * The scheduler calls `runWatcher()` from `@minsky/domain/pr-watch/watcher`
+ * directly via domain imports, bypassing the MCP-over-HTTP path entirely.
+ * This removes the network hop and the need for MINSKY_MCP_URL / MINSKY_MCP_AUTH_TOKEN.
+ * The watcher is instantiated with a `DrizzlePrWatchRepository` (from the
+ * domain container's persistence provider), a `makeProductionGithubPrClient`
+ * backed by the Minsky implementer GitHub App token, and a `SystemOperatorNotify`.
  *
  * ## Rate-limit posture (PR #1153 R1)
  *
@@ -68,12 +65,14 @@
  *
  * @see mt#1618 — Invocation path wiring for mt#1295 PR-watch subsystem.
  * @see mt#1899 — Default flipped from OFF to ON post-mt#1725 delivery wiring.
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
-import { callMcp } from "./mcp-client";
 import { log } from "./logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -98,10 +97,6 @@ export interface PrWatchSchedulerConfig {
   intervalMs: number;
   /** Whether the scheduler is enabled. */
   enabled: boolean;
-  /** Minsky MCP endpoint URL. */
-  mcpUrl: string;
-  /** Minsky MCP authentication token. */
-  mcpToken: string;
 }
 
 export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
@@ -115,16 +110,14 @@ export function loadPrWatchSchedulerConfig(): PrWatchSchedulerConfig {
     // operational constraint. Set PR_WATCH_ENABLED=false to disable locally
     // (e.g., during dev to avoid polling GitHub from a workstation).
     enabled: (process.env["PR_WATCH_ENABLED"] ?? "true") === "true",
-    mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
 }
 
 // ---------------------------------------------------------------------------
-// MCP call helper
+// Domain call helper
 // ---------------------------------------------------------------------------
 
-interface McpCallResult {
+interface PrWatchRunResult {
   success: boolean;
   inspected?: number;
   fired?: number;
@@ -132,62 +125,80 @@ interface McpCallResult {
 }
 
 /**
- * Call the Minsky MCP `pr_watch_run` tool via HTTP.
+ * Run one pr-watch pass via domain imports.
  *
- * Delegates to the shared {@link callMcp} helper (mt#1821) for the MCP
- * initialize handshake and session-id caching. Before mt#1821 this helper
- * POSTed `tools/call` without first sending `initialize`; the server
- * rejected every request with `-32600 "first request must be initialize"`
- * and the pr-watch scheduler silently no-op'd every cycle.
+ * Builds a `DrizzlePrWatchRepository` from the persistence provider,
+ * creates a `makeProductionGithubPrClient` backed by the Minsky implementer
+ * GitHub App token, and calls `runWatcher()` directly.
  *
- * Errors from the MCP call are caught and returned as `{ success: false }`
- * — the scheduler is a best-effort background task; a single failed call
- * must not crash the reviewer service.
+ * Errors are caught and returned as `{ success: false }` — the scheduler is
+ * a best-effort background task; a single failed call must not crash the
+ * reviewer service.
+ *
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
-async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCallResult> {
-  // Timeout: 15s, matching the sweeper convention; passed explicitly so any
-  // future change to the helper's default does not silently regress scheduler
-  // behavior.
-  //
-  // Observability: `callMcp` emits structured `log.warn` events with the
-  // `pr_watch_scheduler.mcp` prefix; the legacy
-  // `pr_watch_scheduler.mcp_{http_error,rpc_error}` events are preserved at
-  // the same prefix. The legacy `pr_watch_scheduler.call_failed` event
-  // (emitted only when fetch itself threw, e.g. ECONNREFUSED) is renamed to
-  // `pr_watch_scheduler.mcp_init_fetch_error` or
-  // `pr_watch_scheduler.mcp_fetch_error` depending on which phase failed —
-  // same data, different name. Update any dashboards keying on
-  // `call_failed` to also match the new event names.
-  const result = await callMcp(
-    "pr_watch_run",
-    {},
-    { mcpUrl, mcpToken },
-    { logPrefix: "pr_watch_scheduler.mcp", timeoutMs: 15_000 }
-  );
+async function runPrWatchDomain(container: AppContainerInterface): Promise<PrWatchRunResult> {
+  try {
+    const { DrizzlePrWatchRepository } = await import("@minsky/domain/pr-watch/repository");
+    const { runWatcher } = await import("@minsky/domain/pr-watch/watcher");
+    const { makeProductionGithubPrClient } = await import("@minsky/domain/pr-watch/github-client");
+    const { SystemOperatorNotify } = await import("@minsky/domain/notify/operator-notify");
+    const { CompositeWakeSignalSink, LoggingWakeSignalSink, PersistentWakeSignalSink } =
+      await import("@minsky/domain/ask/wake-on-respond");
+    const { DrizzleWakePendingRepository } = await import(
+      "@minsky/domain/ask/wake-pending-repository"
+    );
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
 
-  if (!result.ok) {
-    return { success: false, error: result.message };
-  }
-
-  // Parse the text content from the MCP tool response.
-  if (result.contentText) {
-    try {
-      const parsed = JSON.parse(result.contentText) as {
-        inspected?: number;
-        fired?: number;
-      };
-      return {
-        success: true,
-        inspected: parsed.inspected,
-        fired: parsed.fired,
-      };
-    } catch {
-      // Non-JSON text content — still a success.
-      return { success: true };
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    const db = await persistenceProvider.getDatabaseConnection();
+    if (!db) {
+      return { success: false, error: "No database connection available" };
     }
-  }
 
-  return { success: true };
+    const prWatchRepository = new DrizzlePrWatchRepository(db);
+
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+    const githubClient = makeProductionGithubPrClient(tokenProvider);
+
+    const operatorNotify = new SystemOperatorNotify();
+
+    // Build composite wake sink (logging + persistent)
+    const sinks: import("@minsky/domain/ask/wake-on-respond").WakeSignalSink[] = [
+      new LoggingWakeSignalSink(),
+    ];
+    try {
+      sinks.push(new PersistentWakeSignalSink(new DrizzleWakePendingRepository(db)));
+    } catch (err: unknown) {
+      log.warn("pr_watch_scheduler.wake_sink_init_error", {
+        event: "pr_watch_scheduler.wake_sink_init_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    const wakeSink = new CompositeWakeSignalSink(sinks);
+
+    const watcherResult = await runWatcher(
+      prWatchRepository,
+      githubClient,
+      operatorNotify,
+      wakeSink
+    );
+    return {
+      success: true,
+      inspected: watcherResult.inspected,
+      fired: watcherResult.fired,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("pr_watch_scheduler.domain_call_error", {
+      event: "pr_watch_scheduler.domain_call_error",
+      error: message,
+    });
+    return { success: false, error: message };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -210,11 +221,14 @@ async function callPrWatchRun(mcpUrl: string, mcpToken: string): Promise<McpCall
  * competing with service startup initialization.
  *
  * @returns the timer handle (so callers can `clearInterval` in tests), or
- *   `null` when disabled or when MCP credentials are missing.
+ *   `null` when disabled or when the domain container is unavailable.
+ *
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 export function startPrWatchScheduler(
   config: ReviewerConfig,
-  schedulerConfig: PrWatchSchedulerConfig
+  schedulerConfig: PrWatchSchedulerConfig,
+  container?: AppContainerInterface
 ): ReturnType<typeof setInterval> | null {
   if (!schedulerConfig.enabled) {
     log.info("pr_watch_scheduler.disabled", {
@@ -224,11 +238,11 @@ export function startPrWatchScheduler(
     return null;
   }
 
-  if (!schedulerConfig.mcpUrl || !schedulerConfig.mcpToken) {
-    log.warn("pr_watch_scheduler.missing_credentials", {
-      event: "pr_watch_scheduler.missing_credentials",
+  if (!container) {
+    log.warn("pr_watch_scheduler.missing_domain_container", {
+      event: "pr_watch_scheduler.missing_domain_container",
       message:
-        "PR-watch scheduler is enabled but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+        "PR-watch scheduler is enabled but domain container not injected. " +
         "PR-watch scheduler will not start. Set PR_WATCH_ENABLED=false to silence this warning.",
     });
     return null;
@@ -237,7 +251,6 @@ export function startPrWatchScheduler(
   log.info("pr_watch_scheduler.started", {
     event: "pr_watch_scheduler.started",
     intervalMs: schedulerConfig.intervalMs,
-    mcpUrl: schedulerConfig.mcpUrl,
   });
 
   // Suppress unused variable warning — config is held for future use
@@ -265,7 +278,7 @@ export function startPrWatchScheduler(
     }
     isRunning = true;
 
-    callPrWatchRun(schedulerConfig.mcpUrl, schedulerConfig.mcpToken)
+    runPrWatchDomain(container)
       .then((result) => {
         if (result.success) {
           log.info("pr_watch_scheduler.poll_complete", {
@@ -274,10 +287,10 @@ export function startPrWatchScheduler(
             fired: result.fired ?? 0,
           });
         }
-        // Errors are already logged inside callPrWatchRun.
+        // Errors are already logged inside runPrWatchDomain.
       })
       .catch((err: unknown) => {
-        // Unreachable: callPrWatchRun catches internally. Belt-and-suspenders.
+        // Unreachable: runPrWatchDomain catches internally. Belt-and-suspenders.
         const message = err instanceof Error ? err.message : String(err);
         log.error("pr_watch_scheduler.unexpected_error", {
           event: "pr_watch_scheduler.unexpected_error",

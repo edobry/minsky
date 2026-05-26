@@ -25,6 +25,7 @@ import { loadMergeStateSweeperConfig, startMergeStateSweeper } from "./merge-sta
 import { loadAdoptionSweeperConfig, startAdoptionSweeper } from "./adoption-sweeper";
 import { getDb, type ReviewerDb } from "./db/client";
 import { applyMigrations } from "./db/migrate";
+import { bootDomainContainer, type DomainServices } from "./domain-container";
 import {
   recordWebhookReceipt,
   updateOutcome,
@@ -121,7 +122,8 @@ export type RunReviewFn = (
 export function createApp(
   cfg: ReviewerConfig,
   runReviewFn: RunReviewFn = runReview,
-  db?: ReviewerDb
+  db?: ReviewerDb,
+  domainServices?: DomainServices
 ): {
   server: ReturnType<typeof Bun.serve>;
   gracefulShutdown: () => Promise<void>;
@@ -197,7 +199,15 @@ export function createApp(
       prAuthor,
       deliveryId,
       headSha,
-      db !== undefined ? { db } : undefined
+      {
+        ...(db !== undefined ? { db } : {}),
+        ...(domainServices
+          ? {
+              taskService: domainServices.taskService,
+              persistenceProvider: domainServices.persistenceProvider,
+            }
+          : {}),
+      }
     )
       .then((result) => {
         log.info("review_result", {
@@ -823,7 +833,25 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const { server, gracefulShutdown } = createApp(config, runReview, db);
+  // Boot the domain container (mt#2121). Provides TaskService and
+  // PersistenceProvider for direct domain imports in background loops and
+  // per-review operations (task-spec fetch, tier resolution). Non-fatal:
+  // if the domain container fails to boot (e.g., DB unreachable), the
+  // service starts without domain services and falls back gracefully.
+  let domainServices: DomainServices | undefined;
+  try {
+    domainServices = await bootDomainContainer();
+    log.info("domain_container_booted", { event: "domain_container_booted" });
+  } catch (err: unknown) {
+    log.warn("domain_container_boot_failed", {
+      event: "domain_container_boot_failed",
+      error: err instanceof Error ? err.message : String(err),
+      message:
+        "Domain services unavailable — task-spec fetch and tier resolution will degrade gracefully.",
+    });
+  }
+
+  const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices);
 
   log.info("server_started", {
     event: "server_started",
@@ -831,7 +859,7 @@ if (import.meta.main) {
     provider: config.provider,
     model: config.providerModel,
     tier2Enabled: config.tier2Enabled,
-    specFetchEnabled: Boolean(config.mcpUrl && config.mcpToken),
+    domainServicesEnabled: Boolean(domainServices),
   });
 
   // Register graceful shutdown handlers for SIGTERM, SIGINT, SIGHUP.
@@ -900,33 +928,35 @@ if (import.meta.main) {
   startSweeper(config, loadSweeperConfig(), db);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
-  // Calls pr_watch_run via the Minsky MCP server on a configurable interval so
-  // that registered PR watches fire automatically without manual operator action.
+  // Uses domain imports (mt#2121) via the booted domain container — no MCP-over-HTTP.
   // Configurable via PR_WATCH_ENABLED, PR_WATCH_POLL_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
-  // Enabled by default post-mt#1899 (was opt-in pre-mt#1725 because the
-  // agent-context delivery path wasn't wired yet); set PR_WATCH_ENABLED=false
-  // to disable (e.g., local dev to avoid polling GitHub from a workstation).
-  startPrWatchScheduler(config, loadPrWatchSchedulerConfig());
+  // Enabled by default post-mt#1899; set PR_WATCH_ENABLED=false to disable.
+  startPrWatchScheduler(config, loadPrWatchSchedulerConfig(), domainServices?.container);
 
   // Start the Asks-reconcile scheduler (mt#1636).
-  // Calls asks_reconcile via the Minsky MCP server on a configurable interval so
-  // that quality.review Asks transition to `responded` automatically when a review
-  // is posted on the watched PR — without requiring manual operator action.
+  // Uses domain imports (mt#2121) via the booted domain container — no MCP-over-HTTP.
   // Configurable via ASKS_RECONCILE_ENABLED, ASKS_RECONCILE_POLL_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set.
   // Opt-in: disabled by default; set ASKS_RECONCILE_ENABLED=true to activate.
-  startAsksReconcileScheduler(config, loadAsksReconcileSchedulerConfig());
+  startAsksReconcileScheduler(
+    config,
+    loadAsksReconcileSchedulerConfig(),
+    domainServices?.container
+  );
 
   // Start the merge-state sweeper backstop (mt#1614).
-  // Catches sessions stuck in PR_OPEN with closed-merged PRs — the safety net
-  // for when the pull_request.closed webhook handler misses an event.
+  // Uses domain imports (mt#2121) via SessionProviderInterface + applyPostMergeStateSync.
   // Configurable via MERGE_STATE_SWEEPER_ENABLED, MERGE_STATE_SWEEPER_INTERVAL_MS.
-  // Requires MINSKY_MCP_URL + MINSKY_MCP_AUTH_TOKEN to be set on the deployed service.
   // **Enabled by default (mt#1811)**: set MERGE_STATE_SWEEPER_ENABLED=false to opt out.
-  // If MCP credentials are absent the sweeper logs "missing_credentials" and refuses
-  // to start — operators see a clear log line instead of a silent disable.
-  startMergeStateSweeper(config, loadMergeStateSweeperConfig());
+  startMergeStateSweeper(
+    config,
+    loadMergeStateSweeperConfig(),
+    domainServices
+      ? {
+          sessionProvider: domainServices.sessionProvider,
+          taskService: domainServices.taskService,
+        }
+      : undefined
+  );
 
   // Start the adoption sweeper (mt#1630).
   // Post-merge adoption verification: picks up recently-DONE tasks, extracts
