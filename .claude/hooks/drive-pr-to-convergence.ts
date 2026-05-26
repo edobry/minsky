@@ -9,34 +9,23 @@
 //   - 2026-05-12 PR #1076 (mt#1791): agent ended turn with "ping me to wire
 //     the SDK once merged and you've set the key." User had to poke.
 //   - 2026-04-22 PR #677 (mt#1057): agent created PR and ended turn without
-//     invoking /review-pr; required user-initiated correction. Originated
-//     mt#1066's `require-review-after-pr-create.ts` proposal (PR #684,
-//     superseded by this hook).
+//     driving to convergence; required user-initiated correction.
+//   - 2026-05-26 PRs #1298, #1304, #1313: agent proactively dispatched
+//     Chinese-wall reviewer subagents instead of waiting for the bot.
+//     Retrospective: the old hook text instructed "/review-pr" as fallback.
 //
 // This hook is the structural escalation of two adjacent corpus rules:
-//   - `decision-defaults.mdc §User does not review PRs in the loop` —
-//     drives the rule that the agent (not the user) is responsible for
-//     PR convergence
-//   - The "Slow-ask variant" under that section (added 2026-05-12 R4) —
-//     "ping me when done" / "let me know when ready" is the same anti-
-//     pattern as "ready for your review", just deferred in time
-//
-// Both rules failed memory-tier and corpus-tier enforcement (the rules
-// were loaded into context when the violating turns happened). Per the
-// retrospective skill's escalation policy, the tier escalates to hook.
+//   - `decision-defaults.mdc §User does not review PRs in the loop`
+//   - The "Slow-ask variant" under that section (added 2026-05-12 R4)
 //
 // The hook is INFORMATIONAL — it injects guidance, does NOT block any
 // tool call. Failure paths and non-matching tools exit silently.
 //
-// Supersedes the abandoned mt#1066 / PR #684 (`require-review-after-pr-create.ts`)
-// which addressed a narrower slice (/review-pr only). This hook's reminder
-// covers both /review-pr-as-fallback and the broader drive-to-convergence
-// discipline.
-//
-// @see mt#1793 — this task
-// @see mt#1066 / PR #684 — superseded predecessor
+// @see mt#1793 — original task
+// @see mt#2122 — updated to remove /review-pr fallback (2026-05-26)
 // @see decision-defaults.mdc §User does not review PRs in the loop
 // @see feedback_drive_pr_to_convergence_dont_end_on_ping_me — bridge memory
+// @see memory 5695cd2b — never dispatch reviewer subagents in convergence loop
 
 import { readInput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
@@ -45,9 +34,11 @@ import type { ToolHookInput, HookOutput } from "./types";
  * The reminder injected into the agent's next context after `session_pr_create`
  * succeeds. The text encodes the discipline at three levels:
  *
- *   1. Required next action (positive): `session_pr_wait-for-review` or
- *      reviewer subagent on webhook-miss.
- *   2. Forbidden behavior (negative): deferral language as turn-closing.
+ *   1. Required next action (positive): `session_pr_wait-for-review` with
+ *      `minsky-reviewer[bot]`. On webhook-miss: empty commit wake, re-wait,
+ *      then bypass merge.
+ *   2. Forbidden behavior (negative): deferral language as turn-closing,
+ *      and dispatching reviewer subagents.
  *   3. Reference to the corpus rules so the agent can re-read them on the
  *      next turn if context budget allows.
  */
@@ -70,10 +61,10 @@ export const DRIVE_TO_CONVERGENCE_REMINDER = [
   "See memory `5695cd2b` for the full rationale.",
   "",
   "**Forbidden — these phrases end the turn prematurely:**",
-  '"- "Ping me when done"',
-  '"- "Let me know when merged"',
-  '"- "I\'ll wait for your signal"',
-  '"- "Ready for your review/merge"',
+  '- "Ping me when done"',
+  '- "Let me know when merged"',
+  '- "I\'ll wait for your signal"',
+  '- "Ready for your review/merge"',
   "- Any equivalent deferral that ends the turn before merge.",
   "",
   "The slow-ask variant (deferring to a later user ping) is forbidden under",
