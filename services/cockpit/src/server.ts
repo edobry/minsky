@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import "reflect-metadata";
-import { setupConfiguration } from "../../../src/config-setup";
+import { setupConfiguration } from "@minsky/domain/config-setup";
 import { log } from "../../../src/utils/logger";
 
 await setupConfiguration();
