@@ -79,11 +79,10 @@ let _cachedDeps: TaskListDeps | null = null;
 async function defaultDepsFactory(): Promise<TaskListDeps> {
   if (_cachedDeps) return _cachedDeps;
 
-  const { PersistenceService } = await import("@minsky/domain/persistence/service");
+  const { getSharedPersistenceService } = await import("../shared-persistence");
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
   const taskService = await createConfiguredTaskService({

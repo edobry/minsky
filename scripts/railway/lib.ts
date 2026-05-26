@@ -343,6 +343,8 @@ export interface RailwaySource {
   rootDirectory?: string;
   /** Optional check-suite branch filter — per Railway's source.checkSuites. */
   checkSuites?: string[];
+  /** Docker image URI for image-based deploys (e.g., ghcr.io/org/repo:latest). */
+  image?: string;
 }
 
 export interface RailwayBuild {
@@ -363,8 +365,11 @@ export interface RailwayBuild {
  * flattened into this at the apply boundary.
  */
 export interface ServiceInstanceUpdateInput {
-  // Source fields
-  repo?: string;
+  // Nested source object — Railway's ServiceSourceInput { repo, image }.
+  // These are NOT top-level on ServiceInstanceUpdateInput; they must be
+  // nested under `source` or Railway returns 400.
+  source?: { repo?: string; image?: string };
+  // Top-level source-adjacent fields
   branch?: string;
   rootDirectory?: string;
   /** Source check-suite branches filter. */
@@ -433,7 +438,7 @@ export interface ServiceInstanceState {
   /** Top-level on Railway's ServiceInstance. */
   rootDirectory?: string;
   /** Top-level on Railway's ServiceInstance, nested under `source`. */
-  source?: { repo?: string };
+  source?: { repo?: string; image?: string };
   /** Build configuration — top-level on ServiceInstance per Railway schema. */
   builder?: RailwayBuilder;
   buildCommand?: string;
@@ -471,7 +476,7 @@ export async function fetchServiceInstanceState(
           node: {
             serviceId: string;
             rootDirectory?: string;
-            source?: { repo?: string };
+            source?: { repo?: string; image?: string };
             builder?: RailwayBuilder;
             buildCommand?: string;
             dockerfilePath?: string;
@@ -492,6 +497,7 @@ export async function fetchServiceInstanceState(
                 rootDirectory
                 source {
                   repo
+                  image
                 }
                 builder
                 buildCommand
@@ -577,6 +583,7 @@ export function computeServiceInstanceDiff(
 
   // Source fields
   diffField("source.repo", desired.source?.repo, current.source?.repo);
+  diffField("source.image", desired.source?.image, current.source?.image);
   // source.branch is write-through (not in readable state).
   if (desired.source?.branch !== undefined) {
     entries.push({ kind: "ADD", field: "source.branch", value: desired.source.branch });
@@ -633,17 +640,19 @@ function arrayOrScalarEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Flatten the Minsky-side nested `source.*` / `build.*` shape into Railway's
- * flat `ServiceInstanceUpdateInput`. Only fields actually declared in the
- * input are included; unset fields are omitted so the mutation doesn't
- * touch them.
+ * Map the Minsky-side nested `source.*` / `build.*` shape into Railway's
+ * `ServiceInstanceUpdateInput`. `repo` and `image` nest under `input.source`
+ * (Railway's `ServiceSourceInput`); all other fields are top-level.
  */
 export function flattenToServiceInstanceInput(desired: {
   source?: RailwaySource;
   build?: RailwayBuild;
 }): ServiceInstanceUpdateInput {
   const input: ServiceInstanceUpdateInput = {};
-  if (desired.source?.repo !== undefined) input.repo = desired.source.repo;
+  const sourceInput: { repo?: string; image?: string } = {};
+  if (desired.source?.repo !== undefined) sourceInput.repo = desired.source.repo;
+  if (desired.source?.image !== undefined) sourceInput.image = desired.source.image;
+  if (Object.keys(sourceInput).length > 0) input.source = sourceInput;
   if (desired.source?.branch !== undefined) input.branch = desired.source.branch;
   if (desired.source?.rootDirectory !== undefined) {
     input.rootDirectory = desired.source.rootDirectory;

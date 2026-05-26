@@ -327,47 +327,12 @@ export function createAgentsWidget(
 // ---------------------------------------------------------------------------
 // Default production widget
 //
-// Uses a lazily-initialised PersistenceService singleton so the cockpit
-// server can register this without a DI container.  The provider is
-// created once on first fetch(); subsequent calls reuse the cached instance.
-//
-// The `new PersistenceService() + .initialize() + .getProvider()` pattern
-// here mirrors the canonical persistence-bootstrap in
-// `src/composition/cli.ts:31-32` and `src/hooks/post-commit.ts:98-105`. The
-// cockpit is a standalone Express server with no tsyringe container, so
-// constructing a singleton inline is the established pattern, not a
-// deviation. Switching to a shared DI container is a separate concern
-// (cockpit/DI integration RFC).
+// Uses the cockpit-wide PersistenceService singleton (src/cockpit/shared-persistence.ts)
+// so all widgets share one connection pool. The provider is created once on first
+// fetch(); subsequent calls reuse the cached instance.
 // ---------------------------------------------------------------------------
 
-// Shared PersistenceService singleton — both session and task providers use
-// the same instance to avoid deadlocking the DB connection pool (mt#2079).
-let _sharedPersistenceService:
-  | import("@minsky/domain/persistence/service").PersistenceService
-  | null = null;
-let _sharedInitPromise: Promise<
-  import("@minsky/domain/persistence/service").PersistenceService
-> | null = null;
-
-async function getSharedPersistenceService() {
-  if (_sharedPersistenceService) return _sharedPersistenceService;
-  if (_sharedInitPromise) return _sharedInitPromise;
-
-  _sharedInitPromise = (async () => {
-    try {
-      const { PersistenceService } = await import("@minsky/domain/persistence/service");
-      const svc = new PersistenceService();
-      await svc.initialize();
-      _sharedPersistenceService = svc;
-      return svc;
-    } catch (err) {
-      _sharedInitPromise = null;
-      throw err;
-    }
-  })();
-
-  return _sharedInitPromise;
-}
+import { getSharedPersistenceService } from "../shared-persistence";
 
 let _cachedProvider: SessionProviderInterface | null = null;
 

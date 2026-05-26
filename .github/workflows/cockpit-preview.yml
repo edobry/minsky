@@ -1,0 +1,116 @@
+# Per-PR cockpit preview deploy (mt#2096).
+#
+# Deploys an ephemeral cockpit server to Railway when a PR touches cockpit
+# source files. Posts the preview URL as a PR comment. Tears down on PR
+# close or merge.
+#
+# Prerequisites (one-time manual setup):
+#   1. Railway project + service created for cockpit-preview
+#   2. RAILWAY_COCKPIT_TOKEN secret set on this repo (scoped to the cockpit project)
+#   3. Real resource IDs in services/cockpit/railway.config.ts
+#   4. Read-only Supabase DB role created (see scripts/supabase-preview-role.sql)
+
+name: Cockpit Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - "src/cockpit/**"
+      - "services/cockpit/**"
+
+concurrency:
+  group: cockpit-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy cockpit preview
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          railway up \
+            --service cockpit-preview \
+            --detach \
+            --environment pr-${{ github.event.pull_request.number }}
+
+      - name: Get preview URL
+        id: url
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          # Railway generates a domain for the service in the PR environment.
+          # The exact mechanism depends on Railway project config — the domain
+          # may be auto-generated or need explicit creation via `railway domain`.
+          PREVIEW_URL=$(railway domain --environment pr-${{ github.event.pull_request.number }} 2>/dev/null || echo "")
+          if [ -z "$PREVIEW_URL" ]; then
+            PREVIEW_URL="(URL pending — check Railway dashboard)"
+          fi
+          echo "url=$PREVIEW_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Post preview URL comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `### Cockpit Preview
+
+            **Preview URL:** ${{ steps.url.outputs.url }}
+
+            This preview was deployed from commit ${{ github.event.pull_request.head.sha }}.
+            Preview runs in read-only mode — mutations are disabled.
+
+            _Updated by the [Cockpit Preview](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow._`;
+
+            // Find existing comment to update (avoid spam)
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c =>
+              c.body?.includes('### Cockpit Preview') &&
+              c.user?.login === 'github-actions[bot]'
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  teardown:
+    if: github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Tear down preview environment
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_COCKPIT_TOKEN }}
+        run: |
+          railway environment delete \
+            --environment pr-${{ github.event.pull_request.number }} \
+            --yes 2>/dev/null || true

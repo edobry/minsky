@@ -91,9 +91,8 @@ const serverStartTime = Date.now();
  */
 // ---------------------------------------------------------------------------
 // Context-inspector SQL connection — lazy-cached singleton (mt#2023).
-// Mirrors the agents.ts pattern so the snapshot endpoint doesn't pay
-// PersistenceService init cost on every request. Returns null when the
-// provider is non-SQL (the endpoint returns 503 in that case).
+// Uses the cockpit-wide PersistenceService singleton (shared-persistence.ts).
+// Returns null when the provider is non-SQL (the endpoint returns 503).
 // ---------------------------------------------------------------------------
 
 let _cachedContextInspectorDb: import("drizzle-orm/postgres-js").PostgresJsDatabase | null = null;
@@ -103,11 +102,10 @@ async function getContextInspectorDb(): Promise<
   import("drizzle-orm/postgres-js").PostgresJsDatabase | null
 > {
   if (_cachedContextInspectorDb) return _cachedContextInspectorDb;
-  if (_cachedContextInspectorDbProbed) return null; // last probe found non-SQL provider; don't keep retrying
+  if (_cachedContextInspectorDbProbed) return null;
   try {
-    const { PersistenceService } = await import("@minsky/domain/persistence/service");
-    const svc = new PersistenceService();
-    await svc.initialize();
+    const { getSharedPersistenceService } = await import("./shared-persistence");
+    const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
     if (
       !("getDatabaseConnection" in provider) ||
@@ -129,8 +127,7 @@ async function getContextInspectorDb(): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// AskRepository lazy init — shared across requests (same singleton pattern
-// as agents.ts defaultProviderFactory).
+// AskRepository lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 
 let _cachedServerAskRepo: import("@minsky/domain/ask/repository").AskRepository | null = null;
@@ -140,10 +137,9 @@ async function getServerAskRepository(): Promise<
 > {
   if (_cachedServerAskRepo) return _cachedServerAskRepo;
   try {
-    const { PersistenceService } = await import("@minsky/domain/persistence/service");
+    const { getSharedPersistenceService } = await import("./shared-persistence");
     const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
-    const svc = new PersistenceService();
-    await svc.initialize();
+    const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
     if (
       !("getDatabaseConnection" in provider) ||
@@ -164,8 +160,7 @@ async function getServerAskRepository(): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Task service lazy init — shared across /api/tasks requests (same singleton
-// pattern as AskRepository above).
+// Task service lazy init — uses cockpit-wide PersistenceService singleton.
 // ---------------------------------------------------------------------------
 
 interface TaskDetailDeps {
@@ -182,10 +177,9 @@ async function getServerTaskService(): Promise<
 > {
   if (_cachedTaskService) return _cachedTaskService;
   try {
-    const { PersistenceService } = await import("@minsky/domain/persistence/service");
+    const { getSharedPersistenceService } = await import("./shared-persistence");
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
-    const svc = new PersistenceService();
-    await svc.initialize();
+    const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
     const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
@@ -200,20 +194,16 @@ async function getServerTaskService(): Promise<
 
 /**
  * Lazy-cached task detail deps (TaskService + TaskGraphService).
- * TaskGraphService requires a raw Drizzle DB connection — same init path
- * as the task-graph widget (src/cockpit/widgets/task-graph.ts).
- * Falls back to taskService-only when the DB connection is unavailable
- * (non-SQL providers); in that case the endpoint omits parent/children/deps.
+ * Uses cockpit-wide PersistenceService singleton.
  */
 async function getServerTaskDetailDeps(): Promise<TaskDetailDeps | null> {
   if (_cachedTaskDetailDeps) return _cachedTaskDetailDeps;
   try {
-    const { PersistenceService } = await import("@minsky/domain/persistence/service");
+    const { getSharedPersistenceService } = await import("./shared-persistence");
     const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
     const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
-    const svc = new PersistenceService();
-    await svc.initialize();
+    const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
 
     const taskService = await createConfiguredTaskService({
@@ -331,9 +321,8 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
   if (_cachedSseBroker) return _cachedSseBroker;
 
   try {
-    const { PersistenceService } = await import("@minsky/domain/persistence/service");
-    const svc = new PersistenceService();
-    await svc.initialize();
+    const { getSharedPersistenceService } = await import("./shared-persistence");
+    const svc = await getSharedPersistenceService();
     const provider = svc.getProvider();
 
     // Require getListenCapableSqlConnection — only the Postgres provider has it
@@ -342,11 +331,6 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
       typeof (provider as { getListenCapableSqlConnection?: unknown })
         .getListenCapableSqlConnection !== "function"
     ) {
-      // Non-Postgres provider (SQLite, offline) — use a no-op listener so the
-      // broker exists but the stream is open-but-silent. The /api/events
-      // endpoint returns 200 (not 503) and streams no events. This is correct
-      // for non-Postgres backends: clients connect successfully but never
-      // receive events because there is no Postgres NOTIFY source wired.
       const noopListener = createNoopChannelListener();
       const broker = new SseBroker(noopListener);
       _cachedSseBroker = broker;
@@ -361,11 +345,6 @@ async function getServerSseBroker(): Promise<SseBroker | null> {
     const listener = new PostgresChannelListener(sql);
     const broker = new SseBroker(listener);
 
-    // Pre-subscribe to ALL canonical channels at init time.
-    // postgres-js does not support wildcard channel names — each channel must
-    // be explicitly subscribed. Clients may connect with patterns like
-    // `attention.*` but the broker must have already called sql.listen() on
-    // the matching concrete channels for those events to arrive.
     for (const channel of COCKPIT_SSE_CHANNELS) {
       await broker.ensureChannel(channel);
     }
@@ -444,6 +423,21 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
 
   const app = express();
   app.use(express.json());
+
+  // Preview-mode guard (mt#2096): block mutation endpoints in preview deploys.
+  // Defense-in-depth API layer — paired with a read-only Supabase DB role.
+  if (process.env.MINSKY_COCKPIT_PREVIEW === "true") {
+    app.use("/api", (req, res, next) => {
+      if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
+        next();
+        return;
+      }
+      res.status(403).json({
+        error: "Preview mode: mutations are disabled",
+        preview: true,
+      });
+    });
+  }
 
   // --- API endpoints ---
 

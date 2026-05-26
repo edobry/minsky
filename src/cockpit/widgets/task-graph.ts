@@ -172,10 +172,10 @@ function normaliseStatus(raw: string): GraphNode["status"] {
 // ---------------------------------------------------------------------------
 // Default production widget
 //
-// Uses lazily-initialised singletons so the cockpit server can register
-// this without a DI container. The same bootstrap pattern as agents.ts:
-// `new PersistenceService() + .initialize() + getProvider()`.
+// Uses the cockpit-wide PersistenceService singleton (shared-persistence.ts).
 // ---------------------------------------------------------------------------
+
+import { getSharedPersistenceService } from "../shared-persistence";
 
 let _cachedDeps: TaskGraphDeps | null = null;
 
@@ -184,12 +184,10 @@ async function defaultDepsFactory(): Promise<TaskGraphDeps> {
     return _cachedDeps;
   }
 
-  const { PersistenceService } = await import("@minsky/domain/persistence/service");
   const { createConfiguredTaskService } = await import("@minsky/domain/tasks/taskService");
   const { TaskGraphService } = await import("@minsky/domain/tasks/task-graph-service");
 
-  const svc = new PersistenceService();
-  await svc.initialize();
+  const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
   const taskService = await createConfiguredTaskService({

@@ -26,6 +26,7 @@ COPY packages/domain/package.json ./packages/domain/package.json
 # automatically is tracked under mt#1992.
 COPY services/site/package.json ./services/site/package.json
 COPY services/reviewer/package.json ./services/reviewer/package.json
+COPY services/cockpit/package.json ./services/cockpit/package.json
 
 # Hoist deps via the root workspace install. `--production` skips dev deps,
 # `--frozen-lockfile` enforces lockfile fidelity, `--ignore-scripts` skips
