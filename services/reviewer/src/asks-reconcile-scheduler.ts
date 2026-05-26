@@ -1,7 +1,7 @@
 /**
  * Periodic Asks-reconcile scheduler for the reviewer service.
  *
- * Runs `asks_reconcile` on a configurable `setInterval` so that registered
+ * Runs `reconcile()` on a configurable `setInterval` so that registered
  * quality.review Asks transition to `responded` automatically — without
  * requiring a human or agent to manually invoke `asks_reconcile`. Follows the
  * same in-process setInterval pattern established by the sweeper (mt#1260) in
@@ -26,27 +26,25 @@
  *   covers the "within ≤ 1 polling interval" acceptance test criterion for
  *   active iteration. Operators can set higher values for quieter deployments.
  * - `ASKS_RECONCILE_ENABLED` — set to `"true"` to activate (disabled by default).
- * - `MINSKY_MCP_URL` + `MINSKY_MCP_AUTH_TOKEN` — used to call `asks_reconcile` via
- *   the Minsky MCP server; required when this scheduler is enabled.
  *
  * ## Invocation mechanism
  *
- * The scheduler calls the Minsky MCP `asks_reconcile` tool via HTTP, which
- * internally constructs a production `GithubReviewClient` (via
- * `makeProductionGithubReviewClient`) and `OperatorNotify` (via
- * `SystemOperatorNotify`), then calls `reconcile()` at
- * `src/domain/ask/reconciler.ts:183`. This preserves the clean boundary between
- * the reviewer service (GitHub-facing) and the Minsky core (Ask domain): the
- * reconciler logic lives in Minsky, the scheduler trigger lives in the reviewer
- * service.
+ * The scheduler calls `reconcile()` from `@minsky/domain/ask/reconciler`
+ * directly via domain imports, bypassing the MCP-over-HTTP path entirely.
+ * A `DrizzleAskRepository` is built from the domain container's persistence
+ * provider; a `makeProductionGithubReviewClient` is constructed from the
+ * Minsky implementer GitHub App token; `SystemOperatorNotify` is used for
+ * notifications.
  *
  * @see mt#1636 — Invocation path wiring for asks.reconcile (sibling to mt#1618).
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 
 import type { ReviewerConfig } from "./config";
 import { parsePositiveIntEnv } from "./config";
-import { callMcp } from "./mcp-client";
 import { log } from "./logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -57,10 +55,6 @@ export interface AsksReconcileSchedulerConfig {
   intervalMs: number;
   /** Whether the scheduler is enabled. */
   enabled: boolean;
-  /** Minsky MCP endpoint URL. */
-  mcpUrl: string;
-  /** Minsky MCP authentication token. */
-  mcpToken: string;
 }
 
 export function loadAsksReconcileSchedulerConfig(): AsksReconcileSchedulerConfig {
@@ -69,16 +63,14 @@ export function loadAsksReconcileSchedulerConfig(): AsksReconcileSchedulerConfig
     // feed NaN to setInterval. parsePositiveIntEnv throws at boot time.
     intervalMs: parsePositiveIntEnv("ASKS_RECONCILE_POLL_INTERVAL_MS", 30_000),
     enabled: (process.env["ASKS_RECONCILE_ENABLED"] ?? "false") === "true",
-    mcpUrl: process.env["MINSKY_MCP_URL"] ?? "",
-    mcpToken: process.env["MINSKY_MCP_AUTH_TOKEN"] ?? "",
   };
 }
 
 // ---------------------------------------------------------------------------
-// MCP call helper
+// Domain call helper
 // ---------------------------------------------------------------------------
 
-interface McpCallResult {
+interface AsksReconcileResult {
   success: boolean;
   inspected?: number;
   responded?: number;
@@ -87,64 +79,96 @@ interface McpCallResult {
 }
 
 /**
- * Call the Minsky MCP `asks_reconcile` tool via HTTP.
+ * Run one asks-reconcile pass via domain imports.
  *
- * Delegates to the shared {@link callMcp} helper (mt#1821) for the MCP
- * initialize handshake and session-id caching. Before mt#1821 this helper
- * POSTed `tools/call` without first sending `initialize`; the server
- * rejected every request with `-32600 "first request must be initialize"`
- * and the asks-reconcile scheduler silently no-op'd every cycle.
+ * Builds a `DrizzleAskRepository` from the persistence provider, creates a
+ * `makeProductionGithubReviewClient` backed by the Minsky implementer GitHub
+ * App token, and calls `reconcile()` directly.
  *
- * Errors from the MCP call are caught and returned as `{ success: false }`
- * — the scheduler is a best-effort background task; a single failed call
- * must not crash the reviewer service.
+ * Errors are caught and returned as `{ success: false }` — the scheduler is
+ * a best-effort background task; a single failed call must not crash the
+ * reviewer service.
+ *
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
-async function callAsksReconcile(mcpUrl: string, mcpToken: string): Promise<McpCallResult> {
-  // Timeout: 15s, matching the sweeper convention; passed explicitly so any
-  // future change to the helper's default does not silently regress scheduler
-  // behavior.
-  //
-  // Observability: `callMcp` emits structured `log.warn` events with the
-  // `asks_reconcile_scheduler.mcp` prefix; the legacy
-  // `asks_reconcile_scheduler.mcp_{http_error,rpc_error}` events are
-  // preserved at the same prefix. The legacy
-  // `asks_reconcile_scheduler.call_failed` event (emitted only when fetch
-  // itself threw) is renamed to
-  // `asks_reconcile_scheduler.mcp_init_fetch_error` or
-  // `asks_reconcile_scheduler.mcp_fetch_error` depending on which phase
-  // failed — same data, different name. Update any dashboards keying on
-  // `call_failed` to also match the new event names.
-  const result = await callMcp(
-    "asks_reconcile",
-    {},
-    { mcpUrl, mcpToken },
-    { logPrefix: "asks_reconcile_scheduler.mcp", timeoutMs: 15_000 }
-  );
+async function runAsksReconcileDomain(
+  container: AppContainerInterface
+): Promise<AsksReconcileResult> {
+  try {
+    const { DrizzleAskRepository } = await import("@minsky/domain/ask/repository");
+    const { reconcile } = await import("@minsky/domain/ask/reconciler");
+    const { SystemOperatorNotify } = await import("@minsky/domain/notify/operator-notify");
+    const { CompositeWakeSignalSink, LoggingWakeSignalSink, PersistentWakeSignalSink } =
+      await import("@minsky/domain/ask/wake-on-respond");
+    const { DrizzleWakePendingRepository } = await import(
+      "@minsky/domain/ask/wake-pending-repository"
+    );
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
 
-  if (!result.ok) {
-    return { success: false, error: result.message };
-  }
-
-  if (result.contentText) {
-    try {
-      const parsed = JSON.parse(result.contentText) as {
-        inspected?: number;
-        responded?: number;
-        errors?: number;
-      };
-      return {
-        success: true,
-        inspected: parsed.inspected,
-        responded: parsed.responded,
-        errors: parsed.errors,
-      };
-    } catch {
-      // Non-JSON text content — still a success.
-      return { success: true };
+    const persistenceProvider = container.get("persistence") as SqlCapablePersistenceProvider;
+    const db = await persistenceProvider.getDatabaseConnection();
+    if (!db) {
+      return { success: false, error: "No database connection available" };
     }
-  }
 
-  return { success: true };
+    const repo = new DrizzleAskRepository(db);
+
+    const cfg = getConfiguration();
+    const userToken = cfg.github?.token ?? "";
+    const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);
+
+    // Build a GithubReviewClient inline using domain list-reviews infrastructure.
+    // This replicates makeProductionGithubReviewClient from
+    // src/adapters/shared/commands/asks-github-client.ts — that file lives in
+    // the main Minsky package which the reviewer service does not depend on.
+    const { listReviews } = await import("@minsky/domain/repository/github-pr-review");
+    const githubClient: import("@minsky/domain/ask/reconciler").GithubReviewClient = {
+      async listReviews(owner: string, repo: string, prNumber: number) {
+        const gh = {
+          owner,
+          repo,
+          getToken: () => tokenProvider.getServiceToken(`${owner}/${repo}`),
+        };
+        const entries = await listReviews(gh, prNumber);
+        return entries.map((e) => ({
+          reviewId: e.reviewId,
+          state: e.state,
+          reviewerLogin: e.reviewerLogin,
+          body: e.body,
+        }));
+      },
+    };
+
+    const operatorNotify = new SystemOperatorNotify();
+
+    // Build composite wake sink (logging + persistent)
+    const sinks = [new LoggingWakeSignalSink()];
+    try {
+      sinks.push(new PersistentWakeSignalSink(new DrizzleWakePendingRepository(db)));
+    } catch (err: unknown) {
+      log.warn("asks_reconcile_scheduler.wake_sink_init_error", {
+        event: "asks_reconcile_scheduler.wake_sink_init_error",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    const wakeSink = new CompositeWakeSignalSink(sinks);
+
+    const reconcileResult = await reconcile(repo, githubClient, operatorNotify, wakeSink);
+    return {
+      success: true,
+      inspected: reconcileResult.inspected,
+      responded: reconcileResult.responded,
+      errors: reconcileResult.errors,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("asks_reconcile_scheduler.domain_call_error", {
+      event: "asks_reconcile_scheduler.domain_call_error",
+      error: message,
+    });
+    return { success: false, error: message };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,11 +190,14 @@ async function callAsksReconcile(mcpUrl: string, mcpToken: string): Promise<McpC
  * competing with service startup initialization.
  *
  * @returns the timer handle (so callers can `clearInterval` in tests), or
- *   `null` when disabled or when MCP credentials are missing.
+ *   `null` when disabled or when the domain container is unavailable.
+ *
+ * @see mt#2121 — migrated from MCP-over-HTTP to direct domain imports.
  */
 export function startAsksReconcileScheduler(
   config: ReviewerConfig,
-  schedulerConfig: AsksReconcileSchedulerConfig
+  schedulerConfig: AsksReconcileSchedulerConfig,
+  container?: AppContainerInterface
 ): ReturnType<typeof setInterval> | null {
   if (!schedulerConfig.enabled) {
     log.info("asks_reconcile_scheduler.disabled", {
@@ -180,11 +207,11 @@ export function startAsksReconcileScheduler(
     return null;
   }
 
-  if (!schedulerConfig.mcpUrl || !schedulerConfig.mcpToken) {
-    log.warn("asks_reconcile_scheduler.missing_credentials", {
-      event: "asks_reconcile_scheduler.missing_credentials",
+  if (!container) {
+    log.warn("asks_reconcile_scheduler.missing_domain_container", {
+      event: "asks_reconcile_scheduler.missing_domain_container",
       message:
-        "ASKS_RECONCILE_ENABLED=true but MINSKY_MCP_URL or MINSKY_MCP_AUTH_TOKEN is not set. " +
+        "ASKS_RECONCILE_ENABLED=true but domain container not injected. " +
         "Asks-reconcile scheduler will not start.",
     });
     return null;
@@ -193,7 +220,6 @@ export function startAsksReconcileScheduler(
   log.info("asks_reconcile_scheduler.enabled", {
     event: "asks_reconcile_scheduler.enabled",
     intervalMs: schedulerConfig.intervalMs,
-    mcpUrl: schedulerConfig.mcpUrl,
   });
 
   // Suppress unused variable warning — config is held for future use
@@ -215,7 +241,7 @@ export function startAsksReconcileScheduler(
       event: "asks_reconcile_scheduler.tick.start",
     });
 
-    callAsksReconcile(schedulerConfig.mcpUrl, schedulerConfig.mcpToken)
+    runAsksReconcileDomain(container)
       .then((result) => {
         if (result.success) {
           log.info("asks_reconcile_scheduler.tick.complete", {
@@ -225,10 +251,10 @@ export function startAsksReconcileScheduler(
             errors: result.errors ?? 0,
           });
         }
-        // Errors are already logged inside callAsksReconcile.
+        // Errors are already logged inside runAsksReconcileDomain.
       })
       .catch((err: unknown) => {
-        // Unreachable: callAsksReconcile catches internally. Belt-and-suspenders.
+        // Unreachable: runAsksReconcileDomain catches internally. Belt-and-suspenders.
         const message = err instanceof Error ? err.message : String(err);
         log.error("asks_reconcile_scheduler.tick.error", {
           event: "asks_reconcile_scheduler.tick.error",
