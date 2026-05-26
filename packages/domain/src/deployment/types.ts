@@ -77,8 +77,8 @@ export interface LogLine {
   severity: string;
   /** Log message. */
   message: string;
-  /** Structured attributes parsed from JSON log output (Railway). */
-  attributes?: LogAttribute[];
+  /** Structured attributes parsed from JSON log output (Railway). Empty when unavailable. */
+  attributes: LogAttribute[];
 }
 
 export interface WaitForLatestOptions {
