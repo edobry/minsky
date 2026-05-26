@@ -6,17 +6,15 @@
  * file is the env-var synthesizer manifest (mt#1437) and the canonical
  * source for Railway identifiers.
  *
- * Source + build blocks declared per mt#2001 — match live Railway state
- * discovered 2026-05-21 via `fetchServiceInstanceState`. The synthesizer
- * (mt#2000) reports clean diff against this declaration.
+ * Updated in mt#2107: switched from RAILPACK builder to image-based deploy
+ * using the GHCR image `ghcr.io/edobry/minsky:latest`. The `build` block is
+ * removed because image-based deploys do not use Railway's build system.
  *
  * Note on `source.repo` + `source.branch`: the live serviceInstance returns
- * `source: null` (no repo binding visible on the instance). minsky-mcp
- * deploys via project-level Railway GitHub App integration. The
- * `source.repo` and `source.branch` fields are intentionally omitted so
- * the synthesizer does not try to reconcile a non-existent binding.
- * Only `source.rootDirectory` is declared — it IS a top-level field on
- * serviceInstance (live value: "/") and benefits from drift detection.
+ * `source: null` for the repo binding. minsky-mcp deploys via the GHCR
+ * image declared in `source.image`. The `source.repo` and `source.branch`
+ * fields are intentionally omitted so the synthesizer does not try to
+ * reconcile a non-existent repo binding.
  *
  * See docs/deployment-platforms.md for the full design.
  */
@@ -31,16 +29,9 @@ export default defineDeployment({
     environmentId: railwayConfig.environmentId,
     serviceId: railwayConfig.serviceId,
     source: {
-      // repo + branch intentionally omitted — live source binding is null
-      // (project-level GitHub App integration; no serviceInstance.source).
-      // rootDirectory IS declared so the synthesizer can detect drift on
-      // this top-level ServiceInstance field (live value: "/").
-      rootDirectory: "/",
-    },
-    build: {
-      // Live state confirmed RAILPACK (Railway's evolved build system,
-      // successor to NIXPACKS for this project).
-      builder: "RAILPACK",
+      // Image-based deploy: Railway pulls the pre-built GHCR image instead
+      // of building from source. No build block is required for this mode.
+      image: "ghcr.io/edobry/minsky:latest",
     },
   },
 });

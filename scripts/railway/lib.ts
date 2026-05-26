@@ -369,6 +369,7 @@ export interface ServiceInstanceUpdateInput {
   rootDirectory?: string;
   /** Source check-suite branches filter. */
   checkSuites?: string[];
+  image?: string;
   // Build fields
   builder?: RailwayBuilder;
   dockerfilePath?: string;
@@ -433,7 +434,7 @@ export interface ServiceInstanceState {
   /** Top-level on Railway's ServiceInstance. */
   rootDirectory?: string;
   /** Top-level on Railway's ServiceInstance, nested under `source`. */
-  source?: { repo?: string };
+  source?: { repo?: string; image?: string };
   /** Build configuration — top-level on ServiceInstance per Railway schema. */
   builder?: RailwayBuilder;
   buildCommand?: string;
@@ -471,7 +472,7 @@ export async function fetchServiceInstanceState(
           node: {
             serviceId: string;
             rootDirectory?: string;
-            source?: { repo?: string };
+            source?: { repo?: string; image?: string };
             builder?: RailwayBuilder;
             buildCommand?: string;
             dockerfilePath?: string;
@@ -492,6 +493,7 @@ export async function fetchServiceInstanceState(
                 rootDirectory
                 source {
                   repo
+                  image
                 }
                 builder
                 buildCommand
@@ -577,6 +579,7 @@ export function computeServiceInstanceDiff(
 
   // Source fields
   diffField("source.repo", desired.source?.repo, current.source?.repo);
+  diffField("source.image", desired.source?.image, current.source?.image);
   // source.branch is write-through (not in readable state).
   if (desired.source?.branch !== undefined) {
     entries.push({ kind: "ADD", field: "source.branch", value: desired.source.branch });
@@ -644,6 +647,7 @@ export function flattenToServiceInstanceInput(desired: {
 }): ServiceInstanceUpdateInput {
   const input: ServiceInstanceUpdateInput = {};
   if (desired.source?.repo !== undefined) input.repo = desired.source.repo;
+  if (desired.source?.image !== undefined) input.image = desired.source.image;
   if (desired.source?.branch !== undefined) input.branch = desired.source.branch;
   if (desired.source?.rootDirectory !== undefined) {
     input.rootDirectory = desired.source.rootDirectory;
