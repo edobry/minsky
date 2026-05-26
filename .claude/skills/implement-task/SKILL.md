@@ -280,7 +280,7 @@ Block-and-return on the first review by the reviewer-bot. Then branch on the rev
 
 - **APPROVE** → call `mcp__minsky__session_pr_merge`. The standard merge path succeeds when the bot's review body satisfies the merge-gate text patterns (post-mt#2053: both `## Spec verification` and `## Documentation impact` sections are required and will be present in a well-formed APPROVE review). On success, the at-merge handler sets DONE atomically.
 - **CHANGES_REQUESTED** → fix per the §7 Convergence Checklist (anti-rationalization: did you change behavior or just add a doc comment?; class-not-instance: scan for sibling sites of the same class and patch them all in one round). Commit, push, then re-invoke `session_pr_wait-for-review` with `since` set to the previous review's timestamp. Iterate until APPROVE.
-- **COMMENT** → assess whether changes are required. If the body indicates no outstanding BLOCKING/REQUEST_CHANGES findings, try `session_pr_merge` — the merge gate accepts reviews whose body satisfies the required text patterns regardless of event type. Otherwise treat the COMMENT findings the same as CHANGES_REQUESTED and iterate.
+- **COMMENT** → assess whether changes are required. If the body indicates no outstanding BLOCKING/REQUEST_CHANGES findings, try `session_pr_merge` — it will pass if the review satisfies all merge-gate validations (structured provenance or legacy text sections, freshness, CI, required checks, smoke). Otherwise treat the COMMENT findings the same as CHANGES_REQUESTED and iterate.
 
 **Convergence-failure fallback: bypass merge** (per `feedback_self_authored_pr_merge_constraints`).
 
@@ -289,7 +289,7 @@ The normal merge path is `session_pr_merge` after reviewer-bot APPROVE. Since mt
 - **Always try `session_pr_merge` first** — it succeeds after reviewer-bot APPROVE (the normal case) or when the review body satisfies the merge-gate's text patterns.
 - **Bypass via `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`** when ALL of these hold:
   - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once).
-  - AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence per §7a (service health / webhook miss / CoT-leakage stall).
+  - AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence (see `/review-pr` SKILL.md §7a for the diagnosis steps: confirm push reached GitHub, check CI fired, wait at most 5 minutes, then empty-commit wake or bypass).
   - AND `merge_method=merge` (not squash — `.claude/hooks/block-git-gh-cli.ts` enforces this; `docs/pr-workflow.md §Merge method policy`).
 - **Pre-bypass discipline:** verify CI fired and passed on the current HEAD before invoking the bypass. A green commit that never triggered CI is a webhook-miss waiting to land broken.
 - The bypass merge-commit body MUST contain the canonical audit-trail signature `"Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"` plus the diagnostic context (which rounds, the error class, CI status, scope summary, fix-commit references). The `/verify-task` skill's bypass-merge closeout depends on this signature.
