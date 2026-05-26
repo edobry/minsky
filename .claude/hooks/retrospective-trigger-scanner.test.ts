@@ -364,3 +364,62 @@ describe("smart quote handling", () => {
     expect(matches.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// R5: Finding-reframing (mt#2112)
+// ---------------------------------------------------------------------------
+
+describe("R5 finding-reframing", () => {
+  test("matches first-person approach + anti-pattern", () => {
+    const matches = detectTriggerPhrases(
+      "the approach I was implementing is considered an anti-pattern"
+    );
+    expect(matches.some((m) => m.family === "R5")).toBe(true);
+  });
+
+  test("matches 'I was using' + anti-pattern", () => {
+    const matches = detectTriggerPhrases(
+      "the pattern I was using is a known anti-pattern in monorepos"
+    );
+    expect(matches.some((m) => m.family === "R5")).toBe(true);
+  });
+
+  test("matches honesty framing + anti-pattern", () => {
+    const matches = detectTriggerPhrases("I should be honest: this is an anti-pattern");
+    expect(matches.some((m) => m.family === "R5")).toBe(true);
+  });
+
+  test("matches first-person + research reveals", () => {
+    const matches = detectTriggerPhrases(
+      "I chose this but research reveals the pattern is wrong for this use case"
+    );
+    expect(matches.some((m) => m.family === "R5")).toBe(true);
+  });
+
+  test("matches first-person + community consensus", () => {
+    const matches = detectTriggerPhrases(
+      "I went with this but community consensus is against this approach"
+    );
+    expect(matches.some((m) => m.family === "R5")).toBe(true);
+  });
+
+  test("matches 'I was implementing' + anti-pattern", () => {
+    const matches = detectTriggerPhrases("I was implementing what turns out to be an anti-pattern");
+    expect(matches.some((m) => m.family === "R5")).toBe(true);
+  });
+
+  test("does NOT match general anti-pattern discussion without self-reference", () => {
+    const matches = detectTriggerPhrases("barrel exports are considered an anti-pattern");
+    expect(matches.some((m) => m.family === "R5")).toBe(false);
+  });
+
+  test("does NOT match 'known anti-pattern' without self-reference", () => {
+    const matches = detectTriggerPhrases("the system uses a known anti-pattern internally");
+    expect(matches.some((m) => m.family === "R5")).toBe(false);
+  });
+
+  test("does NOT match general React discussion", () => {
+    const matches = detectTriggerPhrases("this is a common anti-pattern in React codebases");
+    expect(matches.some((m) => m.family === "R5")).toBe(false);
+  });
+});

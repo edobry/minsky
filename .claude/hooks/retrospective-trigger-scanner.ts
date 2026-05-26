@@ -106,10 +106,10 @@ export const R4_PATTERNS: RegExp[] = [
 
 export const R5_PATTERNS: RegExp[] = [
   /\b(approach|pattern|method)\s+I\s+was\s+(using|implementing|following)\b[^.]*\banti[- ]?pattern\b/i,
-  /\b(approach|pattern|method)\s+I\s+(chose|picked|selected|used)\b[^.]*\b(wrong|incorrect|bad practice)\b/i,
-  /\bcommunity\s+consensus\s+is\s+against\b[^.]*\b(approach|pattern|method)\b/i,
+  /\b(approach|pattern|method)\s+I\s+(chose|picked|selected|used)\b[^.]*\b(wrong|incorrect)\b/i,
+  /\bI\b[^.]*\bcommunity\s+consensus\s+is\s+against\b/i,
   /\b(should\s+be\s+honest|to\s+be\s+honest)\b[^.]*\b(anti[- ]?pattern|wrong|incorrect|mistake)\b/i,
-  /\bresearch\s+(shows|confirms|reveals|indicates)\b[^.]*\b(wrong|anti[- ]?pattern|incorrect)\b/i,
+  /\bI\b[^.]*\bresearch\s+(shows|confirms|reveals|indicates)\b[^.]*\b(wrong|anti[- ]?pattern|incorrect)\b/i,
   /\bI\s+was\s+(implementing|using|building|creating)\b[^.]*\b(anti[- ]?pattern|wrong approach|incorrect)\b/i,
 ];
 
