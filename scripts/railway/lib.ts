@@ -343,6 +343,8 @@ export interface RailwaySource {
   rootDirectory?: string;
   /** Optional check-suite branch filter — per Railway's source.checkSuites. */
   checkSuites?: string[];
+  /** Docker image URI for image-based deploys (e.g., ghcr.io/org/repo:latest). */
+  image?: string;
 }
 
 export interface RailwayBuild {
