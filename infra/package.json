@@ -1,0 +1,14 @@
+{
+  "name": "minsky-infra",
+  "main": "index.ts",
+  "scripts": {
+    "setup": "pulumi package add terraform-provider terraform-community-providers/railway && npm install"
+  },
+  "devDependencies": {
+    "@types/node": "^18",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@pulumi/pulumi": "^3.113.0"
+  }
+}
