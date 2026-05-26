@@ -8,12 +8,17 @@ export {
   setTaskStatusFromParams,
   listTasksFromParams,
   createTaskFromParams,
+  createTaskFromTitleAndSpec,
+  updateTaskFromParams,
   getTaskSpecContentFromParams,
   deleteTaskFromParams,
 } from "../tasks";
 
+export type { TaskServiceDeps } from "../tasks";
+
 // Re-export service interfaces/factory
-export { TaskServiceInterface, createConfiguredTaskService } from "./taskService";
+export type { TaskServiceInterface } from "./taskService";
+export { createConfiguredTaskService } from "./taskService";
 
 // Optionally expose pure helpers (kept minimal to avoid surface changes)
 export {
