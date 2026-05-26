@@ -1,10 +1,10 @@
 /**
  * Shared types and helpers for session command factories.
  */
-import { getErrorMessage } from "../../../../errors/index";
-import { log } from "../../../../utils/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { log } from "@minsky/shared/logger";
 import type { CommandDefinition, CommandExecutionContext } from "../../command-registry";
-import type { SessionDeps } from "../../../../domain/session/session-service";
+import type { SessionDeps } from "@minsky/domain/session/session-service";
 
 /**
  * Common dependencies injected into session command factories.

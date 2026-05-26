@@ -12,25 +12,25 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   DrizzlePrWatchRepository,
   type PrWatchRepository,
   type CreatePrWatchInput,
-} from "../../../domain/pr-watch/repository";
-import type { PrWatch, PrWatchEvent } from "../../../domain/pr-watch/types";
-import { runWatcher, type WatcherResult } from "../../../domain/pr-watch/watcher";
-import { makeProductionGithubPrClient } from "../../../domain/pr-watch/github-client";
-import { SystemOperatorNotify } from "../../../domain/notify/operator-notify";
+} from "@minsky/domain/pr-watch/repository";
+import type { PrWatch, PrWatchEvent } from "@minsky/domain/pr-watch/types";
+import { runWatcher, type WatcherResult } from "@minsky/domain/pr-watch/watcher";
+import { makeProductionGithubPrClient } from "@minsky/domain/pr-watch/github-client";
+import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import {
   CompositeWakeSignalSink,
   LoggingWakeSignalSink,
   PersistentWakeSignalSink,
   type WakeSignalSink,
-} from "../../../domain/ask/wake-on-respond";
-import { DrizzleWakePendingRepository } from "../../../domain/ask/wake-pending-repository";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+} from "@minsky/domain/ask/wake-on-respond";
+import { DrizzleWakePendingRepository } from "@minsky/domain/ask/wake-pending-repository";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,11 +77,11 @@ async function buildPrWatchRepository(
  * this module remains importable without a live config (e.g. in tests).
  */
 async function buildTokenProviderFromConfig(): Promise<{
-  tokenProvider: import("../../../domain/auth").TokenProvider;
+  tokenProvider: import("@minsky/domain/auth").TokenProvider;
 }> {
   try {
-    const { getConfiguration } = await import("../../../domain/configuration/index");
-    const { createTokenProvider } = await import("../../../domain/auth");
+    const { getConfiguration } = await import("@minsky/domain/configuration/index");
+    const { createTokenProvider } = await import("@minsky/domain/auth");
     const cfg = getConfiguration();
     const userToken = cfg.github?.token ?? "";
     const tokenProvider = createTokenProvider(cfg.github ?? {}, userToken);

@@ -5,7 +5,7 @@
  * credential masking, value parsing, and credential info gathering.
  */
 
-import { DefaultCredentialResolver } from "../../../../domain/configuration/credential-resolver";
+import { DefaultCredentialResolver } from "@minsky/domain/configuration/credential-resolver";
 import { isSensitiveKey } from "../../../../utils/redaction";
 
 /**

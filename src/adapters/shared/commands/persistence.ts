@@ -8,21 +8,21 @@
 
 import { z } from "zod";
 import { writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
-import { readTextFileSync } from "../../../utils/fs";
+import { readTextFileSync } from "@minsky/shared/fs";
 import { dirname, join } from "path";
-import { getErrorMessage, ensureError } from "../../../errors/index";
+import { getErrorMessage, ensureError } from "@minsky/domain/errors/index";
 import { sharedCommandRegistry, CommandCategory } from "../../shared/command-registry";
-import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
-import { log } from "../../../utils/logger";
-import type { SessionRecord } from "../../../domain/session/session-db";
-import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../../utils/paths";
-import { runSchemaMigrationsForConfiguredBackend } from "../../../domain/persistence/migration-operations";
+import { PersistenceProviderFactory } from "@minsky/domain/persistence/factory";
+import { log } from "@minsky/shared/logger";
+import type { SessionRecord } from "@minsky/domain/session/session-db";
+import { getMinskyStateDir, getDefaultSqliteDbPath } from "@minsky/shared/paths";
+import { runSchemaMigrationsForConfiguredBackend } from "@minsky/domain/persistence/migration-operations";
 import {
   validateSqliteBackend,
   validatePostgresBackend,
-} from "../../../domain/persistence/validation-operations";
-import { getEffectivePersistenceConfig } from "../../../domain/configuration/persistence-config";
-import type { AppContainerInterface } from "../../../composition/types";
+} from "@minsky/domain/persistence/validation-operations";
+import { getEffectivePersistenceConfig } from "@minsky/domain/configuration/persistence-config";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Parameters for the persistence migrate command
@@ -134,7 +134,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
       if (!to) {
         try {
           // Auto-detect backend and run appropriate migration flow
-          const { getConfiguration } = await import("../../../domain/configuration/index");
+          const { getConfiguration } = await import("@minsky/domain/configuration/index");
           const config = getConfiguration();
           const backend = getEffectivePersistenceConfig(config).backend as "sqlite" | "postgres";
 
@@ -183,7 +183,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         }
 
         // Import configuration system for config-driven behavior
-        const { getConfiguration } = await import("../../../domain/configuration/index");
+        const { getConfiguration } = await import("@minsky/domain/configuration/index");
         const config = getConfiguration();
 
         log.cli(`🚀 Persistence Migration - Target: ${to}`);
@@ -416,7 +416,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
       const { file, backend, fix, report } = params;
 
       try {
-        const { getConfiguration } = await import("../../../domain/configuration/index");
+        const { getConfiguration } = await import("@minsky/domain/configuration/index");
 
         let targetBackend: "sqlite" | "postgres";
         let sourceInfo: string;
@@ -464,9 +464,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           }
           validationResult = await validatePostgresBackend(persistenceProvider);
         } else {
-          const { getAvailableBackendsString } = await import(
-            "../../../domain/tasks/taskConstants"
-          );
+          const { getAvailableBackendsString } = await import("@minsky/domain/tasks/taskConstants");
           throw new Error(
             `Unknown backend: ${targetBackend}. Available backends: ${getAvailableBackendsString()}`
           );

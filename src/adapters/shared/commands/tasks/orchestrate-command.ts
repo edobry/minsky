@@ -5,10 +5,10 @@
  * Composes TaskGraphService (children + deps) with task status resolution.
  */
 import { z } from "zod";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
-import { log } from "../../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 const tasksOrchestrateParams = {
   taskId: {

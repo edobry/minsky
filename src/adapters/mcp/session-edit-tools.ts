@@ -9,8 +9,8 @@
  * first tool call and are cached by the JS module system thereafter.
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 // Import schemas that haven't been migrated yet — needed at registration time
 // for tools/list metadata. These are lightweight schema-only imports.
@@ -36,7 +36,7 @@ type SearchReplaceArgs = SessionSearchReplace;
  */
 export function registerSessionEditTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   // Session edit file tool — lazy handler (mt#1792)
   commandMapper.addCommand({
@@ -82,12 +82,12 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         { generateUnifiedDiff, generateDiffSummary },
       ] = await Promise.all([
         import("fs/promises"),
-        import("../../utils/fs"),
+        import("@minsky/shared/fs"),
         import("path"),
-        import("../../domain/session/session-path-resolver"),
+        import("@minsky/domain/session/session-path-resolver"),
         import("buffer"),
-        import("../../domain/schemas"),
-        import("../../domain/ai/edit-pattern-service"),
+        import("@minsky/domain/schemas"),
+        import("@minsky/domain/ai/edit-pattern-service"),
         import("../../utils/diff"),
       ]);
 
@@ -218,9 +218,9 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         { createSuccessResponse, createErrorResponse },
       ] = await Promise.all([
         import("fs/promises"),
-        import("../../utils/fs"),
-        import("../../domain/session/session-path-resolver"),
-        import("../../domain/schemas"),
+        import("@minsky/shared/fs"),
+        import("@minsky/domain/session/session-path-resolver"),
+        import("@minsky/domain/schemas"),
       ]);
 
       const pathResolver = new SessionPathResolver(() =>

@@ -23,13 +23,13 @@
 
 import { eq } from "drizzle-orm";
 
-import { ClaudeCodeTranscriptSource } from "../src/domain/transcripts/claude-code-transcript-source";
+import { ClaudeCodeTranscriptSource } from "@minsky/domain/transcripts/claude-code-transcript-source";
 import {
   type AttachmentRow,
   buildAttachmentRow,
-} from "../src/domain/transcripts/attachment-row-builder";
-import { agentTranscriptsTable } from "../src/domain/storage/schemas/agent-transcripts-schema";
-import { agentTranscriptAttachmentsTable } from "../src/domain/storage/schemas/agent-transcript-attachments-schema";
+} from "@minsky/domain/transcripts/attachment-row-builder";
+import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import { agentTranscriptAttachmentsTable } from "@minsky/domain/storage/schemas/agent-transcript-attachments-schema";
 import { log } from "../src/utils/logger";
 import { getErrorMessage } from "../src/errors/index";
 
@@ -87,7 +87,7 @@ async function main() {
   try {
     // Reuse the project's canonical DB-init path. We import dynamically so
     // top-level imports don't fail in dry-run / env-missing scenarios.
-    const { getDrizzleDb } = await import("../src/domain/storage/db");
+    const { getDrizzleDb } = await import("@minsky/domain/storage/db");
     db = (await getDrizzleDb()) as import("drizzle-orm/postgres-js").PostgresJsDatabase;
   } catch (err) {
     console.error(

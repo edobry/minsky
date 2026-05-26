@@ -34,14 +34,14 @@ function buildSessionContainer(workspaceDir: string) {
   const mockSessionProvider = {
     getSession: async () => sessionRecord,
     getRepoPath: async () => workspaceDir,
-  } as unknown as import("../../../src/domain/session").SessionProviderInterface;
+  } as unknown as import("@minsky/domain/session").SessionProviderInterface;
   return {
     has: (key: string) => key === "sessionProvider",
     get: (key: string) => {
       if (key === "sessionProvider") return mockSessionProvider;
       throw new Error(`Unknown service: ${key}`);
     },
-  } as unknown as import("../../../src/composition/types").AppContainerInterface;
+  } as unknown as import("@minsky/domain/composition/types").AppContainerInterface;
 }
 
 // Register tools against a fresh container; returns the captured tools map.

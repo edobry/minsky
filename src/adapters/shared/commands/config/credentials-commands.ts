@@ -25,7 +25,7 @@ import {
   removeCredential,
   recheckCredential,
   recheckAllCredentials,
-} from "../../../../domain/credentials";
+} from "@minsky/domain/credentials";
 import { CredentialEntryAbortedError, promptMaskedLine } from "../../../../utils/masked-prompt";
 
 const sharedParams = {

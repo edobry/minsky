@@ -5,7 +5,7 @@
  * and generic config section formatting.
  */
 
-import { TaskBackend } from "../../../../domain/configuration/backend-detection";
+import { TaskBackend } from "@minsky/domain/configuration/backend-detection";
 
 /** Shape of a resolved Minsky config object for display/formatting purposes */
 export interface ResolvedConfigShape {

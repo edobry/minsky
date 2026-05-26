@@ -1,0 +1,143 @@
+import { describe, test, expect, beforeEach } from "bun:test";
+import { RuleService } from "./rules";
+import type { RuleFormat } from "./rules";
+import path from "path";
+import matter from "gray-matter";
+import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
+import { RULES_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
+import { first } from "@minsky/shared/array-safety";
+
+// No global module mocks. Each test creates its own mock filesystem and injects it
+
+describe("RuleService", () => {
+  let testDir: string;
+  let cursorRulesDir: string;
+  let genericRulesDir: string;
+  let ruleService: RuleService;
+  let mockFs: ReturnType<typeof createMockFilesystem>;
+
+  // Helper function to create a rule file in mock filesystem
+  async function createTestRule(
+    id: string,
+    content: string,
+    meta: Record<string, any> = {},
+    format: RuleFormat = "cursor"
+  ): Promise<string> {
+    const dir = format === "cursor" ? cursorRulesDir : genericRulesDir;
+    const filePath = path.join(dir, `${id}.mdc`);
+    const fileContent = matter.stringify(content, meta);
+
+    // Create directory structure in mock filesystem
+    mockFs.ensureDirectoryExists(dir);
+    mockFs.writeFileSync(filePath, fileContent);
+    return filePath;
+  }
+
+  beforeEach(async () => {
+    // New, isolated mock filesystem per test
+    mockFs = createMockFilesystem();
+
+    // Use mock paths instead of real temporary directories
+    testDir = "/mock/test/rules";
+    cursorRulesDir = path.join(testDir, ".cursor", "rules");
+    genericRulesDir = path.join(testDir, ".ai", "rules");
+
+    // Ensure base directories exist in mock filesystem
+    mockFs.ensureDirectoryExists(cursorRulesDir);
+    mockFs.ensureDirectoryExists(genericRulesDir);
+
+    // Initialize service with injected fs
+    ruleService = new RuleService(testDir, {
+      fsPromises: mockFs.fsPromises as any,
+      existsSyncFn: (p: string) => Boolean(mockFs.existsSync(p)),
+    });
+  });
+
+  describe("listRules", () => {
+    test("lists rules from both formats when no format specified", async () => {
+      // Create test rules
+      await createTestRule(
+        "test-cursor",
+        RULES_TEST_PATTERNS.CURSOR_RULE_CONTENT,
+        { name: "Cursor Rule" },
+        "cursor"
+      );
+      await createTestRule(
+        "test-generic",
+        RULES_TEST_PATTERNS.GENERIC_RULE_CONTENT,
+        { name: "Generic Rule" },
+        "generic"
+      );
+
+      const rules = await ruleService.listRules();
+
+      expect(rules.length).toBe(2);
+      const cursorRule = rules.find((r) => r.id === "test-cursor");
+      const genericRule = rules.find((r) => r.id === "test-generic");
+      expect(cursorRule).toBeTruthy();
+      expect(genericRule).toBeTruthy();
+    });
+
+    test("lists only cursor rules when format is cursor", async () => {
+      await createTestRule(
+        "test-cursor",
+        RULES_TEST_PATTERNS.CURSOR_RULE_CONTENT,
+        { name: "Cursor Rule" },
+        "cursor"
+      );
+      await createTestRule(
+        "test-generic",
+        RULES_TEST_PATTERNS.GENERIC_RULE_CONTENT,
+        { name: "Generic Rule" },
+        "generic"
+      );
+
+      const rules = await ruleService.listRules({ format: "cursor" });
+
+      expect(rules.length).toBe(1);
+      const firstRule = first(rules);
+      expect(firstRule.id).toBe("test-cursor");
+      expect(firstRule.format).toBe("cursor");
+    });
+
+    test("lists only generic rules when format is generic", async () => {
+      await createTestRule(
+        "test-cursor",
+        RULES_TEST_PATTERNS.CURSOR_RULE_CONTENT,
+        { name: "Cursor Rule" },
+        "cursor"
+      );
+      await createTestRule(
+        "test-generic",
+        RULES_TEST_PATTERNS.GENERIC_RULE_CONTENT,
+        { name: "Generic Rule" },
+        "generic"
+      );
+
+      const rules = await ruleService.listRules({ format: "generic" });
+
+      expect(rules.length).toBe(1);
+      const firstRule = first(rules);
+      expect(firstRule.id).toBe("test-generic");
+      expect(firstRule.format).toBe("generic");
+    });
+  });
+
+  describe("findRuleById", () => {
+    test("finds existing rule by id", async () => {
+      await createTestRule("test-rule", "Test rule content", { name: "Test Rule" });
+
+      const rule = await ruleService.findRuleById("test-rule");
+
+      expect(rule).toBeTruthy();
+      expect(rule?.id).toBe("test-rule");
+      expect(rule?.name).toBe("Test Rule");
+    });
+
+    test("returns null for non-existing rule", async () => {
+      const rule = await ruleService.findRuleById("non-existing");
+
+      expect(rule).toBeNull();
+    });
+  });
+});

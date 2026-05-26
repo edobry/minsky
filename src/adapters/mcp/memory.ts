@@ -3,7 +3,7 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerMemoryCommandsWithMcp } from "./shared-command-integration";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers memory tools with the MCP command mapper.
@@ -32,7 +32,7 @@ import { log } from "../../utils/logger";
  */
 export function registerMemoryTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug("Registering memory commands via shared command integration");
 

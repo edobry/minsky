@@ -6,9 +6,9 @@
  */
 
 import { Command } from "commander";
-import { log } from "../../utils/logger";
-import { getErrorMessage } from "../../errors/index";
-import { runMinskyCompile } from "../../domain/compile/compile";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import { runMinskyCompile } from "@minsky/domain/compile/compile";
 
 export function createCompileCommand(): Command {
   const compile = new Command("compile")

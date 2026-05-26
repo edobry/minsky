@@ -10,6 +10,7 @@
         "@clack/prompts": "^0.11.0",
         "@dotenvx/dotenvx": "^1.45.2",
         "@hpcc-js/wasm": "^2.26.1",
+        "@minsky/domain": "workspace:*",
         "@minsky/shared": "workspace:*",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@octokit/rest": "^22.0.0",
@@ -88,6 +89,14 @@
         "typescript": "5.8.3",
       },
     },
+    "packages/domain": {
+      "name": "@minsky/domain",
+      "version": "0.1.0",
+      "dependencies": {
+        "@minsky/shared": "workspace:*",
+        "tsyringe": "*",
+      },
+    },
     "packages/shared": {
       "name": "@minsky/shared",
       "version": "0.1.0",
@@ -98,6 +107,7 @@
       "dependencies": {
         "@anthropic-ai/sdk": "^0.30.0",
         "@google/generative-ai": "^0.21.0",
+        "@minsky/domain": "workspace:*",
         "@minsky/shared": "workspace:*",
         "@octokit/auth-app": "^7.1.0",
         "@octokit/rest": "^21.0.0",
@@ -443,6 +453,8 @@
     "@kwsites/file-exists": ["@kwsites/file-exists@1.1.1", "", { "dependencies": { "debug": "^4.1.1" } }, "sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw=="],
 
     "@kwsites/promise-deferred": ["@kwsites/promise-deferred@1.1.1", "", {}, "sha512-GaHYm+c0O9MjZRu0ongGBRbinu8gVAMd2UZjji6jVmqKtZluZnptXGWhz1E8j8D2HJ3f/yMxKAUC0b+57wncIw=="],
+
+    "@minsky/domain": ["@minsky/domain@workspace:packages/domain"],
 
     "@minsky/reviewer": ["@minsky/reviewer@workspace:services/reviewer"],
 

@@ -1,0 +1,259 @@
+import { NothingToCommitError } from "../errors/index";
+import { getErrorMessage } from "../errors/index";
+import { log } from "@minsky/shared/logger";
+import { safeShellQuote } from "@minsky/shared/exec";
+import type {
+  BasicGitDependencies,
+  PrDependencies,
+  BranchOptions,
+  BranchResult,
+  StashResult,
+  PullResult,
+  MergeResult,
+} from "./types";
+
+/**
+ * Returns true when a caught git exec error represents "nothing to commit".
+ */
+export function classifyNothingToCommit(err: unknown): boolean {
+  const e = err !== null && typeof err === "object" ? (err as Record<string, unknown>) : null;
+  const msg = (
+    (typeof e?.stderr === "string" ? e.stderr : null) ||
+    (typeof e?.stdout === "string" ? e.stdout : null) ||
+    (typeof e?.message === "string" ? e.message : null) ||
+    ""
+  ).toString();
+  return msg.includes("nothing to commit") || msg.includes("nothing added to commit");
+}
+
+/**
+ * Extracts the commit hash from git commit output (stdout + stderr).
+ * Falls back to `git log -1` via the provided async resolver when the hash
+ * cannot be parsed from the raw output (e.g. when hooks redirect git's output).
+ */
+export async function extractCommitHash(
+  stdout: string,
+  stderr: string,
+  logFallback: () => Promise<string>
+): Promise<string> {
+  const combinedOutput = `${stdout}\n${stderr || ""}`;
+  const match = combinedOutput.match(/\[.*\s+([a-f0-9]+)\]/);
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  try {
+    const logOutput = await logFallback();
+    const hash = logOutput.trim();
+    if (hash && /^[a-f0-9]{7,40}$/.test(hash)) {
+      return hash;
+    }
+  } catch (_logErr) {
+    // ignore log fallback error
+  }
+
+  throw new Error("Failed to extract commit hash from git output");
+}
+
+/**
+ * Testable commit with dependency injection
+ */
+export async function commitWithDepsImpl(
+  message: string,
+  workdir: string,
+  deps: BasicGitDependencies,
+  amend: boolean = false
+): Promise<string> {
+  const amendFlag = amend ? "--amend" : "";
+
+  let stdout: string;
+  let stderr: string;
+  try {
+    // mt#1742: see git-core-operations.ts:commitImpl for the rationale —
+    // POSIX single-quote BOTH the message and the workdir to suppress shell
+    // substitution. PR #1058 R1: extended to workdir per class-not-instance.
+    ({ stdout, stderr } = await deps.execAsync(
+      `git -C ${safeShellQuote(workdir)} commit ${amendFlag} -m ${safeShellQuote(message)}`
+    ));
+  } catch (err: unknown) {
+    if (classifyNothingToCommit(err)) {
+      throw new NothingToCommitError();
+    }
+    throw err;
+  }
+
+  return extractCommitHash(stdout, stderr, async () => {
+    const { stdout: logOutput } = await deps.execAsync(
+      `git -C ${safeShellQuote(workdir)} log -1 --pretty=format:%H`
+    );
+    return logOutput;
+  });
+}
+
+/**
+ * Testable stashChanges with dependency injection
+ */
+export async function stashChangesWithDepsImpl(
+  workdir: string,
+  deps: BasicGitDependencies
+): Promise<StashResult> {
+  const qWorkdir = safeShellQuote(workdir);
+  try {
+    const { stdout: status } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain`);
+    if (!status.trim()) {
+      return { workdir, stashed: false };
+    }
+    await deps.execAsync(`git -C ${qWorkdir} stash push -m "minsky session update"`);
+    return { workdir, stashed: true };
+  } catch (err) {
+    throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
+  }
+}
+
+/**
+ * Testable popStash with dependency injection
+ */
+export async function popStashWithDepsImpl(
+  workdir: string,
+  deps: BasicGitDependencies
+): Promise<StashResult> {
+  const qWorkdir = safeShellQuote(workdir);
+  try {
+    const { stdout: stashList } = await deps.execAsync(`git -C ${qWorkdir} stash list`);
+    if (!stashList.trim()) {
+      return { workdir, stashed: false };
+    }
+    await deps.execAsync(`git -C ${qWorkdir} stash pop`);
+    return { workdir, stashed: true };
+  } catch (err) {
+    throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
+  }
+}
+
+/**
+ * Testable mergeBranch with dependency injection
+ */
+export async function mergeBranchWithDepsImpl(
+  workdir: string,
+  branch: string,
+  deps: BasicGitDependencies
+): Promise<MergeResult> {
+  const qWorkdir = safeShellQuote(workdir);
+  try {
+    const { stdout: beforeHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
+
+    try {
+      // mt#1829: branch is PR/operator-controlled; quote it.
+      await deps.execAsync(`git -C ${qWorkdir} merge ${safeShellQuote(branch)}`);
+    } catch (err) {
+      if (
+        err instanceof Error &&
+        (err.message.includes("Merge Conflicts Detected") || err.message.includes("CONFLICT"))
+      ) {
+        return { workdir, merged: false, conflicts: true };
+      }
+
+      const { stdout: status } = await deps.execAsync(`git -C ${qWorkdir} status --porcelain`);
+      if (status.includes("UU") || status.includes("AA") || status.includes("DD")) {
+        await deps.execAsync(`git -C ${qWorkdir} merge --abort`);
+        return { workdir, merged: false, conflicts: true };
+      }
+      throw err;
+    }
+
+    const { stdout: afterHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
+
+    return {
+      workdir,
+      merged: beforeHash.trim() !== afterHash.trim(),
+      conflicts: false,
+    };
+  } catch (err) {
+    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
+  }
+}
+
+/**
+ * Testable stageAll with dependency injection
+ */
+export async function stageAllWithDepsImpl(
+  workdir: string,
+  deps: BasicGitDependencies
+): Promise<void> {
+  await deps.execAsync(`git -C ${safeShellQuote(workdir)} add -A`);
+}
+
+/**
+ * Testable stageModified with dependency injection
+ */
+export async function stageModifiedWithDepsImpl(
+  workdir: string,
+  deps: BasicGitDependencies
+): Promise<void> {
+  await deps.execAsync(`git -C ${safeShellQuote(workdir)} add .`);
+}
+
+/**
+ * Testable pullLatest with dependency injection
+ */
+export async function pullLatestWithDepsImpl(
+  workdir: string,
+  deps: BasicGitDependencies,
+  remote: string = "origin"
+): Promise<PullResult> {
+  const qWorkdir = safeShellQuote(workdir);
+  try {
+    const { stdout: beforeHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
+    await deps.execAsync(`git -C ${qWorkdir} fetch ${remote}`);
+    const { stdout: afterHash } = await deps.execAsync(`git -C ${qWorkdir} rev-parse HEAD`);
+    return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
+  } catch (err) {
+    throw new Error(`Failed to pull latest changes: ${getErrorMessage(err)}`);
+  }
+}
+
+/**
+ * Testable branch with dependency injection
+ */
+export async function branchWithDepsImpl(
+  options: BranchOptions,
+  deps: PrDependencies
+): Promise<BranchResult> {
+  const record = await deps.getSession(options.session);
+  if (!record) {
+    throw new Error(`Session '${options.session}' not found.`);
+  }
+
+  const workdir = deps.getSessionWorkdir(options.session);
+
+  // mt#1829: options.branch is operator-controlled; quote it.
+  await deps.execAsync(
+    `git -C ${safeShellQuote(workdir)} checkout -b ${safeShellQuote(options.branch)}`
+  );
+  return {
+    workdir,
+    branch: options.branch,
+  };
+}
+
+/**
+ * Testable fetchDefaultBranch with dependency injection
+ */
+export async function fetchDefaultBranchWithDepsImpl(
+  repoPath: string,
+  deps: BasicGitDependencies
+): Promise<string> {
+  try {
+    const { stdout } = await deps.execAsync(
+      `git -C ${safeShellQuote(repoPath)} symbolic-ref refs/remotes/origin/HEAD --short`
+    );
+    const result = stdout.trim().replace(/^origin\//, "");
+    return result;
+  } catch (error) {
+    log.error("Could not determine default branch, falling back to 'main'", {
+      error: getErrorMessage(error),
+      repoPath,
+    });
+    return "main";
+  }
+}

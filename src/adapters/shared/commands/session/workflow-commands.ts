@@ -15,18 +15,18 @@ import {
 } from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
 import { buildAskRepository } from "../asks";
-import { type AIReviewResult } from "../../../../domain/ai/review-service";
-import type { SessionMergeDependencies } from "../../../../domain/session/session-merge-operations";
+import { type AIReviewResult } from "@minsky/domain/ai/review-service";
+import type { SessionMergeDependencies } from "@minsky/domain/session/session-merge-operations";
 import type {
   PersistenceProvider,
   SqlCapablePersistenceProvider,
-} from "../../../../domain/persistence/types";
-import { McpErrorCode } from "../../../../errors/mcp-error-codes";
-import { mcpStructuredError } from "../../../../errors/mcp-structured-errors";
-import { SessionConflictError } from "../../../../errors/index";
-import { DrizzleAskRepository, type AskRepository } from "../../../../domain/ask/repository";
-import { log } from "../../../../utils/logger";
-import { safeTruncate } from "../../../../utils/safe-truncate";
+} from "@minsky/domain/persistence/types";
+import { McpErrorCode } from "@minsky/domain/errors/mcp-error-codes";
+import { mcpStructuredError } from "@minsky/domain/errors/mcp-structured-errors";
+import { SessionConflictError } from "@minsky/domain/errors/index";
+import { DrizzleAskRepository, type AskRepository } from "@minsky/domain/ask/repository";
+import { log } from "@minsky/shared/logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 export const SUBPROCESS_OUTPUT_TRUNCATE_LIMIT = 800;
 
@@ -175,10 +175,10 @@ export function createSessionCommitCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging(
       "session.commit",
       async (params: Record<string, unknown>, context) => {
-        const { sessionCommit } = await import("../../../../domain/session/session-commands");
-        const { log } = await import("../../../../utils/logger");
-        const { createTokenProvider } = await import("../../../../domain/auth");
-        const { getConfiguration } = await import("../../../../domain/configuration");
+        const { sessionCommit } = await import("@minsky/domain/session/session-commands");
+        const { log } = await import("@minsky/shared/logger");
+        const { createTokenProvider } = await import("@minsky/domain/auth");
+        const { getConfiguration } = await import("@minsky/domain/configuration");
         const deps = await getDeps();
         // Guard: skip DB touch when persistence is not registered in the container.
         // buildAskRepository is a no-op when container is absent, but calling it
@@ -273,7 +273,7 @@ export function createSessionApproveCommand(getDeps: LazySessionDeps): CommandDe
     execute: withErrorLogging(
       "session.approve",
       async (params: Record<string, unknown>, _context) => {
-        const { SessionService } = await import("../../../../domain/session/session-service");
+        const { SessionService } = await import("@minsky/domain/session/session-service");
         const deps = await getDeps();
         const service = new SessionService(deps);
 
@@ -298,7 +298,7 @@ export function createSessionInspectCommand(getDeps: LazySessionDeps): CommandDe
     description: "Inspect the current session (auto-detected from workspace)",
     parameters: sessionInspectCommandParams,
     execute: withErrorLogging("session.inspect", async (params: Record<string, unknown>) => {
-      const { SessionService } = await import("../../../../domain/session/session-service");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
       const deps = await getDeps();
       const service = new SessionService(deps);
 
@@ -368,9 +368,7 @@ async function handleAutoComment(
   if (!changeset) return;
 
   try {
-    const { createChangesetService } = await import(
-      "../../../../domain/changeset/changeset-service"
-    );
+    const { createChangesetService } = await import("@minsky/domain/changeset/changeset-service");
     const changesetService = await createChangesetService(
       changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
     );
@@ -378,7 +376,7 @@ async function handleAutoComment(
     const commentText = formatAIReviewComment(aiResult);
     await changesetService.approve(changeset.id, commentText);
   } catch (error) {
-    const { log } = await import("../../../../utils/logger");
+    const { log } = await import("@minsky/shared/logger");
     log.warn("Failed to auto-comment AI review:", { error });
   }
 }
@@ -399,9 +397,7 @@ async function handleAutoApprove(
   if (!changeset || aiResult.overall.score < 8) return;
 
   try {
-    const { createChangesetService } = await import(
-      "../../../../domain/changeset/changeset-service"
-    );
+    const { createChangesetService } = await import("@minsky/domain/changeset/changeset-service");
     const changesetService = await createChangesetService(
       changeset.metadata?.github?.url || changeset.metadata?.local?.sessionId || "unknown"
     );
@@ -409,7 +405,7 @@ async function handleAutoApprove(
     const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
     await changesetService.approve(changeset.id, approvalText);
   } catch (error) {
-    const { log } = await import("../../../../utils/logger");
+    const { log } = await import("@minsky/shared/logger");
     log.warn("Failed to auto-approve changeset:", { error });
   }
 }
@@ -424,7 +420,7 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
     execute: withErrorLogging("session.review", async (params: Record<string, unknown>) => {
       const deps = await getDeps();
       const { sessionReviewImpl } = await import(
-        "../../../../domain/session/session-review-operations"
+        "@minsky/domain/session/session-review-operations"
       );
 
       const reviewResult = await sessionReviewImpl(
@@ -449,11 +445,11 @@ export function createSessionReviewCommand(getDeps: LazySessionDeps): CommandDef
 
       if (params.ai && reviewResult.changeset) {
         try {
-          const { AIReviewService } = await import("../../../../domain/ai/review-service");
+          const { AIReviewService } = await import("@minsky/domain/ai/review-service");
           const { DefaultAICompletionService } = await import(
-            "../../../../domain/ai/completion-service"
+            "@minsky/domain/ai/completion-service"
           );
-          const { getConfiguration } = await import("../../../../domain/configuration");
+          const { getConfiguration } = await import("@minsky/domain/configuration");
 
           const configService: {
             loadConfiguration: () => Promise<{ resolved: ReturnType<typeof getConfiguration> }>;
@@ -522,7 +518,7 @@ export function createSessionPrApproveCommand(getDeps: LazySessionDeps): Command
     execute: withErrorLogging(
       "session.pr.approve",
       async (params: Record<string, unknown>, _context) => {
-        const { SessionService } = await import("../../../../domain/session/session-service");
+        const { SessionService } = await import("@minsky/domain/session/session-service");
         const deps = await getDeps();
         const service = new SessionService(deps);
 
@@ -594,9 +590,7 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
       "session.pr.merge",
       async (params: Record<string, unknown>, context) => {
         const deps = await getDeps();
-        const { mergeSessionPr } = await import(
-          "../../../../domain/session/session-merge-operations"
-        );
+        const { mergeSessionPr } = await import("@minsky/domain/session/session-merge-operations");
 
         const shouldCleanup = params.skipCleanup !== true;
 

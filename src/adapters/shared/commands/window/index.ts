@@ -24,24 +24,24 @@
 import { z } from "zod";
 import { createInterface as createReadlineInterface } from "node:readline";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../../command-registry";
-import { log } from "../../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   loadAttentionWindowsOrThrow,
   loadAttentionWindows,
   type LoaderFs,
-} from "../../../../domain/ask/attention-windows/loader";
-import { shouldWindowFireNow, nextCronFire } from "../../../../domain/ask/attention-windows/cron";
+} from "@minsky/domain/ask/attention-windows/loader";
+import { shouldWindowFireNow, nextCronFire } from "@minsky/domain/ask/attention-windows/cron";
 import {
   createPostgresWindowNotifier,
   type WindowNotifier,
   type WindowOpenedPayload,
   type WindowClosedPayload,
-} from "../../../../domain/ask/attention-windows/notify";
-import type { AttentionWindowConfig } from "../../../../domain/ask/attention-windows/config";
-import type { AppContainerInterface } from "../../../../composition/types";
-import type { Ask, AskKind } from "../../../../domain/ask/types";
-import type { AskRepository } from "../../../../domain/ask/repository";
-import { pendingAsksForWindow } from "../../../../domain/ask/pending-asks-for-window";
+} from "@minsky/domain/ask/attention-windows/notify";
+import type { AttentionWindowConfig } from "@minsky/domain/ask/attention-windows/config";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { Ask, AskKind } from "@minsky/domain/ask/types";
+import type { AskRepository } from "@minsky/domain/ask/repository";
+import { pendingAsksForWindow } from "@minsky/domain/ask/pending-asks-for-window";
 import { buildAskRepository } from "../asks";
 
 // ---------------------------------------------------------------------------

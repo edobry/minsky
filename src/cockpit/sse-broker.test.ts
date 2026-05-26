@@ -8,7 +8,7 @@
 import { describe, test, expect } from "bun:test";
 import { SseBroker } from "./sse-broker";
 import type { SseClient, SseEvent } from "./sse-broker";
-import { createRecordingChannelListener } from "../domain/mesh/postgres-channel-listener";
+import { createRecordingChannelListener } from "@minsky/domain/mesh/postgres-channel-listener";
 
 // ---------------------------------------------------------------------------
 // Channel name constants (avoid magic string duplication)

@@ -22,7 +22,7 @@
 import { desc } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
-import { agentTranscriptsTable } from "../../domain/storage/schemas/agent-transcripts-schema";
+import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
 
 /** Shape of a single session-picker row */
@@ -119,7 +119,7 @@ let _cachedDb: PostgresJsDatabase | null = null;
 async function defaultDbFactory(): Promise<PostgresJsDatabase> {
   if (_cachedDb) return _cachedDb;
 
-  const { PersistenceService } = await import("../../domain/persistence/service");
+  const { PersistenceService } = await import("@minsky/domain/persistence/service");
   const svc = new PersistenceService();
   await svc.initialize();
   const provider = svc.getProvider();

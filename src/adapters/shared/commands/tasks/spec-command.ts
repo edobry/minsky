@@ -5,11 +5,11 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { type CommandExecutionContext } from "../../command-registry";
-import { getTaskSpecContentFromParams } from "../../../../domain/tasks";
+import { getTaskSpecContentFromParams } from "@minsky/domain/tasks";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksSpecParams } from "./task-parameters";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 
 /**
  * Parameters for tasks spec command

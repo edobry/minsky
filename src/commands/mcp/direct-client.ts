@@ -1,5 +1,5 @@
 import { spawn } from "child_process";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Call an MCP tool directly via stdio (faster than inspector CLI)

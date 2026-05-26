@@ -27,12 +27,12 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import type { AppContainerInterface } from "../../../../composition/types";
+import { log } from "@minsky/shared/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type {
   TranscriptTurnResult,
   TranscriptSessionResult,
-} from "../../../../domain/transcripts/transcript-similarity-service";
+} from "@minsky/domain/transcripts/transcript-similarity-service";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -103,7 +103,7 @@ export function registerTranscriptSimilarCommand(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -125,13 +125,13 @@ export function registerTranscriptSimilarCommand(
 
       // ── Build embedding service ──────────────────────────────────────────
       const { createEmbeddingServiceFromConfig } = await import(
-        "../../../../domain/ai/embedding-service-factory"
+        "@minsky/domain/ai/embedding-service-factory"
       );
       const embeddingService = await createEmbeddingServiceFromConfig();
 
       // ── Construct service and route ──────────────────────────────────────
       const { TranscriptSimilarityService } = await import(
-        "../../../../domain/transcripts/transcript-similarity-service"
+        "@minsky/domain/transcripts/transcript-similarity-service"
       );
       const svc = new TranscriptSimilarityService(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,

@@ -10,11 +10,11 @@
  */
 
 import { CommandCategory, type CommandDefinition } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, getErrorMessage } from "@minsky/domain/errors/index";
 import { type LazySessionDeps, withErrorLogging } from "./types";
 import { sessionPrCheckRunSubmitCommandParams } from "./session-parameters";
-import { sessionPrCheckRunSubmit } from "../../../../domain/session/commands/pr-check-run-submit-subcommand";
-import type { ReviewFinding } from "../../../../domain/session/commands/pr-check-run-submit-subcommand";
+import { sessionPrCheckRunSubmit } from "@minsky/domain/session/commands/pr-check-run-submit-subcommand";
+import type { ReviewFinding } from "@minsky/domain/session/commands/pr-check-run-submit-subcommand";
 
 export function createSessionPrCheckRunSubmitCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {

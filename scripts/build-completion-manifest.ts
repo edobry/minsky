@@ -37,7 +37,7 @@ process.argv = [...process.argv.slice(0, 2), "--help"];
 process.env.MINSKY_SKIP_CLI_AUTORUN = "1";
 
 const { createCli } = await import("../src/cli");
-const { createCliContainer } = await import("../src/composition/cli");
+const { createCliContainer } = await import("@minsky/domain/composition/cli");
 const { sharedCommandRegistry } = await import("../src/adapters/shared/command-registry");
 const { paramNameToFlag } = await import("../src/adapters/shared/schema-bridge");
 

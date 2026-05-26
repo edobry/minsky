@@ -5,12 +5,12 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { ChangesetService } from "../../../../src/domain/changeset/changeset-service";
+import { ChangesetService } from "@minsky/domain/changeset/changeset-service";
 import type {
   ChangesetAdapter,
   ChangesetAdapterFactory,
-} from "../../../../src/domain/changeset/adapter-interface";
-import type { Changeset, CreateChangesetOptions } from "../../../../src/domain/changeset/types";
+} from "@minsky/domain/changeset/adapter-interface";
+import type { Changeset, CreateChangesetOptions } from "@minsky/domain/changeset/types";
 
 describe("ChangesetService", () => {
   let mockAdapter: ChangesetAdapter;

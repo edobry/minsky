@@ -1,0 +1,142 @@
+/**
+ * Tests for session approval error handling (Updated for Task #358)
+ *
+ * Verifies that session approval correctly handles missing sessions
+ * and provides clear error messages for the new approve-only workflow.
+ */
+
+import { describe, test, expect, beforeEach } from "bun:test";
+import { approveSessionPr } from "./session-approval-operations";
+import { ResourceNotFoundError } from "../errors/index";
+import { initializeConfiguration, CustomConfigFactory } from "../configuration";
+import { PersistenceService } from "../persistence/service";
+import type { PersistenceProvider } from "../persistence/types";
+import { FakeSessionProvider } from "./fake-session-provider";
+
+// Create mock persistence provider for testing that returns empty sessions
+const mockPersistenceProvider = {
+  capabilities: {
+    sql: true,
+    transactions: true,
+    jsonb: false,
+    vectorStorage: false,
+    migrations: true,
+  },
+  getStorage: () => ({
+    get: async () => ({ success: false }),
+    save: async () => ({ success: true }),
+    update: async () => ({ success: true }),
+    delete: async () => ({ success: true }),
+    search: async () => ({ success: true, data: [] }),
+    readState: async () => ({ success: true, data: { sessions: [] } }),
+    writeState: async () => ({ success: true }),
+    getStorageLocation: () => "/mock/db",
+    initialize: async () => true,
+    close: async () => {},
+  }),
+  initialize: async () => {},
+  close: async () => {},
+  getConnectionInfo: () => "Mock provider",
+  getCapabilities: () => ({
+    sql: true,
+    transactions: true,
+    jsonb: false,
+    vectorStorage: false,
+    migrations: true,
+  }),
+} as unknown as PersistenceProvider;
+
+describe("Session Approval Error Handling (Task #358 Updated)", () => {
+  beforeEach(async () => {
+    // Initialize configuration system for each test
+    await initializeConfiguration(new CustomConfigFactory(), {
+      workingDirectory: "/mock/workspace",
+    });
+
+    // Mock PersistenceService for session adapter requirements
+    (PersistenceService as unknown as Record<string, unknown>).isInitialized = () => true;
+    (PersistenceService as unknown as Record<string, unknown>).getProvider = () =>
+      mockPersistenceProvider;
+  });
+
+  test("should handle task without session using mocked sessionDB", async () => {
+    // Mock SessionDB to return no session for the task
+    const mockSessionDB = {
+      getSessionByTaskId: async () => null,
+      getSession: async () => null,
+    };
+
+    // Task without session (using mocked sessionDB)
+    try {
+      await approveSessionPr(
+        {
+          task: "md#100", // Task without session
+          json: false,
+        },
+        {
+          sessionDB: (() => {
+            const fake = new FakeSessionProvider();
+            fake.getSessionByTaskId = mockSessionDB.getSessionByTaskId;
+            fake.getSession = mockSessionDB.getSession;
+            return fake;
+          })(),
+        }
+      );
+    } catch (error) {
+      if (error instanceof ResourceNotFoundError) {
+        // Verify error message indicates missing session for task
+        expect(error.message).toContain("No session found for task md#100");
+
+        // Verify resource type indicates session problem
+        expect(error.resourceType).toBe("session");
+        expect(error.resourceId).toBe("md#100");
+      } else {
+        throw new Error(
+          `Expected ResourceNotFoundError, got ${error instanceof Error ? error.constructor.name : String(error)}`
+        );
+      }
+    }
+  });
+
+  test("should require session ID or task ID", async () => {
+    // No session ID or task ID provided
+    const mockSessionDB = new FakeSessionProvider();
+    await expect(
+      approveSessionPr(
+        {
+          json: false,
+          // No session or task provided
+        },
+        { sessionDB: mockSessionDB }
+      )
+    ).rejects.toThrow("No session detected. Please provide a session ID or task ID");
+  });
+
+  test("should provide clear error message for missing session", async () => {
+    // Test that error messages are clear and concise for the new approve function
+    const mockSessionDB = new FakeSessionProvider();
+    try {
+      await approveSessionPr(
+        {
+          task: "md#9999",
+          json: false,
+        },
+        { sessionDB: mockSessionDB }
+      );
+    } catch (error) {
+      if (error instanceof ResourceNotFoundError) {
+        const message = error.message;
+
+        // Should indicate no session found for task
+        expect(message).toContain("No session found for task md#9999");
+
+        // Should be concise (not overly verbose)
+        expect(message.split("\n").length).toBeLessThan(5); // Keep it simple
+
+        // Should have correct resource type
+        expect((error as ResourceNotFoundError).resourceType).toBe("session");
+        expect((error as ResourceNotFoundError).resourceId).toBe("md#9999");
+      }
+    }
+  });
+});

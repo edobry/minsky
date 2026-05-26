@@ -7,10 +7,10 @@ import { sessionRepairCommandParams } from "./session-parameters";
 import {
   sessionRepair,
   type SessionRepairParameters,
-} from "../../../../domain/session/commands/repair-command";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/session/commands/repair-command";
+import { log } from "@minsky/shared/logger";
 import { toJsonRecord } from "../../../../utils/type-utils";
-import { getErrorMessage } from "../../../../errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 
 export function createSessionRepairCommand(getDeps: LazySessionDeps): CommandDefinition {
   return {

@@ -16,7 +16,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
 } from "../shared/command-registry";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 type CapturedCall = {
   params: Record<string, unknown>;

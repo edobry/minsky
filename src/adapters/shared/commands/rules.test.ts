@@ -2,8 +2,8 @@ import { beforeEach, afterEach, describe, test, expect } from "bun:test";
 import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
 import { registerRulesCommands, type RulesCommandsDeps } from "./rules";
-import { first, elementAt } from "../../../utils/array-safety";
-import { RuleService } from "../../../domain/rules";
+import { first, elementAt } from "@minsky/shared/array-safety";
+import { RuleService } from "@minsky/domain/rules";
 
 /** Shape returned by rules.generate command */
 interface RulesGenerateResult {

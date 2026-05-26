@@ -3,14 +3,14 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerMcpCommandsWithMcp } from "./shared-command-integration";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers MCP management tools with the MCP command mapper
  */
 export function registerMcpManagementTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug("Registering MCP management commands via shared command integration");
 

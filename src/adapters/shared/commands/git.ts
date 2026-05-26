@@ -14,12 +14,12 @@ import {
 } from "../command-registry";
 // Domain git functions are lazy-imported inside execute handlers to avoid
 // loading the entire domain layer at command registration time.
-import { conflictsCommandParams } from "../../../domain/git/commands/subcommands/conflicts-subcommand";
-import { log } from "../../../utils/logger";
+import { conflictsCommandParams } from "@minsky/domain/git/commands/subcommands/conflicts-subcommand";
+import { log } from "@minsky/shared/logger";
 import { SESSION_DESCRIPTION } from "../../../utils/option-descriptions";
 import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
-import { execAsync } from "../../../utils/exec";
-import type { AppContainerInterface } from "../../../composition/types";
+import { execAsync } from "@minsky/shared/exec";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 /**
  * Parameters for the commit command
@@ -546,7 +546,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: commitCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.commit command", { params });
-      const { commitChangesFromParams } = await import("../../../domain/git");
+      const { commitChangesFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -576,7 +576,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: pushCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.push command", { params });
-      const { pushFromParams } = await import("../../../domain/git");
+      const { pushFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -603,7 +603,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: cloneCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.clone command", { params });
-      const { cloneFromParams } = await import("../../../domain/git");
+      const { cloneFromParams } = await import("@minsky/domain/git");
 
       const result = await cloneFromParams({
         url: params.url,
@@ -629,7 +629,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: branchCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.branch command", { params });
-      const { branchFromParams } = await import("../../../domain/git");
+      const { branchFromParams } = await import("@minsky/domain/git");
 
       const result = await branchFromParams({
         session: params.session,
@@ -653,7 +653,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: mergeCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.merge command", { params });
-      const { mergeFromParams } = await import("../../../domain/git");
+      const { mergeFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -684,7 +684,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: checkoutCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.checkout command", { params });
-      const { checkoutFromParams } = await import("../../../domain/git");
+      const { checkoutFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -714,7 +714,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: rebaseCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.rebase command", { params });
-      const { rebaseFromParams } = await import("../../../domain/git");
+      const { rebaseFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -746,7 +746,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     execute: async (params, context) => {
       log.debug("Executing git.conflicts command", { params });
       const { conflictsFromParams } = await import(
-        "../../../domain/git/commands/subcommands/conflicts-subcommand"
+        "@minsky/domain/git/commands/subcommands/conflicts-subcommand"
       );
 
       const result = await conflictsFromParams({
@@ -1007,7 +1007,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: pullCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.pull command", { params });
-      const { pullFromParams } = await import("../../../domain/git");
+      const { pullFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1035,7 +1035,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: statusCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.status command", { params });
-      const { statusFromParams } = await import("../../../domain/git");
+      const { statusFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1064,7 +1064,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: stashCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.stash command", { params });
-      const { stashFromParams } = await import("../../../domain/git");
+      const { stashFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1092,7 +1092,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: stashPopCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.stash_pop command", { params });
-      const { stashPopFromParams } = await import("../../../domain/git");
+      const { stashPopFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1120,7 +1120,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: stashListCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.stash_list command", { params });
-      const { stashListFromParams } = await import("../../../domain/git");
+      const { stashListFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1144,7 +1144,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: stashDropCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.stash_drop command", { params });
-      const { stashDropFromParams } = await import("../../../domain/git");
+      const { stashDropFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1172,7 +1172,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: restoreCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.restore command", { params });
-      const { restoreFromParams } = await import("../../../domain/git");
+      const { restoreFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 
@@ -1199,7 +1199,7 @@ export function registerGitCommands(container?: AppContainerInterface): void {
     parameters: resetCommandParams,
     execute: async (params, context) => {
       log.debug("Executing git.reset command", { params });
-      const { resetFromParams } = await import("../../../domain/git");
+      const { resetFromParams } = await import("@minsky/domain/git");
 
       const repo = await resolveSessionToRepo(params.session, params.repo, container);
 

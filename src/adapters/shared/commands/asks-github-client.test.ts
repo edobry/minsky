@@ -26,10 +26,10 @@
 
 import { describe, test, expect } from "bun:test";
 import { makeProductionGithubReviewClient } from "./asks-github-client";
-import type { GithubReview } from "../../../domain/ask/reconciler";
-import type { TokenProvider } from "../../../domain/auth";
-import type { ReviewListEntry } from "../../../domain/repository/index";
-import type { GitHubContext } from "../../../domain/repository/github-pr-operations";
+import type { GithubReview } from "@minsky/domain/ask/reconciler";
+import type { TokenProvider } from "@minsky/domain/auth";
+import type { ReviewListEntry } from "@minsky/domain/repository/index";
+import type { GitHubContext } from "@minsky/domain/repository/github-pr-operations";
 
 // ---------------------------------------------------------------------------
 // Type alias matching ListReviewsFn (mirrors the private type in the module)
@@ -51,7 +51,7 @@ function makeFakeTokenProvider(opts?: {
 }): TokenProvider {
   const provider: TokenProvider = {
     async getToken(
-      _role?: import("../../../domain/auth/token-provider").TokenRole,
+      _role?: import("@minsky/domain/auth/token-provider").TokenRole,
       repo?: string
     ): Promise<string> {
       return provider.getServiceToken(repo);

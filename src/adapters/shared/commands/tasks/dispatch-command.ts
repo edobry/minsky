@@ -5,14 +5,14 @@
  * a single MCP tool for streamlined subagent dispatch.
  */
 import { z } from "zod";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
 import { type CommandParameterMap, type InferParams } from "../../command-registry";
 import {
   detectAgentHarness,
   hasNativeSubagentSupport,
-} from "../../../../domain/runtime/harness-detection";
-import { log } from "../../../../utils/logger";
+} from "@minsky/domain/runtime/harness-detection";
+import { log } from "@minsky/shared/logger";
 import type { SubagentDispatchTracker } from "../../../../mcp/subagent-dispatch-tracker";
 
 const tasksDispatchParams = {
@@ -62,10 +62,10 @@ interface DispatchParams {
 export function createTasksDispatchCommand(
   getPersistenceProvider: () => PersistenceProvider,
   getSessionProvider: () => Promise<
-    import("../../../../domain/session/types").SessionProviderInterface
+    import("@minsky/domain/session/types").SessionProviderInterface
   >,
   getTaskGraphService: () => TaskGraphService,
-  getTaskService: () => import("../../../../domain/tasks/taskService").TaskServiceInterface,
+  getTaskService: () => import("@minsky/domain/tasks/taskService").TaskServiceInterface,
   /**
    * Optional tracker for recording subagent invocations (mt#1737).
    * When provided, a pending row is written at dispatch time so that
@@ -97,7 +97,7 @@ export function createTasksDispatchCommand(
 
       // Step 1: Create the task
       log.debug("[tasks.dispatch] Creating task", { title: p.title, parent: p.parentTaskId });
-      const { createTaskFromTitleAndSpec } = await import("../../../../domain/tasks");
+      const { createTaskFromTitleAndSpec } = await import("@minsky/domain/tasks");
       const taskResult = await createTaskFromTitleAndSpec(
         {
           title: p.title,
@@ -123,14 +123,14 @@ export function createTasksDispatchCommand(
 
       // Step 3: Start a session for the task
       log.debug("[tasks.dispatch] Starting session", { taskId });
-      const { SessionService } = await import("../../../../domain/session/session-service");
-      const { createGitService } = await import("../../../../domain/git");
-      const { createWorkspaceUtils } = await import("../../../../domain/workspace");
+      const { SessionService } = await import("@minsky/domain/session/session-service");
+      const { createGitService } = await import("@minsky/domain/git");
+      const { createWorkspaceUtils } = await import("@minsky/domain/workspace");
       const { getRepositoryBackendFromConfig } = await import(
-        "../../../../domain/session/repository-backend-detection"
+        "@minsky/domain/session/repository-backend-detection"
       );
-      const { getCurrentSession } = await import("../../../../domain/workspace");
-      const { execAsync } = await import("../../../../utils/exec");
+      const { getCurrentSession } = await import("@minsky/domain/workspace");
+      const { execAsync } = await import("@minsky/shared/exec");
       const dispatchSessionProvider = await getSessionProvider();
       const gitService = createGitService();
       const taskService = getTaskService();
@@ -169,11 +169,9 @@ export function createTasksDispatchCommand(
 
       // Step 4: Generate the subagent prompt
       log.debug("[tasks.dispatch] Generating prompt", { taskId, type: p.type });
-      const { generateSubagentPrompt } = await import(
-        "../../../../domain/session/prompt-generation"
-      );
+      const { generateSubagentPrompt } = await import("@minsky/domain/session/prompt-generation");
       const { resolveSessionDirectory } = await import(
-        "../../../../domain/session/resolve-session-directory"
+        "@minsky/domain/session/resolve-session-directory"
       );
 
       const sessionProvider = dispatchSessionProvider;

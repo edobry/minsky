@@ -37,8 +37,8 @@ import {
   DAILY_RATE_LIMITED_THRESHOLD,
   type SubagentInvocationInput,
 } from "./subagent-dispatch-tracker";
-import type { SubagentInvocationOutcome } from "../domain/storage/schemas/subagent-invocations-schema";
-import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "../domain/storage/schemas/subagent-invocations-schema";
+import type { SubagentInvocationOutcome } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
+import { SUBAGENT_INVOCATION_OUTCOME_VALUES } from "@minsky/domain/storage/schemas/subagent-invocations-schema";
 
 // ---------------------------------------------------------------------------
 // Outcome class constants (used in tests to avoid magic-string duplication)

@@ -24,7 +24,7 @@ import { registerDetectorsCommandsWithMcp } from "./shared-command-integration";
  */
 export function registerDetectorsTools(
   commandMapper: CommandMapper,
-  container?: import("../../composition/types").AppContainerInterface
+  container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   registerDetectorsCommandsWithMcp(commandMapper, {
     container,

@@ -7,20 +7,20 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { getSessionDirImpl } from "../../../src/domain/session/session-lifecycle-operations";
-import { updateSessionImpl } from "../../../src/domain/session/session-update-operations";
-import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
+import { getSessionDirImpl } from "@minsky/domain/session/session-lifecycle-operations";
+import { updateSessionImpl } from "@minsky/domain/session/session-update-operations";
+import { getCurrentSession, getSessionFromWorkspace } from "@minsky/domain/workspace";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,
 } from "../../../src/utils/test-utils/test-constants";
-import { FakeGitService } from "../../../src/domain/git/fake-git-service";
-import { FakeSessionProvider } from "../../../src/domain/session/fake-session-provider";
+import { FakeGitService } from "@minsky/domain/git/fake-git-service";
+import { FakeSessionProvider } from "@minsky/domain/session/fake-session-provider";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
-import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
-import type { GitServiceInterface } from "../../../src/domain/git";
+import type { SessionRecord, SessionProviderInterface } from "@minsky/domain/session";
+import type { GitServiceInterface } from "@minsky/domain/git";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import { getSessionsDir } from "../../../src/utils/paths";
 

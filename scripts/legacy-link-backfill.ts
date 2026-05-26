@@ -43,10 +43,10 @@ import { sql } from "drizzle-orm";
 import { setupConfiguration } from "../src/config-setup";
 await setupConfiguration();
 
-import { PersistenceService } from "../src/domain/persistence/service";
-import { agentTranscriptsTable } from "../src/domain/storage/schemas/agent-transcripts-schema";
-import { minskySessionLinksTable } from "../src/domain/storage/schemas/minsky-session-links-schema";
-import { postgresSessions } from "../src/domain/storage/schemas/session-schema";
+import { PersistenceService } from "@minsky/domain/persistence/service";
+import { agentTranscriptsTable } from "@minsky/domain/storage/schemas/agent-transcripts-schema";
+import { minskySessionLinksTable } from "@minsky/domain/storage/schemas/minsky-session-links-schema";
+import { postgresSessions } from "@minsky/domain/storage/schemas/session-schema";
 
 const isDryRun = process.argv.includes("--dry-run");
 

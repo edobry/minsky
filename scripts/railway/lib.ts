@@ -12,12 +12,12 @@ import {
   RAILWAY_GRAPHQL_URL as CANONICAL_RAILWAY_GRAPHQL_URL,
   railwayGraphQLAuthed,
   type RailwayConfigStore,
-} from "../../src/domain/deployment/railway/graphql-client";
+} from "@minsky/domain/deployment/railway/graphql-client";
 
 // Re-export the canonical readRailwayToken for back-compat with any consumer
 // that imports it from this module. New callers should prefer
 // getValidRailwayToken from the canonical module for refresh-aware reads.
-export { readRailwayToken } from "../../src/domain/deployment/railway/graphql-client";
+export { readRailwayToken } from "@minsky/domain/deployment/railway/graphql-client";
 
 /** Abstraction over reading the secrets file — injectable for tests. */
 export type SecretsFileReader = {

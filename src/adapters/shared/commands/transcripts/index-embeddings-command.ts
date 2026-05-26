@@ -29,11 +29,11 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { getErrorMessage } from "../../../../errors/index";
-import type { AppContainerInterface } from "../../../../composition/types";
-import type { PipelineRunResult } from "../../../../domain/transcripts/per-turn-embedding-pipeline";
-import type { SummaryPipelineRunResult } from "../../../../domain/transcripts/summary-pipeline";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
+import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ export function registerTranscriptIndexEmbeddingsCommand(
         if (context.container?.has("persistence")) {
           return context.container.get(
             "persistence"
-          ) as import("../../../../domain/persistence/types").SqlCapablePersistenceProvider;
+          ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
         }
         return null;
       })();
@@ -143,18 +143,14 @@ export function registerTranscriptIndexEmbeddingsCommand(
 
       // ── Build embedding service ──────────────────────────────────────────
       const { createEmbeddingServiceFromConfig } = await import(
-        "../../../../domain/ai/embedding-service-factory"
+        "@minsky/domain/ai/embedding-service-factory"
       );
       const embeddingService = await createEmbeddingServiceFromConfig();
 
       // ── Build cognition provider ─────────────────────────────────────────
-      const { getConfiguration } = await import("../../../../domain/configuration");
-      const { DefaultAICompletionService } = await import(
-        "../../../../domain/ai/completion-service"
-      );
-      const { DirectCognitionProvider } = await import(
-        "../../../../domain/cognition/providers/direct"
-      );
+      const { getConfiguration } = await import("@minsky/domain/configuration");
+      const { DefaultAICompletionService } = await import("@minsky/domain/ai/completion-service");
+      const { DirectCognitionProvider } = await import("@minsky/domain/cognition/providers/direct");
 
       const configService = {
         loadConfiguration: () => Promise.resolve({ resolved: getConfiguration() }),
@@ -164,9 +160,9 @@ export function registerTranscriptIndexEmbeddingsCommand(
 
       // ── Construct pipelines ──────────────────────────────────────────────
       const { PerTurnEmbeddingPipeline } = await import(
-        "../../../../domain/transcripts/per-turn-embedding-pipeline"
+        "@minsky/domain/transcripts/per-turn-embedding-pipeline"
       );
-      const { SummaryPipeline } = await import("../../../../domain/transcripts/summary-pipeline");
+      const { SummaryPipeline } = await import("@minsky/domain/transcripts/summary-pipeline");
 
       const perTurnPipeline = new PerTurnEmbeddingPipeline(
         db as import("drizzle-orm/postgres-js").PostgresJsDatabase,

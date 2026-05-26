@@ -26,7 +26,7 @@
  */
 
 import { enrichToolResponse } from "../src/mcp/middleware/memory-enrichment";
-import type { MemoryServiceSurface } from "../src/domain/memory/memory-service";
+import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
 import "reflect-metadata";
 
 /**
@@ -123,18 +123,18 @@ function formatStats(label: string, stats: Stats): string {
  */
 async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
-    "../src/domain/configuration"
+    "@minsky/domain/configuration"
   );
-  const { createCliContainer } = await import("../src/composition/cli");
-  const { PersistenceProvider } = await import("../src/domain/persistence/types");
+  const { createCliContainer } = await import("@minsky/domain/composition/cli");
+  const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
   const { createEmbeddingServiceFromConfig } = await import(
-    "../src/domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
   const { createVectorStorageForDomain } = await import(
-    "../src/domain/storage/vector/vector-storage-factory"
+    "@minsky/domain/storage/vector/vector-storage-factory"
   );
-  const { MemoryService } = await import("../src/domain/memory");
-  type MemoryServiceDb = import("../src/domain/memory/memory-service").MemoryServiceDb;
+  const { MemoryService } = await import("@minsky/domain/memory");
+  type MemoryServiceDb = import("@minsky/domain/memory/memory-service").MemoryServiceDb;
 
   await initializeConfiguration(new CustomConfigFactory(), {
     workingDirectory: process.cwd(),

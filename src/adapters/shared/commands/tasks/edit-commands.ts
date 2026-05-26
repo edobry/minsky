@@ -5,16 +5,16 @@
  * Supports multi-backend editing with proper delegation to backend implementations.
  */
 import { type CommandExecutionContext } from "../../command-registry";
-import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
-import { getErrorMessage } from "../../../../errors/index";
+import { ValidationError, ResourceNotFoundError } from "@minsky/domain/errors/index";
+import { getErrorMessage } from "@minsky/domain/errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
-import { getTaskFromParams } from "../../../../domain/tasks";
-import type { Task } from "../../../../domain/tasks/types";
-import type { PersistenceProvider } from "../../../../domain/persistence/types";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import { getTaskFromParams } from "@minsky/domain/tasks";
+import type { Task } from "@minsky/domain/tasks/types";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { promises as fs } from "fs";
-import { readTextFile } from "../../../../utils/fs";
+import { readTextFile } from "@minsky/shared/fs";
 import { spawn } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";

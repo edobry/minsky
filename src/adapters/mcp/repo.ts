@@ -3,7 +3,7 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerRepoCommandsWithMcp } from "./shared-command-integration";
-import { log } from "../../utils/logger";
+import { log } from "@minsky/shared/logger";
 
 /**
  * Registers repo exploration tools with the MCP command mapper.
@@ -15,7 +15,7 @@ import { log } from "../../utils/logger";
  */
 export function registerRepoTools(
   commandMapper: CommandMapper,
-  _container?: import("../../composition/types").AppContainerInterface
+  _container?: import("@minsky/domain/composition/types").AppContainerInterface
 ): void {
   log.debug("Registering repo exploration commands via shared command integration");
 

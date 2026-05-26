@@ -7,14 +7,14 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { exit } from "../../../../utils/process";
+import { log } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
 import {
   createCompletionService,
   createModelCacheServiceWithFetchers,
-} from "../../../../domain/ai/service-factory";
-import { getErrorMessage } from "../../../../domain/ai/error-utils";
-import { requireAIProviders } from "../../../../domain/ai/provider-operations";
+} from "@minsky/domain/ai/service-factory";
+import { getErrorMessage } from "@minsky/domain/ai/error-utils";
+import { requireAIProviders } from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig } from "./shared-helpers";
 
 /**
@@ -148,12 +148,12 @@ export function registerModelCacheCommands(): void {
         const config = getResolvedConfig();
         const aiConfig = requireAIProviders(config);
 
-        const { createConfigService } = await import("../../../../domain/ai/service-factory");
+        const { createConfigService } = await import("@minsky/domain/ai/service-factory");
         const configService = createConfigService(config);
         const cacheService = createModelCacheServiceWithFetchers();
 
         const { refreshSingleProvider, refreshAllProviders } = await import(
-          "../../../../domain/ai/provider-operations"
+          "@minsky/domain/ai/provider-operations"
         );
 
         if (provider) {

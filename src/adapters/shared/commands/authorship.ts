@@ -23,11 +23,11 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/index";
-import type { AppContainerInterface } from "../../../composition/types";
-import { ARTIFACT_TYPES } from "../../../domain/provenance/types";
-import type { ArtifactType } from "../../../domain/provenance/types";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import { ARTIFACT_TYPES } from "@minsky/domain/provenance/types";
+import type { ArtifactType } from "@minsky/domain/provenance/types";
 
 const artifactTypeSchema = z.enum(ARTIFACT_TYPES);
 
@@ -94,7 +94,7 @@ export function registerAuthorshipCommands(
           if (context.container?.has("persistence")) {
             return context.container.get(
               "persistence"
-            ) as import("../../../domain/persistence/types").SqlCapablePersistenceProvider;
+            ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
           }
           return null;
         })();
@@ -114,7 +114,7 @@ export function registerAuthorshipCommands(
           );
         }
 
-        const { ProvenanceService } = await import("../../../domain/provenance/provenance-service");
+        const { ProvenanceService } = await import("@minsky/domain/provenance/provenance-service");
         const provenanceService = new ProvenanceService(
           db as import("drizzle-orm/postgres-js").PostgresJsDatabase
         );
@@ -177,7 +177,7 @@ export function registerAuthorshipCommands(
           if (context.container?.has("persistence")) {
             return context.container.get(
               "persistence"
-            ) as import("../../../domain/persistence/types").SqlCapablePersistenceProvider;
+            ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
           }
           return null;
         })();
@@ -198,13 +198,13 @@ export function registerAuthorshipCommands(
         }
 
         // Import domain services
-        const { ProvenanceService } = await import("../../../domain/provenance/provenance-service");
+        const { ProvenanceService } = await import("@minsky/domain/provenance/provenance-service");
         const { AgentTranscriptService } = await import(
-          "../../../domain/provenance/transcript-service"
+          "@minsky/domain/provenance/transcript-service"
         );
-        const { AuthorshipJudge } = await import("../../../domain/provenance/authorship-judge");
-        const { createCompletionService } = await import("../../../domain/ai/service-factory");
-        const { requireAIProviders } = await import("../../../domain/ai/provider-operations");
+        const { AuthorshipJudge } = await import("@minsky/domain/provenance/authorship-judge");
+        const { createCompletionService } = await import("@minsky/domain/ai/service-factory");
+        const { requireAIProviders } = await import("@minsky/domain/ai/provider-operations");
         const { getResolvedConfig } = await import("./ai/shared-helpers");
         const resolvedConfig = getResolvedConfig();
 

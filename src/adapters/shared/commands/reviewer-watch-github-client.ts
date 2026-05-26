@@ -14,9 +14,9 @@
  */
 
 import { Octokit } from "@octokit/rest";
-import { createOctokit } from "../../../domain/repository/github-pr-operations";
-import type { MissedReviewClient, OpenPR, PRReviewSummary } from "../../../domain/reviewer-watch";
-import type { TokenProvider } from "../../../domain/auth";
+import { createOctokit } from "@minsky/domain/repository/github-pr-operations";
+import type { MissedReviewClient, OpenPR, PRReviewSummary } from "@minsky/domain/reviewer-watch";
+import type { TokenProvider } from "@minsky/domain/auth";
 
 /**
  * Build a `MissedReviewClient` backed by a real Octokit instance.

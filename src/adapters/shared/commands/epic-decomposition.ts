@@ -24,15 +24,15 @@
 import { eq, and, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
-import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/index";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { SqlCapablePersistenceProvider } from "../../../domain/persistence/types";
+import { log } from "@minsky/shared/logger";
+import { getErrorMessage } from "@minsky/domain/errors/index";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/types";
 import {
   taskRelationshipsTable,
   PARENT_RELATIONSHIP_TYPE,
-} from "../../../domain/storage/schemas/task-relationships";
-import { tasksTable, taskSpecsTable } from "../../../domain/storage/schemas/task-embeddings";
+} from "@minsky/domain/storage/schemas/task-relationships";
+import { tasksTable, taskSpecsTable } from "@minsky/domain/storage/schemas/task-embeddings";
 import {
   detectEpicDecompositionStaleness,
   DEFAULT_RECENCY_WINDOW_DAYS,
@@ -40,7 +40,7 @@ import {
   DETECTOR_VERSION,
   type EpicChildSnapshot,
   type EpicStalenessCandidate,
-} from "../../../domain/detectors/epic-decomposition-staleness";
+} from "@minsky/domain/detectors/epic-decomposition-staleness";
 
 // ---------------------------------------------------------------------------
 // Output shapes

@@ -8,11 +8,11 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { z } from "zod";
 import { createSharedCommandRegistry, CommandCategory } from "../command-registry";
 import type { SharedCommandRegistry } from "../command-registry";
-import type { AppContainerInterface } from "../../../composition/types";
-import type { ProvenanceRecord } from "../../../domain/provenance/types";
-import { AuthorshipTier } from "../../../domain/provenance/types";
-import { ProvenanceService } from "../../../domain/provenance/provenance-service";
-import { log } from "../../../utils/logger";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
+import type { ProvenanceRecord } from "@minsky/domain/provenance/types";
+import { AuthorshipTier } from "@minsky/domain/provenance/types";
+import { ProvenanceService } from "@minsky/domain/provenance/provenance-service";
+import { log } from "@minsky/shared/logger";
 
 // Type alias — keeps the "getProvenanceForArtifact" string literal in one place.
 type GetProvenanceFn = InstanceType<typeof ProvenanceService>["getProvenanceForArtifact"];

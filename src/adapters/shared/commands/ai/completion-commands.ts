@@ -10,11 +10,11 @@ import {
   CommandCategory,
   type CommandParameterMap,
 } from "../../command-registry";
-import { log } from "../../../../utils/logger";
-import { exit } from "../../../../utils/process";
-import { createCompletionService } from "../../../../domain/ai/service-factory";
-import { executeFastApply } from "../../../../domain/ai/fast-apply-service";
-import { requireAIProviders } from "../../../../domain/ai/provider-operations";
+import { log } from "@minsky/shared/logger";
+import { exit } from "@minsky/shared/process";
+import { createCompletionService } from "@minsky/domain/ai/service-factory";
+import { executeFastApply } from "@minsky/domain/ai/fast-apply-service";
+import { requireAIProviders } from "@minsky/domain/ai/provider-operations";
 import { getResolvedConfig } from "./shared-helpers";
 
 /**

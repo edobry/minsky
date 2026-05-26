@@ -25,7 +25,7 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
 
     const provider = ctx.container.get(
       "persistence"
-    ) as import("../../../../domain/persistence/types").PersistenceProvider;
+    ) as import("@minsky/domain/persistence/types").PersistenceProvider;
     if (!provider.capabilities.sql) {
       return this.formatResult(
         { success: false, message: "SQL not supported by current provider" },
@@ -65,10 +65,10 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
     const lastIndexed = lastRows[0]?.last_indexed ?? null;
 
     // Pull model/dimension from config
-    const { getConfiguration } = await import("../../../../domain/configuration");
+    const { getConfiguration } = await import("@minsky/domain/configuration");
     const cfg = getConfiguration();
     const model = cfg.embeddings?.model || "text-embedding-3-small";
-    const { getEmbeddingDimension } = await import("../../../../domain/ai/embedding-models");
+    const { getEmbeddingDimension } = await import("@minsky/domain/ai/embedding-models");
     const dimension = getEmbeddingDimension(model, 1536);
 
     const result = {
@@ -83,7 +83,7 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
     };
 
     if (!(params.json || ctx.format === "json")) {
-      const { log } = await import("../../../../utils/logger");
+      const { log } = await import("@minsky/shared/logger");
       log.cli(`Tasks total:    ${result.total}`);
       log.cli(`Indexed:        ${result.indexed}`);
       log.cli(`Missing:        ${result.missing}`);

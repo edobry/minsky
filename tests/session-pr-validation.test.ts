@@ -3,7 +3,7 @@ import {
   validatePrContent,
   isDuplicateContent,
   preparePrContent,
-} from "../src/domain/session/pr-validation";
+} from "@minsky/domain/session/pr-validation";
 
 describe("Session PR Body Validation", () => {
   describe("title duplication detection", () => {

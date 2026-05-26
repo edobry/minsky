@@ -169,7 +169,7 @@ function railwayTry(args: string[]): ShResult {
 import {
   readRailwayToken,
   railwayGraphQLAuthed,
-} from "../src/domain/deployment/railway/graphql-client";
+} from "@minsky/domain/deployment/railway/graphql-client";
 
 async function graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
   return railwayGraphQLAuthed<T>(query, variables);

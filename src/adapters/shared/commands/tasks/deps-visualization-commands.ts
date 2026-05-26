@@ -1,6 +1,6 @@
 import { z } from "zod";
-import type { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import type { TaskServiceInterface } from "../../../../domain/tasks/taskService";
+import type { TaskGraphService } from "@minsky/domain/tasks/task-graph-service";
+import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
 import {
   generateDependencyTree,

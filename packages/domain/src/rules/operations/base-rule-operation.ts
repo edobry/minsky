@@ -1,0 +1,230 @@
+/**
+ * Base Rule Operation
+ *
+ * Abstract base class providing common functionality for all rule operations.
+ * Extracted from rules.ts as part of modularization effort.
+ */
+import { ValidationError } from "../../errors/index";
+import { promises as nodeFsPromises } from "fs";
+import { log } from "@minsky/shared/logger";
+import { join } from "path";
+import { type RuleFormat, type RuleMeta } from "../types";
+
+/**
+ * Common dependencies for rule operations
+ */
+export interface RuleOperationDependencies {
+  workspacePath: string;
+  // Additional dependencies can be injected here
+  fsPromises?: Pick<
+    typeof nodeFsPromises,
+    "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
+  >;
+  existsSyncFn?: (path: string) => boolean;
+}
+
+/**
+ * Common parameters for rule operations
+ */
+export interface BaseRuleOperationParams {
+  format?: RuleFormat;
+  debug?: boolean;
+  workspacePath?: string;
+}
+
+/**
+ * Abstract base class for rule operations
+ */
+export abstract class BaseRuleOperation<TParams, TResult> {
+  constructor(protected deps: RuleOperationDependencies) {}
+
+  /**
+   * Get the operation name (for logging and debugging)
+   */
+  abstract getOperationName(): string;
+
+  /**
+   * Execute the operation with validated parameters
+   */
+  abstract executeOperation(params: TParams): Promise<TResult>;
+
+  /**
+   * Execute the operation with full validation and error handling
+   */
+  async execute(params: TParams): Promise<TResult> {
+    try {
+      log.debug(`Executing ${this.getOperationName()} operation`, {
+        operation: this.getOperationName(),
+        workspacePath: this.deps.workspacePath,
+        ...this.getAdditionalLogContext(params),
+      });
+
+      // Execute the operation
+      const result = await this.executeOperation(params);
+
+      return result;
+    } catch (error) {
+      // Enhanced error logging with operation context
+      this.logError(params, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Log operation errors with consistent format
+   */
+  protected logError(params: TParams, error: unknown): void {
+    log.error(`Error in ${this.getOperationName()}`, {
+      operation: this.getOperationName(),
+      workspacePath: this.deps.workspacePath,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      ...this.getAdditionalLogContext(params),
+    });
+  }
+
+  /**
+   * Get additional context for error logging (override in subclasses)
+   */
+  protected getAdditionalLogContext(params: TParams): Record<string, unknown> {
+    return {};
+  }
+
+  /**
+   * Get the rule directory path for a given format
+   */
+  protected getRuleDirPath(format: RuleFormat): string {
+    const formatDirMap: Record<RuleFormat, string> = {
+      cursor: ".cursor/rules",
+      generic: ".ai/rules",
+      minsky: ".minsky/rules",
+    };
+    return join(this.deps.workspacePath, formatDirMap[format]);
+  }
+
+  /**
+   * Get the full path for a rule file
+   */
+  protected getRuleFilePath(id: string, format: RuleFormat): string {
+    const normalizedId = this.normalizeRuleId(id);
+    // Always add .mdc extension since IDs are always extensionless
+    return join(this.getRuleDirPath(format), `${normalizedId}.mdc`);
+  }
+
+  /**
+   * Normalize rule ID by removing file extension if present
+   */
+  protected normalizeRuleId(id: string): string {
+    // Strip .mdc extension to ensure clean, extensionless IDs
+    return id.replace(/\.mdc$/, "");
+  }
+
+  /**
+   * Get all formats to search when format is not specified
+   */
+  protected getFormatsToSearch(requestedFormat?: RuleFormat): RuleFormat[] {
+    return requestedFormat ? [requestedFormat] : ["minsky", "cursor", "generic"];
+  }
+
+  /**
+   * Clean metadata object by removing undefined values
+   */
+  protected cleanMetadata(meta: RuleMeta): RuleMeta {
+    const cleanMeta: RuleMeta = {};
+    Object.entries(meta).forEach(([key, value]) => {
+      if (value !== undefined) {
+        cleanMeta[key] = value;
+      }
+    });
+    return cleanMeta;
+  }
+
+  /**
+   * Create success result with consistent structure
+   */
+  protected createSuccessResult(
+    data: Record<string, unknown>,
+    message?: string,
+    additionalData: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      success: true,
+      ...data,
+      ...(message && { message }),
+      ...additionalData,
+    };
+  }
+
+  /**
+   * Create error result with consistent structure
+   */
+  protected createErrorResult(
+    error: string | Error,
+    additionalData: Record<string, unknown> = {}
+  ): Record<string, unknown> {
+    return {
+      success: false,
+      error: typeof error === "string" ? error : error.message,
+      ...additionalData,
+    };
+  }
+}
+
+/**
+ * Factory type for creating rule operations
+ */
+export type RuleOperationFactory<TParams, TResult> = (
+  deps: RuleOperationDependencies
+) => BaseRuleOperation<TParams, TResult>;
+
+/**
+ * Rule operation registry for managing operation instances
+ */
+export class RuleOperationRegistry {
+  /** Heterogeneous map; typed access is provided by the generic get<TParams,TResult>() overload */
+  private operations = new Map<string, BaseRuleOperation<unknown, unknown>>();
+
+  /**
+   * Register a rule operation
+   */
+  register<TParams, TResult>(name: string, operation: BaseRuleOperation<TParams, TResult>): void {
+    this.operations.set(name, operation as BaseRuleOperation<unknown, unknown>);
+  }
+
+  /**
+   * Get a rule operation by name
+   */
+  get<TParams, TResult>(name: string): BaseRuleOperation<TParams, TResult> | undefined {
+    return this.operations.get(name) as BaseRuleOperation<TParams, TResult> | undefined;
+  }
+
+  /**
+   * Execute an operation by name
+   */
+  async execute<TParams, TResult>(name: string, params: TParams): Promise<TResult> {
+    const operation = this.get<TParams, TResult>(name);
+    if (!operation) {
+      throw new ValidationError(`Rule operation '${name}' not found`);
+    }
+    return await operation.execute(params);
+  }
+
+  /**
+   * Get all registered operation names
+   */
+  getOperationNames(): string[] {
+    return Array.from(this.operations.keys());
+  }
+
+  /**
+   * Clear all operations (useful for testing)
+   */
+  clear(): void {
+    this.operations.clear();
+  }
+}
+
+/**
+ * Default rule operation registry instance
+ */
+export const ruleOperationRegistry = new RuleOperationRegistry();

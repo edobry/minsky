@@ -14,11 +14,11 @@ import { setupConfiguration } from "../../src/config-setup";
 async function main() {
   await setupConfiguration();
 
-  const { resolvePersistenceProvider } = await import("../../src/domain/persistence/factory");
+  const { resolvePersistenceProvider } = await import("@minsky/domain/persistence/factory");
   const persistence = await resolvePersistenceProvider();
   if (!persistence) throw new Error("no persistence");
   const { createPrincipalCorpusService } = await import(
-    "../../src/domain/principal-corpus/principal-corpus-service"
+    "@minsky/domain/principal-corpus/principal-corpus-service"
   );
   const svc = await createPrincipalCorpusService(persistence);
 
@@ -68,15 +68,15 @@ async function main() {
   }
 
   // AT 3-6: memory store assertions
-  const { MemoryService } = await import("../../src/domain/memory/memory-service");
+  const { MemoryService } = await import("@minsky/domain/memory/memory-service");
   const { createEmbeddingServiceFromConfig } = await import(
-    "../../src/domain/ai/embedding-service-factory"
+    "@minsky/domain/ai/embedding-service-factory"
   );
   const { createMemoryVectorStorageFromConfig } = await import(
-    "../../src/domain/storage/vector/vector-storage-factory"
+    "@minsky/domain/storage/vector/vector-storage-factory"
   );
-  const { getEmbeddingDimension } = await import("../../src/domain/ai/embedding-models");
-  const { getConfiguration } = await import("../../src/domain/configuration");
+  const { getEmbeddingDimension } = await import("@minsky/domain/ai/embedding-models");
+  const { getConfiguration } = await import("@minsky/domain/configuration");
 
   type SqlCapable = typeof persistence & { getDatabaseConnection: () => Promise<unknown> };
   if (!("getDatabaseConnection" in persistence)) {

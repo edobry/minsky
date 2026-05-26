@@ -4,7 +4,7 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
-import { log } from "../../../utils/logger";
+import { log } from "@minsky/shared/logger";
 import {
   formatResolvedConfiguration,
   formatConfigurationSources,
