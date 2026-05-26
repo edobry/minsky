@@ -68,9 +68,7 @@ The agent proposed a shortcut: create a thin proxy package — a barrel file —
 
 ---
 
-## layout: center
-
-<div class="text-center">
+<div class="center-slide">
 <span class="eyebrow">The gap</span>
 
 <div class="big-number">30s</div>
@@ -206,9 +204,7 @@ The retrospective produced durable artifacts. A new checklist item in the implem
 
 ---
 
-## layout: center
-
-<div class="text-center">
+<div class="center-slide">
 <span class="eyebrow">Recurrence check</span>
 
 <div class="big-number">6</div>
@@ -438,9 +434,7 @@ This is the thesis. These metacognitive organs — self-monitoring, durable memo
 
 ---
 
-## layout: center
-
-<div class="text-center">
+<div class="center-slide">
 
 ## A stateless agent has no System 3.<br>No audit channel. No escalation tiers.
 
