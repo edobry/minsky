@@ -403,7 +403,32 @@ export function registerPrWatchCommands(container?: AppContainerInterface): void
         // The persistent sink writes to wake_pending; enrichWakeResponse drains
         // it on the agent's next allowlisted tool call (pull-on-tool-call delivery).
         const wakeSink = await buildCompositeWakeSink(container);
-        return runWatcher(prWatchRepository, githubClient, operatorNotify, wakeSink);
+
+        // Resolve EventEmitter for system event emission (mt#2134).
+        let eventEmitter: import("@minsky/domain/events/emitter").EventEmitter | undefined;
+        try {
+          if (container?.has("persistence")) {
+            const pp = container.get(
+              "persistence"
+            ) as import("@minsky/domain/persistence/types").SqlCapablePersistenceProvider;
+            if (pp.getDatabaseConnection) {
+              const db = await pp.getDatabaseConnection();
+              if (db) {
+                const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+                eventEmitter = createEventEmitter(db);
+              }
+            }
+          }
+        } catch (emitErr: unknown) {
+          log.warn(
+            "pr.watch.run: EventEmitter resolution failed (proceeding without event emission)",
+            {
+              error: emitErr instanceof Error ? emitErr.message : String(emitErr),
+            }
+          );
+        }
+
+        return runWatcher(prWatchRepository, githubClient, operatorNotify, wakeSink, eventEmitter);
       },
     })
   );
