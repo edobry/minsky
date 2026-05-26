@@ -593,6 +593,7 @@ export interface RailwayLogEntry {
   message: string;
   timestamp: string;
   severity: string;
+  attributes?: Array<{ key: string; value: string }>;
 }
 
 interface DeploymentLogsResponse {
@@ -609,6 +610,7 @@ const DEPLOYMENT_LOGS_QUERY = `
       message
       timestamp
       severity
+      attributes { key value }
     }
   }
 `;
@@ -619,6 +621,7 @@ const BUILD_LOGS_QUERY = `
       message
       timestamp
       severity
+      attributes { key value }
     }
   }
 `;

@@ -316,6 +316,32 @@ const ALL_TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 ];
 
 /**
+ * The submit_documentation_impact tool definition extracted from
+ * OUTPUT_TOOL_DEFINITIONS, adapted to the OpenAI SDK's tool-shape. Used by
+ * the post-loop forced doc-impact pass (mt#2115) to constrain the model to
+ * emit submit_documentation_impact via tool_choice.
+ */
+const DOC_IMPACT_RAW_DEF = OUTPUT_TOOL_DEFINITIONS.find(
+  (t) => t.function.name === "submit_documentation_impact"
+);
+const DOC_IMPACT_TOOL_DEF: OpenAI.Chat.Completions.ChatCompletionTool | null = DOC_IMPACT_RAW_DEF
+  ? {
+      type: "function" as const,
+      function: {
+        name: DOC_IMPACT_RAW_DEF.function.name,
+        description: DOC_IMPACT_RAW_DEF.function.description,
+        parameters: DOC_IMPACT_RAW_DEF.function.parameters as Record<string, unknown>,
+      },
+    }
+  : null;
+
+/** User message injected before the post-loop forced doc-impact pass. */
+const DOC_IMPACT_REMINDER_USER_MSG =
+  "Your review is incomplete — you must emit a `submit_documentation_impact` tool call now. " +
+  'Provide a JSON object with: `kind` (one of "no-update-needed", "updated-in-pr", "blocking-needs-update"), ' +
+  "`evidence` (string justifying the verdict), and optional `affectedDocs` (string[] of affected doc paths).";
+
+/**
  * The conclude_review tool definition extracted from OUTPUT_TOOL_DEFINITIONS,
  * adapted to the OpenAI SDK's tool-shape. Used by the post-loop forced
  * conclude_review pass (mt#1471) to constrain the model to emit conclude_review
@@ -479,6 +505,102 @@ async function forceConcludeReview(
 
   // Forced call returned tool calls but none was conclude_review (shouldn't
   // happen with tool_choice constraint, but defensive).
+  return { ...tokenUsage, emitted: false };
+}
+
+/**
+ * Run a single forced submit_documentation_impact API call and, if it returns
+ * a parseable tool call, append it to `accumulatedToolCalls`.
+ *
+ * Same pattern as forceConcludeReview (mt#1471) — uses tool_choice to
+ * constrain the model. Fires BEFORE forceConcludeReview so the doc-impact
+ * assessment is available when the model formulates its conclusion.
+ */
+async function forceDocumentationImpact(
+  client: OpenAI,
+  baseParams: ChatCreateBaseParams,
+  messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  exitMessage: OpenAI.Chat.Completions.ChatCompletionMessage | null,
+  accumulatedToolCalls: ReviewToolCall[],
+  timeoutMs: number
+): Promise<{
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  emitted: boolean;
+}> {
+  if (!DOC_IMPACT_TOOL_DEF) {
+    log.info("reviewer.doc_impact_tool_def_missing", {
+      event: "reviewer.doc_impact_tool_def_missing",
+      provider: "openai",
+      severity: "error",
+    });
+    return { promptTokens: 0, completionTokens: 0, reasoningTokens: 0, emitted: false };
+  }
+
+  const forcedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    ...messages,
+    ...(exitMessage ? [exitMessage] : []),
+    { role: "user", content: DOC_IMPACT_REMINDER_USER_MSG },
+  ];
+
+  const response = await withTimeout(
+    "openai.chat.completions.create.forceDocImpact",
+    timeoutMs,
+    (signal) =>
+      client.chat.completions.create(
+        {
+          ...baseParams,
+          messages: forcedMessages,
+          tools: [DOC_IMPACT_TOOL_DEF],
+          tool_choice: {
+            type: "function",
+            function: { name: DOC_IMPACT_TOOL_DEF.function.name },
+          },
+        },
+        { signal }
+      )
+  );
+
+  const usage = response.usage;
+  const tokenUsage = {
+    promptTokens: usage?.prompt_tokens ?? 0,
+    completionTokens: usage?.completion_tokens ?? 0,
+    reasoningTokens: usage?.completion_tokens_details?.reasoning_tokens ?? 0,
+  };
+
+  const message = response.choices[0]?.message;
+  const rawToolCalls = message?.tool_calls;
+  if (!rawToolCalls || rawToolCalls.length === 0) {
+    return { ...tokenUsage, emitted: false };
+  }
+
+  for (const toolCall of rawToolCalls) {
+    if (toolCall.function.name !== "submit_documentation_impact") continue;
+    try {
+      const parsed = parseToolCall("submit_documentation_impact", toolCall.function.arguments);
+      accumulatedToolCalls.push(parsed);
+      log.info("reviewer.output_tool_call", {
+        event: "reviewer.output_tool_call",
+        provider: "openai",
+        tool: "submit_documentation_impact",
+        count: accumulatedToolCalls.length,
+        phase: "post_loop_forced",
+      });
+      return { ...tokenUsage, emitted: true };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.info("reviewer.output_tool_call_parse_error", {
+        event: "reviewer.output_tool_call_parse_error",
+        provider: "openai",
+        tool: "submit_documentation_impact",
+        phase: "post_loop_forced",
+        error: errMsg,
+      });
+      return { ...tokenUsage, emitted: false };
+    }
+  }
+
   return { ...tokenUsage, emitted: false };
 }
 
@@ -776,6 +898,46 @@ export async function callOpenAIWithClient(
     }
   }
 
+  // Snapshot main-loop output count BEFORE forced passes so the conclude
+  // gate's gate_branch discriminator reflects main-loop behavior, not
+  // forced-pass side-effects (mt#2115 reviewer finding).
+  const mainLoopOutputCount = accumulatedToolCalls.length;
+
+  // Post-loop forced submit_documentation_impact pass (mt#2115).
+  const hasDocImpact = accumulatedToolCalls.some((tc) => tc.name === "submit_documentation_impact");
+  if (!hasDocImpact) {
+    try {
+      const forced = await forceDocumentationImpact(
+        client,
+        baseParams,
+        messages,
+        exitMessage,
+        accumulatedToolCalls,
+        timeoutMs
+      );
+      totalPromptTokens += forced.promptTokens;
+      totalCompletionTokens += forced.completionTokens;
+      totalReasoningTokens += forced.reasoningTokens;
+
+      log.info("reviewer.doc_impact_reminder", {
+        event: "reviewer.doc_impact_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        finally_emitted: forced.emitted,
+      });
+    } catch (err: unknown) {
+      log.info("reviewer.doc_impact_reminder", {
+        event: "reviewer.doc_impact_reminder",
+        provider: "openai",
+        mode: "post_loop_forced",
+        fired_at_turn: totalRoundsUsed,
+        finally_emitted: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   // Post-loop forced conclude_review pass (mt#1471 + mt#1639).
   //
   // The main loop has exited. If the model did NOT emit conclude_review, run
@@ -809,7 +971,7 @@ export async function callOpenAIWithClient(
   // Composition-side severity-derived event recovery (mt#1413) remains the
   // safety net if the forced pass fails to emit a parseable conclude_review.
   const hasConcludeReview = accumulatedToolCalls.some((tc) => tc.name === "conclude_review");
-  const hasEmittedOutputCalls = accumulatedToolCalls.length > 0;
+  const hasEmittedOutputCalls = mainLoopOutputCount > 0;
   if (!hasConcludeReview) {
     // Discriminator for audit log: which gate branch fired.
     const gateBranch: "emitted_no_conclude" | "emitted_nothing" = hasEmittedOutputCalls

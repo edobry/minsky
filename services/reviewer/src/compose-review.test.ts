@@ -721,7 +721,7 @@ describe("composeReviewBody", () => {
   // section in body (the merge gate will then deny — that's by design until
   // the structural restructure of mt#2055 ships)
   // -------------------------------------------------------------------------
-  test("16: absent documentation impact tool call → no section emitted", () => {
+  test("16: absent documentation impact tool call → missing sentinel emitted", () => {
     const toolCalls: ReviewToolCall[] = [
       {
         name: TOOL_SUBMIT_FINDING,
@@ -741,7 +741,9 @@ describe("composeReviewBody", () => {
 
     const result = composeReviewBody(toolCalls);
 
-    expect(result.body).not.toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain(SECTION_DOCUMENTATION_IMPACT);
+    expect(result.body).toContain("**missing**");
+    expect(result.body).toContain("`submit_documentation_impact` was not called");
   });
 
   // -------------------------------------------------------------------------
