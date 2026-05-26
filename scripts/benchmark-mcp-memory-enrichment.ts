@@ -125,7 +125,7 @@ async function buildMemoryService(): Promise<MemoryServiceSurface> {
   const { initializeConfiguration, CustomConfigFactory } = await import(
     "@minsky/domain/configuration"
   );
-  const { createCliContainer } = await import("@minsky/domain/composition/cli");
+  const { createCliContainer } = await import("../src/composition/cli");
   const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
   const { createEmbeddingServiceFromConfig } = await import(
     "@minsky/domain/ai/embedding-service-factory"
