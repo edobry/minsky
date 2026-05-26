@@ -97,6 +97,7 @@ export interface PrFileEntry {
   additions: number;
   deletions: number;
   patch?: string;
+  previousFilename?: string;
 }
 
 /**
@@ -125,6 +126,7 @@ export async function fetchListFiles(
     additions: number;
     deletions: number;
     patch?: string;
+    previous_filename?: string;
   }>;
   try {
     allFiles = await withTimeout("github.pulls.listFiles", timeoutMs, (signal) =>
@@ -166,6 +168,7 @@ export async function fetchListFiles(
     additions: f.additions,
     deletions: f.deletions,
     patch: f.patch,
+    ...(f.previous_filename ? { previousFilename: f.previous_filename } : {}),
   }));
 }
 

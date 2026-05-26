@@ -1359,10 +1359,7 @@ async function runReviewBody(
           retryOutcomes: allRetryOutcomes,
         },
       };
-      validation =
-        allToolCalls.length > 0
-          ? { ok: true as const }
-          : { ok: false as const, reason: "chunked-review-empty" };
+      validation = validateReviewOutput(output, outputToolsActive);
       attempt = "first-attempt-success";
       retryAttempted = false;
     } // close the chunks.length > 0 else block

@@ -2,13 +2,14 @@
  * Chunked review orchestration for large PRs (mt#2120).
  *
  * When a PR's total diff exceeds the size gate, files are grouped into
- * chunks of ~20-25 and each chunk gets a separate model call with only
+ * chunks of ~20 and each chunk gets a separate model call with only
  * its files' patches in the prompt. Findings are aggregated across
  * chunks before composition.
  */
 
 import type { PrFileEntry } from "./github-client";
 import type { ReviewPromptInput } from "./prompt";
+import { buildReviewThreadsSection } from "./prompt";
 import { parseUnifiedDiff } from "@minsky/domain/utils/parse-diff";
 
 export const CHUNKED_REVIEW_FILE_THRESHOLD = 20;
@@ -71,11 +72,18 @@ export function buildChunkDiff(chunk: ChunkInfo, fullDiff: string): string {
       parsedFullDiff = parseUnifiedDiff(fullDiff);
     }
     const diffFile = parsedFullDiff.find(
-      (df) => df.path === file.filename || df.oldPath === file.filename
+      (df) =>
+        df.path === file.filename ||
+        df.oldPath === file.filename ||
+        (file.previousFilename && df.oldPath === file.previousFilename)
     );
     if (diffFile) {
-      const reconstructed = reconstructFileDiff(diffFile);
-      sections.push(`${header}\n\`\`\`diff\n${reconstructed}\n\`\`\``);
+      if (diffFile.hunks.length === 0 && file.status === "renamed") {
+        sections.push(`${header}\n(Rename only — no content changes.)`);
+      } else {
+        const reconstructed = reconstructFileDiff(diffFile);
+        sections.push(`${header}\n\`\`\`diff\n${reconstructed}\n\`\`\``);
+      }
       continue;
     }
 
@@ -125,6 +133,11 @@ export function buildChunkedReviewPrompt(
   const priorReviewsSection =
     baseInput.priorReviews && baseInput.priorReviews.trim() ? `\n\n${baseInput.priorReviews}` : "";
 
+  const reviewThreadsSection =
+    baseInput.reviewThreads && baseInput.reviewThreads.length > 0
+      ? `\n\n${buildReviewThreadsSection(baseInput.reviewThreads)}`
+      : "";
+
   const fileList = chunk.files.map((f) => `- ${f.filename}`).join("\n");
 
   return `# PR Review Request (Chunk ${chunk.index + 1}/${chunk.totalChunks})
@@ -145,7 +158,7 @@ ${fileList}
 
 ${baseInput.prBody || "(empty)"}
 
-${specSection}${priorReviewsSection}
+${specSection}${priorReviewsSection}${reviewThreadsSection}
 
 ## Diff (chunk ${chunk.index + 1}/${chunk.totalChunks})
 
