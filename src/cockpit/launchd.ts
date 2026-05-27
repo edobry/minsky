@@ -60,6 +60,7 @@ export function generatePlist(options: PlistOptions): string {
   // relying on a globally installed `minsky` binary.
   const programArgs: string[] = [
     bunBin,
+    "--watch",
     "run",
     "src/cli.ts",
     "cockpit",
