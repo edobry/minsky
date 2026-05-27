@@ -78,11 +78,13 @@ fn main() {
                         .build()
                         .unwrap();
 
+                    let mut first_poll = true;
                     loop {
                         let healthy = client.get(HEALTH_URL).send().await.is_ok();
                         let was_running = poll_running.swap(healthy, Ordering::Relaxed);
 
-                        if healthy != was_running {
+                        if first_poll || healthy != was_running {
+                            first_poll = false;
                             let label = if healthy {
                                 "Cockpit: running"
                             } else {
