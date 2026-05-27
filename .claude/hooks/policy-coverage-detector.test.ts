@@ -25,7 +25,7 @@ import {
   formatBlockMessage,
   appendCalibrationRecord,
 } from "./policy-coverage-detector";
-import type { CoverageEvidence } from "../../src/domain/detectors/policy-coverage/coverage";
+import type { CoverageEvidence } from "../../packages/domain/src/detectors/policy-coverage/coverage";
 
 let tempRoot: string;
 
