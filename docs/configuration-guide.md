@@ -68,6 +68,44 @@ workspace:
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
 
+## Embeddings Configuration
+
+The `embeddings` section controls the embedding provider and optional fallback chain.
+
+### Provider selection
+
+```yaml
+embeddings:
+  provider: openai # Primary provider (default: "openai")
+  model: text-embedding-3-small # Model name (default: "text-embedding-3-small")
+  fallbackProvider: gemini # Fallback provider on quota exhaustion (optional)
+```
+
+Valid providers: `openai`, `gemini`, `local` (dev-only deterministic hash).
+
+### Fallback chain
+
+When `fallbackProvider` is set and the primary provider returns `insufficient_quota` or `RESOURCE_EXHAUSTED`, the system automatically routes to the fallback provider. Transient 429 rate limits are handled by the retry service and do not trigger fallback.
+
+The fallback provider must produce embeddings with the same dimensions as the primary (1536 for `text-embedding-3-small`). Google `gemini-embedding-001` supports `output_dimensionality: 1536` via Matryoshka learning; other providers (Voyage, Cohere) do not support 1536 dimensions.
+
+Fallback state is visible in `debug_systemInfo` under `embeddingsHealth.fallbackActive` and `embeddingsHealth.fallbackProvider`.
+
+### Google AI API key
+
+Required when `fallbackProvider: gemini` is set.
+
+```yaml
+ai:
+  providers:
+    google:
+      apiKey: <your-google-ai-api-key>
+```
+
+Environment variable: `GOOGLE_API_KEY` or `GOOGLE_AI_API_KEY`.
+
+Obtain a key at https://aistudio.google.com/apikey. Add via `minsky config credentials add google`.
+
 ## Postgres Persistence
 
 For Postgres-specific runtime settings — connection pool size (`persistence.postgres.maxConnections`,

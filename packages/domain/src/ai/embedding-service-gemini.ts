@@ -68,7 +68,6 @@ export class GeminiEmbeddingService implements EmbeddingService {
         isRetryableAIError,
         "gemini-embeddings"
       );
-      EmbeddingsHealthTracker.getInstance().recordRecovery();
       return result;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

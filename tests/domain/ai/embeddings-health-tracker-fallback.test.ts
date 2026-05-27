@@ -41,4 +41,17 @@ describe("EmbeddingsHealthTracker fallback fields", () => {
     expect(summary.fallbackProvider).toBe("gemini");
     expect(summary.degradedReason).toBe("insufficient_quota");
   });
+
+  test("fallback state persists — setFallbackActive is not cleared by non-recovery calls", () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    tracker.setFallbackActive("gemini");
+
+    const summary1 = tracker.getSummary();
+    expect(summary1.fallbackActive).toBe(true);
+    expect(summary1.fallbackProvider).toBe("gemini");
+
+    const summary2 = tracker.getSummary();
+    expect(summary2.fallbackActive).toBe(true);
+    expect(summary2.fallbackProvider).toBe("gemini");
+  });
 });
