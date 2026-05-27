@@ -40,37 +40,27 @@ describe("CLI config-load error rendering (mt#1801)", () => {
     };
   }
 
-  test("unknown top-level key: clean 2-line error, exit 1, no stack trace, no metadata dump", () => {
+  test("unknown top-level key: warns but does not crash (mt#2161)", () => {
     writeFileSync(
       join(tmpHome, "minsky", "config.yaml"),
       "version: 1\nbackendConfig: {}\ntotallyUnknownKey:\n  someNested: value\n"
     );
 
-    const { stdout, stderr, status } = runCli(["config", "get", "totallyUnknownKey.someNested"]);
+    const { stdout, stderr, status } = runCli(["config", "get", "version"]);
     const combined = stdout + stderr;
 
-    // Non-zero exit
-    expect(status).toBe(1);
+    // mt#2161: unknown top-level keys are warned, not fatal. The CLI should
+    // start successfully and serve the config get request.
+    expect(status).toBe(0);
 
-    // Unknown key name surfaces clearly
+    // The warning should name the unknown key
     expect(combined).toContain("totallyUnknownKey");
+    expect(combined).toContain("Unrecognized");
 
-    // Specifically NOT the noisy cascade artifacts the prior code emitted:
+    // Should NOT crash with stack traces or cascade artifacts
     expect(combined).not.toContain("uncaughtException");
     expect(combined).not.toContain("memoryUsage");
-    expect(combined).not.toContain("loadavg");
     expect(combined).not.toContain("processTicksAndRejections");
-    expect(combined).not.toContain("✗ Failed to initialize configuration system");
-    // Should not double-print the cause; "Configuration loading failed" must
-    // appear at most once. (Pre-mt#1801 it appeared 3-6 times.)
-    const cascadeMatches = combined.match(/Configuration (loading|validation) failed/g) ?? [];
-    expect(cascadeMatches.length).toBeLessThanOrEqual(1);
-
-    // And the output should be short — a couple of human-readable lines,
-    // not a stack-trace dump. Allow up to 5 lines for the cause + hint +
-    // safety margin if Bun adds a startup-warning line in the future.
-    const lineCount = combined.split("\n").filter((l) => l.trim().length > 0).length;
-    expect(lineCount).toBeLessThanOrEqual(5);
   });
 
   test("valid config: no error rendering, command runs normally", () => {
@@ -80,19 +70,13 @@ describe("CLI config-load error rendering (mt#1801)", () => {
     expect(status).toBe(0);
   });
 
-  test("STRUCTURED mode + LOGLEVEL=debug: still no upstream debug leak (PR #1090 R1 regression guard)", () => {
-    // R1's BLOCKING finding: a log.debug at the upstream initialize() catch
-    // routed through agentLogger which has a Console transport in STRUCTURED
-    // mode. If LOGLEVEL=debug raised the threshold, the upstream diagnostic
-    // would leak to stdout BEFORE the CLI boundary catch's clean output.
-    // Fix removed the upstream log entirely; this test guards against
-    // re-introduction.
+  test("STRUCTURED mode + LOGLEVEL=debug: unknown key warns, no crash (mt#2161 + PR #1090 R1 guard)", () => {
     writeFileSync(
       join(tmpHome, "minsky", "config.yaml"),
       "version: 1\nbackendConfig: {}\nrogueKey: value\n"
     );
 
-    const result = spawnSync("bun", ["run", "src/cli.ts", "config", "get", "rogueKey"], {
+    const result = spawnSync("bun", ["run", "src/cli.ts", "config", "get", "version"], {
       env: {
         ...process.env,
         XDG_CONFIG_HOME: tmpHome,
@@ -104,11 +88,11 @@ describe("CLI config-load error rendering (mt#1801)", () => {
     });
     const combined = (result.stdout ?? "") + (result.stderr ?? "");
 
-    expect(result.status).toBe(1);
+    // mt#2161: warn-and-continue, not crash
+    expect(result.status).toBe(0);
     expect(combined).toContain("rogueKey");
-    // The upstream-diagnostic shape we don't want to see:
+    // No cascade artifacts:
     expect(combined).not.toContain("CustomConfigurationProvider.initialize failed");
-    // And still no cascade artifacts:
     expect(combined).not.toContain("uncaughtException");
     expect(combined).not.toContain("memoryUsage");
   });

@@ -1,50 +1,44 @@
 /**
- * Tests for the strict top-level `configurationSchema` (mt#1612).
+ * Tests for the lenient top-level `configurationSchema` (mt#2161, replaces mt#1612).
  *
- * Validates that unknown top-level keys are rejected with a Zod
- * `unrecognized_keys` issue rather than being silently stripped or
- * passed through, and that legitimate top-level keys (including the
- * optional `version` marker) are accepted.
+ * Validates that unknown top-level keys are STRIPPED (not rejected) and that
+ * KNOWN_TOP_LEVEL_KEYS correctly identifies them for the loader's warning.
+ * Known keys (including the optional `version` marker) are still accepted
+ * and validated.
  */
 
 import { describe, test, expect } from "bun:test";
-import { configurationSchema } from "./index";
+import { configurationSchema, KNOWN_TOP_LEVEL_KEYS } from "./index";
 
 const UNRECOGNIZED_KEYS = "unrecognized_keys";
 
-describe("configurationSchema — strict top-level mode (mt#1612)", () => {
-  test("rejects unknown top-level keys with unrecognized_keys", () => {
+describe("configurationSchema — lenient top-level mode (mt#2161, replaces mt#1612)", () => {
+  test("strips unknown top-level keys without error", () => {
     const result = configurationSchema.safeParse({ foo: "bar" });
-
-    expect(result.success).toBe(false);
-    if (result.success) return;
-
-    const unrecognizedIssues = result.error.issues.filter(
-      (issue) => issue.code === UNRECOGNIZED_KEYS
-    );
-    expect(unrecognizedIssues.length).toBeGreaterThan(0);
-
-    const allUnrecognizedKeys = unrecognizedIssues.flatMap((issue) =>
-      "keys" in issue && Array.isArray(issue.keys) ? issue.keys : []
-    );
-    expect(allUnrecognizedKeys).toContain("foo");
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect("foo" in result.data).toBe(false);
   });
 
-  test("rejects a typo of a real top-level key (`persistance` vs `persistence`)", () => {
+  test("strips a typo of a real top-level key without error", () => {
     const result = configurationSchema.safeParse({
       persistance: { backend: "sqlite" },
     });
+    expect(result.success).toBe(true);
+    if (!result.success) return;
+    expect("persistance" in result.data).toBe(false);
+  });
 
-    expect(result.success).toBe(false);
-    if (result.success) return;
+  test("KNOWN_TOP_LEVEL_KEYS detects unknown keys for warning", () => {
+    const unknownKeys = ["foo", "persistance"].filter((k) => !KNOWN_TOP_LEVEL_KEYS.has(k));
+    expect(unknownKeys).toContain("foo");
+    expect(unknownKeys).toContain("persistance");
+  });
 
-    const unrecognizedIssues = result.error.issues.filter(
-      (issue) => issue.code === UNRECOGNIZED_KEYS
-    );
-    const allUnrecognizedKeys = unrecognizedIssues.flatMap((issue) =>
-      "keys" in issue && Array.isArray(issue.keys) ? issue.keys : []
-    );
-    expect(allUnrecognizedKeys).toContain("persistance");
+  test("KNOWN_TOP_LEVEL_KEYS includes all schema keys", () => {
+    expect(KNOWN_TOP_LEVEL_KEYS.has("persistence")).toBe(true);
+    expect(KNOWN_TOP_LEVEL_KEYS.has("github")).toBe(true);
+    expect(KNOWN_TOP_LEVEL_KEYS.has("railway")).toBe(true);
   });
 
   test("accepts the optional `version` top-level key", () => {

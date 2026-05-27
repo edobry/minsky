@@ -63,15 +63,17 @@ import {
  * This is the root schema that defines the entire configuration structure
  * for the Minsky application, combining all domain-specific configurations.
  *
- * Strictness policy (mt#1612): the top-level shape is `strictObject` so
- * unknown top-level keys (typos, vestige fields) are rejected at load time.
- * Nested schemas inherit whatever strictness their domain file declares —
- * we deliberately do NOT auto-strict every nested object, because some
- * nested shapes (provider config blocks, backendConfig records) intentionally
- * accept open-ended keys. Audit and tighten on a case-by-case basis when
- * nested unknown-key drift becomes a known footgun.
+ * Strictness policy (mt#2161, replaces mt#1612): the top-level shape uses
+ * `object` (not `strictObject`) so unknown top-level keys are STRIPPED and
+ * WARNED, not rejected. This makes the config file resilient to multi-version
+ * writers (cockpit credential widget, CLI, MCP servers at different code
+ * versions) while preserving typo detection via the warning signal. Nested
+ * schemas inherit whatever strictness their domain file declares.
+ *
+ * The `KNOWN_TOP_LEVEL_KEYS` export lets the loader detect and warn about
+ * stripped keys before they vanish silently.
  */
-export const configurationSchema = z.strictObject({
+export const configurationSchema = z.object({
   // Schema version marker for the config-file format. Optional;
   // present in user/repo YAML files written before this field was tracked.
   version: z.number().optional(),
@@ -130,9 +132,12 @@ export const configurationSchema = z.strictObject({
   // Observability provider configuration (mt#1791 — Braintrust + future providers)
   observability: observabilityConfigSchema,
 });
-// strictObject: unknown top-level keys are rejected with an `unrecognized_keys`
-// ZodError. Catches typos (e.g. `persistance:` for `persistence:`) and stale
-// vestigial keys at load time instead of silently stripping them.
+
+/**
+ * Known top-level keys in the config schema. The loader uses this to detect
+ * and warn about unknown keys before Zod strips them (mt#2161).
+ */
+export const KNOWN_TOP_LEVEL_KEYS = new Set(Object.keys(configurationSchema.shape));
 
 /**
  * Configuration type inferred from the schema
