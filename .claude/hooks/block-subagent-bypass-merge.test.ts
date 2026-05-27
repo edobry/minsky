@@ -3,6 +3,7 @@ import {
   isSubagentContext,
   isGhApiPutMerge,
   findGhApiPutMergeSegment,
+  BYPASS_MERGE_OVERRIDE_ENV,
 } from "./block-subagent-bypass-merge";
 import type { ToolHookInput } from "./types";
 
@@ -217,5 +218,15 @@ describe("env-var URL substitution detection", () => {
     const cmd = 'gh api -X PUT "${API_URL}/repos/owner/repo/pulls/123/merge"';
     // The endpoint pattern matches after unquoting
     expect(findGhApiPutMergeSegment(cmd)).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Override env var constant
+// ---------------------------------------------------------------------------
+
+describe("BYPASS_MERGE_OVERRIDE_ENV", () => {
+  it("exports the correct env var name", () => {
+    expect(BYPASS_MERGE_OVERRIDE_ENV).toBe("MINSKY_FORCE_BYPASS");
   });
 });
