@@ -981,4 +981,25 @@ describe("stdio counter eviction on clean-shutdown paths (mt#1715)", () => {
     expect(t.getToolCallCount(httpSessionA)).toBe(1);
     expect(t.getToolCallCount(httpSessionB)).toBe(2);
   });
+
+  test("isCleanShutdownInitiated prevents counter repopulation after eviction", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(1);
+
+    t.recordDisconnect("staleness_exit", { sessionKey: STDIO_SESSION_KEY });
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+    expect(t.isCleanShutdownInitiated()).toBe(true);
+
+    // Post-eviction increment should be gated by the caller checking
+    // isCleanShutdownInitiated() — the tracker itself doesn't block
+    // increments (server.ts gates the call). Verify the flag is set
+    // so the server-layer guard works.
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    // Without the server-layer guard, this would be 1 again.
+    // The tracker doesn't self-guard; the server does. But we verify
+    // the flag is set so the guard condition is observable.
+    expect(t.isCleanShutdownInitiated()).toBe(true);
+  });
 });

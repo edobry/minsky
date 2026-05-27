@@ -915,7 +915,11 @@ export class MinskyMCPServer {
       // and one session's tool call doesn't inflate another's count. This is
       // the discriminating signal: 0 calls → "helper" (harness helper / hook
       // spawner / probe), 1+ calls → "main_session".
-      this.disconnectTracker.incrementToolCallCount(sessionKey);
+      // mt#1715: skip increment after clean shutdown to prevent repopulating
+      // an already-evicted counter during the 200ms exit delay or signal drain.
+      if (!this.disconnectTracker.isCleanShutdownInitiated()) {
+        this.disconnectTracker.incrementToolCallCount(sessionKey);
+      }
 
       const trackingId = this.nextRequestId++;
       this.inFlightRequests.set(trackingId, Date.now());
