@@ -2,7 +2,7 @@
  * HomePage — the "/" route.
  *
  * Structure (operator journey order):
- *   1. System section  — compact status cards (BasicHealth, Attention, Credentials)
+ *   1. System section  — compact status cards (BasicHealth, Attention, CredentialsSummary)
  *      inside a subtle bordered panel; rendered by App.tsx's HomePage component.
  *      Full interactive tools (Context Inspector, etc.) have their own page routes.
  *   2. Nav section — generous tiles linking to the feature pages.
