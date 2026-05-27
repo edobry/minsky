@@ -7,6 +7,7 @@ export const embeddingsConfigSchema = z
     dimension: z.number().optional(),
     normalize: z.boolean().default(false),
     autoIndex: z.boolean().default(true),
+    fallbackProvider: z.string().optional(),
   })
   .default({
     provider: "openai",

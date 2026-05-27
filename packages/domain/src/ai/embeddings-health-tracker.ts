@@ -26,6 +26,8 @@ export interface EmbeddingsHealthSummary {
   lastErrorAt: string | null;
   errorCountLastHour: number;
   degradedReason: string | null;
+  fallbackActive: boolean;
+  fallbackProvider: string | null;
 }
 
 const MAX_EVENTS = 100;
@@ -40,6 +42,8 @@ export class EmbeddingsHealthTracker {
   private currentStatus: EmbeddingsHealthStatus = "healthy";
   private currentReason: string | null = null;
   private provider = "unknown";
+  private fallbackActive = false;
+  private fallbackProviderName: string | null = null;
 
   private constructor() {}
 
@@ -56,6 +60,11 @@ export class EmbeddingsHealthTracker {
 
   setEventEmitter(emitter: EventEmitter): void {
     this.eventEmitter = emitter;
+  }
+
+  setFallbackActive(fallbackProvider: string): void {
+    this.fallbackActive = true;
+    this.fallbackProviderName = fallbackProvider;
   }
 
   async recordError(provider: string, errorCode: string, message: string): Promise<void> {
@@ -97,6 +106,8 @@ export class EmbeddingsHealthTracker {
     this.currentStatus = "healthy";
     this.currentReason = null;
     this.emittedForCurrentDegradation = false;
+    this.fallbackActive = false;
+    this.fallbackProviderName = null;
   }
 
   getSummary(): EmbeddingsHealthSummary {
@@ -108,6 +119,8 @@ export class EmbeddingsHealthTracker {
       lastErrorAt: lastEvent?.timestamp ?? null,
       errorCountLastHour: this.countErrorsInWindow(ONE_HOUR_MS),
       degradedReason: this.currentReason,
+      fallbackActive: this.fallbackActive,
+      fallbackProvider: this.fallbackProviderName,
     };
   }
 
