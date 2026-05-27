@@ -32,7 +32,15 @@ import {
   pruneOldRows,
   extractPersistedHeaders,
 } from "./webhook-events";
-import { createOctokit } from "./github-client";
+import { createOctokit, getAppIdentity } from "./github-client";
+import {
+  upsertStatusComment,
+  buildPendingBody,
+  buildInProgressBody,
+  buildCompletedBody,
+  buildErrorBody,
+  buildSkippedBody,
+} from "./status-comment";
 
 interface PullRequestPayload {
   pull_request: {
@@ -145,6 +153,36 @@ export function createApp(
   /** Module-scope set of in-flight review promises within this app instance. */
   const inflight: Set<Promise<unknown>> = new Set();
 
+  async function updateStatusCommentSafe(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    body: string
+  ): Promise<void> {
+    try {
+      const octokit = await createOctokit(cfg);
+      const { login: botLogin } = await getAppIdentity(cfg);
+      await upsertStatusComment(
+        octokit,
+        owner,
+        repo,
+        prNumber,
+        body,
+        botLogin,
+        cfg.githubTimeoutMs
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.warn("status_comment.update_failed", {
+        event: "status_comment.update_failed",
+        pr: prNumber,
+        owner,
+        repo,
+        error: message,
+      });
+    }
+  }
+
   /**
    * MCP tool caller for the at-merge webhook handler.
    *
@@ -204,6 +242,9 @@ export function createApp(
       void updateOutcome(db, deliveryId, "reviewer_called");
     }
 
+    void updateStatusCommentSafe(owner, repo, prNumber, buildInProgressBody());
+
+    const reviewStartMs = Date.now();
     const promise: Promise<unknown> = runReviewFn(
       cfg,
       owner,
@@ -241,6 +282,20 @@ export function createApp(
           taskSpecFetch: result.taskSpecFetch,
         });
 
+        const durationMs = Date.now() - reviewStartMs;
+        if (result.status === "reviewed") {
+          void updateStatusCommentSafe(
+            owner,
+            repo,
+            prNumber,
+            buildCompletedBody(result, durationMs)
+          );
+        } else if (result.status === "skipped") {
+          void updateStatusCommentSafe(owner, repo, prNumber, buildSkippedBody(result.reason));
+        } else {
+          void updateStatusCommentSafe(owner, repo, prNumber, buildErrorBody(result.reason));
+        }
+
         // Persist final outcome: review_submitted on success, failed_at_reviewer otherwise.
         if (db !== undefined) {
           const outcome = result.status === "reviewed" ? "review_submitted" : "failed_at_reviewer";
@@ -260,6 +315,9 @@ export function createApp(
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         const stack = err instanceof Error ? err.stack?.slice(0, 500) : undefined;
+
+        void updateStatusCommentSafe(owner, repo, prNumber, buildErrorBody(message));
+
         log.error("review_error", {
           event: "review_error",
           delivery_id: deliveryId,
@@ -322,6 +380,8 @@ export function createApp(
       }
       return;
     }
+
+    await updateStatusCommentSafe(owner, repo, prNumber, buildPendingBody());
 
     startDetachedReview(
       owner,
@@ -618,6 +678,8 @@ export function createApp(
       triggeredBy: commentUser?.["login"] as string | undefined,
     });
 
+    await updateStatusCommentSafe(repoOwner, repoName, prNumber, buildPendingBody());
+
     // Fetch the PR to get the current HEAD sha and author.
     // Duplicate-review prevention: runReview acquires an inflight marker
     // (mt#1907) keyed on PR + HEAD sha; concurrent /review comments for
@@ -845,6 +907,8 @@ export function createApp(
               headers: { "content-type": "application/json" },
             });
           }
+
+          await updateStatusCommentSafe(owner, repo, prNumber, buildPendingBody());
 
           startDetachedReview(
             owner,
