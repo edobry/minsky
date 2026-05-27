@@ -18,18 +18,14 @@ async function fetchCoverage(): Promise<EmbeddingsHealthPayload["coverage"]> {
   const svc = await getSharedPersistenceService();
   const provider = svc.getProvider();
 
-  if (
-    !("getDatabaseConnection" in provider) ||
-    typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-  ) {
+  if (!provider.capabilities.sql) {
     return null;
   }
 
-  const sqlProvider = provider as {
-    getRawSqlConnection?: () => Promise<import("postgres").Sql | null>;
-  };
-  const sql = await sqlProvider.getRawSqlConnection?.();
-  if (!sql) return null;
+  const rawSql = await provider.getRawSqlConnection?.();
+  if (!rawSql) return null;
+
+  const sql = rawSql as import("postgres").Sql;
 
   const [tasksTotal, tasksIndexed, memoriesTotal, memoriesIndexed] = await Promise.all([
     sql.unsafe("SELECT count(*)::int AS cnt FROM tasks"),
