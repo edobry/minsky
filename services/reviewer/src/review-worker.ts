@@ -107,6 +107,7 @@ import {
   type DiffScopeDowngradeAuditEntry,
   type FixCommitLineRangeMap,
 } from "./diff-scoper";
+import { fetchAndVerifyDocImpact } from "./doc-impact-verifier";
 import { acquireMarker, releaseMarker } from "./inflight-marker";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import { log } from "./logger";
@@ -1563,6 +1564,29 @@ async function runReviewBody(
       });
     }
 
+    // mt#2154: doc-impact verification — check that docs listed in affectedDocs
+    // actually reference the changed surfaces before flagging them as BLOCKING.
+    const docVerification = await fetchAndVerifyDocImpact(
+      output.toolCalls,
+      pr.filesChanged,
+      pr.diff,
+      async (docPath) => {
+        const result = await readFileAtRef(octokit, pr.headOwner, pr.headRepo, docPath, pr.headSha);
+        return result !== null && result.kind === "text" ? result.content : null;
+      }
+    );
+    const toolCallsForRecovery = docVerification.toolCalls;
+
+    if (docVerification.verificationsApplied) {
+      log.info("reviewer.doc_impact_verification", {
+        event: "reviewer.doc_impact_verification",
+        prUrl: `https://github.com/${owner}/${repo}/pull/${prNumber}`,
+        sha: pr.headSha,
+        removedDocs: docVerification.removedDocs,
+        removedCount: docVerification.removedDocs.length,
+      });
+    }
+
     // Delegate the recovery + reconciliation + convergence + composition to the
     // pure helper applyRecoveryAndCompose (PR #922 R7-R13: addresses the bot's
     // persistent "no integration tests" complaint at the unit level — see
@@ -1572,7 +1596,7 @@ async function runReviewBody(
     // file, severity, line?, lineEnd?), so we can pass it directly as
     // priorFindingsForConvergence without re-parsing the prior review bodies.
     const recoveryResult = applyRecoveryAndCompose(
-      output.toolCalls,
+      toolCallsForRecovery,
       priorFlatFindings,
       pr.diff,
       monotonicityRecoveryEnabled,
