@@ -4675,12 +4675,12 @@
               "options": [
                 {
                   "flags": ["--owner"],
-                  "description": "GitHub repo owner (default: 'edobry')",
+                  "description": "GitHub repo owner",
                   "takesValue": true
                 },
                 {
                   "flags": ["--repo"],
-                  "description": "GitHub repo name (default: 'minsky')",
+                  "description": "GitHub repo name",
                   "takesValue": true
                 }
               ]

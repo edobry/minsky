@@ -19,7 +19,11 @@ import { mkdtempSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { createConfigWriter } from "@minsky/domain/configuration/config-writer";
-import { KNOWN_PROVIDER_IDS, getCredentialProvider } from "@minsky/domain/credentials";
+import {
+  KNOWN_PROVIDER_IDS,
+  getCredentialProvider,
+  listCredentialProviders,
+} from "@minsky/domain/credentials";
 import { createCockpitServer } from "./server";
 import type { CredentialModuleOverride } from "./server";
 
@@ -85,6 +89,7 @@ function makeRealWriterOverride(configDir: string): CredentialModuleOverride {
     },
     listCredentials: async () => [],
     removeCredential: async (_provider: string) => ({ removed: true }),
+    listCredentialProviders: () => listCredentialProviders(),
   };
 }
 
