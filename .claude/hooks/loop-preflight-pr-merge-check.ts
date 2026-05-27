@@ -117,7 +117,9 @@ export function extractTaskIds(text: string): string[] {
   let m: RegExpExecArray | null;
   while ((m = taskRe.exec(text)) !== null) {
     // Normalize to lowercase prefix to deduplicate case variants
-    const normalized = `${m[1].toLowerCase()}#${m[2]}`;
+    const [, prefix, num] = m;
+    if (!prefix || !num) continue;
+    const normalized = `${prefix.toLowerCase()}#${num}`;
     if (!seen.has(normalized)) {
       seen.add(normalized);
       results.push(normalized);

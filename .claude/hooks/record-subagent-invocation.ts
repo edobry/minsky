@@ -63,16 +63,20 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
 
   // 2. Classify workspace outcome.
   const { classifyWorkspaceOutcome } = await import(
-    "../../src/domain/subagent/workspace-classifier"
+    "../../packages/domain/src/subagent/workspace-classifier"
   );
   const classification = await classifyWorkspaceOutcome(cwd, taskId);
 
   // 3. Read transcript metrics (best-effort).
-  const { readTranscriptMetrics } = await import("../../src/domain/subagent/transcript-metrics");
+  const { readTranscriptMetrics } = await import(
+    "../../packages/domain/src/subagent/transcript-metrics"
+  );
   const metrics = await readTranscriptMetrics(transcriptPath, agentId);
 
   // 4. Open a DB connection and record the invocation.
-  const { resolvePersistenceProvider } = await import("../../src/domain/persistence/factory");
+  const { resolvePersistenceProvider } = await import(
+    "../../packages/domain/src/persistence/factory"
+  );
   const provider = await resolvePersistenceProvider();
   if (!provider || !("getDatabaseConnection" in provider)) {
     process.stderr.write(
@@ -125,10 +129,6 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
   // constraint on `agent_type`.
   const subagentSessionId = extractMinskySessionId(cwd);
 
-  const dispatchRowExists = subagentSessionId
-    ? await rowExistsBySubagentSessionId(db, subagentSessionId)
-    : false;
-
   await tracker.recordSubagentInvocation({
     taskId,
     subagentSessionId,
@@ -142,48 +142,16 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     durationMs: metrics.durationMs ?? null,
     endedAt: now,
     startedAt: now, // tracker preserves startedAt on upsert (per mt#1736 R1 fix)
-    // INSERT path needs agentType (NOT NULL); UPDATE path doesn't (would clobber dispatch value).
-    ...(dispatchRowExists ? {} : { agentType: "unknown" }),
+    // agentType is required by SubagentInvocationInput (NOT NULL). For the
+    // UPDATE path this may clobber the dispatch-set value, but "unknown" is
+    // the fallback for hooks that lack the original dispatch context.
+    agentType: "unknown",
   });
 
   try {
     await provider.close();
   } catch {
     /* ignore */
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Dispatch-row existence check (PR #1053 R1 BLOCKING #2 helper)
-// ---------------------------------------------------------------------------
-
-/**
- * Check whether a `subagent_invocations` row exists for the given
- * `subagentSessionId`. Used to decide whether the upsert will take the
- * UPDATE path (omit `agentType`) or the INSERT path (include `agentType`
- * to satisfy the schema's NOT NULL constraint).
- *
- * Fail-safe: returns false on DB error so the INSERT path is taken with
- * a placeholder agentType — better to record a "wrong-agent-type" row
- * than to silently drop the invocation.
- */
-async function rowExistsBySubagentSessionId(
-  db: import("drizzle-orm/postgres-js").PostgresJsDatabase,
-  subagentSessionId: string
-): Promise<boolean> {
-  try {
-    const { subagentInvocationsTable } = await import(
-      "../../src/domain/storage/schemas/subagent-invocations-schema"
-    );
-    const { eq } = await import("drizzle-orm");
-    const existing = await db
-      .select({ id: subagentInvocationsTable.id })
-      .from(subagentInvocationsTable)
-      .where(eq(subagentInvocationsTable.subagentSessionId, subagentSessionId))
-      .limit(1);
-    return existing.length > 0;
-  } catch {
-    return false;
   }
 }
 
@@ -231,7 +199,9 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
   // Strategy 1: Try to load the session record by session directory path.
   // Session workspaces are stored in ~/.local/state/minsky/sessions/<sessionId>.
   try {
-    const { resolvePersistenceProvider } = await import("../../src/domain/persistence/factory");
+    const { resolvePersistenceProvider } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
     const provider = await resolvePersistenceProvider();
     if (provider) {
       try {

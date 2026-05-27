@@ -345,6 +345,7 @@ describe("dispatchBypassCheck — deny-on-failure (mt#1951 R1 BLOCKING #3)", () 
     agentId: undefined,
     branchProtectionFetch: () => unreachableExec,
     checkRunsFetch: () => unreachableExec,
+    prInfoLookup: () => unreachableExec as unknown as PrInfoLookupResult,
   };
 
   it("DENIES when segment is bypass-shaped but owner/repo cannot be parsed (env-var URL)", () => {

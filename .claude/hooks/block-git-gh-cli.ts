@@ -413,7 +413,9 @@ const ENV_VAR_RE = /^[A-Z_][A-Z0-9_]*=\S*/;
  */
 export function stripEnvVarAssignments(tokens: string[]): string[] {
   let i = 0;
-  while (i < tokens.length && ENV_VAR_RE.test(tokens[i])) {
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token === undefined || !ENV_VAR_RE.test(token)) break;
     i++;
   }
   return tokens.slice(i);
@@ -541,6 +543,7 @@ export function stripSurroundingQuotes(token: string): string {
 export function findGhApiMethod(args: string[]): string {
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
+    if (!arg) continue;
     // Separate-tokens form: -X VALUE / --method VALUE
     if (arg === "-X" || arg === "--method") {
       return (args[i + 1] ?? "GET").toUpperCase();
@@ -573,6 +576,7 @@ export function findGhApiEndpoint(args: string[]): string | null {
   let i = 1; // skip "api"
   while (i < args.length) {
     const arg = args[i];
+    if (!arg) break;
     if (arg.startsWith("-")) {
       // Value-taking flag with separate value token: -f merge_method=merge
       if (GH_API_VALUE_FLAGS.has(arg)) {

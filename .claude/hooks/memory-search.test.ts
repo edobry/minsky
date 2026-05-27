@@ -223,8 +223,8 @@ describe("parseSearchOutput", () => {
     const parsed = parseSearchOutput(stdout);
     expect(parsed).not.toBe(null);
     expect(parsed?.results).toHaveLength(1);
-    expect(parsed?.results[0].score).toBe(0.85);
-    expect(parsed?.results[0].record.name).toBe("Test memory");
+    expect(parsed?.results[0]?.score).toBe(0.85);
+    expect(parsed?.results[0]?.record.name).toBe("Test memory");
     expect(parsed?.backend).toBe("embeddings");
     expect(parsed?.degraded).toBe(false);
   });
@@ -297,8 +297,8 @@ describe("parseSearchOutput", () => {
     const parsed = parseSearchOutput(drizzleNoticePrefix + responseJson);
     expect(parsed).not.toBe(null);
     expect(parsed?.results).toHaveLength(1);
-    expect(parsed?.results[0].score).toBe(0.42);
-    expect(parsed?.results[0].record.id).toBe(VALID_RECORD.id);
+    expect(parsed?.results[0]?.score).toBe(0.42);
+    expect(parsed?.results[0]?.record.id).toBe(VALID_RECORD.id);
     expect(parsed?.backend).toBe("embeddings");
     expect(parsed?.degraded).toBe(false);
   });
@@ -332,7 +332,7 @@ describe("parseSearchOutput", () => {
     const parsed = parseSearchOutput(stdout);
     expect(parsed).not.toBe(null);
     expect(parsed?.results).toHaveLength(1);
-    expect(parsed?.results[0].score).toBe(0.55);
+    expect(parsed?.results[0]?.score).toBe(0.55);
     expect(parsed?.backend).toBe("embeddings");
   });
 
@@ -365,7 +365,7 @@ describe("parseSearchOutput", () => {
     const parsed = parseSearchOutput(stdout);
     expect(parsed).not.toBe(null);
     expect(parsed?.results).toHaveLength(1);
-    expect(parsed?.results[0].score).toBe(0.9);
+    expect(parsed?.results[0]?.score).toBe(0.9);
   });
 
   it("drops malformed result entries (missing fields) but keeps valid ones", () => {
@@ -381,7 +381,7 @@ describe("parseSearchOutput", () => {
     });
     const parsed = parseSearchOutput(stdout);
     expect(parsed?.results).toHaveLength(1);
-    expect(parsed?.results[0].score).toBe(0.9);
+    expect(parsed?.results[0]?.score).toBe(0.9);
   });
 
   it("normalizes unknown backend to 'none'", () => {
@@ -688,8 +688,8 @@ describe("writeLog", () => {
     );
     const lines = (fs.files.get("/mock/multi.log") ?? "").trim().split("\n");
     expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]).promptPrefix).toBe("p1");
-    expect(JSON.parse(lines[1]).promptPrefix).toBe("p2");
+    expect(JSON.parse(lines[0] ?? "{}").promptPrefix).toBe("p1");
+    expect(JSON.parse(lines[1] ?? "{}").promptPrefix).toBe("p2");
   });
 
   it("does not throw when fs operations fail", () => {
@@ -701,6 +701,9 @@ describe("writeLog", () => {
       },
       appendFileSync: () => {
         throw new Error("append failed");
+      },
+      unlinkSync: () => {
+        throw new Error("unlink failed");
       },
     };
     expect(() => {

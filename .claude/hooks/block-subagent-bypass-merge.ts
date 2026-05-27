@@ -76,6 +76,7 @@ const PR_MERGE_ENDPOINT_RE = /\/pulls\/\d+\/merge$/;
 function findGhApiMethod(args: string[]): string {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (!arg) continue;
     if (arg === "-X" || arg === "--method") {
       return (args[i + 1] ?? "GET").toUpperCase();
     }
