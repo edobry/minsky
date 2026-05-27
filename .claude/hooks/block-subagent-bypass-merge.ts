@@ -208,7 +208,7 @@ export function findGhApiPutMergeSegment(command: string): string | null {
 export const BYPASS_MERGE_OVERRIDE_ENV = "MINSKY_FORCE_BYPASS";
 
 function isOverrideActive(): boolean {
-  const val = process.env[BYPASS_MERGE_OVERRIDE_ENV];
+  const val = process.env[BYPASS_MERGE_OVERRIDE_ENV]?.toLowerCase();
   return val === "1" || val === "true" || val === "yes";
 }
 
