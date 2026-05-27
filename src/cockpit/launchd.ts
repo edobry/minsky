@@ -219,7 +219,8 @@ export async function stopDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<vo
     // May already be unloaded
   }
 
-  // Verify the daemon actually stopped (up to 3s)
+  // Verify the daemon actually stopped (up to 3s).
+  // Loop continues while health endpoint responds; breaks when it fails.
   for (let i = 0; i < 6; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try {
@@ -227,7 +228,9 @@ export async function stopDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<vo
         signal: AbortSignal.timeout(500),
       });
       if (!resp.ok) break;
+      // Still responding — keep waiting
     } catch {
+      // Health check failed — daemon is down
       break;
     }
   }
@@ -249,14 +252,18 @@ export async function restartDaemon(port: number = DEFAULT_DAEMON_PORT): Promise
     // May not be loaded
   }
 
-  // Wait for the process to actually stop before reloading
+  // Wait for the process to actually stop before reloading.
+  // Loop continues while health endpoint responds; breaks when it fails.
   for (let i = 0; i < 6; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try {
-      await fetch(`http://localhost:${port}/api/health`, {
+      const resp = await fetch(`http://localhost:${port}/api/health`, {
         signal: AbortSignal.timeout(500),
       });
+      if (!resp.ok) break;
+      // Still responding — keep waiting
     } catch {
+      // Health check failed — daemon is down
       break;
     }
   }
