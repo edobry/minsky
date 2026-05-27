@@ -25,6 +25,7 @@ interface ConsumerCoverage {
   coveragePct: number;
   lastIndexed: string | null;
   hasDomainTable: boolean;
+  error?: string;
 }
 
 interface EmbeddingsOverview {
@@ -204,6 +205,11 @@ function CoverageTable({
                     {CONSUMER_LABELS[c.consumer] ?? c.consumer}
                     {!c.hasDomainTable && (
                       <span className="ml-1.5 text-xs text-muted-foreground">(standalone)</span>
+                    )}
+                    {c.error && (
+                      <span className="ml-1.5 text-xs text-destructive" title={c.error}>
+                        (query error)
+                      </span>
                     )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{c.total}</td>

@@ -12,6 +12,8 @@ export interface ConsumerCoverage {
   lastIndexed: string | null;
   /** Whether total/missing/orphaned are meaningful (false for self-contained tables) */
   hasDomainTable: boolean;
+  /** Present when the query failed — surfaces the error for diagnostics */
+  error?: string;
 }
 
 export interface EmbeddingsOverview {
@@ -125,9 +127,8 @@ export async function getEmbeddingsOverview(db: PostgresJsDatabase): Promise<Emb
     try {
       consumers.push(await queryCoverage(db, config));
     } catch (err) {
-      log.debug(`Failed to query coverage for ${config.consumer}`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to query coverage for ${config.consumer}: ${errorMsg}`);
       consumers.push({
         consumer: config.consumer,
         total: 0,
@@ -137,6 +138,7 @@ export async function getEmbeddingsOverview(db: PostgresJsDatabase): Promise<Emb
         coveragePct: 0,
         lastIndexed: null,
         hasDomainTable: !!config.domainTable,
+        error: errorMsg,
       });
     }
   }
