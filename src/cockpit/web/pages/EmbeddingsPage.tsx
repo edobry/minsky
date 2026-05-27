@@ -209,17 +209,21 @@ function CoverageTable({
                   <td className="py-2 text-right tabular-nums">{c.total}</td>
                   <td className="py-2 text-right tabular-nums">{c.indexed}</td>
                   <td className="py-2 text-right tabular-nums">
-                    <span
-                      className={cn(
-                        c.hasDomainTable && c.coveragePct < 90
-                          ? "text-amber-400"
-                          : c.hasDomainTable && c.coveragePct < 100
-                            ? "text-muted-foreground"
-                            : "text-green-400"
-                      )}
-                    >
-                      {c.coveragePct}%
-                    </span>
+                    {c.hasDomainTable ? (
+                      <span
+                        className={cn(
+                          c.coveragePct < 90
+                            ? "text-amber-400"
+                            : c.coveragePct < 100
+                              ? "text-muted-foreground"
+                              : "text-green-400"
+                        )}
+                      >
+                        {c.coveragePct}%
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/50">—</span>
+                    )}
                   </td>
                   <td className="py-2 text-right tabular-nums">
                     {c.hasDomainTable ? (

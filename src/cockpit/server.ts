@@ -1368,9 +1368,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         res.json({ errors: [] });
         return;
       }
-      const limit = parseInt(String(req.query["limit"] ?? "50"), 10);
+      const parsed = parseInt(String(req.query["limit"] ?? "50"), 10);
+      const limit = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 200) : 50;
       const { getEmbeddingsErrors } = await import("./embeddings-api");
-      const errors = await getEmbeddingsErrors(db, Math.min(limit, 200));
+      const errors = await getEmbeddingsErrors(db, limit);
       res.json({ errors });
     } catch (err) {
       log.error("[embeddings] GET /api/embeddings/errors error", {
@@ -1392,8 +1393,18 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         });
         return;
       }
-      const { exec } = await import("child_process");
-      exec(`bun src/cli.ts ${cmd}`, { cwd: process.cwd() }, (err) => {
+
+      const cliEntry = path.join(process.cwd(), "src", "cli.ts");
+      if (!fs.existsSync(cliEntry)) {
+        res.status(503).json({
+          error: "Reindex unavailable: source tree not found at expected location",
+        });
+        return;
+      }
+
+      const { execFile } = await import("child_process");
+      const args = cmd.split(" ");
+      execFile("bun", [cliEntry, ...args], { cwd: process.cwd() }, (err) => {
         if (err) {
           log.warn(`[embeddings] reindex ${consumer} exited with error`, {
             error: err.message,
