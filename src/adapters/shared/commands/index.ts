@@ -22,6 +22,7 @@ import { registerToolsCommands } from "./tools";
 import { registerAsksCommands } from "./asks";
 import { registerPrWatchCommands } from "./pr-watch";
 import { registerReviewerWatchCommands } from "./reviewer-watch";
+import { registerReviewerRetriggerCommands } from "./reviewer-retrigger";
 import { registerChangesetCommands } from "./changeset";
 import { registerValidateCommands } from "./validate";
 import { registerMcpCommands } from "./mcp";
@@ -96,6 +97,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register reviewer-watch commands (local missed-review alerter — mt#1310)
   registerReviewerWatchCommands();
+
+  // Register reviewer-retrigger command (comment-command retrigger — mt#2127)
+  registerReviewerRetriggerCommands();
 
   // Register changeset commands
   registerChangesetCommands();
@@ -179,6 +183,7 @@ export {
   registerAsksCommands,
   registerPrWatchCommands,
   registerReviewerWatchCommands,
+  registerReviewerRetriggerCommands,
   registerDeploymentCommands,
   registerChangesetCommands,
   registerValidateCommands,
