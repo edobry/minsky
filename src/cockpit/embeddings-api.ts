@@ -93,7 +93,7 @@ async function queryCoverage(
   const missingResult = await db.execute<{ cnt: number }>(
     sql.raw(
       `SELECT count(*)::int AS cnt FROM "${config.domainTable}" d` +
-        ` LEFT JOIN "${config.embeddingsTable}" e ON d."${config.domainIdCol}" = e."${config.embeddingsIdCol}"` +
+        ` LEFT JOIN "${config.embeddingsTable}" e ON d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}"::text` +
         ` WHERE e."${config.embeddingsIdCol}" IS NULL`
     )
   );
@@ -102,7 +102,7 @@ async function queryCoverage(
   const orphanedResult = await db.execute<{ cnt: number }>(
     sql.raw(
       `SELECT count(*)::int AS cnt FROM "${config.embeddingsTable}" e` +
-        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.domainTable}" d WHERE d."${config.domainIdCol}" = e."${config.embeddingsIdCol}")`
+        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.domainTable}" d WHERE d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}"::text)`
     )
   );
   const orphaned = orphanedResult[0]?.cnt ?? 0;
