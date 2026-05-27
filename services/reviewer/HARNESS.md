@@ -19,14 +19,15 @@ rate-limit budget from the user's interactive work.
 
 **Option A: Reuse the reviewer App token (simplest)**
 
-The reviewer service already has a GitHub App (`MINSKY_REVIEWER_APP_ID`). You can
-generate an installation token from it:
+The reviewer service already has a GitHub App (`MINSKY_REVIEWER_APP_ID`). Generate
+an installation token via the GitHub API using the App's JWT. See
+[GitHub Docs: Generating an installation access token](https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app)
+for the JWT generation steps, then:
 
 ```bash
-# Get the installation token from the reviewer App
 export OCTOKIT_AUTH=$(gh api \
-  -H "Authorization: Bearer $(scripts/generate-jwt.sh)" \
-  /app/installations/{installation_id}/access_tokens \
+  -H "Authorization: Bearer <your-jwt>" \
+  /app/installations/<installation-id>/access_tokens \
   --jq '.token')
 ```
 

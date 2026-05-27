@@ -154,10 +154,25 @@ interface RunResult {
 // Environment gating
 // ---------------------------------------------------------------------------
 
-import { resolveGitHubTokenOrSkip } from "./harness-auth";
+import { resolveGitHubToken, getAuthSource } from "./harness-auth";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GITHUB_TOKEN = resolveGitHubTokenOrSkip();
+const GITHUB_TOKEN = resolveGitHubToken();
+
+const isDryRunInvocation = process.argv.includes("--dry-run");
+if (!GITHUB_TOKEN) {
+  if (isDryRunInvocation) {
+    console.log(
+      "SKIPPED: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Dry-run requires GitHub API access for " +
+        "prior-review fetches and corpus enumeration. Treating as skipped (exit 0)."
+    );
+    process.exit(0);
+  }
+  console.error(
+    "ERROR: Neither OCTOKIT_AUTH nor GITHUB_TOKEN set. Live measurement requires GitHub API access."
+  );
+  process.exit(1);
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1023,6 +1038,7 @@ async function main() {
 
   console.log(`=== Calibration Measurement: ${mode.toUpperCase()} mode (mt#1493) ===`);
   console.log(`Model: ${model}`);
+  console.log(`GitHub auth: ${getAuthSource()}`);
   console.log(`Attempts per entry: ${attemptsPerEntry}`);
   console.log(`Dry-run: ${dryRun}`);
   if (!dryRun) {

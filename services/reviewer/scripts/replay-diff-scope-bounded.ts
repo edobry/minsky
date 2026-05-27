@@ -50,7 +50,7 @@ if (!dbUrl) {
   process.exit(0);
 }
 
-import { resolveGitHubTokenOrSkip } from "./harness-auth";
+import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
 const githubToken = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
@@ -408,6 +408,7 @@ async function main(): Promise<void> {
 
   console.error(`=== Diff-Scope-Bounded Replay (mt#1875 Fix 3) ===`);
   console.error(`Target: ${owner}/${repo}#${prNumber}`);
+  console.error(`GitHub auth: ${getAuthSource()}`);
   console.error(`Feature: REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED`);
   console.error("");
 

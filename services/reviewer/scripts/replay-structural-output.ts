@@ -46,7 +46,7 @@ import {
 // Environment gating
 // ---------------------------------------------------------------------------
 
-import { resolveGitHubTokenOrSkip } from "./harness-auth";
+import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
@@ -225,6 +225,7 @@ async function main() {
 
   console.log("=== Structural Output CoT Leak Replay Verification ===");
   console.log(`Model: ${model}`);
+  console.log(`GitHub auth: ${getAuthSource()}`);
   console.log(`PRs: ${prNumbers.join(", ")}`);
   console.log(`Attempts per PR: ${attemptsPerPR}`);
   console.log(`Total API calls: ${prNumbers.length * attemptsPerPR}`);
