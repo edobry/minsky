@@ -13,3 +13,5 @@ export { ManifestFlowProvisioner } from "./manifest-flow-provisioner";
 export { GuidedWizardProvisioner } from "./guided-wizard-provisioner";
 export { provisionGithubApp } from "./provision";
 export { pemToPkcs8ArrayBuffer } from "./pem-utils";
+export { buildAppJwt } from "./app-jwt";
+export { updateGithubApp, type UpdateGithubAppOptions, type UpdateGithubAppResult } from "./update";
