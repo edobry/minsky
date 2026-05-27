@@ -71,7 +71,7 @@
     "LICENSE"
   ],
   "devDependencies": {
-    "@eslint/js": "9.29.0",
+    "@eslint/js": "10.0.1",
     "@modelcontextprotocol/inspector": "^0.16.2",
     "@types/bun": "^1.2.11",
     "@types/jest": "^29.5.14",
