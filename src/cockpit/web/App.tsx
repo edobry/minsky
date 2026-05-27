@@ -14,6 +14,7 @@ import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
+import { ContextInspector } from "./widgets/ContextInspector";
 import { Credentials } from "./widgets/Credentials";
 import { AgentsPage } from "./pages/AgentsPage";
 import { ContextPage } from "./pages/ContextPage";
@@ -34,6 +35,7 @@ import { PageNavTiles } from "./pages/HomePage";
 // ---------------------------------------------------------------------------
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   attention: Attention,
+  "context-inspector": ContextInspector,
   credentials: Credentials,
 };
 
