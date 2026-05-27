@@ -85,16 +85,30 @@ describe("status-comment body builders", () => {
     expect(body).toContain("APPROVED");
   });
 
-  test("buildErrorBody includes marker and error message", () => {
+  test("buildErrorBody with safe reason passes through", () => {
     const body = buildErrorBody("timeout after 120s");
     expect(body).toContain(MARKER);
     expect(body).toContain("Review failed — timeout after 120s");
     expect(body).toContain("`/review`");
   });
 
-  test("buildSkippedBody includes marker and skip reason", () => {
+  test("buildErrorBody sanitizes unsafe error messages", () => {
+    const body = buildErrorBody("ECONNREFUSED 127.0.0.1:5432 password=secret");
+    expect(body).toContain(MARKER);
+    expect(body).toContain("an internal error occurred");
+    expect(body).not.toContain("ECONNREFUSED");
+    expect(body).not.toContain("secret");
+  });
+
+  test("buildSkippedBody with safe reason passes through", () => {
     const body = buildSkippedBody("tier 1 — human-authored PR");
     expect(body).toContain(MARKER);
     expect(body).toContain("Review skipped — tier 1 — human-authored PR");
+  });
+
+  test("buildSkippedBody sanitizes unsafe reasons", () => {
+    const body = buildSkippedBody("unexpected stack trace at Object.foo");
+    expect(body).toContain("an internal error occurred");
+    expect(body).not.toContain("stack trace");
   });
 });

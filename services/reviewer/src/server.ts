@@ -692,6 +692,17 @@ export function createApp(
         pull_number: prNumber,
       });
 
+      if (pr.draft) {
+        log.info("comment_command.skip_draft", {
+          event: "comment_command.skip_draft",
+          delivery_id: deliveryId,
+          pr: prNumber,
+          owner: repoOwner,
+          repo: repoName,
+        });
+        return;
+      }
+
       startDetachedReview(
         repoOwner,
         repoName,
@@ -903,6 +914,13 @@ export function createApp(
 
           if (pr.state !== "open") {
             return new Response(JSON.stringify({ error: "PR is not open", state: pr.state }), {
+              status: 422,
+              headers: { "content-type": "application/json" },
+            });
+          }
+
+          if (pr.draft) {
+            return new Response(JSON.stringify({ error: "PR is a draft", pr: prNumber }), {
               status: 422,
               headers: { "content-type": "application/json" },
             });

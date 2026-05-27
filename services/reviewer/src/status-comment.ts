@@ -1,5 +1,6 @@
 import type { Octokit } from "@octokit/rest";
 import { withTimeout } from "./with-timeout";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 import type { ReviewResult } from "./review-worker";
 
 const STATUS_MARKER = "<!-- minsky-reviewer-status -->";
@@ -18,21 +19,33 @@ export async function findBotStatusComment(
   botLogin: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<StatusCommentRef | null> {
-  const { data: comments } = await withTimeout("github.issues.listComments", timeoutMs, (signal) =>
-    octokit.rest.issues.listComments({
-      owner,
-      repo,
-      issue_number: prNumber,
-      per_page: 100,
-      request: { signal },
-    })
-  );
+  const PER_PAGE = 100;
+  const MAX_PAGES = 10;
 
-  for (const c of comments) {
-    if (c.user?.login === botLogin && c.body?.includes(STATUS_MARKER)) {
-      return { commentId: c.id };
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const { data: comments } = await withTimeout(
+      "github.issues.listComments",
+      timeoutMs,
+      (signal) =>
+        octokit.rest.issues.listComments({
+          owner,
+          repo,
+          issue_number: prNumber,
+          per_page: PER_PAGE,
+          page,
+          request: { signal },
+        })
+    );
+
+    for (const c of comments) {
+      if (c.user?.login === botLogin && c.body?.includes(STATUS_MARKER)) {
+        return { commentId: c.id };
+      }
     }
+
+    if (comments.length < PER_PAGE) break;
   }
+
   return null;
 }
 
@@ -143,7 +156,7 @@ export function buildErrorBody(reason: string): string {
     "",
     "## Minsky Reviewer Status",
     "",
-    `Review failed — ${reason}`,
+    `Review failed — ${sanitizeReason(reason)}`,
     "",
     "### Commands",
     "- `/review` — request a fresh review",
@@ -151,9 +164,29 @@ export function buildErrorBody(reason: string): string {
 }
 
 export function buildSkippedBody(reason: string): string {
-  return [STATUS_MARKER, "", "## Minsky Reviewer Status", "", `Review skipped — ${reason}`].join(
-    "\n"
-  );
+  return [
+    STATUS_MARKER,
+    "",
+    "## Minsky Reviewer Status",
+    "",
+    `Review skipped — ${sanitizeReason(reason)}`,
+  ].join("\n");
+}
+
+const SAFE_REASON_PATTERNS = [
+  /^tier \d/i,
+  /^draft/i,
+  /^timeout/i,
+  /^routing/i,
+  /^Posted/,
+  /^skipped/i,
+  /^concurrent/i,
+];
+
+function sanitizeReason(reason: string): string {
+  const short = safeTruncate(reason, 200, "head");
+  if (SAFE_REASON_PATTERNS.some((p) => p.test(short))) return short;
+  return "an internal error occurred. Use `/review` to retry.";
 }
 
 function formatTokenCount(n: number): string {
