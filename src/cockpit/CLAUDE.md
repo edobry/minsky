@@ -67,14 +67,43 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 
 ## Operator dev loop
 
-`minsky cockpit start` writes a per-workspace state file at
-`~/.local/state/minsky/cockpit/<workspace-key>.json` (workspace key = session ID or
-`"main"`) and launches a shared dev chromium with `--remote-debugging-port=9222` for
-chrome-devtools-mcp attachment. Owners: `src/cockpit/lifecycle.ts` (state file) and
+**Dev mode (recommended for active UI work):**
+
+```bash
+minsky cockpit start --dev --port 3737
+```
+
+Starts Express API + Vite dev middleware on a single port. Frontend changes
+(React components, CSS, Tailwind classes) hot-reload via Vite HMR — no
+rebuild, no page refresh. API routes are served by Express as normal. No
+pre-built SPA bundle required.
+
+For server-side auto-restart (new API routes, server.ts changes), wrap with
+`bun --watch`:
+
+```bash
+bun --watch run src/cli.ts cockpit start --dev --port 3737
+```
+
+`bun --watch` restarts the process when imported server-side files change.
+The Vite HMR websocket reconnects automatically after restart.
+
+**Production mode (pre-built bundle):**
+
+```bash
+bun run cockpit:build && minsky cockpit start --port 3737
+```
+
+Serves the pre-built SPA from `src/cockpit/web/dist/`. Use for testing the
+production bundle or when running as a background daemon.
+
+**Shared dev chromium:** both modes launch a shared dev chromium with
+`--remote-debugging-port=9222` for chrome-devtools-mcp attachment (opt-out:
+`--no-dev-chromium`). Owners: `src/cockpit/lifecycle.ts` (state file) and
 `src/cockpit/dev-chromium.ts` (chromium spawn + state at `~/.local/state/minsky/dev-chromium.json`).
 mt#1887's port-recovery (`src/cockpit/port-recovery.ts`) reads recognition state from
-the lifecycle module so per-workspace cockpits don't false-positive each other. Opt-out:
-`--no-dev-chromium`. Full architecture: [`docs/architecture/cockpit.md#operator-dev-loop`](../../docs/architecture/cockpit.md). Tracking task: mt#1904.
+the lifecycle module so per-workspace cockpits don't false-positive each other.
+Full architecture: [`docs/architecture/cockpit.md#operator-dev-loop`](../../docs/architecture/cockpit.md). Tracking task: mt#1904.
 
 ## Future architecture decision
 

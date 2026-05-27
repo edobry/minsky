@@ -80,6 +80,8 @@ export interface CockpitServerOptions {
    * domain credentials module which writes to ~/.config/minsky/.
    */
   overrideCredentialModule?: CredentialModuleOverride;
+  /** When true, skip static/SPA asset serving — Vite middleware handles it. */
+  dev?: boolean;
 }
 
 const serverStartTime = Date.now();
@@ -1434,26 +1436,28 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
 
   // --- Static SPA assets ---
 
-  /** GET /assets/* — served from web/dist/assets */
-  if (fs.existsSync(path.join(WEB_DIST_DIR, "assets"))) {
-    app.use("/assets", express.static(path.join(WEB_DIST_DIR, "assets")));
-  }
-
-  /**
-   * SPA fallback — serve index.html for any GET that didn't match an API
-   * or asset route. Required because React Router uses the History API:
-   * a hard refresh on /agents would otherwise 404 at the server.
-   */
-  app.get("*", (_req, res) => {
-    if (fs.existsSync(INDEX_HTML)) {
-      res.sendFile(INDEX_HTML);
-    } else {
-      res.status(404).json({
-        error: "Cockpit bundle not built",
-        hint: "Run `bun run cockpit:build` first",
-      });
+  if (!opts.dev) {
+    /** GET /assets/* — served from web/dist/assets */
+    if (fs.existsSync(path.join(WEB_DIST_DIR, "assets"))) {
+      app.use("/assets", express.static(path.join(WEB_DIST_DIR, "assets")));
     }
-  });
+
+    /**
+     * SPA fallback — serve index.html for any GET that didn't match an API
+     * or asset route. Required because React Router uses the History API:
+     * a hard refresh on /agents would otherwise 404 at the server.
+     */
+    app.get("*", (_req, res) => {
+      if (fs.existsSync(INDEX_HTML)) {
+        res.sendFile(INDEX_HTML);
+      } else {
+        res.status(404).json({
+          error: "Cockpit bundle not built",
+          hint: "Run `bun run cockpit:build` first",
+        });
+      }
+    });
+  }
 
   return app;
 }

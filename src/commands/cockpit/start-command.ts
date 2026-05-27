@@ -3,6 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Command } from "commander";
 import type { Server } from "http";
+import type express from "express";
 import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
@@ -25,8 +26,7 @@ type ListenAttempt =
  * Bind-or-fail: race the 'listening' event against 'error'. EADDRINUSE is
  * classified separately from other errors so the caller can attempt recovery.
  */
-async function attemptListen(port: number): Promise<ListenAttempt> {
-  const app = createCockpitServer();
+async function attemptListen(app: express.Express, port: number): Promise<ListenAttempt> {
   const server = app.listen(port);
   return new Promise<ListenAttempt>((resolve) => {
     server.once("listening", () => resolve({ kind: "ok", server }));
@@ -68,6 +68,11 @@ export function createStartCommand(): Command {
       "Skip launching the dedicated dev chromium (used by chrome-devtools-mcp " +
         "for agent-driven UI inspection). Useful for headless / CI contexts."
     )
+    .option(
+      "--dev",
+      "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. " +
+        "Use with `bun --watch` for server-side auto-restart."
+    )
     .action(async (options) => {
       const port = parseInt(options.port, 10);
       if (isNaN(port) || port < 1 || port > 65535) {
@@ -75,8 +80,10 @@ export function createStartCommand(): Command {
         process.exit(1);
       }
 
-      // Check that the frontend bundle has been built
-      if (!fs.existsSync(COCKPIT_INDEX_HTML)) {
+      const isDev = !!options.dev;
+
+      // Check that the frontend bundle has been built (skip in dev mode)
+      if (!isDev && !fs.existsSync(COCKPIT_INDEX_HTML)) {
         console.error("Cockpit bundle not built. Run `bun run cockpit:build` first.");
         process.exit(1);
       }
@@ -86,7 +93,26 @@ export function createStartCommand(): Command {
       // initServerSseBroker() is idempotent — subsequent calls are no-ops.
       await initServerSseBroker();
 
-      let attempt = await attemptListen(port);
+      const app = createCockpitServer({ dev: isDev });
+
+      // In dev mode, attach Vite middleware for frontend HMR.
+      if (isDev) {
+        try {
+          const { createServer: createViteServer } = await import("vite");
+          const vite = await createViteServer({
+            root: path.join(process.cwd(), "src", "cockpit", "web"),
+            server: { middlewareMode: true },
+            appType: "spa",
+          });
+          app.use(vite.middlewares);
+        } catch (err) {
+          const e = err as Error;
+          console.error(`Failed to start Vite dev server: ${e.message}`);
+          process.exit(1);
+        }
+      }
+
+      let attempt = await attemptListen(app, port);
 
       // EADDRINUSE: classify and (with --force) recover.
       if (attempt.kind === "in-use") {
@@ -94,7 +120,7 @@ export function createStartCommand(): Command {
         switch (classification.kind) {
           case "free":
             // Holder vanished between bind and lsof. Retry once.
-            attempt = await attemptListen(port);
+            attempt = await attemptListen(app, port);
             break;
           case "recognized-zombie":
             if (!options.force) {
@@ -109,7 +135,7 @@ export function createStartCommand(): Command {
               `Port ${port} held by previous cockpit (PID ${classification.pid}); terminating...`
             );
             await killZombie(classification.pid);
-            attempt = await attemptListen(port);
+            attempt = await attemptListen(app, port);
             break;
           case "unrecognized":
             console.error(
@@ -205,6 +231,11 @@ export function createStartCommand(): Command {
       });
 
       console.log(`Cockpit running at http://localhost:${port}`);
+      if (isDev) {
+        console.log("Dev mode: Vite HMR active — frontend changes hot-reload in the browser");
+        console.log("Tip: run with `bun --watch` for server-side auto-restart:");
+        console.log(`  bun --watch run src/cli.ts cockpit start --dev --port ${port}`);
+      }
       console.log("Press Ctrl+C to stop");
 
       if (options.open) {
