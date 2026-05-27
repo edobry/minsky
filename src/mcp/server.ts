@@ -1376,7 +1376,10 @@ export class MinskyMCPServer {
     // conflating the by-design staleness exit with harness-initiated
     // closures. Append-only persistence (mt#1682) guarantees the event hits
     // disk before the 200ms timeout completes.
-    this.disconnectTracker.recordDisconnect("staleness_exit", staleMessage || undefined);
+    this.disconnectTracker.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+      errorMessage: staleMessage || undefined,
+    });
 
     setTimeout(() => this.exit(0), 200);
   }
@@ -1432,7 +1435,7 @@ export class MinskyMCPServer {
             ? "signal_sigint"
             : "signal_sighup";
       try {
-        tracker.recordDisconnect(cause);
+        tracker.recordDisconnect(cause, { sessionKey: STDIO_SESSION_KEY });
       } catch (err) {
         log.debug("signal handler: recordDisconnect failed (non-blocking)", {
           error: getErrorMessage(err),

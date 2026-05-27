@@ -27,7 +27,11 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { DisconnectTracker, type McpDisconnectEvent } from "./disconnect-tracker";
+import {
+  DisconnectTracker,
+  STDIO_SESSION_KEY,
+  type McpDisconnectEvent,
+} from "./disconnect-tracker";
 
 const SHAPE_TEST_LABEL = "emits event with correct shape";
 
@@ -894,5 +898,87 @@ describe("DisconnectTracker empirical replay (mt#1705)", () => {
     const event = t.recordDisconnect("transport_error", "EPIPE");
     expect(event.processRole).toBe("main_session");
     expect(event.error).toBe("EPIPE");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mt#1715: stdio counter eviction on clean-shutdown paths
+// ---------------------------------------------------------------------------
+
+describe("stdio counter eviction on clean-shutdown paths (mt#1715)", () => {
+  test("staleness_exit with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(3);
+
+    t.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+      errorMessage: "stale: loaded from abc, now at def",
+    });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("signal disconnect with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(2);
+
+    t.recordDisconnect("signal_sigterm", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("signal_sigint with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+
+    t.recordDisconnect("signal_sigint", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("signal_sighup with STDIO_SESSION_KEY evicts the counter", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+
+    t.recordDisconnect("signal_sighup", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("staleness_exit classifies as main_session when tool calls > 0", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    t.setProcessStartTimeForTest(Date.now() - 60_000);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+
+    const event = t.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+    });
+
+    expect(event.processRole).toBe("main_session");
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+  });
+
+  test("HTTP per-session keys are unaffected by stdio clean-shutdown fix", () => {
+    const t = DisconnectTracker.resetForTest("srv", "");
+    const httpSessionA = "http-session-uuid-1";
+    const httpSessionB = "http-session-uuid-2";
+    t.incrementToolCallCount(STDIO_SESSION_KEY);
+    t.incrementToolCallCount(httpSessionA);
+    t.incrementToolCallCount(httpSessionB);
+    t.incrementToolCallCount(httpSessionB);
+
+    t.recordDisconnect("staleness_exit", { sessionKey: STDIO_SESSION_KEY });
+
+    expect(t.getToolCallCount(STDIO_SESSION_KEY)).toBe(0);
+    expect(t.getToolCallCount(httpSessionA)).toBe(1);
+    expect(t.getToolCallCount(httpSessionB)).toBe(2);
   });
 });
