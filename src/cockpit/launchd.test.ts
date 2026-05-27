@@ -1,9 +1,11 @@
 import { describe, test, expect } from "bun:test";
 import { generatePlist, LAUNCHD_LABEL, DEFAULT_DAEMON_PORT } from "./launchd";
 
+const TEST_REPO = "/Users/test/Projects/minsky";
+
 describe("launchd plist generation", () => {
-  test("generates valid XML with default options", () => {
-    const plist = generatePlist();
+  test("generates valid XML with default port", () => {
+    const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain('<?xml version="1.0"');
     expect(plist).toContain(`<string>${LAUNCHD_LABEL}</string>`);
     expect(plist).toContain("<true/>");
@@ -13,30 +15,30 @@ describe("launchd plist generation", () => {
   });
 
   test("includes KeepAlive with SuccessfulExit false", () => {
-    const plist = generatePlist();
+    const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain("<key>KeepAlive</key>");
     expect(plist).toContain("<key>SuccessfulExit</key>");
     expect(plist).toContain("<false/>");
   });
 
   test("includes RunAtLoad", () => {
-    const plist = generatePlist();
+    const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain("<key>RunAtLoad</key>");
     expect(plist).toContain("<true/>");
   });
 
   test("uses custom port when specified", () => {
-    const plist = generatePlist({ port: 4000 });
+    const plist = generatePlist({ repoPath: TEST_REPO, port: 4000 });
     expect(plist).toContain("4000");
   });
 
-  test("sets WorkingDirectory to repoPath when specified", () => {
+  test("sets WorkingDirectory to repoPath", () => {
     const plist = generatePlist({ repoPath: "/opt/minsky" });
     expect(plist).toContain("<string>/opt/minsky</string>");
   });
 
   test("includes log paths under ~/.local/state/minsky/logs/", () => {
-    const plist = generatePlist();
+    const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain("cockpit-stdout.log");
     expect(plist).toContain("cockpit-stderr.log");
     expect(plist).toContain("<key>StandardOutPath</key>");
@@ -44,13 +46,13 @@ describe("launchd plist generation", () => {
   });
 
   test("includes ThrottleInterval", () => {
-    const plist = generatePlist();
+    const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain("<key>ThrottleInterval</key>");
     expect(plist).toContain("<integer>5</integer>");
   });
 
   test("includes PATH and HOME in EnvironmentVariables", () => {
-    const plist = generatePlist();
+    const plist = generatePlist({ repoPath: TEST_REPO });
     expect(plist).toContain("<key>PATH</key>");
     expect(plist).toContain("<key>HOME</key>");
   });

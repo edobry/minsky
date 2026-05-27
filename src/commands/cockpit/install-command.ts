@@ -1,3 +1,4 @@
+import path from "path";
 import { Command } from "commander";
 import { installDaemon, DEFAULT_DAEMON_PORT } from "../../cockpit/launchd";
 
@@ -40,13 +41,12 @@ export function createInstallCommand(): Command {
 
       console.log("Installing cockpit daemon...");
       try {
-        const result = installDaemon({
-          port,
-          repoPath: options.repo ?? process.cwd(),
-        });
+        const repoPath = path.resolve(options.repo ?? process.cwd());
+        const result = installDaemon({ port, repoPath });
         console.log(`Cockpit daemon installed.`);
         console.log(`  Plist: ${result.plistPath}`);
         console.log(`  Port:  ${result.port}`);
+        console.log(`  Repo:  ${repoPath}`);
         console.log(`  URL:   http://localhost:${result.port}`);
         console.log("\nThe daemon will start automatically on login and restart on crash.");
         console.log("Use `minsky cockpit status` to check the daemon.");

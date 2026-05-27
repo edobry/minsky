@@ -54,14 +54,14 @@ function resolveMinskyBinary(): string {
 
 export interface PlistOptions {
   port?: number;
-  /** Absolute path to the minsky repo root (for `--repo` flag). */
-  repoPath?: string;
+  /** Absolute path to the minsky repo root. Required — launchd starts with / as cwd. */
+  repoPath: string;
 }
 
 /**
  * Generate the launchd plist XML for the cockpit daemon.
  */
-export function generatePlist(options: PlistOptions = {}): string {
+export function generatePlist(options: PlistOptions): string {
   const port = options.port ?? DEFAULT_DAEMON_PORT;
   const logDir = getLogDir();
   const stdoutLog = path.join(logDir, "cockpit-stdout.log");
@@ -74,9 +74,10 @@ export function generatePlist(options: PlistOptions = {}): string {
   // standalone binary, just `minsky`. Detect by checking if the resolved
   // binary IS bun itself.
   const isBun = path.basename(minskyBin) === "bun";
-  const programArgs: string[] = isBun
-    ? [minskyBin, "run", "minsky", "cockpit", "start", "--no-dev-chromium", "--port", String(port)]
-    : [minskyBin, "cockpit", "start", "--no-dev-chromium", "--port", String(port)];
+  const baseArgs = isBun
+    ? [minskyBin, "run", "minsky", "cockpit", "start"]
+    : [minskyBin, "cockpit", "start"];
+  const programArgs: string[] = [...baseArgs, "--no-dev-chromium", "--port", String(port)];
 
   const argsXml = programArgs.map((arg) => `    <string>${escapeXml(arg)}</string>`).join("\n");
 
@@ -130,7 +131,7 @@ ${envXml}
   <string>${escapeXml(stderrLog)}</string>
 
   <key>WorkingDirectory</key>
-  <string>${escapeXml(options.repoPath ?? process.cwd())}</string>
+  <string>${escapeXml(options.repoPath)}</string>
 
   <key>ThrottleInterval</key>
   <integer>5</integer>
@@ -151,7 +152,7 @@ function escapeXml(s: string): string {
 /**
  * Install the cockpit daemon plist and load it via launchctl.
  */
-export function installDaemon(options: PlistOptions = {}): {
+export function installDaemon(options: PlistOptions): {
   plistPath: string;
   port: number;
 } {

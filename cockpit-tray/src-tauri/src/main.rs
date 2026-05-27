@@ -17,6 +17,7 @@ use tauri::{AppHandle, Manager};
 const HEALTH_URL: &str = "http://localhost:3737/api/health";
 const COCKPIT_URL: &str = "http://localhost:3737";
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
+const STATUS_MENU_ID: &str = "status";
 
 fn main() {
     tauri::Builder::default()
@@ -25,8 +26,7 @@ fn main() {
             let handle = app.handle().clone();
             let is_running = Arc::new(AtomicBool::new(false));
 
-            // Build the tray menu
-            let status_item = MenuItemBuilder::with_id("status", "Cockpit: checking...")
+            let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
                 .enabled(false)
                 .build(app)?;
             let open_item =
@@ -87,7 +87,7 @@ fn main() {
                             } else {
                                 "Cockpit: stopped"
                             };
-                            let _ = update_status_label(&poll_handle, label);
+                            let _ = update_status(&poll_handle, label);
                         }
 
                         tokio::time::sleep(POLL_INTERVAL).await;
@@ -110,13 +110,13 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let _ = Command::new("launchctl")
                 .args(["load", &get_plist_path()])
                 .output();
-            let _ = update_status_label(app, "Cockpit: starting...");
+            let _ = update_status(app, "Cockpit: starting...");
         }
         "stop" => {
             let _ = Command::new("launchctl")
                 .args(["unload", &get_plist_path()])
                 .output();
-            let _ = update_status_label(app, "Cockpit: stopped");
+            let _ = update_status(app, "Cockpit: stopped");
         }
         "restart" => {
             let plist = get_plist_path();
@@ -127,7 +127,7 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             let _ = Command::new("launchctl")
                 .args(["load", &plist])
                 .output();
-            let _ = update_status_label(app, "Cockpit: restarting...");
+            let _ = update_status(app, "Cockpit: restarting...");
         }
         "quit" => {
             app.exit(0);
@@ -144,9 +144,18 @@ fn get_plist_path() -> String {
     )
 }
 
-fn update_status_label(app: &AppHandle, label: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn update_status(app: &AppHandle, label: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Update the menu item text so the status is visible in the dropdown
+    if let Some(menu) = app.menu() {
+        if let Some(item) = menu.get(STATUS_MENU_ID) {
+            if let Some(menu_item) = item.as_menuitem() {
+                let _ = menu_item.set_text(label);
+            }
+        }
+    }
+    // Also update the tooltip on the tray icon itself
     if let Some(tray) = app.tray_by_id("main") {
-        tray.set_tooltip(Some(label))?;
+        let _ = tray.set_tooltip(Some(label));
     }
     Ok(())
 }
