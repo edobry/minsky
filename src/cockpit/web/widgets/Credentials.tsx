@@ -50,47 +50,6 @@ interface ProviderMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Static provider metadata
-// ---------------------------------------------------------------------------
-
-const PROVIDER_META: ProviderMeta[] = [
-  {
-    id: "supabase",
-    displayName: "Supabase",
-    acquireUrl: "https://supabase.com/dashboard/account/tokens",
-    scopeGuidance:
-      "Personal access token. Requires 'projects:read' scope for smoke-test to pass.",
-  },
-  {
-    id: "github",
-    displayName: "GitHub",
-    acquireUrl: "https://github.com/settings/tokens/new",
-    scopeGuidance:
-      "Personal access token (classic or fine-grained). Requires 'repo' scope for PR operations.",
-  },
-  {
-    id: "anthropic",
-    displayName: "Anthropic",
-    acquireUrl: "https://console.anthropic.com/settings/keys",
-    scopeGuidance: "API key from the Anthropic console. Used for Claude model access.",
-  },
-  {
-    id: "railway",
-    displayName: "Railway",
-    acquireUrl: "https://railway.app/account/tokens",
-    scopeGuidance:
-      "Account or workspace API token. Used by Pulumi for Railway IaC management.",
-  },
-  {
-    id: "google",
-    displayName: "Google AI",
-    acquireUrl: "https://aistudio.google.com/apikey",
-    scopeGuidance:
-      "API key from Google AI Studio. Used for Gemini embedding fallback. No scope selection required.",
-  },
-];
-
-// ---------------------------------------------------------------------------
 // API fetch helpers
 // ---------------------------------------------------------------------------
 
@@ -156,6 +115,15 @@ async function fetchCredentials(): Promise<CredentialListing[]> {
   }
   const data = (await res.json()) as { credentials: CredentialListing[] };
   return data.credentials;
+}
+
+async function fetchProviders(): Promise<ProviderMeta[]> {
+  const res = await fetch("/api/credentials/providers");
+  if (!res.ok) {
+    throw await parseApiError(res, "Failed to load credential providers.");
+  }
+  const data = (await res.json()) as { providers: ProviderMeta[] };
+  return data.providers;
 }
 
 async function validateCredential(
@@ -258,12 +226,26 @@ function ValidationResult({
 // ---------------------------------------------------------------------------
 
 function AddCredentialForm() {
-  const [selectedProvider, setSelectedProvider] = useState<string>(PROVIDER_META[0]?.id ?? "");
+  const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [token, setToken] = useState("");
   const [validateResult, setValidateResult] = useState<CredentialCheckResult | null>(null);
   const [validateError, setValidateError] = useState<string | null>(null);
 
   const queryClient = useQueryClient();
+
+  const providersQuery = useQuery<ProviderMeta[], Error>({
+    queryKey: ["credential-providers"],
+    queryFn: fetchProviders,
+    staleTime: 300_000,
+  });
+
+  const providers = providersQuery.data ?? [];
+
+  useEffect(() => {
+    if (providers.length > 0 && !selectedProvider) {
+      setSelectedProvider(providers[0].id);
+    }
+  }, [providers, selectedProvider]);
 
   const validateMutation = useMutation<CredentialCheckResult, Error, { provider: string; token: string }>({
     mutationFn: ({ provider, token: t }) => validateCredential(provider, t),
@@ -301,9 +283,21 @@ function AddCredentialForm() {
     return () => clearTimeout(timer);
   }, [addMutation.isSuccess, addMutation.reset]);
 
-  const providerMeta = PROVIDER_META.find((p) => p.id === selectedProvider);
+  const providerMeta = providers.find((p) => p.id === selectedProvider);
   const canSubmit = selectedProvider && token.length > 0;
   const isWorking = validateMutation.isPending || addMutation.isPending;
+
+  if (providersQuery.isLoading) {
+    return <div className="text-muted-foreground text-sm">Loading providers...</div>;
+  }
+
+  if (providersQuery.isError) {
+    return (
+      <div className="text-destructive text-sm">
+        Failed to load providers: {providersQuery.error.message}
+      </div>
+    );
+  }
 
   function handleValidate() {
     if (!canSubmit || isWorking) return;
@@ -347,7 +341,7 @@ function AddCredentialForm() {
             disabled={isWorking}
             aria-label="Select credential provider"
           >
-            {PROVIDER_META.map((p) => (
+            {providers.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.displayName}
               </option>

@@ -66,6 +66,12 @@ export interface CredentialModuleOverride {
   ) => Promise<import("@minsky/domain/credentials").AddCredentialResult>;
   listCredentials: () => Promise<import("@minsky/domain/credentials").CredentialListing[]>;
   removeCredential: (provider: string) => Promise<{ removed: boolean }>;
+  listCredentialProviders?: () => readonly {
+    id: string;
+    displayName: string;
+    acquireUrl: string;
+    scopeGuidance: string;
+  }[];
 }
 
 export interface CockpitServerOptions {
@@ -1081,6 +1087,36 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     log.error(`[credentials] ${route} — internal error: ${detail}`);
   }
+
+  /**
+   * GET /api/credentials/providers
+   *
+   * Returns: { providers: { id, displayName, acquireUrl, scopeGuidance }[] }
+   * One entry per registered credential provider.
+   */
+  app.get("/api/credentials/providers", async (_req, res) => {
+    try {
+      const credMod = credModuleOverride ?? (await import("@minsky/domain/credentials"));
+      const providers = (
+        credMod.listCredentialProviders?.() ??
+        (await import("@minsky/domain/credentials")).listCredentialProviders()
+      ).map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        acquireUrl: p.acquireUrl,
+        scopeGuidance: p.scopeGuidance,
+      }));
+      res.json({ providers });
+    } catch (err) {
+      logCredentialInternal("GET /api/credentials/providers", err);
+      credentialError(
+        res,
+        500,
+        "internal",
+        "An internal error occurred while listing credential providers."
+      );
+    }
+  });
 
   /**
    * POST /api/credentials/validate
