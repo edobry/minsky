@@ -126,7 +126,7 @@ export function extractInScopeFiles(specContent: string): {
     // a bare path token that contains a /
     const backtickMatch = trimmed.match(/^[-*]\s+`([^`]+)`/);
     if (backtickMatch) {
-      const rawPath = backtickMatch[1].trim();
+      const rawPath = (backtickMatch[1] ?? "").trim();
       // Only include if it looks like a file or directory path (contains / or starts with .)
       if ((rawPath.includes("/") || rawPath.startsWith(".")) && rawPath.length > 0) {
         files.push(rawPath);
@@ -138,7 +138,7 @@ export function extractInScopeFiles(specContent: string): {
     // like @types/foo/index.d.ts are matched in addition to ordinary paths.
     const bareMatch = trimmed.match(/^[-*]\s+([@\w.][^\s(,]+\/[^\s(,]*)/);
     if (bareMatch) {
-      const rawPath = bareMatch[1].replace(/\/$/, "").trim();
+      const rawPath = (bareMatch[1] ?? "").replace(/\/$/, "").trim();
       if (rawPath.length > 0) {
         files.push(rawPath);
       }
@@ -972,7 +972,7 @@ export function fetchRecentMerges(
     const commitMatch = line.match(/^COMMIT:([0-9a-f]+)\s+(.*)/);
     if (commitMatch) {
       if (current) entries.push(current);
-      current = { sha: commitMatch[1], message: commitMatch[2], files: [] };
+      current = { sha: commitMatch[1] ?? "", message: commitMatch[2] ?? "", files: [] };
     } else if (current && line.trim().length > 0) {
       current.files.push(line.trim());
     }
@@ -1298,7 +1298,7 @@ export function parseGitHubRemoteUrl(url: string): string | null {
   // SCP-style SSH: git@github.com:owner/repo[.git]
   const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
   if (sshMatch) {
-    return sshMatch[1];
+    return sshMatch[1] ?? null;
   }
 
   // URL-style SSH (with optional port): ssh://[git@]github.com[:port]/owner/repo[.git][/]
@@ -1307,7 +1307,7 @@ export function parseGitHubRemoteUrl(url: string): string | null {
     /^(?:git\+)?ssh:\/\/(?:[^@]+@)?github\.com(?::\d+)?\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
   );
   if (sshUrlMatch) {
-    return sshUrlMatch[1];
+    return sshUrlMatch[1] ?? null;
   }
 
   // HTTPS form (with optional embedded credentials): https://[token@]github.com/owner/repo[.git][/]
@@ -1315,7 +1315,7 @@ export function parseGitHubRemoteUrl(url: string): string | null {
     /^https:\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
   );
   if (httpsMatch) {
-    return httpsMatch[1];
+    return httpsMatch[1] ?? null;
   }
 
   return null;

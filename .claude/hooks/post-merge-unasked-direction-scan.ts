@@ -106,9 +106,11 @@ function isObject(v: unknown): v is Record<string, unknown> {
  */
 async function loadTranscript(sessionId: string): Promise<TranscriptMessage[] | null> {
   try {
-    const { resolvePersistenceProvider } = await import("../../src/domain/persistence/factory");
+    const { resolvePersistenceProvider } = await import(
+      "../../packages/domain/src/persistence/factory"
+    );
     const { AgentTranscriptService } = await import(
-      "../../src/domain/provenance/transcript-service"
+      "../../packages/domain/src/provenance/transcript-service"
     );
 
     const provider = await resolvePersistenceProvider();
@@ -136,8 +138,10 @@ async function loadTranscript(sessionId: string): Promise<TranscriptMessage[] | 
  */
 async function buildCompletionService(): Promise<unknown | null> {
   try {
-    const { createCompletionService } = await import("../../src/domain/ai/service-factory");
-    const { requireAIProviders } = await import("../../src/domain/ai/provider-operations");
+    const { createCompletionService } = await import(
+      "../../packages/domain/src/ai/service-factory"
+    );
+    const { requireAIProviders } = await import("../../packages/domain/src/ai/provider-operations");
     const { getResolvedConfig } = await import(
       "../../src/adapters/shared/commands/ai/shared-helpers"
     );
@@ -195,7 +199,7 @@ if (import.meta.main) {
   let output;
   try {
     const analyzer = new UnaskedDirectionAnalyzer(
-      completionService as import("../../src/domain/ai/completion-service").DefaultAICompletionService
+      completionService as import("../../packages/domain/src/ai/completion-service").DefaultAICompletionService
     );
     output = await analyzer.analyzeTranscript(transcript, {
       sessionId: ctx.sessionId,

@@ -166,8 +166,9 @@ is still healthy.`;
     const body = `Some preamble before the trigger — this PR calls ${PHRASE_SERVICE_INSTANCE_UPDATE} on the Railway service.`;
     const matches = scanForTriggerPhrases(body);
     expect(matches.length).toBe(1);
-    expect(matches[0].excerpt.length).toBeLessThanOrEqual(160);
-    expect(matches[0].excerpt).toContain(PHRASE_SERVICE_INSTANCE_UPDATE);
+    const firstMatch = matches[0];
+    expect(firstMatch?.excerpt.length).toBeLessThanOrEqual(160);
+    expect(firstMatch?.excerpt).toContain(PHRASE_SERVICE_INSTANCE_UPDATE);
   });
 
   it("collapses whitespace in excerpts", () => {
@@ -177,7 +178,7 @@ is still healthy.`;
 serviceInstanceUpdate
 deploy`;
     const matches = scanForTriggerPhrases(body);
-    expect(matches[0].excerpt).not.toContain("\n");
+    expect(matches[0]?.excerpt).not.toContain("\n");
   });
 });
 
@@ -308,8 +309,9 @@ services/reviewer/DEPLOY.md:dockerfilePath services/reviewer/Dockerfile
     const body = `Some preamble before the trigger — this PR calls ${PHRASE_SERVICE_INSTANCE_UPDATE} on the Railway service after merge.`;
     const matches = scanForTriggerPhrases(body);
     expect(matches.length).toBe(1);
-    expect(matches[0].excerpt).toContain(PHRASE_SERVICE_INSTANCE_UPDATE);
-    expect(matches[0].excerpt).toContain("Railway service");
+    const m = matches[0];
+    expect(m?.excerpt).toContain(PHRASE_SERVICE_INSTANCE_UPDATE);
+    expect(m?.excerpt).toContain("Railway service");
   });
 });
 
