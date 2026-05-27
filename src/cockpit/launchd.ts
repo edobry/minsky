@@ -28,28 +28,14 @@ function getLogDir(): string {
   return path.join(home, ".local", "state", "minsky", "logs");
 }
 
-/**
- * Resolve the minsky binary path. Prefers the bun-linked binary in the
- * project's node_modules/.bin, falling back to `which minsky`.
- */
-function resolveMinskyBinary(): string {
+function resolveBunBinary(): string {
   try {
-    const result = String(execSync("which minsky", { encoding: "utf-8" })).trim();
+    const result = String(execSync("which bun", { encoding: "utf-8" })).trim();
     if (result) return result;
   } catch {
     // fall through
   }
-  // Fallback: use bun to run the CLI entry point directly
-  try {
-    const bunPath = String(execSync("which bun", { encoding: "utf-8" })).trim();
-    if (bunPath) return bunPath;
-  } catch {
-    // fall through
-  }
-  throw new Error(
-    "Cannot find minsky or bun on PATH. " +
-      "Ensure minsky is installed globally or bun is available."
-  );
+  throw new Error("Cannot find bun on PATH. Ensure bun is installed.");
 }
 
 export interface PlistOptions {
@@ -67,17 +53,21 @@ export function generatePlist(options: PlistOptions): string {
   const stdoutLog = path.join(logDir, "cockpit-stdout.log");
   const stderrLog = path.join(logDir, "cockpit-stderr.log");
 
-  const minskyBin = resolveMinskyBinary();
+  const bunBin = resolveBunBinary();
 
-  // Build the program arguments array.
-  // If minsky is a bun script, we need `bun run minsky`; if it's a
-  // standalone binary, just `minsky`. Detect by checking if the resolved
-  // binary IS bun itself.
-  const isBun = path.basename(minskyBin) === "bun";
-  const baseArgs = isBun
-    ? [minskyBin, "run", "minsky", "cockpit", "start"]
-    : [minskyBin, "cockpit", "start"];
-  const programArgs: string[] = [...baseArgs, "--no-dev-chromium", "--port", String(port)];
+  // Use bun to run the repo's CLI entry point directly. WorkingDirectory
+  // is set to repoPath so src/cli.ts resolves correctly. This avoids
+  // relying on a globally installed `minsky` binary.
+  const programArgs: string[] = [
+    bunBin,
+    "run",
+    "src/cli.ts",
+    "cockpit",
+    "start",
+    "--no-dev-chromium",
+    "--port",
+    String(port),
+  ];
 
   const argsXml = programArgs.map((arg) => `    <string>${escapeXml(arg)}</string>`).join("\n");
 

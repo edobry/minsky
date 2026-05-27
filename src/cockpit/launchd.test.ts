@@ -9,6 +9,7 @@ describe("launchd plist generation", () => {
     expect(plist).toContain('<?xml version="1.0"');
     expect(plist).toContain(`<string>${LAUNCHD_LABEL}</string>`);
     expect(plist).toContain("<true/>");
+    expect(plist).toContain("src/cli.ts");
     expect(plist).toContain("--no-dev-chromium");
     expect(plist).toContain(`--port`);
     expect(plist).toContain(String(DEFAULT_DAEMON_PORT));

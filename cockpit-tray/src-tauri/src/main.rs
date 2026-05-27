@@ -54,6 +54,7 @@ fn main() {
                 .build()?;
 
             let _tray = TrayIconBuilder::new()
+                .id("main")
                 .tooltip("Minsky Cockpit")
                 .title("M")
                 .menu(&menu)
