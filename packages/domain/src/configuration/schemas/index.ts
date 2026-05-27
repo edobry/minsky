@@ -41,6 +41,7 @@ import {
   type KnowledgeReconciliationConfig,
 } from "./knowledge-reconciliation";
 import { supabaseConfigSchema, type SupabaseConfig } from "./supabase";
+import { railwayConfigSchema, type RailwayConfig } from "./railway";
 import {
   oauthConfigSchema,
   oauthProviderSchema,
@@ -120,6 +121,9 @@ export const configurationSchema = z.strictObject({
   // Supabase Management API credentials (developer-local; consumed by `just supabase-usage`)
   supabase: supabaseConfigSchema,
 
+  // Railway API token for Pulumi IaC management (mt#2124 / mt#2138)
+  railway: railwayConfigSchema,
+
   // OAuth identity provider configuration (mt#1634 / mt#1662)
   oauth: oauthConfigSchema,
 
@@ -170,6 +174,7 @@ export type {
   MemoryLoadingMode,
   KnowledgeReconciliationConfig,
   SupabaseConfig,
+  RailwayConfig,
   OAuthConfig,
   OAuthProvider,
   ObservabilityConfig,
@@ -196,6 +201,7 @@ export {
   memoryConfigSchema,
   knowledgeReconciliationSchema,
   supabaseConfigSchema,
+  railwayConfigSchema,
   oauthConfigSchema,
   oauthProviderSchema,
   observabilityConfigSchema,
