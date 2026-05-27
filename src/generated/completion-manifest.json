@@ -4016,7 +4016,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic | railway). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
@@ -6113,6 +6113,41 @@
             {
               "flags": ["--dev"],
               "description": "Enable dev mode: Vite serves the frontend with HMR, no pre-built bundle needed. Use with `bun --watch` for server-side auto-restart."
+            }
+          ]
+        },
+        {
+          "name": "install",
+          "description": "Install the cockpit as a macOS daemon (LaunchAgent) that starts on login and restarts on crash",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port for the daemon to listen on (default: 3737)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Path to the minsky repo root (default: current directory)",
+              "takesValue": true
+            }
+          ]
+        },
+        {
+          "name": "uninstall",
+          "description": "Uninstall the cockpit daemon (removes the LaunchAgent plist and stops the daemon)"
+        },
+        {
+          "name": "status",
+          "description": "Check the status of the cockpit daemon",
+          "options": [
+            {
+              "flags": ["--port"],
+              "description": "Port to check (default: 3737)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--json"],
+              "description": "Output status as JSON"
             }
           ]
         },

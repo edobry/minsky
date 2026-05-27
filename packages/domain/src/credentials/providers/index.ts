@@ -9,12 +9,14 @@ import { supabaseProvider } from "./supabase";
 import { githubProvider } from "./github";
 import { anthropicProvider } from "./anthropic";
 import { railwayProvider } from "./railway";
+import { googleProvider } from "./google";
 
 const REGISTRY: ReadonlyMap<string, CredentialProvider> = new Map([
   [supabaseProvider.id, supabaseProvider],
   [githubProvider.id, githubProvider],
   [anthropicProvider.id, anthropicProvider],
   [railwayProvider.id, railwayProvider],
+  [googleProvider.id, googleProvider],
 ]);
 
 export const KNOWN_PROVIDER_IDS: readonly string[] = Array.from(REGISTRY.keys());
