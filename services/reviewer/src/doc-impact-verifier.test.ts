@@ -295,4 +295,35 @@ describe("applyDocImpactVerification", () => {
       expect(codeFinding.args.severity).toBe("BLOCKING");
     }
   });
+
+  it("reconciles conclude_review from REQUEST_CHANGES to COMMENT when all blockers are downgraded", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: "submit_finding" as const,
+        args: {
+          severity: "BLOCKING" as const,
+          file: DOC_README,
+          line: 1,
+          summary: "Documentation needs updating",
+          details: "The README needs to reflect the new behavior.",
+        },
+      },
+      makeDocImpactCall(KIND_BLOCKING, EVIDENCE_NEEDS_UPDATING, [DOC_README]),
+      {
+        name: "conclude_review" as const,
+        args: { event: "REQUEST_CHANGES" as const, summary: "Docs need updating." },
+      },
+    ];
+    const docContents = new Map([[DOC_README, "# Minsky\n\nGeneral project overview."]]);
+
+    const result = applyDocImpactVerification(toolCalls, ["cockpit", "settings"], docContents);
+
+    expect(result.verificationsApplied).toBe(true);
+
+    const concludeCall = result.toolCalls.find((tc) => tc.name === "conclude_review");
+    expect(concludeCall).toBeDefined();
+    if (concludeCall && concludeCall.name === "conclude_review") {
+      expect(concludeCall.args.event).toBe("COMMENT");
+    }
+  });
 });

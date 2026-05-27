@@ -229,8 +229,24 @@ export function applyDocImpactVerification(
       })
     : updatedCalls;
 
+  const remainingBlockingCount = reconciledCalls.filter(
+    (tc) => tc.name === "submit_finding" && tc.args.severity === "BLOCKING"
+  ).length;
+
+  const finalCalls =
+    anyChanged && remainingBlockingCount === 0
+      ? reconciledCalls.map((tc): ReviewToolCall => {
+          if (tc.name !== "conclude_review") return tc;
+          if (tc.args.event !== "REQUEST_CHANGES") return tc;
+          return {
+            name: "conclude_review" as const,
+            args: { ...tc.args, event: "COMMENT" as const },
+          };
+        })
+      : reconciledCalls;
+
   return {
-    toolCalls: reconciledCalls,
+    toolCalls: finalCalls,
     verificationsApplied: anyChanged,
     removedDocs: allRemovedDocs,
   };
