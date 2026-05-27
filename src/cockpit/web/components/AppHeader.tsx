@@ -4,7 +4,7 @@
  * Slots:
  *   Left:   menu/sandwich icon (opens NavSheet) + "Minsky Cockpit" wordmark
  *   Center: reserved (future: workspace/session switcher)
- *   Right:  settings icon (no-op/disabled) + user avatar stub (inert)
+ *   Right:  settings icon (links to /settings) + user avatar stub (inert)
  *
  * Height: h-14 (56px). Position: sticky top-0 z-40.
  * Border: border-b border-border for subtle elevation separation.
@@ -60,16 +60,17 @@ export function AppHeader({ className }: AppHeaderProps) {
 
         {/* Right slot: settings + user */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Settings (not yet implemented)"
-            className="h-8 w-8 opacity-50 cursor-not-allowed"
-            tabIndex={-1}
-            onClick={(e) => e.preventDefault()}
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            className={cn(
+              "inline-flex items-center justify-center h-8 w-8 rounded-md",
+              "text-muted-foreground hover:text-foreground hover:bg-accent",
+              "transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            )}
           >
             <Settings aria-hidden="true" className="h-4 w-4" />
-          </Button>
+          </Link>
 
           {/* User avatar stub — inert placeholder circle */}
           <div
