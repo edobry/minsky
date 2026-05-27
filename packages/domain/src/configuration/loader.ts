@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import type { Configuration, PartialConfiguration, ConfigurationValidationResult } from "./schemas";
-import { configurationSchema } from "./schemas";
+import { configurationSchema, KNOWN_TOP_LEVEL_KEYS } from "./schemas";
 import { getDefaultConfiguration, defaultsSourceMetadata } from "./sources/defaults";
 import { getProjectConfiguration, projectSourceMetadata } from "./sources/project";
 import { getUserConfiguration, userSourceMetadata } from "./sources/user";
@@ -133,7 +133,11 @@ export class ConfigurationLoader {
       // Build effective values for provenance tracking (consumed by callers via the load result)
       const effectiveValues = this.buildEffectiveValues(sourceResults);
 
-      // Validate final configuration against the strict schema
+      // mt#2161: warn about unknown top-level keys BEFORE validation (runs
+      // regardless of skipValidation so the signal is never silent).
+      this.warnUnknownTopLevelKeys(mergedConfig);
+
+      // Validate final configuration against the schema
       const validationResult = this.options.skipValidation
         ? { success: true, data: mergedConfig as Configuration }
         : this.validateConfiguration(mergedConfig);
@@ -294,11 +298,26 @@ export class ConfigurationLoader {
   }
 
   /**
-   * Validate merged configuration against the strict top-level schema.
+   * mt#2161: warn about unknown top-level keys. Runs independently of
+   * validation so the signal is never silent (even with skipValidation).
+   */
+  private warnUnknownTopLevelKeys(config: PartialConfiguration): void {
+    if (!config || typeof config !== "object") return;
+    const unknownKeys = Object.keys(config).filter((k) => !KNOWN_TOP_LEVEL_KEYS.has(k));
+    if (unknownKeys.length === 0) return;
+    log.error(
+      `Unrecognized top-level config key${unknownKeys.length > 1 ? "s" : ""}: ${unknownKeys.join(", ")}. ` +
+        `These keys will be ignored. If this is a typo, fix the key name in your config file. ` +
+        `If this key was added by a newer version, update your Minsky installation.`
+    );
+  }
+
+  /**
+   * Validate merged configuration against the top-level schema.
    *
-   * Unknown top-level keys produce a ZodError with `unrecognized_keys` —
-   * caught here so typos and stale legacy keys fail loudly at load time
-   * instead of being silently stripped or passed through.
+   * mt#2161: the schema uses `z.object` (lenient) which strips unknown
+   * keys. The warning is emitted by `warnUnknownTopLevelKeys` before
+   * this method runs.
    */
   private validateConfiguration(config: PartialConfiguration): ConfigurationValidationResult {
     const result = configurationSchema.safeParse(config);

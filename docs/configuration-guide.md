@@ -2,7 +2,7 @@
 
 ## Overview
 
-Minsky's configuration system resolves storage backends, session databases, AI providers, and credentials through a strict precedence chain — CLI args → env vars → user config → repo config → defaults. Every value is validated at load; type errors and unknown keys fail loud at boot rather than silently at use. This guide walks the precedence order, the validation layer, the migration paths, and the operational defaults.
+Minsky's configuration system resolves storage backends, session databases, AI providers, and credentials through a strict precedence chain — CLI args → env vars → user config → repo config → defaults. Every value is validated at load; type errors fail loud at boot. Unknown top-level keys are stripped and warned at ERROR level but do not crash the process (mt#2161) — this makes the config file resilient to multi-version writers (cockpit, CLI, MCP servers at different code versions). This guide walks the precedence order, the validation layer, the migration paths, and the operational defaults.
 
 ## Configuration Precedence Order
 
