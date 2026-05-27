@@ -39,7 +39,7 @@
     "noImplicitAny": false,
     "types": ["bun"]
   },
-  "include": ["src", "types", "tests", ".eslintrc.cjs", ".prettierrc.cjs", ".claude/hooks"],
+  "include": ["src", "types", "tests", ".eslintrc.cjs", ".prettierrc.cjs"],
   "exclude": [
     "node_modules",
     "dist",
