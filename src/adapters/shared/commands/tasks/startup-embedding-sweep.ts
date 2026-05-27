@@ -59,7 +59,10 @@ export async function triggerStartupEmbeddingSweep(
         if (changed) indexed++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/insufficient_quota/i.test(msg)) break; // Stop on billing issues
+        if (/insufficient_quota/i.test(msg)) {
+          log.warn("Startup sweep: OpenAI quota exhausted (insufficient_quota) — stopping");
+          break;
+        }
         failed++;
       }
     }
