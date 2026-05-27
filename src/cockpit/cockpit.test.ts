@@ -1366,6 +1366,20 @@ describe("Cockpit server", () => {
           }),
       listCredentials: async () => listResult,
       removeCredential: async (_provider: string) => removeResult,
+      listCredentialProviders: () => [
+        {
+          id: "github",
+          displayName: "GitHub",
+          acquireUrl: "https://example.com/github/tokens",
+          scopeGuidance: "test guidance",
+        },
+        {
+          id: "anthropic",
+          displayName: "Anthropic",
+          acquireUrl: "https://example.com/anthropic/tokens",
+          scopeGuidance: "test guidance",
+        },
+      ],
     };
   }
 
