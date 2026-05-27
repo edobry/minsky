@@ -230,20 +230,17 @@ ul li::before {
   color: var(--signal-cyan);
 }
 
-/* --- Hide navigation overview panel --- */
+/* --- Hide Slidev overview panel (right-side slide list) --- */
+/* DOM: #page-root > div.fixed.right-5 > div.autocomplete-list > ul */
 
-.fixed.right-5,
-.autocomplete-list {
+#page-root > .fixed.right-5 {
   display: none !important;
 }
 
-html,
-body,
-#app,
-#app > div,
-#slide-container,
-#slide-content,
-.slidev-layout {
+/* --- Unify background across Slidev containers --- */
+/* #slide-content defaults to #121212; override to match --bg-base */
+
+#slide-content {
   background: var(--bg-base) !important;
 }
 
