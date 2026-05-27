@@ -25,7 +25,7 @@ interface ConsumerCoverage {
   coveragePct: number;
   lastIndexed: string | null;
   hasDomainTable: boolean;
-  error?: string;
+  queryFailed?: boolean;
 }
 
 interface EmbeddingsOverview {
@@ -206,8 +206,8 @@ function CoverageTable({
                     {!c.hasDomainTable && (
                       <span className="ml-1.5 text-xs text-muted-foreground">(standalone)</span>
                     )}
-                    {c.error && (
-                      <span className="ml-1.5 text-xs text-destructive" title={c.error}>
+                    {c.queryFailed && (
+                      <span className="ml-1.5 text-xs text-destructive">
                         (query error)
                       </span>
                     )}

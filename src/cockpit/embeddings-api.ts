@@ -12,8 +12,8 @@ export interface ConsumerCoverage {
   lastIndexed: string | null;
   /** Whether total/missing/orphaned are meaningful (false for self-contained tables) */
   hasDomainTable: boolean;
-  /** Present when the query failed — surfaces the error for diagnostics */
-  error?: string;
+  /** True when the coverage query failed — detail logged server-side only */
+  queryFailed?: boolean;
 }
 
 export interface EmbeddingsOverview {
@@ -93,8 +93,8 @@ async function queryCoverage(
   const missingResult = await db.execute<{ cnt: number }>(
     sql.raw(
       `SELECT count(*)::int AS cnt FROM "${config.domainTable}" d` +
-        ` LEFT JOIN "${config.embeddingsTable}" e ON d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}"::text` +
-        ` WHERE e."${config.embeddingsIdCol}" IS NULL`
+        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.embeddingsTable}" e` +
+        ` WHERE d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}")`
     )
   );
   const missing = missingResult[0]?.cnt ?? 0;
@@ -102,7 +102,8 @@ async function queryCoverage(
   const orphanedResult = await db.execute<{ cnt: number }>(
     sql.raw(
       `SELECT count(*)::int AS cnt FROM "${config.embeddingsTable}" e` +
-        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.domainTable}" d WHERE d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}"::text)`
+        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.domainTable}" d` +
+        ` WHERE d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}")`
     )
   );
   const orphaned = orphanedResult[0]?.cnt ?? 0;
@@ -138,7 +139,7 @@ export async function getEmbeddingsOverview(db: PostgresJsDatabase): Promise<Emb
         coveragePct: 0,
         lastIndexed: null,
         hasDomainTable: !!config.domainTable,
-        error: errorMsg,
+        queryFailed: true,
       });
     }
   }
