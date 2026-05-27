@@ -205,6 +205,7 @@ export function uninstallDaemon(): void {
 /**
  * Stop the cockpit daemon without removing the plist.
  * Polls the health endpoint to verify the process actually stopped.
+ * Throws if the daemon is still running after the timeout.
  */
 export async function stopDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<void> {
   const plistPath = getPlistPath();
@@ -219,25 +220,19 @@ export async function stopDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<vo
     // May already be unloaded
   }
 
-  // Verify the daemon actually stopped (up to 3s).
-  // Loop continues while health endpoint responds; breaks when it fails.
-  for (let i = 0; i < 6; i++) {
-    await new Promise((r) => setTimeout(r, 500));
-    try {
-      const resp = await fetch(`http://localhost:${port}/api/health`, {
-        signal: AbortSignal.timeout(500),
-      });
-      if (!resp.ok) break;
-      // Still responding — keep waiting
-    } catch {
-      // Health check failed — daemon is down
-      break;
-    }
+  // Wait until the health endpoint stops responding (up to 3s)
+  const stopped = await waitForDown(port);
+  if (!stopped) {
+    throw new Error(
+      `Daemon on port ${port} is still responding after launchctl unload. ` +
+        `It may be running outside launchd — check with \`lsof -i :${port}\`.`
+    );
   }
 }
 
 /**
  * Restart the cockpit daemon (unload + reload the existing plist).
+ * Waits for the process to stop before reloading.
  */
 export async function restartDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<void> {
   const plistPath = getPlistPath();
@@ -252,23 +247,23 @@ export async function restartDaemon(port: number = DEFAULT_DAEMON_PORT): Promise
     // May not be loaded
   }
 
-  // Wait for the process to actually stop before reloading.
-  // Loop continues while health endpoint responds; breaks when it fails.
-  for (let i = 0; i < 6; i++) {
+  await waitForDown(port);
+  execSync(`launchctl load "${plistPath}"`, { stdio: "ignore" });
+}
+
+async function waitForDown(port: number, attempts = 6): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
     await new Promise((r) => setTimeout(r, 500));
     try {
       const resp = await fetch(`http://localhost:${port}/api/health`, {
         signal: AbortSignal.timeout(500),
       });
-      if (!resp.ok) break;
-      // Still responding — keep waiting
+      if (!resp.ok) return true;
     } catch {
-      // Health check failed — daemon is down
-      break;
+      return true;
     }
   }
-
-  execSync(`launchctl load "${plistPath}"`, { stdio: "ignore" });
+  return false;
 }
 
 export interface DaemonStatus {
