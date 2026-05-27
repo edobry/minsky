@@ -48,7 +48,7 @@
     "test:slow": "bun tests/utils/test-quality-cli.ts slow",
     "test:debug": "DEBUG_TESTS=1 bun test --preload ./tests/setup.ts --timeout=15000",
     "test:debug:integration": "DEBUG_TESTS=1 RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
-    "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 src/cockpit/web",
+    "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 src/cockpit/web/widgets",
     "validate-commit": "bun scripts/validate-commit-message.ts",
     "typecheck": "bunx @typescript/native-preview --noEmit",
     "typecheck:hooks": "bunx @typescript/native-preview --noEmit -p tsconfig.hooks.json",

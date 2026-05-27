@@ -6,4 +6,8 @@ randomize = true
 # so the repo-root `bun test` doesn't try to load their dependencies, which
 # aren't installed in the repo-root node_modules. Each service has its own
 # `bun test` command (see services/<name>/package.json).
-pathIgnorePatterns = ["services/**"]
+#
+# Cockpit web widget tests (src/cockpit/web/**) require a DOM environment
+# (happy-dom) via tests/dom-setup.ts. They are excluded here and run via
+# the dedicated `bun run test:components` script (mt#2152).
+pathIgnorePatterns = ["services/**", "src/cockpit/web/**"]
