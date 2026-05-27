@@ -97,17 +97,28 @@ export function createStartCommand(): Command {
 
       // In dev mode, attach Vite middleware for frontend HMR.
       if (isDev) {
+        const webRoot = path.join(__dirname, "..", "..", "cockpit", "web");
+        if (!fs.existsSync(webRoot)) {
+          console.error(
+            `Dev mode requires a source checkout (expected ${webRoot}).\n` +
+              "Use production mode (without --dev) for installed/bundled contexts."
+          );
+          process.exit(1);
+        }
         try {
           const { createServer: createViteServer } = await import("vite");
           const vite = await createViteServer({
-            root: path.join(process.cwd(), "src", "cockpit", "web"),
+            root: webRoot,
             server: { middlewareMode: true },
             appType: "spa",
           });
           app.use(vite.middlewares);
         } catch (err) {
           const e = err as Error;
-          console.error(`Failed to start Vite dev server: ${e.message}`);
+          console.error(
+            `Failed to start Vite dev server: ${e.message}\n` +
+              "Ensure dev dependencies are installed (bun install)."
+          );
           process.exit(1);
         }
       }
