@@ -1,23 +1,15 @@
 /**
- * Credentials widget (mt#1426)
+ * Credentials components (mt#1426, mt#2137)
  *
- * Cockpit surface for the credential lifecycle: list known providers, add
- * credentials with inline validation feedback, and remove stored credentials.
+ * Two exports:
+ *   - CredentialsManager — full CRUD form for the Settings page
+ *   - CredentialsSummary — compact status widget for the homepage grid
  *
- * Architecture note: The task spec described this as a "/credentials route."
- * Cockpit v0 has no client-side router; this slice takes the widget-path
- * instead: the credentials surface is a self-fetching widget on the cockpit
- * home grid, consistent with the existing architecture (Agents, Attention, etc.).
- * A route-based view can be added when Cockpit adopts TanStack Router.
- *
- * State management:
- *   - useQuery({ queryKey: ["credentials"] }) — list all providers + status
- *   - useMutation for validate, add, remove (invalidate ["credentials"] on add/remove)
- *   - Password input value is React state only; cleared after successful add.
- *   - Token value NEVER appears in network responses (enforced server-side);
- *     cleared from React state immediately after mutation completes.
+ * Both share the same TanStack Query cache key (["credentials"]) and
+ * the same API fetch helpers.
  */
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -58,9 +50,7 @@ interface ProviderMeta {
 }
 
 // ---------------------------------------------------------------------------
-// Static provider metadata — matches the four registered providers.
-// Kept inline rather than fetching from the server to avoid a dependency
-// on a new API endpoint; the provider list is stable and small.
+// Static provider metadata
 // ---------------------------------------------------------------------------
 
 const PROVIDER_META: ProviderMeta[] = [
@@ -97,14 +87,6 @@ const PROVIDER_META: ProviderMeta[] = [
 // API fetch helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Normalized API error shape per PR #1142 R1 (mt#1426).
- *
- * The server always returns `{ error: { code, message } }` for failures, with
- * stable `code` values that the UI can map deterministically. The optional
- * `validate` extra rides along on `code: "validation_failed"` so the form can
- * render structured `unauthorized` / `scopeGap` states without parsing prose.
- */
 type CredentialApiErrorCode =
   | "invalid_body"
   | "missing_field"
@@ -117,7 +99,6 @@ interface CredentialApiErrorBody {
   validate?: CredentialCheckResult;
 }
 
-/** Error thrown by the fetch helpers carrying the normalized API shape. */
 export class CredentialApiError extends Error {
   readonly code: CredentialApiErrorCode | "unknown";
   readonly validate?: CredentialCheckResult;
@@ -129,12 +110,6 @@ export class CredentialApiError extends Error {
   }
 }
 
-/**
- * Map a stable API error code to a user-safe display string. The server's
- * `message` field is already user-safe, but we keep this mapping as the
- * canonical source of UI copy so the server can evolve its phrasing without
- * affecting what the user sees.
- */
 function userSafeMessage(
   code: CredentialApiErrorCode | "unknown",
   fallback: string
@@ -290,8 +265,6 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
       setValidateError(null);
     },
     onError: (err) => {
-      // `CredentialApiError.message` is the user-safe copy from `userSafeMessage`,
-      // not the raw server error. We never display the raw exception text.
       setValidateResult(null);
       setValidateError(err.message);
     },
@@ -300,7 +273,6 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
   const addMutation = useMutation<AddCredentialResult, Error, { provider: string; token: string }>({
     mutationFn: ({ provider, token: t }) => addCredential(provider, t),
     onSuccess: () => {
-      // Clear the token from React state immediately after successful add
       setToken("");
       setValidateResult(null);
       setValidateError(null);
@@ -308,11 +280,6 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
       onAdded();
     },
     onError: (err) => {
-      // When the server's `code: "validation_failed"` carries a structured
-      // `validate` payload (unauthorized / scopeGap / detail), surface those
-      // fields via the inline ValidationResult component rather than the
-      // generic error banner — preserves the structured states the reviewer
-      // (PR #1142 R1) flagged as previously lost.
       if (err instanceof CredentialApiError && err.code === "validation_failed" && err.validate) {
         setValidateResult(err.validate);
         setValidateError(null);
@@ -342,12 +309,11 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-3">
-        {/* Provider selector */}
-        <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+        <div className="flex flex-col gap-1.5 sm:w-48">
           <label
             htmlFor="cred-provider-select"
-            className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+            className="text-xs font-medium text-muted-foreground"
           >
             Provider
           </label>
@@ -376,11 +342,10 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
           </select>
         </div>
 
-        {/* Token input */}
-        <div className="flex flex-col gap-1 flex-1">
+        <div className="flex flex-col gap-1.5 flex-1">
           <label
             htmlFor="cred-token-input"
-            className="text-xs font-medium text-muted-foreground uppercase tracking-wide"
+            className="text-xs font-medium text-muted-foreground"
           >
             Token
           </label>
@@ -391,11 +356,10 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
             value={token}
             onChange={(e) => {
               setToken(e.target.value);
-              // Clear previous results when user edits the token
               setValidateResult(null);
               setValidateError(null);
             }}
-            placeholder="Paste token here…"
+            placeholder="Paste token here..."
             className={cn(
               "h-9 rounded-md border border-input bg-background px-3 py-1 text-sm",
               "ring-offset-background focus-visible:outline-none focus-visible:ring-2",
@@ -408,8 +372,7 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
           />
         </div>
 
-        {/* Action buttons */}
-        <div className="flex gap-2 items-end flex-shrink-0">
+        <div className="flex gap-2 flex-shrink-0">
           <Button
             variant="outline"
             size="sm"
@@ -417,7 +380,7 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
             disabled={!canSubmit || isWorking}
             aria-label="Validate token without saving"
           >
-            {validateMutation.isPending ? "Validating…" : "Validate"}
+            {validateMutation.isPending ? "Validating..." : "Validate"}
           </Button>
           <Button
             size="sm"
@@ -425,45 +388,41 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
             disabled={!canSubmit || isWorking}
             aria-label="Validate and save token"
           >
-            {addMutation.isPending ? "Adding…" : "Add"}
+            {addMutation.isPending ? "Adding..." : "Add"}
           </Button>
         </div>
       </div>
 
-      {/* Acquire link + scope guidance */}
       {providerMeta && (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+        <div className="text-xs text-muted-foreground">
           <a
             href={providerMeta.acquireUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-primary underline-offset-2 hover:underline flex-shrink-0"
+            className="text-primary underline-offset-2 hover:underline"
             aria-label={`Generate ${providerMeta.displayName} token`}
           >
-            Generate token →
+            Generate token &rarr;
           </a>
-          <span>{providerMeta.scopeGuidance}</span>
+          <span className="ml-2">{providerMeta.scopeGuidance}</span>
         </div>
       )}
 
-      {/* Validation result inline */}
       {validateResult && (
         <ValidationResult result={validateResult} label="Validate" />
       )}
 
-      {/* Error feedback (validate or add error) */}
       {validateError && !validateResult && (
         <div
           className="flex items-start gap-2 rounded px-2 py-1.5 text-xs bg-destructive/10 text-destructive"
           role="alert"
           aria-live="assertive"
         >
-          <span className="flex-shrink-0 font-mono select-none" aria-hidden="true">✗</span>
+          <span className="flex-shrink-0 font-mono select-none" aria-hidden="true">{"✗"}</span>
           <span>{validateError}</span>
         </div>
       )}
 
-      {/* Add success result */}
       {addMutation.isSuccess && addMutation.data && (
         <div className="space-y-1">
           {addMutation.data.validate && (
@@ -484,7 +443,7 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Single credential row
+// Provider row for the full management table
 // ---------------------------------------------------------------------------
 
 function CredentialRow({
@@ -497,8 +456,7 @@ function CredentialRow({
   isRemoving: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
-      {/* Configured indicator */}
+    <div className="flex items-center gap-4 py-2.5 border-b border-border last:border-0">
       <span
         aria-label={listing.configured ? "Configured" : "Not configured"}
         className={cn(
@@ -507,20 +465,21 @@ function CredentialRow({
         )}
       />
 
-      {/* Provider name + last validated */}
-      <div className="flex-1 min-w-0">
+      <div className="w-32 flex-shrink-0">
         <span className="text-sm font-medium">{listing.displayName}</span>
+      </div>
+
+      <div className="flex-1 min-w-0">
         {listing.lastValidationDetail && (
-          <span className="block text-xs text-muted-foreground truncate">
+          <span className="text-xs text-muted-foreground truncate block">
             {listing.lastValidationDetail}
           </span>
         )}
       </div>
 
-      {/* Configured badge */}
       <span
         className={cn(
-          "text-xs px-1.5 py-0.5 rounded flex-shrink-0",
+          "text-xs px-2 py-0.5 rounded flex-shrink-0",
           listing.configured
             ? "bg-primary/10 text-primary"
             : "bg-muted text-muted-foreground"
@@ -529,36 +488,34 @@ function CredentialRow({
         {listing.configured ? "Configured" : "Not configured"}
       </span>
 
-      {/* Last validated */}
       {listing.lastValidatedAt && (
         <span
-          className="text-xs text-muted-foreground flex-shrink-0 tabular-nums"
+          className="text-xs text-muted-foreground flex-shrink-0 tabular-nums w-16 text-right"
           title={listing.lastValidatedAt}
         >
           {formatRelative(listing.lastValidatedAt)}
         </span>
       )}
 
-      {/* Remove button */}
       <Button
         variant="ghost"
         size="sm"
-        className="flex-shrink-0 text-xs h-7 px-2"
+        className="flex-shrink-0 text-xs h-7 px-2 text-muted-foreground hover:text-destructive"
         disabled={!listing.configured || isRemoving}
         onClick={onRemove}
         aria-label={`Remove ${listing.displayName} credential`}
       >
-        {isRemoving ? "Removing…" : "Remove"}
+        {isRemoving ? "Removing..." : "Remove"}
       </Button>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main widget component — self-fetching via TanStack Query
+// CredentialsManager — full management UI for the Settings page
 // ---------------------------------------------------------------------------
 
-export function Credentials() {
+export function CredentialsManager() {
   const queryClient = useQueryClient();
   const [addedCount, setAddedCount] = useState(0);
 
@@ -578,12 +535,87 @@ export function Credentials() {
 
   if (query.isError) {
     return (
+      <div className="text-muted-foreground text-sm">
+        Failed to load credentials: {query.error.message}
+      </div>
+    );
+  }
+
+  if (query.isLoading || !query.data) {
+    return (
+      <div className="text-muted-foreground text-sm">Loading...</div>
+    );
+  }
+
+  const credentials = query.data;
+
+  return (
+    <div className="space-y-6">
+      <AddCredentialForm
+        key={addedCount}
+        onAdded={() => setAddedCount((n) => n + 1)}
+      />
+
+      <div className="border-t border-border" />
+
+      {credentials.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No credential providers registered.</p>
+      ) : (
+        <div>
+          <div className="flex items-center gap-4 py-1.5 border-b border-border">
+            <span className="inline-block h-2 w-2 flex-shrink-0" aria-hidden="true" />
+            <span className="w-32 flex-shrink-0 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Provider
+            </span>
+            <span className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Detail
+            </span>
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0">
+              Status
+            </span>
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-16 text-right tabular-nums">
+              Validated
+            </span>
+            <span className="flex-shrink-0 w-16" />
+          </div>
+
+          {credentials.map((listing) => (
+            <CredentialRow
+              key={listing.provider}
+              listing={listing}
+              onRemove={() => removeMutation.mutate(listing.provider)}
+              isRemoving={
+                removeMutation.isPending &&
+                removeMutation.variables === listing.provider
+              }
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CredentialsSummary — compact homepage widget showing config status
+// ---------------------------------------------------------------------------
+
+export function CredentialsSummary() {
+  const query = useQuery<CredentialListing[], Error>({
+    queryKey: ["credentials"],
+    queryFn: fetchCredentials,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  if (query.isError) {
+    return (
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Credentials</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load credentials: {query.error.message}</p>
+          <p>Failed to load</p>
         </CardContent>
       </Card>
     );
@@ -596,63 +628,59 @@ export function Credentials() {
           <CardTitle className="text-base font-semibold">Credentials</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
+          <p>Loading...</p>
         </CardContent>
       </Card>
     );
   }
 
   const credentials = query.data;
+  const configured = credentials.filter((c) => c.configured).length;
+  const total = credentials.length;
+  const allConfigured = configured === total && total > 0;
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">Credentials</CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-semibold">Credentials</CardTitle>
+          <Link
+            to="/settings"
+            className="text-xs text-primary hover:underline underline-offset-2"
+          >
+            Manage &rarr;
+          </Link>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Add form */}
-        <AddCredentialForm
-          // Reset form state when a credential is successfully added
-          key={addedCount}
-          onAdded={() => setAddedCount((n) => n + 1)}
-        />
+      <CardContent>
+        <div className="flex items-center gap-3 mb-3">
+          <span
+            className={cn(
+              "inline-block h-2.5 w-2.5 rounded-full flex-shrink-0",
+              allConfigured ? "bg-primary" : configured > 0 ? "bg-yellow-500" : "bg-destructive"
+            )}
+          />
+          <span className="text-sm font-medium tabular-nums">
+            {configured}/{total} configured
+          </span>
+        </div>
 
-        {/* Divider */}
-        <div className="border-t border-border" />
-
-        {/* Provider list */}
-        {credentials.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No credential providers registered.</p>
-        ) : (
-          <div>
-            {/* Column headers */}
-            <div className="flex items-center gap-3 py-1 mb-0.5 border-b border-border">
-              <span className="inline-block h-2 w-2 flex-shrink-0" aria-hidden="true" />
-              <span className="flex-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                Provider
-              </span>
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0">
-                Status
-              </span>
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 tabular-nums">
-                Last validated
-              </span>
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex-shrink-0 w-16" />
-            </div>
-
-            {credentials.map((listing) => (
-              <CredentialRow
-                key={listing.provider}
-                listing={listing}
-                onRemove={() => removeMutation.mutate(listing.provider)}
-                isRemoving={
-                  removeMutation.isPending &&
-                  removeMutation.variables === listing.provider
-                }
+        <div className="space-y-1">
+          {credentials.map((c) => (
+            <div key={c.provider} className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-block h-1.5 w-1.5 rounded-full flex-shrink-0",
+                  c.configured ? "bg-primary" : "bg-muted"
+                )}
               />
-            ))}
-          </div>
-        )}
+              <span className="text-xs text-muted-foreground">{c.displayName}</span>
+              {!c.configured && (
+                <span className="text-xs text-muted-foreground/60">— not configured</span>
+              )}
+            </div>
+          ))}
+        </div>
       </CardContent>
     </Card>
   );
