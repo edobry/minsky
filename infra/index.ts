@@ -3,20 +3,31 @@ import * as railway from "@pulumi/railway";
 
 const secrets = new pulumi.Config("secrets");
 
+interface VarDef {
+  value: string | pulumi.Output<string>;
+  sealed?: boolean;
+}
+
+function plain(value: string): VarDef {
+  return { value };
+}
+function sealed(configKey: string): VarDef {
+  return { value: secrets.requireSecret(configKey), sealed: true };
+}
+
 function defineVariables(
   serviceName: string,
   environmentId: string,
   serviceId: string,
-  vars: Record<string, string | pulumi.Output<string>>
+  vars: Record<string, VarDef>
 ): Record<string, railway.Variable> {
   const resources: Record<string, railway.Variable> = {};
-  for (const [name, value] of Object.entries(vars)) {
-    resources[name] = new railway.Variable(`${serviceName}-var-${name}`, {
-      environmentId,
-      serviceId,
-      name,
-      value: typeof value === "string" ? value : value,
-    });
+  for (const [name, def] of Object.entries(vars)) {
+    resources[name] = new railway.Variable(
+      `${serviceName}-var-${name}`,
+      { environmentId, serviceId, name, value: def.value },
+      def.sealed ? { ignoreChanges: ["value"] } : undefined
+    );
   }
   return resources;
 }
@@ -32,19 +43,20 @@ export const minskyMcpService = new railway.Service("minsky-mcp", {
   projectId: minskyMcpProject,
   name: "minsky-mcp",
   sourceImage: "ghcr.io/edobry/minsky:latest",
+  regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
 defineVariables("minsky-mcp", minskyMcpEnv, minskyMcpServiceId, {
-  MINSKY_APP_ID: "3436626",
-  MINSKY_APP_INSTALLATION_ID: "125403046",
-  MINSKY_GITHUB_APP_PRIVATE_KEY: secrets.requireSecret("minsky-github-app-private-key"),
-  MINSKY_MCP_AUTH_TOKEN: secrets.requireSecret("minsky-mcp-auth-token"),
-  MINSKY_MCP_MAX_SESSIONS: "1000",
-  MINSKY_PERSISTENCE_BACKEND: "postgres",
-  MINSKY_PERSISTENCE_POSTGRES_URL: secrets.requireSecret("minsky-persistence-postgres-url"),
-  NODE_ENV: "production",
-  OPENAI_API_KEY: secrets.requireSecret("openai-api-key"),
-  MINSKY_OAUTH_SIGNING_KEY: secrets.requireSecret("minsky-oauth-signing-key"),
+  MINSKY_APP_ID: plain("3436626"),
+  MINSKY_APP_INSTALLATION_ID: plain("125403046"),
+  MINSKY_GITHUB_APP_PRIVATE_KEY: sealed("minsky-github-app-private-key"),
+  MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
+  MINSKY_MCP_MAX_SESSIONS: plain("1000"),
+  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
+  NODE_ENV: plain("production"),
+  OPENAI_API_KEY: sealed("openai-api-key"),
+  MINSKY_OAUTH_SIGNING_KEY: sealed("minsky-oauth-signing-key"),
 });
 
 // ---------------------------------------------------------------------------
@@ -59,22 +71,22 @@ export const reviewerService = new railway.Service("reviewer", {
   name: "minsky-reviewer-webhook",
   sourceRepo: "edobry/minsky",
   sourceRepoBranch: "main",
-  rootDirectory: "services/reviewer",
+  regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
 defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
-  MINSKY_REVIEWER_APP_ID: "3470137",
-  MINSKY_REVIEWER_INSTALLATION_ID: "126244115",
-  MINSKY_REVIEWER_PRIVATE_KEY: secrets.requireSecret("minsky-reviewer-private-key"),
-  MINSKY_REVIEWER_WEBHOOK_SECRET: secrets.requireSecret("minsky-reviewer-webhook-secret"),
-  MINSKY_REVIEWER_TIER2_ENABLED: "true",
-  REVIEWER_PROVIDER: "openai",
-  OPENAI_API_KEY: secrets.requireSecret("openai-api-key"),
-  SWEEPER_ENABLED: "true",
-  REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: "true",
-  MINSKY_MCP_URL: "https://minsky-mcp-production.up.railway.app/mcp",
-  MINSKY_MCP_AUTH_TOKEN: secrets.requireSecret("minsky-mcp-auth-token"),
-  MINSKY_SESSIONDB_POSTGRES_URL: secrets.requireSecret("minsky-sessiondb-postgres-url"),
+  MINSKY_REVIEWER_APP_ID: plain("3470137"),
+  MINSKY_REVIEWER_INSTALLATION_ID: plain("126244115"),
+  MINSKY_REVIEWER_PRIVATE_KEY: sealed("minsky-reviewer-private-key"),
+  MINSKY_REVIEWER_WEBHOOK_SECRET: sealed("minsky-reviewer-webhook-secret"),
+  MINSKY_REVIEWER_TIER2_ENABLED: plain("true"),
+  REVIEWER_PROVIDER: plain("openai"),
+  OPENAI_API_KEY: sealed("openai-api-key"),
+  SWEEPER_ENABLED: plain("true"),
+  REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
+  MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
+  MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
+  MINSKY_SESSIONDB_POSTGRES_URL: sealed("minsky-sessiondb-postgres-url"),
 });
 
 // ---------------------------------------------------------------------------
@@ -90,25 +102,26 @@ export const siteService = new railway.Service("site", {
   sourceRepo: "edobry/minsky",
   sourceRepoBranch: "main",
   rootDirectory: "services/site",
+  regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
 defineVariables("site", siteEnv, siteServiceId, {
-  NODE_ENV: "production",
-  SITE_URL: "https://minsky.dev",
+  NODE_ENV: plain("production"),
+  SITE_URL: plain("https://minsky.dev"),
 });
 
 // ---------------------------------------------------------------------------
 // cockpit preview (placeholder — Railway project not yet created, mt#2096)
-// Uncomment and replace IDs after Railway project/service creation.
 // ---------------------------------------------------------------------------
 // const cockpitService = new railway.Service("cockpit", {
 //   projectId: "REPLACE_AFTER_CREATION",
 //   name: "cockpit-preview",
+//   regions: [{ region: "us-west2", numReplicas: 1 }],
 // });
 // defineVariables("cockpit", "REPLACE", "REPLACE", {
-//   MINSKY_PERSISTENCE_BACKEND: "postgres",
-//   MINSKY_PERSISTENCE_POSTGRES_URL: secrets.requireSecret("minsky-cockpit-preview-postgres-url"),
-//   MINSKY_COCKPIT_PREVIEW: "true",
+//   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+//   MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-cockpit-preview-postgres-url"),
+//   MINSKY_COCKPIT_PREVIEW: plain("true"),
 // });
 
 // ---------------------------------------------------------------------------
