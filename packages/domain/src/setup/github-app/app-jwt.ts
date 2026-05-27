@@ -18,10 +18,10 @@ import { pemToPkcs8ArrayBuffer } from "./pem-utils";
  */
 export async function buildAppJwt(appId: number, pem: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const header = btoa(JSON.stringify({ alg: "RS256", typ: "JWT" })).replace(/=/g, "");
-  const payload = btoa(
+  const header = toBase64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = toBase64Url(
     JSON.stringify({ iat: now - 60, exp: now + 300, iss: String(appId) })
-  ).replace(/=/g, "");
+  );
   const signingInput = `${header}.${payload}`;
 
   const key = await crypto.subtle.importKey(
@@ -36,8 +36,16 @@ export async function buildAppJwt(appId: number, pem: string): Promise<string> {
     key,
     new TextEncoder().encode(signingInput)
   );
-  const bytes = new Uint8Array(sig);
+  return `${signingInput}.${arrayBufferToBase64Url(sig)}`;
+}
+
+function toBase64Url(input: string): string {
+  return btoa(input).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+function arrayBufferToBase64Url(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
   let s = "";
   for (const b of bytes) s += String.fromCharCode(b);
-  return `${signingInput}.${btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "")}`;
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 }
