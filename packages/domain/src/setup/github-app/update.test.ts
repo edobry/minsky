@@ -108,6 +108,39 @@ describe("updateGithubApp", () => {
     expect(patchCalls).toHaveLength(0);
   });
 
+  it("shows no-op message when proposed matches current", async () => {
+    const store = makeMockStore(FAKE_CREDS);
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/app") && !init?.method) {
+        return new Response(
+          JSON.stringify({
+            events: ["pull_request"],
+            permissions: { pull_requests: "write" },
+            name: "test-app",
+            slug: "test-app",
+          }),
+          { status: 200 }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    }) as typeof fetch;
+
+    const result = await updateGithubApp({
+      name: "test-app",
+      store,
+      events: ["pull_request"],
+      execute: false,
+      buildJwt: mockBuildJwt,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.dryRun).toBe(true);
+    expect(result.message).toContain("No changes");
+    expect(result.message).not.toContain("Would update");
+  });
+
   it("calls PATCH /app when --execute is true", async () => {
     const store = makeMockStore(FAKE_CREDS);
     const fetchCalls: { url: string; method?: string; body?: string }[] = [];

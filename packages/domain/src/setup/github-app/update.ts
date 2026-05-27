@@ -149,11 +149,15 @@ export async function updateGithubApp(
 }
 
 function formatDryRunMessage(current: AppConfig, proposed: AppConfig): string {
-  const lines: string[] = ["Would update App configuration:"];
-
   const eventsChanged =
     JSON.stringify(current.events.sort()) !== JSON.stringify(proposed.events.sort());
   const permsChanged = JSON.stringify(current.permissions) !== JSON.stringify(proposed.permissions);
+
+  if (!eventsChanged && !permsChanged) {
+    return "No changes — current configuration already matches the requested settings.";
+  }
+
+  const lines: string[] = ["Would update App configuration:"];
 
   if (eventsChanged) {
     lines.push(
@@ -164,9 +168,6 @@ function formatDryRunMessage(current: AppConfig, proposed: AppConfig): string {
     lines.push(
       `  Permissions: ${formatPerms(current.permissions)} → ${formatPerms(proposed.permissions)}`
     );
-  }
-  if (!eventsChanged && !permsChanged) {
-    lines.push("  (no changes detected — current config matches proposed)");
   }
 
   lines.push("");
