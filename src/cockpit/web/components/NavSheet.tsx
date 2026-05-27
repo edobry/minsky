@@ -16,6 +16,7 @@ import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Bot,
+  FileSearch,
   GitBranch,
   List,
   Network,
@@ -51,6 +52,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Agents",
     description: "Sessions in flight",
     icon: Bot,
+  },
+  {
+    to: "/context",
+    label: "Context",
+    description: "Session context inspector",
+    icon: FileSearch,
   },
   {
     to: "/workstreams",

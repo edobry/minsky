@@ -14,9 +14,9 @@ import { createCockpitSseClient } from "./lib/sse-client";
 import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
-import { ContextInspector } from "./widgets/ContextInspector";
 import { Credentials } from "./widgets/Credentials";
 import { AgentsPage } from "./pages/AgentsPage";
+import { ContextPage } from "./pages/ContextPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksLayout } from "./pages/TasksLayout";
 import { TasksListPage } from "./pages/TasksListPage";
@@ -34,7 +34,6 @@ import { PageNavTiles } from "./pages/HomePage";
 // ---------------------------------------------------------------------------
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   attention: Attention,
-  "context-inspector": ContextInspector,
   credentials: Credentials,
 };
 
@@ -45,7 +44,7 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
-const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
+const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "context-inspector", "workstreams", "task-graph", "task-list"]);
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -224,6 +223,14 @@ export function App() {
           element={
             <ErrorBoundary id="agents-page">
               <AgentsPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/context"
+          element={
+            <ErrorBoundary id="context-page">
+              <ContextPage />
             </ErrorBoundary>
           }
         />
