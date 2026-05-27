@@ -20,7 +20,7 @@ import type { WorkspaceUtilsInterface } from "../workspace";
 import type { RepositoryBackendType } from "../repository";
 import type { TaskGraphService } from "../tasks/task-graph-service";
 import type { TaskRoutingService } from "../tasks/task-routing-service";
-import type { ClientCapabilityRegistry } from "../../../../src/mcp/client-capabilities";
+import type { ClientCapabilityRegistry } from "../client-capabilities";
 
 /**
  * The complete set of services managed by the DI container.
