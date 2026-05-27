@@ -58,8 +58,8 @@ When reporting results and closing the task:
 
 19. **Post-commit testability handoff for UI changes.** After committing changes that alter any file under `src/cockpit/web/**`, you MUST do one of:
 
-    - **(a) Start the server** — rebuild the bundle (`bun run cockpit:build`) AND start the cockpit server from the session workspace (`bun src/cli.ts cockpit start --port=<N>`) AND report the URL in the final report.
-    - **(b) Hand off the start command** — state the absolute session directory path AND the exact start command the parent agent needs to run (e.g., `cd <session-dir> && bun run cockpit:build && bun src/cli.ts cockpit start --port=4317`).
+    - **(a) Start the server in dev mode** — start the cockpit server from the session workspace with Vite HMR (`bun src/cli.ts cockpit start --dev --port=<N>`) AND report the URL in the final report. No `cockpit:build` step needed — Vite serves the frontend directly from source.
+    - **(b) Hand off the start command** — state the absolute session directory path AND the exact start command the parent agent needs to run (e.g., `cd <session-dir> && bun src/cli.ts cockpit start --dev --port=4317`).
 
     The phrase "browser verification not done" alone — without (a) or (b) — is **forbidden** as a final-report conclusion.
 
