@@ -81,6 +81,13 @@ const PROVIDER_META: ProviderMeta[] = [
     scopeGuidance:
       "Account or workspace API token. Used by Pulumi for Railway IaC management.",
   },
+  {
+    id: "google",
+    displayName: "Google AI",
+    acquireUrl: "https://aistudio.google.com/apikey",
+    scopeGuidance:
+      "API key from Google AI Studio. Used for Gemini embedding fallback. No scope selection required.",
+  },
 ];
 
 // ---------------------------------------------------------------------------
