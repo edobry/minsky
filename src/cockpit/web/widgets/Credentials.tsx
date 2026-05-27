@@ -8,7 +8,7 @@
  * Both share the same TanStack Query cache key (["credentials"]) and
  * the same API fetch helpers.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
@@ -250,7 +250,7 @@ function ValidationResult({
 // Add form sub-component
 // ---------------------------------------------------------------------------
 
-function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
+function AddCredentialForm() {
   const [selectedProvider, setSelectedProvider] = useState<string>(PROVIDER_META[0]?.id ?? "");
   const [token, setToken] = useState("");
   const [validateResult, setValidateResult] = useState<CredentialCheckResult | null>(null);
@@ -277,7 +277,6 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
       setValidateResult(null);
       setValidateError(null);
       void queryClient.invalidateQueries({ queryKey: ["credentials"] });
-      onAdded();
     },
     onError: (err) => {
       if (err instanceof CredentialApiError && err.code === "validation_failed" && err.validate) {
@@ -288,6 +287,12 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
       }
     },
   });
+
+  useEffect(() => {
+    if (!addMutation.isSuccess) return;
+    const timer = setTimeout(() => addMutation.reset(), 3000);
+    return () => clearTimeout(timer);
+  }, [addMutation.isSuccess, addMutation.reset]);
 
   const providerMeta = PROVIDER_META.find((p) => p.id === selectedProvider);
   const canSubmit = selectedProvider && token.length > 0;
@@ -324,6 +329,7 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
               setSelectedProvider(e.target.value);
               setValidateResult(null);
               setValidateError(null);
+              addMutation.reset();
             }}
             className={cn(
               "h-9 rounded-md border border-input bg-background px-3 py-1 text-sm",
@@ -358,6 +364,7 @@ function AddCredentialForm({ onAdded }: { onAdded: () => void }) {
               setToken(e.target.value);
               setValidateResult(null);
               setValidateError(null);
+              addMutation.reset();
             }}
             placeholder="Paste token here..."
             className={cn(
@@ -517,7 +524,6 @@ function CredentialRow({
 
 export function CredentialsManager() {
   const queryClient = useQueryClient();
-  const [addedCount, setAddedCount] = useState(0);
 
   const query = useQuery<CredentialListing[], Error>({
     queryKey: ["credentials"],
@@ -551,10 +557,7 @@ export function CredentialsManager() {
 
   return (
     <div className="space-y-6">
-      <AddCredentialForm
-        key={addedCount}
-        onAdded={() => setAddedCount((n) => n + 1)}
-      />
+      <AddCredentialForm />
 
       <div className="border-t border-border" />
 

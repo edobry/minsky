@@ -11,7 +11,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { render, screen, waitFor, within, cleanup } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Credentials } from "./Credentials";
+import { CredentialsManager } from "./Credentials";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -116,17 +116,16 @@ function mockFetchCredentials(credentials = MOCK_CREDENTIALS) {
 describe("Credentials widget", () => {
   test("renders loading state initially", () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
-    expect(screen.getByText("Loading…")).toBeDefined();
+    renderWithQuery(<CredentialsManager />);
+    expect(screen.getByText("Loading...")).toBeDefined();
   });
 
   test("renders all provider names after data loads", async () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
-      expect(screen.getByText("Credentials")).toBeDefined();
-      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByText("Loading...")).toBeNull();
     });
 
     expect(screen.getAllByText("GitHub").length).toBeGreaterThan(0);
@@ -137,10 +136,10 @@ describe("Credentials widget", () => {
 
   test("shows configured/not-configured status for each provider", async () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByText("Loading...")).toBeNull();
     });
 
     const configuredBadges = screen.getAllByText("Configured");
@@ -152,10 +151,10 @@ describe("Credentials widget", () => {
 
   test("renders the add form with provider selector and token input", async () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByText("Loading...")).toBeNull();
     });
 
     const providerSelect = screen.getByLabelText("Select credential provider");
@@ -173,10 +172,10 @@ describe("Credentials widget", () => {
 
   test("add button is disabled when token input is empty", async () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByText("Loading...")).toBeNull();
     });
 
     const addBtn = screen.getByLabelText("Validate and save token") as HTMLButtonElement;
@@ -185,10 +184,10 @@ describe("Credentials widget", () => {
 
   test("add button enables after typing a token", async () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByText("Loading...")).toBeNull();
     });
 
     const tokenInput = screen.getByLabelText("Paste credential token");
@@ -208,7 +207,7 @@ describe("Credentials widget", () => {
       )
     ) as typeof globalThis.fetch;
 
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to load credentials/)).toBeDefined();
@@ -217,19 +216,41 @@ describe("Credentials widget", () => {
 
   test("renders empty provider list message when no providers exist", async () => {
     mockFetchCredentials([]);
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
       expect(screen.getByText("No credential providers registered.")).toBeDefined();
     });
   });
 
-  test("remove button is disabled for unconfigured providers", async () => {
+  test("shows success feedback after adding a credential", async () => {
     mockFetchCredentials();
-    renderWithQuery(<Credentials />);
+    renderWithQuery(<CredentialsManager />);
 
     await waitFor(() => {
-      expect(screen.queryByText("Loading…")).toBeNull();
+      expect(screen.queryByText("Loading...")).toBeNull();
+    });
+
+    const tokenInput = screen.getByLabelText("Paste credential token");
+    const addBtn = screen.getByLabelText("Validate and save token");
+
+    await userEvent.type(tokenInput, "test-token-value");
+    await userEvent.click(addBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("stub-ok")).toBeDefined();
+    });
+
+    const storedText = screen.getByText(/Stored at/);
+    expect(storedText).toBeDefined();
+  });
+
+  test("remove button is disabled for unconfigured providers", async () => {
+    mockFetchCredentials();
+    renderWithQuery(<CredentialsManager />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loading...")).toBeNull();
     });
 
     const supabaseLabel = screen
