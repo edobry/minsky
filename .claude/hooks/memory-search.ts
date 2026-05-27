@@ -751,9 +751,22 @@ if (import.meta.main) {
       });
     }
 
-    // Degraded backend → skip injection but record the signal
+    // Degraded backend → inject warning so the operator knows embeddings are down
     if (response.degraded) {
-      return await recordAndExit({
+      const degradedWarning =
+        `[memory-search] Embeddings subsystem is degraded (backend: ${response.backend ?? "none"}). ` +
+        `Memory search returned no results because the embedding provider is unavailable. ` +
+        `This may be caused by OpenAI API quota exhaustion. ` +
+        `Run \`minsky config doctor\` or check \`debug_systemInfo\` → embeddingsHealth for details.`;
+      const degradedOutput: HookOutput = {
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: degradedWarning,
+        },
+      };
+      writeOutput(degradedOutput);
+
+      writeLog({
         ts: new Date().toISOString(),
         sessionId,
         promptPrefix,
@@ -765,6 +778,19 @@ if (import.meta.main) {
         latencyMs,
         warning,
       });
+      await emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "degraded",
+        degraded: true,
+        backend: response.backend,
+        latencyMs,
+        warning,
+      });
+      process.exit(0);
     }
 
     // Empty results → nothing useful to inject

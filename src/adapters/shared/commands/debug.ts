@@ -11,6 +11,7 @@ import { sharedCommandRegistry, CommandCategory, defineCommand } from "../comman
 import { log } from "@minsky/shared/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
+import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -219,6 +220,7 @@ export function registerDebugCommands(): void {
             ...dispatchCadence,
             escalation: dispatchEscalation,
           },
+          embeddingsHealth: EmbeddingsHealthTracker.getInstance().getSummary(),
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };
