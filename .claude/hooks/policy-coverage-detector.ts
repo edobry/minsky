@@ -40,21 +40,21 @@ import type { ToolHookInput } from "./types";
 import {
   applyActionFilter,
   extractToolCallParams,
-} from "../../src/domain/detectors/policy-coverage/action-filter";
-import { loadPolicyCorpus } from "../../src/domain/detectors/policy-coverage/corpus-loader";
-import { decideCoverage } from "../../src/domain/detectors/policy-coverage/coverage";
+} from "../../packages/domain/src/detectors/policy-coverage/action-filter";
+import { loadPolicyCorpus } from "../../packages/domain/src/detectors/policy-coverage/corpus-loader";
+import { decideCoverage } from "../../packages/domain/src/detectors/policy-coverage/coverage";
 import type {
   ActionDescriptor,
   CoverageEvidence,
-} from "../../src/domain/detectors/policy-coverage/coverage";
+} from "../../packages/domain/src/detectors/policy-coverage/coverage";
 import {
   buildDetectionSignal,
   buildEvidenceSignature,
   emitAskIntent,
   DETECTOR_ID,
   DETECTOR_VERSION,
-} from "../../src/domain/detectors/policy-coverage/emit";
-import type { DetectionContext } from "../../src/domain/detectors/types";
+} from "../../packages/domain/src/detectors/policy-coverage/emit";
+import type { DetectionContext } from "../../packages/domain/src/detectors/types";
 
 // ---------------------------------------------------------------------------
 // Constants

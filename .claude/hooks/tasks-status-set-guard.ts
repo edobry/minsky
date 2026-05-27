@@ -24,8 +24,8 @@
 
 import { execWithPath, readInput, writeOutput } from "./types";
 import type { ToolHookInput } from "./types";
-import { validateStatusTransition } from "../../src/domain/tasks/status-transitions";
-import { TaskStatus, isValidTaskStatus } from "../../src/domain/tasks/taskConstants";
+import { validateStatusTransition } from "../../packages/domain/src/tasks/status-transitions";
+import { TaskStatus, isValidTaskStatus } from "../../packages/domain/src/tasks/taskConstants";
 
 const TARGET_TOOL = "mcp__minsky__tasks_status_set";
 

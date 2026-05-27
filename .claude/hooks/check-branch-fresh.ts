@@ -49,7 +49,7 @@ import type { ToolHookInput, HostCapInfo } from "./types";
 // read + CAS side (session_commit). The shared module imports only
 // node:fs / node:path / errors — no transitive dependency surface that
 // would slow hook startup.
-import { writeFreshnessMarker } from "../../src/domain/session/freshness-marker";
+import { writeFreshnessMarker } from "../../packages/domain/src/session/freshness-marker";
 
 // ---------------------------------------------------------------------------
 // Types
