@@ -678,8 +678,6 @@ export function createApp(
       triggeredBy: commentUser?.["login"] as string | undefined,
     });
 
-    await updateStatusCommentSafe(repoOwner, repoName, prNumber, buildPendingBody());
-
     // Fetch the PR to get the current HEAD sha and author.
     // Duplicate-review prevention: runReview acquires an inflight marker
     // (mt#1907) keyed on PR + HEAD sha; concurrent /review comments for
@@ -702,6 +700,8 @@ export function createApp(
         });
         return;
       }
+
+      await updateStatusCommentSafe(repoOwner, repoName, prNumber, buildPendingBody());
 
       startDetachedReview(
         repoOwner,
