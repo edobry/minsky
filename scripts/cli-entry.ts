@@ -35,7 +35,7 @@
  */
 
 import { realpathSync, existsSync, readFileSync, writeFileSync } from "fs";
-import { dirname, join } from "path";
+import { dirname, join, basename } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
 
@@ -60,7 +60,7 @@ export interface FsDeps {
 export interface ExecDeps {
   /** Run `git rev-parse HEAD` in the given cwd. Returns stdout or "" on failure. */
   gitRevParseHead(cwd: string): string;
-  /** Run `bun build --target=bun --outfile=<bundlePath> <sourcePath>` in cwd. Returns exit code. */
+  /** Run `bun build --target=bun --outdir=<dir> --entry-naming <name> <sourcePath>` in cwd. Returns exit code. */
   bunBuild(args: { cwd: string; bundlePath: string; sourcePath: string }): number;
 }
 
@@ -168,9 +168,11 @@ function makeProductionExecDeps(): ExecDeps {
       return result.stdout?.trim() ?? "";
     },
     bunBuild({ cwd, bundlePath, sourcePath }): number {
+      const outDir = dirname(bundlePath);
+      const entryName = basename(bundlePath);
       const result = spawnSync(
         "bun",
-        ["build", "--target=bun", `--outfile=${bundlePath}`, sourcePath],
+        ["build", "--target=bun", `--outdir=${outDir}`, "--entry-naming", entryName, sourcePath],
         { cwd, stdio: "inherit" }
       );
       return result.status ?? 1;
