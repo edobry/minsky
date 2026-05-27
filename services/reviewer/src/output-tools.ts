@@ -516,7 +516,7 @@ export const OUTPUT_TOOL_DEFINITIONS: OutputToolDefinition[] = [
             type: "array",
             items: { type: "string", minLength: 1 },
             description:
-              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'.",
+              "Optional list of documentation file paths affected by the PR. List docs updated for 'updated-in-pr'; list docs that need updating for 'blocking-needs-update'. Only list docs that actually reference the changed symbols, routes, or behavior — do not speculatively list docs based on topic area alone.",
           },
         },
         required: ["kind", "evidence"],
