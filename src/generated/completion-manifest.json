@@ -4668,6 +4668,22 @@
                   ]
                 }
               ]
+            },
+            {
+              "name": "retrigger",
+              "description": "Trigger a fresh review on a PR's current HEAD. Calls the reviewer service's /retrigger endpoint.",
+              "options": [
+                {
+                  "flags": ["--owner"],
+                  "description": "GitHub repo owner (default: 'edobry')",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--repo"],
+                  "description": "GitHub repo name (default: 'minsky')",
+                  "takesValue": true
+                }
+              ]
             }
           ]
         },

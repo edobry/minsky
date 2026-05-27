@@ -41,7 +41,7 @@ Railway-hosted service (stateless, this package)
 5. Deploy to Railway (see `DEPLOY.md`)
 6. Register webhook in the `minsky-reviewer` App settings:
    - URL: `https://<railway-service>.up.railway.app/webhook`
-   - Events: `Pull request`, `Pull request review`
+   - Events: `Pull request`, `Pull request review`, `Issue comments`
    - Secret: the same secret as `MINSKY_REVIEWER_WEBHOOK_SECRET`
 
 ## Local development
@@ -96,6 +96,39 @@ Both tools use the `contents: read` permission the App already holds.
 - Unexpected errors on either tool → `{"ok": false, "error": "<message>"}`.
 
 The envelope structurally disambiguates "missing file" from "file whose content happens to be the literal string `null`" — a failure mode of the earlier raw-string protocol.
+
+## Comment command (mt#2127)
+
+Commenting `/review` on an open PR triggers a fresh review on the PR's current HEAD. The command must be the **entire first line** of the comment (whitespace-trimmed) — inline usage like `some text /review` is ignored.
+
+Guards:
+
+- Only fires on comments attached to a PR (not plain issues)
+- Only fires on **open** PRs (closed/merged PRs are ignored)
+- Only fires for collaborators (`COLLABORATOR`, `MEMBER`, or `OWNER` author association)
+
+Duplicate prevention: `runReview` acquires an inflight marker (mt#1907) keyed on PR + HEAD SHA, so rapid repeated `/review` comments coalesce at the review layer.
+
+### Programmatic retrigger
+
+The service exposes `POST /retrigger` for agent-driven retriggers:
+
+```bash
+curl -X POST https://<service>/retrigger \
+  -H "Authorization: Bearer $MINSKY_REVIEWER_WEBHOOK_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"pr": 42, "owner": "edobry", "repo": "minsky"}'
+```
+
+All three fields (`pr`, `owner`, `repo`) are required. Returns JSON `{ ok, pr, deliveryId }` on success, `{ error }` on failure.
+
+The equivalent MCP command is `reviewer.retrigger`:
+
+```
+minsky reviewer retrigger --pr 42 --owner edobry --repo minsky
+```
+
+Requires `MINSKY_REVIEWER_URL` and `MINSKY_REVIEWER_WEBHOOK_SECRET` environment variables.
 
 ## Re-running the harness (mt#1515)
 

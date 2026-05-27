@@ -32,6 +32,7 @@ import {
   pruneOldRows,
   extractPersistedHeaders,
 } from "./webhook-events";
+import { createOctokit } from "./github-client";
 
 interface PullRequestPayload {
   pull_request: {
@@ -62,6 +63,17 @@ interface PullRequestClosedPayload {
   };
   repository: { owner: { login: string }; name: string };
 }
+
+/**
+ * Recognized /review command pattern. The ENTIRE first line of the comment
+ * (trimmed) must be exactly `/review` — no surrounding text. This matches
+ * acceptance test #3: "Comment `some text /review more text` → no action."
+ * Multi-line comments are supported: only the first line is checked.
+ */
+const REVIEW_COMMAND_RE = /^\s*\/review\s*$/;
+
+/** Author associations that are allowed to trigger /review. */
+const ALLOWED_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
 
 /**
  * Type guard: payload is a closed+merged PR event.
@@ -179,13 +191,14 @@ export function createApp(
    * progresses: reviewer_called → review_submitted OR failed_at_reviewer.
    * Errors from persistence calls are swallowed (see webhook-events.ts).
    */
-  function startDetachedReview(payload: PullRequestPayload, deliveryId: string): void {
-    const owner = payload.repository.owner.login;
-    const repo = payload.repository.name;
-    const prNumber = payload.pull_request.number;
-    const prAuthor = payload.pull_request.user.login;
-    const headSha = payload.pull_request.head.sha;
-
+  function startDetachedReview(
+    owner: string,
+    repo: string,
+    prNumber: number,
+    prAuthor: string,
+    headSha: string,
+    deliveryId: string
+  ): void {
     // Mark that the reviewer was called (detached review started).
     if (db !== undefined) {
       void updateOutcome(db, deliveryId, "reviewer_called");
@@ -310,7 +323,14 @@ export function createApp(
       return;
     }
 
-    startDetachedReview(payload, deliveryId);
+    startDetachedReview(
+      owner,
+      repo,
+      prNumber,
+      payload.pull_request.user.login,
+      payload.pull_request.head.sha,
+      deliveryId
+    );
   }
 
   /**
@@ -526,6 +546,112 @@ export function createApp(
   });
 
   /**
+   * Handle issue_comment.created events for /review comment commands (mt#2127).
+   *
+   * When a collaborator comments `/review` on an open PR, trigger a fresh
+   * review on the PR's current HEAD. The command must be the sole content
+   * of the comment (or the first line, trimmed).
+   *
+   * Guards:
+   * - Only fires on comments attached to a PR (issue.pull_request present).
+   * - Only fires on open PRs (issue.state === "open").
+   * - Only fires for COLLABORATOR / MEMBER / OWNER author_association.
+   * - Fetches the PR via Octokit to get the current HEAD sha.
+   */
+  webhooks.on("issue_comment.created", async ({ id: deliveryId, payload }) => {
+    const p = payload as Record<string, unknown>;
+    const issue = p["issue"] as Record<string, unknown> | undefined;
+    const comment = p["comment"] as Record<string, unknown> | undefined;
+    const repository = p["repository"] as Record<string, unknown> | undefined;
+
+    if (!issue || !comment || !repository) return;
+
+    // Gate: must be a PR comment (GitHub sends issue_comment for both issues and PRs).
+    if (!issue["pull_request"]) {
+      return;
+    }
+
+    // Gate: PR must be open.
+    if (issue["state"] !== "open") {
+      log.info("comment_command.skip_not_open", {
+        event: "comment_command.skip_not_open",
+        delivery_id: deliveryId,
+        pr: issue["number"] as number,
+        state: issue["state"] as string,
+      });
+      return;
+    }
+
+    // Gate: comment body must match /review command.
+    const commentBody = comment["body"] as string | undefined;
+    if (!commentBody) return;
+    const firstLine = commentBody.split("\n")[0] ?? "";
+    if (!REVIEW_COMMAND_RE.test(firstLine)) {
+      return;
+    }
+
+    // Gate: author must be a collaborator.
+    const authorAssociation = comment["author_association"] as string | undefined;
+    const commentUser = comment["user"] as Record<string, unknown> | undefined;
+    if (!authorAssociation || !ALLOWED_ASSOCIATIONS.has(authorAssociation)) {
+      log.info("comment_command.skip_non_collaborator", {
+        event: "comment_command.skip_non_collaborator",
+        delivery_id: deliveryId,
+        pr: issue["number"] as number,
+        author: commentUser?.["login"] as string | undefined,
+        association: authorAssociation,
+      });
+      return;
+    }
+
+    const repoOwner = (repository["owner"] as Record<string, unknown>)?.["login"] as string;
+    const repoName = repository["name"] as string;
+    const prNumber = issue["number"] as number;
+    const issueUser = issue["user"] as Record<string, unknown> | undefined;
+
+    log.info("comment_command.review_triggered", {
+      event: "comment_command.review_triggered",
+      delivery_id: deliveryId,
+      pr: prNumber,
+      owner: repoOwner,
+      repo: repoName,
+      triggeredBy: commentUser?.["login"] as string | undefined,
+    });
+
+    // Fetch the PR to get the current HEAD sha and author.
+    // Duplicate-review prevention: runReview acquires an inflight marker
+    // (mt#1907) keyed on PR + HEAD sha; concurrent /review comments for
+    // the same HEAD are coalesced at that layer.
+    try {
+      const octokit = await createOctokit(cfg);
+      const { data: pr } = await octokit.pulls.get({
+        owner: repoOwner,
+        repo: repoName,
+        pull_number: prNumber,
+      });
+
+      startDetachedReview(
+        repoOwner,
+        repoName,
+        prNumber,
+        pr.user?.login ?? (issueUser?.["login"] as string) ?? "unknown",
+        pr.head.sha,
+        deliveryId
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error("comment_command.pr_fetch_failed", {
+        event: "comment_command.pr_fetch_failed",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        owner: repoOwner,
+        repo: repoName,
+        error: message,
+      });
+    }
+  });
+
+  /**
    * Handle pull_request.closed events for at-merge state sync (mt#1614).
    *
    * @octokit/webhooks already validated the HMAC-SHA-256 signature before
@@ -653,6 +779,98 @@ export function createApp(
           }),
           { headers: { "content-type": "application/json" } }
         );
+      }
+
+      // POST /retrigger — programmatic review retrigger (mt#2127 SC#5).
+      // Accepts { pr: number, owner: string, repo: string } and triggers a
+      // review on the PR's current HEAD.
+      // Authenticated by the same webhook secret as the webhook endpoint.
+      if (request.method === "POST" && url.pathname === "/retrigger") {
+        const authHeader = request.headers.get("authorization");
+        const expectedToken = `Bearer ${cfg.webhookSecret}`;
+        if (authHeader !== expectedToken) {
+          return new Response(JSON.stringify({ error: "unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        let body: { pr?: number; owner?: string; repo?: string };
+        try {
+          body = (await request.json()) as { pr?: number; owner?: string; repo?: string };
+        } catch {
+          return new Response(JSON.stringify({ error: "invalid json" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (typeof body.pr !== "number" || body.pr < 1) {
+          return new Response(JSON.stringify({ error: "missing or invalid 'pr' field" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (typeof body.owner !== "string" || !body.owner) {
+          return new Response(JSON.stringify({ error: "missing or invalid 'owner' field" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (typeof body.repo !== "string" || !body.repo) {
+          return new Response(JSON.stringify({ error: "missing or invalid 'repo' field" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        const prNumber = body.pr;
+        const owner = body.owner;
+        const repo = body.repo;
+        const deliveryId = `retrigger-${crypto.randomUUID()}`;
+
+        try {
+          const octokit = await createOctokit(cfg);
+          const { data: pr } = await octokit.pulls.get({
+            owner,
+            repo,
+            pull_number: prNumber,
+          });
+
+          if (pr.state !== "open") {
+            return new Response(JSON.stringify({ error: "PR is not open", state: pr.state }), {
+              status: 422,
+              headers: { "content-type": "application/json" },
+            });
+          }
+
+          startDetachedReview(
+            owner,
+            repo,
+            prNumber,
+            pr.user?.login ?? "unknown",
+            pr.head.sha,
+            deliveryId
+          );
+
+          return new Response(JSON.stringify({ ok: true, pr: prNumber, deliveryId }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error("retrigger.error", {
+            event: "retrigger.error",
+            pr: prNumber,
+            error: message,
+          });
+          return new Response(JSON.stringify({ error: message }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
+        }
       }
 
       if (request.method === "POST" && url.pathname === "/webhook") {

@@ -44,7 +44,7 @@ minsky setup github-app \
   --name minsky-reviewer \
   --repo <your-owner>/<your-repo> \
   --permissions pull_requests:write,contents:read,metadata:read \
-  --events pull_request \
+  --events pull_request,issue_comment \
   --webhook-url https://minsky-reviewer.example.com/webhook
 
 # Guided wizard fallback (GitHub Enterprise instances, restricted SSO orgs,
