@@ -50,11 +50,8 @@ if (!dbUrl) {
   process.exit(0);
 }
 
-const githubToken = process.env.GITHUB_TOKEN;
-if (!githubToken) {
-  console.error("SKIP: GITHUB_TOKEN not set; skipping live replay.");
-  process.exit(0);
-}
+import { resolveGitHubTokenOrSkip } from "./harness-auth";
+const githubToken = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Known limitation (mt#1875 R2)

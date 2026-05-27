@@ -46,18 +46,16 @@ import {
 // Environment gating
 // ---------------------------------------------------------------------------
 
+import { resolveGitHubTokenOrSkip } from "./harness-auth";
+
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 
 if (!OPENAI_API_KEY) {
   console.log("SKIP: OPENAI_API_KEY not set; skipping live replay test.");
   process.exit(0);
 }
 
-if (!GITHUB_TOKEN) {
-  console.log("SKIP: GITHUB_TOKEN not set; skipping live replay test.");
-  process.exit(0);
-}
+const GITHUB_TOKEN = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Argument parsing

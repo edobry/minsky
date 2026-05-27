@@ -154,25 +154,10 @@ interface RunResult {
 // Environment gating
 // ---------------------------------------------------------------------------
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+import { resolveGitHubTokenOrSkip } from "./harness-auth";
 
-// Token gating: dry-run still needs GITHUB_TOKEN for corpus enumeration and
-// prior-review fetches, but in CI environments lacking a token we want
-// SKIPPED semantics (exit 0) rather than a hard failure that fails the
-// pipeline. Match replay-severity.ts's graceful-skip pattern. PR #934 R1.
-const isDryRunInvocation = process.argv.includes("--dry-run");
-if (!GITHUB_TOKEN) {
-  if (isDryRunInvocation) {
-    console.log(
-      "SKIPPED: GITHUB_TOKEN not set. Dry-run requires GitHub API access for " +
-        "prior-review fetches and corpus enumeration. Treating as skipped (exit 0)."
-    );
-    process.exit(0);
-  }
-  console.error("ERROR: GITHUB_TOKEN not set. Live measurement requires GitHub API access.");
-  process.exit(1);
-}
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GITHUB_TOKEN = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Constants
