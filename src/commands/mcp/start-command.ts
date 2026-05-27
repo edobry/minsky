@@ -888,6 +888,40 @@ async function buildSubagentDispatchTracker(container: AppContainerInterface): P
 }
 
 /**
+ * Wire the EmbeddingsHealthTracker singleton to a production EventEmitter (mt#2147).
+ *
+ * Called once the DB connection is resolved. After this call, the tracker can
+ * emit `embeddings.provider_degraded` events to the `system_events` table.
+ * Without this wiring, the tracker still tracks health in-memory (for
+ * debug_systemInfo) but cannot persist events.
+ */
+async function wireEmbeddingsHealthTracker(container: AppContainerInterface): Promise<boolean> {
+  try {
+    const persistence = container.has("persistence") ? container.get("persistence") : undefined;
+    if (!persistence) return false;
+
+    const { PersistenceProvider } = await import("@minsky/domain/persistence/types");
+    if (!(persistence instanceof PersistenceProvider)) return false;
+    if (!persistence.capabilities.sql || typeof persistence.getDatabaseConnection !== "function") {
+      return false;
+    }
+    const connection = await persistence.getDatabaseConnection();
+    if (!connection) return false;
+
+    const db = connection as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+    const { EmbeddingsHealthTracker } = await import("@minsky/domain/ai/embeddings-health-tracker");
+    const { createEventEmitter } = await import("@minsky/domain/events/emitter");
+    EmbeddingsHealthTracker.getInstance().setEventEmitter(createEventEmitter(db));
+    return true;
+  } catch (err) {
+    log.debug("[mt#2147] wireEmbeddingsHealthTracker threw", {
+      error: getErrorMessage(err),
+    });
+    return false;
+  }
+}
+
+/**
  * Create the MCP "start" subcommand.
  */
 export function createStartCommand(
@@ -1195,6 +1229,23 @@ export function createStartCommand(
             })
             .catch((err) => {
               log.debug("[mt#1738] SubagentDispatchTracker unavailable", {
+                error: getErrorMessage(err),
+              });
+            });
+        }
+
+        // mt#2147: wire the EmbeddingsHealthTracker singleton so it can emit
+        // embeddings.provider_degraded events to system_events. Same fire-and-
+        // forget pattern as SubagentDispatchTracker above.
+        if (container) {
+          wireEmbeddingsHealthTracker(container)
+            .then((wired) => {
+              if (wired) {
+                log.debug("[mt#2147] EmbeddingsHealthTracker wired");
+              }
+            })
+            .catch((err) => {
+              log.debug("[mt#2147] EmbeddingsHealthTracker unavailable", {
                 error: getErrorMessage(err),
               });
             });
