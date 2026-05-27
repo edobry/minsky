@@ -66,6 +66,7 @@
   },
   "files": [
     "dist/",
+    "!dist/*.map",
     "scripts/cli-entry.ts",
     "package.json",
     "README.md",
