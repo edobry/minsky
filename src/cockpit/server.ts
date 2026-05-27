@@ -66,7 +66,7 @@ export interface CredentialModuleOverride {
   ) => Promise<import("@minsky/domain/credentials").AddCredentialResult>;
   listCredentials: () => Promise<import("@minsky/domain/credentials").CredentialListing[]>;
   removeCredential: (provider: string) => Promise<{ removed: boolean }>;
-  listCredentialProviders?: () => readonly {
+  listCredentialProviders: () => readonly {
     id: string;
     displayName: string;
     acquireUrl: string;
@@ -1097,10 +1097,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   app.get("/api/credentials/providers", async (_req, res) => {
     try {
       const credMod = credModuleOverride ?? (await import("@minsky/domain/credentials"));
-      const providers = (
-        credMod.listCredentialProviders?.() ??
-        (await import("@minsky/domain/credentials")).listCredentialProviders()
-      ).map((p) => ({
+      const providers = [...credMod.listCredentialProviders()].map((p) => ({
         id: p.id,
         displayName: p.displayName,
         acquireUrl: p.acquireUrl,
