@@ -25,6 +25,7 @@ import { TasksGraphPage } from "./pages/TasksGraphPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { AsksPage } from "./pages/AsksPage";
 import { ActivityPage } from "./pages/ActivityPage";
+import { EmbeddingsPage } from "./pages/EmbeddingsPage";
 import { PageNavTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
@@ -270,6 +271,14 @@ export function App() {
           element={
             <ErrorBoundary id="activity-page">
               <ActivityPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/embeddings"
+          element={
+            <ErrorBoundary id="embeddings-page">
+              <EmbeddingsPage />
             </ErrorBoundary>
           }
         />
