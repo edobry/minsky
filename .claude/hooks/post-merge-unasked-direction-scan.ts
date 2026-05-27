@@ -25,9 +25,9 @@
 import { readInput } from "./types";
 import type { ToolHookInput } from "./types";
 
-import { UnaskedDirectionAnalyzer } from "../../src/domain/detectors/unasked-direction-analyzer";
-import { writeFindings } from "../../src/domain/detectors/unasked-direction-store";
-import type { TranscriptMessage } from "../../src/domain/provenance/transcript-service";
+import { UnaskedDirectionAnalyzer } from "../../packages/domain/src/detectors/unasked-direction-analyzer";
+import { writeFindings } from "../../packages/domain/src/detectors/unasked-direction-store";
+import type { TranscriptMessage } from "../../packages/domain/src/provenance/transcript-service";
 
 // ---------------------------------------------------------------------------
 // Constants
