@@ -15,10 +15,11 @@ import { queryKeysForChannel } from "./lib/sse-invalidation";
 import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
-import { Credentials } from "./widgets/Credentials";
+import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { AgentsPage } from "./pages/AgentsPage";
 import { ContextPage } from "./pages/ContextPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksLayout } from "./pages/TasksLayout";
 import { TasksListPage } from "./pages/TasksListPage";
@@ -38,7 +39,7 @@ import { PageNavTiles } from "./pages/HomePage";
 const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   attention: Attention,
   "context-inspector": ContextInspector,
-  credentials: Credentials,
+  credentials: CredentialsSummary,
   "embeddings-health": EmbeddingsHealth,
 };
 
@@ -279,6 +280,14 @@ export function App() {
           element={
             <ErrorBoundary id="activity-page">
               <ActivityPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ErrorBoundary id="settings-page">
+              <SettingsPage />
             </ErrorBoundary>
           }
         />
