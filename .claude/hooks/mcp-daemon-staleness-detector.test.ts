@@ -511,7 +511,7 @@ describe("decideAndUpdate", () => {
   // HTTP transport: silent skip (BLOCKING 2, PR #1035 R1)
   test("http transport in state file → silent skip with http-transport-out-of-scope", () => {
     const memFs = makeFs();
-    seedDaemonState(memFs, { ...DAEMON_STATE_OBJ, transport: "http" });
+    seedDaemonState(memFs, { ...DAEMON_STATE_OBJ, transport: "http" as "stdio" });
     const git = makeGit({ head: COMMIT_B, changed: ["src/foo.ts"] });
 
     const result = decideAndUpdate({

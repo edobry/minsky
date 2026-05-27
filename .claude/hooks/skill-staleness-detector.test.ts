@@ -233,7 +233,7 @@ describe("snapshotMtimes", () => {
     const fsWithSymlink: FsDeps = {
       ...memFs,
       readdirSync: (p) => {
-        const result = memFs.readdirSync(p);
+        const result = memFs.readdirSync(p, { withFileTypes: true });
         return result.map((e) =>
           e.name === "loop"
             ? {

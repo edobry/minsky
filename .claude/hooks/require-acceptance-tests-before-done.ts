@@ -60,7 +60,7 @@ if (!acceptanceMatch) {
   process.exit(0);
 }
 
-const acceptanceSection = acceptanceMatch[1];
+const acceptanceSection = acceptanceMatch[1] ?? "";
 
 // Check if the section contains bash/shell commands (lines starting with grep, bun, etc.)
 const hasCommands = /```(?:bash|sh|shell)?\n[\s\S]*?```|^\s*(?:grep|bun |npm |yarn )/m.test(

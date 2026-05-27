@@ -134,6 +134,7 @@ export function hasExecutionEvidence(prBody: string): boolean {
   const lines = strippedBody.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (line === undefined) continue;
     const match = line.match(headingPattern);
     if (!match) continue;
 
@@ -147,7 +148,7 @@ export function hasExecutionEvidence(prBody: string): boolean {
     // Also reject template placeholders where the heading line itself contains
     // the full text on the same line — allow only if there's content on the same
     // line OR content follows on subsequent lines.
-    const inlineContent = match[3].trim();
+    const inlineContent = (match[3] ?? "").trim();
     if (inlineContent.length > 0) {
       // Inline content on the heading line counts as evidence
       return true;
@@ -156,6 +157,7 @@ export function hasExecutionEvidence(prBody: string): boolean {
     // Look for non-empty content on subsequent lines before the next ## heading
     for (let j = i + 1; j < lines.length; j++) {
       const nextLine = lines[j];
+      if (nextLine === undefined) break;
       if (/^#{1,6}\s/.test(nextLine)) break; // next heading — stop
       if (nextLine.trim().length > 0) return true; // found content
     }
@@ -354,17 +356,17 @@ export function parseGitHubRemoteUrl(url: string): string | null {
   const trimmed = url.trim();
   // SCP-style SSH: git@github.com:owner/repo[.git]
   const sshMatch = trimmed.match(/^git@github\.com:([^/]+\/[^/]+?)(?:\.git)?$/);
-  if (sshMatch) return sshMatch[1];
+  if (sshMatch) return sshMatch[1] ?? null;
   // URL-style SSH (with optional port or git+ssh prefix)
   const sshUrlMatch = trimmed.match(
     /^(?:git\+)?ssh:\/\/(?:[^@]+@)?github\.com(?::\d+)?\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
   );
-  if (sshUrlMatch) return sshUrlMatch[1];
+  if (sshUrlMatch) return sshUrlMatch[1] ?? null;
   // HTTPS form (with optional embedded credentials)
   const httpsMatch = trimmed.match(
     /^https:\/\/(?:[^@]+@)?github\.com\/([^/]+\/[^/]+?)(?:\.git)?\/?$/
   );
-  if (httpsMatch) return httpsMatch[1];
+  if (httpsMatch) return httpsMatch[1] ?? null;
   return null;
 }
 

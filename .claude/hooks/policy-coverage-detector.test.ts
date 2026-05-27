@@ -115,7 +115,7 @@ describe("dismiss-and-remember integration", () => {
     // confirm readLocalDismissals returns it. The hook short-circuits when
     // a signature appears here, so the same action will not re-emit.
     const { buildEvidenceSignature } = await import(
-      "../../src/domain/detectors/policy-coverage/emit"
+      "../../packages/domain/src/detectors/policy-coverage/emit"
     );
     const action = {
       reason: "new-config-key" as const,
@@ -138,7 +138,7 @@ describe("dismiss-and-remember integration", () => {
 
   it("a different action's signature does NOT match a dismissed one", async () => {
     const { buildEvidenceSignature } = await import(
-      "../../src/domain/detectors/policy-coverage/emit"
+      "../../packages/domain/src/detectors/policy-coverage/emit"
     );
     const dismissed = buildEvidenceSignature({
       reason: "new-config-key",
