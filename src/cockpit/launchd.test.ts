@@ -58,6 +58,11 @@ describe("launchd plist generation", () => {
     expect(plist).toContain("<key>HOME</key>");
   });
 
+  test("includes --watch flag for auto-restart on source changes", () => {
+    const plist = generatePlist({ repoPath: TEST_REPO });
+    expect(plist).toContain("--watch");
+  });
+
   test("escapes XML special characters in paths", () => {
     const plist = generatePlist({ repoPath: "/path/with <special> & chars" });
     expect(plist).toContain("&lt;special&gt;");

@@ -60,6 +60,7 @@ export function generatePlist(options: PlistOptions): string {
   // relying on a globally installed `minsky` binary.
   const programArgs: string[] = [
     bunBin,
+    "--watch",
     "run",
     "src/cli.ts",
     "cockpit",
@@ -203,8 +204,10 @@ export function uninstallDaemon(): void {
 
 /**
  * Stop the cockpit daemon without removing the plist.
+ * Polls the health endpoint to verify the process actually stopped.
+ * Throws if the daemon is still running after the timeout.
  */
-export function stopDaemon(): void {
+export async function stopDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<void> {
   const plistPath = getPlistPath();
 
   if (!fs.existsSync(plistPath)) {
@@ -216,12 +219,22 @@ export function stopDaemon(): void {
   } catch {
     // May already be unloaded
   }
+
+  // Wait until the health endpoint stops responding (up to 3s)
+  const stopped = await waitForDown(port);
+  if (!stopped) {
+    throw new Error(
+      `Daemon on port ${port} is still responding after launchctl unload. ` +
+        `It may be running outside launchd — check with \`lsof -i :${port}\`.`
+    );
+  }
 }
 
 /**
  * Restart the cockpit daemon (unload + reload the existing plist).
+ * Waits for the process to stop before reloading.
  */
-export function restartDaemon(): void {
+export async function restartDaemon(port: number = DEFAULT_DAEMON_PORT): Promise<void> {
   const plistPath = getPlistPath();
 
   if (!fs.existsSync(plistPath)) {
@@ -234,7 +247,23 @@ export function restartDaemon(): void {
     // May not be loaded
   }
 
+  await waitForDown(port);
   execSync(`launchctl load "${plistPath}"`, { stdio: "ignore" });
+}
+
+async function waitForDown(port: number, attempts = 6): Promise<boolean> {
+  for (let i = 0; i < attempts; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const resp = await fetch(`http://localhost:${port}/api/health`, {
+        signal: AbortSignal.timeout(500),
+      });
+      if (!resp.ok) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
 export interface DaemonStatus {
@@ -243,6 +272,7 @@ export interface DaemonStatus {
   pid: number | null;
   port: number;
   uptime: string | null;
+  commit: string | null;
   url: string | null;
   plistPath: string;
 }
@@ -260,6 +290,7 @@ export async function getDaemonStatus(port: number = DEFAULT_DAEMON_PORT): Promi
     pid: null,
     port,
     uptime: null,
+    commit: null,
     url: `http://localhost:${port}`,
     plistPath,
   };
@@ -295,6 +326,7 @@ export async function getDaemonStatus(port: number = DEFAULT_DAEMON_PORT): Promi
         running: true,
         pid,
         uptime: typeof health["uptime"] === "string" ? health["uptime"] : null,
+        commit: typeof health["commit"] === "string" ? health["commit"] : null,
       };
     }
   } catch {

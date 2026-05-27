@@ -28,6 +28,17 @@ import {
   createNoopChannelListener,
 } from "@minsky/domain/mesh/postgres-channel-listener";
 import { log } from "@minsky/shared/logger";
+import { execSync } from "child_process";
+
+function getGitCommit(): string {
+  try {
+    return String(execSync("git rev-parse --short HEAD", { encoding: "utf-8" })).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
+const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -456,7 +467,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch {
       // fallback: unknown
     }
-    res.json({ status: "ok", version, uptimeSec });
+    res.json({ status: "ok", version, commit: GIT_COMMIT, uptimeSec });
   });
 
   /** GET /api/widgets */
