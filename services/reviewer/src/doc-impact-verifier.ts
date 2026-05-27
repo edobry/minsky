@@ -20,6 +20,19 @@ const NOISE_PATH_SEGMENTS = new Set([
   "app",
   "pages",
   "components",
+  "readme",
+  "docs",
+  "guide",
+  "shared",
+  "common",
+  "models",
+  "services",
+  "packages",
+  "scripts",
+  "hooks",
+  "domain",
+  "adapters",
+  "infrastructure",
 ]);
 
 const NOISE_DIFF_TOKENS = new Set([
@@ -95,7 +108,7 @@ export function extractSurfaceTerms(filesChanged: string[], diff: string): strin
     }
   }
 
-  const routeMatches = diff.matchAll(/["'`](\/[a-z][a-z0-9/-]*)/gi);
+  const routeMatches = diff.matchAll(/["'`](\/[A-Za-z0-9:_\-[\]/]+)/g);
   for (const m of routeMatches) {
     const route = m[1];
     if (route) terms.add(route.toLowerCase());
@@ -143,6 +156,23 @@ export interface DocImpactVerificationResult {
   removedDocs: string[];
 }
 
+const DOC_FINDING_MARKERS = [
+  "documentation",
+  "doc impact",
+  "docs need",
+  "needs updating",
+  "needs update",
+];
+
+function isDocRelatedFinding(tc: ReviewToolCall, removedDocs: string[]): boolean {
+  if (tc.name !== "submit_finding") return false;
+  if (tc.args.severity !== "BLOCKING") return false;
+  const text = `${tc.args.summary} ${tc.args.details}`.toLowerCase();
+  if (DOC_FINDING_MARKERS.some((marker) => text.includes(marker))) return true;
+  if (removedDocs.some((doc) => text.includes(doc.toLowerCase()))) return true;
+  return false;
+}
+
 export function applyDocImpactVerification(
   toolCalls: ReadonlyArray<ReviewToolCall>,
   surfaceTerms: string[],
@@ -150,6 +180,7 @@ export function applyDocImpactVerification(
 ): DocImpactVerificationResult {
   const allRemovedDocs: string[] = [];
   let anyChanged = false;
+  let fullDowngrade = false;
 
   const updatedCalls = toolCalls.map((tc): ReviewToolCall => {
     if (tc.name !== "submit_documentation_impact") return tc;
@@ -167,13 +198,12 @@ export function applyDocImpactVerification(
     anyChanged = true;
 
     if (verified.length === 0) {
+      fullDowngrade = true;
       return {
         name: "submit_documentation_impact" as const,
         args: {
           kind: "no-update-needed" as const,
-          evidence: `${
-            tc.args.evidence
-          } [Verification: none of the listed docs reference the changed surfaces; downgraded from blocking-needs-update.]`,
+          evidence: `${tc.args.evidence} [Verification: none of the listed docs reference the changed surfaces; downgraded from blocking-needs-update.]`,
         } satisfies SubmitDocumentationImpactArgs,
       };
     }
@@ -188,8 +218,19 @@ export function applyDocImpactVerification(
     };
   });
 
+  const reconciledCalls = fullDowngrade
+    ? updatedCalls.map((tc): ReviewToolCall => {
+        if (!isDocRelatedFinding(tc, allRemovedDocs)) return tc;
+        if (tc.name !== "submit_finding") return tc;
+        return {
+          name: "submit_finding" as const,
+          args: { ...tc.args, severity: "NON-BLOCKING" as const },
+        };
+      })
+    : updatedCalls;
+
   return {
-    toolCalls: updatedCalls,
+    toolCalls: reconciledCalls,
     verificationsApplied: anyChanged,
     removedDocs: allRemovedDocs,
   };

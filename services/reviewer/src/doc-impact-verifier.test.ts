@@ -66,6 +66,34 @@ describe("extractSurfaceTerms", () => {
     expect(terms).not.toContain("foo");
     expect(terms).not.toContain("bar");
   });
+
+  it("extracts routes with params, underscores, and uppercase", () => {
+    const diff = [
+      '+  { path: "/user/:id", component: UserPage },',
+      '+  { path: "/access_tokens", component: TokenPage },',
+      '+  { path: "/Settings", component: SettingsPage },',
+    ].join("\n");
+    const terms = extractSurfaceTerms([], diff);
+    expect(terms).toContain("/user/:id");
+    expect(terms).toContain("/access_tokens");
+    expect(terms).toContain("/settings");
+  });
+
+  it("filters expanded noise path segments", () => {
+    const terms = extractSurfaceTerms(
+      ["services/reviewer/src/domain/adapters/infrastructure/guide/readme/shared/Settings.tsx"],
+      ""
+    );
+    expect(terms).not.toContain("services");
+    expect(terms).not.toContain("domain");
+    expect(terms).not.toContain("adapters");
+    expect(terms).not.toContain("infrastructure");
+    expect(terms).not.toContain("guide");
+    expect(terms).not.toContain("readme");
+    expect(terms).not.toContain("shared");
+    expect(terms).toContain("reviewer");
+    expect(terms).toContain("settings");
+  });
 });
 
 describe("verifyAffectedDocs", () => {
@@ -218,5 +246,53 @@ describe("applyDocImpactVerification", () => {
 
     const result = applyDocImpactVerification(toolCalls, ["cockpit"], docContents);
     expect(result.toolCalls[0]).toEqual(finding);
+  });
+
+  it("downgrades paired BLOCKING findings about documentation when doc-impact is fully downgraded", () => {
+    const toolCalls: ReviewToolCall[] = [
+      {
+        name: "submit_finding" as const,
+        args: {
+          severity: "BLOCKING" as const,
+          file: DOC_README,
+          line: 1,
+          summary: "Documentation needs updating",
+          details: "The docs/README.md needs to be updated to reflect the new API.",
+        },
+      },
+      {
+        name: "submit_finding" as const,
+        args: {
+          severity: "BLOCKING" as const,
+          file: "src/foo.ts",
+          line: 10,
+          summary: "Missing error handling",
+          details: "The function lacks a try/catch block.",
+        },
+      },
+      makeDocImpactCall(KIND_BLOCKING, EVIDENCE_NEEDS_UPDATING, [DOC_README]),
+    ];
+    const docContents = new Map([[DOC_README, "# Minsky\n\nGeneral project overview."]]);
+
+    const result = applyDocImpactVerification(toolCalls, ["cockpit", "settings"], docContents);
+
+    expect(result.verificationsApplied).toBe(true);
+
+    const findings = result.toolCalls.filter((tc) => tc.name === "submit_finding");
+    const docFinding = findings.find(
+      (tc) => tc.name === "submit_finding" && tc.args.file === DOC_README
+    );
+    expect(docFinding).toBeDefined();
+    if (docFinding && docFinding.name === "submit_finding") {
+      expect(docFinding.args.severity).toBe("NON-BLOCKING");
+    }
+
+    const codeFinding = findings.find(
+      (tc) => tc.name === "submit_finding" && tc.args.file === "src/foo.ts"
+    );
+    expect(codeFinding).toBeDefined();
+    if (codeFinding && codeFinding.name === "submit_finding") {
+      expect(codeFinding.args.severity).toBe("BLOCKING");
+    }
   });
 });
