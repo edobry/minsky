@@ -14,6 +14,7 @@ import { attentionWidget } from "./widgets/attention";
 import { basicHealthWidget } from "./widgets/basic-health";
 import { contextInspectorWidget } from "./widgets/context-inspector";
 import { credentialsWidget } from "./widgets/credentials";
+import { embeddingsHealthWidget } from "./widgets/embeddings-health";
 import { taskGraphWidget } from "./widgets/task-graph";
 import { taskListWidget } from "./widgets/task-list";
 import { workstreamsWidget } from "./widgets/workstreams";
@@ -29,6 +30,7 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "basic-health": basicHealthWidget,
   "context-inspector": contextInspectorWidget,
   credentials: credentialsWidget,
+  "embeddings-health": embeddingsHealthWidget,
   "task-graph": taskGraphWidget,
   "task-list": taskListWidget,
   workstreams: workstreamsWidget,

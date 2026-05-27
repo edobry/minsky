@@ -16,6 +16,7 @@ import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { Credentials } from "./widgets/Credentials";
+import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { AgentsPage } from "./pages/AgentsPage";
 import { ContextPage } from "./pages/ContextPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
@@ -37,6 +38,7 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   attention: Attention,
   "context-inspector": ContextInspector,
   credentials: Credentials,
+  "embeddings-health": EmbeddingsHealth,
 };
 
 // Prop-driven widgets: receive data from App-level polling.
@@ -46,7 +48,13 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
-const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "context-inspector", "workstreams", "task-graph", "task-list"]);
+const PAGE_ROUTE_WIDGET_IDS = new Set([
+  "agents",
+  "context-inspector",
+  "workstreams",
+  "task-graph",
+  "task-list",
+]);
 
 interface WidgetState {
   meta: WidgetMeta;
