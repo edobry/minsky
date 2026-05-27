@@ -201,6 +201,42 @@ export function uninstallDaemon(): void {
   fs.unlinkSync(plistPath);
 }
 
+/**
+ * Stop the cockpit daemon without removing the plist.
+ */
+export function stopDaemon(): void {
+  const plistPath = getPlistPath();
+
+  if (!fs.existsSync(plistPath)) {
+    throw new Error(`No cockpit daemon installed (${plistPath} not found)`);
+  }
+
+  try {
+    execSync(`launchctl unload "${plistPath}"`, { stdio: "ignore" });
+  } catch {
+    // May already be unloaded
+  }
+}
+
+/**
+ * Restart the cockpit daemon (unload + reload the existing plist).
+ */
+export function restartDaemon(): void {
+  const plistPath = getPlistPath();
+
+  if (!fs.existsSync(plistPath)) {
+    throw new Error(`No cockpit daemon installed (${plistPath} not found)`);
+  }
+
+  try {
+    execSync(`launchctl unload "${plistPath}"`, { stdio: "ignore" });
+  } catch {
+    // May not be loaded
+  }
+
+  execSync(`launchctl load "${plistPath}"`, { stdio: "ignore" });
+}
+
 export interface DaemonStatus {
   installed: boolean;
   running: boolean;

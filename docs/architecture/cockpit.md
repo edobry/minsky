@@ -384,6 +384,12 @@ minsky cockpit install [--port 3737] [--repo /path/to/minsky]
 # Check daemon status (health probe + launchctl query)
 minsky cockpit status [--port 3737] [--json]
 
+# Stop the daemon (keeps plist installed for restart)
+minsky cockpit stop
+
+# Restart the daemon (unload + reload plist)
+minsky cockpit restart
+
 # Remove the daemon (stops process, removes plist)
 minsky cockpit uninstall
 ```
