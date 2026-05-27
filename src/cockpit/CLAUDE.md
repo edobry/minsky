@@ -55,7 +55,9 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 
 ## Information architecture
 
-**Workflow-driven layout.** Before placing a widget or panel, ask: what operator task does this view serve? Organize by user journey, not by data shape. Cockpit serves three primary journeys: (1) "what's running?" (Agents widget), (2) "what's the work?" (TaskGraph + Workstreams widgets), (3) "what needs my attention?" (Attention widget — gated on mt#1034).
+**Workflow-driven layout.** Before placing a widget or panel, ask: what operator task does this view serve? Organize by user journey, not by data shape. Cockpit serves four primary journeys: (1) "what's running?" (Agents widget), (2) "what's the work?" (TaskGraph + Workstreams widgets), (3) "what needs my attention?" (Attention widget), (4) "what does the agent's context look like?" (Context Inspector).
+
+**Page vs. card placement.** The home page has two tiers: a **System Status** card grid (compact status indicators — BasicHealth, Attention, Credentials) and **nav tiles** linking to feature pages. The decision criteria: **status indicators and health-check surfaces → card**. **Interactive tools with list+detail, filtering, session pickers, or multi-step workflows → dedicated page route** (`/agents`, `/context`, `/tasks`, etc.). A widget whose spec says "tab" means a page route in cockpit vocabulary. Originating incident: mt#2136 (ContextInspector was specced as a tab but placed as a card).
 
 **Progressive disclosure as state pattern.** Loading, empty, error, and success states are first-class. Show what's necessary right now; reveal more on demand. Avoid the "skeleton everywhere then fully-rendered" jump — prefer staged reveals where useful. Don't render an empty widget shell when the data isn't ready; render a meaningful placeholder.
 
