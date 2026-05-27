@@ -1339,25 +1339,50 @@ describe("validateProvenance (mt#2055)", () => {
     expect(result.reasons).toEqual([]);
   });
 
-  it("fails when specVerification is empty", () => {
-    const result = validateProvenance({ ...VALID_PROVENANCE, specVerification: [] });
-    expect(result.valid).toBe(false);
-    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
-  });
-
-  it("fails when specVerification has vacuous criterion", () => {
+  it("passes when specVerification is empty and 0 blocking findings (mt#2142)", () => {
     const result = validateProvenance({
       ...VALID_PROVENANCE,
-      specVerification: [{ criterion: "  ", status: "Met", evidence: "OK" }],
+      specVerification: [],
+      findings: { blocking: 0, nonBlocking: 0 },
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("fails when specVerification is empty and has blocking findings (mt#2142)", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [],
+      findings: { blocking: 1, nonBlocking: 0 },
     });
     expect(result.valid).toBe(false);
     expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
   });
 
-  it("fails when specVerification has vacuous evidence", () => {
+  it("fails when specVerification has vacuous entries even with 0 blocking findings (mt#2142)", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [{ criterion: "  ", status: "Met", evidence: "OK" }],
+      findings: { blocking: 0, nonBlocking: 0 },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("fails when specVerification has vacuous criterion and blocking findings", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [{ criterion: "  ", status: "Met", evidence: "OK" }],
+      findings: { blocking: 1, nonBlocking: 0 },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("fails when specVerification has vacuous evidence and blocking findings", () => {
     const result = validateProvenance({
       ...VALID_PROVENANCE,
       specVerification: [{ criterion: "SC1", status: "Met", evidence: "" }],
+      findings: { blocking: 1, nonBlocking: 0 },
     });
     expect(result.valid).toBe(false);
     expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
@@ -1382,6 +1407,7 @@ describe("validateProvenance (mt#2055)", () => {
     const result = validateProvenance({
       ...VALID_PROVENANCE,
       specVerification: [],
+      findings: { blocking: 1, nonBlocking: 0 },
       docImpact: null,
     });
     expect(result.valid).toBe(false);
@@ -1408,12 +1434,27 @@ describe("validateReviewContent (mt#2055)", () => {
     expect(result.reason).toContain("old1234");
   });
 
-  it("denies a structured review missing spec verification", () => {
-    const noSpec = { ...VALID_PROVENANCE, specVerification: [] };
+  it("denies a structured review missing spec verification when blocking findings exist (mt#2142)", () => {
+    const noSpec = {
+      ...VALID_PROVENANCE,
+      specVerification: [],
+      findings: { blocking: 1, nonBlocking: 0 },
+    };
     const reviews = [makeReview(`## Review\n${makeProvenanceComment(noSpec)}`, HEAD)];
     const result = validateReviewContent(reviews, "42", HEAD);
     expect(result.deny).toBe(true);
     expect(result.reason).toContain(SPEC_VERIFICATION_REASON);
+  });
+
+  it("allows a structured review with empty spec verification when 0 blocking findings (mt#2142)", () => {
+    const noSpec = {
+      ...VALID_PROVENANCE,
+      specVerification: [],
+      findings: { blocking: 0, nonBlocking: 0 },
+    };
+    const reviews = [makeReview(`## Review\n${makeProvenanceComment(noSpec)}`, HEAD)];
+    const result = validateReviewContent(reviews, "42", HEAD);
+    expect(result.deny).toBe(false);
   });
 
   it("denies a structured review missing documentation impact", () => {
@@ -1479,7 +1520,11 @@ describe("validateReviewContent (mt#2055)", () => {
   });
 
   it("does not reference /review-pr in denial reasons", () => {
-    const noSpec = { ...VALID_PROVENANCE, specVerification: [] };
+    const noSpec = {
+      ...VALID_PROVENANCE,
+      specVerification: [],
+      findings: { blocking: 1, nonBlocking: 0 },
+    };
     const reviews = [makeReview(`## Review\n${makeProvenanceComment(noSpec)}`, HEAD)];
     const result = validateReviewContent(reviews, "42", HEAD);
     expect(result.deny).toBe(true);
