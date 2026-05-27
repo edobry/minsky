@@ -27,7 +27,7 @@ import type {
   ElicitInputResult,
   ElicitInputParams,
   ElicitInputOptions,
-} from "../../../../../src/mcp/client-capabilities";
+} from "../../client-capabilities";
 
 // ---------------------------------------------------------------------------
 // Constants

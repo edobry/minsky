@@ -30,7 +30,7 @@ import type {
   ElicitationCapableServer,
   ElicitInputParams,
   ElicitInputResult,
-} from "../../../../../src/mcp/client-capabilities";
+} from "../../client-capabilities";
 
 // ---------------------------------------------------------------------------
 // Constants

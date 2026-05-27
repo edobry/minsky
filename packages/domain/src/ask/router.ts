@@ -27,7 +27,7 @@ import { assertNever } from "./types";
 import { loadAllPolicySources, isCovered } from "./policy";
 import type { PolicyCitation } from "./policy";
 import { closeWithPolicy } from "./transports/policy-resolver";
-import type { ClientCapabilityRegistry } from "../../../../src/mcp/client-capabilities";
+import type { ClientCapabilityRegistry } from "../client-capabilities";
 
 // ---------------------------------------------------------------------------
 // Service-window: page threshold constant
