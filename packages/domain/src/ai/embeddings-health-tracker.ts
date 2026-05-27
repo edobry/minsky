@@ -76,6 +76,9 @@ export class EmbeddingsHealthTracker {
     if (/insufficient_quota/i.test(errorCode) || /insufficient_quota/i.test(message)) {
       this.currentStatus = "exhausted";
       this.currentReason = "insufficient_quota";
+    } else if (/circuit_breaker_open/i.test(errorCode)) {
+      this.currentStatus = "degraded";
+      this.currentReason = "circuit_breaker_open";
     } else if (/429|rate.limit/i.test(errorCode)) {
       const recentCount = this.countErrorsInWindow(ONE_HOUR_MS);
       if (recentCount >= 3) {

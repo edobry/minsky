@@ -109,9 +109,11 @@ export class OpenAIEmbeddingService implements EmbeddingService {
       const msg = err instanceof Error ? err.message : String(err);
       const errorCode = /insufficient_quota/i.test(msg)
         ? "insufficient_quota"
-        : /429|rate.limit/i.test(msg)
-          ? "rate_limit"
-          : "unknown";
+        : /circuit.breaker.is.open/i.test(msg)
+          ? "circuit_breaker_open"
+          : /429|rate.limit/i.test(msg)
+            ? "rate_limit"
+            : "unknown";
       await EmbeddingsHealthTracker.getInstance().recordError("openai", errorCode, msg);
       throw err;
     }

@@ -69,6 +69,15 @@ describe("EmbeddingsHealthTracker", () => {
     expect(tracker.getSummary().degradedReason).toMatch(/repeated_rate_limit/);
   });
 
+  test("circuit_breaker_open immediately sets status to degraded", async () => {
+    const tracker = EmbeddingsHealthTracker.getInstance();
+    await tracker.recordError(PROVIDER, "circuit_breaker_open", "Circuit breaker is open");
+
+    const summary = tracker.getSummary();
+    expect(summary.status).toBe("degraded");
+    expect(summary.degradedReason).toBe("circuit_breaker_open");
+  });
+
   test("recordRecovery resets to healthy", async () => {
     const tracker = EmbeddingsHealthTracker.getInstance();
     await tracker.recordError(PROVIDER, QUOTA_CODE, "quota exhausted");
