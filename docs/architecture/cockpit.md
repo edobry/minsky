@@ -368,6 +368,68 @@ The cockpit is shaped by the three companion principles named in
 - `src/cockpit/CLAUDE.md` — Cockpit-specific stack and conventions (auto-loaded when
   working on `src/cockpit/**`)
 
+---
+
+## Daemon mode (mt#2140)
+
+The cockpit can run as a persistent macOS daemon instead of a foreground process,
+managed by launchd with auto-start on login and crash restart.
+
+### CLI commands
+
+```bash
+# Install the daemon (builds frontend first, writes LaunchAgent plist)
+minsky cockpit install [--port 3737] [--repo /path/to/minsky]
+
+# Check daemon status (health probe + launchctl query)
+minsky cockpit status [--port 3737] [--json]
+
+# Remove the daemon (stops process, removes plist)
+minsky cockpit uninstall
+```
+
+### How it works
+
+`cockpit install` generates a macOS LaunchAgent plist at
+`~/Library/LaunchAgents/com.minsky.cockpit.plist` that runs
+`bun run src/cli.ts cockpit start --no-dev-chromium --port <port>`
+with `WorkingDirectory` set to the repo root. Key plist properties:
+
+- **RunAtLoad** — daemon starts automatically on login
+- **KeepAlive (SuccessfulExit: false)** — launchd restarts on crash (non-zero exit)
+- **ThrottleInterval: 5** — minimum 5s between restart attempts
+- **StandardOutPath / StandardErrorPath** — logs at `~/.local/state/minsky/logs/cockpit-*.log`
+
+The plist passes through `PATH`, `HOME`, and Supabase env vars from the
+install-time environment so the daemon can resolve its dependencies.
+
+### Menu bar app (cockpit-tray)
+
+A Tauri v2 macOS system-tray app lives at `cockpit-tray/`. It provides:
+
+- Status indicator (running/stopped) via health endpoint polling every 5s
+- Open cockpit in default browser
+- Start/Stop/Restart daemon (via `launchctl load/unload`)
+- Quit
+
+**Prerequisites:** Rust toolchain (`rustup`). Build with `cd cockpit-tray && bun install && bun run build`.
+
+### Coexistence with Claude Code
+
+The daemon runs independently from Claude Code's stdio MCP server instances.
+Each Claude Code tab still spawns its own `minsky mcp proxy` → `mcp start` over
+stdio; the cockpit daemon on port 3737 is a separate Express server serving the
+web UI and cockpit API routes. No port conflict or state interference.
+
+### Cross-references
+
+- `src/cockpit/launchd.ts` — plist generation, install/uninstall/status logic
+- `src/commands/cockpit/install-command.ts` — CLI `cockpit install`
+- `src/commands/cockpit/uninstall-command.ts` — CLI `cockpit uninstall`
+- `src/commands/cockpit/status-command.ts` — CLI `cockpit status`
+- `cockpit-tray/` — Tauri v2 menu bar app
+- mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
+
 ### Notion essays (philosophical depth)
 
 - [The cockpit problem: from Locus theory to first instantiation](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8)
