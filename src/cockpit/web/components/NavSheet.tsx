@@ -22,6 +22,7 @@ import {
   Network,
   MessageCircleQuestion,
   Bell,
+  Cpu,
   X,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -89,6 +90,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Activity",
     description: "System event log",
     icon: Bell,
+  },
+  {
+    to: "/embeddings",
+    label: "Embeddings",
+    description: "Provider health & index coverage",
+    icon: Cpu,
   },
 ];
 
