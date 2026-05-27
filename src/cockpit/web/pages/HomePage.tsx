@@ -2,7 +2,7 @@
  * HomePage — the "/" route.
  *
  * Structure (operator journey order):
- *   1. System section  — compact status cards (BasicHealth, Attention, Credentials)
+ *   1. System section  — compact status cards (BasicHealth, Attention, CredentialsSummary)
  *      inside a subtle bordered panel; rendered by App.tsx's HomePage component.
  *   2. Nav section — generous tiles linking to the feature pages.
  *      Exported here as PageNavTiles, consumed by App.tsx.
@@ -16,7 +16,7 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, GitBranch, List, Network, MessageCircleQuestion, Bell, ChevronRight } from "lucide-react";
+import { Bot, GitBranch, List, Network, MessageCircleQuestion, Bell, Settings, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -113,6 +113,12 @@ export function PageNavTiles() {
           icon={Bell}
           label="Activity"
           description="System event log — what happened while you were away"
+        />
+        <EntryTile
+          to="/settings"
+          icon={Settings}
+          label="Settings"
+          description="Credentials and configuration"
         />
       </div>
     </section>
