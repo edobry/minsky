@@ -292,7 +292,7 @@ function AddCredentialForm() {
     if (!addMutation.isSuccess) return;
     const timer = setTimeout(() => addMutation.reset(), 3000);
     return () => clearTimeout(timer);
-  }, [addMutation.isSuccess]);
+  }, [addMutation.isSuccess, addMutation.reset]);
 
   const providerMeta = PROVIDER_META.find((p) => p.id === selectedProvider);
   const canSubmit = selectedProvider && token.length > 0;
