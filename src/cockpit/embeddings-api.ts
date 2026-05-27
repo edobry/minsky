@@ -12,6 +12,8 @@ export interface ConsumerCoverage {
   lastIndexed: string | null;
   /** Whether total/missing/orphaned are meaningful (false for self-contained tables) */
   hasDomainTable: boolean;
+  /** True when the coverage query failed — detail logged server-side only */
+  queryFailed?: boolean;
 }
 
 export interface EmbeddingsOverview {
@@ -91,8 +93,8 @@ async function queryCoverage(
   const missingResult = await db.execute<{ cnt: number }>(
     sql.raw(
       `SELECT count(*)::int AS cnt FROM "${config.domainTable}" d` +
-        ` LEFT JOIN "${config.embeddingsTable}" e ON d."${config.domainIdCol}" = e."${config.embeddingsIdCol}"` +
-        ` WHERE e."${config.embeddingsIdCol}" IS NULL`
+        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.embeddingsTable}" e` +
+        ` WHERE d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}")`
     )
   );
   const missing = missingResult[0]?.cnt ?? 0;
@@ -100,7 +102,8 @@ async function queryCoverage(
   const orphanedResult = await db.execute<{ cnt: number }>(
     sql.raw(
       `SELECT count(*)::int AS cnt FROM "${config.embeddingsTable}" e` +
-        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.domainTable}" d WHERE d."${config.domainIdCol}" = e."${config.embeddingsIdCol}")`
+        ` WHERE NOT EXISTS (SELECT 1 FROM "${config.domainTable}" d` +
+        ` WHERE d."${config.domainIdCol}"::text = e."${config.embeddingsIdCol}")`
     )
   );
   const orphaned = orphanedResult[0]?.cnt ?? 0;
@@ -125,9 +128,8 @@ export async function getEmbeddingsOverview(db: PostgresJsDatabase): Promise<Emb
     try {
       consumers.push(await queryCoverage(db, config));
     } catch (err) {
-      log.debug(`Failed to query coverage for ${config.consumer}`, {
-        error: err instanceof Error ? err.message : String(err),
-      });
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      log.warn(`Failed to query coverage for ${config.consumer}: ${errorMsg}`);
       consumers.push({
         consumer: config.consumer,
         total: 0,
@@ -137,6 +139,7 @@ export async function getEmbeddingsOverview(db: PostgresJsDatabase): Promise<Emb
         coveragePct: 0,
         lastIndexed: null,
         hasDomainTable: !!config.domainTable,
+        queryFailed: true,
       });
     }
   }

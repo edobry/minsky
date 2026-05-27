@@ -130,6 +130,46 @@ minsky reviewer retrigger --pr 42 --owner edobry --repo minsky
 
 Requires `MINSKY_REVIEWER_URL` and `MINSKY_REVIEWER_WEBHOOK_SECRET` environment variables.
 
+## PR status comment (mt#2131)
+
+The reviewer bot maintains a persistent status comment on each PR that updates through the review lifecycle. The comment is identified by a hidden HTML marker (`<!-- minsky-reviewer-status -->`) and is updated in-place across review rounds.
+
+### Lifecycle states
+
+| State           | When                                   | Example                                                            |
+| --------------- | -------------------------------------- | ------------------------------------------------------------------ |
+| **Pending**     | Webhook received, before review starts | "Review requested — awaiting processing"                           |
+| **In progress** | Review worker started                  | "Review in progress..."                                            |
+| **Completed**   | Review posted                          | Verdict, finding count, review link, model/token/duration metadata |
+| **Error**       | Review failed                          | Generic error message with `/review` retry hint                    |
+| **Skipped**     | Routing decided to skip                | Sanitized skip reason (e.g., tier routing)                         |
+
+### Completed state format
+
+```
+## Minsky Reviewer Status
+
+**Verdict:** CHANGES_REQUESTED — 2 blocking finding(s)
+**Review:** [View review](#pullrequestreview-12345)
+**Model:** openai/gpt-5 | **Tokens:** 95K prompt, 4K completion | **Duration:** 47s
+**Mode:** standard
+
+### Commands
+- `/review` — request a fresh review
+```
+
+### Persistence
+
+The status comment uses a marker-based approach — no database migration required. On each update, the bot searches its own comments for the `<!-- minsky-reviewer-status -->` marker (paginating through up to 1000 comments). If found, the existing comment is updated in-place; otherwise a new comment is created.
+
+### Error sanitization
+
+Error and skip reasons are sanitized before posting to the PR. Only recognized safe patterns (tier routing, timeout, draft skip) pass through; unrecognized errors show a generic "an internal error occurred" message. Detailed errors remain in the service logs.
+
+### Draft PRs
+
+Draft PRs are skipped at all entry points — webhook handler, `/review` comment command, and `/retrigger` endpoint. No status comment is created for draft PRs.
+
 ## Re-running the harness (mt#1515)
 
 Two scripts under `services/reviewer/scripts/` codify the acceptance tests for the reviewer service fidelity and latency:
