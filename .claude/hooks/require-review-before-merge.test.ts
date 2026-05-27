@@ -1358,6 +1358,16 @@ describe("validateProvenance (mt#2055)", () => {
     expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
   });
 
+  it("fails when specVerification has vacuous entries even with 0 blocking findings (mt#2142)", () => {
+    const result = validateProvenance({
+      ...VALID_PROVENANCE,
+      specVerification: [{ criterion: "  ", status: "Met", evidence: "OK" }],
+      findings: { blocking: 0, nonBlocking: 0 },
+    });
+    expect(result.valid).toBe(false);
+    expect(result.reasons[0]).toContain(SPEC_VERIFICATION_REASON);
+  });
+
   it("fails when specVerification has vacuous criterion and blocking findings", () => {
     const result = validateProvenance({
       ...VALID_PROVENANCE,
