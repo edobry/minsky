@@ -1402,15 +1402,27 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
 
-      const { execFile } = await import("child_process");
+      const { spawn: spawnChild, execFileSync } = await import("child_process");
+      try {
+        execFileSync("bun", ["--version"], { timeout: 5000, stdio: "ignore" });
+      } catch {
+        res.status(503).json({ error: "Reindex unavailable: bun runtime not found" });
+        return;
+      }
+
       const args = cmd.split(" ");
-      execFile("bun", [cliEntry, ...args], { cwd: process.cwd() }, (err) => {
-        if (err) {
-          log.warn(`[embeddings] reindex ${consumer} exited with error`, {
-            error: err.message,
-          });
-        }
+      const child = spawnChild("bun", [cliEntry, ...args], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: "ignore",
       });
+
+      await new Promise<void>((resolve, reject) => {
+        child.on("spawn", () => resolve());
+        child.on("error", (err) => reject(err));
+      });
+      child.unref();
+
       res.json({ success: true, message: `Reindex started for ${consumer}` });
     } catch (err) {
       log.error("[embeddings] POST /api/embeddings/reindex error", {
