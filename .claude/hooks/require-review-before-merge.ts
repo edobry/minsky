@@ -731,7 +731,12 @@ export function validateProvenance(provenance: ReviewProvenance): ProvenanceVali
   const nonVacuousSpec = provenance.specVerification.filter(
     (sv) => sv.criterion.trim().length > 0 && sv.evidence.trim().length > 0
   );
-  if (nonVacuousSpec.length === 0) {
+  // mt#2142: when the review has 0 blocking findings, an empty specVerification
+  // is acceptable — the model reviewed the PR and found nothing to verify.
+  // Only require non-vacuous entries when the review found blocking issues
+  // (model found problems but didn't verify against spec — a real gap).
+  const hasBlockingFindings = provenance.findings.blocking > 0;
+  if (nonVacuousSpec.length === 0 && hasBlockingFindings) {
     reasons.push(
       "No non-vacuous spec-verification entries (submit_spec_verification with criterion + evidence)."
     );
