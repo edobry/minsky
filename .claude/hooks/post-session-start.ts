@@ -21,7 +21,9 @@ function getColorForTaskId(taskId: string): [number, number, number] {
   // Extract numeric portion from taskId (e.g., "mt#843" -> 843)
   const match = taskId.match(/\d+/);
   const num = match ? parseInt(match[0], 10) : 0;
-  return COLORS[num % COLORS.length];
+  const color = COLORS[num % COLORS.length];
+  const fallback: [number, number, number] = [255, 255, 255];
+  return color ?? fallback;
 }
 
 function emitITermEscapes(taskId: string, title: string): void {

@@ -141,22 +141,19 @@ import {
 // ---------------------------------------------------------------------------
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const DRY_RUN = process.argv.includes("--dry-run");
 
 // Dry-run mode fetches corpus context (priors + diffs) without calling OpenAI,
 // so operators can validate harness wiring + see prompt-budget numbers before
-// authorizing a real run. Still requires GITHUB_TOKEN for the read-only fetch.
+// authorizing a real run. Still requires a GitHub token for the read-only fetch.
 if (!OPENAI_API_KEY && !DRY_RUN) {
   console.log("SKIP: OPENAI_API_KEY not set; skipping live replay test.");
   console.log("HINT: re-run with --dry-run to inspect corpus context without API calls.");
   process.exit(0);
 }
 
-if (!GITHUB_TOKEN) {
-  console.log("SKIP: GITHUB_TOKEN not set; skipping live replay test.");
-  process.exit(0);
-}
+import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
+const GITHUB_TOKEN = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Calibration corpus
@@ -726,6 +723,7 @@ async function main() {
       : verificationMode
         ? "replay-verification-mode-results.json"
         : "replay-severity-results.json";
+  console.log(`GitHub auth: ${getAuthSource()}`);
   console.log(`Output: services/reviewer/scripts/${resolvedOutputFilename}`);
   console.log(`Corpus entries: ${corpus.map((e) => `#${e.prNumber}@R${e.iteration}`).join(", ")}`);
   console.log(`Attempts per entry: ${attemptsPerEntry}`);

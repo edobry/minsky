@@ -196,7 +196,9 @@ export function isTrivialPrompt(
   // and added cross-runtime risk (round-6 BLOCKING #2).
   const words = trimmed.split(/\s+/);
   if (words.length === 1) {
-    const stripped = words[0].replace(/[^A-Za-z0-9]/g, "").toLowerCase();
+    const firstWord = words[0];
+    if (!firstWord) return false;
+    const stripped = firstWord.replace(/[^A-Za-z0-9]/g, "").toLowerCase();
     if (affirmatives.has(stripped)) {
       return true;
     }
@@ -244,7 +246,8 @@ export function parseSearchOutput(stdout: string): MemorySearchResponseLite | nu
     const lines = trimmed.split("\n");
     const candidateStarts: number[] = [];
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].trimStart().startsWith("{")) {
+      const currentLine = lines[i];
+      if (currentLine !== undefined && currentLine.trimStart().startsWith("{")) {
         candidateStarts.push(i);
       }
     }
@@ -696,125 +699,153 @@ export function runMemorySearch(
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
-  let input: UserPromptSubmitInput;
-  try {
-    input = await readInput<UserPromptSubmitInput>();
-  } catch {
-    // Can't even read input — exit silently so the prompt isn't blocked.
-    process.exit(0);
-  }
+  await (async () => {
+    let input: UserPromptSubmitInput;
+    try {
+      input = await readInput<UserPromptSubmitInput>();
+    } catch {
+      // Can't even read input — exit silently so the prompt isn't blocked.
+      process.exit(0);
+    }
 
-  const sessionId = input.session_id ?? "unknown";
-  const prompt = input.prompt ?? "";
-  const promptPrefix = prompt.slice(0, 80).replace(/\s+/g, " ").trim();
+    const sessionId = input.session_id ?? "unknown";
+    const prompt = input.prompt ?? "";
+    const promptPrefix = prompt.slice(0, 80).replace(/\s+/g, " ").trim();
 
-  // Helper: write to both the local JSONL log and Braintrust, then exit.
-  // Braintrust emission is fire-and-await with internal failure swallowed; the
-  // local log is the source of truth and is never blocked by instrumentation.
-  const recordAndExit = async (entry: LogEntry): Promise<never> => {
-    writeLog(entry);
-    await emitBraintrust(entry);
-    process.exit(0);
-  };
+    // Helper: write to both the local JSONL log and Braintrust, then exit.
+    // Braintrust emission is fire-and-await with internal failure swallowed; the
+    // local log is the source of truth and is never blocked by instrumentation.
+    const recordAndExit = async (entry: LogEntry): Promise<never> => {
+      writeLog(entry);
+      await emitBraintrust(entry);
+      process.exit(0);
+    };
 
-  // Trivial-prompt skip
-  if (isTrivialPrompt(prompt)) {
+    // Trivial-prompt skip
+    if (isTrivialPrompt(prompt)) {
+      return await recordAndExit({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "trivial",
+      });
+    }
+
+    // Run search. The warning carries any host-cap fallback signal so operators
+    // can detect misconfigured settings.json — surfaced on every log path
+    // (round-2 BLOCKING #2).
+    const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
+
+    if (!response) {
+      return await recordAndExit({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: error ?? "search-failed",
+        latencyMs,
+        warning,
+      });
+    }
+
+    // Degraded backend → inject warning so the operator knows embeddings are down
+    if (response.degraded) {
+      const degradedWarning =
+        `[memory-search] Embeddings subsystem is degraded (backend: ${response.backend ?? "none"}). ` +
+        `Memory search returned no results because the embedding provider is unavailable. ` +
+        `This may be caused by OpenAI API quota exhaustion. ` +
+        `Run \`minsky config doctor\` or check \`debug_systemInfo\` → embeddingsHealth for details.`;
+      const degradedOutput: HookOutput = {
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: degradedWarning,
+        },
+      };
+      writeOutput(degradedOutput);
+
+      writeLog({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "degraded",
+        degraded: true,
+        backend: response.backend,
+        latencyMs,
+        warning,
+      });
+      await emitBraintrust({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "degraded",
+        degraded: true,
+        backend: response.backend,
+        latencyMs,
+        warning,
+      });
+      process.exit(0);
+    }
+
+    // Empty results → nothing useful to inject
+    if (response.results.length === 0) {
+      return await recordAndExit({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "empty",
+        backend: response.backend,
+        latencyMs,
+        warning,
+      });
+    }
+
+    // Build the injected text within budget
+    const injection = buildInjection(response.results);
+    if (!injection) {
+      return await recordAndExit({
+        ts: new Date().toISOString(),
+        sessionId,
+        promptPrefix,
+        promptLength: prompt.length,
+        skipped: true,
+        skipReason: "no-fit",
+        backend: response.backend,
+        latencyMs,
+        warning,
+      });
+    }
+
+    // Emit via the shared writer so any future schema changes / instrumentation
+    // in `writeOutput` apply uniformly across hooks (PR review round-1 BLOCKING #3).
+    const output: HookOutput = {
+      hookSpecificOutput: {
+        hookEventName: "UserPromptSubmit",
+        additionalContext: injection.text,
+      },
+    };
+    writeOutput(output);
+
     await recordAndExit({
       ts: new Date().toISOString(),
       sessionId,
       promptPrefix,
       promptLength: prompt.length,
-      skipped: true,
-      skipReason: "trivial",
-    });
-  }
-
-  // Run search. The warning carries any host-cap fallback signal so operators
-  // can detect misconfigured settings.json — surfaced on every log path
-  // (round-2 BLOCKING #2).
-  const { response, latencyMs, error, warning } = runMemorySearch(prompt, DEFAULT_K);
-
-  if (!response) {
-    await recordAndExit({
-      ts: new Date().toISOString(),
-      sessionId,
-      promptPrefix,
-      promptLength: prompt.length,
-      skipped: true,
-      skipReason: error ?? "search-failed",
-      latencyMs,
-      warning,
-    });
-  }
-
-  // Degraded backend → skip injection but record the signal
-  if (response.degraded) {
-    await recordAndExit({
-      ts: new Date().toISOString(),
-      sessionId,
-      promptPrefix,
-      promptLength: prompt.length,
-      skipped: true,
-      skipReason: "degraded",
-      degraded: true,
+      skipped: false,
+      k: DEFAULT_K,
+      injectedTokens: injection.tokens,
+      injectedCount: injection.included,
       backend: response.backend,
       latencyMs,
       warning,
     });
-  }
-
-  // Empty results → nothing useful to inject
-  if (response.results.length === 0) {
-    await recordAndExit({
-      ts: new Date().toISOString(),
-      sessionId,
-      promptPrefix,
-      promptLength: prompt.length,
-      skipped: true,
-      skipReason: "empty",
-      backend: response.backend,
-      latencyMs,
-      warning,
-    });
-  }
-
-  // Build the injected text within budget
-  const injection = buildInjection(response.results);
-  if (!injection) {
-    await recordAndExit({
-      ts: new Date().toISOString(),
-      sessionId,
-      promptPrefix,
-      promptLength: prompt.length,
-      skipped: true,
-      skipReason: "no-fit",
-      backend: response.backend,
-      latencyMs,
-      warning,
-    });
-  }
-
-  // Emit via the shared writer so any future schema changes / instrumentation
-  // in `writeOutput` apply uniformly across hooks (PR review round-1 BLOCKING #3).
-  const output: HookOutput = {
-    hookSpecificOutput: {
-      hookEventName: "UserPromptSubmit",
-      additionalContext: injection.text,
-    },
-  };
-  writeOutput(output);
-
-  await recordAndExit({
-    ts: new Date().toISOString(),
-    sessionId,
-    promptPrefix,
-    promptLength: prompt.length,
-    skipped: false,
-    k: DEFAULT_K,
-    injectedTokens: injection.tokens,
-    injectedCount: injection.included,
-    backend: response.backend,
-    latencyMs,
-    warning,
-  });
+  })();
 }

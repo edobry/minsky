@@ -1138,7 +1138,7 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     // No exemption applied → settings.json overlap remains a collision.
     expect(result.blocked).toBe(true);
     expect(result.collisions).toHaveLength(1);
-    expect(result.collisions[0].overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
+    expect(result.collisions[0]?.overlappingFiles).toContain(FIXTURE_SETTINGS_JSON);
   });
 
   it("uses refs/pull/<num>/head as toRef regardless of fork status (PR #952 R4#1)", () => {
@@ -1230,8 +1230,14 @@ describe("runParallelWorkChecks — structured-config exemption", () => {
     runParallelWorkChecks(taskInput, "/tmp/anywhere", "task/mt-9999", cacheDeps);
     // Both attempts received a cache; both received the SAME Map instance.
     expect(cachesObserved).toHaveLength(2);
-    expect(cachesObserved[0]).toBeInstanceOf(Map);
-    expect(cachesObserved[0]).toBe(cachesObserved[1]); // same instance
+    const cache0 = cachesObserved[0];
+    const cache1 = cachesObserved[1];
+    expect(cache0).toBeInstanceOf(Map);
+    if (cache0 !== undefined && cache1 !== undefined) {
+      expect(cache0).toBe(cache1); // same instance
+    } else {
+      throw new Error("Expected both caches to be defined");
+    }
   });
 
   it("does not retry /merge when /head succeeds (PR #952 R8#1 efficiency)", () => {

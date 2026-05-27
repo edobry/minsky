@@ -1,7 +1,7 @@
 ---
 name: Task Lifecycle — External-Deliverable Closeout
 description: Convention for closing tasks whose primary deliverable is external to the repo (Notion pages, deployed services, hosted resources) via a direct READY → DONE transition with spec-verified closeout evidence.
-alwaysApply: true
+alwaysApply: false
 tags:
   - minsky
   - tasks

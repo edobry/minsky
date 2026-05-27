@@ -4,6 +4,7 @@
  * Structure (operator journey order):
  *   1. System section  — compact status cards (BasicHealth, Attention, CredentialsSummary)
  *      inside a subtle bordered panel; rendered by App.tsx's HomePage component.
+ *      Full interactive tools (Context Inspector, etc.) have their own page routes.
  *   2. Nav section — generous tiles linking to the feature pages.
  *      Exported here as PageNavTiles, consumed by App.tsx.
  *
@@ -16,7 +17,7 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, GitBranch, List, Network, MessageCircleQuestion, Bell, ChevronRight } from "lucide-react";
+import { Bot, FileSearch, GitBranch, List, Network, MessageCircleQuestion, Bell, Cpu, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,12 @@ export function PageNavTiles() {
           description="Active sessions, liveness, and PR state"
         />
         <EntryTile
+          to="/context"
+          icon={FileSearch}
+          label="Context"
+          description="Session context blocks, filters, and content viewer"
+        />
+        <EntryTile
           to="/workstreams"
           icon={GitBranch}
           label="Workstreams"
@@ -113,6 +120,12 @@ export function PageNavTiles() {
           icon={Bell}
           label="Activity"
           description="System event log — what happened while you were away"
+        />
+        <EntryTile
+          to="/embeddings"
+          icon={Cpu}
+          label="Embeddings"
+          description="Provider health, index coverage, and error log"
         />
       </div>
     </section>

@@ -20,7 +20,7 @@
 
 import { TsyringeContainer } from "./container";
 import type { AppContainerInterface } from "./types";
-import { NoopClientCapabilityRegistry } from "../../../../src/mcp/client-capabilities";
+import { NoopClientCapabilityRegistry } from "../client-capabilities";
 
 /**
  * Create a container with all domain service factories registered.

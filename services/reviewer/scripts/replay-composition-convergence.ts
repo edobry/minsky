@@ -52,11 +52,8 @@ if (!dbUrl) {
   process.exit(0);
 }
 
-const githubToken = process.env.GITHUB_TOKEN;
-if (!githubToken) {
-  console.error("SKIP: GITHUB_TOKEN not set; skipping live replay.");
-  process.exit(0);
-}
+import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
+const githubToken = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Argument parsing
@@ -380,6 +377,7 @@ async function main(): Promise<void> {
 
   console.error(`=== Composition-Convergence Replay (mt#1867) ===`);
   console.error(`Target: ${owner}/${repo}#${prNumber}`);
+  console.error(`GitHub auth: ${getAuthSource()}`);
   console.error(`Activation threshold: R>=${CONVERGENCE_ACTIVATION_THRESHOLD}`);
   console.error("");
 

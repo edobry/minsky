@@ -50,11 +50,8 @@ if (!dbUrl) {
   process.exit(0);
 }
 
-const githubToken = process.env.GITHUB_TOKEN;
-if (!githubToken) {
-  console.error("SKIP: GITHUB_TOKEN not set; skipping live replay.");
-  process.exit(0);
-}
+import { resolveGitHubTokenOrSkip, getAuthSource } from "./harness-auth";
+const githubToken = resolveGitHubTokenOrSkip();
 
 // ---------------------------------------------------------------------------
 // Known limitation (mt#1875 R2)
@@ -411,6 +408,7 @@ async function main(): Promise<void> {
 
   console.error(`=== Diff-Scope-Bounded Replay (mt#1875 Fix 3) ===`);
   console.error(`Target: ${owner}/${repo}#${prNumber}`);
+  console.error(`GitHub auth: ${getAuthSource()}`);
   console.error(`Feature: REVIEWER_DIFF_SCOPE_BOUNDED_ENABLED`);
   console.error("");
 

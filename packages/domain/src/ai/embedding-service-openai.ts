@@ -2,6 +2,8 @@ import { injectable } from "tsyringe";
 import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
 import { RateLimitError } from "./enhanced-error-types";
+import { IntelligentRetryService } from "./intelligent-retry-service";
+import { EmbeddingsHealthTracker } from "./embeddings-health-tracker";
 
 /**
  * Determines whether an AI service error is retryable.
@@ -49,6 +51,11 @@ interface OpenAIEmbeddingResponse {
   data: Array<{ embedding: number[] }>;
 }
 
+const sharedRetryService = new IntelligentRetryService({
+  maxRetries: 3,
+  baseDelay: 500,
+});
+
 @injectable()
 export class OpenAIEmbeddingService implements EmbeddingService {
   private readonly apiKey: string;
@@ -91,16 +98,24 @@ export class OpenAIEmbeddingService implements EmbeddingService {
 
   private async requestWithRetry(inputs: string[]) {
     try {
-      const { IntelligentRetryService } = await import("./intelligent-retry-service");
-      const retry = new IntelligentRetryService({ maxRetries: 3, baseDelay: 500 });
-      return await retry.execute(
+      const result = await sharedRetryService.execute(
         async () => this.request(inputs),
         isRetryableAIError,
         "openai-embeddings"
       );
-    } catch {
-      // Fallback: single attempt
-      return this.request(inputs);
+      EmbeddingsHealthTracker.getInstance().recordRecovery();
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const errorCode = /insufficient_quota/i.test(msg)
+        ? "insufficient_quota"
+        : /circuit.breaker.is.open/i.test(msg)
+          ? "circuit_breaker_open"
+          : /429|rate.limit/i.test(msg)
+            ? "rate_limit"
+            : "unknown";
+      await EmbeddingsHealthTracker.getInstance().recordError("openai", errorCode, msg);
+      throw err;
     }
   }
 

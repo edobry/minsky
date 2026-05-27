@@ -21,6 +21,7 @@ export const SYSTEM_EVENT_TYPE_VALUES = [
   "task.auto_created",
   "pr.review_posted",
   "subagent.failed",
+  "embeddings.provider_degraded",
 ] as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
@@ -59,10 +60,11 @@ export const systemEventsTable = pgTable(
     /**
      * Structured event payload — shape varies by event type.
      *
-     * ask.created:        { askId, kind, title, requestor, parentTaskId? }
-     * task.auto_created:  { taskId, title, createdBy, sourceRule }
-     * pr.review_posted:   { prUrl, prNumber, reviewer, state, taskId? }
-     * subagent.failed:    { outcome, taskId, sessionId?, errorSummary? }
+     * ask.created:                    { askId, kind, title, requestor, parentTaskId? }
+     * task.auto_created:              { taskId, title, createdBy, sourceRule }
+     * pr.review_posted:               { prUrl, prNumber, reviewer, state, taskId? }
+     * subagent.failed:                { outcome, taskId, sessionId?, errorSummary? }
+     * embeddings.provider_degraded:   { provider, errorCode, status, failureCount, degradedReason }
      */
     payload: jsonb("payload").notNull(),
 

@@ -915,7 +915,11 @@ export class MinskyMCPServer {
       // and one session's tool call doesn't inflate another's count. This is
       // the discriminating signal: 0 calls → "helper" (harness helper / hook
       // spawner / probe), 1+ calls → "main_session".
-      this.disconnectTracker.incrementToolCallCount(sessionKey);
+      // mt#1715: skip increment after clean shutdown to prevent repopulating
+      // an already-evicted counter during the 200ms exit delay or signal drain.
+      if (!this.disconnectTracker.isCleanShutdownInitiated()) {
+        this.disconnectTracker.incrementToolCallCount(sessionKey);
+      }
 
       const trackingId = this.nextRequestId++;
       this.inFlightRequests.set(trackingId, Date.now());
@@ -1376,7 +1380,10 @@ export class MinskyMCPServer {
     // conflating the by-design staleness exit with harness-initiated
     // closures. Append-only persistence (mt#1682) guarantees the event hits
     // disk before the 200ms timeout completes.
-    this.disconnectTracker.recordDisconnect("staleness_exit", staleMessage || undefined);
+    this.disconnectTracker.recordDisconnect("staleness_exit", {
+      sessionKey: STDIO_SESSION_KEY,
+      errorMessage: staleMessage || undefined,
+    });
 
     setTimeout(() => this.exit(0), 200);
   }
@@ -1432,7 +1439,7 @@ export class MinskyMCPServer {
             ? "signal_sigint"
             : "signal_sighup";
       try {
-        tracker.recordDisconnect(cause);
+        tracker.recordDisconnect(cause, { sessionKey: STDIO_SESSION_KEY });
       } catch (err) {
         log.debug("signal handler: recordDisconnect failed (non-blocking)", {
           error: getErrorMessage(err),

@@ -16,7 +16,9 @@ import { Attention } from "./widgets/Attention";
 import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
+import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { AgentsPage } from "./pages/AgentsPage";
+import { ContextPage } from "./pages/ContextPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { WorkstreamsPage } from "./pages/WorkstreamsPage";
 import { TasksLayout } from "./pages/TasksLayout";
@@ -25,6 +27,7 @@ import { TasksGraphPage } from "./pages/TasksGraphPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { AsksPage } from "./pages/AsksPage";
 import { ActivityPage } from "./pages/ActivityPage";
+import { EmbeddingsPage } from "./pages/EmbeddingsPage";
 import { PageNavTiles } from "./pages/HomePage";
 
 // ---------------------------------------------------------------------------
@@ -37,6 +40,7 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   attention: Attention,
   "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
+  "embeddings-health": EmbeddingsHealth,
 };
 
 // Prop-driven widgets: receive data from App-level polling.
@@ -46,7 +50,13 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
-const PAGE_ROUTE_WIDGET_IDS = new Set(["agents", "workstreams", "task-graph", "task-list"]);
+const PAGE_ROUTE_WIDGET_IDS = new Set([
+  "agents",
+  "context-inspector",
+  "workstreams",
+  "task-graph",
+  "task-list",
+]);
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -229,6 +239,14 @@ export function App() {
           }
         />
         <Route
+          path="/context"
+          element={
+            <ErrorBoundary id="context-page">
+              <ContextPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
           path="/workstreams"
           element={
             <ErrorBoundary id="workstreams-page">
@@ -270,6 +288,14 @@ export function App() {
           element={
             <ErrorBoundary id="settings-page">
               <SettingsPage />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/embeddings"
+          element={
+            <ErrorBoundary id="embeddings-page">
+              <EmbeddingsPage />
             </ErrorBoundary>
           }
         />

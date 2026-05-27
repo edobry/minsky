@@ -5575,9 +5575,15 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded)",
               "takesValue": true,
-              "values": ["ask.created", "task.auto_created", "pr.review_posted", "subagent.failed"]
+              "values": [
+                "ask.created",
+                "task.auto_created",
+                "pr.review_posted",
+                "subagent.failed",
+                "embeddings.provider_degraded"
+              ]
             },
             {
               "flags": ["--since"],
