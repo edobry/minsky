@@ -9,7 +9,7 @@
  * Height: h-14 (56px). Position: sticky top-0 z-40.
  * Border: border-b border-border for subtle elevation separation.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Menu, Settings, User } from "lucide-react";
 import { Button } from "./ui/button";
@@ -22,6 +22,18 @@ interface AppHeaderProps {
 
 export function AppHeader({ className }: AppHeaderProps) {
   const [navOpen, setNavOpen] = useState(false);
+  const [commit, setCommit] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/health")
+      .then((r) => r.json())
+      .then((data: Record<string, unknown>) => {
+        if (typeof data.commit === "string" && data.commit !== "unknown") {
+          setCommit(data.commit as string);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   return (
     <>
@@ -52,6 +64,9 @@ export function AppHeader({ className }: AppHeaderProps) {
           >
             <span className="font-mono text-sm font-semibold text-primary">Minsky</span>
             <span className="text-sm font-medium text-muted-foreground">Cockpit</span>
+            {commit && (
+              <span className="font-mono text-[10px] text-muted-foreground/50 ml-1">{commit}</span>
+            )}
           </Link>
         </div>
 

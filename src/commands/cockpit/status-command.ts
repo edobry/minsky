@@ -36,6 +36,7 @@ export function createStatusCommand(): Command {
         if (status.pid) console.log(`  PID:    ${status.pid}`);
         console.log(`  Port:   ${status.port}`);
         console.log(`  URL:    ${status.url}`);
+        if (status.commit) console.log(`  Commit: ${status.commit}`);
         if (status.uptime) console.log(`  Uptime: ${status.uptime}`);
         console.log(`  Plist:  ${status.plistPath}`);
       } else {
