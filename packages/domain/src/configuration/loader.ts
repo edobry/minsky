@@ -7,7 +7,7 @@
 
 import { z } from "zod";
 import type { Configuration, PartialConfiguration, ConfigurationValidationResult } from "./schemas";
-import { configurationSchema } from "./schemas";
+import { configurationSchema, KNOWN_TOP_LEVEL_KEYS } from "./schemas";
 import { getDefaultConfiguration, defaultsSourceMetadata } from "./sources/defaults";
 import { getProjectConfiguration, projectSourceMetadata } from "./sources/project";
 import { getUserConfiguration, userSourceMetadata } from "./sources/user";
@@ -294,13 +294,26 @@ export class ConfigurationLoader {
   }
 
   /**
-   * Validate merged configuration against the strict top-level schema.
+   * Validate merged configuration against the top-level schema.
    *
-   * Unknown top-level keys produce a ZodError with `unrecognized_keys` —
-   * caught here so typos and stale legacy keys fail loudly at load time
-   * instead of being silently stripped or passed through.
+   * mt#2161: unknown top-level keys are WARNED (not rejected). The schema
+   * uses `z.object` (lenient) which strips unknown keys. We detect them
+   * before the parse and log at ERROR level so typos are visible, but the
+   * process doesn't crash — multi-version writers (cockpit, CLI at newer
+   * code) can add keys that older readers don't know about.
    */
   private validateConfiguration(config: PartialConfiguration): ConfigurationValidationResult {
+    if (config && typeof config === "object") {
+      const unknownKeys = Object.keys(config).filter((k) => !KNOWN_TOP_LEVEL_KEYS.has(k));
+      if (unknownKeys.length > 0) {
+        log.error(
+          `Unrecognized top-level config key${unknownKeys.length > 1 ? "s" : ""}: ${unknownKeys.join(", ")}. ` +
+            `These keys will be ignored. If this is a typo, fix the key name in your config file. ` +
+            `If this key was added by a newer version, update your Minsky installation.`
+        );
+      }
+    }
+
     const result = configurationSchema.safeParse(config);
 
     if (result.success) {
