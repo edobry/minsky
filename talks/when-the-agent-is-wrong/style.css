@@ -230,6 +230,23 @@ ul li::before {
   color: var(--signal-cyan);
 }
 
+/* --- Hide navigation overview panel --- */
+
+.fixed.right-5,
+.autocomplete-list {
+  display: none !important;
+}
+
+html,
+body,
+#app,
+#app > div,
+#slide-container,
+#slide-content,
+.slidev-layout {
+  background: var(--bg-base) !important;
+}
+
 /* --- Slide number and controls --- */
 
 .slidev-page-number {

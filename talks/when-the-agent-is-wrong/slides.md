@@ -13,6 +13,9 @@ fonts:
   sans: Geist
   mono: JetBrains Mono
 css: unocss
+aspectRatio: "16/9"
+canvasWidth: 980
+overview: false
 ---
 
 <style src="./style.css"></style>
