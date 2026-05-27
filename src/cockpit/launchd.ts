@@ -211,7 +211,11 @@ export function stopDaemon(): void {
     throw new Error(`No cockpit daemon installed (${plistPath} not found)`);
   }
 
-  execSync(`launchctl unload "${plistPath}"`);
+  try {
+    execSync(`launchctl unload "${plistPath}"`, { stdio: "ignore" });
+  } catch {
+    // May already be unloaded
+  }
 }
 
 /**
@@ -230,7 +234,7 @@ export function restartDaemon(): void {
     // May not be loaded
   }
 
-  execSync(`launchctl load "${plistPath}"`);
+  execSync(`launchctl load "${plistPath}"`, { stdio: "ignore" });
 }
 
 export interface DaemonStatus {
