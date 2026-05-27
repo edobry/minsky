@@ -236,9 +236,11 @@ describe("/retrigger endpoint", () => {
       const res = await fetch(`http://localhost:${server.port}/retrigger`, {
         method: "POST",
         headers: { "content-type": JSON_CONTENT_TYPE },
-        body: JSON.stringify({ pr: 42 }),
+        body: JSON.stringify({ pr: 42, owner: "edobry", repo: "minsky" }),
       });
       expect(res.status).toBe(401);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe("unauthorized");
     } finally {
       await gracefulShutdown();
     }
@@ -263,9 +265,69 @@ describe("/retrigger endpoint", () => {
           "content-type": JSON_CONTENT_TYPE,
           authorization: `Bearer ${TEST_SECRET}`,
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ owner: "edobry", repo: "minsky" }),
       });
       expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("pr");
+    } finally {
+      await gracefulShutdown();
+    }
+  });
+
+  test("rejects missing owner field", async () => {
+    const runReviewFn = mock(() =>
+      Promise.resolve({
+        status: "reviewed" as const,
+        reason: null,
+        tier: 3,
+        scope: "normal" as const,
+      })
+    ) as unknown as RunReviewFn;
+
+    const { server, gracefulShutdown } = createApp(makeConfig(), runReviewFn);
+
+    try {
+      const res = await fetch(`http://localhost:${server.port}/retrigger`, {
+        method: "POST",
+        headers: {
+          "content-type": JSON_CONTENT_TYPE,
+          authorization: `Bearer ${TEST_SECRET}`,
+        },
+        body: JSON.stringify({ pr: 42, repo: "minsky" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("owner");
+    } finally {
+      await gracefulShutdown();
+    }
+  });
+
+  test("rejects missing repo field", async () => {
+    const runReviewFn = mock(() =>
+      Promise.resolve({
+        status: "reviewed" as const,
+        reason: null,
+        tier: 3,
+        scope: "normal" as const,
+      })
+    ) as unknown as RunReviewFn;
+
+    const { server, gracefulShutdown } = createApp(makeConfig(), runReviewFn);
+
+    try {
+      const res = await fetch(`http://localhost:${server.port}/retrigger`, {
+        method: "POST",
+        headers: {
+          "content-type": JSON_CONTENT_TYPE,
+          authorization: `Bearer ${TEST_SECRET}`,
+        },
+        body: JSON.stringify({ pr: 42, owner: "edobry" }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("repo");
     } finally {
       await gracefulShutdown();
     }

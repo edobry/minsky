@@ -64,7 +64,12 @@ interface PullRequestClosedPayload {
   repository: { owner: { login: string }; name: string };
 }
 
-/** Recognized /review command pattern: must be the sole content or first line. */
+/**
+ * Recognized /review command pattern. The ENTIRE first line of the comment
+ * (trimmed) must be exactly `/review` — no surrounding text. This matches
+ * acceptance test #3: "Comment `some text /review more text` → no action."
+ * Multi-line comments are supported: only the first line is checked.
+ */
 const REVIEW_COMMAND_RE = /^\s*\/review\s*$/;
 
 /** Author associations that are allowed to trigger /review. */
@@ -614,6 +619,9 @@ export function createApp(
     });
 
     // Fetch the PR to get the current HEAD sha and author.
+    // Duplicate-review prevention: runReview acquires an inflight marker
+    // (mt#1907) keyed on PR + HEAD sha; concurrent /review comments for
+    // the same HEAD are coalesced at that layer.
     try {
       const octokit = await createOctokit(cfg);
       const { data: pr } = await octokit.pulls.get({
@@ -774,30 +782,53 @@ export function createApp(
       }
 
       // POST /retrigger — programmatic review retrigger (mt#2127 SC#5).
-      // Accepts { pr: number, owner?: string, repo?: string } and triggers a
+      // Accepts { pr: number, owner: string, repo: string } and triggers a
       // review on the PR's current HEAD.
       // Authenticated by the same webhook secret as the webhook endpoint.
       if (request.method === "POST" && url.pathname === "/retrigger") {
         const authHeader = request.headers.get("authorization");
         const expectedToken = `Bearer ${cfg.webhookSecret}`;
         if (authHeader !== expectedToken) {
-          return new Response("unauthorized", { status: 401 });
+          return new Response(JSON.stringify({ error: "unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
         }
 
         let body: { pr?: number; owner?: string; repo?: string };
         try {
           body = (await request.json()) as { pr?: number; owner?: string; repo?: string };
         } catch {
-          return new Response("invalid json", { status: 400 });
+          return new Response(JSON.stringify({ error: "invalid json" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
         }
 
         if (typeof body.pr !== "number" || body.pr < 1) {
-          return new Response("missing or invalid 'pr' field", { status: 400 });
+          return new Response(JSON.stringify({ error: "missing or invalid 'pr' field" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (typeof body.owner !== "string" || !body.owner) {
+          return new Response(JSON.stringify({ error: "missing or invalid 'owner' field" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        if (typeof body.repo !== "string" || !body.repo) {
+          return new Response(JSON.stringify({ error: "missing or invalid 'repo' field" }), {
+            status: 400,
+            headers: { "content-type": "application/json" },
+          });
         }
 
         const prNumber = body.pr;
-        const owner = body.owner ?? "edobry";
-        const repo = body.repo ?? "minsky";
+        const owner = body.owner;
+        const repo = body.repo;
         const deliveryId = `retrigger-${crypto.randomUUID()}`;
 
         try {

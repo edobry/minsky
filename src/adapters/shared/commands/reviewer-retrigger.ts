@@ -32,14 +32,14 @@ const reviewerRetriggerParams = {
     required: true,
   },
   owner: {
-    schema: z.string().min(1).optional(),
-    description: "GitHub repo owner (default: 'edobry')",
-    required: false,
+    schema: z.string().min(1),
+    description: "GitHub repo owner",
+    required: true,
   },
   repo: {
-    schema: z.string().min(1).optional(),
-    description: "GitHub repo name (default: 'minsky')",
-    required: false,
+    schema: z.string().min(1),
+    description: "GitHub repo name",
+    required: true,
   },
 };
 
@@ -66,8 +66,8 @@ export function registerReviewerRetriggerCommands(): void {
       parameters: reviewerRetriggerParams,
       execute: async (params): Promise<RetriggerResult> => {
         const pr = params.pr as number;
-        const owner = (params.owner as string | undefined) ?? "edobry";
-        const repo = (params.repo as string | undefined) ?? "minsky";
+        const owner = params.owner as string;
+        const repo = params.repo as string;
 
         const reviewerUrl = DEFAULT_REVIEWER_URL;
         const webhookSecret = process.env["MINSKY_REVIEWER_WEBHOOK_SECRET"];
@@ -98,7 +98,13 @@ export function registerReviewerRetriggerCommands(): void {
           body: JSON.stringify({ pr, owner, repo }),
         });
 
-        const body = (await response.json()) as RetriggerResult;
+        let body: RetriggerResult;
+        try {
+          body = (await response.json()) as RetriggerResult;
+        } catch {
+          const text = await response.text().catch(() => "");
+          body = { ok: false, pr, error: text || `HTTP ${response.status}` };
+        }
 
         if (!response.ok) {
           log.error("reviewer.retrigger.failed", {
