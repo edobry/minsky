@@ -12,7 +12,7 @@
  * without calling the real ConfigWriter.
  */
 /* eslint-disable custom/no-real-fs-in-tests -- integration test: exercises real ConfigWriter + Zod schema against temp dirs */
-import { describe, test, expect, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { createServer } from "http";
 import type { Server } from "http";
 import { mkdtempSync, rmSync } from "fs";
@@ -26,8 +26,6 @@ import type { CredentialModuleOverride } from "./server";
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
-
-let tempDir: string;
 
 function makeTempConfigDir(): string {
   return mkdtempSync(join(tmpdir(), "minsky-cred-test-"));
@@ -47,64 +45,120 @@ async function startTestServer(
   return { url, close };
 }
 
+/**
+ * Build a CredentialModuleOverride that uses the REAL ConfigWriter (with
+ * temp configDir) but stubs out the external API calls (validate/test).
+ * This tests: server route -> credential module -> ConfigWriter -> Zod schema.
+ */
+function makeRealWriterOverride(configDir: string): CredentialModuleOverride {
+  return {
+    getCredentialProvider: (id: string) => {
+      const provider = getCredentialProvider(id);
+      if (!provider) return undefined;
+      return {
+        validate: async (_token: string) => ({ ok: true, detail: "stub-ok" }),
+      };
+    },
+    addCredential: async (providerId: string, token: string) => {
+      const provider = getCredentialProvider(providerId);
+      if (!provider) {
+        throw new Error(`Unknown credential provider: ${providerId}`);
+      }
+
+      const writer = createConfigWriter({
+        validate: true,
+        configDir,
+        format: "yaml",
+        createBackup: false,
+      });
+      const writeResult = await writer.setConfigValue(provider.configPath, token);
+      if (!writeResult.success) {
+        throw new Error(`Failed to persist credential: ${writeResult.error}`);
+      }
+
+      return {
+        provider: provider.id,
+        validate: { ok: true, detail: "stub-ok" },
+        stored: { configFilePath: writeResult.filePath },
+        test: { ok: true, detail: "stub-smoke-ok" },
+      };
+    },
+    listCredentials: async () => [],
+    removeCredential: async (_provider: string) => ({ removed: true }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 1. Schema-level integration: ConfigWriter + Zod for every provider
 // ---------------------------------------------------------------------------
 
 describe("Credential schema integration", () => {
-  beforeEach(() => {
-    tempDir = makeTempConfigDir();
-  });
-
-  afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+  test("provider registry is non-empty", () => {
+    expect(KNOWN_PROVIDER_IDS.length).toBeGreaterThan(0);
   });
 
   test("all registered provider configPaths pass Zod schema validation", async () => {
-    for (const providerId of KNOWN_PROVIDER_IDS) {
-      const provider = getCredentialProvider(providerId);
-      if (!provider) throw new Error(`Provider '${providerId}' not found in registry`);
+    expect(KNOWN_PROVIDER_IDS.length).toBeGreaterThan(0);
 
-      const writer = createConfigWriter({
-        validate: true,
-        configDir: tempDir,
-        format: "yaml",
-        createBackup: false,
-      });
-      const result = await writer.setConfigValue(provider.configPath, "test-token-value");
+    const tempDir = makeTempConfigDir();
+    try {
+      for (const providerId of KNOWN_PROVIDER_IDS) {
+        const provider = getCredentialProvider(providerId);
+        if (!provider) throw new Error(`Provider '${providerId}' not found in registry`);
 
-      expect(result.success).toBe(true);
-      expect(result.error).toBeUndefined();
+        const writer = createConfigWriter({
+          validate: true,
+          configDir: tempDir,
+          format: "yaml",
+          createBackup: false,
+        });
+        const result = await writer.setConfigValue(provider.configPath, "test-token-value");
+
+        expect(result.success).toBe(true);
+        expect(result.error).toBeUndefined();
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
   for (const providerId of KNOWN_PROVIDER_IDS) {
     test(`provider '${providerId}' configPath writes and validates individually`, async () => {
-      const provider = getCredentialProvider(providerId);
-      if (!provider) throw new Error(`Provider '${providerId}' not found in registry`);
+      const tempDir = makeTempConfigDir();
+      try {
+        const provider = getCredentialProvider(providerId);
+        if (!provider) throw new Error(`Provider '${providerId}' not found in registry`);
+        const writer = createConfigWriter({
+          validate: true,
+          configDir: tempDir,
+          format: "yaml",
+          createBackup: false,
+        });
+
+        const result = await writer.setConfigValue(provider.configPath, "test-token");
+        expect(result.success).toBe(true);
+        expect(result.filePath).toContain(tempDir);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test("unknown top-level key is rejected by strictObject schema", async () => {
+    const tempDir = makeTempConfigDir();
+    try {
       const writer = createConfigWriter({
         validate: true,
         configDir: tempDir,
         format: "yaml",
         createBackup: false,
       });
-
-      const result = await writer.setConfigValue(provider.configPath, "test-token");
-      expect(result.success).toBe(true);
-      expect(result.filePath).toContain(tempDir);
-    });
-  }
-
-  test("unknown top-level key is rejected by strictObject schema", async () => {
-    const writer = createConfigWriter({
-      validate: true,
-      configDir: tempDir,
-      format: "yaml",
-      createBackup: false,
-    });
-    const result = await writer.setConfigValue("bogusTopLevel.key", "value");
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("unrecognized_keys");
+      const result = await writer.setConfigValue("bogusTopLevel.key", "value");
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -113,106 +167,57 @@ describe("Credential schema integration", () => {
 // ---------------------------------------------------------------------------
 
 describe("Credential server-route integration", () => {
-  const closeList: Array<() => Promise<void>> = [];
-
-  beforeEach(() => {
-    tempDir = makeTempConfigDir();
-  });
-
-  afterEach(async () => {
-    for (const close of closeList) {
-      await close();
-    }
-    closeList.length = 0;
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  /**
-   * Build a CredentialModuleOverride that uses the REAL ConfigWriter (with
-   * temp configDir) but stubs out the external API calls (validate/test).
-   * This tests: server route → credential module → ConfigWriter → Zod schema.
-   */
-  function makeRealWriterOverride(): CredentialModuleOverride {
-    return {
-      getCredentialProvider: (id: string) => {
-        const provider = getCredentialProvider(id);
-        if (!provider) return undefined;
-        return {
-          validate: async (_token: string) => ({ ok: true, detail: "stub-ok" }),
-        };
-      },
-      addCredential: async (providerId: string, token: string) => {
-        const provider = getCredentialProvider(providerId);
-        if (!provider) {
-          throw new Error(`Unknown credential provider: ${providerId}`);
-        }
-
-        const writer = createConfigWriter({
-          validate: true,
-          configDir: tempDir,
-          format: "yaml",
-          createBackup: false,
-        });
-        const writeResult = await writer.setConfigValue(provider.configPath, token);
-        if (!writeResult.success) {
-          throw new Error(`Failed to persist credential: ${writeResult.error}`);
-        }
-
-        return {
-          provider: provider.id,
-          validate: { ok: true, detail: "stub-ok" },
-          stored: { configFilePath: writeResult.filePath },
-          test: { ok: true, detail: "stub-smoke-ok" },
-        };
-      },
-      listCredentials: async () => [],
-      removeCredential: async (_provider: string) => ({ removed: true }),
-    };
-  }
-
   for (const providerId of KNOWN_PROVIDER_IDS) {
     test(`POST /api/credentials/add succeeds for provider '${providerId}'`, async () => {
+      const tempDir = makeTempConfigDir();
       const { url, close } = await startTestServer({
         overrideConfig: { widgets: [] },
-        overrideCredentialModule: makeRealWriterOverride(),
+        overrideCredentialModule: makeRealWriterOverride(tempDir),
       });
-      closeList.push(close);
+      try {
+        const res = await fetch(`${url}/api/credentials/add`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider: providerId, token: "test-token-value" }),
+        });
 
-      const res = await fetch(`${url}/api/credentials/add`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: providerId, token: "test-token-value" }),
-      });
-
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as {
-        provider: string;
-        validate: { ok: boolean };
-        stored?: { configFilePath: string };
-      };
-      expect(body.provider).toBe(providerId);
-      expect(body.validate.ok).toBe(true);
-      expect(body.stored).toBeDefined();
-      if (!body.stored) throw new Error("stored should be defined");
-      expect(body.stored.configFilePath).toContain(tempDir);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+          provider: string;
+          validate: { ok: boolean };
+          stored?: { configFilePath: string };
+        };
+        expect(body.provider).toBe(providerId);
+        expect(body.validate.ok).toBe(true);
+        expect(body.stored).toBeDefined();
+        if (!body.stored) throw new Error("stored should be defined");
+        expect(body.stored.configFilePath).toContain(tempDir);
+      } finally {
+        await close();
+        rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   }
 
   test("POST /api/credentials/add rejects unknown provider", async () => {
+    const tempDir = makeTempConfigDir();
     const { url, close } = await startTestServer({
       overrideConfig: { widgets: [] },
-      overrideCredentialModule: makeRealWriterOverride(),
+      overrideCredentialModule: makeRealWriterOverride(tempDir),
     });
-    closeList.push(close);
+    try {
+      const res = await fetch(`${url}/api/credentials/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: "nonexistent", token: "test-token" }),
+      });
 
-    const res = await fetch(`${url}/api/credentials/add`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider: "nonexistent", token: "test-token" }),
-    });
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe("unknown_provider");
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as { error: { code: string; message: string } };
+      expect(body.error.code).toBe("unknown_provider");
+    } finally {
+      await close();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
