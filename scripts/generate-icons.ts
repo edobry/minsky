@@ -14,9 +14,10 @@
  */
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { $ } from "bun";
 
-const repoRoot = new URL("..", import.meta.url).pathname;
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceColor = join(repoRoot, "assets/icon/minsky-icon.svg");
 const sourceTemplate = join(repoRoot, "assets/icon/minsky-icon-template.svg");
 
