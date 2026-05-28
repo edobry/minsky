@@ -1,6 +1,7 @@
 {
   "name": "minsky",
   "description": "A development workflow orchestration platform that creates collaborative environments for both human and AI developers through organizational cybernetic principles.",
+  "icon": "assets/icon/minsky-icon.svg",
   "keywords": [
     "minsky",
     "workflow",
@@ -70,7 +71,8 @@
     "scripts/cli-entry.ts",
     "package.json",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets/icon/"
   ],
   "devDependencies": {
     "@eslint/js": "9.29.0",
