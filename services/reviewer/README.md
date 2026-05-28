@@ -97,17 +97,28 @@ Both tools use the `contents: read` permission the App already holds.
 
 The envelope structurally disambiguates "missing file" from "file whose content happens to be the literal string `null`" — a failure mode of the earlier raw-string protocol.
 
-## Comment command (mt#2127)
+## Comment commands
 
-Commenting `/review` on an open PR triggers a fresh review on the PR's current HEAD. The command must be the **entire first line** of the comment (whitespace-trimmed) — inline usage like `some text /review` is ignored.
+The bot recognizes the following comment commands. Each must be the **entire first line** of the comment (whitespace-trimmed) — inline usage like `some text /review` is ignored.
 
-Guards:
+| Command              | Effect                                                                                         |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| `/review` (mt#2127)  | Trigger a fresh review on the PR's current HEAD                                                |
+| `/resolve` (mt#2173) | Resolve all unresolved bot-authored review threads and dismiss stale CHANGES_REQUESTED reviews |
+
+Shared guards (apply to all commands):
 
 - Only fires on comments attached to a PR (not plain issues)
-- Only fires on **open** PRs (closed/merged PRs are ignored)
+- Only fires on **open**, non-draft PRs
 - Only fires for collaborators (`COLLABORATOR`, `MEMBER`, or `OWNER` author association)
 
-Duplicate prevention: `runReview` acquires an inflight marker (mt#1907) keyed on PR + HEAD SHA, so rapid repeated `/review` comments coalesce at the review layer.
+### `/review`
+
+Triggers a fresh review on the PR's current HEAD. Duplicate prevention: `runReview` acquires an inflight marker (mt#1907) keyed on PR + HEAD SHA, so rapid repeated `/review` comments coalesce at the review layer.
+
+### `/resolve`
+
+Resolves all unresolved bot-authored review threads (via GraphQL `resolveReviewThread`) and dismisses bot-authored CHANGES_REQUESTED reviews (via REST `pulls.dismissReview`) so they no longer block the merge gate. Useful once the PR author has addressed findings and wants to clear the bot's outstanding state without waiting for a fresh review. Each operation is best-effort — a single failure logs but doesn't abort the rest. The status comment is updated with the resolve/dismiss counts.
 
 ### Programmatic retrigger
 

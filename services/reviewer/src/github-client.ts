@@ -847,6 +847,34 @@ export async function resolveThread(
 }
 
 /**
+ * Dismiss a pull-request review via the `pulls.dismissReview` REST endpoint.
+ *
+ * Used by the `/resolve` command (mt#2173) to clear stale CHANGES_REQUESTED
+ * reviews so they no longer block the merge gate. The dismissal message is
+ * shown in the GitHub UI alongside the dismissed review.
+ */
+export async function dismissReview(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  reviewId: number,
+  message: string,
+  timeoutMs: number = DEFAULT_GITHUB_TIMEOUT_MS
+): Promise<void> {
+  await withTimeout("github.pulls.dismissReview", timeoutMs, (signal) =>
+    octokit.rest.pulls.dismissReview({
+      owner,
+      repo,
+      pull_number: prNumber,
+      review_id: reviewId,
+      message,
+      request: { signal },
+    })
+  );
+}
+
+/**
  * Return the reviewer App's bot identity (login name) via the /app endpoint.
  *
  * This must use App-level JWT auth, not installation token auth. `/user`
