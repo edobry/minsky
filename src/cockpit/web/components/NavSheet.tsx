@@ -18,7 +18,6 @@ import {
   Bot,
   FileSearch,
   GitBranch,
-  List,
   Network,
   MessageCircleQuestion,
   Bell,
@@ -71,13 +70,6 @@ const NAV_ITEMS: NavItem[] = [
     label: "Tasks",
     description: "List and graph views",
     icon: Network,
-    exact: true,
-  },
-  {
-    to: "/tasks/list",
-    label: "Task List",
-    description: "Flat sortable task table",
-    icon: List,
   },
   {
     to: "/asks",

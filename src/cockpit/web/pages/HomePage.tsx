@@ -98,13 +98,13 @@ export function PageNavTiles() {
           description="Parent tasks with child status counts"
         />
         <EntryTile
-          to="/tasks/list"
+          to="/tasks"
           icon={List}
           label="Task List"
           description="Sortable, filterable task table"
         />
         <EntryTile
-          to="/tasks"
+          to="/tasks/graph"
           icon={Network}
           label="Task Graph"
           description="Interactive task dependency DAG"
