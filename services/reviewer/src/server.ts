@@ -249,7 +249,13 @@ export function createApp(
 
     try {
       const reviews = await fetchPriorReviews(octokit, owner, repo, prNumber, cfg.githubTimeoutMs);
-      const staleReviews = reviews.filter((r) => r.state === "CHANGES_REQUESTED");
+      // Defensive author check: fetchPriorReviews already filters via isBotReviewerEntry,
+      // but explicitly enforce `userLogin === botLogin` here so a future change to the
+      // upstream filter (e.g. broadening to multiple bot identities) cannot accidentally
+      // dismiss a human-authored CHANGES_REQUESTED review.
+      const staleReviews = reviews.filter(
+        (r) => r.state === "CHANGES_REQUESTED" && r.userLogin === botLogin
+      );
 
       for (const review of staleReviews) {
         try {
@@ -787,8 +793,11 @@ export function createApp(
     const issueUser = issue["user"] as Record<string, unknown> | undefined;
 
     const commandName = isReviewCmd ? "review" : "resolve";
-    log.info("comment_command.triggered", {
-      event: "comment_command.triggered",
+    const triggeredEvent = isReviewCmd
+      ? "comment_command.review_triggered"
+      : "comment_command.resolve_triggered";
+    log.info(triggeredEvent, {
+      event: triggeredEvent,
       command: commandName,
       delivery_id: deliveryId,
       pr: prNumber,
