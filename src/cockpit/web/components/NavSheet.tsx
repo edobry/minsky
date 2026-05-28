@@ -2,7 +2,7 @@
  * NavSheet — slide-in navigation panel for Minsky Cockpit.
  *
  * Triggered by the sandwich icon in AppHeader. Lists the primary routes:
- *   / (Home), /agents, /context, /workstreams, /tasks, /asks, /activity
+ *   / (Home), /agents, /context, /workstreams, /tasks, /asks, /activity, /embeddings
  *
  * Uses a hand-rolled drawer panel backed by a dialog-accessible overlay rather
  * than pulling in the full shadcn Sheet component (which needs additional
