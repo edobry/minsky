@@ -57,8 +57,8 @@ const PAGES: PalettePage[] = [
   { type: "page", path: "/", label: "Home", description: "Dashboard overview" },
   { type: "page", path: "/agents", label: "Agents", description: "Sessions in flight" },
   { type: "page", path: "/workstreams", label: "Work Streams", description: "Active task workstreams" },
-  { type: "page", path: "/tasks", label: "Task Graph", description: "Dependency graph view" },
-  { type: "page", path: "/tasks/list", label: "Task List", description: "Flat sortable task table" },
+  { type: "page", path: "/tasks", label: "Task List", description: "Flat sortable task table" },
+  { type: "page", path: "/tasks/graph", label: "Task Graph", description: "Dependency graph view" },
 ];
 
 // ---------------------------------------------------------------------------
