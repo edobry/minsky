@@ -56,7 +56,10 @@ fn main() {
             let _tray = TrayIconBuilder::new()
                 .id("main")
                 .tooltip("Minsky Cockpit")
-                .title("M")
+                .icon(tauri::image::Image::from_bytes(include_bytes!(
+                    "../icons/tray.png"
+                ))?)
+                .icon_as_template(true)
                 .menu(&menu)
                 .on_menu_event(move |app, event| {
                     handle_menu_event(app, event.id().as_ref());

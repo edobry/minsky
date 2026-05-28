@@ -34,6 +34,7 @@
     "lint:tests": "bun detect-placeholder-tests.ts",
     "prepare": "husky",
     "postinstall": "bun -e \"try{require('fs').chmodSync('scripts/cli-entry.ts',0o755)}catch{}\"",
+    "icons:generate": "bun scripts/generate-icons.ts",
     "format": "prettier --write \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:all": "bun run format && bun run lint:fix",
