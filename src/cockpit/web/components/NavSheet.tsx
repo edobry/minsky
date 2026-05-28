@@ -37,7 +37,6 @@ interface NavItem {
   label: string;
   description: string;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean | "true" | "false" }>;
-  exact?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -158,8 +157,8 @@ export function NavSheet({ open, onOpenChange }: NavSheetProps) {
         <nav className="flex-1 overflow-y-auto py-2" aria-label="Primary navigation">
           {NAV_ITEMS.map((item) => {
             const isActive =
-              item.to === "/" || item.exact
-                ? location.pathname === item.to
+              item.to === "/"
+                ? location.pathname === "/"
                 : location.pathname.startsWith(item.to);
             const Icon = item.icon;
 
