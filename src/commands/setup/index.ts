@@ -5,7 +5,7 @@
  * keeping logic DRY while presenting `setup` as a top-level CLI command rather
  * than a subcommand nested under an INIT category wrapper.
  */
-import { Command } from "commander";
+import { Command, InvalidArgumentError } from "commander";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
 import { getErrorMessage } from "@minsky/domain/errors/index";
 
@@ -85,7 +85,13 @@ function createSetupGithubAppCommand(): Command {
   cmd.option(
     "--port <n>",
     "Local callback port for the manifest flow (1-65535; default: 9847)",
-    (v) => parseInt(v, 10)
+    (v) => {
+      const n = Number(v);
+      if (!Number.isInteger(n)) {
+        throw new InvalidArgumentError(`--port must be an integer, got "${v}".`);
+      }
+      return n;
+    }
   );
   cmd.option(
     "--api-base-url <url>",
