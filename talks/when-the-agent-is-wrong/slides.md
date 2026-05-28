@@ -21,6 +21,9 @@ overview: false
 <style src="./style.css"></style>
 
 <div class="center-slide">
+
+<img src="./assets/minsky-icon.svg" alt="Minsky" style="width: 140px; height: 140px; margin-bottom: 1.5em;" />
+
 <span class="eyebrow">Case study</span>
 
 # When the Agent<br>is Wrong
@@ -499,6 +502,8 @@ This is the thesis. These metacognitive organs — self-monitoring, durable memo
 <p class="highlight mt-12 text-lg">The system improved because it failed.</p>
 
 <p class="subtle mt-2">That's the point.</p>
+
+<img src="./assets/minsky-icon.svg" alt="Minsky" style="width: 64px; height: 64px; margin-top: 2em; opacity: 0.7;" />
 
 </div>
 
