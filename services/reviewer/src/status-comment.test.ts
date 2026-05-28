@@ -5,6 +5,7 @@ import {
   buildCompletedBody,
   buildErrorBody,
   buildSkippedBody,
+  buildResolvedBody,
 } from "./status-comment";
 import type { ReviewResult } from "./review-worker";
 
@@ -110,5 +111,34 @@ describe("status-comment body builders", () => {
     const body = buildSkippedBody("unexpected stack trace at Object.foo");
     expect(body).toContain("an internal error occurred");
     expect(body).not.toContain("stack trace");
+  });
+
+  test("buildResolvedBody shows resolve counts with plural form", () => {
+    const body = buildResolvedBody({ threadsResolved: 3, reviewsDismissed: 2 });
+    expect(body).toContain(MARKER);
+    expect(body).toContain("Findings resolved");
+    expect(body).toContain("3 threads resolved");
+    expect(body).toContain("2 stale reviews dismissed");
+    expect(body).toContain("`/review`");
+  });
+
+  test("buildResolvedBody uses singular for count == 1", () => {
+    const body = buildResolvedBody({ threadsResolved: 1, reviewsDismissed: 1 });
+    expect(body).toContain("1 thread resolved");
+    expect(body).toContain("1 stale review dismissed");
+    expect(body).not.toContain("threads");
+    expect(body).not.toContain("reviews");
+  });
+
+  test("buildResolvedBody omits zero counts", () => {
+    const body = buildResolvedBody({ threadsResolved: 0, reviewsDismissed: 2 });
+    expect(body).toContain("2 stale reviews dismissed");
+    expect(body).not.toContain("0 threads");
+    expect(body).not.toContain("0 thread");
+  });
+
+  test("buildResolvedBody shows nothing-to-resolve when both zero", () => {
+    const body = buildResolvedBody({ threadsResolved: 0, reviewsDismissed: 0 });
+    expect(body).toContain("nothing to resolve");
   });
 });

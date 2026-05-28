@@ -173,6 +173,34 @@ export function buildSkippedBody(reason: string): string {
   ].join("\n");
 }
 
+export function buildResolvedBody(stats: {
+  threadsResolved: number;
+  reviewsDismissed: number;
+}): string {
+  const { threadsResolved, reviewsDismissed } = stats;
+  const parts: string[] = [];
+  if (threadsResolved > 0) {
+    parts.push(`${threadsResolved} ${threadsResolved === 1 ? "thread" : "threads"} resolved`);
+  }
+  if (reviewsDismissed > 0) {
+    parts.push(
+      `${reviewsDismissed} stale ${reviewsDismissed === 1 ? "review" : "reviews"} dismissed`
+    );
+  }
+  const detail = parts.length > 0 ? parts.join(", ") : "nothing to resolve";
+
+  return [
+    STATUS_MARKER,
+    "",
+    "## Minsky Reviewer Status",
+    "",
+    `Findings resolved — ${detail}.`,
+    "",
+    "### Commands",
+    "- `/review` — request a fresh review",
+  ].join("\n");
+}
+
 const SAFE_REASON_PATTERNS = [
   /^tier \d/i,
   /^draft/i,
