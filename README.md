@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/icon/minsky-icon-on-dark.svg" alt="Minsky" width="128" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/icon/minsky-icon-on-dark.svg" />
+    <img src="assets/icon/minsky-icon.svg" alt="Minsky" width="128" />
+  </picture>
 </p>
 
 # Minsky
