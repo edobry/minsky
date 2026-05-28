@@ -6055,6 +6055,80 @@
     {
       "name": "setup",
       "description": "Set up developer-local configuration for Minsky",
+      "subcommands": [
+        {
+          "name": "github-app",
+          "description": "Create and install a GitHub App via the manifest flow (or guided wizard fallback), or update an existing App's events/permissions",
+          "options": [
+            {
+              "flags": ["--name"],
+              "description": "App name (also used as file prefix under outputDir)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--repo"],
+              "description": "Target repo in owner/repo form (required for create, not for --update)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--via"],
+              "description": "Provisioner: manifest (default) or wizard",
+              "takesValue": true
+            },
+            {
+              "flags": ["--output-dir"],
+              "description": "Where to write credentials (default: ~/.config/minsky)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--force"],
+              "description": "Re-provision even if credentials already exist"
+            },
+            {
+              "flags": ["--update"],
+              "description": "Update an existing App's events/permissions via PATCH /app"
+            },
+            {
+              "flags": ["--execute"],
+              "description": "Apply changes (without this flag, --update shows a dry-run preview)"
+            },
+            {
+              "flags": ["--permissions"],
+              "description": "Comma-separated k:v permissions (default: pull_requests:write,contents:read,metadata:read)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--events"],
+              "description": "Comma-separated GitHub event names",
+              "takesValue": true
+            },
+            {
+              "flags": ["--webhook-url"],
+              "description": "Webhook URL to prefill in hook_attributes",
+              "takesValue": true
+            },
+            {
+              "flags": ["--inactive"],
+              "description": "Create with hook_attributes.active=false (no webhook deliveries)"
+            },
+            {
+              "flags": ["--port"],
+              "description": "Local callback port for the manifest flow (1-65535; default: 9847)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--api-base-url"],
+              "description": "GitHub API base URL for the wizard (default: https://api.github.com; set for GHE)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--web-base-url"],
+              "description": "GitHub web base URL for the wizard (default: https://github.com; set for GHE)",
+              "takesValue": true
+            }
+          ]
+        }
+      ],
       "options": [
         {
           "flags": ["--client"],
