@@ -235,11 +235,12 @@ ul li::before {
   color: var(--signal-cyan);
 }
 
-/* --- Hide Slidev overview panel (right-side slide list) --- */
+/* --- Hide Slidev overview panel --- */
+/* DOM: #app > .fixed.right-5.transition-all.-top-20 (slide overview popup) */
+/* overview: false frontmatter doesn't actually hide this in current Slidev */
 
-.fixed.right-5,
-.autocomplete-list {
-  display: none !important;
+#app > .fixed.right-5.transition-all.-top-20 {
+  display: none;
 }
 
 /* --- Unify background: #slide-content defaults to #121212 --- */
