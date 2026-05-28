@@ -32,7 +32,14 @@ import {
   pruneOldRows,
   extractPersistedHeaders,
 } from "./webhook-events";
-import { createOctokit, getAppIdentity } from "./github-client";
+import {
+  createOctokit,
+  getAppIdentity,
+  fetchPriorReviews,
+  fetchReviewThreads,
+  resolveThread,
+  dismissReview,
+} from "./github-client";
 import {
   upsertStatusComment,
   buildPendingBody,
@@ -40,6 +47,7 @@ import {
   buildCompletedBody,
   buildErrorBody,
   buildSkippedBody,
+  buildResolvedBody,
 } from "./status-comment";
 
 interface PullRequestPayload {
@@ -79,6 +87,12 @@ interface PullRequestClosedPayload {
  * Multi-line comments are supported: only the first line is checked.
  */
 const REVIEW_COMMAND_RE = /^\s*\/review\s*$/;
+
+/**
+ * Recognized /resolve command pattern (mt#2173). Same shape as /review —
+ * the entire first line must be exactly `/resolve`.
+ */
+const RESOLVE_COMMAND_RE = /^\s*\/resolve\s*$/;
 
 /** Author associations that are allowed to trigger /review. */
 const ALLOWED_ASSOCIATIONS = new Set(["COLLABORATOR", "MEMBER", "OWNER"]);
@@ -181,6 +195,107 @@ export function createApp(
         error: message,
       });
     }
+  }
+
+  /**
+   * Handle the /resolve comment command (mt#2173).
+   *
+   * Resolves all unresolved bot-authored review threads via GraphQL
+   * `resolveReviewThread`, then dismisses all bot CHANGES_REQUESTED reviews
+   * via REST `pulls.dismissReview`. Both operations are best-effort — a
+   * single failure logs but doesn't abort the rest.
+   */
+  async function handleResolveCommand(
+    octokit: Awaited<ReturnType<typeof createOctokit>>,
+    owner: string,
+    repo: string,
+    prNumber: number,
+    deliveryId: string
+  ): Promise<void> {
+    const { login: botLogin } = await getAppIdentity(cfg);
+
+    let threadsResolved = 0;
+    let reviewsDismissed = 0;
+
+    try {
+      const threads = await fetchReviewThreads(octokit, owner, repo, prNumber);
+      const botThreads = threads.filter(
+        (t) =>
+          !t.isResolved && t.comments.length > 0 && t.comments.some((c) => c.author === botLogin)
+      );
+
+      for (const thread of botThreads) {
+        try {
+          await resolveThread(octokit, thread.id);
+          threadsResolved++;
+        } catch (err: unknown) {
+          log.warn("resolve_command.thread_resolve_failed", {
+            event: "resolve_command.thread_resolve_failed",
+            delivery_id: deliveryId,
+            pr: prNumber,
+            threadId: thread.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } catch (err: unknown) {
+      log.warn("resolve_command.thread_fetch_failed", {
+        event: "resolve_command.thread_fetch_failed",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    try {
+      const reviews = await fetchPriorReviews(octokit, owner, repo, prNumber, cfg.githubTimeoutMs);
+      const staleReviews = reviews.filter((r) => r.state === "CHANGES_REQUESTED");
+
+      for (const review of staleReviews) {
+        try {
+          await dismissReview(
+            octokit,
+            owner,
+            repo,
+            prNumber,
+            review.id,
+            "Dismissed by /resolve comment command",
+            cfg.githubTimeoutMs
+          );
+          reviewsDismissed++;
+        } catch (err: unknown) {
+          log.warn("resolve_command.review_dismiss_failed", {
+            event: "resolve_command.review_dismiss_failed",
+            delivery_id: deliveryId,
+            pr: prNumber,
+            reviewId: review.id,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    } catch (err: unknown) {
+      log.warn("resolve_command.review_fetch_failed", {
+        event: "resolve_command.review_fetch_failed",
+        delivery_id: deliveryId,
+        pr: prNumber,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    log.info("resolve_command.completed", {
+      event: "resolve_command.completed",
+      delivery_id: deliveryId,
+      pr: prNumber,
+      threadsResolved,
+      reviewsDismissed,
+    });
+
+    await updateStatusCommentSafe(
+      owner,
+      repo,
+      prNumber,
+      buildResolvedBody({ threadsResolved, reviewsDismissed })
+    );
   }
 
   /**
@@ -642,11 +757,13 @@ export function createApp(
       return;
     }
 
-    // Gate: comment body must match /review command.
+    // Gate: comment body must match a known command.
     const commentBody = comment["body"] as string | undefined;
     if (!commentBody) return;
     const firstLine = commentBody.split("\n")[0] ?? "";
-    if (!REVIEW_COMMAND_RE.test(firstLine)) {
+    const isReviewCmd = REVIEW_COMMAND_RE.test(firstLine);
+    const isResolveCmd = RESOLVE_COMMAND_RE.test(firstLine);
+    if (!isReviewCmd && !isResolveCmd) {
       return;
     }
 
@@ -669,8 +786,10 @@ export function createApp(
     const prNumber = issue["number"] as number;
     const issueUser = issue["user"] as Record<string, unknown> | undefined;
 
-    log.info("comment_command.review_triggered", {
-      event: "comment_command.review_triggered",
+    const commandName = isReviewCmd ? "review" : "resolve";
+    log.info("comment_command.triggered", {
+      event: "comment_command.triggered",
+      command: commandName,
       delivery_id: deliveryId,
       pr: prNumber,
       owner: repoOwner,
@@ -678,10 +797,6 @@ export function createApp(
       triggeredBy: commentUser?.["login"] as string | undefined,
     });
 
-    // Fetch the PR to get the current HEAD sha and author.
-    // Duplicate-review prevention: runReview acquires an inflight marker
-    // (mt#1907) keyed on PR + HEAD sha; concurrent /review comments for
-    // the same HEAD are coalesced at that layer.
     try {
       const octokit = await createOctokit(cfg);
       const { data: pr } = await octokit.pulls.get({
@@ -693,11 +808,17 @@ export function createApp(
       if (pr.draft) {
         log.info("comment_command.skip_draft", {
           event: "comment_command.skip_draft",
+          command: commandName,
           delivery_id: deliveryId,
           pr: prNumber,
           owner: repoOwner,
           repo: repoName,
         });
+        return;
+      }
+
+      if (isResolveCmd) {
+        await handleResolveCommand(octokit, repoOwner, repoName, prNumber, deliveryId);
         return;
       }
 
@@ -715,6 +836,7 @@ export function createApp(
       const message = err instanceof Error ? err.message : String(err);
       log.error("comment_command.pr_fetch_failed", {
         event: "comment_command.pr_fetch_failed",
+        command: commandName,
         delivery_id: deliveryId,
         pr: prNumber,
         owner: repoOwner,

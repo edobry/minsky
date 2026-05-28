@@ -5,6 +5,7 @@ import {
   buildCompletedBody,
   buildErrorBody,
   buildSkippedBody,
+  buildResolvedBody,
 } from "./status-comment";
 import type { ReviewResult } from "./review-worker";
 
@@ -110,5 +111,20 @@ describe("status-comment body builders", () => {
     const body = buildSkippedBody("unexpected stack trace at Object.foo");
     expect(body).toContain("an internal error occurred");
     expect(body).not.toContain("stack trace");
+  });
+
+  test("buildResolvedBody shows resolve counts and /review hint", () => {
+    const body = buildResolvedBody({ threadsResolved: 3, reviewsDismissed: 1 });
+    expect(body).toContain(MARKER);
+    expect(body).toContain("Findings resolved");
+    expect(body).toContain("3 thread(s) resolved");
+    expect(body).toContain("1 stale review(s) dismissed");
+    expect(body).toContain("`/review`");
+  });
+
+  test("buildResolvedBody handles zero counts", () => {
+    const body = buildResolvedBody({ threadsResolved: 0, reviewsDismissed: 0 });
+    expect(body).toContain("0 thread(s) resolved");
+    expect(body).toContain("0 stale review(s) dismissed");
   });
 });

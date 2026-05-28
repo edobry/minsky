@@ -173,6 +173,22 @@ export function buildSkippedBody(reason: string): string {
   ].join("\n");
 }
 
+export function buildResolvedBody(stats: {
+  threadsResolved: number;
+  reviewsDismissed: number;
+}): string {
+  return [
+    STATUS_MARKER,
+    "",
+    "## Minsky Reviewer Status",
+    "",
+    `Findings resolved — ${stats.threadsResolved} thread(s) resolved, ${stats.reviewsDismissed} stale review(s) dismissed.`,
+    "",
+    "### Commands",
+    "- `/review` — request a fresh review",
+  ].join("\n");
+}
+
 const SAFE_REASON_PATTERNS = [
   /^tier \d/i,
   /^draft/i,
