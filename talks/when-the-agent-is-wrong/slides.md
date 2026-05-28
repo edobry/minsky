@@ -13,11 +13,17 @@ fonts:
   sans: Geist
   mono: JetBrains Mono
 css: unocss
+aspectRatio: 16/9
+canvasWidth: 980
+overview: false
 ---
 
 <style src="./style.css"></style>
 
 <div class="center-slide">
+
+<img src="./assets/minsky-icon.svg" alt="Minsky" style="width: 140px; height: 140px; margin-bottom: 1.5em;" />
+
 <span class="eyebrow">Case study</span>
 
 # When the Agent<br>is Wrong
@@ -31,18 +37,73 @@ This talk is about what happens after an AI agent makes a mistake — and about 
 
 ---
 
+<span class="eyebrow">Context</span>
+
+## What Minsky is
+
+Development workflow orchestration built on <span class="highlight">organizational cybernetics</span>.
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.2em 2em; font-size: 0.8em; margin-top: 1em;">
+<span><span class="highlight">Tasks</span> <span class="dim">— spec-driven lifecycle, status machine</span></span>
+<span><span class="highlight">Memory</span> <span class="dim">— persistent cross-session knowledge</span></span>
+<span><span class="highlight">Sessions</span> <span class="dim">— isolated workspaces per task</span></span>
+<span><span class="highlight">Rules</span> <span class="dim">— compiled policy corpus</span></span>
+<span><span class="highlight">Skills</span> <span class="dim">— structured multi-step workflows</span></span>
+<span><span class="highlight">Hooks</span> <span class="dim">— environmental enforcement gates</span></span>
+<span><span class="highlight">Reviewer bot</span> <span class="dim">— adversarial code review</span></span>
+<span><span class="highlight">Asks</span> <span class="dim">— structured principal escalation</span></span>
+<span><span class="highlight">Mesh</span> <span class="dim">— multi-agent coordination</span></span>
+<span><span class="highlight">Cockpit</span> <span class="dim">— operator mission control</span></span>
+</div>
+
+<p class="dim text-xs mt-6">Environmental constraints that make good behavior the path of least resistance.</p>
+
+<!--
+Minsky is a dev workflow orchestration platform. Here's the scope: tasks with a spec-driven lifecycle. Sessions that isolate each unit of work. A persistent memory system that carries knowledge across sessions. A compiled rules corpus. Skills — structured multi-step workflows like the retrospective we're about to see. Hooks — environmental enforcement gates that fire automatically. An adversarial reviewer bot. An asks system for structured escalation to the principal. A mesh for multi-agent coordination. And a cockpit — an operator dashboard for mission control. The thesis: the same control structures that keep human teams aligned work for AI agents. Environmental constraints that make good behavior the path of least resistance.
+-->
+
+---
+
+<span class="eyebrow">Theoretical foundation</span>
+
+## Organizational cybernetics
+
+A person, a team, a corporation, an agent network — these are <span class="highlight">self-similar</span>. The same control structures appear at every level of recursion.
+
+<p class="mt-4">Stafford Beer's <span class="highlight">Viable System Model</span>: any system that persists needs five organs.</p>
+
+<div style="display: grid; grid-template-columns: auto 1fr; gap: 0.15em 1em; font-size: 0.75em; margin-top: 0.6em;">
+<span class="highlight" style="font-family: var(--font-mono);">System 1</span> <span>Operations — the units doing the work</span>
+<span class="highlight" style="font-family: var(--font-mono);">System 2</span> <span>Coordination — preventing conflicts between units</span>
+<span class="highlight" style="font-family: var(--font-mono);">System 3</span> <span>Operational feedback — observing what operations actually produce</span>
+<span class="highlight" style="font-family: var(--font-mono);">System 4</span> <span>Environmental intelligence — watching what's changing outside</span>
+<span class="highlight" style="font-family: var(--font-mono);">System 5</span> <span>Identity — holding the whole thing coherent</span>
+</div>
+
+<p class="mt-4">Ashby's Law: a regulator must have at least as much <span class="highlight">variety</span> as the disturbances it faces.</p>
+
+<p class="dim text-sm mt-1">Variety = the entropy of a system's configuration space. More failure modes → more regulatory variety required.</p>
+
+<p class="dim text-sm mt-4">Minsky's claim: these organs can be built as <span class="highlight">infrastructure</span>, not required as model capabilities.</p>
+
+<!--
+Organizational cybernetics: every viable organization — person, team, corporation, agent network — is structurally self-similar. Beer formalized this as 5 systems. System 1: operations, the units doing work. System 2: coordination, preventing conflicts. System 3: operational feedback — observing what operations actually produce and correcting drift. This is the one we'll see most today. System 4: environmental intelligence. System 5: identity. Ashby's Law is the constraint: variety — the entropy of your configuration space, the number of states your system can be in — must be matched by regulatory variety. More failure modes your agents can produce, more hooks and gates and scanners you need. Minsky's claim: for AI agents, these organs are buildable as infrastructure. That's what we're about to see.
+-->
+
+---
+
 <span class="eyebrow">The incident</span>
 
 ## The setup
 
-TypeScript monorepo. Domain layer needs extracting.
+TypeScript monorepo. Multiple services — MCP server, reviewer bot — need to share the domain layer (database, tasks, sessions, config).
 
-<span class="highlight">224 files</span> need import path updates.
+The domain code lives in the main package. Extracting it into a shared package requires <span class="highlight">224 files</span> to update their import paths.
 
 <p class="dim text-sm mt-8">Mechanical but large. The kind of refactor where shortcuts look attractive.</p>
 
 <!--
-Minsky is a TypeScript monorepo. We needed to extract the domain layer — database access, task management, session lifecycle — into its own package so a separately deployed service could import it directly. The investigation found 224 files that would need import path updates. It's mechanical work, but it's large.
+Minsky is a TypeScript monorepo. We have multiple deployed services — the MCP server, the reviewer bot — that all need the same domain layer: database access, task management, session lifecycle, configuration. That domain code lived inside the main package, so each service was either duplicating it or calling over HTTP. The fix is to extract it into a shared package. The investigation found 224 files that would need import path updates. Mechanical work, but large.
 -->
 
 ---
@@ -116,25 +177,12 @@ Here's where it gets interesting. The agent recognized its mistake. It said "I s
 
 ---
 
-<span class="eyebrow">Context</span>
-
-## What Minsky is
-
-Development workflow orchestration built on <span class="highlight">organizational cybernetics</span>.
-
-<p class="dim text-sm mt-6">Environmental constraints that make good behavior<br>the path of least resistance.</p>
-
-<p class="dim text-sm">Pre-commit hooks. Session isolation. Quality gates.<br>Structured review. <span class="highlight">Metacognitive infrastructure.</span></p>
-
-<!--
-Quick context on Minsky for those unfamiliar. It's a dev workflow orchestration platform. Core thesis: the same control structures that keep human teams aligned work for AI agents. Pre-commit hooks, session isolation, quality gates. The relevant piece for this talk is its metacognitive infrastructure — memory, rules, skills, and hooks that give the system the ability to detect its own failures and produce durable fixes.
--->
-
----
-
 <span class="eyebrow">The mechanism</span>
 
 ## Structured retrospective
+
+<div style="display: grid; grid-template-columns: 1fr 1.6fr; gap: 2em;">
+<div>
 
 <v-clicks>
 
@@ -147,10 +195,21 @@ Quick context on Minsky for those unfamiliar. It's a dev workflow orchestration 
 
 </v-clicks>
 
-<p class="dim text-xs mt-6">Not a journal entry. Produces artifacts that change system behavior.</p>
+<p class="dim text-xs mt-4">Not a journal entry.<br>Produces artifacts that change system behavior.</p>
+</div>
+<div style="font-size: 0.7em; background: var(--bg-elevated); border-radius: 6px; padding: 1.2em 1.4em; border: 1px solid #1a1a1a; font-family: var(--font-mono); line-height: 1.8;">
+<span class="dim">## Retrospective: barrel re-export</span><br>
+<v-click at="1"><span class="highlight">Premise:</span> Confirmed — documented anti-pattern<br></v-click>
+<v-click at="2"><span class="highlight">Error class:</span> Verification Error<br></v-click>
+<v-click at="3"><span class="highlight">Structural gap:</span> No community-practice gate for architectural patterns<br></v-click>
+<v-click at="4"><span class="highlight">Root cause:</span> Defaults to lower-effort path without evaluating correctness<br></v-click>
+<v-click at="5"><span class="highlight">Recurrence:</span> <span style="color: var(--warn-amber);">5 prior instances (R1–R5)</span><br></v-click>
+<v-click at="6"><span class="highlight">Fixes:</span> Memory + rule + hook + gate<br></v-click>
+</div>
+</div>
 
 <!--
-Minsky's retrospective is a six-step skill. It's not a journal entry or an apology — it produces artifacts that change how the system behaves in future sessions. Validate the premise, classify the error, find the structural gap, identify root cause, design fixes, implement them. Each step has required outputs.
+Here's the actual retrospective output from the incident. On the left, the six-step process. On the right, what it produced for this specific case. Premise confirmed — barrel re-exports are documented anti-pattern. Verification error — scope reduction over correctness. The structural gap: nothing in the implementation process requires checking architectural patterns against community practice. Root cause: defaults to the lower-effort path. And critically — the recurrence check found five prior instances of the same root pattern. The fixes: a memory entry, a corpus rule update, a hook trigger extension, and a new checklist item in the implementation gate. Each of these persists across sessions.
 -->
 
 ---
@@ -443,6 +502,8 @@ This is the thesis. These metacognitive organs — self-monitoring, durable memo
 <p class="highlight mt-12 text-lg">The system improved because it failed.</p>
 
 <p class="subtle mt-2">That's the point.</p>
+
+<img src="./assets/minsky-icon.svg" alt="Minsky" style="width: 64px; height: 64px; margin-top: 2em; opacity: 0.7;" />
 
 </div>
 

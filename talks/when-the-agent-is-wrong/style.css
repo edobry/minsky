@@ -20,6 +20,11 @@
     "Liberation Mono", "Courier New", monospace;
 }
 
+.slidev-page,
+.slidev-layout {
+  height: 100%;
+}
+
 .slidev-layout {
   background: var(--bg-base);
   color: var(--text-primary);
@@ -230,6 +235,27 @@ ul li::before {
   color: var(--signal-cyan);
 }
 
+/* --- Hide Slidev overview panel --- */
+/* DOM: #app > .fixed.right-5.transition-all.-top-20 (slide overview popup) */
+/* overview: false frontmatter doesn't actually hide this in current Slidev */
+
+#app > .fixed.right-5.transition-all.-top-20 {
+  display: none;
+}
+
+/* --- Unify background: #slide-content defaults to #121212 --- */
+
+html,
+body,
+#app,
+#app > div,
+#slide-container,
+#slide-content,
+.slidev-layout {
+  background: var(--bg-base) !important;
+}
+
+
 /* --- Slide number and controls --- */
 
 .slidev-page-number {
@@ -244,4 +270,17 @@ ul li::before {
 
 .slidev-progress {
   background: var(--signal-cyan) !important;
+}
+
+/* --- Presenter view: brighter notes text --- */
+
+.slidev-note,
+.slidev-note p,
+.slidev-notes,
+.slidev-notes p,
+[class*="note"] p,
+.prose p,
+.prose {
+  color: #EEEEEE !important;
+  opacity: 1 !important;
 }
