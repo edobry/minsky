@@ -87,8 +87,8 @@ function createSetupGithubAppCommand(): Command {
     "Local callback port for the manifest flow (1-65535; default: 9847)",
     (v) => {
       const n = Number(v);
-      if (!Number.isFinite(n)) {
-        throw new InvalidArgumentError(`--port must be a number, got "${v}".`);
+      if (!Number.isInteger(n)) {
+        throw new InvalidArgumentError(`--port must be an integer, got "${v}".`);
       }
       return n;
     }
