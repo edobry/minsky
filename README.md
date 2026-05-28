@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon/minsky-icon-on-dark.svg" alt="Minsky" width="128" />
+</p>
+
 # Minsky
 
 An exocortex for software organizations led by a principal — the substrate that holds the cognition of one mind across a flock of agents, and translates declared intent into coordinated realized work.
