@@ -83,7 +83,6 @@ export class TaskServiceImpl implements TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly workspacePath: string;
   private defaultBackend: TaskBackend | null = null;
-  private readonly lastKnownStatusById: Map<string, string> = new Map();
 
   constructor(options: { workspacePath: string }) {
     this.workspacePath = options.workspacePath;
@@ -199,18 +198,12 @@ export class TaskServiceImpl implements TaskService {
       };
 
       await (backend as BackendWithMetadata).setTaskMetadata(taskId, metadata);
-
-      // Update local cache
-      if (updates.status) {
-        this.lastKnownStatusById.set(taskId, updates.status);
-      }
     } else {
       // Fallback to individual updates for backends without setTaskMetadata
 
       // Update status via backend API if provided
       if (updates.status) {
         await backend.setTaskStatus(taskId, updates.status);
-        this.lastKnownStatusById.set(taskId, updates.status);
       }
     }
 
@@ -321,8 +314,6 @@ export class TaskServiceImpl implements TaskService {
   // ---- TaskServiceInterface Required Methods ----
 
   async getTaskStatus(id: string): Promise<string | undefined> {
-    const cached = this.lastKnownStatusById.get(id);
-    if (typeof cached !== "undefined") return cached;
     const backend = this.routeToBackend(id);
     // Direct backend read first
     try {
