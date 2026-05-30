@@ -1,4 +1,4 @@
-import { defineSkill } from "../../../src/domain/definitions/factories";
+import { defineSkill } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
   name: "orchestrate",
