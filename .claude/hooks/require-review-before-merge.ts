@@ -92,7 +92,7 @@ export function parseCheckRunsResponse(result: {
 // Workflows are configured to fire on every PR, but rare GitHub-side webhook
 // drops produce a PR with zero check_runs. Without this gate, such PRs can
 // merge with no CI signal at all. The recovery path (push an empty commit to
-// wake the webhook) is documented in /review-pr step 7a.
+// wake the webhook) is documented in /merge-coordination step 7a.
 //
 // API/parse failures are kept distinct from the webhook-miss case so the
 // denial reason is actionable: a transport error needs investigation, not the
@@ -109,7 +109,7 @@ export function evaluateCheckRunsPresence(
         `Unable to query CI check_runs for PR #${prNumber} HEAD ${headSha.slice(0, 7)}: ${parseResult.error}. ` +
         `This is distinct from the webhook-miss class — it indicates a gh api transport/parse failure. ` +
         `Investigate the gh api error before retrying. ` +
-        `If the failure persists, escalate via the bypass-merge path documented in /review-pr step 7a.`,
+        `If the failure persists, escalate via the bypass-merge path documented in /merge-coordination step 7a.`,
     };
   }
   if (parseResult.count > 0) {
@@ -122,7 +122,7 @@ export function evaluateCheckRunsPresence(
       `This is the GitHub Actions webhook-miss class (mt#1309 / PR #763 lineage). ` +
       `Recovery: push an empty commit to wake the webhook ` +
       `(session_commit with noFiles:true, noStage:true), wait ~30s, then retry the merge. ` +
-      `If still 0 check_runs, escalate via the bypass-merge path documented in /review-pr step 7a.`,
+      `If still 0 check_runs, escalate via the bypass-merge path documented in /merge-coordination step 7a.`,
   };
 }
 
@@ -912,7 +912,7 @@ export function evaluateSmokeStatus(
       deny: true,
       reason:
         `Non-bot review on PR #${pr} lacks a Smoke: field. ` +
-        `Per /review-pr §6.3, the smoke test must be run and its outcome ` +
+        `Per /merge-coordination §6.3, the smoke test must be run and its outcome ` +
         `recorded in the review body (Smoke: pass | fail | skipped).`,
     };
   }

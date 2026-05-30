@@ -182,9 +182,9 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
     expect(result.reason).toContain("noStage");
   });
 
-  it("webhook-miss denial reason references /review-pr step 7a as the bypass-merge fallback", () => {
+  it("webhook-miss denial reason references /merge-coordination step 7a as the bypass-merge fallback", () => {
     const result = evaluateCheckRunsPresence(okWith(0), pr, headSha);
-    expect(result.reason).toContain("/review-pr step 7a");
+    expect(result.reason).toContain("/merge-coordination step 7a");
   });
 
   it("webhook-miss denial reason includes the short HEAD sha for triage", () => {
@@ -211,13 +211,13 @@ describe("evaluateCheckRunsPresence (mt#1309)", () => {
     expect(result.reason).toContain(EMPTY_RESPONSE_ERR);
   });
 
-  it("API-failure denial reason still references /review-pr step 7a as the last-resort fallback", () => {
+  it("API-failure denial reason still references /merge-coordination step 7a as the last-resort fallback", () => {
     const result = evaluateCheckRunsPresence(
       failWith("gh api exited 401: bad credentials"),
       pr,
       headSha
     );
-    expect(result.reason).toContain("/review-pr step 7a");
+    expect(result.reason).toContain("/merge-coordination step 7a");
   });
 
   it("API-failure denial reason includes the PR number and short HEAD sha", () => {
