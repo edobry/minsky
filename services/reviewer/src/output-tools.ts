@@ -159,8 +159,8 @@ export type SubmitSpecVerificationArgs = z.infer<typeof SubmitSpecVerificationAr
  * Records whether the PR's changes affect any project documentation. Submit
  * exactly one call per review (or zero if the PR is purely internal — e.g., a
  * tests-only or internal-refactor PR where documentation impact does not
- * apply). Mirrors the three outcomes defined in `.claude/skills/review-pr/SKILL.md`
- * step 6a:
+ * apply). Mirrors the three outcomes for the reviewer bot's documentation impact
+ * assessment:
  *   - "no-update-needed"      — bugfix, internal refactor, cosmetic; docs do not change.
  *   - "updated-in-pr"         — the PR includes documentation updates alongside the code.
  *   - "blocking-needs-update" — the PR affects documented behavior but does NOT update

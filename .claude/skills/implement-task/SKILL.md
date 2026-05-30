@@ -289,7 +289,7 @@ The normal merge path is `session_pr_merge` after reviewer-bot APPROVE. Since mt
 - **Always try `session_pr_merge` first** — it succeeds after reviewer-bot APPROVE (the normal case) or when the review body satisfies the merge-gate's text patterns.
 - **Bypass via `gh api PUT /repos/<owner>/<repo>/pulls/<N>/merge -f merge_method=merge`** when ALL of these hold:
   - **R ≥ 1 substantive review rounds** have completed (the bot saw the code at least once).
-  - AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence (see `/review-pr` SKILL.md §7a for the diagnosis steps: confirm push reached GitHub, check CI fired, wait at most 5 minutes, then empty-commit wake or bypass).
+  - AND any one of: (a) reviewer-bot fired CoT-leakage errors twice consecutively on the same HEAD; OR (b) round-N self-reversal — round N's BLOCKING contradicts an earlier round's accepted fix; OR (c) reviewer-bot silent for >5 minutes after diagnosing the silence (see `/merge-coordination` SKILL.md §7a for the diagnosis steps: confirm push reached GitHub, check CI fired, wait at most 5 minutes, then empty-commit wake or bypass).
   - AND `merge_method=merge` (not squash — `.claude/hooks/block-git-gh-cli.ts` enforces this; `docs/pr-workflow.md §Merge method policy`).
 - **Pre-bypass discipline:** verify CI fired and passed on the current HEAD before invoking the bypass. A green commit that never triggered CI is a webhook-miss waiting to land broken.
 - The bypass merge-commit body MUST contain the canonical audit-trail signature `"Bot self-approval bypass per feedback_self_authored_pr_merge_constraints"` plus the diagnostic context (which rounds, the error class, CI status, scope summary, fix-commit references). The `/verify-task` skill's bypass-merge closeout depends on this signature.
@@ -306,7 +306,7 @@ The normal merge path is `session_pr_merge` after reviewer-bot APPROVE. Since mt
 - `feedback_user_does_not_review` — the parent rule (id `b22fa663`).
 - `feedback_drive_pr_to_convergence_dont_end_on_ping_me` — sibling rule on deferral language.
 - `feedback_self_authored_pr_merge_constraints` — bypass-merge mechanics + diagnostic ladder.
-- `/review-pr` SKILL.md §8 — canonical bypass protocol and fallback conditions.
+- `/merge-coordination` SKILL.md §8 — canonical bypass protocol and fallback conditions.
 - `decision-defaults.mdc §User does not review PRs in the loop` — corpus rule.
 
 ### 10. Post-merge deploy verification (when the task touches a deployed service)

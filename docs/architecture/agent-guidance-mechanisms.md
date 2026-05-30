@@ -20,7 +20,7 @@ The deepest distinction: **skills are content, subagents are processes.** A skil
 ## When to use which
 
 - **Always-on guidance** (style, conventions, naming, anti-patterns to avoid) → **rule**
-- **User-invoked context expansion** (commit, review-pr, plan) → **skill**
+- **User-invoked context expansion** (commit, merge-coordination, plan) → **skill**
 - **Main-agent-invoked specialized worker with fresh perspective** → **subagent**
 - **User-invoked work that spawns a fresh worker** → **skill that launches a subagent**
 

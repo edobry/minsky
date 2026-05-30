@@ -928,8 +928,8 @@ enforcement in originating incidents.
 - Silent on failure paths (the agent gets the error from the tool surface
   itself, no need to add noise) and non-matching tools (defensive).
 - Reminder text names: the required next action
-  (`session_pr_wait-for-review`), the webhook-miss fallback (`/review-pr`
-  Chinese-wall reviewer), the success branches (APPROVE → merge,
+  (`session_pr_wait-for-review`), the webhook-miss fallback (`/merge-coordination`
+  §7a diagnosis ladder), the success branches (APPROVE → merge,
   CHANGES_REQUESTED → fix per §7 Convergence Checklist), and the
   forbidden deferral phrases verbatim.
 
@@ -940,9 +940,9 @@ enforcement in originating incidents.
   had to poke: "so you just sat there." This is the canonical
   slow-ask-variant incident.
 - 2026-04-22 PR #677 (mt#1057) — agent created PR and ended turn without
-  invoking `/review-pr`; required user-initiated correction. Originated
+  driving convergence; required user-initiated correction. Originated
   mt#1066's `require-review-after-pr-create.ts` proposal (PR #684); this
-  hook supersedes mt#1066's narrower /review-pr-only slice.
+  hook supersedes mt#1066's narrower single-skill slice.
 
 **Always exit 0.** The hook is informational; it must never block the tool
 call's success surfacing. Reads `ToolHookInput` from stdin; emits
@@ -1940,7 +1940,7 @@ Agent harnesses ship internal task-tracking systems (Claude Code's `TaskCreate` 
 
 **Ephemeral, intra-conversation work → harness todo.** Pre-task triage (request hasn't been task-fied yet), multi-subagent intra-conversation bookkeeping, multi-step plans where the user benefits from a rendered progress view in the harness UI, investigation before deciding what's a task.
 
-**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/review-pr`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
+**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
 
 **When the harness emits a `TaskCreate` reminder during a Minsky skill chain → disregard silently.** Do NOT echo acknowledgment text ("ignoring harness reminder", "not applicable", etc.) to the user. The reminder fires on a frequency-based heuristic the harness operates that does not know the agent is inside a Minsky chain; environmental shaping (this rule) is the fix, not user-facing commentary. The user cannot see the reminder; making it visible by echoing turns harness noise into chat noise.
 
@@ -2148,7 +2148,7 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 
 - **`/orchestrate`** — Full task lifecycle: selection, session, subagent dispatch, review, merge, completion
 - **`/implement-task`** — Implementation within a session: spec verification, coding, testing, PR creation
-- **`/review-pr`** — PR review with codebase verification, posted to GitHub. Required before any merge.
+- **`/merge-coordination`** — Coordinate merge after the `minsky-reviewer[bot]` review: watch for review, run smoke test, diagnose webhook-miss, bypass-merge bot-authored PRs.
 - **`/create-task`** — Task creation with structured spec (Summary, Success Criteria, Scope, Acceptance Tests)
 
 ## Skill-chain semantics
@@ -2156,8 +2156,10 @@ Memory is stored in the Minsky DB. The file-based memory directory (`~/.claude/p
 The canonical Minsky lifecycle chain is:
 
 ```
-/create-task → /plan-task → /implement-task → /prepare-pr → /review-pr → merge
+/create-task → /plan-task → /implement-task → /prepare-pr → merge
 ```
+
+The `minsky-reviewer[bot]` reviews automatically on every PR push; no manual `/review-pr` invocation is needed. Use `/merge-coordination` when you need to check bot review status, diagnose reviewer-bot silence, or execute the bypass-merge path.
 
 Transitions between adjacent skills are **chain-walked by default**, NOT ceded to the user. When a skill reaches a successful hand-off point (e.g., `/plan-task` transitions a task to READY), the agent's default behavior is to invoke the next skill in the chain immediately. Stopping at the hand-off with "Use `/<next-skill>` to continue" wording is a failure mode (originating incident: 2026-05-11 `/plan-task mt#1725` sequence where the user said "proceed" three times in one session and the agent stopped each time).
 
@@ -2168,11 +2170,11 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 - `/plan-task` → `/implement-task` on successful gate-pass (READY transition)
 - `/implement-task` §8 → §9 internally (PR created → drive to convergence)
 - `/implement-task` §9 reviewer-bot APPROVED → `session_pr_merge` (atomic DONE)
-- `/prepare-pr` → `/review-pr` after PR creation (when /prepare-pr is the entrypoint rather than /implement-task)
+- `/prepare-pr` → drive convergence (bot reviews automatically; watch via `session_pr_wait-for-review`)
 
 **Manual gate** (does NOT auto-walk, even in auto mode):
 
-- `/review-pr` → merge: posting a review never triggers a merge. Merge is a separate destructive action that requires explicit invocation. This carve-out is consistent with auto-mode's "do not take overly destructive actions" principle.
+- bot review → merge: bot review never triggers merge automatically. Merge is a separate destructive action that requires explicit invocation. This carve-out is consistent with auto-mode's "do not take overly destructive actions" principle.
 
 **Explicit halt conditions** that override the chain-walk default at any transition:
 
@@ -2186,7 +2188,7 @@ Transitions between adjacent skills are **chain-walked by default**, NOT ceded t
 - "User might want to review the gate report before I proceed."
 - "The next move is user-driven."
 
-**Tracking task:** mt#1478. Status as of 2026-05-11: `/plan-task` Step 4's chain-walk amendment shipped; the analogous amendments to `/implement-task`, `/prepare-pr`, `/review-pr` SKILL exit texts are deferred until recurrence patterns at those boundaries justify the change. The bridge memory `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51`) covers the discipline at boundaries not yet structurally amended.
+**Tracking task:** mt#1478. Status as of 2026-05-11: `/plan-task` Step 4's chain-walk amendment shipped; the analogous amendments to `/implement-task`, `/prepare-pr`, `/merge-coordination` SKILL exit texts are deferred until recurrence patterns at those boundaries justify the change. The bridge memory `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51`) covers the discipline at boundaries not yet structurally amended.
 
 # Rule: Ensure ASCII Code Symbols
 

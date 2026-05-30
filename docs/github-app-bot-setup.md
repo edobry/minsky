@@ -321,7 +321,7 @@ When `github.serviceAccount` is present in the resolved configuration:
 
 5. **Routing**: All GitHub API operations performed by Minsky's `RepositoryBackend` (create PR, merge PR, post reviews) call `TokenProvider.getServiceToken()`, so they authenticate as `minsky-ai[bot]` (or whatever slug you gave the App).
 
-6. **Review submission**: The `/review-pr` skill's `mcp__minsky__session_pr_review_submit` MCP tool routes through this pipeline, so review comments appear as authored by the bot.
+6. **Review submission**: The `mcp__minsky__session_pr_review_submit` MCP tool routes through this pipeline, so review comments appear as authored by the bot.
 
 ## 7. Troubleshooting
 

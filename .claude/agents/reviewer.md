@@ -13,7 +13,7 @@ tools: >-
   mcp__github__get_file_contents
 model: sonnet
 skills:
-  - review-pr
+  - merge-coordination
 ---
 
 > **Cousin surface.** This local subagent is one of two surfaces enforcing
@@ -104,7 +104,7 @@ The parent agent gives you:
    - Read callers/callees to verify the change is safe
    - Check types/interfaces to confirm compatibility
    - If the concern is disproven by reading source, drop it (false positive)
-4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution (see "Severity classification" below), constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`. See `.claude/skills/review-pr/SKILL.md` step 6b for the parent's aggregate-and-judge protocol.
+4. **Report observations** in the structured format below. Mode 1 subagents emit raw observations only — `{ path, line, side, concern, evidence, startLine?, startSide?, hunkContext? }` — with NO severity prefix, NO `body` field formatted for posting, and NO event selection. Section subagents lack `parsedDiff` (which is whole-PR), the task spec, CI status, and global review judgment. The parent aggregator holds those: it validates each `(path, line, side)` against the canonical `parsedDiff`, dedupes observations across slices, assigns severity per the Critic Constitution (see "Severity classification" below), constructs the final `comments[]` (severity-prefixed bodies built from `concern` + `evidence`), writes the review body, selects the event, and posts via `session_pr_review_submit`.
 
 **Mode 1 hard guard: never call `mcp__minsky__session_pr_review_submit` yourself.** Even if a task ID is also in your context, sectioning means the parent posts the consolidated review across all slices. A Mode 1 subagent posting directly bypasses anchor validation, dedup, and severity calibration — and produces N partial reviews on the PR instead of one. If you find yourself reaching for the submit tool in Mode 1, stop and return observations only.
 
@@ -126,7 +126,7 @@ If the parent gives you only a bare PR number, ask the parent to resolve it to a
 
 **Source freshness (required for adoption sweep at step 5b).** Local `Read`, `Glob`, and `Grep` are only safe to use for codebase-wide reads when the workspace is checked out at the PR HEAD. The two supported invocation modes:
 
-- **Dispatched by `/review-pr` into a session workspace** (the standard, preferred path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. **This is the canonical Mode 2 path; prefer it whenever possible.**
+- **Dispatched by the `minsky-reviewer[bot]` into a session workspace** (the standard, preferred path): the session was created from origin and is at the PR branch HEAD by definition. Local reads target the PR-branch state, so adoption-sweep grep across `src/`, `tests/`, etc. is safe. **This is the canonical Mode 2 path; prefer it whenever possible.**
 - **Invoked outside a session workspace** (rare; ad-hoc review from main agent context): local reads MAY hit a stale main checkout. **Do NOT run adoption-sweep grep against the local workspace in this case.** Instead, perform adoption-sweep reads via `mcp__github__get_file_contents` with `ref` set to the PR head SHA from `session_pr_review_context`. This requires more explicit calls (one per file or directory) but guarantees the sweep targets the PR branch, not stale main. Constrain the file set to changed files plus their plausible consumers when full-codebase grep would exceed the cost-bounding rule (>10 new exports → file follow-up adoption task per step 5b).
 
 The same staleness class that motivated the auditor's freshness preamble (mt#1485 false-FAIL) applies here. Adoption findings based on stale-main reads are unreliable and must not be reported as BLOCKING.

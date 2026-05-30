@@ -140,7 +140,7 @@ Agent harnesses ship internal task-tracking systems (Claude Code's `TaskCreate` 
 
 **Ephemeral, intra-conversation work → harness todo.** Pre-task triage (request hasn't been task-fied yet), multi-subagent intra-conversation bookkeeping, multi-step plans where the user benefits from a rendered progress view in the harness UI, investigation before deciding what's a task.
 
-**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/review-pr`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
+**Inside a Minsky skill chain (`/plan-task`, `/implement-task`, `/prepare-pr`, `/merge-coordination`) → neither.** The Minsky task IS the todo for chain-driven work. Adding a parallel harness checklist creates sync hazards (two places to update, two places to drift) without adding signal — the spec, the gate criteria, and the status transitions already carry the plan state.
 
 **When the harness emits a `TaskCreate` reminder during a Minsky skill chain → disregard silently.** Do NOT echo acknowledgment text ("ignoring harness reminder", "not applicable", etc.) to the user. The reminder fires on a frequency-based heuristic the harness operates that does not know the agent is inside a Minsky chain; environmental shaping (this rule) is the fix, not user-facing commentary. The user cannot see the reminder; making it visible by echoing turns harness noise into chat noise.
 
