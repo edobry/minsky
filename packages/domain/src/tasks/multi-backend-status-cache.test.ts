@@ -101,4 +101,45 @@ describe("TaskServiceImpl.getTaskStatus — cache-coherence (mt#2179)", () => {
     await service.setTaskStatus("sh#1", "DONE");
     expect(await service.getTaskStatus("sh#1")).toBe("DONE");
   });
+
+  it("prefers backend.getTaskStatus over backend.getTask (defends against backend-internal caches)", async () => {
+    const capabilities: BackendCapabilities = {
+      canCreate: true,
+      canUpdate: true,
+      canDelete: true,
+      canList: true,
+    };
+    const split: TaskBackend = {
+      name: "split",
+      prefix: "sp",
+      // getTask returns a STALE status (simulates a backend-internal cache).
+      getTask: async (id) => ({ id, title: id, status: "STALE_FROM_GET_TASK", metadata: {} }),
+      // getTaskStatus is the dedicated FRESH path.
+      getTaskStatus: async () => "FRESH",
+      listTasks: async () => [],
+      setTaskStatus: async () => {},
+      createTaskFromTitleAndSpec: async () => ({
+        id: "sp#1",
+        title: "x",
+        status: "TODO",
+        metadata: {},
+      }),
+      deleteTask: async () => true,
+      getWorkspacePath: () => "/test/workspace",
+      getCapabilities: () => capabilities,
+    };
+    const service = newService(split);
+    expect(await service.getTaskStatus("sp#1")).toBe("FRESH");
+  });
+
+  it("falls back to cross-backend aggregated search when no backend routes the ID", async () => {
+    // Service has no backend matching prefix "zz#" — routeToBackend would throw.
+    // But a registered backend holds the task under the unqualified id.
+    const { backend, store } = createSharedBackend();
+    store.set("zz#1", { id: "zz#1", title: "t", status: "READY", metadata: {} });
+    const service = newService(backend);
+    // routeToBackend throws inside getTaskStatus; the cross-backend
+    // `this.getTask("zz#1")` fallback finds the task and returns its status.
+    expect(await service.getTaskStatus("zz#1")).toBe("READY");
+  });
 });

@@ -314,38 +314,45 @@ export class TaskServiceImpl implements TaskService {
   // ---- TaskServiceInterface Required Methods ----
 
   async getTaskStatus(id: string): Promise<string | undefined> {
-    const backend = this.routeToBackend(id);
-    // Direct backend read first
+    // 1. Dedicated status read on the routed backend (single source of truth
+    //    when available). Avoids early-returning from `backend.getTask`, which
+    //    could surface backend-internal caches.
     try {
-      const direct = await backend.getTask(id);
-      if (direct && typeof direct.status !== "undefined") return direct.status;
-    } catch (_e) {
-      // ignore direct read errors
-    }
+      const backend = this.routeToBackend(id);
+      try {
+        const status = await backend.getTaskStatus(id);
+        if (typeof status !== "undefined") return status;
+      } catch {
+        // ignore: backend may not implement getTaskStatus directly
+      }
 
-    // Prefer service-aggregated read next to avoid backend-specific cache quirks
-    const task = await this.getTask(id);
-    if (task && typeof task.status !== "undefined") return task.status;
-
-    // Fresh read from backend task list as another fallback
-    try {
-      const list = await backend.listTasks();
-      const found = list.find((t) => {
-        if (t.id === id) return true;
-        const taskLocalId = t.id.includes("#") ? t.id.split("#").pop() : t.id;
-        const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
-        if (taskLocalId === searchLocalId) return true;
-        if (!/^#/.test(id) && t.id === `#${id}`) return true;
-        if (id.startsWith("#") && t.id === id.substring(1)) return true;
-        return false;
-      });
-      if (found && typeof found.status !== "undefined") return found.status;
+      // 1b. Backend list-scan fallback for partial-implementation mocks where
+      //     getTaskStatus is unimplemented but listTasks populates rows.
+      try {
+        const list = await backend.listTasks();
+        const found = list.find((t) => {
+          if (t.id === id) return true;
+          const taskLocalId = t.id.includes("#") ? t.id.split("#").pop() : t.id;
+          const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
+          if (taskLocalId === searchLocalId) return true;
+          if (!/^#/.test(id) && t.id === `#${id}`) return true;
+          if (id.startsWith("#") && t.id === id.substring(1)) return true;
+          return false;
+        });
+        if (found && typeof found.status !== "undefined") return found.status;
+      } catch {
+        // ignore list errors in mocked environments
+      }
     } catch {
-      // ignore list errors in mocked environments
+      // routeToBackend threw (no prefix routes, no default backend); fall
+      // through to the cross-backend aggregated search below rather than
+      // throwing — preserves previous tolerance during boot / partial wiring.
     }
-    // Backend direct API as final resort
-    const status = await backend.getTaskStatus(id);
-    return typeof status !== "undefined" ? status : undefined;
+
+    // 2. Cross-backend aggregated search as final fallback. Tolerant of
+    //    routing failures and unqualified IDs that match across backends.
+    const task = await this.getTask(id);
+    return typeof task?.status !== "undefined" ? task.status : undefined;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
