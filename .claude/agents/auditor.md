@@ -133,7 +133,7 @@ After checking all spec criteria, ALWAYS run these baseline checks regardless of
 
 5. **Documentation staleness**: Check if `docs/architecture.md` has content related to the task's domain — if so, verify it's still accurate post-change
 
-Include these in the output table as "Baseline" criteria. Note: as of mt#1551, the smoke test (item 4) is also folded into `/review-pr`'s pre-merge gate; this auditor running it post-merge is now a redundancy retained for ad-hoc audits, not a primary regression-detection surface.
+Include these in the output table as "Baseline" criteria. Note: as of mt#1551, the smoke test (item 4) is also run by the reviewer bot at pre-merge review time; this auditor running it post-merge is now a redundancy retained for ad-hoc audits, not a primary regression-detection surface.
 
 # Anti-patterns
 

@@ -23,7 +23,7 @@ Current Minsky-authored skills under `.minsky/skills/`:
 - `implement-task`
 - `orchestrate`
 - `plan-task`
-- `review-pr`
+- `merge-coordination`
 - `verify-task`
 
 Always checked into git. Edit the TypeScript source under `.minsky/skills/`,

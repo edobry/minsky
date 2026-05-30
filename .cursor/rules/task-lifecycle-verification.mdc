@@ -11,7 +11,7 @@ tags:
 ---
 # Verification Surfaces
 
-The reviewer subagent (`.claude/agents/reviewer.md` Mode 2, dispatched by `/review-pr` and auto-firing as `minsky-reviewer[bot]`) is the canonical verification surface. It runs at review time against the PR branch and covers spec verification, adoption sweep, and a smoke test exercising the changed code path. This is the load-bearing gate; merges are blocked until its findings are addressed.
+The `minsky-reviewer[bot]` (`.claude/agents/reviewer.md` Mode 2, auto-firing on every PR push) is the canonical verification surface. It runs at review time against the PR branch and covers spec verification, adoption sweep, and a smoke test exercising the changed code path. This is the load-bearing gate; merges are blocked until its findings are addressed.
 
 **Normal merge path for bot-authored PRs:** `minsky-reviewer[bot]` (id 278512143) is a SEPARATE GitHub App identity from `minsky-ai[bot]` (id 277592531). Since mt#1073 (two-App identity) and mt#1656 (verification-mode preamble), the reviewer bot CAN and DOES submit APPROVE on bot-authored PRs. After reviewer-bot APPROVE, call `session_pr_merge` — the standard merge path that atomically sets DONE. The `gh api PUT /merge` bypass is a convergence-failure fallback only (CoT leakage, self-reversal, reviewer silence); it is NOT the default for bot-authored PRs. Production evidence: PRs #1256, #1258 (2026-05-24), #1282 (2026-05-25).
 
@@ -19,7 +19,7 @@ Per mt#1551 (option B architecture, 2026-05-01), `/verify-task` is no longer an 
 
 The standard merge path (`session_pr_merge`) atomically sets DONE on successful merge, so `/verify-task` does not fire in that case (`src/domain/session/session-merge-operations.ts:519-544`). `/verify-task` only fires on the bypass-merge path where `session_pr_merge` was not used.
 
-Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke folded into `/review-pr` does not cover this case.
+Concurrent-merge regression detection (two PRs that pass CI individually but interact badly post-merge) is tracked separately in mt#1592 — the pre-merge smoke run by the reviewer bot does not cover this case.
 
 ## Layered merge-protection model (mt#1938)
 

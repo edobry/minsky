@@ -1,14 +1,14 @@
-import { defineSkill } from "../../../src/domain/definitions/factories";
+import { defineSkill } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
   name: "verify-task",
   description:
-    'Set DONE on the bypass-merge fallback path: confirm the PR is merged AND the merge-commit body contains the canonical bypass-merge audit-trail signature, then transition IN-REVIEW → DONE. The reviewer subagent (in /review-pr) does the verification work; this skill only confirms the closeout signal. Use when: "verify mt#X", "check mt#X is done", "close out mt#X", "audit mt#X".',
+    'Set DONE on the bypass-merge fallback path: confirm the PR is merged AND the merge-commit body contains the canonical bypass-merge audit-trail signature, then transition IN-REVIEW → DONE. The reviewer bot (`minsky-reviewer[bot]`) does the verification work at review time; this skill only confirms the closeout signal. Use when: "verify mt#X", "check mt#X is done", "close out mt#X", "audit mt#X".',
   userInvocable: true,
   content: `
 # Verify Task
 
-Thin closeout wrapper for the bypass-merge fallback path. Owns the IN-REVIEW → DONE transition by confirming the PR is merged and carries the canonical bypass-merge audit-trail signature in its merge commit. **Does NOT re-verify the spec** — that work happens at review time inside \`/review-pr\` (which dispatches the reviewer subagent for spec verification + adoption sweep + smoke test). When the PR is merged via \`session_pr_merge\`, that tool atomically sets the task to DONE and this skill never fires; this skill only fires on the bypass-merge path where \`session_pr_merge\` wasn't used.
+Thin closeout wrapper for the bypass-merge fallback path. Owns the IN-REVIEW → DONE transition by confirming the PR is merged and carries the canonical bypass-merge audit-trail signature in its merge commit. **Does NOT re-verify the spec** — that work happens at review time via the \`minsky-reviewer[bot]\` (spec verification + adoption sweep + smoke test). When the PR is merged via \`session_pr_merge\`, that tool atomically sets the task to DONE and this skill never fires; this skill only fires on the bypass-merge path where \`session_pr_merge\` wasn't used.
 
 ## Arguments
 
@@ -23,7 +23,7 @@ This skill activates on:
 - "close out mt#X"
 - "audit mt#X"
 
-These are IN-REVIEW-state verbs. Do NOT invoke this skill for tasks that are still being implemented or reviewed — use \`/implement-task\` or \`/review-pr\` instead.
+These are IN-REVIEW-state verbs. Do NOT invoke this skill for tasks that are still being implemented — use \`/implement-task\` instead. The bot reviews automatically; \`/merge-coordination\` covers the coordination around the bot's review.
 
 ## Process
 
@@ -37,7 +37,7 @@ Call \`mcp__minsky__tasks_status_get\` with the task ID.
   > Use \`/implement-task mt#X\` to complete the implementation and create a PR first.
 - **If status is READY**: Halt. Surface:
   > Task mt#X is READY but has not been reviewed yet.
-  > Use \`/review-pr\` to review the PR, then merge.
+  > Use \`/merge-coordination\` to check the bot's review status, then merge.
 - **If status is TODO or PLANNING**: Halt. Surface:
   > Task mt#X is in \${status} state — far too early to close out.
   > Use \`/implement-task mt#X\` to begin implementation.
@@ -135,7 +135,7 @@ Surface each candidate in agent output:
 
 ## Why no auditor dispatch?
 
-The reviewer subagent (in \`.claude/agents/reviewer.md\` Mode 2, dispatched by \`/review-pr\` and auto-firing \`minsky-reviewer[bot]\`) already verifies spec criteria + adoption sweep + smoke test at review time, against the PR branch. By the time the bypass-merge happens, all verification work has been done; the merge-commit audit trail names the substantive fixes that landed and any deferred items.
+The \`minsky-reviewer[bot]\` already verifies spec criteria + adoption sweep + smoke test at review time, against the PR branch. By the time the bypass-merge happens, all verification work has been done; the merge-commit audit trail names the substantive fixes that landed and any deferred items.
 
 Re-dispatching the auditor post-merge against local main produced a stale-source false-FAIL bug on 2026-05-01 (mt#1485). Dropping the auditor dispatch retires that surface entirely. The architectural decision (option B from the 2026-05-01 design discussion) is captured in mt#1551.
 
@@ -148,6 +148,6 @@ For ad-hoc spec verification (e.g., one-off audit of a long-DONE task, second-op
 - **Never set DONE without both conditions.** The merge alone is not enough; the audit trail must also be present.
 - **Never modify the task spec.** Spec edits are the implementer's job, not the closeout's.
 - **\`session_pr_merge\` is the canonical merge path.** When it runs, it atomically sets DONE and this skill never fires; this skill is the fallback for the bypass-merge path only.
-- **Concurrent-merge regression detection is out of scope here.** The pre-merge smoke (folded into \`/review-pr\`) catches PR-introduced regressions; concurrent-merge interactions are a separate concern tracked in mt#1592.
+- **Concurrent-merge regression detection is out of scope here.** The pre-merge smoke (run by the reviewer bot and validated by the merge gate) catches PR-introduced regressions; concurrent-merge interactions are a separate concern tracked in mt#1592.
 `,
 });

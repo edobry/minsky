@@ -32,7 +32,7 @@ Do NOT invoke for one-off tasks — those belong to the appropriate task skills.
 
 Examples:
 
-- `/loop 5m /review-pr mt#123` — review the PR every 5 minutes
+- `/loop 5m /merge-coordination mt#123` — check merge status every 5 minutes
 - `/loop drive PR #922 to convergence` — self-paced loop driving a PR
 
 ## Dynamic mode

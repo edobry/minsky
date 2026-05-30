@@ -1,4 +1,4 @@
-import { defineSkill } from "../../../src/domain/definitions/factories";
+import { defineSkill } from "../../../packages/domain/src/definitions/factories";
 
 export default defineSkill({
   name: "plan-task",
@@ -497,7 +497,7 @@ that memory's job becomes historical record + pointer here. Mechanization path: 
 
    **Multi-next-step disambiguation guard (mt#1842).** The chain-walk-on-affirmative discipline above assumes an UNAMBIGUOUS next step. When the just-READY'd task is a child of a parent with multiple unblocked siblings — i.e., walking to \`/implement-task\` on THIS task silently picks one of N possible next moves — invoke \`/disambiguate-next\` BEFORE the chain-walk to \`/implement-task\`. Trigger detection: call \`mcp__minsky__tasks_parent <this-task>\`; if a parent exists, call \`mcp__minsky__tasks_children <parent>\` and count tasks in walkable state (TODO + spec-substantive, READY, IN-PROGRESS). If count ≥ 2, the disambiguation guard fires — surface the option set in user-facing output BEFORE the \`/implement-task\` call. The exception: if the prior agent turn explicitly recommended THIS specific task as next and the user's brief affirmative followed that recommendation, no disambiguation is needed (the recommendation IS the disambiguation). See \`.claude/skills/disambiguate-next/SKILL.md\` for the full skill including the stakes-filter sub-check.
 
-   **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /review-pr walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, review-pr SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
+   **Tracking task for the structural chaining mechanism:** mt#1478 (Auto-mode skill chaining: /plan-task → /implement-task → /prepare-pr → /merge-coordination walk the chain at gate-passes). When mt#1478's other deliverables ship (implement-task, prepare-pr, merge-coordination SKILL amendments + CLAUDE.md doc section), the chain is fully structural and this paragraph can be retired.
 
 **One or more gate criteria fail:**
 
