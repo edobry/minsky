@@ -108,16 +108,14 @@ Surface:
 
 After confirming DONE, search for bridge memories that cite this task as their retirement target.
 
-**Primary query — structured associations (preferred).** Call `mcp__minsky__memory_list` with `associationType: "tracksTask"` and `associationTarget: "mt#<id>"` (the task ID being verified). This returns memories that have the structured `associations.tracksTask` JSONB field populated, queryable via GIN-indexed containment per ADR-012. Memories created after mt#2070 (2026-05-24) and memories backfilled by the mt#2071 script will be found here.
+Call `mcp__minsky__memory_search` with query = the task ID being verified (e.g., `"mt#2053"`).
 
-**Fallback query — body-text grep (legacy memories).** If the primary query returns zero results, call `mcp__minsky__memory_search` with query = the task ID being verified (e.g., `"mt#2053"`). This catches legacy memories whose cross-references live only in the `content` field (not yet backfilled). For each result, check the memory body for any of these markers AND a reference to the verified task ID:
+For each result where the memory body contains any of these markers AND references the verified task ID:
 
 - `"Tracking task"` / `"tracking task"`
 - `"Retire when"` / `"retire when"`
 - `"bridge memory"` / `"Bridge memory"` / `"bridge"`
 - `"Budget:"` with a task reference
-
-To populate associations on legacy memories (so they're caught by the primary query in future audits), operators can run `bun scripts/backfill-memory-associations.ts --execute` (mt#2071).
 
 Surface each candidate in agent output:
 
