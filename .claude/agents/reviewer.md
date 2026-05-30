@@ -12,8 +12,7 @@ tools: >-
   mcp__minsky__session_pr_review_submit, mcp__minsky__tasks_spec_get,
   mcp__github__get_file_contents
 model: sonnet
-skills:
-  - merge-coordination
+skills: []
 ---
 
 > **Cousin surface.** This local subagent is one of two surfaces enforcing

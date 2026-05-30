@@ -5,7 +5,7 @@ export default defineAgent({
   description:
     "Code review agent for independent Chinese-wall reviews and large-PR diff sectioning. Fetches PR context via MCP, verifies each change against actual source, and posts findings directly via mcp__minsky__session_pr_review_submit. Cannot modify code — posting a GitHub review is an allowed write.",
   model: "sonnet",
-  skills: ["merge-coordination"],
+  skills: [],
   tools: [
     "Read",
     "Glob",
