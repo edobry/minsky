@@ -188,6 +188,16 @@ echo 'Step 3 complete'
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
 
+# Sequence Dependent Tool Calls
+
+Dependent tool calls -- where step N+1 consumes step N's output -- MUST run one per turn: emit the call, READ the actual result, then decide the next step. Only TRULY INDEPENDENT calls may share a tool block.
+
+- **Never batch dependent operations.** Chains where each step needs the prior step's result -- `session_start` -> edits/paths; `commit` -> `pr_create` -> `wait_for_review` -> `merge`; `tasks_create` -> use-the-returned-id -- run one step per turn.
+- **Never construct an identifier.** A sessionId, workspace path, or PR number is minted by a tool call and is unknowable until it returns. Read it from the minting call's result; never guess or assemble a plausible-looking one.
+- **Never pre-narrate a tool outcome.** Do not state a result -- "created", "approved", "merged", "built clean", "tests pass", "HTTP 200" -- in chat OR in durable artifacts (memory, specs, PR bodies) before that result is in hand THIS turn.
+
+Rationale: in a guard-dense repo, mid-pipeline interruption is the norm. A batched dependent chain forces guessing its own inputs and narrating a happy path that almost always diverges from what happens -- leaving fabricated identifiers and false completions in the transcript and in durable state.
+
 # Hook Files
 
 All `.claude/hooks/*.ts` files must have execute permission (`chmod +x`). The `Write` tool creates `644` by default. Pre-commit hook enforces this.
