@@ -1,0 +1,59 @@
+import {
+  Y as r,
+  g as i,
+  aL as n,
+  f as t,
+  M as l,
+  s as p,
+  af as s,
+} from "./modules/vue-D4u9h7Td.js";
+import { I as c } from "./slidev/default-Cw5Kcts5.js";
+import { u, f as m } from "./slidev/context-eddjAoUW.js";
+import "./index-Bjqpo1hl.js";
+import "./modules/shiki-CBR8dv5M.js";
+const w = {
+  __name: "slides.md__slidev_11",
+  setup(f) {
+    const { $clicksContext: o, $frontmatter: a } = u();
+    return (
+      o.setup(),
+      (h, e) => (
+        r(),
+        i(
+          c,
+          l(p(s(m)(s(a), 10))),
+          {
+            default: n(() => [
+              ...(e[0] ||
+                (e[0] = [
+                  t("p", null, [t("span", { class: "eyebrow" }, "Step 4 — root cause")], -1),
+                  t("h2", null, "Defaults to the lower-effort path", -1),
+                  t(
+                    "p",
+                    null,
+                    "At action-execution time, the agent selects the path requiring the least tool-acquisition or boundary-crossing.",
+                    -1
+                  ),
+                  t(
+                    "p",
+                    { class: "dim text-sm mt-8" },
+                    "Without evaluating whether the path is correct.",
+                    -1
+                  ),
+                  t(
+                    "p",
+                    { class: "highlight mt-6" },
+                    "Same root cause as five prior incidents.",
+                    -1
+                  ),
+                ])),
+            ]),
+            _: 1,
+          },
+          16
+        )
+      )
+    );
+  },
+};
+export { w as default };

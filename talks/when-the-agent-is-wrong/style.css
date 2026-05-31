@@ -284,3 +284,41 @@ body,
   color: #EEEEEE !important;
   opacity: 1 !important;
 }
+
+/* --- Closing resources slide --- */
+
+.resource-grid {
+  display: flex;
+  gap: 3.5rem;
+  justify-content: center;
+}
+
+.resource {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.qr {
+  width: 150px;
+  height: 150px;
+  background: #ffffff;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.resource-label {
+  font-family: var(--font-mono);
+  font-size: 0.7em;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--signal-cyan);
+}
+
+.resource-url {
+  font-family: var(--font-mono);
+  font-size: 0.75em;
+  color: var(--text-muted);
+}

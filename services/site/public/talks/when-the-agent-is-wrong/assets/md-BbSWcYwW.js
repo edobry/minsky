@@ -1,0 +1,86 @@
+import {
+  Y as t,
+  g as o,
+  aL as a,
+  f as h,
+  l as M,
+  M as i,
+  s as c,
+  af as s,
+} from "./modules/vue-D4u9h7Td.js";
+import { I as n } from "./slidev/default-Cw5Kcts5.js";
+import { u as l, f as p } from "./slidev/context-eddjAoUW.js";
+import "./index-Bjqpo1hl.js";
+import "./modules/shiki-CBR8dv5M.js";
+const g =
+    "data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='utf-8'?%3e%3c!DOCTYPE%20svg%20PUBLIC%20'-//W3C//DTD%20SVG%201.1//EN'%20'http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd'%3e%3csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2037%2037'%20shape-rendering='crispEdges'%3e%3cpath%20fill='%23ffffff'%20d='M0%200h37v37H0z'/%3e%3cpath%20stroke='%23000000'%20d='M4%204.5h7m1%200h1m2%200h5m2%200h3m1%200h7M4%205.5h1m5%200h1m1%200h2m1%200h1m1%200h1m2%200h1m5%200h1m5%200h1M4%206.5h1m1%200h3m1%200h1m2%200h4m3%200h1m3%200h1m1%200h1m1%200h3m1%200h1M4%207.5h1m1%200h3m1%200h1m1%200h1m5%200h2m1%200h1m1%200h1m2%200h1m1%200h3m1%200h1M4%208.5h1m1%200h3m1%200h1m2%200h1m2%200h1m1%200h1m1%200h4m2%200h1m1%200h3m1%200h1M4%209.5h1m5%200h1m2%200h3m1%200h1m1%200h3m1%200h1m2%200h1m5%200h1M4%2010.5h7m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h7M12%2011.5h3m4%200h3M4%2012.5h1m1%200h2m1%200h3m1%200h5m1%200h1m1%200h3m2%200h1m2%200h1m1%200h2M5%2013.5h2m1%200h2m2%200h2m3%200h3m1%200h1m1%200h2m1%200h3m3%200h1M6%2014.5h3m1%200h1m2%200h2m2%200h1m2%200h2m3%200h1m1%200h1m2%200h2M4%2015.5h4m1%200h1m4%200h2m4%200h1m1%200h5m1%200h1m3%200h1M4%2016.5h2m1%200h1m1%200h4m1%200h2m2%200h2m1%200h2m6%200h2M11%2017.5h3m1%200h2m1%200h1m1%200h1m2%200h1m2%200h1m3%200h3M7%2018.5h1m2%200h1m2%200h1m1%200h1m1%200h1m1%200h6m1%200h1m3%200h3M5%2019.5h2m1%200h2m1%200h2m1%200h1m1%200h1m1%200h1m1%200h1m2%200h6m2%200h1M5%2020.5h1m1%200h6m5%200h2m2%200h3m3%200h2m1%200h1M6%2021.5h1m4%200h1m1%200h4m1%200h1m1%200h2m5%200h1m1%200h3M4%2022.5h1m2%200h1m2%200h1m4%200h1m1%200h4m3%200h1m1%200h3m1%200h1M6%2023.5h1m1%200h1m8%200h2m2%200h2m3%200h3m1%200h1M5%2024.5h1m1%200h1m1%200h3m1%200h1m3%200h3m1%200h2m1%200h7M12%2025.5h4m4%200h3m1%200h1m3%200h5M4%2026.5h7m1%200h3m1%200h1m1%200h1m1%200h2m1%200h2m1%200h1m1%200h2m1%200h1M4%2027.5h1m5%200h1m1%200h1m2%200h1m1%200h4m1%200h1m1%200h1m3%200h2m2%200h1M4%2028.5h1m1%200h3m1%200h1m3%200h1m1%200h1m4%200h1m2%200h5m1%200h2M4%2029.5h1m1%200h3m1%200h1m1%200h1m3%200h1m2%200h2m2%200h1m1%200h1m1%200h3m2%200h1M4%2030.5h1m1%200h3m1%200h1m1%200h1m3%200h1m4%200h2m1%200h1m2%200h1m2%200h1m1%200h1M4%2031.5h1m5%200h1m2%200h2m1%200h2m4%200h1m1%200h2m1%200h1m1%200h1m1%200h1M4%2032.5h7m1%200h5m3%200h1m1%200h5m4%200h1'/%3e%3c/svg%3e",
+  d =
+    "data:image/svg+xml,%3c?xml%20version='1.0'%20encoding='utf-8'?%3e%3c!DOCTYPE%20svg%20PUBLIC%20'-//W3C//DTD%20SVG%201.1//EN'%20'http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd'%3e%3csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2041%2041'%20shape-rendering='crispEdges'%3e%3cpath%20fill='%23ffffff'%20d='M0%200h41v41H0z'/%3e%3cpath%20stroke='%23000000'%20d='M4%204.5h7m2%200h1m2%200h2m2%200h4m2%200h2m2%200h7M4%205.5h1m5%200h1m3%200h1m1%200h6m4%200h1m1%200h1m1%200h1m5%200h1M4%206.5h1m1%200h3m1%200h1m1%200h1m1%200h2m1%200h1m5%200h1m1%200h1m1%200h2m1%200h1m1%200h3m1%200h1M4%207.5h1m1%200h3m1%200h1m1%200h1m1%200h3m1%200h4m4%200h1m1%200h1m1%200h1m1%200h3m1%200h1M4%208.5h1m1%200h3m1%200h1m1%200h6m1%200h1m1%200h4m1%200h2m2%200h1m1%200h3m1%200h1M4%209.5h1m5%200h1m1%200h1m2%200h3m1%200h3m3%200h1m4%200h1m5%200h1M4%2010.5h7m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h1m1%200h7M12%2011.5h1m3%200h1m1%200h2m2%200h2m1%200h2M4%2012.5h1m1%200h5m2%200h1m2%200h6m8%200h5M4%2013.5h1m1%200h4m1%200h1m2%200h3m1%200h1m1%200h6m1%200h1m2%200h2m1%200h2m1%200h1M7%2014.5h1m2%200h3m3%200h1m2%200h1m1%200h1m2%200h3m1%200h1m1%200h1m1%200h1m1%200h2M5%2015.5h3m1%200h1m5%200h1m2%200h1m1%200h1m1%200h1m1%200h2m1%200h2m3%200h5M5%2016.5h1m1%200h1m1%200h2m3%200h1m1%200h1m4%200h1m2%200h1m3%200h2m1%200h3m1%200h1M4%2017.5h1m1%200h1m1%200h2m2%200h2m1%200h1m1%200h8m2%200h1m2%200h1m4%200h2M4%2018.5h1m2%200h2m1%200h2m1%200h3m6%200h1m1%200h1m1%200h1m2%200h3m2%200h2M4%2019.5h3m4%200h2m2%200h4m1%200h1m2%200h3m1%200h1m1%200h2m2%200h2M4%2020.5h1m1%200h1m3%200h2m1%200h2m2%200h1m3%200h1m2%200h1m1%200h1m1%200h2m1%200h2m3%200h1M5%2021.5h1m1%200h2m2%200h1m2%200h4m2%200h1m1%200h3m2%200h1m2%200h2m1%200h4M6%2022.5h2m2%200h4m1%200h1m1%200h1m1%200h3m3%200h2m2%200h1m1%200h2m1%200h2M4%2023.5h1m2%200h2m2%200h1m5%200h1m1%200h1m5%200h3m1%200h1m1%200h6M6%2024.5h6m1%200h1m4%200h1m1%200h5m1%200h3m3%200h2m1%200h2M4%2025.5h3m8%200h1m2%200h2m1%200h5m1%200h1m2%200h1m2%200h2m1%200h1M4%2026.5h1m5%200h1m2%200h1m1%200h7m2%200h1m1%200h1m2%200h1m3%200h3M4%2027.5h1m2%200h1m4%200h1m2%200h1m1%200h3m4%200h3m1%200h2m2%200h3M4%2028.5h1m3%200h5m1%200h3m2%200h1m1%200h3m2%200h1m1%200h5m3%200h1M12%2029.5h2m1%200h1m4%200h5m3%200h1m3%200h1m1%200h1m1%200h1M4%2030.5h7m2%200h1m3%200h5m3%200h1m1%200h2m1%200h1m1%200h1m1%200h1M4%2031.5h1m5%200h1m1%200h2m2%200h1m2%200h2m3%200h5m3%200h4M4%2032.5h1m1%200h3m1%200h1m1%200h1m2%200h2m5%200h1m3%200h1m1%200h6m2%200h1M4%2033.5h1m1%200h3m1%200h1m1%200h1m6%200h5m2%200h1m1%200h2m2%200h2m1%200h2M4%2034.5h1m1%200h3m1%200h1m1%200h2m1%200h3m3%200h1m2%200h2m1%200h2m1%200h2M4%2035.5h1m5%200h1m2%200h5m2%200h1m2%200h1m1%200h2m2%200h2m1%200h1m1%200h1M4%2036.5h7m1%200h2m1%200h4m2%200h1m2%200h1m1%200h4m1%200h1m3%200h1'/%3e%3c/svg%3e",
+  y = {
+    __name: "slides.md__slidev_24",
+    setup(f) {
+      const { $clicksContext: e, $frontmatter: r } = l();
+      return (
+        e.setup(),
+        (u, m) => (
+          t(),
+          o(
+            n,
+            i(c(s(p)(s(r), 23))),
+            {
+              default: a(() => [
+                ...(m[0] ||
+                  (m[0] = [
+                    h(
+                      "div",
+                      { class: "center-slide" },
+                      [
+                        h("p", null, [h("span", { class: "eyebrow" }, "Minsky")]),
+                        h("h2", null, "The cyberbrain for software organizations"),
+                        h("div", { class: "resource-grid mt-10" }, [
+                          h("div", { class: "resource" }, [
+                            h("img", {
+                              src: g,
+                              alt: "QR code linking to the Minsky GitHub repository",
+                              class: "qr",
+                            }),
+                            h("span", { class: "resource-label" }, "Repo"),
+                            h("span", { class: "resource-url" }, "github.com/edobry/minsky"),
+                          ]),
+                          h("div", { class: "resource" }, [
+                            h("img", {
+                              src: d,
+                              alt: "QR code linking to these slides",
+                              class: "qr",
+                            }),
+                            h("span", { class: "resource-label" }, "Slides"),
+                            h(
+                              "span",
+                              { class: "resource-url" },
+                              "edobry.github.io/minsky/when-the-agent-is-wrong"
+                            ),
+                          ]),
+                        ]),
+                        h(
+                          "p",
+                          { class: "subtle mt-10" },
+                          "Star the repo · try it on your own agents"
+                        ),
+                        h("p", { class: "dim mt-3" }, [
+                          M("Eugene Dobry · "),
+                          h("span", { class: "highlight" }, "@pee_zombie"),
+                        ]),
+                      ],
+                      -1
+                    ),
+                  ])),
+              ]),
+              _: 1,
+            },
+            16
+          )
+        )
+      );
+    },
+  };
+export { y as default };

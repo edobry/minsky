@@ -8,6 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
+    "build:talks": "cd ../../talks/when-the-agent-is-wrong && bun install --frozen-lockfile && bun run build --base /talks/when-the-agent-is-wrong/ --out ../../services/site/public/talks/when-the-agent-is-wrong",
     "format:check": "prettier --check \"src/**/*.{astro,ts,tsx,css}\""
   },
   "dependencies": {

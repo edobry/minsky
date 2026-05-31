@@ -46,6 +46,35 @@ bun run preview
 
 Static output lands in `services/site/dist/`.
 
+## Talk decks
+
+Slidev talk decks (repo-root `talks/<name>/`) are published here under
+`public/talks/<name>/` and served at `/talks/<name>/` on the site.
+
+**Why a committed snapshot.** The Railway deploy uses `rootDirectory: services/site`,
+so the build cannot reach repo-root `talks/` to build the deck during `astro build`.
+The built deck is therefore committed under `public/talks/<name>/` (Astro copies
+`public/` verbatim into `dist/`). Regenerate after editing slides:
+
+```bash
+cd services/site
+bun run build:talks   # rebuilds talks/when-the-agent-is-wrong into public/talks/...
+```
+
+Then commit the regenerated `public/talks/...` output.
+
+**SPA deep links.** Slidev decks are client-routed SPAs; `/talks/<deck>/5` has no
+file on disk. `src/server.ts` has an SPA fallback that serves the deck's
+`index.html` (200) for any unmatched `/talks/<deck>/*` path, so deep links to a
+specific slide work.
+
+**Also on GitHub Pages.** `.github/workflows/deploy-talks.yml` builds the same
+decks and deploys them to GitHub Pages (`https://edobry.github.io/minsky/<deck>/`)
+automatically on push to `main`. That GH Pages URL is the canonical advertised
+link (e.g., on the deck's own closing slide); this site copy is a same-domain
+mirror. The two can drift if you regenerate one but not the other — GH Pages
+rebuilds automatically; the site snapshot is the manual `build:talks` step above.
+
 ## Deploy
 
 Deployed to Railway as its own service. Configuration lives in:

@@ -1,0 +1,38 @@
+import {
+  p as n,
+  g as l,
+  aL as c,
+  a6 as i,
+  d as r,
+  Y as u,
+  f as e,
+  aa as d,
+  a3 as m,
+  L as p,
+} from "../modules/vue-D4u9h7Td.js";
+const f = { class: "sr-only" },
+  B = n({
+    __name: "IconButton",
+    props: { title: {}, icon: {}, as: {}, to: {} },
+    setup(t) {
+      const a = t,
+        s = r(() => a.as || (a.to ? "router-link" : "button"));
+      return (o, v) => (
+        u(),
+        l(
+          i(s.value),
+          { class: "slidev-icon-btn", title: t.title, to: t.to },
+          {
+            default: c(() => [
+              e("span", f, d(t.title), 1),
+              m(o.$slots, "default", {}, () => [e("div", { class: p(t.icon) }, null, 2)]),
+            ]),
+            _: 3,
+          },
+          8,
+          ["title", "to"]
+        )
+      );
+    },
+  });
+export { B as _ };

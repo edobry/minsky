@@ -1,0 +1,72 @@
+import {
+  Y as l,
+  g as r,
+  aL as i,
+  f as t,
+  l as s,
+  M as p,
+  s as c,
+  af as a,
+} from "./modules/vue-D4u9h7Td.js";
+import { I as u } from "./slidev/default-Cw5Kcts5.js";
+import { u as m, f as d } from "./slidev/context-eddjAoUW.js";
+import "./index-Bjqpo1hl.js";
+import "./modules/shiki-CBR8dv5M.js";
+const w = {
+  __name: "slides.md__slidev_15",
+  setup(f) {
+    const { $clicksContext: n, $frontmatter: o } = m();
+    return (
+      n.setup(),
+      (_, e) => (
+        l(),
+        r(
+          u,
+          p(c(a(d)(a(o), 14))),
+          {
+            default: i(() => [
+              ...(e[0] ||
+                (e[0] = [
+                  t("p", null, [t("span", { class: "eyebrow" }, "The structural insight")], -1),
+                  t("h2", null, "Why stateless fails", -1),
+                  t(
+                    "p",
+                    null,
+                    [
+                      s("A stateless agent treats R6 as a "),
+                      t("span", { class: "dim" }, "one-off"),
+                      s("."),
+                    ],
+                    -1
+                  ),
+                  t("p", null, "It doesn’t know about R1–R5.", -1),
+                  t(
+                    "p",
+                    null,
+                    "It can’t connect six incidents across two weeks into a single pattern.",
+                    -1
+                  ),
+                  t(
+                    "div",
+                    { class: "mt-6" },
+                    [
+                      t("p", null, [
+                        s("It says "),
+                        t("span", { class: "dim" }, '"I’ll do better next time"'),
+                        s(" —"),
+                      ]),
+                      t("p", null, "and on the next surface, does the same thing."),
+                    ],
+                    -1
+                  ),
+                ])),
+            ]),
+            _: 1,
+          },
+          16
+        )
+      )
+    );
+  },
+};
+export { w as default };

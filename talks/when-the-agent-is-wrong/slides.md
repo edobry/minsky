@@ -510,3 +510,37 @@ This is the thesis. These metacognitive organs — self-monitoring, durable memo
 <!--
 A stateless agent has strong System 1 — it can do work. It has some System 5 — it has instructions. But the feedback and coordination organs are absent. Each session is a fresh start. Each mistake is a first mistake. Minsky's contribution is that these organs are infrastructure. The thirty-second search that didn't happen is a small incident. But it took the full weight of the metacognitive infrastructure to ensure that the same class of mistake gets harder to make every time it occurs. The system improved because it failed. That's the point.
 -->
+
+---
+
+<div class="center-slide">
+
+<span class="eyebrow">Minsky</span>
+
+## The cyberbrain for software organizations
+
+<div class="resource-grid mt-10">
+
+<div class="resource">
+<img src="./assets/qr-repo.svg" alt="QR code linking to the Minsky GitHub repository" class="qr" />
+<span class="resource-label">Repo</span>
+<span class="resource-url">github.com/edobry/minsky</span>
+</div>
+
+<div class="resource">
+<img src="./assets/qr-slides.svg" alt="QR code linking to these slides" class="qr" />
+<span class="resource-label">Slides</span>
+<span class="resource-url">edobry.github.io/minsky/when-the-agent-is-wrong</span>
+</div>
+
+</div>
+
+<p class="subtle mt-10">Star the repo · try it on your own agents</p>
+
+<p class="dim mt-3">Eugene Dobry · <span class="highlight">@pee_zombie</span></p>
+
+</div>
+
+<!--
+Closing resources slide: repo and slides as QR + text, a call-to-action, and contact handle. Kept separate from the rhetorical closer so the "that's the point" landing stays clean.
+-->
