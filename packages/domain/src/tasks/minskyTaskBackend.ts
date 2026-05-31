@@ -1,7 +1,12 @@
 import { eq, not, and, like, inArray, type SQL } from "drizzle-orm";
 import { TaskStatus } from "./taskConstants";
 // Remove configuration import - dependencies should be injected
-import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
+import {
+  tasksTable,
+  taskSpecsTable,
+  tasksEmbeddingsTable,
+  deletedTaskIdsTable,
+} from "../storage/schemas/task-embeddings";
 import { first } from "@minsky/shared/array-safety";
 import type {
   Task,
@@ -34,6 +39,34 @@ export interface MinskyBackendDb {
 
 export interface MinskyTaskBackendConfig extends TaskBackendConfig {
   db: MinskyBackendDb;
+}
+
+/**
+ * Compute the next monotonic "mt#" task id (mt#2205).
+ *
+ * The next id is `mt#<max + 1>` where the max is taken over BOTH the live
+ * task ids AND the deleted-task-id tombstones. Including tombstones is what
+ * makes allocation monotonic: deleting the highest-numbered task no longer
+ * lowers the max, so a freed id is never re-handed-out to a new task. This
+ * preserves the invariant that a task id is a stable permanent reference.
+ *
+ * Non-"mt#" ids and unparseable ids are ignored (only the numeric suffix of
+ * `mt#<n>` participates in the max). With no parseable ids on either side the
+ * result is `mt#1`.
+ *
+ * Pure function — the IO (two SELECTs) lives in the caller so this logic is
+ * directly unit-testable without a database.
+ */
+export function computeNextTaskId(liveIds: string[], tombstoneIds: string[]): string {
+  const maxId = [...liveIds, ...tombstoneIds].reduce((acc: number, id: string) => {
+    if (typeof id !== "string" || !id.startsWith("mt#")) {
+      return acc;
+    }
+    const num = parseInt(id.slice("mt#".length), 10);
+    return !isNaN(num) && num > acc ? num : acc;
+  }, 0);
+
+  return `mt#${maxId + 1}`;
 }
 
 export class MinskyTaskBackend implements TaskBackend {
@@ -245,10 +278,28 @@ export class MinskyTaskBackend implements TaskBackend {
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
+    // Hard-delete the task metadata row.
     const deleted = await this.db
       .delete(tasksTable)
       .where(eq(tasksTable.id, id))
       .returning({ id: tasksTable.id });
+
+    // Purge dependent rows. Migration 0011 dropped the ON DELETE CASCADE FKs
+    // that previously cleaned these automatically (mt#2205); without this,
+    // the spec and embedding rows are orphaned and — combined with ID
+    // reuse — re-associate with an unrelated future task, desyncing its
+    // title from its spec body. Always run these even when the task row was
+    // already absent, so a partially-orphaned state self-heals on re-delete.
+    await this.db.delete(taskSpecsTable).where(eq(taskSpecsTable.taskId, id));
+    await this.db.delete(tasksEmbeddingsTable).where(eq(tasksEmbeddingsTable.id, id));
+
+    // Record a tombstone so generateTaskId's high-water mark never recedes:
+    // a deleted ID is retired forever and never re-handed-out to a new task.
+    await this.db
+      .insert(deletedTaskIdsTable)
+      .values({ id, deletedAt: new Date() })
+      .onConflictDoNothing();
+
     return deleted.length > 0;
   }
 
@@ -398,20 +449,31 @@ export class MinskyTaskBackend implements TaskBackend {
     // We cannot use a DB-level SERIAL here because ids are stored as strings
     // (e.g. "mt#123"), so we perform a lightweight SELECT of ids only and
     // derive the next number in application code.
+    //
+    // Monotonic allocation (mt#2205): the max is computed over LIVE task rows
+    // UNION the deleted-task-id tombstones. Without the tombstones, deleting
+    // the highest-numbered task would lower the max and the next create would
+    // re-hand-out the freed id (the observed mt#2195 reuse). Including
+    // tombstones means a deleted id is retired forever — preserving the
+    // invariant that a task id is a stable permanent reference.
+    //
     // Race safety: the caller (createTaskFromTitleAndSpec) uses onConflictDoNothing
     // + a retry loop so a concurrent writer claiming this id is detected and
     // handled without silently clobbering existing data.
-    const rows = await this.db
+    const liveRows = await this.db
       .select({ id: tasksTable.id })
       .from(tasksTable)
       .where(like(tasksTable.id, "mt#%"));
 
-    const maxId = rows.reduce((acc: number, row: (typeof rows)[number]) => {
-      const num = parseInt(row.id.replace("mt#", ""), 10);
-      return !isNaN(num) && num > acc ? num : acc;
-    }, 0);
+    const tombstoneRows = await this.db
+      .select({ id: deletedTaskIdsTable.id })
+      .from(deletedTaskIdsTable)
+      .where(like(deletedTaskIdsTable.id, "mt#%"));
 
-    return `mt#${maxId + 1}`;
+    return computeNextTaskId(
+      liveRows.map((r: { id: string }) => r.id),
+      tombstoneRows.map((r: { id: string }) => r.id)
+    );
   }
 }
 
