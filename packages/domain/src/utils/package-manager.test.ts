@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import { detectPackageManager, getInstallCommand, installDependencies } from "./package-manager";
+import {
+  detectPackageManager,
+  getInstallCommand,
+  installDependencies,
+  formatInstallError,
+} from "./package-manager";
 import type { PackageManagerDependencies } from "./package-manager";
 import { createPartialMock } from "../../../../src/utils/test-utils/mocking";
 
@@ -165,7 +170,10 @@ describe("Package Manager Utilities with Dependency Injection", () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe("No package manager detected for this project");
+      // An explicit-but-unrecognized packageManager is truthy, so detection is
+      // skipped and getInstallCommand returns undefined → this message (not the
+      // "no package manager detected" path, which only fires when detection runs).
+      expect(result.error).toBe("Unsupported package manager: unknown");
     });
 
     test("handles installation errors", async () => {
@@ -208,7 +216,7 @@ describe("Package Manager Utilities with Dependency Injection", () => {
       expect(executedOptions.stdio).toBe("ignore");
     });
 
-    test("uses inherit stdio when not quiet", async () => {
+    test("captures stdout/stderr but keeps stdin interactive when not quiet (mt#2209)", async () => {
       let executedOptions: any = null;
 
       mockDeps = createPartialMock<PackageManagerDependencies>({
@@ -226,7 +234,62 @@ describe("Package Manager Utilities with Dependency Injection", () => {
 
       await installDependencies("/fake/repo", { quiet: false }, mockDeps);
 
-      expect(executedOptions.stdio).toBe("inherit");
+      // 3-tuple: stdin inherited (prompts still work), stdout/stderr piped
+      // (captured, not streamed). A bounded maxBuffer guards against the
+      // default ~1MB cap throwing on verbose installs.
+      expect(executedOptions.stdio).toEqual(["inherit", "pipe", "pipe"]);
+      expect(executedOptions.maxBuffer).toBeGreaterThan(1024 * 1024);
+    });
+
+    test("surfaces captured stderr/stdout when the install fails (mt#2209)", async () => {
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package.json"),
+        },
+        process: {
+          execSync: () => {
+            // Mirrors child_process.execSync's failure shape under stdio:"pipe":
+            // the thrown error carries the captured streams as Buffers.
+            const err: any = new Error("Command failed: bun install");
+            err.stderr = Buffer.from("error: lockfile had changes, but lockfile is frozen");
+            err.stdout = Buffer.from("bun install v1.2.21");
+            throw err;
+          },
+        },
+      });
+
+      const result = await installDependencies("/fake/repo", {}, mockDeps);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("Command failed: bun install");
+      expect(result.error).toContain("lockfile is frozen");
+      expect(result.error).toContain("bun install v1.2.21");
+    });
+  });
+
+  describe("formatInstallError (mt#2209)", () => {
+    test("falls back to the error message when no captured streams are present", () => {
+      expect(formatInstallError(new Error("detection error, no streams"))).toBe(
+        "detection error, no streams"
+      );
+    });
+
+    test("appends captured stderr and stdout (Buffer) to the base message", () => {
+      const err: any = new Error("Command failed");
+      err.stderr = Buffer.from("stderr text");
+      err.stdout = Buffer.from("stdout text");
+      const formatted = formatInstallError(err);
+      expect(formatted).toContain("Command failed");
+      expect(formatted).toContain("stderr text");
+      expect(formatted).toContain("stdout text");
+    });
+
+    test("accepts string streams as well as Buffers", () => {
+      const err: any = new Error("Command failed");
+      err.stderr = "string stderr";
+      const formatted = formatInstallError(err);
+      expect(formatted).toContain("string stderr");
     });
   });
 });
