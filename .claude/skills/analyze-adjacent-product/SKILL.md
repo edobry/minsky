@@ -184,6 +184,7 @@ The 2026-05 analysis (Composio / Cursor / Factory / Macro) is the canonical four
 
 ## Cross-references
 
+- `.claude/skills/name-product/SKILL.md` — **synthesis dual** of this skill. This skill _reads_ an existing name/brand semiotically (analysis); `name-product` _generates_ one using the Lexicon framework (synthesis). Use it when the output of an adjacent-product naming read should feed a naming decision of our own.
 - `.claude/skills/marketing-site-design/SKILL.md` — sibling skill that consumes this skill's output. The marketing-site-design workshop's Step 4 (cultural-code identification) uses this skill as input. The Minsky-specific positioning decisions live there.
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — sibling discipline against post-hoc framing (the Pepsi/Arnell trap at the recommendation surface)
 - `feedback_strategic_reframe_first` — the connecting direction (when a tactical ask is an instance of a strategic frame, name the frame)
