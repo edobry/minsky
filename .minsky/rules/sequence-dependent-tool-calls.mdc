@@ -8,9 +8,9 @@ tags:
 ---
 # Sequence Dependent Tool Calls
 
-Dependent tool calls -- where step N+1 consumes step N's output -- MUST run one per turn: emit the call, READ the actual result, then decide the next step. Only TRULY INDEPENDENT calls may share a tool block.
+Dependent tool calls -- where step N+1 consumes step N's output -- MUST run one per turn: emit the call, READ the actual result, then decide the next step. Calls may share one tool block only when they have no data dependency between them -- neither's parameters derive from the other's output, nor from state the other mutates (e.g. two reads of unrelated files are independent; anything after a branch/commit/PR-creating call is not).
 
-- **Never batch dependent operations.** Chains where each step needs the prior step's result -- `session_start` -> edits/paths; `commit` -> `pr_create` -> `wait_for_review` -> `merge`; `tasks_create` -> use-the-returned-id -- run one step per turn.
+- **Never batch dependent operations.** Chains where each step needs the prior step's result -- `session_start` -> edits/paths; `session_commit` -> `session_pr_create` -> `session_pr_wait-for-review` -> `session_pr_merge`; `tasks_create` -> use-the-returned-id -- run one step per turn.
 - **Never construct an identifier.** A sessionId, workspace path, or PR number is minted by a tool call and is unknowable until it returns. Read it from the minting call's result; never guess or assemble a plausible-looking one.
 - **Never pre-narrate a tool outcome.** Do not state a result -- "created", "approved", "merged", "built clean", "tests pass", "HTTP 200" -- in chat OR in durable artifacts (memory, specs, PR bodies) before that result is in hand THIS turn.
 
