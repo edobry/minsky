@@ -46,7 +46,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: "1.2.21"
 
       # Cache Bun's global install cache, keyed on every deck's lockfile.
       - name: Cache bun dependencies
