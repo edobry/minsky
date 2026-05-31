@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minsky icon tuner</title>
+<style>
+  :root {
+    --bg: #080808;
+    --panel: #111;
+    --border: #222;
+    --text: #e8e8e8;
+    --muted: #888;
+    --accent: #00BFD8;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 16px;
+  }
+  header h1 { margin: 0; font-size: 14px; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  main {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    height: calc(100vh - 47px);
+  }
+  .controls {
+    overflow-y: auto;
+    padding: 16px 20px;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+  }
+  .controls h2 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin: 18px 0 8px;
+  }
+  .controls h2:first-child { margin-top: 0; }
+  .row {
+    display: grid;
+    grid-template-columns: 1fr 60px;
+    gap: 8px; align-items: center;
+    margin-bottom: 6px;
+  }
+  .row label {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 12px;
+  }
+  .row label .name { color: var(--text); }
+  .row input[type="range"] {
+    grid-column: 1 / 3;
+    width: 100%; margin: 0;
+    accent-color: var(--accent);
+  }
+  .row input[type="number"] {
+    background: #1a1a1a; color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 3px 6px; font-size: 12px; width: 100%;
+    font-family: ui-monospace, monospace;
+  }
+  .preview {
+    overflow-y: auto;
+    padding: 20px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 24px;
+    align-content: start;
+  }
+  .preview-row {
+    display: flex; align-items: center; gap: 24px;
+    flex-wrap: wrap;
+  }
+  .preview-cell {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+  }
+  .preview-cell .size-label {
+    font-size: 11px; color: var(--muted);
+    font-family: ui-monospace, monospace;
+  }
+  .preview-cell .icon-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .actions {
+    border-top: 1px solid var(--border);
+    padding: 12px 20px;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    background: var(--panel);
+    grid-column: 1 / 3;
+  }
+  button {
+    background: #1a1a1a; color: var(--text);
+    border: 1px solid var(--border); border-radius: 3px;
+    padding: 5px 12px; font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { background: #222; border-color: #333; }
+  button.primary {
+    background: var(--accent); color: #000; border-color: var(--accent);
+  }
+  button.primary:hover { background: #00d4f0; }
+  .params-out {
+    grid-column: 1 / 3;
+    padding: 12px 20px;
+    background: #0a0a0a;
+    border-top: 1px solid var(--border);
+    font-family: ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: pre;
+    overflow-x: auto;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Minsky icon tuner</h1>
+  <span class="sub">mt#2171 — parametric refinement of the v0 mark</span>
+</header>
+<main>
+  <aside class="controls" id="controls"></aside>
+  <section class="preview" id="preview"></section>
+  <div class="actions" id="actions"></div>
+  <div class="params-out" id="paramsOut"></div>
+</main>
+
+<script>
+// Parameter definitions: label, key, min, max, step, default (v0 shipped values)
+const PARAMS = {
+  Eye: [
+    { key: "eyeCY",  label: "vertical position (cy)", min: 100, max: 250, step: 1, def: 175 },
+    { key: "eyeHW",  label: "half-width",             min: 60,  max: 200, step: 1, def: 135 },
+    { key: "eyeHH",  label: "half-height",            min: 50,  max: 150, step: 1, def: 104 },
+    { key: "pupilR", label: "pupil radius",           min: 0,   max: 60,  step: 1, def: 31  },
+  ],
+  Valley: [
+    { key: "valleyCtrlRx",  label: "ctrl x-offset", min: 30,  max: 160, step: 1, def: 89  },
+    { key: "valleyCtrlRy",  label: "ctrl y-offset", min: 20,  max: 150, step: 1, def: 82  },
+    { key: "valleyBottomY", label: "bottom y",      min: 280, max: 420, step: 1, def: 350 },
+  ],
+  Legs: [
+    { key: "legTipX",       label: "tip x (left; right mirrors)", min: 100, max: 220, step: 1, def: 155 },
+    { key: "innerLegPull",  label: "inner-leg pull (concave)",    min: 0,   max: 80,  step: 1, def: 27  },
+  ],
+  Dome: [
+    { key: "outC1x", label: "outer ctrl 1 x", min: 0,  max: 120, step: 1, def: 30 },
+    { key: "outC2x", label: "outer ctrl 2 x", min: 0,  max: 120, step: 1, def: 16 },
+  ],
+  "Inner peak": [
+    { key: "innerPeakY",         label: "y",          min: 130, max: 280, step: 1, def: 200 },
+    { key: "innerPeakHalfWidth", label: "half-width", min: 50,  max: 180, step: 1, def: 104 },
+  ],
+};
+
+// Fixed (non-tunable) geometry constants
+const FIXED = {
+  cx: 256,
+  domeTopY: 22,
+  legBottomY: 445,
+  outC1y: 360,
+  outC2y: 105,
+  innerLegCtrl1Y: 410,
+  innerLegCtrl2Y: 300,
+  innerLegBaseOffset: 5,
+};
+
+const PREVIEW_SIZES = [512, 256, 128, 64, 32, 16];
+
+// Presets: v0 (matches assets/icon/minsky-icon.svg exactly) plus exploration milestones
+const PRESETS = {
+  "v0 (shipped)": {
+    eyeCY: 175, eyeHW: 135, eyeHH: 104, pupilR: 31,
+    valleyCtrlRx: 89, valleyCtrlRy: 82, valleyBottomY: 350,
+    legTipX: 155, innerLegPull: 27,
+    outC1x: 30, outC2x: 16,
+    innerPeakY: 200, innerPeakHalfWidth: 104,
+  },
+  "wide eye": {
+    eyeCY: 175, eyeHW: 160, eyeHH: 115, pupilR: 34,
+    valleyCtrlRx: 89, valleyCtrlRy: 82, valleyBottomY: 350,
+    legTipX: 155, innerLegPull: 27,
+    outC1x: 30, outC2x: 16,
+    innerPeakY: 200, innerPeakHalfWidth: 104,
+  },
+  "tight": {
+    eyeCY: 170, eyeHW: 110, eyeHH: 85, pupilR: 26,
+    valleyCtrlRx: 78, valleyCtrlRy: 70, valleyBottomY: 340,
+    legTipX: 165, innerLegPull: 22,
+    outC1x: 35, outC2x: 22,
+    innerPeakY: 200, innerPeakHalfWidth: 96,
+  },
+  "wide dome": {
+    eyeCY: 175, eyeHW: 135, eyeHH: 104, pupilR: 31,
+    valleyCtrlRx: 89, valleyCtrlRy: 82, valleyBottomY: 350,
+    legTipX: 140, innerLegPull: 30,
+    outC1x: 10, outC2x: 0,
+    innerPeakY: 200, innerPeakHalfWidth: 110,
+  },
+  "narrow dome": {
+    eyeCY: 175, eyeHW: 125, eyeHH: 96, pupilR: 30,
+    valleyCtrlRx: 80, valleyCtrlRy: 75, valleyBottomY: 348,
+    legTipX: 175, innerLegPull: 22,
+    outC1x: 55, outC2x: 38,
+    innerPeakY: 200, innerPeakHalfWidth: 96,
+  },
+};
+
+// Build the SVG path data from a params object.
+function buildPathD(p) {
+  const cx = FIXED.cx;
+  const legTipL = p.legTipX;
+  const legTipR = 512 - p.legTipX;
+  const ipL = cx - p.innerPeakHalfWidth;
+  const ipR = cx + p.innerPeakHalfWidth;
+  const valleyCtrlY = p.valleyBottomY - p.valleyCtrlRy;
+  const off = FIXED.innerLegBaseOffset;
+
+  const outer = [
+    `M ${legTipL},${FIXED.legBottomY}`,
+    `C ${p.outC1x},${FIXED.outC1y} ${p.outC2x},${FIXED.outC2y} ${cx},${FIXED.domeTopY}`,
+    `C ${512 - p.outC2x},${FIXED.outC2y} ${512 - p.outC1x},${FIXED.outC1y} ${legTipR},${FIXED.legBottomY}`,
+    `C ${legTipR + off},${FIXED.innerLegCtrl1Y} ${ipR + p.innerLegPull},${FIXED.innerLegCtrl2Y} ${ipR},${p.innerPeakY}`,
+    `Q ${cx + p.valleyCtrlRx},${valleyCtrlY} ${cx},${p.valleyBottomY}`,
+    `Q ${cx - p.valleyCtrlRx},${valleyCtrlY} ${ipL},${p.innerPeakY}`,
+    `C ${ipL - p.innerLegPull},${FIXED.innerLegCtrl2Y} ${legTipL - off},${FIXED.innerLegCtrl1Y} ${legTipL},${FIXED.legBottomY}`,
+    `Z`,
+  ].join(" ");
+
+  const eye = [
+    `M ${cx},${p.eyeCY - p.eyeHH}`,
+    `Q ${cx + p.eyeHW},${p.eyeCY} ${cx},${p.eyeCY + p.eyeHH}`,
+    `Q ${cx - p.eyeHW},${p.eyeCY} ${cx},${p.eyeCY - p.eyeHH}`,
+    `Z`,
+  ].join(" ");
+
+  const pupil = p.pupilR > 0
+    ? [
+        `M ${cx - p.pupilR},${p.eyeCY}`,
+        `a ${p.pupilR},${p.pupilR} 0 1,0 ${2 * p.pupilR},0`,
+        `a ${p.pupilR},${p.pupilR} 0 1,0 ${-2 * p.pupilR},0`,
+        `Z`,
+      ].join(" ")
+    : "";
+
+  return [outer, eye, pupil].filter(Boolean).join(" ");
+}
+
+function buildSvg(p, size, opts = {}) {
+  const fill = opts.fill || "#00BFD8";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="${size}" height="${size}"><path fill-rule="evenodd" fill="${fill}" d="${buildPathD(p)}"/></svg>`;
+}
+
+// Export SVG = same shape as assets/icon/minsky-icon.svg (no width/height, transparent bg)
+function buildExportSvg(p) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">\n  <path fill-rule="evenodd" fill="#00BFD8" d="${buildPathD(p)}"/>\n</svg>\n`;
+}
+
+// Flat lookup: param key -> definition. Built once at module load.
+const PARAM_BY_KEY = {};
+for (const group of Object.values(PARAMS)) {
+  for (const p of group) PARAM_BY_KEY[p.key] = p;
+}
+
+// Read current params from input elements. Empty/invalid values coerce to the
+// parameter's default, and finite values are clamped to [min, max]. This keeps
+// the SVG path data finite regardless of what the user types into a number field
+// (clearing it, typing a stray letter, scrolling past the slider range, etc.).
+function readParams() {
+  const out = {};
+  for (const key of Object.keys(PARAM_BY_KEY)) {
+    const p = PARAM_BY_KEY[key];
+    const v = parseFloat(document.getElementById(`num-${key}`).value);
+    out[key] = Number.isFinite(v) ? Math.max(p.min, Math.min(p.max, v)) : p.def;
+  }
+  return out;
+}
+
+function setParams(values) {
+  for (const group of Object.values(PARAMS)) {
+    for (const p of group) {
+      const v = values[p.key];
+      if (v === undefined) continue;
+      document.getElementById(`num-${p.key}`).value = v;
+      document.getElementById(`rng-${p.key}`).value = v;
+    }
+  }
+  render();
+}
+
+function render() {
+  const p = readParams();
+  const preview = document.getElementById("preview");
+  preview.innerHTML = "";
+
+  const row = document.createElement("div");
+  row.className = "preview-row";
+  for (const size of PREVIEW_SIZES) {
+    const cell = document.createElement("div");
+    cell.className = "preview-cell";
+    const box = document.createElement("div");
+    box.className = "icon-box";
+    box.style.width = `${size}px`;
+    box.style.height = `${size}px`;
+    box.innerHTML = buildSvg(p, size);
+    const label = document.createElement("div");
+    label.className = "size-label";
+    label.textContent = `${size}px`;
+    cell.appendChild(box);
+    cell.appendChild(label);
+    row.appendChild(cell);
+  }
+  preview.appendChild(row);
+
+  document.getElementById("paramsOut").textContent = JSON.stringify(p, null, 2);
+}
+
+function buildControls() {
+  const root = document.getElementById("controls");
+  for (const [groupName, params] of Object.entries(PARAMS)) {
+    const h = document.createElement("h2");
+    h.textContent = groupName;
+    root.appendChild(h);
+    for (const p of params) {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML = `
+        <label for="num-${p.key}"><span class="name">${p.label}</span><span class="key">${p.key}</span></label>
+        <input id="num-${p.key}" type="number" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}" aria-label="${p.label} (${p.key})">
+        <input id="rng-${p.key}" type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}" aria-label="${p.label} slider (${p.key})">
+      `;
+      root.appendChild(row);
+      const num = row.querySelector(`#num-${p.key}`);
+      const rng = row.querySelector(`#rng-${p.key}`);
+      rng.addEventListener("input", () => { num.value = rng.value; render(); });
+      num.addEventListener("input", () => { rng.value = num.value; render(); });
+    }
+  }
+}
+
+function buildActions() {
+  const root = document.getElementById("actions");
+
+  for (const name of Object.keys(PRESETS)) {
+    const b = document.createElement("button");
+    b.textContent = name;
+    b.addEventListener("click", () => setParams(PRESETS[name]));
+    root.appendChild(b);
+  }
+
+  const exportBtn = document.createElement("button");
+  exportBtn.textContent = "Export SVG";
+  exportBtn.className = "primary";
+  exportBtn.addEventListener("click", () => {
+    const svg = buildExportSvg(readParams());
+    const blob = new Blob([svg], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "minsky-icon-tuned.svg";
+    a.click();
+    // Defer revoke to the next task so the browser has time to dispatch the
+    // download. Synchronous revoke after a programmatic click can race the
+    // download in some browser implementations, producing a cancelled/empty file.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  });
+  root.appendChild(exportBtn);
+
+  const copyBtn = document.createElement("button");
+  copyBtn.textContent = "Copy params JSON";
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(JSON.stringify(readParams(), null, 2));
+  });
+  root.appendChild(copyBtn);
+}
+
+buildControls();
+buildActions();
+render();
+</script>
+</body>
+</html>
