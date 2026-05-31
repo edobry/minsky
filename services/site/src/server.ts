@@ -59,12 +59,16 @@ const server = Bun.serve({
 
     const filePath = tryPaths(url.pathname);
     if (!filePath) {
-      // SPA fallback for client-routed talk decks: a deep link like
-      // /talks/<deck>/5 has no file on disk, so serve that deck's index.html
-      // (200) and let the deck's client-side router resolve the slide. Mirrors
-      // the _redirects rule slidev emits for Netlify/Cloudflare hosts.
+      // SPA fallback for client-routed talk decks — navigation requests only.
+      // A deep link like /talks/<deck>/5 has no file on disk; serve that deck's
+      // index.html (200) so slidev's client-side router resolves the slide.
+      // A request is a navigation iff it has no file extension: asset requests
+      // (/assets/*.js, *.css, ...) always carry an extension and fall through to
+      // 404 instead of being masked by HTML. Extension is the sole signal so the
+      // fallback stays correct behind proxies/CDNs that strip the Accept header.
+      const hasFileExtension = /\.[a-zA-Z0-9]+$/.test(url.pathname);
       const deckMatch = url.pathname.match(/^\/talks\/([^/]+)\//);
-      if (deckMatch) {
+      if (!hasFileExtension && deckMatch) {
         const deckIndex = safeJoin(DIST_DIR, join("talks", deckMatch[1], "index.html"));
         if (deckIndex && existsSync(deckIndex)) {
           return new Response(Bun.file(deckIndex), {
