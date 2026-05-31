@@ -44,6 +44,21 @@ export const taskSpecsTable = pgTable(
   () => []
 );
 
+// Drizzle schema for deleted-task-ID tombstones (mt#2205).
+// Records every task ID that has ever been deleted so the minsky backend's
+// ID allocator can compute a monotonic high-water mark over live tasks UNION
+// these tombstones — a freed ID is never re-handed-out. deleteTask hard-purges
+// the live data rows (tasks, task_specs, tasks_embeddings) and inserts a row
+// here to anchor the high-water mark.
+export const deletedTaskIdsTable = pgTable(
+  "deleted_task_ids",
+  {
+    id: text("id").primaryKey(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  () => []
+);
+
 // Drizzle schema for tasks embeddings (vectors + denormalized filter columns)
 // Uses standardized embeddings schema factory for consistency with rules_embeddings
 // Includes denormalized status and backend columns for server-side filtering
