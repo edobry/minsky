@@ -50,7 +50,11 @@ interface PalettePage {
 type PaletteEntity = PaletteTask | PaletteSession | PaletteAsk | PalettePage;
 
 // ---------------------------------------------------------------------------
-// Static pages — matches NavSheet.tsx route list
+// Static pages — aligned with NavSheet.tsx route list.
+// The palette intentionally exposes finer granularity than NavSheet: where
+// NavSheet has a single "Tasks" entry (let the operator pick a tab on the
+// page), the palette has separate Task List + Task Graph entries so a
+// keyboard user can jump directly to either view.
 // ---------------------------------------------------------------------------
 
 const PAGES: PalettePage[] = [
