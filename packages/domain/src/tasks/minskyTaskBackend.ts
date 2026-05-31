@@ -35,6 +35,11 @@ export interface MinskyBackendDb {
   update(table: any): any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   delete(table: any): any;
+  // Atomic multi-statement work. The callback receives a transaction-scoped
+  // handle that structurally satisfies this same interface. Drizzle's
+  // PostgresJsDatabase.transaction matches; test fakes implement it by
+  // invoking the callback with themselves.
+  transaction<T>(fn: (tx: MinskyBackendDb) => Promise<T>): Promise<T>;
 }
 
 export interface MinskyTaskBackendConfig extends TaskBackendConfig {
@@ -180,7 +185,13 @@ export class MinskyTaskBackend implements TaskBackend {
   /**
    * Attempt to insert a task row. Returns true if the row was inserted,
    * false if the id already exists (conflict).
-   * Never overwrites existing data (onConflictDoNothing).
+   *
+   * The task-row + spec-row writes run in a single transaction so a task can
+   * never be left without its spec on a partial failure (mt#2205). The spec
+   * write upserts (onConflictDoUpdate) rather than no-ops: if a stale orphaned
+   * spec row pre-dates migration 0043 (a delete before tombstones existed) and
+   * its freed id is re-proposed, the new task's spec MUST win — a no-op here is
+   * exactly the title/spec desync mt#2205 fixes.
    */
   private async tryInsertTask(
     id: string,
@@ -190,41 +201,47 @@ export class MinskyTaskBackend implements TaskBackend {
   ): Promise<boolean> {
     const tags = options?.tags || [];
 
-    // Insert task metadata row; do nothing on id conflict
-    const inserted = await this.db
-      .insert(tasksTable)
-      .values({
-        id,
-        sourceTaskId: id.split("#")[1], // Extract the numeric part
-        backend: "minsky" as const,
-        status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
-        title,
-        tags: JSON.stringify(tags),
-        kind: options?.kind || "implementation",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: tasksTable.id });
+    return this.db.transaction(async (tx) => {
+      // Insert task metadata row; do nothing on id conflict
+      const inserted = await tx
+        .insert(tasksTable)
+        .values({
+          id,
+          sourceTaskId: id.split("#")[1], // Extract the numeric part
+          backend: "minsky" as const,
+          status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
+          title,
+          tags: JSON.stringify(tags),
+          kind: options?.kind || "implementation",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .onConflictDoNothing()
+        .returning({ id: tasksTable.id });
 
-    if (inserted.length === 0) {
-      // Conflict — the id was already taken
-      return false;
-    }
+      if (inserted.length === 0) {
+        // Conflict — the id was already taken
+        return false;
+      }
 
-    // Insert spec content; do nothing on taskId conflict (same safety net)
-    await this.db
-      .insert(taskSpecsTable)
-      .values({
-        taskId: id,
-        content: spec,
-        version: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .onConflictDoNothing();
+      // Upsert spec content so the new task's spec always wins over any stale
+      // orphaned row for this id (defends against pre-0043 historical orphans).
+      await tx
+        .insert(taskSpecsTable)
+        .values({
+          taskId: id,
+          content: spec,
+          version: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: taskSpecsTable.taskId,
+          set: { content: spec, updatedAt: new Date() },
+        });
 
-    return true;
+      return true;
+    });
   }
 
   /**
@@ -240,67 +257,81 @@ export class MinskyTaskBackend implements TaskBackend {
   ): Promise<Task> {
     const tags = options?.tags || [];
 
-    const inserted = await this.db
-      .insert(tasksTable)
-      .values({
-        id,
-        sourceTaskId: id.split("#")[1],
-        backend: "minsky" as const,
-        status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
-        title,
-        tags: JSON.stringify(tags),
-        kind: options?.kind || "implementation",
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: tasksTable.id });
+    await this.db.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(tasksTable)
+        .values({
+          id,
+          sourceTaskId: id.split("#")[1],
+          backend: "minsky" as const,
+          status: (options?.status || "TODO") as (typeof TaskStatus)[keyof typeof TaskStatus],
+          title,
+          tags: JSON.stringify(tags),
+          kind: options?.kind || "implementation",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .onConflictDoNothing()
+        .returning({ id: tasksTable.id });
 
-    if (inserted.length === 0) {
-      throw new Error(
-        `Task id "${id}" already exists. Use a different id or omit it to auto-generate.`
-      );
-    }
+      if (inserted.length === 0) {
+        // Throwing rolls the transaction back.
+        throw new Error(
+          `Task id "${id}" already exists. Use a different id or omit it to auto-generate.`
+        );
+      }
 
-    await this.db
-      .insert(taskSpecsTable)
-      .values({
-        taskId: id,
-        content: spec,
-        version: 1,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .onConflictDoNothing();
+      // Upsert spec content so it always wins over any stale orphaned row
+      // for this id (see tryInsertTask for the mt#2205 rationale).
+      await tx
+        .insert(taskSpecsTable)
+        .values({
+          taskId: id,
+          content: spec,
+          version: 1,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: taskSpecsTable.taskId,
+          set: { content: spec, updatedAt: new Date() },
+        });
+    });
 
     const kind = options?.kind || "implementation";
     return { id, title, status: "TODO", kind, backend: this.name, tags };
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
-    // Hard-delete the task metadata row.
-    const deleted = await this.db
-      .delete(tasksTable)
-      .where(eq(tasksTable.id, id))
-      .returning({ id: tasksTable.id });
+    // The purge + tombstone runs atomically: either the task row, its
+    // dependent rows, and the tombstone all commit, or none do. A partial
+    // failure here would leave the data-integrity-inconsistent states this
+    // fix exists to prevent — task gone but spec/embedding orphaned, or
+    // dependents deleted but no tombstone recorded (mt#2205).
+    return this.db.transaction(async (tx) => {
+      // Hard-delete the task metadata row.
+      const deleted = await tx
+        .delete(tasksTable)
+        .where(eq(tasksTable.id, id))
+        .returning({ id: tasksTable.id });
 
-    // Purge dependent rows. Migration 0011 dropped the ON DELETE CASCADE FKs
-    // that previously cleaned these automatically (mt#2205); without this,
-    // the spec and embedding rows are orphaned and — combined with ID
-    // reuse — re-associate with an unrelated future task, desyncing its
-    // title from its spec body. Always run these even when the task row was
-    // already absent, so a partially-orphaned state self-heals on re-delete.
-    await this.db.delete(taskSpecsTable).where(eq(taskSpecsTable.taskId, id));
-    await this.db.delete(tasksEmbeddingsTable).where(eq(tasksEmbeddingsTable.id, id));
+      // Purge dependent rows. Migration 0011 dropped the ON DELETE CASCADE FKs
+      // that previously cleaned these automatically (mt#2205); without this,
+      // the spec and embedding rows are orphaned. Always run these even when
+      // the task row was already absent, so a partially-orphaned state
+      // self-heals on re-delete.
+      await tx.delete(taskSpecsTable).where(eq(taskSpecsTable.taskId, id));
+      await tx.delete(tasksEmbeddingsTable).where(eq(tasksEmbeddingsTable.id, id));
 
-    // Record a tombstone so generateTaskId's high-water mark never recedes:
-    // a deleted ID is retired forever and never re-handed-out to a new task.
-    await this.db
-      .insert(deletedTaskIdsTable)
-      .values({ id, deletedAt: new Date() })
-      .onConflictDoNothing();
+      // Record a tombstone so generateTaskId's high-water mark never recedes:
+      // a deleted ID is retired forever and never re-handed-out to a new task.
+      await tx
+        .insert(deletedTaskIdsTable)
+        .values({ id, deletedAt: new Date() })
+        .onConflictDoNothing();
 
-    return deleted.length > 0;
+      return deleted.length > 0;
+    });
   }
 
   getWorkspacePath(): string {

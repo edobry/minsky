@@ -87,9 +87,15 @@ function makeRecordingDb(taskRowExists: boolean) {
           insertedValues.push(v);
           return {
             onConflictDoNothing: () => awaitable(undefined),
+            onConflictDoUpdate: (_args: unknown) => awaitable(undefined),
           };
         },
       };
+    },
+    // Run the callback against this same recording fake so the operations
+    // inside deleteTask's transaction are still recorded.
+    transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+      return fn(this);
     },
     // Unused by deleteTask but required by the interface.
     select() {
