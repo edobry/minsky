@@ -57,7 +57,7 @@
  */
 
 import { readFileSync, readdirSync, existsSync } from "fs";
-import { join } from "path";
+import { join, relative } from "path";
 
 /**
  * Env var that, when truthy (`1` / `true` / `yes`), skips the deploy-domain
@@ -442,11 +442,18 @@ export function runDeployDomainCheck(projectRoot: string): DeployDomainCheckResu
   const allowlist = loadControlledDomains(projectRoot);
   if (allowlist === null) return null;
 
-  const scannedFiles = discoverDeployConfigFiles(projectRoot);
+  // Key the file map by REPO-RELATIVE path so violation output is readable and
+  // consistent with the sibling guards (which report repo-relative paths), per
+  // PR #1453 reviewer feedback. discoverDeployConfigFiles returns absolute
+  // paths (needed to read); we convert to relative for keys + scannedFiles.
+  const absFiles = discoverDeployConfigFiles(projectRoot);
   const files = new Map<string, string>();
-  for (const abs of scannedFiles) {
+  const scannedFiles: string[] = [];
+  for (const abs of absFiles) {
+    const rel = relative(projectRoot, abs);
     try {
-      files.set(abs, String(readFileSync(abs, "utf-8")));
+      files.set(rel, String(readFileSync(abs, "utf-8")));
+      scannedFiles.push(rel);
     } catch {
       // Unreadable file (race with deletion, permissions) — skip; the check
       // is conservative and never blocks on its own inability to read.
