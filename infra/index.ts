@@ -107,7 +107,10 @@ export const siteService = new railway.Service("site", {
 
 defineVariables("site", siteEnv, siteServiceId, {
   NODE_ENV: plain("production"),
-  SITE_URL: plain("https://minsky.dev"),
+  // Real Railway serving URL. Custom marketing domain undecided (mt#2046);
+  // do not set this to a domain we do not control (mt#2193). `minsky.dev` is
+  // third-party-owned (verified 2026-05-31).
+  SITE_URL: plain("https://minsky-site-production.up.railway.app"),
 });
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # @minsky/site
 
-Marketing site for Minsky — the cyberbrain substrate. Deployed at https://minsky.dev (Railway, separate service).
+Marketing site for Minsky — the cyberbrain substrate. Deployed on Railway (separate service); serves at https://minsky-site-production.up.railway.app. A custom marketing domain is pending the brand-name decision (mt#2046) — do not assume `minsky.dev`, which is owned by a third party (verified 2026-05-31).
 
 ## Stack
 
@@ -79,8 +79,8 @@ rebuilds automatically; the site snapshot is the manual `build:talks` step above
 
 Deployed to Railway as its own service. Configuration lives in:
 
-- `services/site/railway.config.ts` — declarative service config (env vars, project/service/env IDs)
-- `services/site/deploy.config.ts` — platform declaration (Railway adapter)
+- `infra/index.ts` — canonical IaC: Railway service definition + env vars (Pulumi + TF bridge, mt#2110)
+- `services/site/deploy.config.ts` — platform declaration (Railway adapter); Railway project/service/environment IDs inlined here
 - `services/site/nixpacks.toml` — build/install/start commands
 
 The `minsky-site` Railway project + service already exist (pre-date this monorepo absorb — the prior Hono+static scaffold deployed here). The post-absorb deploy requires three Railway-side config flips on the service:
