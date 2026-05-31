@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icon/social-preview.png" alt="Minsky — the cyberbrain for software organizations" width="100%" />
+  <img src="assets/icon/social-preview.png" alt="Minsky — The cyberbrain for software organizations." width="100%" />
 </p>
 
 # Minsky
