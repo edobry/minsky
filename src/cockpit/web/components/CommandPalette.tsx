@@ -56,9 +56,13 @@ type PaletteEntity = PaletteTask | PaletteSession | PaletteAsk | PalettePage;
 const PAGES: PalettePage[] = [
   { type: "page", path: "/", label: "Home", description: "Dashboard overview" },
   { type: "page", path: "/agents", label: "Agents", description: "Sessions in flight" },
+  { type: "page", path: "/context", label: "Context", description: "Session context inspector" },
   { type: "page", path: "/workstreams", label: "Work Streams", description: "Active task workstreams" },
   { type: "page", path: "/tasks", label: "Task List", description: "Flat sortable task table" },
   { type: "page", path: "/tasks/graph", label: "Task Graph", description: "Dependency graph view" },
+  { type: "page", path: "/asks", label: "Asks", description: "Pending principal-attention asks" },
+  { type: "page", path: "/activity", label: "Activity", description: "System event log" },
+  { type: "page", path: "/embeddings", label: "Embeddings", description: "Provider health & index coverage" },
 ];
 
 // ---------------------------------------------------------------------------
