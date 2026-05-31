@@ -1,0 +1,161 @@
+#!/usr/bin/env bun
+// PreToolUse hook: block Bash / session_exec commands that reference a Minsky
+// session workspace path whose directory does not exist — the signature of a
+// guessed/constructed sessionId (mt#2195).
+//
+// Originating incident (memory 30f5d164, R1, 2026-05-31): the agent batched
+// session_start with ~10 dependent Bash/session_edit_file calls against a
+// guessed session path (f8a1e6d2-...; the real session was c49993dd-...).
+// Every guessed-path call failed with a raw `cd: no such file or directory`
+// after wasted turns. This guard catches it at the first call with a
+// diagnostic that names the actual cause: a constructed sessionId.
+//
+// Fail-open: any error allows the call (exit 0). Override:
+// MINSKY_SKIP_SESSION_PATH_CHECK=1.
+//
+// @see mt#2199 — always-injected root rule (one pipeline step per turn)
+// @see mt#2197 — pre-narration / fabricated-outcome detector hook
+// @see .claude/hooks/block-git-gh-cli.ts — PreToolUse deny-class template
+
+import { existsSync } from "node:fs";
+import { readInput, writeOutput } from "./types";
+import type { ToolHookInput } from "./types";
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/** Override env var: set to "1"/"true"/"yes" to allow guessed-looking paths. */
+export const OVERRIDE_ENV_VAR = "MINSKY_SKIP_SESSION_PATH_CHECK";
+
+/**
+ * Matches an absolute filesystem path that runs through
+ * `.../state/minsky/sessions/<sessionId>`. Capture group 1 = the path up to and
+ * including the `<sessionId>` segment; group 2 = the `<sessionId>`. Path chars
+ * exclude whitespace and quotes so quoted commands (`cd "<path>"`) match cleanly.
+ */
+export const SESSION_DIR_RE = /([^\s'"]*\/state\/minsky\/sessions\/([^/\s'"]+))/g;
+
+export interface MissingSessionRef {
+  /** The session-workspace directory path that does not exist. */
+  path: string;
+  /** The `<sessionId>` segment of that path. */
+  sessionId: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pure detection (exported for testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Find absolute session-workspace paths in a string whose directory does not
+ * exist on disk. Only absolute paths (leading "/") are checked; relative or
+ * ambiguous matches are skipped (fail-open — a relative path can't be resolved
+ * reliably from the hook's cwd). `exists` is injectable for tests.
+ */
+export function findMissingSessionPaths(
+  text: string,
+  exists: (p: string) => boolean = existsSync
+): MissingSessionRef[] {
+  const missing: MissingSessionRef[] = [];
+  if (!text) return missing;
+  const seen = new Set<string>();
+  // Fresh regex per call to avoid shared lastIndex state across invocations.
+  const re = new RegExp(SESSION_DIR_RE.source, "g");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const fullPath = m[1];
+    const sessionId = m[2];
+    if (!fullPath || !sessionId) continue;
+    if (!fullPath.startsWith("/")) continue; // only check absolute paths
+    if (seen.has(fullPath)) continue;
+    seen.add(fullPath);
+    if (!exists(fullPath)) {
+      missing.push({ path: fullPath, sessionId });
+    }
+  }
+  return missing;
+}
+
+/** Collect all string values from a tool_input object (command + any string args). */
+export function collectStrings(toolInput: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const v of Object.values(toolInput)) {
+    if (typeof v === "string") out.push(v);
+  }
+  return out;
+}
+
+/** Build the denial-reason message naming each nonexistent session path. */
+export function buildDenialReason(missing: MissingSessionRef[]): string {
+  const list = missing.map((r) => `  - ${r.path}  (sessionId: ${r.sessionId})`).join("\n");
+  return [
+    "This session path does not exist — did you construct/guess the sessionId before",
+    "`session_start` returned? Obtain the real sessionId from the session_start result",
+    "(or from `session_dir`), then use the path it returns. Never assemble a session",
+    "workspace path from a guessed id.",
+    "",
+    "Nonexistent session path(s):",
+    list,
+    "",
+    `Override (only if the path is intentionally absent): set ${OVERRIDE_ENV_VAR}=1.`,
+  ].join("\n");
+}
+
+/** Scan a tool_input for all distinct missing session paths. */
+export function findMissingInToolInput(
+  toolInput: Record<string, unknown>,
+  exists: (p: string) => boolean = existsSync
+): MissingSessionRef[] {
+  const missing: MissingSessionRef[] = [];
+  const seen = new Set<string>();
+  for (const s of collectStrings(toolInput)) {
+    for (const ref of findMissingSessionPaths(s, exists)) {
+      if (!seen.has(ref.path)) {
+        seen.add(ref.path);
+        missing.push(ref);
+      }
+    }
+  }
+  return missing;
+}
+
+// ---------------------------------------------------------------------------
+// Entry point (fail-open: any error allows the call)
+// ---------------------------------------------------------------------------
+
+if (import.meta.main) {
+  try {
+    const overrideVal = process.env[OVERRIDE_ENV_VAR];
+    const isOverride =
+      overrideVal === "1" ||
+      overrideVal?.toLowerCase() === "true" ||
+      overrideVal?.toLowerCase() === "yes";
+
+    const input = await readInput<ToolHookInput>();
+
+    if (isOverride) {
+      process.stdout.write(
+        `[check-guessed-session-path] OVERRIDE: ack=${overrideVal} session=${input.session_id ?? "unknown"} ts=${new Date().toISOString()}\n`
+      );
+      process.exit(0);
+    }
+
+    const missing = findMissingInToolInput(input.tool_input ?? {});
+    if (missing.length > 0) {
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: buildDenialReason(missing),
+        },
+      });
+    }
+    process.exit(0);
+  } catch (err) {
+    process.stderr.write(
+      `[check-guessed-session-path] fail-open: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+    process.exit(0);
+  }
+}
