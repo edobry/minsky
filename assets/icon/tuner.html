@@ -263,14 +263,22 @@ function buildExportSvg(p) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">\n  <path fill-rule="evenodd" fill="#00BFD8" d="${buildPathD(p)}"/>\n</svg>\n`;
 }
 
-// Read current params from input elements
+// Flat lookup: param key -> definition. Built once at module load.
+const PARAM_BY_KEY = {};
+for (const group of Object.values(PARAMS)) {
+  for (const p of group) PARAM_BY_KEY[p.key] = p;
+}
+
+// Read current params from input elements. Empty/invalid values coerce to the
+// parameter's default, and finite values are clamped to [min, max]. This keeps
+// the SVG path data finite regardless of what the user types into a number field
+// (clearing it, typing a stray letter, scrolling past the slider range, etc.).
 function readParams() {
   const out = {};
-  for (const group of Object.values(PARAMS)) {
-    for (const p of group) {
-      const el = document.getElementById(`num-${p.key}`);
-      out[p.key] = parseFloat(el.value);
-    }
+  for (const key of Object.keys(PARAM_BY_KEY)) {
+    const p = PARAM_BY_KEY[key];
+    const v = parseFloat(document.getElementById(`num-${key}`).value);
+    out[key] = Number.isFinite(v) ? Math.max(p.min, Math.min(p.max, v)) : p.def;
   }
   return out;
 }
@@ -358,7 +366,10 @@ function buildActions() {
     a.href = url;
     a.download = "minsky-icon-tuned.svg";
     a.click();
-    URL.revokeObjectURL(url);
+    // Defer revoke to the next task so the browser has time to dispatch the
+    // download. Synchronous revoke after a programmatic click can race the
+    // download in some browser implementations, producing a cancelled/empty file.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   });
   root.appendChild(exportBtn);
 
