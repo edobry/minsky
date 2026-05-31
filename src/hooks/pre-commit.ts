@@ -29,6 +29,11 @@ import {
   MIGRATION_JOURNAL_CHECK_OVERRIDE_ENV,
   type JournalEntry,
 } from "./migration-journal-check";
+import {
+  runDeployDomainCheck as runDeployDomainDetector,
+  isDeployDomainOverrideTruthy,
+  DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV,
+} from "./deploy-domain-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -131,6 +136,19 @@ export class PreCommitHook {
       const migrationJournalResult = await this.runMigrationJournalCheck();
       if (!migrationJournalResult.success) {
         return migrationJournalResult;
+      }
+
+      // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
+      // mt#2193). Verify every domain ASSERTED as a deployment target in
+      // deploy/site config (infra/index.ts SITE_URL, services/*/deploy.config.ts,
+      // services/*/astro.config.ts, services/*/README.md "Deployed at" claims)
+      // is a domain we actually control (listed in infra/controlled-domains.json).
+      // Prevents recurrence of the minsky.dev class: an illustrative example URL
+      // that hardened into authoritative config + a false "Deployed at" claim,
+      // never ownership-verified.
+      const deployDomainResult = await this.runDeployDomainCheck();
+      if (!deployDomainResult.success) {
+        return deployDomainResult;
       }
 
       // ── Medium-weight static analysis (~5s each) ──
@@ -899,6 +917,110 @@ export class PreCommitHook {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, message: `Migration journal check error: ${msg}`, exitCode: 1 };
+    }
+  }
+
+  /**
+   * Run the deploy-domain ownership check (mt#2208, live successor to mt#2193).
+   *
+   * Verifies every domain ASSERTED as a deployment target in deploy/site config
+   * is a domain we control (listed in `infra/controlled-domains.json`). Covers
+   * `infra/index.ts` (SITE_URL etc.), `services/<svc>/deploy.config.ts`,
+   * `services/<svc>/astro.config.ts`, and "Deployed at"/"serves at" claims in
+   * `services/<svc>/README.md`.
+   *
+   * Originating incident (2026-05-31): `minsky.dev`, an illustrative example URL
+   * from Jul-2025 analysis prose, hardened into authoritative deploy config and a
+   * false "Deployed at" README claim with no ownership-verification step; an agent
+   * later read it back as ground truth. `minsky.dev` is registered to a third
+   * party (verified via Cloudflare API + RDAP + crt.sh).
+   *
+   * The detector strips comments before extracting domains from code files and
+   * only extracts phrase-anchored domains from markdown, so the corrected repo's
+   * WARNING-comment mentions of `minsky.dev` ("do not set this to a domain we do
+   * not control") do not trip the check.
+   *
+   * Override: setting `MINSKY_SKIP_DEPLOY_DOMAIN_CHECK` to `1` / `true` / `yes`
+   * skips the check and emits a one-line audit message. Use only when the
+   * domain is genuinely controlled but not yet allowlisted AND the allowlist
+   * entry is being added separately.
+   *
+   * See `src/hooks/deploy-domain-detector.ts` for the pure-function detector
+   * this method wraps.
+   */
+  private async runDeployDomainCheck(): Promise<HookResult> {
+    if (isDeployDomainOverrideTruthy(process.env[DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:deploy-domain-check] override ${DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV}=${process.env[DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — deploy-domain ownership check skipped`
+      );
+      return {
+        success: true,
+        message: "Deploy-domain check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      const result = runDeployDomainDetector(this.projectRoot);
+
+      // null = no allowlist file => check inapplicable for this repo. Silent pass.
+      if (result === null) {
+        return {
+          success: true,
+          message: "Deploy-domain check inapplicable (no infra/controlled-domains.json)",
+          exitCode: 0,
+        };
+      }
+
+      if (result.violations.length === 0) {
+        return {
+          success: true,
+          message: `Deploy-domain check passed (${result.scannedFiles.length} file(s) scanned)`,
+          exitCode: 0,
+        };
+      }
+
+      log.cli("");
+      log.cli(`${result.violations.length} deploy-domain ownership violation(s). Commit blocked.`);
+      log.cli("");
+      for (const v of result.violations) {
+        log.cli(`   ${v.filePath}:${v.line} asserts deploy domain "${v.host}" (apex: ${v.apex})`);
+        log.cli(`     not in infra/controlled-domains.json`);
+        if (v.excerpt) {
+          log.cli(`     > ${v.excerpt}`);
+        }
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli("   - Tracking task:        mt#2208 (live successor to mt#2193)");
+      log.cli(
+        "   - Originating incident: minsky.dev hardened into config, never ownership-verified"
+      );
+      log.cli("   - Bridge memory:        ac1a6761 (assertion-without-verification family)");
+      log.cli("");
+      log.cli("A domain asserted as a deploy target must be one we actually control.");
+      log.cli("   If you DO control this domain, verify it (e.g. confirm it is a zone in");
+      log.cli("   our Cloudflare account) and add its apex/host to infra/controlled-domains.json.");
+      log.cli("");
+      log.cli(
+        `If the domain is controlled but not yet allowlisted, set ${DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV}=1 to override.`
+      );
+      log.cli("   The skip is audit-logged to stdout.");
+      return {
+        success: false,
+        message: `Deploy-domain check failed: ${result.violations.length} uncontrolled domain assertion(s)`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Deploy-domain check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Deploy-domain check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
     }
   }
 
