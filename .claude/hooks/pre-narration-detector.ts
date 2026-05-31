@@ -239,14 +239,10 @@ export function extractToolUseNames(turnLines: TranscriptLine[]): string[] {
       const n = line.name ?? line.tool_name;
       if (n) names.push(n);
     }
+    // Single pass over array content — covers assistant lines and any other
+    // line carrying tool_use blocks. (No assistant-specific second loop, which
+    // would double-count names before the Set dedup in detectPreNarration.)
     if (line.message?.content && Array.isArray(line.message.content)) {
-      for (const block of line.message.content as Array<Record<string, unknown>>) {
-        if (block["type"] === "tool_use" && typeof block["name"] === "string") {
-          names.push(block["name"] as string);
-        }
-      }
-    }
-    if (line.type === "assistant" && line.message?.content && Array.isArray(line.message.content)) {
       for (const block of line.message.content as Array<Record<string, unknown>>) {
         if (block["type"] === "tool_use" && typeof block["name"] === "string") {
           names.push(block["name"] as string);
