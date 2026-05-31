@@ -91,7 +91,7 @@ Pool all three sets, then map the disguised candidates back onto the real thing.
 
 **No candidate advances — including the current name — until it passes a prior-use screen.** A same-class registered mark is a disqualifier or a high-risk flag, not a footnote.
 
-**Motivating finding (2026-05-31).** `MINSKY` is a **LIVE, INCONTESTABLE** registered mark in **IC 042**: dMetrics, Inc., **U.S. Reg. 5855970** (Principal Register, standard-character, Sec. 8 & 15 accepted 2026-05-29, senior — first use 2015), the AI/NLP platform behind their ~$100M DoD contract. The original Lexicon analysis missed this collision entirely; the keep/rename implications are mt#2046's to weigh. This screen exists so the same gap never recurs at _proposal_ time — every candidate gets screened before it advances.
+**Motivating finding (2026-05-31).** `MINSKY` is a **LIVE, INCONTESTABLE** registered mark in **IC 042**: dMetrics, Inc., **U.S. Reg. 5855970** (Principal Register, standard-character, Sec. 8 & 15 accepted 2026-05-29, senior — first use 2015), the AI/NLP platform behind their ~$100M DoD contract. The original Lexicon analysis missed this collision entirely; the keep/rename implications are mt#2046's to weigh. This screen exists so the same gap never recurs at _proposal_ time — every candidate gets screened before it advances. **(NEEDS VERIFICATION — out-of-repo: these registration details come from USPTO/TSDR and memory `2021067b`, last checked 2026-05-31. Trademark status is mutable; reconfirm via TSDR or counsel before relying on it for a naming decision.)**
 
 **What to screen for.** Any registered or pending mark in the relevant classes:
 
