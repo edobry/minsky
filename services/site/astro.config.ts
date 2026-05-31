@@ -10,12 +10,16 @@ import type { AstroUserConfig } from "astro";
 // the correct type identity rather than a bottom (`never`/`any`) cast.
 type VitePlugins = NonNullable<NonNullable<AstroUserConfig["vite"]>["plugins"]>;
 
-// Default is the real Railway serving URL. The custom marketing domain is
-// undecided (see mt#2046 brand-name exploration); do NOT default this to a
-// domain we do not control. `minsky.dev` is owned by a third party (verified
-// 2026-05-31) — see mt#2193 (deploy-domain ownership guard).
-const SITE_URL = process.env.SITE_URL ?? "https://minsky-site-production.up.railway.app";
 const PORT = Number(process.env.PORT ?? 4321);
+// In production, default to the real Railway serving URL; in dev/preview default to
+// localhost so sitemap/canonical URLs don't leak the prod domain into local builds.
+// Custom marketing domain undecided (mt#2046); `minsky.dev` is third-party-owned (mt#2193).
+// Infra (Pulumi) sets SITE_URL explicitly in production regardless.
+const DEFAULT_SITE_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://minsky-site-production.up.railway.app"
+    : `http://localhost:${PORT}`;
+const SITE_URL = process.env.SITE_URL ?? DEFAULT_SITE_URL;
 
 export default defineConfig({
   site: SITE_URL,

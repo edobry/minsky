@@ -50,8 +50,8 @@ Static output lands in `services/site/dist/`.
 
 Deployed to Railway as its own service. Configuration lives in:
 
-- `services/site/railway.config.ts` — declarative service config (env vars, project/service/env IDs)
-- `services/site/deploy.config.ts` — platform declaration (Railway adapter)
+- `infra/index.ts` — canonical IaC: Railway service definition + env vars (Pulumi + TF bridge, mt#2110)
+- `services/site/deploy.config.ts` — platform declaration (Railway adapter); Railway project/service/environment IDs inlined here
 - `services/site/nixpacks.toml` — build/install/start commands
 
 The `minsky-site` Railway project + service already exist (pre-date this monorepo absorb — the prior Hono+static scaffold deployed here). The post-absorb deploy requires three Railway-side config flips on the service:
