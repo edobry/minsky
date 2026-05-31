@@ -15,10 +15,12 @@
  * - For the social-preview banner: **Geist** and **JetBrains Mono** fonts installed
  *   system-wide. The banner SVG (`assets/icon/social-preview.svg`) references both;
  *   rsvg-convert will silently fall back to other fonts if these are missing, producing
- *   a non-deterministic PNG. The script verifies their presence via `fc-list` and errors
- *   clearly if they are absent. Install via Google Fonts (Geist) and JetBrains
- *   (JetBrains Mono). The committed `assets/icon/social-preview.png` is the
- *   canonical render; regeneration requires the same fonts to match it.
+ *   a non-deterministic PNG. The script verifies their presence via `fc-list` and
+ *   **skips only the banner step with a clear warning** if they are absent — other
+ *   icon assets (PNG set, Tauri bundle, tray) regenerate normally. Install Geist from
+ *   https://vercel.com/font and JetBrains Mono from https://www.jetbrains.com/lp/mono/.
+ *   The committed `assets/icon/social-preview.png` is the canonical render; regeneration
+ *   requires the same fonts to match it byte-for-byte.
  *
  * Run with: `bun scripts/generate-icons.ts` or `bun run icons:generate`.
  */
@@ -62,24 +64,23 @@ if (isMacOS && !(await whichOk("iconutil"))) {
   process.exit(1);
 }
 
+// Banner-specific preflight: fc-list + required fonts. Failure here gates ONLY the
+// social-preview step, not the whole script — non-banner assets generate independently.
+let canRenderBanner = true;
+const bannerSkipReasons: string[] = [];
 if (!(await whichOk("fc-list"))) {
-  console.error(
-    "✗ fc-list not found on PATH — required for font preflight. Install fontconfig (`brew install fontconfig` on macOS)."
+  canRenderBanner = false;
+  bannerSkipReasons.push(
+    "fc-list not found on PATH (install fontconfig — `brew install fontconfig` on macOS)"
   );
-  process.exit(1);
-}
-
-const missingFonts: string[] = [];
-if (!(await fontInstalled("Geist"))) missingFonts.push("Geist");
-if (!(await fontInstalled("JetBrains Mono"))) missingFonts.push("JetBrains Mono");
-if (missingFonts.length > 0) {
-  console.error(
-    `✗ Required font(s) missing: ${missingFonts.join(", ")}. The social-preview banner SVG references these; rsvg-convert would silently fall back, producing a non-deterministic PNG.`
-  );
-  console.error(
-    "  Install Geist from https://vercel.com/font and JetBrains Mono from https://www.jetbrains.com/lp/mono/."
-  );
-  process.exit(1);
+} else {
+  const missingFonts: string[] = [];
+  if (!(await fontInstalled("Geist"))) missingFonts.push("Geist");
+  if (!(await fontInstalled("JetBrains Mono"))) missingFonts.push("JetBrains Mono");
+  if (missingFonts.length > 0) {
+    canRenderBanner = false;
+    bannerSkipReasons.push(`missing font(s): ${missingFonts.join(", ")}`);
+  }
 }
 
 mkdirSync(pngDir, { recursive: true });
@@ -146,9 +147,17 @@ if (isMacOS) {
 }
 
 // Social-preview banner (1280×640) — used as README header and GitHub repo social preview.
-// Font preflight above ensures Geist and JetBrains Mono are installed; rsvg-convert renders
-// with those fonts deterministically when present.
-await rsvgRect(sourceSocialPreview, join(repoRoot, "assets/icon/social-preview.png"), 1280, 640);
-console.log(`✓ ${join(repoRoot, "assets/icon/social-preview.png")}`);
+// Gated by the banner-specific preflight above. When fonts are missing, skip this step with
+// a clear warning instead of silently producing a non-deterministic PNG.
+if (canRenderBanner) {
+  await rsvgRect(sourceSocialPreview, join(repoRoot, "assets/icon/social-preview.png"), 1280, 640);
+  console.log(`✓ ${join(repoRoot, "assets/icon/social-preview.png")}`);
+} else {
+  console.log(`⚠ Skipping social-preview banner: ${bannerSkipReasons.join("; ")}.`);
+  console.log(
+    "  Install Geist (https://vercel.com/font) and JetBrains Mono (https://www.jetbrains.com/lp/mono/) to regenerate."
+  );
+  console.log("  The committed assets/icon/social-preview.png remains the canonical render.");
+}
 
 console.log("\nAll icons generated.");
