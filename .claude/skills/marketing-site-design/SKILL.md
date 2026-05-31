@@ -217,6 +217,29 @@ Output: the brief — myth, code, visual spec, vocabulary.
 
 Implement the hero + one feature section. Show it to a buyer-archetype reader. Ask: "what does this site naturalize?" If their answer matches the myth statement, the brief is working. If it does not, the visual choices are instantiating a different code; iterate.
 
+## 7a. Naming the surface (Lexicon framework)
+
+§7 picks the _myth_ for a new marketing surface; this section picks its _name_ — a microsite title, campaign name, launch handle, or a section/feature label that must read as Minsky. The foundation-layer encoding (five principles, sound-symbolism table, compound multiplier, anti-patterns) lives in [`minsky-brand`](../minsky-brand/SKILL.md) §7.1; for full end-to-end naming work invoke the [`name-product`](../name-product/SKILL.md) skill. This section is the marketing-surface cut.
+
+**Three-phase methodology (identify → invent → implement)** applied to a marketing surface:
+
+1. **Identify.** Run the bidirectional-behavior question (`minsky-brand` §7.1, principle 5) for _this surface_: how should the audience behave toward it, and it toward them? Run the diamond exercise below to surface the message that becomes the name.
+2. **Invent.** Generate candidates in _generative_ mode — suspend evaluation; ask "what could we do with this name?" not "is it good?". Pull from the sound-symbolism table and the compound-multiplier rule in `minsky-brand` §7.1; lean tangible over abstract.
+3. **Implement.** Screen survivors for polarization, compound fit, and code-coherence (`minsky-brand` §7.1 three checks) AND the mandatory trademark-collision screen (`name-product`). Only then derive the visual treatment per §7 Step 5.
+
+**The diamond exercise.** Four corners; iterate over days, not an hour:
+
+- **Win** — how do you define winning for this surface?
+- **Have to win** — the assets already in hand (locked myth, product proof, corpus).
+- **Need to win** — the gaps (what's missing to win).
+- **Have to say to win** — the message that closes the gap. _This message is what becomes the name._
+
+**The competitor drill.** Ask a buyer-archetype reader: _"We just got a new competitor and their name is X — what do you think about them?"_ This surfaces what the name does for the imagination, bypassing the evaluative reflex ("is it good?"). Run it on each finalist.
+
+**The not-like-the-other-guys signal.** When a reader says "they're not like the other guys" _before_ they know what the surface is for, the name is working — it has created _predisposition to consider_. This is the marketing-surface read on the same signal `analyze-adjacent-product` reads in competitors.
+
+**Polarization on first hearing.** Per `minsky-brand` §7.1, principle 2: if the team is comfortable with the surface name, it's too safe. Argument is energy, not weakness — don't sand a name down to consensus before launch, or you ship no name at all.
+
 ## 8. Anti-patterns (marketing-format specific)
 
 Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marketing surface. **For brand-foundation anti-patterns** (literal anime, Iron Man / JARVIS, Skynet futurism, mecha imagery, single-reference pastiche) see [`minsky-brand`](../minsky-brand/SKILL.md) §9.

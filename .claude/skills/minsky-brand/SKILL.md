@@ -147,6 +147,54 @@ Specific terms the brand can use, drawn from the layered references.
 | **Principal**                  | Minsky vocabulary            | The agent's primary — the human whose cognition Minsky extends.                                          | Don't substitute "user," "operator," or "customer" in brand-register copy.        |
 | **Mesh**                       | Minsky vocabulary            | The coordination substrate.                                                                              | Don't conflate with "graph" — the mesh is operational, not just a data structure. |
 
+### 7.1. Naming methodology for new locked primitives (Lexicon framework)
+
+Source: David Placek / Lexicon Branding (Sonos, PowerBook, Pentium, BlackBerry, Vercel, Windsurf, CapCut, Azure), distilled in the [Lexicon landscape analysis](https://www.notion.so/368937f03cb4811b8edffd072f71dce8) and memory `lexicon_branding_naming_framework` (id `7fb49583-f27c-4d2b-a00e-7839a4077370`). Substantive content stays canonical in the Notion analysis; this sub-section carries the operational frame for **adding a new term to the locked vocabulary (§7)** — a new operand, sub-product, or surface name. For end-to-end naming work (candidate generation, screening, trademark-collision check), invoke the [`name-product`](../name-product/SKILL.md) skill (the synthesis side). Its **analytical dual** is [`analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md): that skill _reads_ an existing name semiotically; `name-product` _generates_ one.
+
+This is a decision-default layer, **not** a rename trigger. The Minsky head-noun keep/rename question is **mt#2046's** call (see §7a); this sub-section governs naming _new_ primitives inside whatever register is locked.
+
+**Five load-bearing principles.**
+
+1. **Cumulative + asymmetric advantage.** A name is the most-repeated word a brand owns; it compounds through repetition (cumulative) and starts ahead of descriptive competitors (asymmetric). A distinctive primitive confers both; a descriptive one (`task-runner`, `agent-manager`) confers neither.
+2. **Polarization on first hearing is a strength signal.** Andy Grove's Pentium principle: arguing about a name is evidence of energy, not weakness. If the whole team is comfortable, the name is too safe — consensus-before-launch ≈ no name yet.
+3. **Story over statement.** _Azure_ starts a story; _cloud-pro_ makes a statement. A primitive that describes forecloses interpretation; one that opens a story invites engagement. (The same principle retired the `led by a principal` tagline qualifier — see §7a.)
+4. **Make intangible tangible.** Abstract products fail with sophisticated-coined names (Codium, Anthropic, Anduril); tangible physical metaphors win (Windsurf, BlackBerry, PowerBook). The more abstract the substrate, the more tangible its primitives must be — which is why the locked register reaches for physical-operational nouns (Mesh, Section, Cockpit, Flock).
+5. **Bidirectional behavior.** The right identify-phase question is "how does the marketplace behave toward you, and how do you behave toward it?" — not "what are your values / positioning / mission." This converges directly with Minsky's principal-substrate axis ([mt#1931](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1)).
+
+**Sound-symbolism reference table (Lexicon proprietary research).** Per-phoneme affect; a balanced name pairs noise-generating letters with smooth flow. **This table is the single source of truth** — `name-product` cites it rather than duplicating the text.
+
+| Phoneme    | Affect                                     | Exemplars                |
+| ---------- | ------------------------------------------ | ------------------------ |
+| **V**      | Most vibrant phoneme in English            | Corvette, Viagra, Vercel |
+| **Z**      | Noisy; generates signal in crowded markets | Azure                    |
+| **X**      | Fast, crisp, innovation-coded              | (X-class coinages)       |
+| **B**      | Most reliable / trust-coded                | BlackBerry (double-B)    |
+| **S / SH** | Noisy, signal-rich                         | Sonos, **Section**, sync |
+| **K / CK** | Sharp, fast, operative                     | Flock, **Mesh**          |
+| **M**      | Warm, low-intensity, maternal-coded        | mama / maman / mère      |
+| **L / N**  | Soft, neutral, low energy                  | —                        |
+
+**Locked-vocab gap analysis.** `MINSKY` decomposes to M-(I)-N-S-K-Y: **M** (warm, low-intensity) + **N** (soft, low energy) + **S** (signal-rich) + **K** (sharp, operative) — and **zero V / Z / X high-intensity phonemes.** The name's intensity ceiling is structurally capped. This is the linguistic reason the cyberbrain register is NOT carried by the name and MUST be carried by the adjacent surfaces (`pz-voice`, `marketing-site-design`, `cockpit-design`, `docs/brand-system.md`). The brand-surface investment is load-bearing by construction, not optional — a fact that holds regardless of the mt#2046 head-noun decision.
+
+**Compound multiplier (1 + 1 = 3).** Compounds multiply associations; each constituent brings its own semantic circle and the compound exponentiates them (PowerBook, BlackBerry, Facebook, Windsurf, DreamWorks). Minsky already realizes this at the **operand layer** — _Minsky Mesh_, _Minsky Cockpit_, _Minsky Section_, _Minsky Asks_ — a deliberate two-tier strategy: the referent (Minsky) above, compounding operands below. New primitives should compound with the locked operands rather than stand alone where a compound would multiply.
+
+**Processing fluency for coined primitives.** A coined word works when its morphemes are individually familiar (Vercel = `ver-` truth/verde + `-cel` accelerate); it fails when abstract-from-engineering reads as opaque (Codium). Coin new primitives from familiar morphemes, not from sophistication.
+
+**Three checks before adding a primitive to §7.**
+
+1. **Polarization** — does it provoke argument on first hearing? (Comfortable consensus = too safe.)
+2. **Compound** — does it multiply with the locked operands / referent (1 + 1 = 3), rather than sit as a lone token?
+3. **Code-coherence** — does it carry the Cyberbrain / Section 9 register (§2) and survive the bridge-as-affect heuristic (§3)?
+
+Before any candidate ships it must also pass the prior-use / **trademark-collision screen** — that screen lives in [`name-product`](../name-product/SKILL.md) and is mandatory (the `MINSKY` mark itself is contested; see §7a and mt#2046).
+
+**Anti-patterns at the naming layer.**
+
+- **Descriptive primitives** (`task-runner`, `review-bot-manager`) — statement not story; forfeits both cumulative and asymmetric advantage.
+- **Greek/Latin sophistication** (the Codium / Anthropic / Anduril shape) — abstract-coined where the substrate is already abstract; violates make-intangible-tangible.
+- **Single token where a compound would multiply** — a lone coinage where _Minsky <operand>_ would carry two semantic circles.
+- **Post-hoc sound-symbolism rationale** — retrofitting a phoneme story onto a name chosen for other reasons. This is the Pepsi/Arnell trap (§6) at the naming surface: cite the sound-symbolism first to _drive_ the choice, never to _dress up_ one already made.
+
 ### 7a. Note on the "led by a principal" qualifier (retired 2026-05-31)
 
 Earlier versions of this skill carried the foreground tagline as _"The cyberbrain for software organizations led by a principal."_ The qualifier `led by a principal` has been retired from the **foreground tagline form** as of 2026-05-31, on three grounds:
