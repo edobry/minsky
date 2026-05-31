@@ -421,7 +421,11 @@ async function executeMutations(
         quiet: quiet,
       });
 
-      if (!success && !quiet) {
+      if (success && !quiet) {
+        // Completion marker — paired with the "Installing dependencies..."
+        // line above so a successful (now-silent) install isn't ambiguous.
+        log.cli("Installed dependencies.");
+      } else if (!success && !quiet) {
         log.cli(`Warning: Dependency installation failed. You may need to run install manually.
 Error: ${error}`);
       }

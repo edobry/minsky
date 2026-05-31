@@ -216,7 +216,7 @@ describe("Package Manager Utilities with Dependency Injection", () => {
       expect(executedOptions.stdio).toBe("ignore");
     });
 
-    test("uses pipe stdio when not quiet (mt#2209: capture, don't stream)", async () => {
+    test("captures stdout/stderr but keeps stdin interactive when not quiet (mt#2209)", async () => {
       let executedOptions: any = null;
 
       mockDeps = createPartialMock<PackageManagerDependencies>({
@@ -234,7 +234,11 @@ describe("Package Manager Utilities with Dependency Injection", () => {
 
       await installDependencies("/fake/repo", { quiet: false }, mockDeps);
 
-      expect(executedOptions.stdio).toBe("pipe");
+      // 3-tuple: stdin inherited (prompts still work), stdout/stderr piped
+      // (captured, not streamed). A bounded maxBuffer guards against the
+      // default ~1MB cap throwing on verbose installs.
+      expect(executedOptions.stdio).toEqual(["inherit", "pipe", "pipe"]);
+      expect(executedOptions.maxBuffer).toBeGreaterThan(1024 * 1024);
     });
 
     test("surfaces captured stderr/stdout when the install fails (mt#2209)", async () => {

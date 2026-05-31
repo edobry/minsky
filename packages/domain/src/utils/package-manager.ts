@@ -30,7 +30,7 @@ export interface PackageManagerDependencies {
   process: {
     execSync: (
       command: string,
-      options?: { cwd?: string; stdio?: string | string[] }
+      options?: { cwd?: string; stdio?: string | string[]; maxBuffer?: number }
     ) => Buffer | null;
   };
   logger?: {
@@ -101,6 +101,15 @@ export function getInstallCommand(packageManager: PackageManager): string | unde
       return undefined;
   }
 }
+
+/**
+ * Cap for captured install stdout/stderr. execSync's default maxBuffer is
+ * ~1MB; once output is piped (rather than inherited), a verbose monorepo
+ * install can exceed that and throw ERR_CHILD_PROCESS_STDIO_MAXBUFFER. 64MB
+ * is comfortably above realistic install output while still bounding memory.
+ * (mt#2209)
+ */
+const INSTALL_OUTPUT_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /**
  * Coerce a captured stdio stream (Buffer | string | undefined) to a trimmed
@@ -181,16 +190,20 @@ export async function installDependencies(
       deps.logger.debug(`Installing dependencies using ${detectedPackageManager}...`);
     }
 
-    // Execute the install command. In non-quiet mode we CAPTURE the output
-    // ("pipe") rather than streaming it ("inherit"): a successful install's
-    // package list and progress bars are operationally useless noise that
-    // pollutes every `session start` (mt#2209). The captured output is
-    // discarded on success and surfaced only on failure (see the catch
-    // block via formatInstallError). quiet mode discards everything
-    // ("ignore").
+    // Execute the install command. In non-quiet mode we CAPTURE stdout/stderr
+    // (the two "pipe" slots) rather than streaming them, so a successful
+    // install's package list and progress bars don't pollute every
+    // `session start` (mt#2209). stdin stays attached to the TTY ("inherit")
+    // so a package manager or postinstall script that prompts still works
+    // interactively. The captured output is discarded on success and surfaced
+    // only on failure (see the catch block via formatInstallError). A generous
+    // maxBuffer avoids execSync's default ~1MB cap throwing
+    // ERR_CHILD_PROCESS_STDIO_MAXBUFFER on verbose installs. quiet mode
+    // discards everything ("ignore").
     const result = deps.process.execSync(installCmd, {
       cwd: repoPath,
-      stdio: options.quiet ? "ignore" : "pipe",
+      stdio: options.quiet ? "ignore" : ["inherit", "pipe", "pipe"],
+      maxBuffer: INSTALL_OUTPUT_MAX_BUFFER_BYTES,
     });
 
     // Handle the case where execSync returns null when stdio is "ignore"
