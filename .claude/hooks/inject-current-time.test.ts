@@ -1,39 +1,39 @@
 import { describe, expect, it } from "bun:test";
 import { buildTimeContext, TIME_INJECTION_OVERRIDE_ENV } from "./inject-current-time";
 
+// All tests pin timeZone explicitly so the suite is deterministic regardless
+// of CI/developer machine timezone (PR #1427 R1 BLOCKING fix).
+const UTC = "UTC";
+
 describe("buildTimeContext (mt#2181)", () => {
-  it("includes the day of week", () => {
-    // 2026-05-30 was a Saturday (verified via `date` in originating session)
-    const sat = new Date("2026-05-30T20:39:00Z");
-    const ctx = buildTimeContext(sat);
+  it("includes the day of week (UTC)", () => {
+    // 2026-05-30 in UTC is Saturday — verified via `date -u`.
+    const ctx = buildTimeContext(new Date("2026-05-30T20:39:00Z"), UTC);
     expect(ctx).toContain("Saturday");
   });
 
-  it("includes the ISO date (YYYY-MM-DD)", () => {
-    const d = new Date("2026-05-30T20:39:00Z");
-    const ctx = buildTimeContext(d);
+  it("includes the ISO date (YYYY-MM-DD) under the given timezone", () => {
+    const ctx = buildTimeContext(new Date("2026-05-30T20:39:00Z"), UTC);
     expect(ctx).toContain("2026-05-30");
   });
 
-  it("includes the UTC ISO timestamp", () => {
-    const d = new Date("2026-05-30T20:39:00Z");
-    const ctx = buildTimeContext(d);
+  it("includes the UTC ISO timestamp regardless of given timezone", () => {
+    const ctx = buildTimeContext(new Date("2026-05-30T20:39:00Z"), "America/New_York");
     expect(ctx).toContain("UTC: 2026-05-30T20:39:00Z");
   });
 
   it("starts with the canonical prefix", () => {
-    const ctx = buildTimeContext(new Date());
+    const ctx = buildTimeContext(new Date(), UTC);
     expect(ctx.startsWith("Current time: ")).toBe(true);
   });
 
   it("includes a numeric timezone offset (signed, 4-digit)", () => {
-    const ctx = buildTimeContext(new Date());
-    // The offset is either +HHMM or -HHMM (e.g., -0400 for EDT, +0000 for UTC)
+    const ctx = buildTimeContext(new Date(), UTC);
     expect(ctx).toMatch(/[+-]\d{4} \(UTC:/);
   });
 
-  it("produces day names for each weekday correctly (sanity)", () => {
-    // 2026-05-25 = Monday, 26 = Tuesday, ..., 31 = Sunday
+  it("produces day names for each UTC weekday correctly (sanity)", () => {
+    // 2026-05-25 (Mon) through 2026-05-31 (Sun) at noon UTC.
     const cases: Array<[string, string]> = [
       ["2026-05-25T12:00:00Z", "Monday"],
       ["2026-05-26T12:00:00Z", "Tuesday"],
@@ -44,14 +44,35 @@ describe("buildTimeContext (mt#2181)", () => {
       ["2026-05-31T12:00:00Z", "Sunday"],
     ];
     for (const [iso, expectedDay] of cases) {
-      const ctx = buildTimeContext(new Date(iso));
+      const ctx = buildTimeContext(new Date(iso), UTC);
       expect(ctx).toContain(expectedDay);
     }
   });
 
+  it("under UTC produces +0000 offset", () => {
+    const ctx = buildTimeContext(new Date("2026-05-30T20:39:00Z"), UTC);
+    expect(ctx).toContain("+0000");
+  });
+
+  it("under America/New_York in summer produces -0400 (EDT)", () => {
+    // 2026-05-30 is during DST, so NY is UTC-4
+    const ctx = buildTimeContext(new Date("2026-05-30T20:39:00Z"), "America/New_York");
+    expect(ctx).toContain("-0400");
+    // Local date in NY for 20:39Z is still 2026-05-30 (16:39 local)
+    expect(ctx).toContain("2026-05-30");
+  });
+
   it("is a single line (no embedded newlines)", () => {
-    const ctx = buildTimeContext(new Date());
+    const ctx = buildTimeContext(new Date(), UTC);
     expect(ctx).not.toContain("\n");
+  });
+
+  it("without explicit timeZone falls back to system local (smoke check)", () => {
+    // Just verify it doesn't throw and produces the canonical prefix; the
+    // exact day/date depends on the test runner's TZ which we don't pin here.
+    const ctx = buildTimeContext(new Date());
+    expect(ctx.startsWith("Current time: ")).toBe(true);
+    expect(ctx).toMatch(/UTC: \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/);
   });
 });
 

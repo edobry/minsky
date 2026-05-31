@@ -39,6 +39,11 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
  * Build the additionalContext string for a given Date. Pure function for
  * testability; the entrypoint passes `new Date()` at runtime.
  *
+ * @param now      — the moment to format
+ * @param timeZone — optional IANA timezone (e.g., "UTC", "America/New_York"). When
+ *                   omitted, the system's local timezone is used. Tests pass
+ *                   "UTC" to get deterministic output regardless of CI TZ.
+ *
  * Format example:
  *   "Current time: Saturday 2026-05-30 16:39:00 EDT-0400 (UTC: 2026-05-30T20:39:00Z)"
  *
@@ -48,28 +53,34 @@ export interface UserPromptSubmitInput extends ClaudeHookInput {
  *   - Local time with timezone abbreviation and numeric offset (both useful;
  *     the numeric offset is unambiguous, the abbreviation is human-readable)
  *   - UTC ISO timestamp (canonical for scheduling, logging, cross-region work)
+ *
+ * ICU note: timezone abbreviations and locale-specific date formats can vary
+ * across Bun/Node builds with minimal ICU data. `en-CA` is used for date
+ * because it canonically yields YYYY-MM-DD; `en-GB` for time because it yields
+ * 24h HH:MM:SS. If the runtime falls back to GMT±H instead of an abbreviation
+ * like EDT, the output is still well-formed and the agent can still read it.
  */
-export function buildTimeContext(now: Date): string {
-  const dayName = now.toLocaleDateString("en-US", { weekday: "long" });
-  const localDate = now.toLocaleDateString("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const localTime = now.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
+export function buildTimeContext(now: Date, timeZone?: string): string {
+  const localeOpts = (extra: Intl.DateTimeFormatOptions): Intl.DateTimeFormatOptions =>
+    timeZone ? { ...extra, timeZone } : extra;
+
+  const dayName = now.toLocaleDateString("en-US", localeOpts({ weekday: "long" }));
+  const localDate = now.toLocaleDateString(
+    "en-CA",
+    localeOpts({ year: "numeric", month: "2-digit", day: "2-digit" })
+  );
+  const localTime = now.toLocaleTimeString(
+    "en-GB",
+    localeOpts({ hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })
+  );
   // Timezone abbreviation (e.g., "EDT") and numeric offset (e.g., "-0400")
   const tzAbbr =
-    new Intl.DateTimeFormat("en-US", {
-      timeZoneName: "short",
-    })
+    new Intl.DateTimeFormat("en-US", localeOpts({ timeZoneName: "short" }))
       .formatToParts(now)
       .find((p) => p.type === "timeZoneName")?.value ?? "";
-  const offsetMin = now.getTimezoneOffset();
+  // When timeZone is given, compute its offset from UTC for the given instant.
+  // When not given, use the system's local offset (getTimezoneOffset).
+  const offsetMin = timeZone ? computeOffsetMinutesForZone(now, timeZone) : now.getTimezoneOffset();
   const offsetSign = offsetMin <= 0 ? "+" : "-";
   const offsetHours = String(Math.floor(Math.abs(offsetMin) / 60)).padStart(2, "0");
   const offsetMins = String(Math.abs(offsetMin) % 60).padStart(2, "0");
@@ -77,6 +88,44 @@ export function buildTimeContext(now: Date): string {
   const utcIso = now.toISOString().replace(/\.\d{3}Z$/, "Z");
 
   return `Current time: ${dayName} ${localDate} ${localTime} ${tzAbbr}${offsetStr} (UTC: ${utcIso})`;
+}
+
+/**
+ * Compute the offset-from-UTC (in minutes, JS-convention: positive means BEHIND
+ * UTC, matching `Date.prototype.getTimezoneOffset()`) for a given instant in a
+ * given IANA timezone. Used when `buildTimeContext` is called with an explicit
+ * timeZone (e.g., from tests).
+ */
+function computeOffsetMinutesForZone(now: Date, timeZone: string): number {
+  // Format the instant as parts in the target zone, then reconstruct the
+  // equivalent UTC instant and diff. This avoids depending on Intl's offset
+  // parts (which aren't universally available).
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: Intl.DateTimeFormatPartTypes): number => {
+    const v = parts.find((p) => p.type === type)?.value;
+    return v ? parseInt(v, 10) : 0;
+  };
+  const asUtcMs = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour") === 24 ? 0 : get("hour"),
+    get("minute"),
+    get("second")
+  );
+  // Round to nearest whole minute. `now.getTime()` includes sub-second
+  // precision; without rounding the offset becomes a fractional minute
+  // (e.g., 0.00541 for UTC), which formats as "0.00541" rather than "00".
+  return Math.round((now.getTime() - asUtcMs) / 60000);
 }
 
 /**
@@ -101,14 +150,18 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Read and discard the input — we don't need any of it; we always inject.
-  // readInput is called so that the stdin pipe is consumed (Claude Code may
-  // hang otherwise on some platforms if the hook never reads stdin).
+  // Read input. If parsing fails or the event isn't UserPromptSubmit, bail
+  // silently — garbage-in is no-op, matching the sibling-hook convention
+  // (memory-search.ts, skill-staleness-detector.ts). Don't inject context
+  // for unrelated tool events that might be misrouted to this script.
+  let input: UserPromptSubmitInput;
   try {
-    await readInput<UserPromptSubmitInput>();
+    input = await readInput<UserPromptSubmitInput>();
   } catch {
-    // Even if input parsing fails, we can still emit the time. The hook is
-    // informational; it should never block the user prompt.
+    return;
+  }
+  if (input.hook_event_name !== "UserPromptSubmit") {
+    return;
   }
 
   const output: HookOutput = {
