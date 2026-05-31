@@ -409,6 +409,12 @@ async function executeMutations(
 
   // Install dependencies if not skipped
   if (!skipInstall) {
+    // installDependencies captures (rather than streams) the package
+    // manager's output in non-quiet mode (mt#2209), so print a concise
+    // progress line here — otherwise this slow step would be silent.
+    if (!quiet) {
+      log.cli("Installing dependencies...");
+    }
     try {
       const { success, error } = await installDependencies(sessionDir, {
         packageManager: packageManager,
