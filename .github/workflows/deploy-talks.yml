@@ -1,0 +1,65 @@
+name: deploy-talks
+
+# Publishes the Slidev talk decks under talks/** to GitHub Pages.
+# Independent of the marketing-site (services/site) Railway deploy.
+#
+# URL (github.io project-page base): https://edobry.github.io/minsky/when-the-agent-is-wrong/
+# Each deck is built into its own subdirectory of the Pages artifact so
+# additional talks are added as sibling build steps, not a restructure.
+#
+# Custom domain (e.g. talks.minsky.dev) is deferred: when added, drop the
+# `/minsky` prefix from each --base (the deck's path becomes the domain-root
+# path) and add a CNAME file to the artifact root.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "talks/**"
+      - ".github/workflows/deploy-talks.yml"
+  workflow_dispatch:
+
+# Least-privilege: Pages deploy needs pages:write + id-token:write only.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent Pages deployment; let in-flight runs finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build "When the agent is wrong" deck
+        working-directory: talks/when-the-agent-is-wrong
+        run: |
+          bun install --frozen-lockfile
+          bun run build \
+            --base /minsky/when-the-agent-is-wrong/ \
+            --out ../../_site/when-the-agent-is-wrong
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
