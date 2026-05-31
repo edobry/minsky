@@ -10,7 +10,11 @@ import type { AstroUserConfig } from "astro";
 // the correct type identity rather than a bottom (`never`/`any`) cast.
 type VitePlugins = NonNullable<NonNullable<AstroUserConfig["vite"]>["plugins"]>;
 
-const SITE_URL = process.env.SITE_URL ?? "https://minsky.dev";
+// Default is the real Railway serving URL. The custom marketing domain is
+// undecided (see mt#2046 brand-name exploration); do NOT default this to a
+// domain we do not control. `minsky.dev` is owned by a third party (verified
+// 2026-05-31) — see mt#2193 (deploy-domain ownership guard).
+const SITE_URL = process.env.SITE_URL ?? "https://minsky-site-production.up.railway.app";
 const PORT = Number(process.env.PORT ?? 4321);
 
 export default defineConfig({

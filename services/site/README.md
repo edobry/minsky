@@ -1,6 +1,6 @@
 # @minsky/site
 
-Marketing site for Minsky — the cyberbrain substrate. Deployed at https://minsky.dev (Railway, separate service).
+Marketing site for Minsky — the cyberbrain substrate. Deployed on Railway (separate service); serves at https://minsky-site-production.up.railway.app. A custom marketing domain is pending the brand-name decision (mt#2046) — do not assume `minsky.dev`, which is owned by a third party (verified 2026-05-31).
 
 ## Stack
 
