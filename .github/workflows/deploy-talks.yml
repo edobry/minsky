@@ -3,13 +3,16 @@ name: deploy-talks
 # Publishes the Slidev talk decks under talks/** to GitHub Pages.
 # Independent of the marketing-site (services/site) Railway deploy.
 #
-# URL (github.io project-page base): https://edobry.github.io/minsky/when-the-agent-is-wrong/
-# Each deck is built into its own subdirectory of the Pages artifact so
-# additional talks are added as sibling build steps, not a restructure.
+# Decks are auto-discovered: every talks/<name>/ directory containing a
+# package.json is built into _site/<name>/ with base /minsky/<name>/, so
+# adding a talk requires NO workflow change. A root index.html links them.
 #
-# Custom domain (e.g. talks.minsky.dev) is deferred: when added, drop the
-# `/minsky` prefix from each --base (the deck's path becomes the domain-root
-# path) and add a CNAME file to the artifact root.
+# URLs (github.io project-page base):
+#   https://edobry.github.io/minsky/                       (index)
+#   https://edobry.github.io/minsky/when-the-agent-is-wrong/
+#
+# Custom domain (e.g. talks.minsky.dev) is deferred: when added, change the
+# base prefix below from /minsky to / and add a CNAME file to _site/.
 
 on:
   push:
@@ -30,6 +33,11 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
+# Base path prefix. github.io project page serves under /<repo>/; a custom
+# domain would serve under /. Change to "" when a custom domain is added.
+env:
+  BASE_PREFIX: /minsky
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,13 +48,60 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Build "When the agent is wrong" deck
-        working-directory: talks/when-the-agent-is-wrong
+      # Cache Bun's global install cache, keyed on every deck's lockfile.
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-talks-${{ hashFiles('talks/*/bun.lock') }}
+          restore-keys: |
+            bun-talks-
+
+      # Auto-discover and build every deck under talks/*/ with a package.json.
+      # GitHub Pages replaces the whole site per deploy, so ALL decks must be
+      # rebuilt each run — never just the changed one.
+      - name: Build all talk decks
         run: |
-          bun install --frozen-lockfile
-          bun run build \
-            --base /minsky/when-the-agent-is-wrong/ \
-            --out ../../_site/when-the-agent-is-wrong
+          set -euo pipefail
+          shopt -s nullglob
+          built=0
+          for deck in talks/*/; do
+            [ -f "${deck}package.json" ] || continue
+            name="$(basename "$deck")"
+            echo "::group::Building ${name}"
+            (
+              cd "$deck"
+              bun install --frozen-lockfile
+              bun run build \
+                --base "${BASE_PREFIX}/${name}/" \
+                --out "${GITHUB_WORKSPACE}/_site/${name}"
+            )
+            echo "::endgroup::"
+            built=$((built + 1))
+          done
+          if [ "$built" -eq 0 ]; then
+            echo "No talk decks found under talks/*/ with a package.json" >&2
+            exit 1
+          fi
+          echo "Built ${built} deck(s)."
+
+      # Minimal root index so the Pages root isn't a bare 404.
+      - name: Generate root index
+        run: |
+          set -euo pipefail
+          {
+            echo '<!doctype html>'
+            echo '<meta charset="utf-8">'
+            echo '<title>Minsky — talks</title>'
+            echo '<style>body{font:16px/1.6 system-ui,sans-serif;max-width:42rem;margin:4rem auto;padding:0 1rem}</style>'
+            echo '<h1>Minsky — talks</h1>'
+            echo '<ul>'
+            for deck in _site/*/; do
+              name="$(basename "$deck")"
+              echo "<li><a href=\"${BASE_PREFIX}/${name}/\">${name}</a></li>"
+            done
+            echo '</ul>'
+          } > _site/index.html
 
       - uses: actions/configure-pages@v5
 

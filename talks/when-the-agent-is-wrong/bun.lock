@@ -5,7 +5,7 @@
       "name": "when-the-agent-is-wrong",
       "dependencies": {
         "@slidev/cli": "^51.0.0",
-        "@slidev/theme-default": "latest",
+        "@slidev/theme-default": "^0.25.0",
       },
     },
   },
