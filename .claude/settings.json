@@ -327,6 +327,12 @@
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/retrospective-trigger-scanner.ts",
             "timeout": 10,
             "statusMessage": "Checking for retrospective trigger phrases..."
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-narration-detector.ts",
+            "timeout": 10,
+            "statusMessage": "Checking for pre-narrated tool outcomes..."
           }
         ]
       }
