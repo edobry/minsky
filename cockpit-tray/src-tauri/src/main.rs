@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const HEALTH_URL: &str = "http://localhost:3737/api/health";
 const COCKPIT_URL: &str = "http://localhost:3737";
@@ -53,8 +53,7 @@ fn main() {
                 .item(&quit_item)
                 .build()?;
 
-            let _tray = TrayIconBuilder::new()
-                .id("main")
+            let _tray = TrayIconBuilder::with_id("main")
                 .tooltip("Minsky Cockpit")
                 .icon(tauri::image::Image::from_bytes(include_bytes!(
                     "../icons/tray.png"
