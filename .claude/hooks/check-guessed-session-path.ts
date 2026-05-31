@@ -18,8 +18,8 @@
 // @see .claude/hooks/block-git-gh-cli.ts — PreToolUse deny-class template
 
 import { existsSync } from "node:fs";
-import { readInput, writeOutput } from "./types";
-import type { ToolHookInput } from "./types";
+import { readInput } from "./types";
+import type { ToolHookInput, HookOutput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -143,13 +143,15 @@ if (import.meta.main) {
 
     const missing = findMissingInToolInput(input.tool_input ?? {});
     if (missing.length > 0) {
-      writeOutput({
+      const output: HookOutput = {
         hookSpecificOutput: {
           hookEventName: "PreToolUse",
           permissionDecision: "deny",
           permissionDecisionReason: buildDenialReason(missing),
         },
-      });
+      };
+      // Emit with a trailing newline for line-oriented consumers (PR #1451 review).
+      process.stdout.write(`${JSON.stringify(output)}\n`);
     }
     process.exit(0);
   } catch (err) {
