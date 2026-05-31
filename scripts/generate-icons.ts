@@ -4,6 +4,7 @@
  *
  * Outputs:
  * - `assets/icon/png/{16,32,64,128,256,512,1024}.png` — multi-size PNG set
+ * - `assets/icon/social-preview.png` — 1280×640 social-preview banner (README header + GitHub repo social preview)
  * - `cockpit-tray/src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png` — Tauri bundle icons
  * - `cockpit-tray/src-tauri/icons/icon.icns` — macOS app icon
  * - `cockpit-tray/src-tauri/icons/tray.png` and `tray@2x.png` — menu bar tray icons (template)
@@ -20,6 +21,7 @@ import { $ } from "bun";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceColor = join(repoRoot, "assets/icon/minsky-icon.svg");
 const sourceTemplate = join(repoRoot, "assets/icon/minsky-icon-template.svg");
+const sourceSocialPreview = join(repoRoot, "assets/icon/social-preview.svg");
 
 const pngDir = join(repoRoot, "assets/icon/png");
 const tauriIconsDir = join(repoRoot, "cockpit-tray/src-tauri/icons");
@@ -30,6 +32,15 @@ mkdirSync(tauriIconsDir, { recursive: true });
 
 async function rsvg(input: string, output: string, size: number): Promise<void> {
   await $`rsvg-convert -w ${size} -h ${size} ${input} -o ${output}`;
+}
+
+async function rsvgRect(
+  input: string,
+  output: string,
+  width: number,
+  height: number
+): Promise<void> {
+  await $`rsvg-convert -w ${width} -h ${height} ${input} -o ${output}`;
 }
 
 // Generic multi-size PNG set
@@ -74,5 +85,9 @@ for (const [size, name] of icnsSizes) {
 await $`iconutil -c icns ${iconsetDir} -o ${join(tauriIconsDir, "icon.icns")}`;
 rmSync(iconsetDir, { recursive: true, force: true });
 console.log(`✓ ${join(tauriIconsDir, "icon.icns")}`);
+
+// Social-preview banner (1280×640) — used as README header and GitHub repo social preview
+await rsvgRect(sourceSocialPreview, join(repoRoot, "assets/icon/social-preview.png"), 1280, 640);
+console.log(`✓ ${join(repoRoot, "assets/icon/social-preview.png")}`);
 
 console.log("\nAll icons generated.");

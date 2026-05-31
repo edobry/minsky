@@ -1,8 +1,5 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/icon/minsky-icon-on-dark.svg" />
-    <img src="assets/icon/minsky-icon.svg" alt="Minsky" width="128" />
-  </picture>
+  <img src="assets/icon/social-preview.png" alt="Minsky — the cyberbrain for software organizations" width="100%" />
 </p>
 
 # Minsky

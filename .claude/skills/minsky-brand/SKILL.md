@@ -136,7 +136,7 @@ Specific terms the brand can use, drawn from the layered references.
 
 | Term                           | Source                       | Use                                                                                                      | Don't                                                                             |
 | ------------------------------ | ---------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| **Cyberbrain**                 | Ghost in the Shell           | Category name. _"The cyberbrain for software organizations led by a principal."_                         | Don't pluralize as "cyberbrains" in marketing copy.                               |
+| **Cyberbrain**                 | Ghost in the Shell           | Category name. Foreground tagline form: _"The cyberbrain for software organizations."_                   | Don't pluralize as "cyberbrains" in marketing copy.                               |
 | **Stand Alone Complex**        | Ghost in the Shell: SAC      | Operating principle for the mesh — independent agents converging on coordinated behavior. Use sparingly. | Don't flag-wave the reference; if a reader needs the citation explained, cut it.  |
 | **Sync rate** / **sync ratio** | Evangelion                   | Metric vocabulary for principal-flock coherence. Use as a recurring instrument motif.                    | Don't over-personify ("the agent's mood is at 73%").                              |
 | **Section**                    | Ghost in the Shell           | Unit-of-operation noun. _"A Section runs a specific workstream."_                                        | Don't capitalize mid-sentence unless naming a specific Section.                   |
@@ -146,6 +146,18 @@ Specific terms the brand can use, drawn from the layered references.
 | **Substrate**                  | Eugene's existing vocabulary | The thing Minsky is. Already canonical; heavy use is fine.                                               | —                                                                                 |
 | **Principal**                  | Minsky vocabulary            | The agent's primary — the human whose cognition Minsky extends.                                          | Don't substitute "user," "operator," or "customer" in brand-register copy.        |
 | **Mesh**                       | Minsky vocabulary            | The coordination substrate.                                                                              | Don't conflate with "graph" — the mesh is operational, not just a data structure. |
+
+### 7a. Note on the "led by a principal" qualifier (retired 2026-05-31)
+
+Earlier versions of this skill carried the foreground tagline as _"The cyberbrain for software organizations led by a principal."_ The qualifier `led by a principal` has been retired from the **foreground tagline form** as of 2026-05-31, on three grounds:
+
+1. **It conflicts with Eugene's own recursive reframe.** [Position: Levels of principality](https://www.notion.so/366937f03cb4812691c4db4cc44a0776) (mt#1953, 2026-05-20) is explicit: _"The binary distinction in the Principal Substrate paper — principal substrate vs. team substrate — is useful for analytical clarity but **misleading as ontology**. The two terms name different positions on a spectrum, not different categories."_ The qualifier presupposes the binary the recursive paper dissolves; "led by a principal" is true at every level of the recursion, which makes appending it to a foreground tagline either tautological (every level has a principal) or misleadingly level-specific (sounds like "single-leader hierarchy" — wrong).
+2. **It's opaque to first-time readers.** "Principal" is corpus jargon. Without position-paper context, readers either don't know what it means, interpret it as single-leader hierarchy, or wonder why the qualifier is there.
+3. **It violates the story-over-statement principle.** Per the [Lexicon Branding analysis](https://www.notion.so/368937f03cb4811b8edffd072f71dce8) (mt#2045 lineage), _"Azure starts a story; cloud-pro makes a statement."_ The bare "The cyberbrain for software organizations" starts a story; appending "led by a principal" constrains it toward a specific (and binary-coded) answer — statement-mode.
+
+**What survives intact:** the principal-substrate frame as **strategic positioning** in body copy, position papers, CLAUDE.md `§Principal Context`, `decision-defaults.mdc`, and product-design discipline. The recursive paper does not retire "principal" as a concept; it retires the binary as ontology. The `Principal` vocabulary term remains locked (see row in §7 above). What changes is only the foreground-tagline form: the qualifier is no longer appended to the customer-facing one-liner.
+
+**Provisional status.** This is a foreground-tagline retirement, not a final tagline decision. The longer-term tagline (and whether it changes again as part of any head-noun decision) is **coupled with mt#2046** (Brand-name exploration umbrella — should Minsky be renamed?). Treat the bare "The cyberbrain for software organizations." form as the provisional foreground until mt#2046's verdict lands.
 
 ## 8. Composition with `pz-voice` — signal vs. channel
 
