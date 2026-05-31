@@ -144,6 +144,11 @@ function createFakeDb(initialTasks: TaskRow[] = []) {
     delete(_table: unknown) {
       return { where: () => ({ returning: () => Promise.resolve([]) }) };
     },
+    // Run the callback against this same fake so the create path's
+    // transaction (mt#2205) records into the same task/spec maps.
+    transaction<T>(fn: (tx: MinskyBackendDb) => Promise<T>): Promise<T> {
+      return fn(this as unknown as MinskyBackendDb);
+    },
   };
 
   return fakeDb;
