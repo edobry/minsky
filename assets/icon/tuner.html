@@ -324,9 +324,9 @@ function buildControls() {
       const row = document.createElement("div");
       row.className = "row";
       row.innerHTML = `
-        <label><span class="name">${p.label}</span><span class="key">${p.key}</span></label>
-        <input id="num-${p.key}" type="number" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}">
-        <input id="rng-${p.key}" type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}">
+        <label for="num-${p.key}"><span class="name">${p.label}</span><span class="key">${p.key}</span></label>
+        <input id="num-${p.key}" type="number" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}" aria-label="${p.label} (${p.key})">
+        <input id="rng-${p.key}" type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${p.def}" aria-label="${p.label} slider (${p.key})">
       `;
       root.appendChild(row);
       const num = row.querySelector(`#num-${p.key}`);
