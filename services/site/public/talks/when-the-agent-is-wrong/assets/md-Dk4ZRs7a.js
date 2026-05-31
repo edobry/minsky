@@ -1,0 +1,61 @@
+import {
+  Y as n,
+  g as i,
+  aL as l,
+  f as e,
+  l as t,
+  M as p,
+  s as c,
+  af as s,
+} from "./modules/vue-D4u9h7Td.js";
+import { I as m } from "./slidev/default-Cw5Kcts5.js";
+import { u, f } from "./slidev/context-eddjAoUW.js";
+import "./index-Bjqpo1hl.js";
+import "./modules/shiki-CBR8dv5M.js";
+const b = {
+  __name: "slides.md__slidev_10",
+  setup(d) {
+    const { $clicksContext: r, $frontmatter: o } = u();
+    return (
+      r.setup(),
+      (_, a) => (
+        n(),
+        i(
+          m,
+          p(c(s(f)(s(o), 9))),
+          {
+            default: l(() => [
+              ...(a[0] ||
+                (a[0] = [
+                  e("p", null, [e("span", { class: "eyebrow" }, "Step 2 — classify")], -1),
+                  e("h2", null, "Verification Error", -1),
+                  e(
+                    "p",
+                    null,
+                    [
+                      t("The agent optimized for "),
+                      e("span", { class: "warn" }, "scope reduction"),
+                      t(" over "),
+                      e("span", { class: "highlight" }, "correctness"),
+                      t("."),
+                    ],
+                    -1
+                  ),
+                  e("p", null, "Web search tool available. Not used.", -1),
+                  e(
+                    "p",
+                    { class: "dim text-sm mt-8" },
+                    "Structural gap: no step in the implementation process requires verifying an architectural pattern against community practice.",
+                    -1
+                  ),
+                ])),
+            ]),
+            _: 1,
+          },
+          16
+        )
+      )
+    );
+  },
+};
+export { b as default };

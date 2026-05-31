@@ -45,6 +45,9 @@ export default [
       "build/**",
       "dist/**",
       "**/dist/**",
+      // Generated Slidev talk-deck build snapshot (committed for Railway serving;
+      // regenerate via `cd services/site && bun run build:talks`)
+      "services/site/public/talks/**",
       "vendor/**",
       "*.min.js",
       "*.bundle.js",

@@ -6,6 +6,10 @@ dist/
 out/
 coverage/
 
+# Generated Slidev talk-deck build snapshot (committed so Railway can serve it;
+# regenerate via `cd services/site && bun run build:talks`, not Prettier)
+services/site/public/talks/
+
 # Local Claude Code settings and worktrees
 .claude/settings.local.json
 .claude/worktrees/

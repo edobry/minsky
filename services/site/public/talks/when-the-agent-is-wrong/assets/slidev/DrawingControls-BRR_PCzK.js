@@ -1,0 +1,10 @@
+import { _ as o } from "./DrawingControls.vue_vue_type_style_index_0_lang-BHKf2Brs.js";
+import "../modules/vue-D4u9h7Td.js";
+import "../modules/shiki-CBR8dv5M.js";
+import "./SlideWrapper-DOw9mgBs.js";
+import "../index-Bjqpo1hl.js";
+import "./IconButton.vue_vue_type_script_setup_true_lang-DaELRGQo.js";
+import "./shortcuts-CtzYrQiz.js";
+import "./context-eddjAoUW.js";
+import "../modules/unplugin-icons-G2-mK4-T.js";
+export { o as default };

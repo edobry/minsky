@@ -11,7 +11,7 @@
  * astro.config.ts.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { log } from "./logger";
@@ -39,7 +39,7 @@ function tryPaths(pathname: string): string | null {
 
   for (const c of candidates) {
     const full = safeJoin(DIST_DIR, c);
-    if (full && existsSync(full)) return full;
+    if (full && existsSync(full) && statSync(full).isFile()) return full;
   }
   return null;
 }
@@ -59,6 +59,20 @@ const server = Bun.serve({
 
     const filePath = tryPaths(url.pathname);
     if (!filePath) {
+      // SPA fallback for client-routed talk decks: a deep link like
+      // /talks/<deck>/5 has no file on disk, so serve that deck's index.html
+      // (200) and let the deck's client-side router resolve the slide. Mirrors
+      // the _redirects rule slidev emits for Netlify/Cloudflare hosts.
+      const deckMatch = url.pathname.match(/^\/talks\/([^/]+)\//);
+      if (deckMatch) {
+        const deckIndex = safeJoin(DIST_DIR, join("talks", deckMatch[1], "index.html"));
+        if (deckIndex && existsSync(deckIndex)) {
+          return new Response(Bun.file(deckIndex), {
+            headers: { "content-type": "text/html; charset=utf-8" },
+          });
+        }
+      }
+
       const notFoundPath = safeJoin(DIST_DIR, "404.html");
       if (notFoundPath && existsSync(notFoundPath)) {
         return new Response(Bun.file(notFoundPath), {
