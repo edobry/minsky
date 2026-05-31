@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+/// <reference types="bun" />
 /**
  * Tiny Bun static-file server for the Astro build output at `services/site/dist/`.
  *

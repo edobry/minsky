@@ -12,7 +12,10 @@ export default defineConfig({
   trailingSlash: "never",
   integrations: [react(), sitemap()],
   vite: {
-    plugins: [tailwindcss()],
+    // @tailwindcss/vite ships its own Vite types, which skew from Astro's
+    // bundled Vite (Plugin<any>[] vs PluginOption). The plugin is runtime-correct;
+    // cast to satisfy the typecheck without deduping Vite across the monorepo.
+    plugins: [tailwindcss() as never],
   },
   server: {
     port: PORT,
