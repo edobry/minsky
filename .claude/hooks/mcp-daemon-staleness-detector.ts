@@ -1,13 +1,18 @@
 #!/usr/bin/env bun
 // UserPromptSubmit hook: detect when the MCP daemon started on a stale commit
-// and inject a warning so the agent can reconnect before the next tool call.
+// and inject context so the agent expects the staleness_exit + proxy respawn
+// (retry the next call, do not block on a manual /mcp).
 //
 // **Why this exists.** When a new commit lands in the Minsky repo (e.g., a PR
-// merges and you pull), the running MCP daemon still executes code from the
-// commit it was built at. Tool calls may fail or silently operate on stale
-// logic. This hook compares the daemon's start-commit (written by
-// `writeDaemonState()` in server.ts on startup) against the current HEAD of
-// the Minsky working tree, and warns when `src/` files have changed.
+// merges and you pull), the running MCP daemon was built at an older commit.
+// Rather than serve stale logic, the daemon's `staleness_exit` (mt#1315/mt#1322)
+// makes it exit on the next call; the stdio respawn proxy (mt#1714) then respawns
+// it at the new HEAD transparently, so the next call retries cleanly. This hook
+// surfaces the drift as context so the agent expects the one transient transport
+// error and retries — rather than blocking on a manual `/mcp`. It compares the
+// daemon's start-commit (written by `writeDaemonState()` in server.ts on startup)
+// against the current HEAD of the Minsky working tree, and warns when `src/`
+// files have changed.
 //
 // **Why this reads the state file inline.** The hook runs as a fresh
 // Bun subprocess. It cannot import from `src/mcp/daemon-state.ts` (which may
@@ -340,7 +345,7 @@ export function buildWarning(
   const lines = [
     `⚠️ Minsky MCP daemon is stale. Daemon started at commit ${startCommit.slice(0, 9)} (${startTimestamp}); HEAD is now ${currentHead.slice(0, 9)}. ${n} file${n === 1 ? "" : "s"} under src/ have changed since startup.`,
     ...pathLines,
-    `Run \`/mcp\` to reconnect Minsky before continuing — the next MCP tool call may operate on stale code or fail with a transport error.`,
+    `The next MCP tool call may return a single transport error as the stale daemon exits (staleness_exit, mt#1322) rather than serve stale code; the stdio respawn proxy (mt#1714, the default .mcp.json) then respawns it at the new HEAD automatically — just retry the call. Run \`/mcp\` only if retries keep failing (e.g. the proxy is not configured). Do not block work waiting on a manual reconnect.`,
   ];
 
   return lines.join("\n");
