@@ -11,6 +11,7 @@
  */
 
 import { safeTruncate } from "@minsky/shared/safe-truncate";
+import { parsePriorBodyFindings, type FlatPriorFinding } from "./severity-recovery";
 
 /**
  * A single prior review posted by the bot reviewer on this PR.
@@ -47,6 +48,18 @@ export interface PriorReviewEntry {
   isStale: boolean;
   /** Verbatim findings block extracted from the review body. */
   findingsMarkdown: string;
+  /**
+   * Structured findings ({severity, file, line}) parsed from the body.
+   * Populated ONLY for stale iterations (mt#2211). Stale iterations render
+   * from these structured fields instead of the verbatim `findingsMarkdown`,
+   * so the model cannot copy a stale finding's verbatim prose / code example
+   * forward across rounds — it must re-verify each location against the
+   * CURRENT diff. Undefined for non-stale (current-HEAD) iterations, which
+   * still render verbatim because they describe current content.
+   */
+  staleFindings?: FlatPriorFinding[];
+  /** Count of [BLOCKING] findings in the body — used in the stale fallback note (mt#2211). */
+  staleBlockingCount?: number;
 }
 
 /**
@@ -324,14 +337,26 @@ export function summarizePriorReviews(
     return { iterationCount: 0, reviews: [], markdown: "" };
   }
 
-  const entries: PriorReviewEntry[] = reviews.map((r, idx) => ({
-    iteration: idx + 1,
-    commitId: r.commitId,
-    state: r.state,
-    submittedAt: r.submittedAt,
-    isStale: r.commitId !== currentHeadSha,
-    findingsMarkdown: extractFindings(r.body),
-  }));
+  const entries: PriorReviewEntry[] = reviews.map((r, idx) => {
+    const isStale = r.commitId !== currentHeadSha;
+    return {
+      iteration: idx + 1,
+      commitId: r.commitId,
+      state: r.state,
+      submittedAt: r.submittedAt,
+      isStale,
+      findingsMarkdown: extractFindings(r.body),
+      // mt#2211: parse structured findings for stale iterations so the
+      // renderer can emit location+severity only (no carry-forward-prone
+      // verbatim text). Skipped for non-stale to avoid needless work.
+      ...(isStale
+        ? {
+            staleFindings: parsePriorBodyFindings(r.body),
+            staleBlockingCount: countBlockingFindings(r.body),
+          }
+        : {}),
+    };
+  });
 
   const markdown = renderSummary(entries);
 
@@ -398,6 +423,17 @@ function buildFullMarkdown(blocks: string[], totalCount: number, droppedCount: n
 
 function renderIterationBlock(entry: PriorReviewEntry): string {
   const staleMarker = entry.isStale ? " *(stale — posted against an older commit)*" : "";
+  // mt#2211: stale iterations render location+severity from structured fields
+  // instead of the verbatim body. The verbatim body of a stale finding (which
+  // may quote code that has since been fixed) is the self-anchoring carry-
+  // forward hazard — the model copies the stale quote forward across rounds
+  // and re-raises an already-fixed finding. Rendering only `severity · file:line`
+  // forces the model to re-verify each location against the CURRENT diff.
+  // Non-stale (current-HEAD) iterations still render verbatim because they
+  // describe current content and are not the hazard.
+  const findingsBody = entry.isStale
+    ? renderStaleFindings(entry.staleFindings ?? [], entry.staleBlockingCount ?? 0)
+    : entry.findingsMarkdown || "*(no findings extracted)*";
   const lines: string[] = [
     `### Iteration ${entry.iteration}${staleMarker}`,
     `- **State**: ${entry.state}`,
@@ -406,7 +442,38 @@ function renderIterationBlock(entry: PriorReviewEntry): string {
     "",
     "**Findings:**",
     "",
-    entry.findingsMarkdown || "*(no findings extracted)*",
+    findingsBody,
   ];
   return lines.join("\n");
+}
+
+/**
+ * Render a stale iteration's findings as structured location+severity entries
+ * (mt#2211). Deliberately omits the verbatim finding prose / embedded code
+ * examples — those are the self-anchoring carry-forward hazard that caused a
+ * persistent false-positive on PR #1447 (the model re-quoted a stale escaped-
+ * quote example across three rounds even though the current diff was clean).
+ *
+ * The structured entries preserve the convergence signal (which file:line at
+ * which severity was flagged) so the model can still check whether each prior
+ * concern was addressed — but it must re-derive the evidence from the CURRENT
+ * diff rather than copying the stale finding text. This is the data-layer
+ * complement to prompt.ts Principle 8 (which is advisory and empirically
+ * insufficient on its own).
+ */
+function renderStaleFindings(findings: FlatPriorFinding[], blockingCount: number): string {
+  const directive =
+    "*(Stale iteration — finding bodies are elided to prevent carry-forward of stale content. " +
+    "The entries below are location + severity only. Re-verify each against the CURRENT diff and " +
+    "cite current-diff evidence before re-raising, per Principle 8.)*";
+  if (findings.length === 0) {
+    const countNote = blockingCount > 0 ? ` (${blockingCount} were [BLOCKING])` : "";
+    return `${directive}\n\n*(No structured findings could be parsed from this iteration's body${countNote}.)*`;
+  }
+  const lines = findings.map((f) => {
+    const loc =
+      f.line !== undefined ? `:${f.line}${f.lineEnd !== undefined ? `-${f.lineEnd}` : ""}` : "";
+    return `- **[${f.severity}]** \`${f.file}${loc}\``;
+  });
+  return `${directive}\n\n${lines.join("\n")}`;
 }
