@@ -137,15 +137,23 @@ export class TaskSimilarityService {
     };
 
     // Adaptive over-fetch: size the candidate window from the observed pass-rate so we
-    // pull enough that ~`limit` survive the filter, with a safety multiplier and a
-    // floor, capped at the corpus size.
+    // pull enough that ~`limit` survive the filter, with a safety multiplier and a floor.
+    // Both the initial window AND the widen are hard-capped at MAX_CANDIDATES so a large
+    // corpus or an extreme-selectivity query can never trigger an unbounded full-index
+    // vector scan (`limit = total` would be slow and is mismatched against the actual
+    // embeddings count). At per-org scale this cap sits far above what any query needs;
+    // beyond it the right answer is the ADR-013 escape hatch (partial index /
+    // denormalize+trigger), not a bigger scan. If the cap is still too selective to fill
+    // `limit`, returning fewer results is acceptable and far better than the prior bug.
+    const OVERFETCH_SAFETY = 2;
+    const OVERFETCH_FLOOR = 50;
+    const MAX_CANDIDATES = 1000;
     const total = allTasks.length;
     const passing = allTasks.filter(passes).length;
     const passRate = passing > 0 ? passing / total : 0;
-    const OVERFETCH_SAFETY = 2;
-    const OVERFETCH_FLOOR = 50;
+    const candidateCeiling = Math.min(total, MAX_CANDIDATES);
     const candidateLimit = Math.min(
-      total,
+      candidateCeiling,
       Math.max(OVERFETCH_FLOOR, Math.ceil(limit / Math.max(passRate, 0.05)) * OVERFETCH_SAFETY)
     );
 
@@ -155,10 +163,13 @@ export class TaskSimilarityService {
     });
     let survivors = response.items.filter((i) => passes(taskById.get(i.id)));
 
-    // Widen-if-short: if the candidate window didn't yield `limit` survivors and we
-    // haven't already scanned the whole corpus, re-search across all candidates.
-    if (survivors.length < limit && candidateLimit < total) {
-      response = await this.getSearchService().search({ queryText: query, limit: total });
+    // Widen-if-short: if the initial window didn't yield `limit` survivors and a larger
+    // (still bounded) window is available, re-search up to the candidate ceiling.
+    if (survivors.length < limit && candidateLimit < candidateCeiling) {
+      response = await this.getSearchService().search({
+        queryText: query,
+        limit: candidateCeiling,
+      });
       survivors = response.items.filter((i) => passes(taskById.get(i.id)));
     }
 

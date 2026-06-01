@@ -1,9 +1,14 @@
-import { describe, it, expect, beforeEach, beforeAll } from "bun:test";
+import { describe, it, expect, beforeEach, beforeAll, afterAll } from "bun:test";
 import { TaskSimilarityService } from "../tasks/task-similarity-service";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage } from "../storage/vector/types";
 import { EmbeddingsSimilarityBackend } from "./backends/embeddings-backend";
 import { first } from "@minsky/shared/array-safety";
+
+// These suites force the embeddings backend unavailable by monkey-patching the prototype.
+// Capture the original so each suite can restore it in afterAll and not leak the patch into
+// other test files running in the same process.
+const ORIGINAL_EMBEDDINGS_IS_AVAILABLE = EmbeddingsSimilarityBackend.prototype.isAvailable;
 
 // Repoint task similarity to generic core by disabling embeddings backend and exercising lexical backend
 
@@ -54,6 +59,11 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
       async (id: string) => ({ content: specs[id] || "", specPath: "", task: {} as any }),
       {}
     );
+  });
+
+  afterAll(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
   });
 
   it("searchByText returns top-k ordered by lexical similarity", async () => {
@@ -123,6 +133,11 @@ describe("TaskSimilarityService read-time status filter (mt#2220 / ADR-013)", ()
       async (id: string) => ({ content: specs[id] || "", specPath: "", task: {} as any }),
       {}
     );
+  });
+
+  afterAll(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
   });
 
   it("default search excludes DONE/CLOSED tasks (filters on live status)", async () => {
