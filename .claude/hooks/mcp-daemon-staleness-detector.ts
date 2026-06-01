@@ -10,9 +10,9 @@
 // it at the new HEAD transparently, so the next call retries cleanly. This hook
 // surfaces the drift as context so the agent expects the one transient transport
 // error and retries — rather than blocking on a manual `/mcp`. It compares the
-// daemon's start-commit (written by `writeDaemonState()` in server.ts on startup)
-// against the current HEAD of the Minsky working tree, and warns when `src/`
-// files have changed.
+// daemon's start-commit (written by `writeDaemonState()` in `src/mcp/server.ts`
+// on startup) against the current HEAD of the Minsky working tree, and warns when
+// `src/` files have changed.
 //
 // **Why this reads the state file inline.** The hook runs as a fresh
 // Bun subprocess. It cannot import from `src/mcp/daemon-state.ts` (which may
@@ -345,7 +345,7 @@ export function buildWarning(
   const lines = [
     `⚠️ Minsky MCP daemon is stale. Daemon started at commit ${startCommit.slice(0, 9)} (${startTimestamp}); HEAD is now ${currentHead.slice(0, 9)}. ${n} file${n === 1 ? "" : "s"} under src/ have changed since startup.`,
     ...pathLines,
-    `The next MCP tool call may return a single transport error as the stale daemon exits (staleness_exit, mt#1322) rather than serve stale code; the stdio respawn proxy (mt#1714, the default .mcp.json) then respawns it at the new HEAD automatically — just retry the call. Run \`/mcp\` only if retries keep failing (e.g. the proxy is not configured). Do not block work waiting on a manual reconnect.`,
+    `The next MCP tool call may return a single transport error as the stale daemon exits rather than serve stale code; the stdio respawn proxy then respawns it at the new HEAD automatically — just retry the call. Run \`/mcp\` only if retries keep failing. Do not block work waiting on a manual reconnect.`,
   ];
 
   return lines.join("\n");
