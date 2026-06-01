@@ -28,17 +28,29 @@ import {
   type VectorDomain,
 } from "../../storage/schemas/embeddings-schema-factory";
 
-// Per-process default pool size. Intentionally small: Minsky shares a single
-// Supabase/Supavisor transaction-mode pooler across multiple consumers (laptop
-// MCP, Railway MCP, ad-hoc scripts). A high per-process max saturates the
-// pooler's global ceiling. Override via persistence.postgres.maxConnections
-// in config or MINSKY_POSTGRES_MAX_CONNECTIONS env var (mt#1193).
+// Per-process default pool size. Minsky shares a single Supabase/Supavisor
+// transaction-mode pooler (port 6543) across multiple long-lived consumers
+// (laptop MCP, Railway MCP, Railway reviewer, cockpit menu-bar app) plus
+// ephemeral probes. mt#1193 originally set this to 3 to keep the fleet under
+// the SESSION-mode pooler's hard 15-slot ceiling. After the 2026-04-24 swap to
+// the transaction-mode pooler (memory 63fbc195) that global ceiling is
+// effectively gone (practical ceiling in the thousands), so the value no longer
+// rations a scarce global budget. It now sizes per-process query FAN-OUT
+// concurrency: 15 lets a dashboard/handler issue ~15 parallel queries without
+// client-side queueing (the prior 3 produced gratuitous latency and starved
+// widgets that fan out, e.g. the 4-parallel-query path in mt#2183). Retuned to
+// 15 by mt#2224. Override via persistence.postgres.maxConnections in config or
+// the MINSKY_POSTGRES_MAX_CONNECTIONS env var.
 // Note: the transaction-mode pooler is the primary connection used for all
 // normal queries. For LISTEN/NOTIFY, a separate session-mode connection is
 // maintained via `getListenCapableSqlConnection()` (mt#1852).
-const DEFAULT_POSTGRES_MAX_CONNECTIONS = 3;
-// Upper bound matching the config schema's .max(100). Applied to env-var
-// overrides too so a misconfigured value can't re-saturate the pooler.
+const DEFAULT_POSTGRES_MAX_CONNECTIONS = 15;
+// Upper bound matching the config schema's .max(100). The env-var path
+// (MINSKY_POSTGRES_MAX_CONNECTIONS) bypasses Zod validation, so this clamp is
+// the only thing bounding it — kept after the mt#2224 audit: even though the
+// transaction pooler is no longer easy to saturate, 100 remains a sane
+// per-process ceiling and keeps the env-var path consistent with the schema's
+// .max(100).
 const MAX_POSTGRES_MAX_CONNECTIONS = 100;
 
 /**

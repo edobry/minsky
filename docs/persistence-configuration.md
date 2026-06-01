@@ -9,11 +9,23 @@ For common Postgres errors, see [SessionDB Troubleshooting Guide](./sessiondb-tr
 
 ### Default
 
-Each Minsky process opens a postgres-js connection pool with a **default maximum of 3 connections**.
-This is intentionally small. Minsky is designed to run as multiple concurrent processes (for
-example, a laptop MCP server and a Railway-hosted MCP server) all sharing the same
-Supabase/Supavisor session-mode pooler. A large per-process limit would quickly saturate the
-pooler's global connection ceiling.
+Each Minsky process opens a postgres-js connection pool with a **default maximum of 15 connections**
+(`DEFAULT_POSTGRES_MAX_CONNECTIONS`).
+
+Minsky runs as multiple concurrent processes (laptop MCP server, Railway-hosted MCP server,
+Railway reviewer service, cockpit menu-bar app) all sharing the same Supabase/Supavisor pooler.
+mt#1193 originally set this default to **3** to keep the fleet under the **session-mode** pooler's
+hard 15-slot global ceiling. After the 2026-04-24 migration to the Supavisor **transaction-mode**
+pooler (`:6543`), that global ceiling is effectively gone (practical ceiling in the thousands), so
+the per-process limit no longer rations a scarce global budget — it now sizes per-process query
+**fan-out concurrency** (how many parallel queries one process can issue without client-side
+queueing). mt#2224 retuned the default to **15**; at 3, dashboards/handlers that fan out parallel
+queries hit gratuitous queueing latency.
+
+> **If you switch back to the session-mode pooler (`:5432`, 15-slot hard ceiling)** — only needed
+> when session-scoped state like prepared statements, `LISTEN`, or advisory locks is required —
+> lower this per-process limit so the fleet stays under 15 total. The retry policy below still
+> applies in that case.
 
 ### Overriding the Pool Size
 
@@ -22,7 +34,7 @@ The pool size is resolved in priority order (highest wins):
 1. **Config file** — `persistence.postgres.maxConnections` in `.minsky/config.yaml` or
    `~/.config/minsky/config.yaml`
 2. **Environment variable** — `MINSKY_POSTGRES_MAX_CONNECTIONS`
-3. **Built-in default** — 3
+3. **Built-in default** — 15 (`DEFAULT_POSTGRES_MAX_CONNECTIONS`)
 
 Example config override:
 
@@ -56,9 +68,11 @@ the one set on the provider via the config key or env var described above.
 
 ## Connection-Exhaustion Retry Policy
 
-When Supavisor (session-mode pooler), PgBouncer, or Postgres itself rejects a new connection
-because the pool is full, Minsky retries the operation automatically rather than failing
-immediately.
+When Supavisor, PgBouncer, or Postgres itself rejects a new connection because the pool is full,
+Minsky retries the operation automatically rather than failing immediately. Under the current
+**transaction-mode** pooler (`:6543`) this rejection is unlikely (practical ceiling in the
+thousands); the policy remains as defense-in-depth and is the primary guard when running against
+the **session-mode** pooler (`:5432`, 15-slot ceiling).
 
 ### Conditions that trigger a retry
 
@@ -108,7 +122,7 @@ fails, the error is propagated to the caller.
 
 To investigate persistent pool saturation:
 
-1. Check how many Minsky MCP processes are running and their per-process pool size (default 3).
+1. Check how many Minsky MCP processes are running and their per-process pool size (default 15).
 2. Check the Supabase/Supavisor pooler's global connection limit.
 3. Consider reducing `maxConnections` per process or restarting idle MCP servers.
 
@@ -129,8 +143,10 @@ The same cleanup runs on **SIGINT** (Ctrl+C).
 
 Without explicit connection closing, Postgres-side sockets remain open until TCP keepalive timeout
 (minutes). During a rolling redeploy on Railway (or any platform that starts a new container
-while the old one drains), the old container's open connections count against the pooler's global
-ceiling. The new container then hits pool saturation and must wait or retry.
+while the old one drains), the old container's open connections linger. Under the session-mode
+pooler this counts against the global 15-slot ceiling and the new container hits pool saturation;
+under the transaction pooler saturation is unlikely, but releasing sockets promptly is still good
+hygiene (it avoids leaking idle connections during every redeploy).
 
 Graceful shutdown fixes this: the old container releases its slots before the new container
 starts, so the new container connects cleanly.
