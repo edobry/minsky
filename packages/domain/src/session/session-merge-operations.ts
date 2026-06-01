@@ -469,6 +469,40 @@ export interface SessionMergeParams {
    * An audit log entry at INFO level is emitted when the waiver is used.
    */
   acceptStaleReviewerSilence?: boolean;
+
+  /**
+   * Audited reviewer-convergence-failure bypass (mt#2215). When true, allows merge of a
+   * self-authored bot PR blocked by a CHANGES_REQUESTED review that is a verified
+   * false-positive (mt#2211), or by reviewer CoT-leakage / self-reversal / webhook silence
+   * (feedback_self_authored_pr_merge_constraints).
+   *
+   * Distinct from acceptStaleReviewerSilence: that waiver only covers reviewer ABSENCE and
+   * explicitly refuses when a CHANGES_REQUESTED review exists; forceBypass is the path for the
+   * CHANGES_REQUESTED-present case.
+   *
+   * Preconditions enforced (all must hold):
+   *   - bypassReason is a non-empty string.
+   *   - At least one prior review round occurred (rawReviews.length >= 1).
+   *   - At least one present (non-DISMISSED) CHANGES_REQUESTED review exists — forceBypass is the
+   *     CHANGES_REQUESTED-present path; the reviewer-absent case is acceptStaleReviewerSilence.
+   *   - No required status check is failing (CI-not-green), checked where status-check data is
+   *     available in the approval metadata.
+   *   - No non-approval merge blocker is active (draft / conflict / not-open).
+   *
+   * Behavior: auto-dismisses every non-DISMISSED CHANGES_REQUESTED review using bypassReason as
+   * the dismissal message, writes the canonical audit-trail signature plus bypassReason into the
+   * merge-commit body, and emits an INFO audit log entry. merge_method=merge is always enforced.
+   *
+   * Only used by session.pr.merge. Default: false.
+   */
+  forceBypass?: boolean;
+
+  /**
+   * Required when forceBypass is true: a non-empty evidence string explaining why the bypass is
+   * justified. Used as the CHANGES_REQUESTED dismissal message and written into the merge-commit
+   * body alongside the canonical bypass audit signature.
+   */
+  bypassReason?: string;
 }
 
 /**
@@ -618,6 +652,9 @@ export async function mergeSessionPr(
   const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
 
   // For GitHub backend, check approval status via API before proceeding
+  // Holds the canonical bypass audit signature when an audited force-bypass (mt#2215) is
+  // applied; threaded into the merge commit body via mergeOptions further below.
+  let bypassAuditMessage: string | undefined;
   if (hasGitHubPr && sessionRecord.pullRequest) {
     if (!params.json) {
       log.cli(`🔍 Checking GitHub PR approval & branch protection...`);
@@ -651,6 +688,8 @@ export async function mergeSessionPr(
 
       // Track whether the waiver path was taken (used for B1: correct success message)
       let waiverApplied = false;
+      // Track whether the audited force-bypass path (mt#2215) was taken.
+      let bypassApplied = false;
 
       if (!approvalStatus.isApproved) {
         // Check whether the operator-override waiver applies before blocking.
@@ -684,7 +723,131 @@ export async function mergeSessionPr(
           !hasReviewerBotReview &&
           hasCommentedReview;
 
-        if (waiverEligible) {
+        if (params.forceBypass === true) {
+          // ── Audited reviewer-convergence-failure bypass (mt#2215) ──────────────
+          // The CHANGES_REQUESTED-present path the acceptStaleReviewerSilence waiver refuses.
+          const reason = (params.bypassReason ?? "").trim();
+          if (!reason) {
+            throw new ValidationError(
+              `❌ forceBypass requires a non-empty bypassReason explaining why the bypass is ` +
+                `justified (e.g. the verified false-positive and its verification, or the ` +
+                `reviewer convergence-failure class).`
+            );
+          }
+
+          // Precondition: at least one prior review round must have occurred.
+          if (rawReviews.length < 1) {
+            throw new ValidationError(
+              `❌ forceBypass requires at least one prior review round to have occurred; none ` +
+                `found on PR #${sessionRecord.pullRequest.number}. The bypass is for reviewer ` +
+                `convergence FAILURE, not for skipping review entirely.`
+            );
+          }
+
+          // Precondition: CI must not be failing (checked where status-check data is available).
+          const statusChecks = approvalStatus.metadata?.github?.statusChecks ?? [];
+          const failingChecks = statusChecks
+            .filter((c) => c.state === "failure")
+            .map((c) => c.context);
+          if (failingChecks.length > 0) {
+            throw new ValidationError(
+              `❌ forceBypass refused: required status check(s) failing on PR ` +
+                `#${sessionRecord.pullRequest.number}: ${failingChecks.join(", ")}. ` +
+                `CI must be green on HEAD before a convergence-failure bypass.`
+            );
+          }
+
+          // Other merge blockers (draft / conflict / not-open) still apply.
+          if (approvalStatus.hasNonApprovalMergeBlockers) {
+            const blockerDesc =
+              approvalStatus.nonApprovalBlockerDescription ?? approvalStatus.prState ?? "unknown";
+            throw new ValidationError(
+              `❌ forceBypass refused: a non-approval merge blocker is active on PR ` +
+                `#${sessionRecord.pullRequest.number} (${blockerDesc}). The bypass addresses the ` +
+                `review gate only — resolve the underlying blocker (draft state, merge conflicts, ` +
+                `closed PR) before retrying.`
+            );
+          }
+
+          // Precondition: a present (non-DISMISSED) CHANGES_REQUESTED review MUST exist.
+          // forceBypass is specifically the CHANGES_REQUESTED-present path (verified
+          // false-positive / reviewer self-reversal / leakage-stale blocking review). The
+          // reviewer-ABSENT case (webhook-miss, no CHANGES_REQUESTED) is covered by
+          // acceptStaleReviewerSilence instead. Without this guard, any not-approved PR with
+          // >=1 review and green CI could be force-merged, broadening the bypass beyond intent.
+          const blockingReviews = rawReviews.filter((r) => r.state === "CHANGES_REQUESTED");
+          if (blockingReviews.length === 0) {
+            throw new ValidationError(
+              `❌ forceBypass refused: no present (non-DISMISSED) CHANGES_REQUESTED review on PR ` +
+                `#${sessionRecord.pullRequest.number}. forceBypass is the CHANGES_REQUESTED-present ` +
+                `path. If the merge is blocked only by reviewer ABSENCE (webhook-miss, no ` +
+                `CHANGES_REQUESTED), use acceptStaleReviewerSilence instead.`
+            );
+          }
+
+          // Fold-in dismissal: dismiss every present CHANGES_REQUESTED review using the supplied
+          // reason as evidence, clearing the GitHub-side review gate before merge. Uses the
+          // already-created repositoryBackend.review.dismissReview primitive — the same call
+          // session_pr_review_dismiss wraps — rather than re-creating a backend.
+          const dismissedReviewIds: string[] = [];
+          const dismissReview = repositoryBackend.review.dismissReview?.bind(
+            repositoryBackend.review
+          );
+          for (const review of blockingReviews) {
+            const reviewIdNum = Number(review.reviewId);
+            if (!Number.isInteger(reviewIdNum) || reviewIdNum <= 0) {
+              log.warn(
+                `forceBypass: skipping non-numeric review id "${review.reviewId}" on dismiss`
+              );
+              continue;
+            }
+            if (!dismissReview) {
+              log.warn(
+                `forceBypass: repository backend does not support review dismissal; ` +
+                  `review ${review.reviewId} left in place (merge will still proceed)`
+              );
+              continue;
+            }
+            try {
+              await dismissReview(sessionRecord.pullRequest.number, reviewIdNum, {
+                message: reason,
+              });
+              dismissedReviewIds.push(review.reviewId);
+            } catch (dismissError) {
+              // COMMENT-event reviews cannot be dismissed (GitHub 422); merge can still proceed.
+              log.warn(
+                `forceBypass: could not dismiss review ${review.reviewId} on PR ` +
+                  `#${sessionRecord.pullRequest.number}: ${getErrorMessage(dismissError)}`
+              );
+            }
+          }
+
+          const dismissedSummary = dismissedReviewIds.length
+            ? dismissedReviewIds.join(", ")
+            : "none";
+          log.info(
+            `FORCE-BYPASS: audited reviewer-convergence-failure bypass applied for PR ` +
+              `#${sessionRecord.pullRequest.number}. Reason: ${reason}. ` +
+              `Review rounds observed: ${rawReviews.length}. ` +
+              `CHANGES_REQUESTED dismissed: ${dismissedSummary}. ` +
+              `Per feedback_self_authored_pr_merge_constraints.`
+          );
+          if (!params.json) {
+            log.cli(
+              `⚠️  Audited force-bypass applied (mt#2215): ${reason}. ` +
+                `Canonical audit signature will be written to the merge commit.`
+            );
+          }
+
+          // Canonical audit-trail signature — consumed by /verify-task's bypass-merge closeout.
+          bypassAuditMessage =
+            `\n\nBot self-approval bypass per feedback_self_authored_pr_merge_constraints` +
+            `\nReason: ${reason}` +
+            `\nReview rounds observed: ${rawReviews.length}` +
+            `\nCHANGES_REQUESTED dismissed: ${dismissedSummary}`;
+          bypassApplied = true;
+          // Fall through to merge -- do not throw.
+        } else if (waiverEligible) {
           // Waiver only addresses the reviewer-bot-silence blocker, not other merge blockers.
           // Use hasNonApprovalMergeBlockers rather than canMerge: canMerge is always false
           // when isApproved=false (it includes isApproved in its computation), making it
@@ -791,6 +954,9 @@ export async function mergeSessionPr(
           log.cli(
             `PR proceeding via acceptStaleReviewerSilence waiver -- reviewer-bot review absent, waiver conditions met`
           );
+        } else if (bypassApplied) {
+          // The forceBypass branch already emitted its own audited cli message above.
+          log.cli(`PR proceeding via audited force-bypass (mt#2215)`);
         } else {
           log.cli(`✅ PR is approved and mergeable`);
         }
@@ -876,6 +1042,10 @@ export async function mergeSessionPr(
   // All of this is best-effort: any failure degrades gracefully to the
   // default (no trailers, default token) — it must never break the merge.
   const mergeOptions: MergePROptions = {};
+  // mt#2215: thread the canonical audited-bypass signature into the merge commit body.
+  if (bypassAuditMessage) {
+    mergeOptions.bypassAuditMessage = bypassAuditMessage;
+  }
   try {
     const prNumber =
       sessionRecord.backendType === "github" && sessionRecord.pullRequest

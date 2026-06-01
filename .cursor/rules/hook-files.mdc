@@ -63,6 +63,28 @@ of `gh api -X PUT /repos/.../pulls/.../merge`. The standard merge path is
 `mcp__minsky__session_pr_merge` after reviewer-bot APPROVE; the `gh api PUT` bypass
 is retired as a default mechanism (mt#1869).
 
+**Preferred bypass: in-band audited `session_pr_merge` `forceBypass` (mt#2215).** When a
+merge is blocked by a reviewer convergence failure — a verified false-positive
+`CHANGES_REQUESTED` (see mt#2211), reviewer CoT-leakage, or self-reversal — use the
+audited in-band mode instead of the raw `gh api PUT`:
+
+```
+mcp__minsky__session_pr_merge(task: "mt#<id>", forceBypass: true,
+  bypassReason: "<evidence: which review is a verified false-positive and why>")
+```
+
+`forceBypass` requires a non-empty `bypassReason`, requires ≥1 prior review round, refuses
+when a required status check is failing (where status-check data is available) and when any
+non-approval merge blocker is active (draft / conflict / closed), and requires a present
+(non-DISMISSED) `CHANGES_REQUESTED` review (the reviewer-ABSENT/webhook-miss case is
+`acceptStaleReviewerSilence` instead). It auto-dismisses the blocking review using
+`bypassReason` as evidence, writes the canonical audit signature
+(`Bot self-approval bypass per feedback_self_authored_pr_merge_constraints`) plus the reason
+into the merge-commit body, always uses `merge_method=merge`, and runs in-band so Minsky's
+session cleanup still fires. This is the path `/verify-task`'s bypass-merge closeout reads.
+The raw `gh api PUT` below remains only as the last-resort fallback when the in-band path is
+unavailable.
+
 **Hook file:** `.claude/hooks/block-subagent-bypass-merge.ts`
 
 **Two denial tiers:**

@@ -257,6 +257,14 @@ export interface MergePROptions {
   authorshipTier?: import("../provenance/types").AuthorshipTier;
   /** Git trailers string to append to the merge commit message (e.g. built by buildMergeTrailers). */
   mergeTrailers?: string;
+  /**
+   * Audited reviewer-convergence-failure bypass signature (mt#2215). When present, inserted into
+   * the merge commit body BEFORE any git trailers (trailers stay last so Co-authored-by parsing
+   * remains valid). Carries the canonical
+   * "Bot self-approval bypass per feedback_self_authored_pr_merge_constraints" signature plus the
+   * supplied reason — consumed by /verify-task's bypass-merge closeout.
+   */
+  bypassAuditMessage?: string;
   /** Override the token used for the merge API call. When absent, the default GitHubContext token is used. */
   tokenOverride?: () => Promise<string>;
 }

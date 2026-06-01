@@ -292,6 +292,33 @@ export const sessionMergeCommandParams = {
     required: false,
     defaultValue: false,
   },
+  forceBypass: {
+    schema: z.boolean(),
+    description:
+      "Audited reviewer-convergence-failure bypass (mt#2215): merge a self-authored bot PR " +
+      "blocked by a CHANGES_REQUESTED review that is a VERIFIED false-positive (per mt#2211), " +
+      "or by reviewer CoT-leakage / self-reversal / >5min webhook silence (per " +
+      "feedback_self_authored_pr_merge_constraints). Distinct from acceptStaleReviewerSilence, " +
+      "which only covers reviewer ABSENCE and refuses when CHANGES_REQUESTED exists. forceBypass " +
+      "requires a non-empty bypassReason, requires at least one prior review round to have " +
+      "occurred, refuses when a required status check is failing (CI-not-green, where " +
+      "status-check data is available) and when any " +
+      "non-approval merge blocker is active (draft / conflict / closed). It auto-dismisses every " +
+      "non-DISMISSED CHANGES_REQUESTED review (using bypassReason as the dismissal evidence) and " +
+      "writes the canonical audit-trail signature plus the reason into the merge-commit body. " +
+      "merge_method=merge is always enforced (never squash). Default: false.",
+    required: false,
+    defaultValue: false,
+  },
+  bypassReason: {
+    schema: z.string(),
+    description:
+      "Required when forceBypass=true: a non-empty evidence string explaining why the bypass is " +
+      "justified (e.g. which review was a verified false-positive and the verification, or the " +
+      "reviewer convergence-failure class). Used both as the CHANGES_REQUESTED dismissal message " +
+      "and written into the merge-commit body alongside the canonical bypass audit signature.",
+    required: false,
+  },
 };
 
 /**

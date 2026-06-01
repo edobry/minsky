@@ -623,6 +623,8 @@ export function createSessionPrMergeCommand(getDeps: LazySessionDeps): CommandDe
               json: params.json as boolean | undefined,
               cleanupSession: shouldCleanup,
               acceptStaleReviewerSilence: params.acceptStaleReviewerSilence as boolean | undefined,
+              forceBypass: params.forceBypass as boolean | undefined,
+              bypassReason: params.bypassReason as string | undefined,
             },
             buildSessionMergeDeps(deps, context.container, askRepository)
           );
