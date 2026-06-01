@@ -10,14 +10,34 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::menu::{MenuBuilder, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager, Wry};
 
 const HEALTH_URL: &str = "http://localhost:3737/api/health";
 const COCKPIT_URL: &str = "http://localhost:3737";
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const STATUS_MENU_ID: &str = "status";
+
+/// Handle to the dropdown status `MenuItem`, stored in Tauri managed state so
+/// the poll loop and the menu-event handler can update its text directly.
+///
+/// The menu is attached to the TRAY (`TrayIconBuilder::menu(&menu)`), not to the
+/// app, so `app.menu()` returns `None`. The previous implementation looked the
+/// status item up via `app.menu()`, so `set_text` silently no-op'd and the
+/// dropdown line stayed frozen on "Cockpit: checking..." while only the tooltip
+/// updated. Holding the item handle is the reliable path (mt#2240).
+struct StatusMenuItem(MenuItem<Wry>);
+
+/// Pure mapping from a health-poll result to the status label. Extracted so the
+/// label contract is unit-testable without the Tauri runtime (mt#2240 / mt#2226).
+fn status_label(healthy: bool) -> &'static str {
+    if healthy {
+        "Cockpit: running"
+    } else {
+        "Cockpit: stopped"
+    }
+}
 
 fn main() {
     tauri::Builder::default()
@@ -29,6 +49,9 @@ fn main() {
             let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
                 .enabled(false)
                 .build(app)?;
+            // Hold the status item in managed state so update_status can mutate
+            // it directly (the menu is on the tray, not app.menu()).
+            app.manage(StatusMenuItem(status_item.clone()));
             let open_item =
                 MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
             let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
@@ -95,12 +118,7 @@ fn main() {
 
                         if first_poll || healthy != was_running {
                             first_poll = false;
-                            let label = if healthy {
-                                "Cockpit: running"
-                            } else {
-                                "Cockpit: stopped"
-                            };
-                            let _ = update_status(&poll_handle, label);
+                            let _ = update_status(&poll_handle, status_label(healthy));
                         }
 
                         tokio::time::sleep(POLL_INTERVAL).await;
@@ -158,17 +176,27 @@ fn get_plist_path() -> String {
 }
 
 fn update_status(app: &AppHandle, label: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Update the menu item text so the status is visible in the dropdown
-    if let Some(menu) = app.menu() {
-        if let Some(item) = menu.get(STATUS_MENU_ID) {
-            if let Some(menu_item) = item.as_menuitem() {
-                let _ = menu_item.set_text(label);
-            }
-        }
+    // Update the dropdown status MenuItem via the handle held in managed state.
+    // The menu is attached to the tray, so `app.menu()` returns None and the
+    // old lookup silently no-op'd, freezing the line on "Cockpit: checking..."
+    // (mt#2240).
+    if let Some(status) = app.try_state::<StatusMenuItem>() {
+        let _ = status.0.set_text(label);
     }
-    // Also update the tooltip on the tray icon itself
+    // Also update the tooltip on the tray icon itself.
     if let Some(tray) = app.tray_by_id("main") {
         let _ = tray.set_tooltip(Some(label));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::status_label;
+
+    #[test]
+    fn status_label_maps_health_to_text() {
+        assert_eq!(status_label(true), "Cockpit: running");
+        assert_eq!(status_label(false), "Cockpit: stopped");
+    }
 }
