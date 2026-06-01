@@ -49,6 +49,14 @@ pattern for menu-bar daemon managers (Ollama, Docker Desktop's helper, etc.).
   or an unattended box).
 - **(c) App owns by default, launchd retained as an optional headless mode.** Chosen.
 
+### Relation to existing documentation
+
+This ADR is **forward-looking**. The current implementation still matches the older behavior
+described in `docs/architecture/cockpit.md` ("Daemon mode (mt#2140)") — launchd as the primary
+managed path and the tray app as a `launchctl` controller. That remains accurate until
+mt#2241 lands the supervisor model. When mt#2241 ships, `docs/architecture/cockpit.md` is
+updated to point at this ADR as the lifecycle source of truth.
+
 ## Decision
 
 We will make the **cockpit tray app the canonical owner and supervisor of the cockpit
@@ -96,6 +104,28 @@ launchd path remains a deliberate choice for headless contexts, not the default.
   optional launchd headless mode covers the genuine no-GUI case.
 - Pre-login/boot start is not provided by either path (the launchd entry is a LaunchAgent, not
   a system LaunchDaemon) — unchanged from today; out of scope.
+
+## Implementation notes and risks (non-normative)
+
+These are guidance for the mt#2241 implementation, not part of the decision:
+
+- **Adoption detection.** Prefer attempting the daemon's own bind and treating an
+  `EADDRINUSE` on `:3737` as "a daemon (or something) already owns the port", combined with a
+  health probe (`GET /api/health`) to confirm it is _our_ daemon before adopting. Bind-failure
+  alone proves the port is taken; the health probe disambiguates our daemon from an unrelated
+  listener.
+- **TOCTOU race.** There is a time-of-check/time-of-use gap between "probe says nothing is on
+  `:3737`" and "we spawn". Two app instances (or app + launchd headless) launching
+  concurrently could both decide to spawn. Mitigate by making the daemon's own startup bind
+  authoritative (the loser gets `EADDRINUSE` and the app falls back to adopt), rather than
+  relying on the pre-spawn probe as a lock. A user-level lockfile or single-instance guard on
+  the app is a secondary defense.
+- **Adopted vs spawned status source.** For a daemon the app spawned, derive status from the
+  child process handle (plus health poll). For an adopted/external daemon, fall back to the
+  health poll. Either way the poll must use a fresh connection per check (see mt#2225).
+- **launchd coexistence.** The optional headless launchd mode and the app must honor the
+  single-owner-of-`:3737` invariant: whichever binds first wins; the other adopts or defers.
+  Running both in "spawn" mode simultaneously is the misconfiguration to guard against.
 
 ## Cross-references
 
