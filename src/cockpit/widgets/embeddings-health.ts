@@ -27,21 +27,31 @@ async function fetchCoverage(): Promise<EmbeddingsHealthPayload["coverage"]> {
 
   const sql = rawSql as import("postgres").Sql;
 
-  const [tasksTotal, tasksIndexed, memoriesTotal, memoriesIndexed] = await Promise.all([
-    sql.unsafe("SELECT count(*)::int AS cnt FROM tasks"),
-    sql.unsafe("SELECT count(*)::int AS cnt FROM tasks_embeddings"),
-    sql.unsafe("SELECT count(*)::int AS cnt FROM memories"),
-    sql.unsafe("SELECT count(*)::int AS cnt FROM memories_embeddings"),
-  ]);
+  // Single aggregated query — cheaper than 4 parallel queries and avoids
+  // gratuitous connection-pool churn under polling load. (mt#2183: the 4-query
+  // form was correct but unnecessarily noisy.)
+  const rows = await sql`
+    SELECT
+      (SELECT count(*)::int FROM tasks) AS tasks_total,
+      (SELECT count(*)::int FROM tasks_embeddings) AS tasks_indexed,
+      (SELECT count(*)::int FROM memories) AS memories_total,
+      (SELECT count(*)::int FROM memories_embeddings) AS memories_indexed
+  `;
+  const row = (rows[0] ?? {}) as {
+    tasks_total?: number;
+    tasks_indexed?: number;
+    memories_total?: number;
+    memories_indexed?: number;
+  };
 
   return {
     tasks: {
-      total: tasksTotal[0]?.cnt ?? 0,
-      indexed: tasksIndexed[0]?.cnt ?? 0,
+      total: row.tasks_total ?? 0,
+      indexed: row.tasks_indexed ?? 0,
     },
     memories: {
-      total: memoriesTotal[0]?.cnt ?? 0,
-      indexed: memoriesIndexed[0]?.cnt ?? 0,
+      total: row.memories_total ?? 0,
+      indexed: row.memories_indexed ?? 0,
     },
   };
 }
