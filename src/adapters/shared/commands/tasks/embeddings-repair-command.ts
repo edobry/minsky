@@ -21,7 +21,7 @@ interface EmbeddingsRepairParams extends BaseTaskParams {
 export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepairParams> {
   readonly id = "tasks.embeddings-repair";
   readonly name = "embeddings-repair";
-  readonly description = "Remove orphaned embeddings and report stale entries";
+  readonly description = "Remove orphaned embeddings and report entries missing a content hash";
   readonly parameters = embeddingsRepairParams;
 
   async execute(params: EmbeddingsRepairParams, ctx: CommandExecutionContext) {
