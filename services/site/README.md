@@ -63,6 +63,21 @@ bun run build:talks   # rebuilds talks/when-the-agent-is-wrong into public/talks
 
 Then commit the regenerated `public/talks/...` output.
 
+**Prerequisites for `build:talks`.** The script `cd`s into the deck subproject and runs
+`bun install --frozen-lockfile` before `slidev build`, so it requires **bun** (not
+npm/yarn/pnpm) and a committed, up-to-date `talks/when-the-agent-is-wrong/bun.lock`. This
+matches the repo-wide bun mandate; it is intentionally not tool-agnostic. If the lockfile
+drifts, `--frozen-lockfile` fails fast — run `bun install` in the deck dir, commit the
+updated `bun.lock`, then re-run `build:talks`.
+
+**Security note — vendored slidev bundle.** The committed snapshot includes slidev's
+vendored presenter-notes renderer (`assets/slidev/NoteDisplay.*.js`), which assigns
+author-authored notes via `innerHTML`. This is upstream slidev's generated code, not ours;
+the notes are authored by us (not untrusted third-party input) and the deck is served as a
+read-only static snapshot, so the `innerHTML` path is not an exploitable XSS sink in this
+context. No CSP is applied (a site-wide CSP is out of scope here; see mt#2198). If decks
+ever render externally-supplied content, revisit with a `/talks/*` CSP as defense-in-depth.
+
 **SPA deep links.** Slidev decks are client-routed SPAs; `/talks/<deck>/5` has no
 file on disk. `src/server.ts` has an SPA fallback that serves the deck's
 `index.html` (200) for any unmatched `/talks/<deck>/*` path, so deep links to a

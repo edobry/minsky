@@ -39,7 +39,17 @@ function tryPaths(pathname: string): string | null {
 
   for (const c of candidates) {
     const full = safeJoin(DIST_DIR, c);
-    if (full && existsSync(full) && statSync(full).isFile()) return full;
+    if (!full) continue;
+    try {
+      // statSync subsumes the existence probe (ENOENT throws) and closes the
+      // existsSync->statSync TOCTOU gap. It can also throw on a race (file
+      // removed mid-request) or a permission error (EACCES) even when the path
+      // exists — treat any throw as "not a servable file" and fall through to
+      // the next candidate rather than surfacing a 500.
+      if (statSync(full).isFile()) return full;
+    } catch {
+      continue;
+    }
   }
   return null;
 }

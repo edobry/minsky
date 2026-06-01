@@ -524,13 +524,13 @@ A stateless agent has strong System 1 â€” it can do work. It has some System 5 â
 <div class="resource">
 <img src="./assets/qr-repo.svg" alt="QR code linking to the Minsky GitHub repository" class="qr" />
 <span class="resource-label">Repo</span>
-<span class="resource-url">github.com/edobry/minsky</span>
+<span class="resource-url">https://github.com/edobry/minsky</span>
 </div>
 
 <div class="resource">
 <img src="./assets/qr-slides.svg" alt="QR code linking to these slides" class="qr" />
 <span class="resource-label">Slides</span>
-<span class="resource-url">edobry.github.io/minsky/when-the-agent-is-wrong</span>
+<span class="resource-url">https://edobry.github.io/minsky/when-the-agent-is-wrong</span>
 </div>
 
 </div>
