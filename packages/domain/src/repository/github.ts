@@ -695,7 +695,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
           prIdentifier,
           (prNum: number, octokit: Octokit) => diagnoseMergeBlocker(gh, prNum, octokit),
           options?.mergeTrailers,
-          options?.tokenOverride
+          options?.tokenOverride,
+          options?.bypassAuditMessage
         );
       },
 
