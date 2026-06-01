@@ -52,6 +52,8 @@ a status transition; everything else is investigation and gate-check.
   - (j) Premise label verification (letter \`i\` intentionally skipped to avoid confusion
     with the Roman-numeral premise-audit labels \`(i)\`/\`(ii)\`/\`(iii)\`/\`(iv)\` used in Step 2.5)
   - (k) Third-party tool/dependency verification
+  - (m) Factual-claim citation verification (letter \`l\` reserved for the
+    security-surface community-practice check, mt#2090)
 - Step 4: Act on gate results
 
 ### Step 1: Transition to PLANNING (idempotent)
@@ -131,6 +133,32 @@ the tactical patch.
 operation being patched into its constituent parts. Ask: "What are the actual sub-operations
 of this thing? Are they being conflated?" Apply Socratic decomposition of the operation
 being patched as part of this check — not just pattern-matching on cluster shape.
+
+**Architecture-consistency sub-check (mt#1856).** When the spec proposes a **new
+capability, abstraction, substrate, or module**, it must name one of: (a) **which
+existing pattern it extends** — a sibling ADR's capability slot (e.g., an ADR-002
+persistence-provider capability), an existing module's interface, an established
+convention; OR (b) **explicit justification for a new pattern** — why the existing
+pattern doesn't fit and what alternatives were rejected. A spec that introduces a new
+structural element without naming the extend-vs-introduce choice fails this sub-check.
+Originating incident (2026-05-15, mt#1852 / ADR-010): the substrate choice was framed
+as novel without checking it against the existing \`project_supabase\` pattern, which
+let "session vs transaction pool mode" and "pooled vs direct connection" collapse under
+the salient phrase "no LISTEN/NOTIFY."
+
+**Design-intent-assertion citation sub-check (mt#1676).** When the recommendation depends
+on an **asserted claim about Minsky's design intent** — trigger phrases such as "X is part
+of Minsky's design intent," "the right move per the strategic frame," "X is the role of
+surface Y," "this surface is for A, not B," "the design trajectory is Z" — the gate requires
+the agent to either (a) **cite a specific corpus source** (task ID, memory ID, Notion page
+ID, ADR number, CLAUDE.md section), or (b) **explicitly disclaim it as a hypothesis** ("I'm
+asserting this without evidence; treat as hypothesis"). If neither is present, the sub-check
+fails — surface the gap before recommending the action. This is the _asserting_ direction
+(agent invents a frame to justify a tactical preference); \`feedback_strategic_reframe_first\`
+covers the _connecting_ direction (user's tactical ask → existing frame). Originating incident
+(2026-05-08 hosted-MCP framing failure): the agent asserted "hosted MCP is the task-management
+substrate, not a session-runner" with no evidence and against the actual corpus (mt#263,
+mt#190, Progressive Adoption Model T4).
 
 If no structural issue is suspected: "(iv) No recurring pattern identified; tactical fix is appropriate."
 
@@ -473,6 +501,60 @@ at spec-authoring time\`) is the precedent memory this gate formalizes; once thi
 that memory's job becomes historical record + pointer here. Mechanization path: mt#1541
 (Surface 1 policy-coverage detector, graduating to enforcing mode).
 
+#### Gate criterion (m) — Factual-claim citation verification
+
+When the spec (or amendment) **cites a memory ID, rule section, or doc passage** AND that
+citation is used to justify a **structural choice** (substrate, capability, abstraction
+boundary, "new vs extended pattern"), the agent MUST produce a three-step citation-and-mapping
+protocol BEFORE the structural choice is encoded. This is the factual-content sibling of gate
+(j): gate (j) verifies a categorization _label_ against its defining rule; gate (m) verifies a
+_factual claim_ against its cited source.
+
+Rationale: the memory-snippet-conflation pattern. The agent retrieves a source correctly, then
+a salient phrase in it becomes the anchor for the rendering while adjacent qualifying sentences
+are silently dropped — the artifact lands with a near-but-different technical framing. The
+information was in context; the encoding step skipped re-verification. Citation is mechanical;
+introspection ("is this a conflation?") is unreliable — so the protocol forces a verbatim quote
+and an explicit mapping the agent cannot fluently rationalize past.
+
+**Trigger condition.** Fires when a structural choice in the spec rests on a cited memory / rule /
+doc passage. If no cited claim drives a structural choice, the criterion passes automatically:
+"(m) No cited factual claim drives a structural choice — criterion passes."
+
+**Required three-step protocol (when triggered):**
+
+1. **Verbatim quote** of the cited text — copied exactly from the source (\`memory_get\`, the
+   rule file, the doc), not paraphrased. Paraphrase is where conflation re-enters.
+2. **Explicit mapping** of how the structural choice follows from the quote — one-to-one: what
+   the quote actually says vs. what the spec asserts it supports. Name any gap.
+3. **Verdict:** "claim supported" / "claim not supported" / "claim ambiguous". If ambiguous or
+   not supported, do not encode the structural choice — surface the gap; file an Ask if the
+   source itself is unclear.
+
+A spec that cites a source to justify a structural choice without producing this three-step
+output fails gate (m) and must not proceed to READY.
+
+**Worked example — mt#1852 / ADR-010 (2026-05-15).** The spec and ADR-010 §Substrate-constraint
+encoded "dedicated direct Postgres connection (bypassing Supavisor's transaction pooler)," citing
+the \`project_supabase\` memory. Walking gate (m):
+
+1. **Verbatim quote** (\`project_supabase\`): the memory named the **session pooler** (port 5432,
+   same Supavisor) as the LISTEN/NOTIFY-capable alternative — NOT a direct connection bypassing
+   Supavisor.
+2. **Mapping:** the spec asserted "direct connection bypassing the pooler"; the source said
+   "session-pool mode on the same pooler." Two distinct axes — "session vs transaction pool mode"
+   and "pooled vs direct connection" — were collapsed under the salient phrase "no LISTEN/NOTIFY."
+   Gap: the spec's "bypass the pooler" is not in the source.
+3. **Verdict:** claim NOT supported. The structural choice as framed does not follow from the
+   citation. Gate (m) blocks; the agent surfaces the gap instead of encoding the wrong framing
+   (which is what shipped in ADR-010 commit \`af07a249c\`, later corrected via mt#1857).
+
+Cross-reference: bridge memory \`feedback_memory_snippet_conflation_at_artifact_write_time\`
+(id \`de54bd12-fa9a-4023-bc34-83a1832aefdb\`) is the originating-pattern reference; once this gate
+ships, that memory's job becomes historical record + pointer here. Sibling gates: (j) label
+verification (mt#1820), and the gate-(iv) design-intent-assertion sub-check (mt#1676). The
+runtime-diagnosis sibling surface (citing a stale warning while debugging) is owned by mt#2216.
+
 ### Step 4: Act on gate results
 
 **All gate criteria pass:**
@@ -591,6 +673,30 @@ running any verification checks:
    license, maintenance signal, install path, and canonical URL for the chosen replacement.
 
 To re-run the gate after fixes: \`/plan-task mt#XXXX\`
+\`\`\`
+
+**Example (m) failure.** For a task whose spec cites the \`project_supabase\` memory to justify
+a "dedicated direct Postgres connection bypassing Supavisor's transaction pooler" without
+producing the three-step citation-and-mapping protocol:
+
+\`\`\`
+## Gap Report for mt#1852 (PLANNING — not yet READY)
+
+### Blocking gaps
+- (m) Factual-claim citation verification: the spec cites \`project_supabase\` to justify a
+  substrate choice ("direct connection bypassing the pooler") but produces no verbatim quote +
+  mapping. Walking gate (m): the memory names the SESSION POOLER (port 5432, same Supavisor) as
+  the LISTEN/NOTIFY-capable alternative — NOT a direct connection bypassing Supavisor. The spec
+  collapsed "session vs transaction pool mode" and "pooled vs direct connection" under the
+  salient phrase "no LISTEN/NOTIFY." Verdict: claim NOT supported.
+
+### Required actions before READY
+1. Produce the three-step protocol: verbatim-quote \`project_supabase\`, map the substrate choice
+   to the quote, state the verdict.
+2. Re-frame the substrate decision to match the source (session-pool mode on the same pooler),
+   or cite a different source that actually supports the direct-connection bypass.
+
+To re-run the gate after fixes: \`/plan-task mt#1852\`
 \`\`\`
 
 ## State transition map
