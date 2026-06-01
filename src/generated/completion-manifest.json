@@ -2520,6 +2520,15 @@
                 {
                   "flags": ["--accept-stale-reviewer-silence"],
                   "description": "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; (2) at least one COMMENTED review from the same identity as the PR author must exist; (3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); (4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; (5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. Emits an audit log entry at INFO level when the waiver is applied. Default: false."
+                },
+                {
+                  "flags": ["--force-bypass"],
+                  "description": "Audited reviewer-convergence-failure bypass (mt#2215): merge a self-authored bot PR blocked by a CHANGES_REQUESTED review that is a VERIFIED false-positive (per mt#2211), or by reviewer CoT-leakage / self-reversal / >5min webhook silence (per feedback_self_authored_pr_merge_constraints). Distinct from acceptStaleReviewerSilence, which only covers reviewer ABSENCE and refuses when CHANGES_REQUESTED exists. forceBypass requires a non-empty bypassReason, requires at least one prior review round to have occurred, refuses when a required status check is failing (CI-not-green, where status-check data is available) and when any non-approval merge blocker is active (draft / conflict / closed). It auto-dismisses every non-DISMISSED CHANGES_REQUESTED review (using bypassReason as the dismissal evidence) and writes the canonical audit-trail signature plus the reason into the merge-commit body. merge_method=merge is always enforced (never squash). Default: false."
+                },
+                {
+                  "flags": ["--bypass-reason"],
+                  "description": "Required when forceBypass=true: a non-empty evidence string explaining why the bypass is justified (e.g. which review was a verified false-positive and the verification, or the reviewer convergence-failure class). Used both as the CHANGES_REQUESTED dismissal message and written into the merge-commit body alongside the canonical bypass audit signature.",
+                  "takesValue": true
                 }
               ]
             },

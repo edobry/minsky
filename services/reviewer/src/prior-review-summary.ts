@@ -339,22 +339,27 @@ export function summarizePriorReviews(
 
   const entries: PriorReviewEntry[] = reviews.map((r, idx) => {
     const isStale = r.commitId !== currentHeadSha;
+    const findingsMarkdown = extractFindings(r.body);
+    // mt#2211: parse structured findings for stale iterations so the renderer
+    // can emit location+severity only (no carry-forward-prone verbatim text).
+    // Non-stale render verbatim and don't need it; stale iterations with no
+    // findings block (empty findingsMarkdown) fall through to the elided note,
+    // so skip the regex work there too (PR #1460 R1 perf nit).
+    const staleParsed =
+      isStale && findingsMarkdown
+        ? {
+            staleFindings: parsePriorBodyFindings(r.body),
+            staleBlockingCount: countBlockingFindings(r.body),
+          }
+        : {};
     return {
       iteration: idx + 1,
       commitId: r.commitId,
       state: r.state,
       submittedAt: r.submittedAt,
       isStale,
-      findingsMarkdown: extractFindings(r.body),
-      // mt#2211: parse structured findings for stale iterations so the
-      // renderer can emit location+severity only (no carry-forward-prone
-      // verbatim text). Skipped for non-stale to avoid needless work.
-      ...(isStale
-        ? {
-            staleFindings: parsePriorBodyFindings(r.body),
-            staleBlockingCount: countBlockingFindings(r.body),
-          }
-        : {}),
+      findingsMarkdown,
+      ...staleParsed,
     };
   });
 

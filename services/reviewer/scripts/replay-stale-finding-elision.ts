@@ -14,13 +14,20 @@
  * runs the same path against the REAL incident reviews fetched live from
  * GitHub, so the regression is verified end-to-end against production data.
  *
- * Env gating:
- *   - GITHUB_TOKEN required. Absent → SKIP (exit 0) with a clear message.
+ * MANUAL-ONLY. This script is not a `.test.ts`, so `bun test` does not pick it
+ * up, and no CI workflow invokes `services/reviewer/scripts/*.ts` (verified
+ * 2026-06-01). To eliminate any accidental-invocation risk entirely, it
+ * SKIPs (exit 0) unless BOTH of these are set, so a stray run never produces a
+ * failing exit code:
+ *   - REPLAY_STALE_FINDING_ELISION=1  (explicit opt-in)
+ *   - GITHUB_TOKEN                    (live GitHub read access)
  *
- * Exit codes: 0 = pass (or skipped), 1 = fail.
+ * Exit codes: 0 = pass (or skipped), 1 = assertion failure (only reachable
+ * when explicitly opted in).
  *
  * Usage:
- *   GITHUB_TOKEN=ghp_xxx bun services/reviewer/scripts/replay-stale-finding-elision.ts
+ *   REPLAY_STALE_FINDING_ELISION=1 GITHUB_TOKEN=$(gh auth token) \
+ *     bun services/reviewer/scripts/replay-stale-finding-elision.ts
  */
 
 import { Octokit } from "@octokit/rest";
@@ -41,12 +48,20 @@ const CARRY_FORWARD_NEEDLE = '\\"what could we do';
 // The structured signal that MUST survive so convergence still works.
 const EXPECTED_LOCATION = ".claude/skills/marketing-site-design/SKILL.md";
 
+/** Explicit opt-in env var — absent → SKIP, so accidental runs never fail. */
+const OPT_IN_ENV = "REPLAY_STALE_FINDING_ELISION";
+
 function skip(message: string): never {
   console.log(JSON.stringify({ result: "SKIP", message }, null, 2));
   process.exit(0);
 }
 
 async function main(): Promise<void> {
+  if (!process.env[OPT_IN_ENV]) {
+    skip(
+      `${OPT_IN_ENV} not set — manual-only replay skipped. Set ${OPT_IN_ENV}=1 and GITHUB_TOKEN to run.`
+    );
+  }
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     skip(
