@@ -175,19 +175,27 @@ fn get_plist_path() -> String {
     )
 }
 
-fn update_status(app: &AppHandle, label: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Update the dropdown status MenuItem via the handle held in managed state.
-    // The menu is attached to the tray, so `app.menu()` returns None and the
-    // old lookup silently no-op'd, freezing the line on "Cockpit: checking..."
-    // (mt#2240).
-    if let Some(status) = app.try_state::<StatusMenuItem>() {
-        let _ = status.0.set_text(label);
-    }
-    // Also update the tooltip on the tray icon itself.
-    if let Some(tray) = app.tray_by_id("main") {
-        let _ = tray.set_tooltip(Some(label));
-    }
-    Ok(())
+fn update_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
+    // Marshal the UI mutation onto the main thread. update_status is called from
+    // the background poll thread, and on macOS AppKit menu/tray mutations want
+    // the main thread; run_on_main_thread is the idiomatic Tauri way to ensure
+    // that. (MenuItem<Wry> is Send + Sync — app.manage requires it, which is why
+    // storing it in managed state compiles — but the UI op still wants
+    // main-thread affinity.)
+    //
+    // The status item lives in managed state because the menu is attached to the
+    // tray, not app.menu() (mt#2240); the main-thread closure reads it back via
+    // try_state and updates both the dropdown line and the tray tooltip.
+    let app_handle = app.clone();
+    let label = label.to_string();
+    app.run_on_main_thread(move || {
+        if let Some(status) = app_handle.try_state::<StatusMenuItem>() {
+            let _ = status.0.set_text(&label);
+        }
+        if let Some(tray) = app_handle.tray_by_id("main") {
+            let _ = tray.set_tooltip(Some(&label));
+        }
+    })
 }
 
 #[cfg(test)]
