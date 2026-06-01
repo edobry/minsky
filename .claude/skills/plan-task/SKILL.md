@@ -678,6 +678,30 @@ running any verification checks:
 To re-run the gate after fixes: `/plan-task mt#XXXX`
 ```
 
+**Example (m) failure.** For a task whose spec cites the `project_supabase` memory to justify
+a "dedicated direct Postgres connection bypassing Supavisor's transaction pooler" without
+producing the three-step citation-and-mapping protocol:
+
+```
+## Gap Report for mt#1852 (PLANNING — not yet READY)
+
+### Blocking gaps
+- (m) Factual-claim citation verification: the spec cites `project_supabase` to justify a
+  substrate choice ("direct connection bypassing the pooler") but produces no verbatim quote +
+  mapping. Walking gate (m): the memory names the SESSION POOLER (port 5432, same Supavisor) as
+  the LISTEN/NOTIFY-capable alternative — NOT a direct connection bypassing Supavisor. The spec
+  collapsed "session vs transaction pool mode" and "pooled vs direct connection" under the
+  salient phrase "no LISTEN/NOTIFY." Verdict: claim NOT supported.
+
+### Required actions before READY
+1. Produce the three-step protocol: verbatim-quote `project_supabase`, map the substrate choice
+   to the quote, state the verdict.
+2. Re-frame the substrate decision to match the source (session-pool mode on the same pooler),
+   or cite a different source that actually supports the direct-connection bypass.
+
+To re-run the gate after fixes: `/plan-task mt#1852`
+```
+
 ## State transition map
 
 | Current status | Action                                           |
