@@ -30,13 +30,13 @@ async function fetchCoverage(): Promise<EmbeddingsHealthPayload["coverage"]> {
   // Single aggregated query — cheaper than 4 parallel queries and avoids
   // gratuitous connection-pool churn under polling load. (mt#2183: the 4-query
   // form was correct but unnecessarily noisy.)
-  const rows = await sql.unsafe(`
+  const rows = await sql`
     SELECT
       (SELECT count(*)::int FROM tasks) AS tasks_total,
       (SELECT count(*)::int FROM tasks_embeddings) AS tasks_indexed,
       (SELECT count(*)::int FROM memories) AS memories_total,
       (SELECT count(*)::int FROM memories_embeddings) AS memories_indexed
-  `);
+  `;
   const row = (rows[0] ?? {}) as {
     tasks_total?: number;
     tasks_indexed?: number;
