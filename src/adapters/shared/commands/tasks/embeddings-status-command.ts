@@ -44,7 +44,13 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
     const pgSql = sql as import("postgres").Sql;
 
     const totalRows = await pgSql.unsafe("SELECT count(*)::int AS cnt FROM tasks");
-    const indexedRows = await pgSql.unsafe("SELECT count(*)::int AS cnt FROM tasks_embeddings");
+    // `indexed` must count only embeddings that correspond to a live task, otherwise
+    // orphaned embedding rows make `indexed` exceed `total` (mt#2220: indexed 2101 >
+    // total 2100 because of 1 orphan). Orphans are reported separately below.
+    const indexedRows = await pgSql.unsafe(
+      "SELECT count(*)::int AS cnt FROM tasks_embeddings te" +
+        " WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.id = te.task_id)"
+    );
     const missingRows = await pgSql.unsafe(
       "SELECT count(*)::int AS cnt FROM tasks t" +
         " LEFT JOIN tasks_embeddings te ON t.id = te.task_id" +

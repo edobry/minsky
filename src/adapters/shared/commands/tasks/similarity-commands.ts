@@ -277,7 +277,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       }
     }
 
-    // Build filters from CLI parameters for server-side filtering
+    // Build domain filters from CLI parameters. These are applied at READ TIME against
+    // the live `tasks` table inside TaskSimilarityService.searchByText (over-fetch +
+    // post-filter), NOT pushed into the vector store as denormalized-column filters.
+    // See docs/architecture/adr-013-filtered-vector-search.md.
     const filters: Record<string, unknown> = {};
 
     // Add backend filter if provided
@@ -319,11 +322,10 @@ export class TasksSearchCommand extends BaseTaskCommand<TasksSearchParams> {
       // ignore logging failures
     }
 
-    // Enhance results with task details for better usability
+    // Enhance results with task details for better usability. response.results is
+    // already filtered and truncated to `limit` by the service's read-time domain
+    // filter, so no client-side filtering is needed here.
     const enhancedResults = await this.enhanceSearchResults(response.results, params.details);
-
-    // Server-side filtering handles all filtering - no client-side filtering needed
-    // This eliminates redundant filtering and improves performance
 
     return this.formatResult(
       {

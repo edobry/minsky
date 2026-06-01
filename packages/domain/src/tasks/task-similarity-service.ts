@@ -86,9 +86,84 @@ export class TaskSimilarityService {
     threshold?: number,
     filters?: Record<string, unknown>
   ): Promise<TaskSearchResponse> {
-    const response = await this.getSearchService().search({ queryText: query, limit, filters });
+    // Domain-specific filters (status / statusExclude / backend) are applied here,
+    // at READ TIME against the live `tasks` table (the source of truth) — NOT pushed
+    // down into the generic vector store as a denormalized column filter. See
+    // docs/architecture/adr-013-filtered-vector-search.md and memory 70b595dc:
+    // `tasks.status` is a mutable lifecycle field; denormalizing it onto
+    // `tasks_embeddings` and filtering server-side is an unmanaged dual write that
+    // drifts the moment a writer forgets (the mt#2220 bug — 1739 rows had NULL status
+    // and `NULL NOT IN ('DONE','CLOSED')` silently excluded every recent task).
+    //
+    // Approach: post-filtering with adaptive over-fetch. We fetch more candidates than
+    // `limit` from the vector index (no status filter), drop the ones failing the live
+    // predicate, and widen to the full corpus if too few survive. This is the
+    // application-layer equivalent of pgvector 0.8's iterative scan. It is correct at
+    // any selectivity and cheap at per-org scale (thousands of tasks). At ~100x scale
+    // the escape hatch is denormalize + consistent derivation (trigger/CDC) or a
+    // partial index — see the ADR.
+    const statusEquals =
+      typeof filters?.status === "string" ? (filters.status as string) : undefined;
+    const statusExclude = Array.isArray(filters?.statusExclude)
+      ? (filters.statusExclude as string[])
+      : undefined;
+    const backendEquals =
+      typeof filters?.backend === "string" ? (filters.backend as string) : undefined;
+    const hasDomainFilter =
+      Boolean(statusEquals) || (statusExclude?.length ?? 0) > 0 || Boolean(backendEquals);
+
+    // Fast path: no domain filter (used by similarToTask / searchSimilarTasks) — search
+    // the full corpus directly with no extra task lookups.
+    if (!hasDomainFilter) {
+      const response = await this.getSearchService().search({ queryText: query, limit });
+      return {
+        results: response.items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata })),
+        backend: response.backend,
+        degraded: response.degraded,
+        degradedReason: response.degradedReason,
+      };
+    }
+
+    // Live source of truth for every task's status/backend (one query, lightweight
+    // metadata — spec content is loaded separately and not included here).
+    const allTasks = await this.searchTasks({});
+    const taskById = new Map(allTasks.map((t) => [t.id, t]));
+    const passes = (task: Task | undefined): boolean => {
+      if (!task) return false; // orphaned embedding (no live task) — drop
+      if (backendEquals && task.backend !== backendEquals) return false;
+      if (statusEquals) return task.status === statusEquals;
+      if (statusExclude && statusExclude.includes(task.status)) return false;
+      return true;
+    };
+
+    // Adaptive over-fetch: size the candidate window from the observed pass-rate so we
+    // pull enough that ~`limit` survive the filter, with a safety multiplier and a
+    // floor, capped at the corpus size.
+    const total = allTasks.length;
+    const passing = allTasks.filter(passes).length;
+    const passRate = passing > 0 ? passing / total : 0;
+    const OVERFETCH_SAFETY = 2;
+    const OVERFETCH_FLOOR = 50;
+    const candidateLimit = Math.min(
+      total,
+      Math.max(OVERFETCH_FLOOR, Math.ceil(limit / Math.max(passRate, 0.05)) * OVERFETCH_SAFETY)
+    );
+
+    let response = await this.getSearchService().search({
+      queryText: query,
+      limit: candidateLimit,
+    });
+    let survivors = response.items.filter((i) => passes(taskById.get(i.id)));
+
+    // Widen-if-short: if the candidate window didn't yield `limit` survivors and we
+    // haven't already scanned the whole corpus, re-search across all candidates.
+    if (survivors.length < limit && candidateLimit < total) {
+      response = await this.getSearchService().search({ queryText: query, limit: total });
+      survivors = response.items.filter((i) => passes(taskById.get(i.id)));
+    }
+
     return {
-      results: response.items.map((i) => ({
+      results: survivors.slice(0, limit).map((i) => ({
         id: i.id,
         score: i.score,
         metadata: i.metadata,
