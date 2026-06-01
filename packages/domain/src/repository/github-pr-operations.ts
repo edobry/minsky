@@ -494,6 +494,33 @@ export async function closePullRequest(
 }
 
 /**
+ * Assemble the merge commit body from the PR body, optional git trailers, and an optional
+ * audited-bypass signature (mt#2215).
+ *
+ * Normalizes separators so each present block is joined by exactly one blank line, regardless
+ * of whether the inputs carry leading/trailing whitespace — avoids malformed messages when, e.g.,
+ * the PR body has no trailing newline or a trailer string begins without a leading newline.
+ *
+ * Git trailers are placed LAST so trailer parsing (Co-authored-by, etc.) stays valid — the
+ * audited-bypass prose block, when present, is inserted between the body and the trailers.
+ */
+export function buildMergeCommitBody(
+  baseBody: string,
+  mergeTrailers?: string,
+  bypassAuditMessage?: string
+): string {
+  const blocks: string[] = [];
+  const push = (s: string | undefined) => {
+    const trimmed = (s ?? "").replace(/^\s+/, "").replace(/\s+$/, "");
+    if (trimmed) blocks.push(trimmed);
+  };
+  push(baseBody);
+  push(bypassAuditMessage);
+  push(mergeTrailers);
+  return blocks.join("\n\n");
+}
+
+/**
  * Merge a GitHub pull request.
  */
 export async function mergePullRequest(
@@ -533,9 +560,9 @@ export async function mergePullRequest(
     }
 
     const baseMessage = pr.body || "";
-    const withTrailers = mergeTrailers ? baseMessage + mergeTrailers : baseMessage;
-    // mt#2215: append the canonical audited-bypass signature to the merge commit body.
-    const commitMessage = bypassAuditMessage ? withTrailers + bypassAuditMessage : withTrailers;
+    // mt#2215: assemble the merge commit body with normalized separators; the audited-bypass
+    // signature (when present) is inserted between the body and any git trailers.
+    const commitMessage = buildMergeCommitBody(baseMessage, mergeTrailers, bypassAuditMessage);
 
     const mergeParams = {
       owner: gh.owner,

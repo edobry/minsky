@@ -301,7 +301,8 @@ export const sessionMergeCommandParams = {
       "feedback_self_authored_pr_merge_constraints). Distinct from acceptStaleReviewerSilence, " +
       "which only covers reviewer ABSENCE and refuses when CHANGES_REQUESTED exists. forceBypass " +
       "requires a non-empty bypassReason, requires at least one prior review round to have " +
-      "occurred, refuses when a required status check is failing (CI-not-green) and when any " +
+      "occurred, refuses when a required status check is failing (CI-not-green, where " +
+      "status-check data is available) and when any " +
       "non-approval merge blocker is active (draft / conflict / closed). It auto-dismisses every " +
       "non-DISMISSED CHANGES_REQUESTED review (using bypassReason as the dismissal evidence) and " +
       "writes the canonical audit-trail signature plus the reason into the merge-commit body. " +

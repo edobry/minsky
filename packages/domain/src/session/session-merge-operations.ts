@@ -483,7 +483,10 @@ export interface SessionMergeParams {
    * Preconditions enforced (all must hold):
    *   - bypassReason is a non-empty string.
    *   - At least one prior review round occurred (rawReviews.length >= 1).
-   *   - No required status check is failing (CI-not-green) — checked where status data exists.
+   *   - At least one present (non-DISMISSED) CHANGES_REQUESTED review exists — forceBypass is the
+   *     CHANGES_REQUESTED-present path; the reviewer-absent case is acceptStaleReviewerSilence.
+   *   - No required status check is failing (CI-not-green), checked where status-check data is
+   *     available in the approval metadata.
    *   - No non-approval merge blocker is active (draft / conflict / not-open).
    *
    * Behavior: auto-dismisses every non-DISMISSED CHANGES_REQUESTED review using bypassReason as
@@ -766,11 +769,26 @@ export async function mergeSessionPr(
             );
           }
 
-          // Fold-in dismissal: dismiss every non-DISMISSED CHANGES_REQUESTED review using the
-          // supplied reason as evidence, clearing the GitHub-side review gate before merge.
-          // Uses the already-created repositoryBackend.review.dismissReview primitive — the same
-          // call session_pr_review_dismiss wraps — rather than re-creating a backend.
+          // Precondition: a present (non-DISMISSED) CHANGES_REQUESTED review MUST exist.
+          // forceBypass is specifically the CHANGES_REQUESTED-present path (verified
+          // false-positive / reviewer self-reversal / leakage-stale blocking review). The
+          // reviewer-ABSENT case (webhook-miss, no CHANGES_REQUESTED) is covered by
+          // acceptStaleReviewerSilence instead. Without this guard, any not-approved PR with
+          // >=1 review and green CI could be force-merged, broadening the bypass beyond intent.
           const blockingReviews = rawReviews.filter((r) => r.state === "CHANGES_REQUESTED");
+          if (blockingReviews.length === 0) {
+            throw new ValidationError(
+              `❌ forceBypass refused: no present (non-DISMISSED) CHANGES_REQUESTED review on PR ` +
+                `#${sessionRecord.pullRequest.number}. forceBypass is the CHANGES_REQUESTED-present ` +
+                `path. If the merge is blocked only by reviewer ABSENCE (webhook-miss, no ` +
+                `CHANGES_REQUESTED), use acceptStaleReviewerSilence instead.`
+            );
+          }
+
+          // Fold-in dismissal: dismiss every present CHANGES_REQUESTED review using the supplied
+          // reason as evidence, clearing the GitHub-side review gate before merge. Uses the
+          // already-created repositoryBackend.review.dismissReview primitive — the same call
+          // session_pr_review_dismiss wraps — rather than re-creating a backend.
           const dismissedReviewIds: string[] = [];
           const dismissReview = repositoryBackend.review.dismissReview?.bind(
             repositoryBackend.review

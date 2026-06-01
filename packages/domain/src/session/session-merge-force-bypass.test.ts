@@ -210,6 +210,36 @@ describe("session merge — audited force-bypass (mt#2215)", () => {
     expect(mocks.merge).not.toHaveBeenCalled();
   });
 
+  it("rejects when no present CHANGES_REQUESTED review exists (only COMMENTED)", async () => {
+    // >=1 review, green CI, no blockers — but the lone review is COMMENTED, not
+    // CHANGES_REQUESTED. forceBypass must refuse (this is the acceptStaleReviewerSilence case).
+    const { deps, mocks } = buildDeps(
+      changesRequestedStatus({
+        rawReviews: [
+          {
+            reviewId: "70001",
+            reviewerLogin: REVIEWER_BOT,
+            state: "COMMENTED",
+            submittedAt: new Date().toISOString(),
+            body: "No blockers found.",
+          },
+        ],
+      })
+    );
+    const params: SessionMergeParams = {
+      session: "bypass-session",
+      json: true,
+      forceBypass: true,
+      bypassReason: SHORT_REASON,
+    };
+
+    await expect(mergeSessionPr(params, deps)).rejects.toThrow(
+      /no present \(non-DISMISSED\) CHANGES_REQUESTED review/
+    );
+    expect(mocks.dismissReview).not.toHaveBeenCalled();
+    expect(mocks.merge).not.toHaveBeenCalled();
+  });
+
   it("dismisses CHANGES_REQUESTED, merges, and writes the canonical audit signature", async () => {
     const { deps, mocks } = buildDeps(changesRequestedStatus());
     const reason = "PR #1447 reviewer CHANGES_REQUESTED is a verified false-positive (mt#2211)";
