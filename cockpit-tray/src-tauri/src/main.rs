@@ -75,8 +75,16 @@ fn main() {
                     .expect("tokio runtime");
 
                 rt.block_on(async {
+                    // pool_max_idle_per_host(0) disables keep-alive connection
+                    // reuse: each poll opens a fresh connection. Without this the
+                    // client reuses a pooled connection that can go stale (daemon
+                    // idle-close / half-open socket), so every subsequent poll
+                    // fails its 2s timeout and the status sticks on "stopped" even
+                    // while the daemon is up and reachable on a fresh connection
+                    // (mt#2225).
                     let client = reqwest::Client::builder()
                         .timeout(Duration::from_secs(2))
+                        .pool_max_idle_per_host(0)
                         .build()
                         .unwrap();
 
