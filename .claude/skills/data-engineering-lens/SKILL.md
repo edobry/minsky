@@ -153,7 +153,13 @@ that motivates it) rather than importing the whole book.
 
 ## Cross-references
 
-- Kleppmann, _Designing Data-Intensive Applications_ — Ch. 3 (storage/derived data),
+This skill is auto-discovered from `.claude/skills/` (there is no central skills
+index/registry to register into — discovery is by directory, like every other skill).
+References below are repo paths or `/skill-name` invocations **except** `Memory <id>`
+entries, which live in the Minsky memory store (the DB, queried via
+`mcp__minsky__memory_get`) — not as repo files.
+
+- Kleppmann, _Designing Data-Intensive Applications_ (external book) — Ch. 3 (storage/derived data),
   Ch. 4 (encoding/evolution), Ch. 11 (stream processing / dual-writes / CDC).
 - `/filtered-vector-search` (mt#2221) — the vector-search specialization of frames 1–4.
 - `/declare-framework` (mt#1789) — name the framework for strategic recommendations.
