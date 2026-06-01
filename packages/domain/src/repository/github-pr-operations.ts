@@ -501,7 +501,8 @@ export async function mergePullRequest(
   prIdentifier: string | number,
   diagnoseMergeBlockerFn: (prNumber: number, octokit: Octokit) => Promise<string>,
   mergeTrailers?: string,
-  tokenOverride?: () => Promise<string>
+  tokenOverride?: () => Promise<string>,
+  bypassAuditMessage?: string
 ): Promise<MergeInfo> {
   const prNumber = typeof prIdentifier === "string" ? parseInt(prIdentifier, 10) : prIdentifier;
   if (isNaN(prNumber)) {
@@ -532,7 +533,9 @@ export async function mergePullRequest(
     }
 
     const baseMessage = pr.body || "";
-    const commitMessage = mergeTrailers ? baseMessage + mergeTrailers : baseMessage;
+    const withTrailers = mergeTrailers ? baseMessage + mergeTrailers : baseMessage;
+    // mt#2215: append the canonical audited-bypass signature to the merge commit body.
+    const commitMessage = bypassAuditMessage ? withTrailers + bypassAuditMessage : withTrailers;
 
     const mergeParams = {
       owner: gh.owner,
