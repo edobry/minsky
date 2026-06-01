@@ -44,7 +44,13 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
     const pgSql = sql as import("postgres").Sql;
 
     const totalRows = await pgSql.unsafe("SELECT count(*)::int AS cnt FROM tasks");
-    const indexedRows = await pgSql.unsafe("SELECT count(*)::int AS cnt FROM tasks_embeddings");
+    // `indexed` must count only embeddings that correspond to a live task, otherwise
+    // orphaned embedding rows make `indexed` exceed `total` (mt#2220: indexed 2101 >
+    // total 2100 because of 1 orphan). Orphans are reported separately below.
+    const indexedRows = await pgSql.unsafe(
+      "SELECT count(*)::int AS cnt FROM tasks_embeddings te" +
+        " WHERE EXISTS (SELECT 1 FROM tasks t WHERE t.id = te.task_id)"
+    );
     const missingRows = await pgSql.unsafe(
       "SELECT count(*)::int AS cnt FROM tasks t" +
         " LEFT JOIN tasks_embeddings te ON t.id = te.task_id" +
@@ -66,7 +72,10 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
 
     // Pull model/dimension from config
     const { getConfiguration } = await import("@minsky/domain/configuration");
-    const cfg = getConfiguration();
+    // getConfiguration() is synchronous (returns Configuration), so model/dimension
+    // resolve fine without await; the await is defensive (matches relevance-filter.ts)
+    // in case the accessor becomes async.
+    const cfg = await getConfiguration();
     const model = cfg.embeddings?.model || "text-embedding-3-small";
     const { getEmbeddingDimension } = await import("@minsky/domain/ai/embedding-models");
     const dimension = getEmbeddingDimension(model, 1536);

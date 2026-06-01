@@ -21,7 +21,7 @@ interface EmbeddingsRepairParams extends BaseTaskParams {
 export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepairParams> {
   readonly id = "tasks.embeddings-repair";
   readonly name = "embeddings-repair";
-  readonly description = "Remove orphaned embeddings and report stale entries";
+  readonly description = "Remove orphaned embeddings and report entries missing a content hash";
   readonly parameters = embeddingsRepairParams;
 
   async execute(params: EmbeddingsRepairParams, ctx: CommandExecutionContext) {
@@ -72,35 +72,39 @@ export class TasksEmbeddingsRepairCommand extends BaseTaskCommand<EmbeddingsRepa
       orphansDeleted = deleteResult.count ?? orphansFound;
     }
 
-    // Count stale entries (content_hash mismatch) — report only
-    // Stale entries have a content_hash that no longer matches the task's
-    // current content. Reindexing is done via `index-embeddings --reindex`.
-    const staleRows = await pgSql.unsafe(
-      "SELECT count(*)::int AS cnt FROM tasks_embeddings te" +
-        " JOIN tasks t ON t.id = te.task_id" +
-        " WHERE te.content_hash IS DISTINCT FROM t.content_hash"
+    // Count entries with no content hash — report only.
+    // The `tasks` table no longer stores a precomputed `content_hash` (it was dropped
+    // in migration 0011_gifted_miss_america.sql), so the old
+    // `te.content_hash IS DISTINCT FROM t.content_hash` join crashed with
+    // "column t.content_hash does not exist" (mt#2220). Content-hash staleness is now
+    // reconciled at index time: `indexTask` recomputes the hash from live task content
+    // and skips/rewrites accordingly. The cheap SQL-level signal that remains is rows
+    // that were never indexed with a hash at all (`content_hash IS NULL`); a full
+    // staleness reconcile is `minsky tasks index-embeddings --reindex`.
+    const unhashedRows = await pgSql.unsafe(
+      "SELECT count(*)::int AS cnt FROM tasks_embeddings te WHERE te.content_hash IS NULL"
     );
-    const staleCount = staleRows[0]?.cnt ?? 0;
+    const unhashedCount = unhashedRows[0]?.cnt ?? 0;
 
     const result = {
       success: true,
       dryRun,
       orphansDeleted: dryRun ? 0 : orphansDeleted,
       orphansFound,
-      staleCount,
+      unhashedCount,
     };
 
     if (!isJson) {
       const { log } = await import("@minsky/shared/logger");
       if (dryRun) {
         log.cli("[dry-run] No changes applied.");
-        log.cli(`  Orphaned embeddings found: ${orphansFound}`);
-        log.cli(`  Stale embeddings found:    ${staleCount}`);
+        log.cli(`  Orphaned embeddings found:        ${orphansFound}`);
+        log.cli(`  Embeddings missing content hash:  ${unhashedCount}`);
       } else {
-        log.cli(`Orphaned embeddings deleted: ${orphansDeleted}`);
-        log.cli(`Stale embeddings found:      ${staleCount}`);
-        if (staleCount > 0) {
-          log.cli("  (Use 'minsky tasks index-embeddings --reindex' to refresh stale entries)");
+        log.cli(`Orphaned embeddings deleted:       ${orphansDeleted}`);
+        log.cli(`Embeddings missing content hash:   ${unhashedCount}`);
+        if (unhashedCount > 0) {
+          log.cli("  (Use 'minsky tasks index-embeddings --reindex' to (re)hash these entries)");
         }
       }
     }
