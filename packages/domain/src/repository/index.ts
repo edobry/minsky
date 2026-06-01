@@ -258,8 +258,9 @@ export interface MergePROptions {
   /** Git trailers string to append to the merge commit message (e.g. built by buildMergeTrailers). */
   mergeTrailers?: string;
   /**
-   * Audited reviewer-convergence-failure bypass signature (mt#2215). When present, appended to
-   * the merge commit body after any trailers. Carries the canonical
+   * Audited reviewer-convergence-failure bypass signature (mt#2215). When present, inserted into
+   * the merge commit body BEFORE any git trailers (trailers stay last so Co-authored-by parsing
+   * remains valid). Carries the canonical
    * "Bot self-approval bypass per feedback_self_authored_pr_merge_constraints" signature plus the
    * supplied reason — consumed by /verify-task's bypass-merge closeout.
    */
