@@ -72,7 +72,10 @@ export class TasksEmbeddingsStatusCommand extends BaseTaskCommand<EmbeddingsStat
 
     // Pull model/dimension from config
     const { getConfiguration } = await import("@minsky/domain/configuration");
-    const cfg = getConfiguration();
+    // getConfiguration() is synchronous (returns Configuration), so model/dimension
+    // resolve fine without await; the await is defensive (matches relevance-filter.ts)
+    // in case the accessor becomes async.
+    const cfg = await getConfiguration();
     const model = cfg.embeddings?.model || "text-embedding-3-small";
     const { getEmbeddingDimension } = await import("@minsky/domain/ai/embedding-models");
     const dimension = getEmbeddingDimension(model, 1536);
