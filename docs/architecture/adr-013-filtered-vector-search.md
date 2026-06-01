@@ -76,10 +76,13 @@ Concretely, `TaskSimilarityService.searchByText` now:
    searches the full corpus directly — unchanged behavior.
 3. **Filtered path:** loads live task metadata once (`searchTasks({})`), computes the
    observed pass-rate, and **over-fetches** a candidate window sized from that pass-rate
-   (`ceil(limit / passRate) * 2`, floored at 50, capped at the corpus size). It drops
-   candidates failing the live predicate, and **widens to the full corpus** if fewer than
-   `limit` survive. This is the application-layer equivalent of pgvector 0.8's iterative
-   scan.
+   (`ceil(limit / passRate) * 2`, floored at 50, capped at `min(total, MAX_CANDIDATES)`).
+   It drops candidates failing the live predicate, and **widens to that bounded candidate
+   ceiling** (`min(total, MAX_CANDIDATES)`, not the full corpus) if fewer than `limit`
+   survive. The cap keeps a large corpus or extreme-selectivity query from triggering an
+   unbounded full-index scan; beyond the ceiling a short result is accepted rather than
+   scanning further (the real answer at that scale is the escape hatch below). This is the
+   application-layer equivalent of pgvector 0.8's bounded iterative scan.
 
 The generic `PostgresVectorStorage` keeps its domain-agnostic `filters` capability (it is
 not coupling — it filters by whatever column is named); it is simply no longer used for the
