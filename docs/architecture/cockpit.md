@@ -321,6 +321,38 @@ manipulating each other's tabs in the shared chromium). v0 ignores this in excha
 not depending on an experimental flag whose schema may shift; agents stick to the
 discipline of "find tab by URL → select_page once → do work, done."
 
+### Long-running cockpit hangs — symptoms and workaround
+
+A cockpit-server process that has been running for hours or days can accumulate
+zombie internal state — singleton init-promises that started during a transient
+upstream failure (Octokit GitHub call during laptop sleep / DNS hiccup / Supabase
+hiccup) and never resolved. Every later caller of that singleton joins the queue,
+forever. The process stays alive and serves non-DB endpoints fine, but any widget
+that touches persistence appears to hang on "Loading…".
+
+**Recognize the symptom:**
+
+```bash
+curl -sS --max-time 3 http://localhost:3737/api/health                       # 200 ok
+curl -sS --max-time 3 http://localhost:3737/api/widget/basic-health/data     # 200 ok
+curl -sS --max-time 3 http://localhost:3737/api/widget/attention/data        # timeout
+curl -sS --max-time 3 http://localhost:3737/api/widget/embeddings-health/data # timeout
+```
+
+basic-health responding while DB-backed widgets time out is the signature.
+
+**Workaround:** restart the cockpit-server process. Fresh init runs in <2s and DB-backed
+widgets respond in <1s.
+
+```bash
+pkill -f "cockpit start"
+bun --watch run src/cli.ts cockpit start --dev --port 3737 --no-dev-chromium
+```
+
+**Structural fixes in flight:** mt#2244 (init-timeout + reset on hang for
+`getSharedPersistenceService`) and mt#2245 (bounded Octokit network timeouts for the
+github-issues backend). Originating investigation: mt#2186.
+
 ---
 
 ## Companion principles in the cockpit
