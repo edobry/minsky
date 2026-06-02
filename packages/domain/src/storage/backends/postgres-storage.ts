@@ -147,7 +147,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     /** True iff the journal's latest entry's .sql file could not be read. */
     sqlMissing: boolean;
   } {
-    const migrationsFolder = "./src/domain/storage/migrations/pg";
+    const migrationsFolder = "./packages/domain/src/storage/migrations/pg";
 
     let latestJournalTag: string | undefined;
     let fileCount = 0;

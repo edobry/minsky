@@ -129,7 +129,7 @@ export class PreCommitHook {
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
-      // SQL file under src/domain/storage/migrations/pg/ has a corresponding
+      // SQL file under packages/domain/src/storage/migrations/pg/ has a corresponding
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
       // hand-written SQL file ships without a journal entry, making it
       // invisible to Drizzle's migrator.
@@ -867,7 +867,7 @@ export class PreCommitHook {
     }
 
     try {
-      const migrationsDir = join(this.projectRoot, "src/domain/storage/migrations/pg");
+      const migrationsDir = join(this.projectRoot, "packages/domain/src/storage/migrations/pg");
       const metaDir = join(migrationsDir, "meta");
 
       let sqlFiles: string[];

@@ -89,7 +89,7 @@ export function shouldAutoMigrate(
  *      to `/app/dist/storage/migrations/pg/`.
  *   3. `../../storage/migrations/pg` relative to this module — dev path:
  *      this file is at `src/domain/persistence/providers/postgres-provider.ts`,
- *      migrations are at `src/domain/storage/migrations/pg/`.
+ *      migrations are at `packages/domain/src/storage/migrations/pg/`.
  *
  * If none exist, throws with the candidates listed so the operator sees
  * exactly where the lookup looked. The mt#1787 bundle-boot-smoke CI gate
@@ -122,7 +122,7 @@ export function resolveMigrationsFolder(): string {
   throw new Error(
     `Auto-migration directory not found. Tried: ${candidates.join(", ")}. ` +
       `This indicates the build artifact does not include the migrations folder. ` +
-      `Either copy src/domain/storage/migrations/pg/ next to the compiled module, ` +
+      `Either copy packages/domain/src/storage/migrations/pg/ next to the compiled module, ` +
       `or set MINSKY_MIGRATIONS_FOLDER to an absolute path, ` +
       `or set MINSKY_AUTO_MIGRATE=false and apply migrations out-of-band.`
   );
