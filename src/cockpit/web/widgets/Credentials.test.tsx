@@ -102,7 +102,11 @@ afterEach(() => {
 
 function mockFetchCredentials(credentials = MOCK_CREDENTIALS, providers = MOCK_PROVIDERS) {
   globalThis.fetch = mock((url: string, init?: RequestInit) => {
-    if (typeof url === "string" && url.endsWith("/api/credentials/providers")) {
+    // Exact pathname matching (not endsWith) so the branch order is irrelevant —
+    // "/api/credentials/providers" also ends with "/api/credentials", which would
+    // misroute under a substring check if the blocks were ever reordered.
+    const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+    if (pathname === "/api/credentials/providers") {
       return Promise.resolve(
         new Response(JSON.stringify({ providers }), {
           status: 200,
@@ -110,11 +114,7 @@ function mockFetchCredentials(credentials = MOCK_CREDENTIALS, providers = MOCK_P
         })
       );
     }
-    if (
-      typeof url === "string" &&
-      url.endsWith("/api/credentials") &&
-      (!init || init.method !== "POST")
-    ) {
+    if (pathname === "/api/credentials" && (!init || init.method !== "POST")) {
       return Promise.resolve(
         new Response(JSON.stringify({ credentials }), {
           status: 200,
@@ -122,11 +122,7 @@ function mockFetchCredentials(credentials = MOCK_CREDENTIALS, providers = MOCK_P
         })
       );
     }
-    if (
-      typeof url === "string" &&
-      url.endsWith("/api/credentials/add") &&
-      init?.method === "POST"
-    ) {
+    if (pathname === "/api/credentials/add" && init?.method === "POST") {
       const body = JSON.parse(init.body as string) as { provider: string };
       return Promise.resolve(
         new Response(
