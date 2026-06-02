@@ -341,13 +341,29 @@ curl -sS --max-time 3 http://localhost:3737/api/widget/embeddings-health/data # 
 
 basic-health responding while DB-backed widgets time out is the signature.
 
-**Workaround:** restart the cockpit-server process. Fresh init runs in <2s and DB-backed
-widgets respond in <1s.
+**Workaround (dev-mode):** kill the exact cockpit PID recorded in the per-workspace
+lifecycle file, then restart with `minsky cockpit start`. This avoids the breadth of
+`pkill -f` (which would also match other cockpits or unrelated processes on a shared
+machine).
 
 ```bash
-pkill -f "cockpit start"
-bun --watch run src/cli.ts cockpit start --dev --port 3737 --no-dev-chromium
+# Workspace state lives at ~/.local/state/minsky/cockpit/<workspace-key>.json
+STATE_FILE=~/.local/state/minsky/cockpit/main.json    # or your session ID
+
+PID=$(jq -r .pid "$STATE_FILE")
+PORT=$(jq -r .port "$STATE_FILE")
+
+kill "$PID"
+bun --watch run src/cli.ts cockpit start --dev --port "$PORT" --no-dev-chromium
+# or, when running from an installed minsky:
+# minsky cockpit start --dev --no-dev-chromium --port "$PORT"
 ```
+
+For the **daemon-mode** cockpit (launched via `minsky cockpit install` on macOS), the
+correct restart command is `minsky cockpit restart` (launchd-managed). It does NOT
+apply to dev-mode cockpits — those are not launchd jobs.
+
+Fresh cockpit responds to DB-backed widgets in <1s.
 
 **Structural fixes in flight:** mt#2244 (init-timeout + reset on hang for
 `getSharedPersistenceService`) and mt#2245 (bounded Octokit network timeouts for the
