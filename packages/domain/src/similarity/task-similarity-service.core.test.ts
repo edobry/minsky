@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
 import { TaskSimilarityService } from "../tasks/task-similarity-service";
 import type { EmbeddingService } from "../ai/embeddings/types";
-import type { VectorStorage } from "../storage/vector/types";
+import type { VectorStorage, SearchOptions, SearchResult } from "../storage/vector/types";
 import { EmbeddingsSimilarityBackend } from "./backends/embeddings-backend";
 import { first } from "@minsky/shared/array-safety";
 
@@ -172,5 +172,127 @@ describe("TaskSimilarityService read-time status filter (mt#2220 / ADR-013)", ()
     });
     expect(response.results.length).toBe(1);
     expect(response.results[0]?.id).toBe("md#202");
+  });
+});
+
+// Regression guard for mt#2260 (no-forward contract): mt#2220 fixed tasks_search to apply
+// status/statusExclude/backend filters at READ TIME and to call the vector store with NO
+// `filters` key (so the embeddings backend never builds a `WHERE status NOT IN (...)` clause
+// against the now-dropped denormalized columns — the mt#2236 "column status does not exist"
+// symptom). The suites above force the embeddings backend UNAVAILABLE, so they exercise the
+// lexical path and never reach the embeddings/vector-store boundary. This suite keeps the
+// embeddings backend AVAILABLE and spies on the vector store to assert the SimilarityQuery
+// that reaches `embeddings-backend.ts` carries no domain filter, on BOTH the fast path
+// (no domain filter) and the over-fetch path (with a domain filter). The test goes red if a
+// future change re-adds `filters` forwarding into the SimilarityQuery passed to
+// `getSearchService().search(...)`.
+describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)", () => {
+  // No initializeConfiguration here: this suite's path (searchByText with a dummy embedding
+  // service + spy vector store) reads no configuration, and avoiding a third dynamic import of
+  // "../configuration/index" keeps the magic-string-duplication lint clean.
+
+  // One DONE + one TODO strong match so the read-time filter has something to drop/keep.
+  const tasks = [
+    { id: "md#301", title: "Deploy pipeline rewrite", status: "DONE", backend: "minsky" },
+    { id: "md#302", title: "Deploy pipeline monitoring", status: "TODO", backend: "minsky" },
+  ];
+
+  // Records the `options` arg passed to vectorStorage.search on every invocation, so the test
+  // can assert no `filters`/`status`/`statusExclude`/`backend` key was forwarded down. Typed as
+  // SearchOptions (not Record<string, unknown>) so an options-shape regression is caught at
+  // compile time as well.
+  let capturedSearchOptions: Array<SearchOptions | undefined>;
+
+  const dummyEmbedding: EmbeddingService = {
+    generateEmbedding: async () => new Array(3).fill(0.1),
+  } as unknown as EmbeddingService;
+
+  // Implements the full VectorStorage interface (no force-cast) so a contract change to the
+  // interface surfaces in this stub at compile time.
+  const spyVector: VectorStorage = {
+    store: async () => void 0,
+    delete: async () => void 0,
+    search: async (_vector: number[], options?: SearchOptions): Promise<SearchResult[]> => {
+      capturedSearchOptions.push(options);
+      // Return both tasks as candidates (ids map to live tasks above).
+      return tasks.map((t, i) => ({ id: t.id, score: 1 - i * 0.1, metadata: {} }));
+    },
+  };
+
+  let service: TaskSimilarityService;
+
+  beforeEach(() => {
+    capturedSearchOptions = [];
+    // Ensure the embeddings backend is AVAILABLE regardless of suite ordering (the suites
+    // above patch the prototype to return false); restoring the original makes isAvailable()
+    // return true for the injected embedding service + vector store.
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+
+    service = new TaskSimilarityService(
+      dummyEmbedding,
+      spyVector,
+      async (id: string) => tasks.find((t) => t.id === id) || null,
+      async () => tasks as any,
+      async (_id: string) => ({ content: "", specPath: "", task: {} as any }),
+      {}
+    );
+  });
+
+  // Restore the prototype after every test (not just afterAll) so a mid-suite failure can't
+  // leak the patched isAvailable into other suites in the same process.
+  afterEach(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  afterAll(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
+  });
+
+  const expectNoForwardedFilter = (calls: Array<Record<string, unknown> | undefined>): void => {
+    expect(calls.length).toBeGreaterThan(0);
+    for (const opts of calls) {
+      // `embeddings-backend.ts` always sets `filters: query.filters`; the contract is that
+      // `query.filters` stays undefined (filtering is read-time only). A regression that
+      // forwards the domain filter makes this defined and flips the assertion red.
+      expect(opts?.filters).toBeUndefined();
+      expect(opts).not.toHaveProperty("status");
+      expect(opts).not.toHaveProperty("statusExclude");
+      expect(opts).not.toHaveProperty("backend");
+    }
+  };
+
+  it("fast path (no domain filter): embeddings backend runs with no forwarded filter", async () => {
+    const response = await service.searchByText("deploy pipeline", 5);
+    // Proves the embeddings/vector-store boundary actually ran (not the lexical fallback).
+    expect(response.backend).toBe("embeddings");
+    expect(response.degraded).toBe(false);
+    expectNoForwardedFilter(capturedSearchOptions);
+  });
+
+  it("over-fetch path (statusExclude): filter applied read-time, never forwarded", async () => {
+    const response = await service.searchByText("deploy pipeline", 5, undefined, {
+      statusExclude: ["DONE", "CLOSED"],
+    });
+    expect(response.backend).toBe("embeddings");
+    expect(response.degraded).toBe(false);
+    // Read-time filter actually applied against live status: DONE dropped, TODO surfaced.
+    const ids = response.results.map((r) => r.id);
+    expect(ids).not.toContain("md#301");
+    expect(ids).toContain("md#302");
+    expectNoForwardedFilter(capturedSearchOptions);
+  });
+
+  it("over-fetch path (status equals): filter applied read-time, never forwarded", async () => {
+    const response = await service.searchByText("deploy pipeline", 5, undefined, {
+      status: "DONE",
+    });
+    expect(response.backend).toBe("embeddings");
+    const ids = response.results.map((r) => r.id);
+    expect(ids).toContain("md#301");
+    expect(ids).not.toContain("md#302");
+    expectNoForwardedFilter(capturedSearchOptions);
   });
 });
