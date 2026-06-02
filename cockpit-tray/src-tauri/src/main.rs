@@ -201,21 +201,34 @@ fn get_plist_path() -> String {
 /// is acceptable for v0). "Open in Browser" remains as the fallback.
 fn open_cockpit_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
-        let _ = window.show();
-        let _ = window.set_focus();
-        let _ = window.eval("window.location.reload()");
+        if let Err(e) = window.show() {
+            eprintln!("[cockpit-tray] failed to show cockpit window: {e}");
+        }
+        if let Err(e) = window.set_focus() {
+            eprintln!("[cockpit-tray] failed to focus cockpit window: {e}");
+        }
+        // Reload so the view recovers after a daemon Start/Restart.
+        if let Err(e) = window.eval("window.location.reload()") {
+            eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+        }
         return;
     }
 
     let url: tauri::Url = match COCKPIT_URL.parse() {
         Ok(url) => url,
-        Err(_) => return,
+        Err(e) => {
+            eprintln!("[cockpit-tray] invalid cockpit URL {COCKPIT_URL:?}: {e}");
+            return;
+        }
     };
 
-    let _ = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
+    if let Err(e) = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
-        .build();
+        .build()
+    {
+        eprintln!("[cockpit-tray] failed to create cockpit window: {e}");
+    }
 }
 
 fn update_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
