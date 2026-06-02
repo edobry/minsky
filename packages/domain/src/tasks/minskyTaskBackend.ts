@@ -373,8 +373,8 @@ export class MinskyTaskBackend implements TaskBackend {
       spec,
       status: task.status,
       backend: task.backend || this.name,
-      createdAt: undefined,
-      updatedAt: undefined,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
     };
   }
 
@@ -456,6 +456,8 @@ export class MinskyTaskBackend implements TaskBackend {
     status: string | null;
     tags?: string | null;
     kind?: string | null;
+    createdAt?: Date | null;
+    updatedAt?: Date | null;
   }): Task {
     let tags: string[] = [];
     if (row.tags) {
@@ -472,6 +474,8 @@ export class MinskyTaskBackend implements TaskBackend {
       kind: row.kind ?? "implementation",
       backend: this.name,
       tags,
+      ...(row.createdAt ? { createdAt: row.createdAt } : {}),
+      ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
     };
   }
 

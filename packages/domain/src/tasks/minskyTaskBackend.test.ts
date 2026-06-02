@@ -139,3 +139,87 @@ describe("MinskyTaskBackend.deleteTask (mt#2205 purge + tombstone)", () => {
     expect(insertedTables).toContain(deletedTaskIdsTable);
   });
 });
+
+/**
+ * Read-only fake of the MinskyBackendDb select surface. `getTask` issues
+ * `select().from(tasksTable).where().limit(1)`; `getTaskMetadata` additionally
+ * issues a `select().from(taskSpecsTable).where().limit(1)` for the spec body.
+ * The chain branches on the table captured in `from()` so a single fake serves
+ * both reads.
+ */
+function makeSelectDb(taskRow: Record<string, unknown>, specContent = "spec body") {
+  const db = {
+    select() {
+      let selectedTable: unknown;
+      const chain: Record<string, unknown> = {
+        from(table: unknown) {
+          selectedTable = table;
+          return chain;
+        },
+        where() {
+          return chain;
+        },
+        limit() {
+          if (selectedTable === taskSpecsTable) {
+            return Promise.resolve([{ content: specContent }]);
+          }
+          return Promise.resolve([taskRow]);
+        },
+      };
+      return chain;
+    },
+  };
+  return db;
+}
+
+describe("MinskyTaskBackend timestamp surfacing (mt#2259)", () => {
+  const createdAt = new Date("2026-06-01T12:00:00.000Z");
+  const updatedAt = new Date("2026-06-02T08:30:00.000Z");
+  const baseRow = {
+    id: "mt#42",
+    title: "A task",
+    status: "TODO",
+    tags: null,
+    kind: "implementation",
+    createdAt,
+    updatedAt,
+  };
+
+  test("getTask surfaces createdAt/updatedAt from the DB row", async () => {
+    const backend = new MinskyTaskBackend({
+      db: makeSelectDb(baseRow),
+      workspacePath: "/tmp/ws",
+    } as never);
+
+    const task = await backend.getTask("mt#42");
+
+    expect(task).not.toBeNull();
+    expect(task?.createdAt).toEqual(createdAt);
+    expect(task?.updatedAt).toEqual(updatedAt);
+  });
+
+  test("getTaskMetadata returns non-undefined createdAt/updatedAt (was hardcoded undefined)", async () => {
+    const backend = new MinskyTaskBackend({
+      db: makeSelectDb(baseRow),
+      workspacePath: "/tmp/ws",
+    } as never);
+
+    const meta = await backend.getTaskMetadata("mt#42");
+
+    expect(meta).not.toBeNull();
+    expect(meta?.createdAt).toEqual(createdAt);
+    expect(meta?.updatedAt).toEqual(updatedAt);
+  });
+
+  test("missing timestamps are omitted rather than surfaced as null", async () => {
+    const backend = new MinskyTaskBackend({
+      db: makeSelectDb({ ...baseRow, createdAt: null, updatedAt: null }),
+      workspacePath: "/tmp/ws",
+    } as never);
+
+    const task = await backend.getTask("mt#42");
+
+    expect(task?.createdAt).toBeUndefined();
+    expect(task?.updatedAt).toBeUndefined();
+  });
+});
