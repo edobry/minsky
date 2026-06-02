@@ -35,6 +35,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Policy-coverage detector calibration telemetry (mt#1541) — local runtime data.
 # Match at root and inside any package/service workspace.
 **/.minsky/policy-coverage-calibration.jsonl
+# Sibling hook calibration telemetry — same local-runtime class (mt#2197
+# pre-narration detector, mt#2057 retrospective-trigger scanner).
+**/.minsky/pre-narration-calibration.jsonl
+**/.minsky/retrospective-trigger-calibration.jsonl
 
 # IntelliJ based IDEs
 .idea
