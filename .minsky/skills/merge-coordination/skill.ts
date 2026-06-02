@@ -106,7 +106,16 @@ GitHub structurally blocks self-approval: a PR author cannot APPROVE their own P
 
 Use \`mcp__minsky__session_pr_merge\`. This succeeds after reviewer-bot APPROVE or when the review body satisfies the merge-gate's text patterns.
 
-**Bypass merge via \`gh api PUT\`** (only when \`session_pr_merge\` fails AND bypass conditions are met):
+**Preferred audited bypass — in-band \`session_pr_merge\` \`forceBypass\` (mt#2215):**
+
+\`\`\`
+mcp__minsky__session_pr_merge(task: "mt#<id>", forceBypass: true,
+  bypassReason: "<evidence: which review is a verified false-positive and why>")
+\`\`\`
+
+This is the in-band replacement for the raw \`gh api PUT\` below — no hand-run CLI, and Minsky session cleanup still fires. It requires a non-empty \`bypassReason\` and a present (non-DISMISSED) \`CHANGES_REQUESTED\` review (for reviewer ABSENCE / webhook-miss with no \`CHANGES_REQUESTED\`, use the \`acceptStaleReviewerSilence\` flag instead), refuses on failing status checks or other merge blockers, auto-dismisses the blocking review using \`bypassReason\` as evidence, writes the canonical audit signature into the merge-commit body, and always uses \`merge_method=merge\`. Use it whenever the bypass conditions below are met and the agent has merge rights.
+
+**Fallback — bypass merge via \`gh api PUT\`** (only when the in-band \`forceBypass\` path is unavailable AND \`session_pr_merge\` fails AND bypass conditions are met):
 
 \`\`\`
 gh api -X PUT /repos/<owner>/<repo>/pulls/<N>/merge \\
