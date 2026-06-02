@@ -72,8 +72,8 @@ describe("chunkFiles — size-aware chunking", () => {
     const files = Array.from({ length: FILES_PER_CHUNK + 5 }, (_, i) => makeFile(`s-${i}.ts`, 100));
     const chunks = chunkFiles(files);
     expect(chunks.length).toBe(2);
-    expect(chunks[0].files.length).toBe(FILES_PER_CHUNK);
-    expect(chunks[1].files.length).toBe(5);
+    expect(chunks[0]?.files.length).toBe(FILES_PER_CHUNK);
+    expect(chunks[1]?.files.length).toBe(5);
   });
 
   test("an oversized single file lands in its own chunk", () => {
