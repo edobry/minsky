@@ -59,23 +59,24 @@ I left my job last year, took a sabbatical, and went all-in on AI coding to unde
 
 <span class="eyebrow">What it actually is</span>
 
-<p class="ground-lead">It runs <span class="highlight">under</span> your coding agent. The substrate lives underneath — and you watch it run in a <span class="highlight">cockpit</span>.</p>
+<p class="ground-lead">It runs <span class="highlight">under</span> your coding agent. The substrate lives <span class="highlight">underneath</span>.</p>
+
+<img src="./assets/arch.svg" alt="Architecture: the principal declares intent to Claude Code or any harness, which talks over MCP to the Minsky substrate — sessions, memory, tasks, hooks, reviewer bot, asks — backed by Postgres, with a cockpit you watch it run in" class="arch-img" />
+
+<!--
+Concretely, here's the shape — so the rest of the talk isn't abstract. You work in your coding agent: Claude Code, or whatever harness you use. Minsky sits underneath it, over MCP. And underneath THAT is a real system — sessions, a memory that persists across them, a task lifecycle, hooks that fire automatically to catch mistakes, an adversarial reviewer bot, an escalation channel called asks — all backed by Postgres. It's not an app you open instead of your agent. It's the substrate your agent runs inside.
+-->
+
+---
+
+<span class="eyebrow">…and you watch it run</span>
+
+<p class="ground-lead">The cockpit — mission control for the flock.</p>
 
 <img src="./assets/cockpit.png" alt="The Minsky cockpit — a mission-control web UI showing system health, attention/asks, credentials, memory, and a widget grid for agents, tasks, and sessions" class="product-shot" />
 
-<div class="substrate-strip">
-  <span>Claude Code · any harness</span>
-  <span class="hl">sessions</span>
-  <span class="hl">memory</span>
-  <span class="hl">tasks</span>
-  <span class="hl">hooks</span>
-  <span class="hl">reviewer bot</span>
-  <span class="hl">asks</span>
-  <span>Postgres</span>
-</div>
-
 <!--
-Concretely, here's what it is — so the rest of the talk isn't abstract. Minsky runs underneath your coding agent: Claude Code, or whatever harness you use, talking to it over MCP. Underneath that there's a real system — a Postgres database, a memory that persists across sessions, a task and session lifecycle, hooks that fire automatically to catch mistakes, an adversarial reviewer bot, an escalation channel called asks. And this is the cockpit — a web UI where you watch the whole thing run. So it's not an app you open instead of your agent. It's the substrate your agent runs inside. Hold that picture; now let me tell you why I got worried.
+And here's the part you actually look at — the cockpit. A web UI over the whole substrate: system health, what's waiting on your attention, which credentials are wired, memory and embedding coverage, and a grid for agents, tasks, sessions, the dependency graph, asks. This is the "mission control you fly" — not a dashboard you read after the fact, but the surface you watch the flock run in. Last week I showed one piece of this actually working; today it's the backdrop.
 -->
 
 ---

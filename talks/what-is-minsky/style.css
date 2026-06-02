@@ -563,6 +563,14 @@ a.comp-card .comp-line {
   margin-bottom: 0.3em;
 }
 
+.arch-img {
+  width: 100%;
+  max-width: 640px;
+  max-height: 380px;
+  display: block;
+  margin: 0.4em auto 0;
+}
+
 /* --- "Same parts, different bet" slide --- */
 
 .chip-row {
