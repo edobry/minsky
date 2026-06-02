@@ -222,4 +222,37 @@ describe("MinskyTaskBackend timestamp surfacing (mt#2259)", () => {
     expect(task?.createdAt).toBeUndefined();
     expect(task?.updatedAt).toBeUndefined();
   });
+
+  test("createTaskFromTitleAndSpec returns a Task carrying createdAt/updatedAt", async () => {
+    // Insert-only fake supporting `.onConflictDoNothing().returning()` (task row)
+    // and `.onConflictDoUpdate()` (spec row). options.id routes through
+    // insertTaskWithId, avoiding the generateTaskId select.
+    const awaitable = <T>(value: T) => ({
+      then: (onF: (v: T) => unknown, onR?: (e: unknown) => unknown) =>
+        Promise.resolve(value).then(onF, onR),
+    });
+    const insertDb = {
+      transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+        return fn(this);
+      },
+      insert() {
+        return {
+          values() {
+            return {
+              onConflictDoNothing: () => ({ returning: () => awaitable([{ id: "mt#7" }]) }),
+              onConflictDoUpdate: () => awaitable(undefined),
+            };
+          },
+        };
+      },
+    };
+    const backend = new MinskyTaskBackend({ db: insertDb, workspacePath: "/tmp/ws" } as never);
+
+    const task = await backend.createTaskFromTitleAndSpec("T", "spec body", { id: "mt#7" });
+
+    expect(task.createdAt).toBeInstanceOf(Date);
+    expect(task.updatedAt).toBeInstanceOf(Date);
+    // The returned object uses the same `now` written to the row — no drift.
+    expect(task.createdAt).toEqual(task.updatedAt);
+  });
 });
