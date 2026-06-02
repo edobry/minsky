@@ -370,6 +370,22 @@ body,
   padding: 0.7em;
 }
 
+/* competitor cards are links (clickable in the published deck) */
+a.comp-card {
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+a.comp-card:hover {
+  border-color: var(--signal-cyan-dim);
+  background: rgba(0, 191, 216, 0.04);
+}
+
+a.comp-card .comp-line {
+  text-decoration: none;
+}
+
 .comp-shot {
   width: 100%;
   height: 130px;
@@ -499,4 +515,92 @@ body,
   line-height: 1.5;
   margin-top: 1.8em;
   max-width: 720px;
+}
+
+/* --- "What it actually is" grounding slide --- */
+
+.product-shot {
+  width: 100%;
+  max-width: 620px;
+  height: 320px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 8px;
+  border: 1px solid #1a1a1a;
+  display: block;
+  margin: 0.2em auto 0;
+}
+
+.substrate-strip {
+  display: flex;
+  gap: 0.55em;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.74em;
+  margin-top: 0.8em;
+}
+
+.substrate-strip span {
+  padding: 0.25em 0.65em;
+  border: 1px solid #1a1a1a;
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+.substrate-strip span.hl {
+  color: var(--signal-cyan);
+  border-color: var(--signal-cyan-dim);
+}
+
+.ground-lead {
+  font-size: 1.05em;
+  font-weight: 300;
+  line-height: 1.35;
+  color: var(--text-primary);
+  text-align: center;
+  margin-bottom: 0.3em;
+}
+
+/* --- "Same parts, different bet" slide --- */
+
+.chip-row {
+  display: flex;
+  gap: 0.6em;
+  flex-wrap: wrap;
+  margin: 0.6em 0 1.2em;
+}
+
+.chip {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  padding: 0.35em 0.75em;
+  border: 1px solid #1a1a1a;
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+}
+
+/* --- Recursive rungs --- */
+
+.rung-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+  margin-top: 0.4em;
+}
+
+.rung {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9em;
+  font-size: 0.95em;
+}
+
+.rung-tag {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--signal-cyan);
+  min-width: 5.5em;
 }
