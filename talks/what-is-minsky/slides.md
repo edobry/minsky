@@ -81,6 +81,31 @@ And here's the part you actually look at — the cockpit. A web UI over the whol
 
 ---
 
+<span class="eyebrow">In practice</span>
+
+<p class="ground-lead">You work in your agent. It's <span class="highlight">calling Minsky</span> the whole time.</p>
+
+<div class="term">
+  <div class="term-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="term-title">claude code — task/mt-2272</span></div>
+  <div class="term-body">
+<div class="tl"><span class="tp">›</span><span class="tu">implement mt#2272</span></div>
+<div class="tl"><span class="tc">→ minsky.tasks_get</span>  <span class="td">spec · scope · acceptance tests</span></div>
+<div class="tl"><span class="tc">→ minsky.session_start</span>  <span class="td">isolated workspace</span></div>
+<div class="tl"><span class="tc">→ minsky.memory_search</span>  <span class="td">12 prior decisions → context</span></div>
+<div class="tl"><span class="to">  … editing 4 files …</span></div>
+<div class="tl"><span class="te">⨯ hook  edit blocked: generated file</span>  <span class="td">edit the source</span></div>
+<div class="tl"><span class="tc">→ minsky.session_commit</span>  <span class="td">pre-commit guards pass</span></div>
+<div class="tl"><span class="tc">→ minsky.session_pr_create</span>  <span class="td">reviewer bot dispatched</span></div>
+<div class="tl"><span class="tr">↺ /retrospective  recurrence check</span>  <span class="td">5 prior, same root</span></div>
+  </div>
+</div>
+
+<!--
+This is what it looks like from the inside — and it's the clearest answer to "what is it." You're just working in Claude Code. But every step, it's calling Minsky underneath: pull the task spec, start an isolated session, search memory and inject the prior decisions, edit — and a hook fires to block an edit to a generated file before it happens, commit through the pre-commit guards, open the PR and dispatch the reviewer bot, and when I slip into a known failure pattern, a retrospective runs a recurrence check across everything that came before. None of that is me remembering to do it. The substrate does it. That's the lane.
+-->
+
+---
+
 <div class="center-slide">
 
 <span class="eyebrow">The crisis</span>
@@ -270,4 +295,33 @@ So that's my ask, and it's a real one. If you can say Minsky in one sentence —
 
 <!--
 Resources slide: repo and slides as QR + text, plus the contact handle. The slides URL is live once this deck merges to main and the deploy-talks Pages workflow runs. Kept separate from the "one sentence?" ask so that rhetorical closer lands clean.
+-->
+
+---
+
+<span class="appendix-tag">Appendix · if there's time or a question</span>
+
+<p class="ground-lead">More of the cockpit — <span class="highlight">one surface, the whole substrate</span>.</p>
+
+<div class="montage">
+  <figure>
+    <img src="./assets/cockpit-tasks.png" alt="Cockpit task list — sortable, filterable task table with status pills" />
+    <figcaption><b>Task list</b> — every task, its status and lifecycle</figcaption>
+  </figure>
+  <figure>
+    <img src="./assets/cockpit-agents.png" alt="Cockpit agents view — active sessions with liveness and PR state" />
+    <figcaption><b>Agents</b> — live sessions, liveness, PR state</figcaption>
+  </figure>
+  <figure>
+    <img src="./assets/cockpit-workstreams.png" alt="Cockpit workstreams — parent tasks with active child counts" />
+    <figcaption><b>Workstreams</b> — parent tasks, active child counts</figcaption>
+  </figure>
+  <figure>
+    <img src="./assets/cockpit-embeddings.png" alt="Cockpit embeddings infrastructure — provider health and index coverage" />
+    <figcaption><b>Memory & embeddings</b> — coverage across the corpus</figcaption>
+  </figure>
+</div>
+
+<!--
+Backup slide — not part of the 3-minute run; here to jump to if someone after the talk asks "what else is in it" or "show me the cockpit." Four more surfaces: the task list (every task and its lifecycle), agents (live sessions with liveness and PR state), workstreams (parent tasks with their active children — the flock view), and the embeddings/memory coverage across tasks, memories, and the principal corpus. One surface over the whole substrate.
 -->
