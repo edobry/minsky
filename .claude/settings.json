@@ -204,6 +204,18 @@
         ]
       }
     ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/transcript-ingest-on-session-end.ts",
+            "timeout": 45,
+            "statusMessage": "Ingesting finished session transcript..."
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit|mcp__minsky__session_write_file|mcp__minsky__session_edit_file|mcp__minsky__session_search_replace",
