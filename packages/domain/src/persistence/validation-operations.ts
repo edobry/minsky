@@ -198,9 +198,14 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
         // "clean" while the schema diverges. v1 covers the embeddings tables (the incident
         // surface); generalizing to all declared tables is a follow-up (see mt#1641).
         try {
-          const rawConn = (await provider.getRawSqlConnection?.()) as
-            | import("./schema-drift-detector").UnsafeSql
-            | undefined;
+          // Feature-detect `.unsafe` rather than assume it: a provider may expose only the
+          // postgres.js template-tag interface. If `.unsafe` is absent, skip the audit
+          // gracefully instead of throwing.
+          const rawConnRaw = await provider.getRawSqlConnection?.();
+          const rawConn =
+            rawConnRaw && typeof (rawConnRaw as { unsafe?: unknown }).unsafe === "function"
+              ? (rawConnRaw as import("./schema-drift-detector").UnsafeSql)
+              : undefined;
           if (rawConn) {
             const { getDeclaredTables, auditPostgresSchemaDrift } = await import(
               "./schema-drift-detector"
