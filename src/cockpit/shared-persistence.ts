@@ -18,15 +18,32 @@ import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
 
 /**
- * Default deadline for the one-time PersistenceService.initialize() call.
- * If initialize() neither resolves nor rejects within this window (a hang —
- * e.g. an Octokit network call with no timeout, mt#2245), the cached init
- * promise is cleared so the NEXT caller retries with fresh state instead of
- * joining a promise that will never settle (the "zombie singleton" wedge that
- * would otherwise affect every DB-backed widget). Mirrors the Promise.race
- * init-timeout pattern at widgets/agents.ts:156-160. (mt#2244)
+ * Default deadline for the one-time PersistenceService init sequence
+ * (createService() + initialize()). The deadline exists to catch an unbounded
+ * HANG (e.g. an Octokit call with no timeout, mt#2245) — not to police a slow
+ * but eventually-successful init. It is therefore set generously: observed
+ * healthy init is ~1.7s (scripts/repro-mt2183.ts), while DB cold-start /
+ * failover can legitimately take double-digit seconds, so 30s tolerates those
+ * while still bounding an infinite hang. (Raised from the original 10s after
+ * PR #1491 R1 flagged 10s as too aggressive for cold-start / failover windows.)
+ *
+ * Operator override: set MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS to a
+ * positive integer (milliseconds); invalid / non-positive values fall back to
+ * the default. Callers may also pass an explicit `initTimeoutMs` argument.
+ * Mirrors the Promise.race init-timeout pattern at widgets/agents.ts:156-160.
+ * (mt#2244)
  */
-export const PERSISTENCE_INIT_TIMEOUT_MS = 10_000;
+export const DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS = 30_000;
+
+/** @internal Exported for unit testing the env-override parse rules. */
+export function resolveDefaultInitTimeoutMs(): number {
+  const raw = process.env.MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS;
+  if (raw === undefined) return DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS;
+}
+
+export const PERSISTENCE_INIT_TIMEOUT_MS = resolveDefaultInitTimeoutMs();
 
 /** Thrown when PersistenceService.initialize() exceeds the init deadline. */
 export class PersistenceInitTimeoutError extends Error {
@@ -53,6 +70,23 @@ const defaultServiceFactory: PersistenceServiceFactory = async () => {
 let _instance: PersistenceService | null = null;
 let _initPromise: Promise<PersistenceService> | null = null;
 
+/**
+ * Returns the shared PersistenceService, initializing it once and coalescing
+ * concurrent callers onto a single init promise.
+ *
+ * Hang recovery and its limit (mt#2244): the init sequence races against
+ * `initTimeoutMs`. On timeout the cached promise is cleared so the NEXT caller
+ * starts a fresh attempt instead of joining one that will never settle. The
+ * timed-out attempt, however, keeps running in the background and CANNOT be
+ * cancelled — `PersistenceService.initialize()` / `provider.initialize()` take
+ * no AbortSignal today. A new instance is created per attempt (reusing the
+ * instance would re-wedge on its own internal init-promise, which a hang leaves
+ * permanently pending), so a hung attempt that later completes may leak a
+ * provider connection pool. This is the accepted cost of recovering a wedged
+ * cockpit without a cancellation path; true cancellation is tracked in mt#2248.
+ * The overlap is bounded: callers within a window coalesce, so at most one
+ * ACTIVE attempt runs at a time, plus at most one orphan per timeout event.
+ */
 export async function getSharedPersistenceService(
   initTimeoutMs: number = PERSISTENCE_INIT_TIMEOUT_MS,
   createService: PersistenceServiceFactory = defaultServiceFactory
@@ -63,37 +97,40 @@ export async function getSharedPersistenceService(
   _initPromise = (async () => {
     const startedAt = Date.now();
     let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    try {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new PersistenceInitTimeoutError(Date.now() - startedAt)),
+        initTimeoutMs
+      );
+    });
+    // The WHOLE sequence — factory + initialize() — is inside the race so a hang
+    // in EITHER createService() (dynamic import / constructor) or initialize()
+    // trips the deadline (PR #1491 R1).
+    const init = (async () => {
       const svc = await createService();
-      try {
-        await Promise.race([
-          svc.initialize(),
-          new Promise<never>((_resolve, reject) => {
-            timeoutHandle = setTimeout(
-              () => reject(new PersistenceInitTimeoutError(Date.now() - startedAt)),
-              initTimeoutMs
-            );
-          }),
-        ]);
-      } finally {
-        // Always clear the timer so a settled initialize() doesn't leave a
-        // dangling handle holding the event loop open.
-        if (timeoutHandle) clearTimeout(timeoutHandle);
-      }
+      await svc.initialize();
+      return svc;
+    })();
+    try {
+      const svc = await Promise.race([init, timeout]);
       _instance = svc;
       return svc;
     } catch (err) {
       // Clear the cached promise so the NEXT caller retries with fresh state,
-      // whether initialize() rejected OR timed out. Without the timeout+reset a
-      // hang would wedge every subsequent caller forever (mt#2244).
+      // whether init rejected OR timed out. Without the timeout+reset a hang
+      // would wedge every subsequent caller forever (mt#2244).
       _initPromise = null;
       if (err instanceof PersistenceInitTimeoutError) {
         log.warn(
-          `[shared-persistence] PersistenceService.initialize() timed out after ` +
+          `[shared-persistence] PersistenceService init timed out after ` +
             `${err.elapsedMs}ms — cleared cached init promise so the next caller retries`
         );
       }
       throw err;
+    } finally {
+      // Always clear the timer so a settled init doesn't leave a dangling
+      // handle holding the event loop open.
+      if (timeoutHandle) clearTimeout(timeoutHandle);
     }
   })();
 
@@ -106,10 +143,14 @@ export async function getSharedProvider(): Promise<PersistenceProvider> {
 }
 
 /**
- * Test-only: reset the cached singleton + init promise so each test starts from
- * a clean slate. Exported because the singleton state is module-level and bun
- * shares module state across test files in one process (the same hazard noted
- * in adapters/shared/commands/observability.test.ts). Not for production use.
+ * Reset the cached singleton + init promise so each test starts from a clean
+ * slate. Exported because the singleton state is module-level and bun shares
+ * module state across test files in one process (the same hazard noted in
+ * adapters/shared/commands/observability.test.ts).
+ *
+ * @internal Test-only. The `__`-prefix + this annotation mark it as not part of
+ * the supported surface; production code must never call it (it would corrupt
+ * the live singleton).
  */
 export function __resetSharedPersistenceForTests(): void {
   _instance = null;

@@ -365,9 +365,27 @@ apply to dev-mode cockpits — those are not launchd jobs.
 
 Fresh cockpit responds to DB-backed widgets in <1s.
 
-**Structural fixes in flight:** mt#2244 (init-timeout + reset on hang for
-`getSharedPersistenceService`) and mt#2245 (bounded Octokit network timeouts for the
-github-issues backend). Originating investigation: mt#2186.
+**Self-recovery (mt#2244, shipped).** `getSharedPersistenceService()` now races the
+one-time init sequence (`createService()` + `initialize()`) against a deadline. If init
+hangs past the deadline it throws `PersistenceInitTimeoutError` and clears the cached
+init-promise, so the _next_ caller starts a fresh attempt instead of joining the wedged
+one — the singleton self-heals on the following poll rather than staying wedged until a
+manual restart. Each timeout logs a `warn` line (`[shared-persistence] PersistenceService
+init timed out after <ms>ms …`); grep the cockpit logs for it to confirm the path fired.
+
+- **Default deadline:** 30s. Chosen to bound an _infinite_ hang while tolerating slow-but-
+  finite init (healthy init is ~1.7s; DB cold-start / failover can take double-digit
+  seconds).
+- **Operator override:** set `MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS=<ms>` (positive
+  integer; invalid / non-positive values fall back to the default). Lower it to fail faster
+  on a known-flaky upstream; raise it if a slow failover legitimately exceeds 30s.
+- **Known limit:** the timed-out attempt keeps running in the background and is _not_
+  cancelled (no `AbortSignal` on `PersistenceService.initialize()` yet), so a hung attempt
+  that later completes may leak a provider pool. Bounded — at most one orphan per timeout.
+  True cancellation is tracked in **mt#2248**.
+
+**Related fix in flight:** mt#2245 (bounded Octokit network timeouts for the github-issues
+backend — the upstream root cause of the hang). Originating investigation: mt#2186.
 
 ---
 

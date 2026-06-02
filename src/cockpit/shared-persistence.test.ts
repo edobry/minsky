@@ -14,9 +14,13 @@ import type { PersistenceService } from "@minsky/domain/persistence/service";
 import {
   getSharedPersistenceService,
   PersistenceInitTimeoutError,
+  DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS,
+  resolveDefaultInitTimeoutMs,
   __resetSharedPersistenceForTests,
   type PersistenceServiceFactory,
 } from "./shared-persistence";
+
+const ENV_KEY = "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS";
 
 /** Minimal stub satisfying the parts of PersistenceService this path touches. */
 function makeService(initialize: () => Promise<void>): PersistenceService {
@@ -77,5 +81,42 @@ describe("getSharedPersistenceService init-timeout (mt#2244)", () => {
     }
     expect(caught).toBeInstanceOf(PersistenceInitTimeoutError);
     expect((caught as PersistenceInitTimeoutError).elapsedMs).toBeGreaterThanOrEqual(20);
+  });
+
+  test("a hang in createService() (not just initialize()) trips the timeout", async () => {
+    // The factory itself never resolves — the deadline must still fire because
+    // the whole init sequence is inside the race (PR #1491 R1).
+    const factory: PersistenceServiceFactory = () => new Promise(() => {});
+    await expect(getSharedPersistenceService(40, factory)).rejects.toBeInstanceOf(
+      PersistenceInitTimeoutError
+    );
+  });
+});
+
+describe("resolveDefaultInitTimeoutMs env override (mt#2244)", () => {
+  let original: string | undefined;
+  beforeEach(() => {
+    original = process.env[ENV_KEY];
+  });
+  afterEach(() => {
+    if (original === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = original;
+  });
+
+  test("falls back to the default when unset", () => {
+    delete process.env[ENV_KEY];
+    expect(resolveDefaultInitTimeoutMs()).toBe(DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS);
+  });
+
+  test("uses a valid positive integer override", () => {
+    process.env[ENV_KEY] = "5000";
+    expect(resolveDefaultInitTimeoutMs()).toBe(5000);
+  });
+
+  test("falls back to the default on non-numeric, zero, or negative values", () => {
+    for (const bad of ["abc", "0", "-1", ""]) {
+      process.env[ENV_KEY] = bad;
+      expect(resolveDefaultInitTimeoutMs()).toBe(DEFAULT_PERSISTENCE_INIT_TIMEOUT_MS);
+    }
   });
 });
