@@ -29,11 +29,23 @@ export const FILES_PER_CHUNK = 20;
 // (100k diff budget vs 272k model limit) absorbs estimator error.
 export const CHARS_PER_TOKEN = 3;
 
-// Per-chunk diff token budget. Sized well under the model input limit to leave
-// room for the system prompt (Critic Constitution), task spec, prior reviews,
-// review threads, and the completion. An earlier chunk that fit on PR #1478 was
-// ~112k tokens total; this caps the variable (diff) portion at 100k.
-export const MAX_CHUNK_DIFF_TOKENS = 100_000;
+// The model's input-token limit (gpt-5, as reported by the 400 error that
+// motivated mt#2243). The budget below is derived from it.
+export const MODEL_INPUT_TOKEN_LIMIT = 272_000;
+
+// Tokens reserved for everything in the prompt that is NOT the chunk diff: the
+// system Critic Constitution, task spec, prior reviews, review threads, AND the
+// model's completion/reasoning budget. The diff budget is the limit minus this
+// reserve, so even at a full diff budget the assembled prompt stays under the
+// limit unless the non-diff overhead itself exceeds the reserve. Deliberately
+// generous (172k) — the same reserve protects BOTH single-pass and chunked
+// mode (see shouldChunkReview), since both carry this overhead.
+export const PROMPT_OVERHEAD_TOKEN_RESERVE = 172_000;
+
+// Per-chunk diff token budget = limit - overhead reserve. An earlier chunk that
+// fit on PR #1478 was ~112k tokens total; this caps the variable (diff) portion
+// at 100k, leaving 172k for the fixed overhead + completion.
+export const MAX_CHUNK_DIFF_TOKENS = MODEL_INPUT_TOKEN_LIMIT - PROMPT_OVERHEAD_TOKEN_RESERVE;
 
 // Per-file truncation cap (tokens). A single file contributes at most this much
 // to a chunk, so one oversized minified/vendored file (e.g. a 258 kB bundle
@@ -77,12 +89,22 @@ function estimateChunkFileTokens(file: PrFileEntry): number {
 /**
  * Determine whether a PR should be reviewed in chunked mode.
  *
- * Chunks on file count, line count, OR estimated total diff tokens. The
- * token gate (mt#2243) closes the minified-single-line gap: line count is
- * blind to a 258 kB one-line vendored bundle (~1 "line" but tens of thousands
- * of tokens), which would overflow a single-pass prompt. The token estimate
- * here is UNCAPPED (single-pass review does not truncate), so a large-byte
- * diff forces chunked mode where per-file truncation applies.
+ * Chunks on file count, line count, total diff tokens, OR any single file
+ * exceeding the per-file cap. The token gate (mt#2243) closes the
+ * minified-single-line gap: line count is blind to a 258 kB one-line vendored
+ * bundle (~1 "line" but tens of thousands of tokens), which would overflow a
+ * single-pass prompt.
+ *
+ * Two single-pass-overflow guards, both using UNCAPPED estimates (single-pass
+ * review sends the full diff verbatim — it does NOT truncate):
+ *   - total diff tokens > MAX_CHUNK_DIFF_TOKENS — the whole diff is too big.
+ *   - any single file > MAX_FILE_PATCH_TOKENS — only the chunked path truncates
+ *     per file, so a single oversized file must route to chunked mode to be
+ *     capped; otherwise single-pass would send it whole.
+ * Together these guarantee single-pass runs only when the full diff is no
+ * larger than a single chunk would be, and the PROMPT_OVERHEAD_TOKEN_RESERVE
+ * (subtracted into MAX_CHUNK_DIFF_TOKENS) covers the non-diff prompt overhead
+ * that single-pass also carries.
  */
 export function shouldChunkReview(fileEntries: PrFileEntry[], totalDiffLines: number): boolean {
   if (
@@ -91,6 +113,10 @@ export function shouldChunkReview(fileEntries: PrFileEntry[], totalDiffLines: nu
   ) {
     return true;
   }
+  const anyFileExceedsCap = fileEntries.some(
+    (f) => estimateTokensFromChars(rawFileChars(f)) > MAX_FILE_PATCH_TOKENS
+  );
+  if (anyFileExceedsCap) return true;
   const estimatedTotalTokens = fileEntries.reduce(
     (sum, f) => sum + estimateTokensFromChars(rawFileChars(f)),
     0
@@ -105,6 +131,12 @@ export function shouldChunkReview(fileEntries: PrFileEntry[], totalDiffLines: nu
  * bound, in which case a new chunk is started. A single file always lands in a
  * chunk (its capped estimate <= MAX_FILE_PATCH_TOKENS < MAX_CHUNK_DIFF_TOKENS,
  * so it fits in a fresh chunk), and buildChunkDiff truncates its patch.
+ *
+ * Packing is order-dependent (greedy, single pass) — this is intentional: it
+ * preserves GitHub's stable file ordering so adjacent files (often in the same
+ * directory) tend to land in the same chunk, which gives the reviewer better
+ * local context than a bin-packing reorder would. Correctness (every chunk
+ * under budget) holds regardless of order.
  */
 export function chunkFiles(fileEntries: PrFileEntry[]): ChunkInfo[] {
   const groups: PrFileEntry[][] = [];

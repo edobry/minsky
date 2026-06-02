@@ -43,6 +43,10 @@ function estTokens(text: string): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
+// Substring of the truncation marker emitted by capDiffText — asserted in
+// several tests, so extracted to avoid magic-string duplication.
+const TRUNCATION_MARKER = "diff truncated at";
+
 describe("chunkFiles — size-aware chunking", () => {
   test("bounds each chunk by cumulative diff tokens, not file count alone", () => {
     // Each file ≈ MAX_FILE_PATCH_TOKENS (half the chunk budget) → 2 per chunk,
@@ -106,7 +110,7 @@ describe("buildChunkDiff — per-file truncation", () => {
     const chunk: ChunkInfo = { index: 0, totalChunks: 1, files: [file] };
     const out = buildChunkDiff(chunk, "");
 
-    expect(out).toContain("diff truncated at");
+    expect(out).toContain(TRUNCATION_MARKER);
     expect(out).toContain("read_file");
     // The emitted diff body must be bounded — well under the raw 2x-cap patch.
     expect(estTokens(out)).toBeLessThanOrEqual(MAX_FILE_PATCH_TOKENS + 500);
@@ -117,8 +121,83 @@ describe("buildChunkDiff — per-file truncation", () => {
     const chunk: ChunkInfo = { index: 0, totalChunks: 1, files: [file] };
     const out = buildChunkDiff(chunk, "");
 
-    expect(out).not.toContain("diff truncated at");
+    expect(out).not.toContain(TRUNCATION_MARKER);
     expect(out).toContain("x".repeat(200));
+  });
+});
+
+describe("buildChunkDiff — no-patch fallback paths", () => {
+  // GitHub omits `patch` for files >1MB or binary; buildChunkDiff then
+  // reconstructs from the full PR diff, or notes the file for tool-based review.
+  function noPatchFile(filename: string, extra: Partial<PrFileEntry> = {}): PrFileEntry {
+    return { filename, status: "modified", additions: 0, deletions: 0, ...extra };
+  }
+
+  test("reconstructs a file's diff from the full diff when patch is absent", () => {
+    const fullDiff = [
+      "diff --git a/foo.ts b/foo.ts",
+      "--- a/foo.ts",
+      "+++ b/foo.ts",
+      "@@ -1,1 +1,2 @@",
+      " context line",
+      "+added line",
+    ].join("\n");
+    const file = noPatchFile("foo.ts", { additions: 1 });
+    const chunk: ChunkInfo = { index: 0, totalChunks: 1, files: [file] };
+    const out = buildChunkDiff(chunk, fullDiff);
+
+    expect(out).toContain("foo.ts");
+    expect(out).toContain("added line");
+    expect(out).toContain("context line");
+    expect(out).not.toContain("Patch unavailable");
+  });
+
+  test("truncates a large reconstructed diff and emits the marker", () => {
+    const manyLines = Array.from({ length: 4000 }, (_, i) => `+line ${i} ${"y".repeat(40)}`).join(
+      "\n"
+    );
+    const fullDiff = [
+      "diff --git a/big.ts b/big.ts",
+      "--- a/big.ts",
+      "+++ b/big.ts",
+      "@@ -0,0 +1,4000 @@",
+      manyLines,
+    ].join("\n");
+    const file = noPatchFile("big.ts", { additions: 4000 });
+    const chunk: ChunkInfo = { index: 0, totalChunks: 1, files: [file] };
+    const out = buildChunkDiff(chunk, fullDiff);
+
+    expect(out).toContain(TRUNCATION_MARKER);
+    expect(out).toContain("read_file");
+    expect(estTokens(out)).toBeLessThanOrEqual(MAX_FILE_PATCH_TOKENS + 500);
+  });
+
+  test("notes a file for tool-based review when it is in neither patch nor full diff", () => {
+    const file = noPatchFile("ghost.ts", { additions: 5 });
+    const chunk: ChunkInfo = { index: 0, totalChunks: 1, files: [file] };
+    const out = buildChunkDiff(
+      chunk,
+      "diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-a\n+b"
+    );
+
+    expect(out).toContain("ghost.ts");
+    expect(out).toContain("Patch unavailable from GitHub API");
+    expect(out).toContain("read_file");
+  });
+
+  test("marks a content-free rename without emitting a diff body", () => {
+    const fullDiff = [
+      "diff --git a/old.ts b/new.ts",
+      "rename from old.ts",
+      "rename to new.ts",
+    ].join("\n");
+    const file = noPatchFile("new.ts", { status: "renamed", previousFilename: "old.ts" });
+    const chunk: ChunkInfo = { index: 0, totalChunks: 1, files: [file] };
+    const out = buildChunkDiff(chunk, fullDiff);
+
+    expect(out).toContain("new.ts");
+    expect(out).toContain("Rename only");
+    expect(out).not.toContain("```diff");
   });
 });
 
