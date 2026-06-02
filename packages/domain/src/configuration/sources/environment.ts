@@ -156,6 +156,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
   "MINSKY_MCP_INIT_RETRY_INTERVAL_MS", // src/commands/mcp/start-command.ts (mt#1962 — init retry backoff)
   "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
+  "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS", // src/cockpit/shared-persistence.ts (mt#2244 — init-timeout override)
   // mt#1994 — hook-only override env vars whose only read site is in
   // .claude/hooks/*.ts (outside the mt#1788 ESLint rule's prior scan path).
   // Each is documented in CLAUDE.md or the hook's own header as a user-facing
