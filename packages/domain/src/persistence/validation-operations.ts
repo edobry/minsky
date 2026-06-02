@@ -236,9 +236,14 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
                 "✅ Schema-drift audit clean (declared embeddings tables match the DB; ledger has no duplicate rows)"
               );
             } else {
-              log.cli(`⚠️  Schema-drift audit found ${audit.issues.length} issue(s)`);
-              issues.push(...audit.issues);
-              suggestions.push(...audit.suggestions);
+              // Surface drift as warnings/suggestions, NOT as `issues`: the audit is
+              // best-effort and must not flip the overall persistence check to
+              // success=false (e.g. on pre-existing prod drift). The log lines below make
+              // findings visible regardless of the --report flag; reconciliation is a
+              // separate, deliberate action.
+              log.cli(`⚠️  Schema-drift audit found ${audit.issues.length} finding(s) (warnings):`);
+              audit.issues.forEach((finding) => log.cli(`   - ${finding}`));
+              suggestions.push(...audit.issues, ...audit.suggestions);
             }
           }
         } catch (error) {
