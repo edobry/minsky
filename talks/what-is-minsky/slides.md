@@ -169,3 +169,37 @@ Here's where I've landed. Everyone else built an app you sit in front of to driv
 <!--
 So that's my ask. If you had to explain this to someone in one sentence, what would you say? What lands, what's confusing? Come find me after — I'll be around. Thanks.
 -->
+
+---
+
+<div class="center-slide">
+
+<span class="eyebrow">Minsky</span>
+
+## The cyberbrain for software organizations
+
+<div class="resource-grid mt-10">
+
+<div class="resource">
+<img src="./assets/qr-repo.svg" alt="QR code linking to the Minsky GitHub repository" class="qr" />
+<span class="resource-label">Repo</span>
+<span class="resource-url">github.com/edobry/minsky</span>
+</div>
+
+<div class="resource">
+<img src="./assets/qr-slides.svg" alt="QR code linking to these slides" class="qr" />
+<span class="resource-label">Slides</span>
+<span class="resource-url">edobry.github.io/minsky/what-is-minsky</span>
+</div>
+
+</div>
+
+<p class="subtle mt-10">Take the slides · come argue with me about the one-liner</p>
+
+<p class="dim mt-3">Eugene Dobry · <span class="highlight">@pee_zombie</span></p>
+
+</div>
+
+<!--
+Resources slide: repo and slides as QR + text, plus the contact handle. The slides URL is live once this deck merges to main and the deploy-talks Pages workflow runs. Kept separate from the "one sentence?" ask so that rhetorical closer lands clean.
+-->
