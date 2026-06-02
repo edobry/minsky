@@ -76,9 +76,11 @@ jobs:
         run: bun run tauri build
         env:
           # The app is intentionally unsigned (mt#2201). tauri build invokes
-          # xcodebuild under the hood; disable code signing so the build does
-          # not prompt or fail on the runner.
-          XCODE_SIGNING_ALLOWED: "NO"
+          # xcodebuild under the hood; CODE_SIGNING_ALLOWED=NO is the xcodebuild
+          # flag that actually disables signing so the build won't prompt/fail
+          # on the runner.
+          CODE_SIGNING_ALLOWED: "NO"
+
 
       - name: Verify bundle was produced
         working-directory: cockpit-tray
