@@ -1,0 +1,79 @@
+name: Cockpit Tray CI
+
+# mt#2226 — build + unit-test smoke for the cockpit tray app (cockpit-tray/).
+#
+# Catches the class that shipped broken in mt#2200/mt#2225/mt#2240: source
+# that compiles in dev but was never built, and pure-logic regressions. The
+# app is a macOS menu-bar (tray-only) Tauri app, so:
+#   - It must build on macOS (the bundle is platform-specific).
+#   - It CANNOT be boot-smoke-tested headlessly in CI: a tray app needs a
+#     WindowServer/GUI session, which hosted runners don't provide. The live
+#     boot + menu-line + Start/Stop verification is the LOCAL Accessibility
+#     script `cockpit-tray/scripts/smoke-status.sh` (TCC permission can't be
+#     granted non-interactively on hosted runners). See ADR notes + mt#2226.
+#
+# Standard Tauri WebDriver e2e does not apply either: it is Windows/Linux-only
+# (no macOS WKWebView driver) and this app has no webview window to drive.
+#
+# Path-filtered to cockpit-tray/** so the (slower) macOS build only runs when
+# the app changes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cockpit-tray/**"
+      - ".github/workflows/cockpit-tray-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "cockpit-tray/**"
+      - ".github/workflows/cockpit-tray-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  cockpit-tray-ci:
+    name: cockpit-tray-ci
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: cockpit-tray
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      # macOS runners ship a Rust toolchain; ensure a current stable is active.
+      # (Official rustup; no third-party action — keeps the dependency surface
+      # to GitHub-official + the repo's existing setup-bun.)
+      - name: Ensure Rust stable
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustup show || true
+          cargo --version
+
+      # cockpit-tray is a standalone package (NOT part of the root workspace),
+      # and its bun.lock is intentionally untracked (mt#2225), so install
+      # without --frozen-lockfile.
+      - name: Install JS deps (Tauri CLI)
+        run: bun install
+
+      - name: Rust unit tests
+        working-directory: cockpit-tray/src-tauri
+        run: cargo test --release
+
+      - name: Build the .app bundle
+        run: bun run tauri build
+
+      - name: Verify bundle was produced
+        run: |
+          APP="src-tauri/target/release/bundle/macos/Minsky Cockpit.app"
+          test -d "$APP" || { echo "::error::$APP missing after build"; exit 1; }
+          test -x "$APP/Contents/MacOS/cockpit-tray" || { echo "::error::executable missing in bundle"; exit 1; }
+          ls -la "$APP/Contents/MacOS/"
