@@ -321,6 +321,72 @@ manipulating each other's tabs in the shared chromium). v0 ignores this in excha
 not depending on an experimental flag whose schema may shift; agents stick to the
 discipline of "find tab by URL → select_page once → do work, done."
 
+### Long-running cockpit hangs — symptoms and workaround
+
+A cockpit-server process that has been running for hours or days can accumulate
+zombie internal state — singleton init-promises that started during a transient
+upstream failure (Octokit GitHub call during laptop sleep / DNS hiccup / Supabase
+hiccup) and never resolved. Every later caller of that singleton joins the queue,
+forever. The process stays alive and serves non-DB endpoints fine, but any widget
+that touches persistence appears to hang on "Loading…".
+
+**Recognize the symptom:**
+
+```bash
+curl -sS --max-time 3 http://localhost:3737/api/health                       # 200 ok
+curl -sS --max-time 3 http://localhost:3737/api/widget/basic-health/data     # 200 ok
+curl -sS --max-time 3 http://localhost:3737/api/widget/attention/data        # timeout
+curl -sS --max-time 3 http://localhost:3737/api/widget/embeddings-health/data # timeout
+```
+
+basic-health responding while DB-backed widgets time out is the signature.
+
+**Workaround (dev-mode):** kill the exact cockpit PID recorded in the per-workspace
+lifecycle file, then restart with `minsky cockpit start`. This avoids the breadth of
+`pkill -f` (which would also match other cockpits or unrelated processes on a shared
+machine).
+
+```bash
+# Workspace state lives at ~/.local/state/minsky/cockpit/<workspace-key>.json
+STATE_FILE=~/.local/state/minsky/cockpit/main.json    # or your session ID
+
+PID=$(jq -r .pid "$STATE_FILE")
+PORT=$(jq -r .port "$STATE_FILE")
+
+kill "$PID"
+bun --watch run src/cli.ts cockpit start --dev --port "$PORT" --no-dev-chromium
+# or, when running from an installed minsky:
+# minsky cockpit start --dev --no-dev-chromium --port "$PORT"
+```
+
+For the **daemon-mode** cockpit (launched via `minsky cockpit install` on macOS), the
+correct restart command is `minsky cockpit restart` (launchd-managed). It does NOT
+apply to dev-mode cockpits — those are not launchd jobs.
+
+Fresh cockpit responds to DB-backed widgets in <1s.
+
+**Self-recovery (mt#2244, shipped).** `getSharedPersistenceService()` now races the
+one-time init sequence (`createService()` + `initialize()`) against a deadline. If init
+hangs past the deadline it throws `PersistenceInitTimeoutError` and clears the cached
+init-promise, so the _next_ caller starts a fresh attempt instead of joining the wedged
+one — the singleton self-heals on the following poll rather than staying wedged until a
+manual restart. Each timeout logs a `warn` line (`[shared-persistence] PersistenceService
+init timed out after <ms>ms …`); grep the cockpit logs for it to confirm the path fired.
+
+- **Default deadline:** 30s. Chosen to bound an _infinite_ hang while tolerating slow-but-
+  finite init (healthy init is ~1.7s; DB cold-start / failover can take double-digit
+  seconds).
+- **Operator override:** set `MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS=<ms>` (positive
+  integer; invalid / non-positive values fall back to the default). Lower it to fail faster
+  on a known-flaky upstream; raise it if a slow failover legitimately exceeds 30s.
+- **Known limit:** the timed-out attempt keeps running in the background and is _not_
+  cancelled (no `AbortSignal` on `PersistenceService.initialize()` yet), so a hung attempt
+  that later completes may leak a provider pool. Bounded — at most one orphan per timeout.
+  True cancellation is tracked in **mt#2248**.
+
+**Related fix in flight:** mt#2245 (bounded Octokit network timeouts for the github-issues
+backend — the upstream root cause of the hang). Originating investigation: mt#2186.
+
 ---
 
 ## Companion principles in the cockpit

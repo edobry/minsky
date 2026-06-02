@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { ChevronRight } from "lucide-react";
+import { CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { LinkCard } from "../components/ui/link-card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
+
+const EMBEDDINGS_LINK_LABEL = "View embedding infrastructure details";
 
 interface CoverageStats {
   tasks: { indexed: number; total: number };
@@ -78,27 +82,27 @@ export function EmbeddingsHealth() {
 
   if (query.isError) {
     return (
-      <Card>
+      <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>Failed to load: {query.error.message}</p>
         </CardContent>
-      </Card>
+      </LinkCard>
     );
   }
 
   if (query.isLoading || !query.data) {
     return (
-      <Card>
+      <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>Loading…</p>
         </CardContent>
-      </Card>
+      </LinkCard>
     );
   }
 
@@ -106,21 +110,21 @@ export function EmbeddingsHealth() {
 
   if (data.state === "degraded") {
     return (
-      <Card>
+      <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>{data.reason}</p>
         </CardContent>
-      </Card>
+      </LinkCard>
     );
   }
 
   const payload = data.payload as EmbeddingsHealthPayload;
 
   return (
-    <Card>
+    <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
@@ -141,6 +145,10 @@ export function EmbeddingsHealth() {
             >
               {statusLabel(payload.status)}
             </span>
+            <ChevronRight
+              aria-hidden
+              className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors"
+            />
           </div>
         </div>
       </CardHeader>
@@ -187,6 +195,6 @@ export function EmbeddingsHealth() {
           )}
         </dl>
       </CardContent>
-    </Card>
+    </LinkCard>
   );
 }
