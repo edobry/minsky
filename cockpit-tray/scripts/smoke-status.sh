@@ -27,14 +27,17 @@
 set -euo pipefail
 
 HEALTH_URL="http://localhost:3737/api/health"
-PROCESS="cockpit-tray"
+# Bundle executable candidates. Tauri names the binary after the Cargo package
+# (cockpit-tray); some configs derive it from productName ("Minsky Cockpit").
+# Match either so the running-app precondition doesn't false-SKIP.
+APP_BIN_RE="/Contents/MacOS/(cockpit-tray|Minsky Cockpit)"
 
 if [[ "$(uname)" != "Darwin" ]]; then
   echo "SKIP: not macOS (tray app + Accessibility API are macOS-only)"
   exit 2
 fi
 
-if ! pgrep -f "Minsky Cockpit.app/Contents/MacOS/${PROCESS}" >/dev/null 2>&1; then
+if ! pgrep -f "${APP_BIN_RE}" >/dev/null 2>&1; then
   echo "SKIP: tray app not running. Launch it first: open '/Applications/Minsky Cockpit.app'"
   exit 2
 fi
