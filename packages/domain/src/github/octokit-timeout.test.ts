@@ -57,6 +57,21 @@ describe("createTimeoutFetch (mt#2245)", () => {
     await expect(pending).rejects.toThrow(CALLER_ABORT_REASON);
   });
 
+  test("timeout wins over a fetch that rejects on abort, surfacing the timeout error (abort rejection suppressed)", async () => {
+    // Mirrors real fetch: rejects once the (chained) signal aborts. The wrapper
+    // must surface the timeout error from the race, and the late abort-driven
+    // rejection of the underlying fetch must not become an unhandled rejection.
+    const abortRejectingFetch: typeof fetch = (_input, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted by timeout")));
+      });
+    const timeoutFetch = createTimeoutFetch(30, abortRejectingFetch);
+
+    await expect(timeoutFetch("https://api.github.com/x")).rejects.toBeInstanceOf(
+      GitHubRequestTimeoutError
+    );
+  });
+
   test("default deadline is 30s", () => {
     expect(GITHUB_REQUEST_TIMEOUT_MS).toBe(30_000);
   });

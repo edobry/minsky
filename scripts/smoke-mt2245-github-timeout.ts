@@ -10,7 +10,12 @@
  *
  * Gates on a GitHub token; exits 0 with SKIP when absent.
  *
- *   GITHUB_TOKEN=... bun scripts/smoke-mt2245-github-timeout.ts
+ *   GITHUB_TOKEN=... bun run smoke:gh-timeout
+ *   # or: GITHUB_TOKEN=... bun scripts/smoke-mt2245-github-timeout.ts
+ *
+ * Discoverable via the `smoke:gh-timeout` package.json script. Not wired into
+ * CI by default (needs a live token); run manually when touching the
+ * github-issues Octokit path or the createTimeoutFetch wrapper.
  */
 import { Octokit } from "@octokit/rest";
 import { createTimeoutFetch } from "../packages/domain/src/github/octokit-timeout";

@@ -56,25 +56,43 @@ export function createTimeoutFetch(
     const timeoutPromise = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         const err = new GitHubRequestTimeoutError(timeoutMs);
-        controller.abort(err);
+        // Reject FIRST so the race deterministically settles with our timeout
+        // error, then abort to cancel the socket. (Aborting first would let the
+        // fetch's own abort-rejection win the race with whatever value that
+        // implementation rejects with.)
         reject(err);
+        controller.abort(err);
       }, timeoutMs);
     });
 
     // Chain any caller-provided signal so external aborts still cancel the request.
     const callerSignal = init?.signal ?? undefined;
+    let onCallerAbort: (() => void) | undefined;
     if (callerSignal) {
       if (callerSignal.aborted) {
         controller.abort(callerSignal.reason);
       } else {
-        callerSignal.addEventListener("abort", () => controller.abort(callerSignal.reason), {
-          once: true,
-        });
+        onCallerAbort = () => controller.abort(callerSignal.reason);
+        callerSignal.addEventListener("abort", onCallerAbort, { once: true });
       }
     }
 
     const fetchPromise = baseFetch(input, { ...init, signal: controller.signal });
-    return Promise.race([fetchPromise, timeoutPromise]).finally(() => clearTimeout(timer));
+    // When the timeout wins the race, the aborted fetch rejects on a later tick
+    // with no handler on the race's losing branch — attach a no-op catch so that
+    // late rejection doesn't surface as an unhandledRejection (the native/undici
+    // fetch honors the abort and rejects). The race still observes fetchPromise's
+    // settlement independently; genuine errors that win the race still propagate.
+    void fetchPromise.catch(() => {});
+
+    return Promise.race([fetchPromise, timeoutPromise]).finally(() => {
+      clearTimeout(timer);
+      // Remove the abort listener when the request settles without the caller
+      // signal firing, so a long-lived shared signal doesn't accumulate listeners.
+      if (onCallerAbort && callerSignal) {
+        callerSignal.removeEventListener("abort", onCallerAbort);
+      }
+    });
   };
 
   return timeoutFetch as typeof fetch;
