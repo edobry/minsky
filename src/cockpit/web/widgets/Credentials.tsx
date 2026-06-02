@@ -9,9 +9,10 @@
  * the same API fetch helpers.
  */
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { ChevronRight } from "lucide-react";
+import { CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { LinkCard } from "../components/ui/link-card";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
 
@@ -614,27 +615,27 @@ export function CredentialsSummary() {
 
   if (query.isError) {
     return (
-      <Card>
+      <LinkCard to="/settings" aria-label="Manage credentials">
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Credentials</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>Failed to load</p>
         </CardContent>
-      </Card>
+      </LinkCard>
     );
   }
 
   if (query.isLoading || !query.data) {
     return (
-      <Card>
+      <LinkCard to="/settings" aria-label="Manage credentials">
         <CardHeader className="pb-2">
           <CardTitle className="text-base font-semibold">Credentials</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>Loading...</p>
         </CardContent>
-      </Card>
+      </LinkCard>
     );
   }
 
@@ -644,16 +645,14 @@ export function CredentialsSummary() {
   const allConfigured = configured === total && total > 0;
 
   return (
-    <Card>
+    <LinkCard to="/settings" aria-label="Manage credentials">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base font-semibold">Credentials</CardTitle>
-          <Link
-            to="/settings"
-            className="text-xs text-primary hover:underline underline-offset-2"
-          >
-            Manage &rarr;
-          </Link>
+          <ChevronRight
+            aria-hidden
+            className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors"
+          />
         </div>
       </CardHeader>
       <CardContent>
@@ -686,6 +685,6 @@ export function CredentialsSummary() {
           ))}
         </div>
       </CardContent>
-    </Card>
+    </LinkCard>
   );
 }
