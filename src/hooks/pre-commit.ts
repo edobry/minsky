@@ -1357,13 +1357,16 @@ export class PreCommitHook {
 }
 
 /**
- * Classify a failed `rules compile --check` subprocess error as either genuine
- * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ * Classify a failed compile-check subprocess error as either genuine staleness
+ * or an unrelated compile-command error (e.g., setup-incomplete). Serves BOTH
+ * compile systems via `kind`: the legacy `rules compile --check` (kind="rules")
+ * and the new `compile --check` (kind="compile"). All user-facing hints derive
+ * the command name from `kind` so they never name the wrong system.
  *
- * When the CLI detects stale output it prints a `[rules compile --check]` /
- * `is STALE` marker to stdout before throwing. Any other non-zero exit means
- * the compile command itself failed — telling the operator to "regenerate"
- * would be misleading because the same error will recur.
+ * When the CLI detects stale output it prints a `[<cmd> --check] ... is STALE`
+ * marker to stdout before throwing. Any other non-zero exit means the compile
+ * command itself failed — telling the operator to "regenerate" would be
+ * misleading because the same error will recur.
  *
  * Exported for unit testing; not part of the public hook API.
  */
@@ -1402,7 +1405,7 @@ export function classifyCompileCheckError(
   }
 
   // Compile command errored. Surface the actual error so the operator knows
-  // what to fix — re-running "rules compile" will NOT help.
+  // what to fix — re-running the compile command will NOT help.
   const rawDetail = stderr.trim() || stdout.trim();
   const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
 
@@ -1419,22 +1422,22 @@ export function classifyCompileCheckError(
   if (isSetupIncomplete) {
     return {
       logLines: [
-        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        `❌ Compile check for target "${target}" failed: developer setup is incomplete.`,
         indented,
         `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
-        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+        `   (Re-running "${cmd}" will NOT fix this — the setup must be completed first.)`,
       ],
-      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+      message: `Compile check for target "${target}" failed: developer setup incomplete`,
     };
   }
 
   return {
     logLines: [
-      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      `❌ Compile check for target "${target}" failed (not a staleness issue):`,
       indented,
-      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+      `💡 Fix the error above before retrying. ("${cmd}" will NOT fix this.)`,
     ],
-    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+    message: `Compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
   };
 }
 
