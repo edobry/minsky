@@ -37,16 +37,25 @@ afterEach(() => {
   if (originalFetch) globalThis.fetch = originalFetch;
 });
 
-function mockFetch(handler: (url: string) => unknown) {
+function mockFetch(handler: (url: string) => unknown, status = 200) {
   originalFetch = globalThis.fetch;
   globalThis.fetch = mock((url: string) =>
     Promise.resolve(
       new Response(JSON.stringify(handler(url)), {
-        status: 200,
+        status,
         headers: { "Content-Type": "application/json" },
       })
     )
   ) as typeof globalThis.fetch;
+}
+
+/** Assert `container` holds exactly one whole-card anchor to `href` with the
+ *  given aria-label and no nested interactive element. */
+function expectWholeCardLink(container: HTMLElement, href: string, ariaLabel: string) {
+  const anchor = container.querySelector(`a[href="${href}"]`);
+  expect(anchor).not.toBeNull();
+  expect(anchor?.getAttribute("aria-label")).toBe(ariaLabel);
+  expect(anchor?.querySelectorAll("a, button, select").length).toBe(0);
 }
 
 describe("Home-page status card navigability (mt#2246)", () => {
@@ -104,9 +113,52 @@ describe("Home-page status card navigability (mt#2246)", () => {
       expect(screen.getByText("Healthy")).toBeDefined();
     });
 
-    const anchor = container.querySelector('a[href="/embeddings"]');
-    expect(anchor).not.toBeNull();
-    expect(anchor?.getAttribute("aria-label")).toBe("View embedding infrastructure details");
-    expect(anchor?.querySelectorAll("a, button, select").length).toBe(0);
+    expectWholeCardLink(container, "/embeddings", "View embedding infrastructure details");
+  });
+
+  test("CredentialsSummary error state is still a whole-card link to /settings", async () => {
+    mockFetch(() => ({ error: { code: "internal", message: "boom" } }), 500);
+
+    const { container } = renderWidget(<CredentialsSummary />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load")).toBeDefined();
+    });
+
+    expectWholeCardLink(container, "/settings", "Manage credentials");
+  });
+
+  test("EmbeddingsHealth degraded state is still a whole-card link to /embeddings", async () => {
+    mockFetch(() => ({ state: "degraded", reason: "embeddings provider unavailable" }));
+
+    const { container } = renderWidget(<EmbeddingsHealth />);
+
+    await waitFor(() => {
+      expect(screen.getByText("embeddings provider unavailable")).toBeDefined();
+    });
+
+    expectWholeCardLink(container, "/embeddings", "View embedding infrastructure details");
+  });
+
+  test("EmbeddingsHealth exhausted status is still a whole-card link to /embeddings", async () => {
+    mockFetch(() => ({
+      state: "ok",
+      payload: {
+        provider: "openai",
+        status: "exhausted",
+        lastErrorAt: new Date().toISOString(),
+        errorCountLastHour: 12,
+        degradedReason: "quota exhausted",
+        coverage: null,
+      },
+    }));
+
+    const { container } = renderWidget(<EmbeddingsHealth />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Exhausted")).toBeDefined();
+    });
+
+    expectWholeCardLink(container, "/embeddings", "View embedding infrastructure details");
   });
 });
