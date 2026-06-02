@@ -62,6 +62,33 @@ const MOCK_CREDENTIALS = [
   },
 ];
 
+const MOCK_PROVIDERS = [
+  {
+    id: "github",
+    displayName: "GitHub",
+    acquireUrl: "https://github.com/settings/tokens",
+    scopeGuidance: "repo, read:org",
+  },
+  {
+    id: "supabase",
+    displayName: "Supabase",
+    acquireUrl: "https://supabase.com/dashboard/account/tokens",
+    scopeGuidance: "access token",
+  },
+  {
+    id: "anthropic",
+    displayName: "Anthropic",
+    acquireUrl: "https://console.anthropic.com/settings/keys",
+    scopeGuidance: "API key",
+  },
+  {
+    id: "railway",
+    displayName: "Railway",
+    acquireUrl: "https://railway.app/account/tokens",
+    scopeGuidance: "API token",
+  },
+];
+
 let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
@@ -73,8 +100,16 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function mockFetchCredentials(credentials = MOCK_CREDENTIALS) {
+function mockFetchCredentials(credentials = MOCK_CREDENTIALS, providers = MOCK_PROVIDERS) {
   globalThis.fetch = mock((url: string, init?: RequestInit) => {
+    if (typeof url === "string" && url.endsWith("/api/credentials/providers")) {
+      return Promise.resolve(
+        new Response(JSON.stringify({ providers }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }
     if (
       typeof url === "string" &&
       url.endsWith("/api/credentials") &&
