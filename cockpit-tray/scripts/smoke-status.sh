@@ -52,21 +52,33 @@ fi
 # poll interval is 5s, so allow up to ~8s for the tray to converge to the
 # current daemon state before asserting.
 read_status_line() {
-  # Search for the status menu item by its "Cockpit: " title prefix across the
-  # status-area menu bars (2, then 1), rather than assuming a fixed index — more
-  # robust to menu-extra ordering / OS layout changes.
-  osascript -e 'tell application "System Events" to tell process "'"${PROCESS}"'"
-    repeat with mb in {menu bar 2, menu bar 1}
-      try
-        repeat with mbi in menu bar items of mb
-          try
-            repeat with mi in menu items of menu 1 of mbi
-              set t to (title of mi)
-              if t starts with "Cockpit: " then return t
-            end repeat
-          end try
-        end repeat
-      end try
+  # The Accessibility process name is the EXECUTABLE name ("cockpit-tray"), not
+  # the bundle productName. Empirically `exists process "cockpit-tray"` is true
+  # and this read returns the status line; the productName ("Minsky Cockpit")
+  # also resolves on some macOS versions. Try both candidate names so the check
+  # is robust to how System Events exposes the process.
+  #
+  # Within the matched process, search for the status item by its "Cockpit: "
+  # title prefix across the status-area menu bars (2, then 1), rather than
+  # assuming a fixed index — robust to menu-extra ordering / layout.
+  osascript -e 'tell application "System Events"
+    repeat with pname in {"cockpit-tray", "Minsky Cockpit"}
+      if exists process pname then
+        tell process pname
+          repeat with mb in {menu bar 2, menu bar 1}
+            try
+              repeat with mbi in menu bar items of mb
+                try
+                  repeat with mi in menu items of menu 1 of mbi
+                    set t to (title of mi)
+                    if t starts with "Cockpit: " then return t
+                  end repeat
+                end try
+              end repeat
+            end try
+          end repeat
+        end tell
+      end if
     end repeat
     return "ERROR: status menu item (Cockpit: ...) not found"
   end tell' 2>&1
