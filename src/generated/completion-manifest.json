@@ -1390,7 +1390,7 @@
         },
         {
           "name": "embeddings-repair",
-          "description": "Remove orphaned embeddings and report entries missing a content hash",
+          "description": "Remove orphaned embeddings and report stale entries",
           "options": [
             {
               "flags": ["--dry-run"],
