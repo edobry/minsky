@@ -105,7 +105,7 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   migrationsFolder: string;
   maskedConn: string;
 }> {
-  const migrationsFolder = "./src/domain/storage/migrations/pg";
+  const migrationsFolder = "./packages/domain/src/storage/migrations/pg";
   const { readdirSync, readFileSync } = await import("fs");
   const { join } = await import("path");
 
@@ -297,7 +297,7 @@ export async function runPostgresSchemaMigrations(
       }
     })();
 
-    const migrationsFolder = "./src/domain/storage/migrations/pg";
+    const migrationsFolder = "./packages/domain/src/storage/migrations/pg";
 
     // Read and validate journal timestamps before executing
     const journalRawExec = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
@@ -410,7 +410,7 @@ export async function runPostgresSchemaMigrations(
     success: true,
     applied: true,
     backend,
-    migrationsFolder: "./src/domain/storage/migrations/pg",
+    migrationsFolder: "./packages/domain/src/storage/migrations/pg",
   };
   {
     appliedPg.printed = true;
@@ -436,7 +436,7 @@ export async function runPostgresSchemaMigrationsForBackend(
   try {
     const db = drizzle(sql, { logger: false });
     await migrate(db, {
-      migrationsFolder: "./src/domain/storage/migrations/pg",
+      migrationsFolder: "./packages/domain/src/storage/migrations/pg",
     });
   } finally {
     await sql.end();

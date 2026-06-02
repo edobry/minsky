@@ -60,7 +60,7 @@ export async function runSqliteSchemaMigrations(
 
   if (dryRun) {
     // Build preview plan
-    const migrationsFolder = "./src/domain/storage/migrations";
+    const migrationsFolder = "./packages/domain/src/storage/migrations";
     const { readdirSync } = await import("fs");
     const { basename } = await import("path");
     let fileNames: string[] = [];
@@ -161,7 +161,7 @@ export async function runSqliteSchemaMigrations(
 
   const sqlite = new Database(dbPath);
   try {
-    const migrationsFolder = "./src/domain/storage/migrations";
+    const migrationsFolder = "./packages/domain/src/storage/migrations";
     let fileNames: string[] = [];
     let metaExists = false;
     let appliedCount = 0;
@@ -250,7 +250,7 @@ export async function runSqliteSchemaMigrations(
     success: true,
     applied: true,
     backend,
-    migrationsFolder: "./src/domain/storage/migrations",
+    migrationsFolder: "./packages/domain/src/storage/migrations",
   };
   {
     appliedRes.printed = true;
@@ -272,7 +272,7 @@ export async function runSqliteSchemaMigrationsForBackend(sqlitePath?: string): 
     const db = drizzle(sqlite, { logger: false });
     // drizzle() returns BunSQLiteDatabase<TSchema> & { $client } which is assignable to BunSQLiteDatabase<TSchema>
     await migrate(db as BunSQLiteDatabase<Record<string, never>>, {
-      migrationsFolder: "./src/domain/storage/migrations",
+      migrationsFolder: "./packages/domain/src/storage/migrations",
     });
   } finally {
     sqlite.close();
