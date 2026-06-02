@@ -12,10 +12,11 @@ use std::time::Duration;
 
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, Wry};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder, Wry};
 
 const HEALTH_URL: &str = "http://localhost:3737/api/health";
 const COCKPIT_URL: &str = "http://localhost:3737";
+const COCKPIT_WINDOW_LABEL: &str = "cockpit";
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 const STATUS_MENU_ID: &str = "status";
 
@@ -46,12 +47,23 @@ fn main() {
             let handle = app.handle().clone();
             let is_running = Arc::new(AtomicBool::new(false));
 
+            // Keep the app out of the Dock even though it now owns a window
+            // (mt#2219). Without Accessory policy, creating the cockpit window
+            // makes a Dock icon appear — a regression from the tray-only app.
+            // mt#2202 owns the Info.plist LSUIElement path; the Tauri
+            // activation policy achieves the same accessory behavior here
+            // without touching that file.
+            #[cfg(target_os = "macos")]
+            let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             let status_item = MenuItemBuilder::with_id(STATUS_MENU_ID, "Cockpit: checking...")
                 .enabled(false)
                 .build(app)?;
             // Hold the status item in managed state so update_status can mutate
             // it directly (the menu is on the tray, not app.menu()).
             app.manage(StatusMenuItem(status_item.clone()));
+            let open_window_item =
+                MenuItemBuilder::with_id("open_window", "Open Cockpit").build(app)?;
             let open_item =
                 MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
             let separator1 = tauri::menu::PredefinedMenuItem::separator(app)?;
@@ -68,6 +80,7 @@ fn main() {
             let menu = MenuBuilder::new(app)
                 .item(&status_item)
                 .item(&separator1)
+                .item(&open_window_item)
                 .item(&open_item)
                 .item(&start_item)
                 .item(&stop_item)
@@ -134,6 +147,9 @@ fn main() {
 
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
+        "open_window" => {
+            open_cockpit_window(app);
+        }
         "open" => {
             let _ = open::that(COCKPIT_URL);
         }
@@ -173,6 +189,33 @@ fn get_plist_path() -> String {
         "{}/Library/LaunchAgents/com.minsky.cockpit.plist",
         home
     )
+}
+
+/// Open the embedded cockpit window, or focus it if it already exists (mt#2219).
+///
+/// Created lazily on first request (the app stays tray-only until the operator
+/// asks for the window) and reused thereafter — a single window, never
+/// duplicated. On reuse we reload so the view recovers after a daemon
+/// Start/Restart. A first open while the daemon is down shows the webview's
+/// connection-error page and recovers on the next "Open Cockpit" (manual reload
+/// is acceptable for v0). "Open in Browser" remains as the fallback.
+fn open_cockpit_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = window.eval("window.location.reload()");
+        return;
+    }
+
+    let url: tauri::Url = match COCKPIT_URL.parse() {
+        Ok(url) => url,
+        Err(_) => return,
+    };
+
+    let _ = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
+        .title("Minsky Cockpit")
+        .inner_size(1200.0, 800.0)
+        .build();
 }
 
 fn update_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
