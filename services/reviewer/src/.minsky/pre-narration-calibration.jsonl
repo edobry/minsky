@@ -1,1 +1,0 @@
-{"timestamp":"2026-06-02T10:40:28.772Z","session_id":"0e3742cc-29bc-478c-95fe-8aa84b1687a3","matches":[{"category":"review-approved","phrase":"APPROVED","expectedTool":"session_pr_wait-for-review / pull_request_read","hadMatchingTool":false}]}
