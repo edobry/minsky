@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from "bun:test";
 import { TaskSimilarityService } from "../tasks/task-similarity-service";
 import type { EmbeddingService } from "../ai/embeddings/types";
-import type { VectorStorage } from "../storage/vector/types";
+import type { VectorStorage, SearchOptions, SearchResult } from "../storage/vector/types";
 import { EmbeddingsSimilarityBackend } from "./backends/embeddings-backend";
 import { first } from "@minsky/shared/array-safety";
 
@@ -198,22 +198,26 @@ describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)",
   ];
 
   // Records the `options` arg passed to vectorStorage.search on every invocation, so the test
-  // can assert no `filters`/`status`/`statusExclude`/`backend` key was forwarded down.
-  let capturedSearchOptions: Array<Record<string, unknown> | undefined>;
+  // can assert no `filters`/`status`/`statusExclude`/`backend` key was forwarded down. Typed as
+  // SearchOptions (not Record<string, unknown>) so an options-shape regression is caught at
+  // compile time as well.
+  let capturedSearchOptions: Array<SearchOptions | undefined>;
 
   const dummyEmbedding: EmbeddingService = {
     generateEmbedding: async () => new Array(3).fill(0.1),
   } as unknown as EmbeddingService;
 
+  // Implements the full VectorStorage interface (no force-cast) so a contract change to the
+  // interface surfaces in this stub at compile time.
   const spyVector: VectorStorage = {
-    initialize: async () => void 0,
     store: async () => void 0,
-    search: async (_vector: number[], options?: Record<string, unknown>) => {
+    delete: async () => void 0,
+    search: async (_vector: number[], options?: SearchOptions): Promise<SearchResult[]> => {
       capturedSearchOptions.push(options);
       // Return both tasks as candidates (ids map to live tasks above).
       return tasks.map((t, i) => ({ id: t.id, score: 1 - i * 0.1, metadata: {} }));
     },
-  } as unknown as VectorStorage;
+  };
 
   let service: TaskSimilarityService;
 
@@ -233,6 +237,13 @@ describe("TaskSimilarityService no-filter-forward contract (mt#2260 / ADR-013)",
       async (_id: string) => ({ content: "", specPath: "", task: {} as any }),
       {}
     );
+  });
+
+  // Restore the prototype after every test (not just afterAll) so a mid-suite failure can't
+  // leak the patched isAvailable into other suites in the same process.
+  afterEach(() => {
+    (EmbeddingsSimilarityBackend.prototype as unknown as { isAvailable: unknown }).isAvailable =
+      ORIGINAL_EMBEDDINGS_IS_AVAILABLE;
   });
 
   afterAll(() => {
