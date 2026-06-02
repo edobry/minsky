@@ -84,20 +84,47 @@ read_status_line() {
   end tell' 2>&1
 }
 
-actual=""
-for _ in 1 2 3 4 5 6 7 8; do
-  actual="$(read_status_line)"
-  case "$actual" in
-    "ERROR:"*)
-      echo "SKIP: could not read tray menu via Accessibility (grant Accessibility permission to your terminal): ${actual}"
-      exit 2
-      ;;
-    "${expected}")
-      break
+# Accessibility/automation permission denial (or System Events being
+# unavailable) must SKIP, not FAIL — only a successfully-read line that
+# disagrees with the daemon state is a real failure (the mt#2240 class).
+is_permission_or_tooling_error() {
+  local out="$1" rc="$2"
+  [[ "${rc}" -ne 0 ]] && return 0
+  case "${out}" in
+    *"not allowed"* | *"assistive access"* | *"-25211"* | *"-1719"* | *"execution error"*)
+      return 0
       ;;
   esac
+  return 1
+}
+
+actual=""
+read_ok=0
+for _ in 1 2 3 4 5 6 7 8; do
+  set +e
+  out="$(read_status_line)"
+  rc=$?
+  set -e
+  if is_permission_or_tooling_error "${out}" "${rc}"; then
+    echo "SKIP: could not use System Events — grant your terminal Accessibility permission (System Settings > Privacy & Security > Accessibility). Detail: ${out}"
+    exit 2
+  fi
+  if [[ "${out}" == "ERROR:"* ]]; then
+    # Status item not located yet; keep retrying within the window.
+    actual="${out}"
+    sleep 1
+    continue
+  fi
+  actual="${out}"
+  read_ok=1
+  [[ "${actual}" == "${expected}" ]] && break
   sleep 1
 done
+
+if [[ "${read_ok}" -ne 1 ]]; then
+  echo "SKIP: could not locate the status menu item via Accessibility. Detail: ${actual}"
+  exit 2
+fi
 
 echo "daemon=${daemon}  expected='${expected}'  menu-line='${actual}'"
 if [[ "${actual}" == "${expected}" ]]; then
