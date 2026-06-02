@@ -190,6 +190,56 @@ export async function validatePostgresBackend(persistenceProvider: PersistencePr
             );
           }
         }
+
+        // Schema-drift audit (mt#1641): compare declared models vs the actual DB, plus a
+        // ledger duplicate-row check. Read-only. The migration ledger records migrations
+        // by hash with NO post-apply schema verification, so a manual DROP COLUMN
+        // (mt#2229) or a never-executed CREATE (mt#1641's 0020 phantom) leaves the ledger
+        // "clean" while the schema diverges. v1 covers the embeddings tables (the incident
+        // surface); generalizing to all declared tables is a follow-up (see mt#1641).
+        try {
+          const rawConn = (await provider.getRawSqlConnection?.()) as
+            | import("./schema-drift-detector").UnsafeSql
+            | undefined;
+          if (rawConn) {
+            const { getDeclaredTables, auditPostgresSchemaDrift } = await import(
+              "./schema-drift-detector"
+            );
+            const { tasksEmbeddingsTable } = await import("../storage/schemas/task-embeddings");
+            const { rulesEmbeddingsTable } = await import("../storage/schemas/rule-embeddings");
+            const { toolEmbeddingsTable } = await import("../storage/schemas/tool-embeddings");
+            const { knowledgeEmbeddingsTable } = await import(
+              "../storage/schemas/knowledge-embeddings"
+            );
+            const { memoriesEmbeddingsTable } = await import(
+              "../storage/schemas/memory-embeddings"
+            );
+            const { principalCorpusEmbeddingsTable } = await import(
+              "../storage/schemas/principal-corpus-embeddings"
+            );
+            const declared = getDeclaredTables([
+              tasksEmbeddingsTable,
+              rulesEmbeddingsTable,
+              toolEmbeddingsTable,
+              knowledgeEmbeddingsTable,
+              memoriesEmbeddingsTable,
+              principalCorpusEmbeddingsTable,
+            ]);
+            const audit = await auditPostgresSchemaDrift(rawConn, declared);
+            if (audit.clean) {
+              log.cli(
+                "✅ Schema-drift audit clean (declared embeddings tables match the DB; ledger has no duplicate rows)"
+              );
+            } else {
+              log.cli(`⚠️  Schema-drift audit found ${audit.issues.length} issue(s)`);
+              issues.push(...audit.issues);
+              suggestions.push(...audit.suggestions);
+            }
+          }
+        } catch (error) {
+          // Best-effort: surface as a suggestion, never a hard failure of the whole check.
+          suggestions.push(`Schema-drift audit could not run: ${getErrorMessage(error)}`);
+        }
       } catch (error) {
         issues.push(`Database functionality error: ${getErrorMessage(error)}`);
         suggestions.push("Check database schema and permissions");
