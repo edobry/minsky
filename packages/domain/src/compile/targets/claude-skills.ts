@@ -11,6 +11,8 @@ import realFs from "fs/promises";
 import matter from "gray-matter";
 import { skillDefinitionSchema } from "../../definitions/schemas";
 import type { SkillDefinition } from "../../definitions/types";
+import { log } from "../../utils/logger";
+import { COMPILE_GENERATED_BANNER } from "../../rules/compile/banner-constants";
 import type {
   MinskyCompileTarget,
   MinskyCompileResult,
@@ -22,6 +24,16 @@ import type {
 export type DynamicImportFn = (path: string) => Promise<unknown>;
 
 const realDynamicImport: DynamicImportFn = (path: string) => import(path);
+
+/**
+ * Injectable skip-warning sink — overridden in tests. The production default
+ * logs via the shared logger; mt#2182 requires that skipped skills are NOT
+ * swallowed silently. Injected (rather than spying on `log`) to sidestep
+ * cross-package module-identity issues with the singleton logger.
+ */
+export type SkipLogFn = (message: string) => void;
+
+const defaultSkipLog: SkipLogFn = (message: string) => log.warn(message);
 
 /**
  * Source directory where skills are authored.
@@ -75,7 +87,14 @@ export function buildSkillMd(skill: SkillDefinition): string {
   // content starts with "\n". Hand-authored SKILL.md files always have this
   // blank line, so we normalise here for stable output.
   const body = skill.content.startsWith("\n") ? skill.content : `\n${skill.content}`;
-  return matter.stringify(body, frontmatterData);
+  const compiled = matter.stringify(body, frontmatterData);
+  // Inject the generation banner as a YAML line-comment on line 2 (immediately
+  // after the opening `---`). Line 1 must stay the `---` frontmatter opener, so
+  // the banner can't go on line 1 the way it does for CLAUDE.md/AGENTS.md. This
+  // matches the `.cursor/rules/*.mdc` convention and lands within the first 5
+  // lines, so `.claude/hooks/check-generated-file-edit.ts` (which scans the
+  // first 5 lines for GENERATION_BANNER_PATTERNS) blocks direct edits.
+  return compiled.replace(/^---\n/, `---\n${COMPILE_GENERATED_BANNER}\n`);
 }
 
 /**
@@ -140,7 +159,8 @@ function extractSkillDefinition(
 
 /** Build the claude-skills target, injecting a dynamic-import function for tests. */
 function makeClaudeSkillsTarget(
-  dynamicImport: DynamicImportFn = realDynamicImport
+  dynamicImport: DynamicImportFn = realDynamicImport,
+  onSkip: SkipLogFn = defaultSkipLog
 ): MinskyCompileTarget {
   return {
     id: "claude-skills",
@@ -184,13 +204,20 @@ function makeClaudeSkillsTarget(
         let mod: unknown;
         try {
           mod = await dynamicImport(sourcePath);
-        } catch {
+        } catch (error) {
+          // Do NOT swallow silently (mt#2182): a broken import path here is the
+          // failure mode that left all 7 skills uncompiled with no warning.
+          const reason = error instanceof Error ? error.message : String(error);
+          onSkip(
+            `[compile:claude-skills] skipping "${dirName}": failed to import ${sourcePath}: ${reason}`
+          );
           definitionsSkipped.push(dirName);
           continue;
         }
 
         const extracted = extractSkillDefinition(mod, sourcePath);
         if ("error" in extracted) {
+          onSkip(`[compile:claude-skills] skipping "${dirName}": ${extracted.error}`);
           definitionsSkipped.push(dirName);
           continue;
         }
