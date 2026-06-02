@@ -188,7 +188,10 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const providerSelect = screen.getByLabelText("Select credential provider");
+    // findByLabelText awaits the providers query (a separate fetch from the
+    // parent credentials load) so the add-form controls are deterministically
+    // present before we assert on them.
+    const providerSelect = await screen.findByLabelText("Select credential provider");
     expect(providerSelect).toBeDefined();
 
     const tokenInput = screen.getByLabelText("Paste credential token");
@@ -209,7 +212,9 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const addBtn = screen.getByLabelText("Validate and save token") as HTMLButtonElement;
+    const addBtn = (await screen.findByLabelText(
+      "Validate and save token"
+    )) as HTMLButtonElement;
     expect(addBtn.disabled).toBe(true);
   });
 
@@ -221,7 +226,7 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const tokenInput = screen.getByLabelText("Paste credential token");
+    const tokenInput = await screen.findByLabelText("Paste credential token");
     const addBtn = screen.getByLabelText("Validate and save token") as HTMLButtonElement;
 
     await userEvent.type(tokenInput, "test-token-value");
@@ -262,7 +267,7 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const tokenInput = screen.getByLabelText("Paste credential token");
+    const tokenInput = await screen.findByLabelText("Paste credential token");
     const addBtn = screen.getByLabelText("Validate and save token");
 
     await userEvent.type(tokenInput, "test-token-value");
