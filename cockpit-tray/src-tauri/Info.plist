@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Menu-bar-only ("agent") app: no Dock icon, no Cmd-Tab entry (mt#2202).
+    Tauri v2's macOS bundler merges this file into the generated Info.plist.
+    Complements the runtime `set_activation_policy(Accessory)` (mt#2219): this
+    declarative flag prevents the Dock icon from ever appearing (incl. at launch)
+    and removes the Cmd-Tab entry; the activation policy is the runtime backstop.
+  -->
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>
