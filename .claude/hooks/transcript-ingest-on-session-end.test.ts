@@ -83,6 +83,10 @@ describe("runTranscriptIngestOnSessionEnd", () => {
     expect(record.skipped).toBe(true);
     expect(record.event).toBe("session_end");
     expect(record.timestamp).toBe(FIXED_NOW.toISOString());
+    // Log `reason` and returned `reason` must be the same string (reviewer R1).
+    expect(record.reason).toBe("no-session-id");
+    expect(out.reason).toBe(record.reason);
+    expect(record.detail).toBe("no session_id in hook input");
   });
 
   it("runs ingest only (no embeddings) on the default path", () => {
@@ -133,6 +137,8 @@ describe("runTranscriptIngestOnSessionEnd", () => {
     const out = runTranscriptIngestOnSessionEnd(input("sess-3"), h.deps);
 
     expect(out.ingestExitCode).toBe(1);
+    // Timeout is surfaced in the outcome, not just the log (reviewer R1).
+    expect(out.ingestTimedOut).toBe(true);
     const record = JSON.parse(h.logLines[0] as string);
     expect(record.ingest.timedOut).toBe(true);
   });
@@ -148,6 +154,8 @@ describe("runTranscriptIngestOnSessionEnd", () => {
     const out = runTranscriptIngestOnSessionEnd(input("sess-4"), h.deps);
 
     expect(out.embeddingsRan).toBe(true);
+    expect(out.embeddingsExitCode).toBe(0);
+    expect(out.embeddingsTimedOut).toBe(false);
     expect(h.commands).toHaveLength(2);
     expect(h.commands[1]).toEqual([
       "minsky",
@@ -173,6 +181,7 @@ describe("runTranscriptIngestOnSessionEnd", () => {
     // Ingest still succeeded → FTS search works; embedding failure is logged.
     expect(out.ingestExitCode).toBe(0);
     expect(out.embeddingsRan).toBe(true);
+    expect(out.embeddingsExitCode).toBe(7);
     const record = JSON.parse(h.logLines[0] as string);
     expect(record.embeddings.exitCode).toBe(7);
     expect(record.embeddings.stderr).toBe("no embedding provider configured");

@@ -69,7 +69,9 @@ candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
 const newest = candidates[0];
 if (!newest) skip("no session JSONL files found under ~/.claude/projects");
 const sessionId = newest.uuid;
-process.stdout.write(`Using session UUID: ${sessionId}\n`);
+// Display a truncated UUID; session UUIDs are local filenames, not secrets, but
+// there is no reason to echo the full value in smoke output (reviewer note).
+process.stdout.write(`Using session UUID: ${sessionId.slice(0, 8)}…\n`);
 
 // ── Invoke the hook with a synthetic SessionEnd payload ──────────────────────
 const stateDir = mkdtempSync(join(tmpdir(), "transcript-ingest-smoke-"));

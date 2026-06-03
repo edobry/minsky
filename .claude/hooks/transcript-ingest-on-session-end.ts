@@ -60,6 +60,10 @@ export const HOOK_LOG_FILENAME = "transcript-ingest-hook-log.jsonl";
 export const INGEST_TIMEOUT_MS = 20_000;
 export const EMBED_TIMEOUT_MS = 20_000;
 
+// Single source of truth for the no-session-id skip reason, so the JSONL log
+// record and the returned outcome cannot drift (reviewer R1, PR #1513).
+export const NO_SESSION_ID_REASON = "no-session-id";
+
 export interface SessionEndHookInput extends ClaudeHookInput {
   reason?: string;
 }
@@ -96,7 +100,11 @@ export interface IngestOutcome {
   skipped: boolean;
   reason?: string;
   ingestExitCode?: number;
+  /** Surfaced so a timed-out ingest is distinguishable from a generic failure. */
+  ingestTimedOut?: boolean;
   embeddingsRan?: boolean;
+  embeddingsExitCode?: number;
+  embeddingsTimedOut?: boolean;
 }
 
 /**
@@ -124,8 +132,12 @@ export function runTranscriptIngestOnSessionEnd(
   };
 
   if (!sessionId) {
-    writeRecord({ skipped: true, reason: "no session_id in hook input" });
-    return { skipped: true, reason: "no-session-id" };
+    writeRecord({
+      skipped: true,
+      reason: NO_SESSION_ID_REASON,
+      detail: "no session_id in hook input",
+    });
+    return { skipped: true, reason: NO_SESSION_ID_REASON };
   }
 
   // ── Ingest (synchronous, fast, no external API needed). ──
@@ -186,7 +198,15 @@ export function runTranscriptIngestOnSessionEnd(
       : {}),
   });
 
-  return { skipped: false, ingestExitCode: ingest.exitCode, embeddingsRan };
+  return {
+    skipped: false,
+    ingestExitCode: ingest.exitCode,
+    ingestTimedOut: ingest.timedOut ?? false,
+    embeddingsRan,
+    ...(embed
+      ? { embeddingsExitCode: embed.exitCode, embeddingsTimedOut: embed.timedOut ?? false }
+      : {}),
+  };
 }
 
 // ── Real dependency wiring ──────────────────────────────────────────────────
