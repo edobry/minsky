@@ -1449,7 +1449,7 @@ beats retrieval discipline").
 Collapsed (single line, when working tree is clean AND in sync with default
 branch):
 ```
-Current git state: on main, clean, in sync with main.
+Current git state: on main, clean, in sync with last-fetched origin/main.
 ```
 
 Expanded (multi-line, otherwise):
@@ -1472,20 +1472,33 @@ update the anchor. The agent then asserts stale state ("we're on main",
 catches it. This is structurally identical to the time-anchor problem mt#2181
 fixed.
 
-**Performance budget:** <50ms per invocation. Each git command runs with an
-800ms individual timeout; the hook is registered with a 5-second total
-timeout (matches sibling-hook convention). Git commands invoked:
+**Performance budget:** <50ms per invocation. Per-command timeout derived
+from the host-imposed cap in settings.json via
+`readHostCap("inject-git-state.ts", undefined, { events: ["UserPromptSubmit"] })`
+and `deriveBudgets(...).gitTimeoutMs` — matches sibling-hook convention
+(see §Branch Freshness Guard for the budget-derivation pattern). At the
+configured 5s cap, this yields ~510ms per command. Git commands invoked:
+- `git rev-parse --is-inside-work-tree` (repo detection; handles worktrees
+  and submodules correctly via git's own check, not a `.git`-existence walk)
 - `git symbolic-ref --short HEAD` (branch name)
 - `git symbolic-ref --short refs/remotes/origin/HEAD` (default branch, with
-  fallbacks for main/master)
+  `git config remote.origin.head` and main/master probes as fallbacks)
 - `git status --porcelain=v1` (working-tree status)
-- `git rev-list --count origin/<default>..HEAD` (ahead)
-- `git rev-list --count HEAD..origin/<default>` (behind)
+- `git rev-list --left-right --count HEAD...origin/<default>` (ahead/behind
+  in a single call)
 - `git log --oneline -5 HEAD` (recent commits)
+
+**No per-turn `git fetch`.** Ahead/behind is computed against the LOCAL
+CACHE of `origin/<default>`. The hook fires on every UserPromptSubmit
+(potentially hundreds per session); a network call per turn would regress
+the budget by orders of magnitude. The output is explicitly labelled
+"vs last-fetched origin/<X>" so the agent doesn't over-interpret the
+comparison as live-remote-current. Sibling hooks like `check-branch-fresh.ts`
+fetch because they run once per merge attempt — different cost class.
 
 **Fail-open posture:** the hook bails silently (no `additionalContext` emitted)
 when:
-- `cwd` is not a git repository (no `.git` found in any parent up to 50 levels)
+- `cwd` is not a git repository (per `git rev-parse --is-inside-work-tree`)
 - the `HEAD` symbolic-ref lookup fails (detached HEAD, broken repo)
 - any individual git command times out
 
