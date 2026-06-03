@@ -41,12 +41,15 @@ export function isProdPostgresConnection(connectionString: string): boolean {
     return true;
   }
 
-  // Known local/test hostnames — NOT prod
-  // Note: URL.hostname returns IPv6 addresses WITH brackets, e.g. "[::1]"
+  // Known local/test hostnames — NOT prod.
+  // IPv6 loopback is matched in BOTH bracketed and unbracketed forms: Bun's
+  // `URL.hostname` keeps the brackets (`[::1]`) while Node's WHATWG URL strips
+  // them (`::1`). Matching both makes the classifier runtime-agnostic.
   const localPatterns: Array<string | RegExp> = [
     "localhost",
     "127.0.0.1",
-    "[::1]", // IPv6 loopback — URL.hostname includes brackets for IPv6
+    "[::1]", // IPv6 loopback (Bun's URL.hostname form)
+    "::1", // IPv6 loopback (Node's URL.hostname form)
     "host.docker.internal",
     // Common Docker service aliases used in docker-compose and testcontainers
     "postgres",
@@ -71,6 +74,14 @@ export interface UnmergedMigrationCheckResult {
   blocked: boolean;
   /** Tags of migrations that are pending but NOT on origin/main */
   unmergedTags: string[];
+  /**
+   * Set when the check could NOT be performed (e.g. `origin/main` does not
+   * resolve locally — no remote, different remote name, or not fetched). When
+   * present, the guard FAILS OPEN: it does not block, but the operator is warned
+   * so an infra/setup issue is never silently conflated with a true unmerged
+   * migration. Distinguishing this from per-file absence is the mt#2277 review fix.
+   */
+  skippedReason?: string;
 }
 
 /**
@@ -98,6 +109,23 @@ export async function checkUnmergedMigrations(
   const pendingEntries = journalEntries.slice(appliedCount);
   if (pendingEntries.length === 0) {
     return { blocked: false, unmergedTags: [] };
+  }
+
+  // Verify origin/main resolves locally BEFORE interpreting per-file absence.
+  // Without this, a missing/unfetched/differently-named remote makes every
+  // `git cat-file` fail and falsely blocks (mt#2277 review). If the ref can't be
+  // resolved, fail OPEN with a reason so the operator sees it's an infra issue,
+  // not a real unmerged migration.
+  try {
+    await execFileAsync("git", ["rev-parse", "--verify", "--quiet", "origin/main"], { cwd });
+  } catch {
+    return {
+      blocked: false,
+      unmergedTags: [],
+      skippedReason:
+        "`origin/main` does not resolve locally (no remote, different remote/branch name, " +
+        "or not fetched). Run `git fetch origin main` to enable the unmerged-migration guard.",
+    };
   }
 
   const unmergedTags: string[] = [];
@@ -522,6 +550,14 @@ export async function runPostgresSchemaMigrations(
           journal.entries,
           appliedCount
         );
+        if (check.skippedReason) {
+          // Fail-open: the guard could not run (origin/main unresolvable). Warn
+          // loudly so an infra issue is never silently treated as "all merged".
+          log.cli(
+            `[unmerged-migration-guard] could not verify against origin/main — ` +
+              `${check.skippedReason} Proceeding WITHOUT the guard.`
+          );
+        }
         if (check.blocked) {
           const tagList = check.unmergedTags.map((t) => `  - ${t}.sql`).join("\n");
           throw new Error(

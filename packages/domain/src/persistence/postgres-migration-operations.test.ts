@@ -34,8 +34,16 @@ describe("isProdPostgresConnection", () => {
       expect(isProdPostgresConnection("postgresql://user:pass@127.0.0.1:5432/db")).toBe(false);
     });
 
-    test("::1 (IPv6 loopback) is not prod", () => {
+    test("::1 (IPv6 loopback) is not prod — both bracketed and unbracketed hostname forms", () => {
+      // Bun's URL.hostname keeps brackets ("[::1]"); Node's strips them ("::1").
+      // The classifier matches both forms so it's correct under either runtime (mt#2277 review).
+      // (Under Bun all IPv6 hosts serialize bracketed and normalized, so the unbracketed
+      // "::1" pattern is defensive coverage for Node; both expanded and compact forms below
+      // normalize to "[::1]" under Bun and are correctly classified non-prod.)
       expect(isProdPostgresConnection("postgresql://user:pass@[::1]:5432/db")).toBe(false);
+      expect(isProdPostgresConnection("postgresql://user:pass@[0:0:0:0:0:0:0:1]:5432/db")).toBe(
+        false
+      );
     });
 
     test("host.docker.internal is not prod", () => {
@@ -173,35 +181,41 @@ describe("checkUnmergedMigrations", () => {
     }
   });
 
-  test("returns blocked when a pending entry is NOT on origin/main", async () => {
-    let callCount = 0;
-    const execFileMock = mock(
+  // Args-aware mock: `git rev-parse ... origin/main` succeeds (ref resolves);
+  // `git cat-file -e origin/main:<path>` succeeds unless the path is in `absent`.
+  function gitMock(absentTags: string[]) {
+    return mock(
       (
         _file: string,
-        _args: string[],
+        args: string[],
         _opts: object,
         callback: (err: Error | null, stdout: string, stderr: string) => void
       ) => {
-        callCount++;
-        if (callCount === 1) {
-          // First pending entry: present on origin/main (exit 0)
-          callback(null, "", "");
-        } else {
-          // Second pending entry: NOT present on origin/main (non-zero exit)
+        if (args[0] === "rev-parse") {
+          callback(null, "", ""); // origin/main resolves
+          return;
+        }
+        const target = args[2] ?? ""; // "origin/main:<path>"
+        if (absentTags.some((tag) => target.includes(tag))) {
           callback(new Error("not found") as any, "", "");
+        } else {
+          callback(null, "", "");
         }
       }
     );
+  }
 
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
-
+  test("returns blocked when a pending entry is NOT on origin/main", async () => {
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMock(["0002_third"]) as any
+    );
     try {
       const entries = [
         makeEntry(0, "0000_initial"),
         makeEntry(1, "0001_second"),
         makeEntry(2, "0002_third"),
       ];
-      // 1 applied → entries[1] and entries[2] are pending
+      // 1 applied → entries[1] and entries[2] are pending; only 0002_third is absent
       const result = await checkUnmergedMigrations("migrations/pg", entries, 1, "/repo");
       expect(result.blocked).toBe(true);
       expect(result.unmergedTags).toEqual(["0002_third"]);
@@ -211,20 +225,9 @@ describe("checkUnmergedMigrations", () => {
   });
 
   test("returns all unmerged tags when multiple pending entries are absent from origin/main", async () => {
-    const execFileMock = mock(
-      (
-        _file: string,
-        _args: string[],
-        _opts: object,
-        callback: (err: Error | null, stdout: string, stderr: string) => void
-      ) => {
-        // All pending entries missing from origin/main
-        callback(new Error("not found") as any, "", "");
-      }
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(
+      gitMock(["0000_initial", "0001_second", "0002_third"]) as any
     );
-
-    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
-
     try {
       const entries = [
         makeEntry(0, "0000_initial"),
@@ -235,6 +238,38 @@ describe("checkUnmergedMigrations", () => {
       const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
       expect(result.blocked).toBe(true);
       expect(result.unmergedTags).toEqual(["0000_initial", "0001_second", "0002_third"]);
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("FAILS OPEN (not blocked, skippedReason set) when origin/main does not resolve", async () => {
+    // rev-parse fails → guard cannot run → must NOT block (mt#2277 review fix:
+    // a missing/unfetched/differently-named remote is an infra issue, not a true
+    // unmerged migration).
+    const execFileMock = mock(
+      (
+        _file: string,
+        args: string[],
+        _opts: object,
+        callback: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        if (args[0] === "rev-parse") {
+          callback(new Error("fatal: bad revision 'origin/main'") as any, "", "");
+          return;
+        }
+        // cat-file would also fail, but we must never reach it
+        callback(new Error("should not be called") as any, "", "");
+      }
+    );
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
+    try {
+      const entries = [makeEntry(0, "0000_initial"), makeEntry(1, "0001_second")];
+      const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
+      expect(result.blocked).toBe(false);
+      expect(result.unmergedTags).toEqual([]);
+      expect(result.skippedReason).toBeDefined();
+      expect(result.skippedReason).toContain("origin/main");
     } finally {
       spyExecFile.mockRestore();
     }
