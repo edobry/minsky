@@ -667,6 +667,7 @@ a.comp-card .comp-line {
 
 .td {
   color: var(--text-subtle);
+  margin-left: 0.5em;
 }
 
 .to {

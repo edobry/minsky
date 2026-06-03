@@ -305,19 +305,19 @@ Resources slide: repo and slides as QR + text, plus the contact handle. The slid
 
 <div class="montage">
   <figure>
-    <img src="./assets/cockpit-tasks.png" alt="Cockpit task list — sortable, filterable task table with status pills" />
+    <img src="./assets/cockpit-tasks.png" alt="Cockpit task list — sortable, filterable task table with status pills" loading="lazy" />
     <figcaption><b>Task list</b> — every task, its status and lifecycle</figcaption>
   </figure>
   <figure>
-    <img src="./assets/cockpit-agents.png" alt="Cockpit agents view — active sessions with liveness and PR state" />
+    <img src="./assets/cockpit-agents.png" alt="Cockpit agents view — active sessions with liveness and PR state" loading="lazy" />
     <figcaption><b>Agents</b> — live sessions, liveness, PR state</figcaption>
   </figure>
   <figure>
-    <img src="./assets/cockpit-workstreams.png" alt="Cockpit workstreams — parent tasks with active child counts" />
+    <img src="./assets/cockpit-workstreams.png" alt="Cockpit workstreams — parent tasks with active child counts" loading="lazy" />
     <figcaption><b>Workstreams</b> — parent tasks, active child counts</figcaption>
   </figure>
   <figure>
-    <img src="./assets/cockpit-embeddings.png" alt="Cockpit embeddings infrastructure — provider health and index coverage" />
+    <img src="./assets/cockpit-embeddings.png" alt="Cockpit embeddings infrastructure — provider health and index coverage" loading="lazy" />
     <figcaption><b>Memory & embeddings</b> — coverage across the corpus</figcaption>
   </figure>
 </div>
