@@ -23,7 +23,7 @@ const BASE_SNAP: GitStateSnapshot = {
 describe("formatGitState (mt#2275)", () => {
   it("collapses to a single line when clean and in sync with default branch", () => {
     const out = formatGitState(BASE_SNAP);
-    expect(out).toBe("Current git state: on main, clean, in sync with main.");
+    expect(out).toBe("Current git state: on main, clean, in sync with last-fetched origin/main.");
   });
 
   it("uses the multi-line form when working tree is dirty", () => {
@@ -33,28 +33,32 @@ describe("formatGitState (mt#2275)", () => {
     expect(out).toContain("- Working tree: 2 modified, 1 untracked");
   });
 
-  it("uses the multi-line form when ahead of main", () => {
+  it("labels ahead/behind as vs last-fetched origin (no per-turn fetch)", () => {
     const out = formatGitState({
       ...BASE_SNAP,
       branch: "task/mt-2275",
       aheadMain: 3,
       behindMain: 0,
     });
-    expect(out).toContain("- Branch: task/mt-2275 (vs main: 3 ahead, 0 behind)");
+    expect(out).toContain(
+      "- Branch: task/mt-2275 (vs last-fetched origin/main: 3 ahead, 0 behind)"
+    );
     expect(out).toContain("- Working tree: clean");
   });
 
-  it("uses the multi-line form when behind main", () => {
+  it("renders behind correctly when local lags origin", () => {
     const out = formatGitState({
       ...BASE_SNAP,
       branch: "task/mt-2275",
       aheadMain: 0,
       behindMain: 5,
     });
-    expect(out).toContain("- Branch: task/mt-2275 (vs main: 0 ahead, 5 behind)");
+    expect(out).toContain(
+      "- Branch: task/mt-2275 (vs last-fetched origin/main: 0 ahead, 5 behind)"
+    );
   });
 
-  it("omits the ahead/behind suffix when defaultBranch is null", () => {
+  it("surfaces an explicit note when default branch is undetectable (no silent assume-in-sync)", () => {
     const out = formatGitState({
       ...BASE_SNAP,
       branch: "feature/x",
@@ -63,8 +67,20 @@ describe("formatGitState (mt#2275)", () => {
       defaultBranch: null,
       modified: 1,
     });
-    expect(out).toContain("- Branch: feature/x");
-    expect(out).not.toContain("vs ");
+    expect(out).toContain("- Branch: feature/x (default branch undetectable");
+    expect(out).toContain("ahead/behind omitted");
+  });
+
+  it("surfaces an explicit note when origin/default not available locally (e.g., not fetched yet)", () => {
+    const out = formatGitState({
+      ...BASE_SNAP,
+      branch: "feature/x",
+      aheadMain: null,
+      behindMain: null,
+      defaultBranch: "main",
+    });
+    expect(out).toContain("- Branch: feature/x (origin/main not available locally");
+    expect(out).toContain("ahead/behind unknown");
   });
 
   it("never collapses when defaultBranch is null (no in-sync claim possible)", () => {

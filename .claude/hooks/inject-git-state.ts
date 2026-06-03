@@ -26,15 +26,30 @@
 // @see mt#2181 — `inject-current-time.ts` (architectural template)
 // @see memory 08606f7c — synthesis-level rule this hook instantiates
 
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { execSync, readInput, writeOutput } from "./types";
+import { deriveBudgets, execWithPath, readHostCap, readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 
 export const GIT_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_GIT_STATE_INJECTION";
 
-/** Per-git-command timeout. Keeps the hook well under its 5-second total budget. */
-const GIT_TIMEOUT_MS = 800;
+/**
+ * Per-git-command timeout. Derived from the host-imposed cap in settings.json
+ * via `readHostCap`/`deriveBudgets` to match the budget-derivation convention
+ * sibling hooks follow (see hook-files.mdc §Branch Freshness Guard). The read
+ * is deferred from module-load to entrypoint time so importing the module
+ * (e.g., from tests) has no fs/env side effects.
+ *
+ * Architectural note: this hook intentionally does NOT run `git fetch` —
+ * it fires on every UserPromptSubmit (potentially hundreds of times per
+ * session), and per-turn network calls would regress the <50ms budget by
+ * orders of magnitude. Sibling hooks like `check-branch-fresh.ts` fetch
+ * because they run once per merge attempt, not per turn. The output
+ * acknowledges this by labelling ahead/behind as "vs last-fetched origin"
+ * so the agent doesn't over-interpret the staleness.
+ */
+function computeGitTimeoutMs(): number {
+  const hostCapSec = readHostCap("inject-git-state.ts");
+  return deriveBudgets(hostCapSec).gitTimeoutMs;
+}
 
 export interface UserPromptSubmitInput extends ClaudeHookInput {
   prompt: string;
@@ -73,18 +88,27 @@ export function formatGitState(snap: GitStateSnapshot): string {
   const inSyncWithMain = snap.aheadMain === 0 && snap.behindMain === 0;
 
   if (wtClean && inSyncWithMain && snap.defaultBranch !== null) {
-    return `Current git state: on ${snap.branch}, clean, in sync with ${snap.defaultBranch}.`;
+    return `Current git state: on ${snap.branch}, clean, in sync with last-fetched origin/${snap.defaultBranch}.`;
   }
 
   const lines: string[] = ["Current git state:"];
 
-  // Branch line, with optional ahead/behind
+  // Branch line, with optional ahead/behind (labelled "last-fetched" because
+  // this hook does NOT run `git fetch` per turn — see computeGitTimeoutMs).
   if (snap.aheadMain !== null && snap.behindMain !== null && snap.defaultBranch !== null) {
     lines.push(
-      `- Branch: ${snap.branch} (vs ${snap.defaultBranch}: ${snap.aheadMain} ahead, ${snap.behindMain} behind)`
+      `- Branch: ${snap.branch} (vs last-fetched origin/${snap.defaultBranch}: ${snap.aheadMain} ahead, ${snap.behindMain} behind)`
+    );
+  } else if (snap.defaultBranch !== null) {
+    // Default branch detected but ahead/behind couldn't be computed (e.g.,
+    // origin/<default> not fetched locally yet)
+    lines.push(
+      `- Branch: ${snap.branch} (origin/${snap.defaultBranch} not available locally — ahead/behind unknown)`
     );
   } else {
-    lines.push(`- Branch: ${snap.branch}`);
+    // Default branch couldn't be detected — surface that explicitly so the agent
+    // doesn't silently assume in-sync from a missing comparison
+    lines.push(`- Branch: ${snap.branch} (default branch undetectable — ahead/behind omitted)`);
   }
 
   // Working tree
@@ -143,26 +167,37 @@ export function parsePorcelainStatus(stdout: string): {
 }
 
 /**
- * Detect the default branch by trying common candidates. Mirrors the resolution
- * approach in check-branch-fresh.ts. Returns null when nothing matches (and the
- * caller should skip the ahead/behind calculation).
+ * Detect the default branch. Tries three paths in order:
+ *   1. `git symbolic-ref refs/remotes/origin/HEAD` — canonical when origin/HEAD is set
+ *   2. `git config remote.origin.head` — works for non-main/master defaults
+ *      (e.g., `develop`) and for repos where path 1 failed
+ *   3. Probe for `origin/main` then `origin/master` — last-resort local-only check
+ *
+ * Returns null when nothing matches; the caller emits an explicit
+ * "(default branch undetectable)" note in the output so the agent doesn't
+ * over-interpret the omission.
  */
-function detectDefaultBranch(cwd: string): string | null {
-  // First try symbolic-ref on origin/HEAD (canonical answer when origin is set up)
-  const sym = execSync(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
+function detectDefaultBranch(cwd: string, gitTimeoutMs: number): string | null {
+  const sym = execWithPath(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], {
     cwd,
-    timeout: GIT_TIMEOUT_MS,
+    timeout: gitTimeoutMs,
   });
   if (sym.exitCode === 0) {
-    // Output is "origin/main" — strip the "origin/" prefix
     const name = sym.stdout.replace(/^origin\//, "");
     if (name) return name;
   }
-  // Fallback: probe for origin/main and origin/master
+  const cfg = execWithPath(["git", "config", "--get", "remote.origin.head"], {
+    cwd,
+    timeout: gitTimeoutMs,
+  });
+  if (cfg.exitCode === 0 && cfg.stdout) {
+    const name = cfg.stdout.replace(/^refs\/heads\//, "").replace(/^origin\//, "");
+    if (name) return name;
+  }
   for (const candidate of ["main", "master"]) {
-    const probe = execSync(
+    const probe = execWithPath(
       ["git", "show-ref", "--verify", "--quiet", `refs/remotes/origin/${candidate}`],
-      { cwd, timeout: GIT_TIMEOUT_MS }
+      { cwd, timeout: gitTimeoutMs }
     );
     if (probe.exitCode === 0) return candidate;
   }
@@ -170,40 +205,92 @@ function detectDefaultBranch(cwd: string): string | null {
 }
 
 /**
+ * Compute ahead/behind counts for `HEAD` vs `origin/<defaultBranch>` using the
+ * `--left-right --count` formulation. One git call instead of two.
+ *
+ * IMPORTANT: this compares against the LOCAL CACHE of `origin/<defaultBranch>`.
+ * The hook does NOT fetch — see `computeGitTimeoutMs` for the architectural
+ * justification. The formatter labels this as "vs last-fetched origin/<X>"
+ * so the agent doesn't over-interpret the result as live-remote-current.
+ *
+ * Returns [ahead, behind] or [null, null] if the comparison can't be computed.
+ */
+function computeAheadBehind(
+  cwd: string,
+  defaultBranch: string,
+  gitTimeoutMs: number
+): [number | null, number | null] {
+  const refCheck = execWithPath(
+    ["git", "show-ref", "--verify", "--quiet", `refs/remotes/origin/${defaultBranch}`],
+    { cwd, timeout: gitTimeoutMs }
+  );
+  if (refCheck.exitCode !== 0) return [null, null];
+
+  const result = execWithPath(
+    ["git", "rev-list", "--left-right", "--count", `HEAD...origin/${defaultBranch}`],
+    { cwd, timeout: gitTimeoutMs }
+  );
+  if (result.exitCode !== 0 || result.timedOut) return [null, null];
+  const parts = result.stdout.trim().split(/\s+/);
+  if (parts.length !== 2) return [null, null];
+  const ahead = parseInt(parts[0], 10);
+  const behind = parseInt(parts[1], 10);
+  if (Number.isNaN(ahead) || Number.isNaN(behind)) return [null, null];
+  return [ahead, behind];
+}
+
+/**
  * Build a GitStateSnapshot by invoking git commands in the given cwd.
  * Returns null when:
- *   - cwd is not a git repository (no `.git` directory anywhere up the chain)
+ *   - cwd is not a git repository (per `git rev-parse --is-inside-work-tree`)
  *   - the `HEAD` symbolic-ref lookup fails (detached HEAD, broken repo)
  *   - any individual git command times out
  *
- * Subsidiary failures (e.g., ahead/behind can't be computed because the branch
- * has no upstream) are tolerated — the snapshot still returns with the missing
- * fields filled with sensible defaults (null counts, empty arrays).
+ * Subsidiary failures (default-branch detection, ahead/behind computation) are
+ * tolerated — the snapshot returns with sensible defaults (null counts) and the
+ * formatter surfaces an explicit note so the agent doesn't over-interpret.
+ *
+ * @param gitTimeoutMs Optional per-command timeout (default derived from host cap).
+ *                     Tests may pass an explicit value for determinism.
  */
-export function buildGitStateSnapshot(cwd: string): GitStateSnapshot | null {
-  // Quick check: is this a git repo? Walk up looking for a `.git` directory.
-  // Avoids spawning a subprocess in the common non-repo case (e.g., /tmp).
-  if (!isInGitRepo(cwd)) return null;
+export function buildGitStateSnapshot(
+  cwd: string,
+  gitTimeoutMs: number = computeGitTimeoutMs()
+): GitStateSnapshot | null {
+  // Canonical repo check via git itself. Handles worktrees (where `.git` is a
+  // file with `gitdir:` indirection), submodules, and deeply-nested checkouts
+  // that a `.git`-existence walker would miss or false-positive.
+  const isRepoResult = execWithPath(["git", "rev-parse", "--is-inside-work-tree"], {
+    cwd,
+    timeout: gitTimeoutMs,
+  });
+  if (
+    isRepoResult.exitCode !== 0 ||
+    isRepoResult.timedOut ||
+    isRepoResult.stdout.trim() !== "true"
+  ) {
+    return null;
+  }
 
   // Branch name
-  const branchResult = execSync(["git", "symbolic-ref", "--short", "HEAD"], {
+  const branchResult = execWithPath(["git", "symbolic-ref", "--short", "HEAD"], {
     cwd,
-    timeout: GIT_TIMEOUT_MS,
+    timeout: gitTimeoutMs,
   });
   if (branchResult.exitCode !== 0 || branchResult.timedOut) return null;
   const branch = branchResult.stdout.trim();
   if (!branch) return null;
 
   // Default branch (for ahead/behind comparison)
-  const defaultBranch = detectDefaultBranch(cwd);
+  const defaultBranch = detectDefaultBranch(cwd, gitTimeoutMs);
 
   // Working tree status
   let modified = 0;
   let untracked = 0;
   let staged = 0;
-  const statusResult = execSync(["git", "status", "--porcelain=v1"], {
+  const statusResult = execWithPath(["git", "status", "--porcelain=v1"], {
     cwd,
-    timeout: GIT_TIMEOUT_MS,
+    timeout: gitTimeoutMs,
   });
   if (statusResult.exitCode === 0 && !statusResult.timedOut) {
     const parsed = parsePorcelainStatus(statusResult.stdout);
@@ -212,37 +299,21 @@ export function buildGitStateSnapshot(cwd: string): GitStateSnapshot | null {
     staged = parsed.staged;
   }
 
-  // Ahead / behind vs default branch
+  // Ahead / behind vs origin/<defaultBranch>. Same formulation on the default
+  // branch as on non-default branches — if local main is ahead of origin/main
+  // (commits not yet pushed), we report that honestly instead of falsely
+  // claiming "in sync".
   let aheadMain: number | null = null;
   let behindMain: number | null = null;
-  if (defaultBranch && branch !== defaultBranch) {
-    const aheadResult = execSync(["git", "rev-list", "--count", `origin/${defaultBranch}..HEAD`], {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-    });
-    if (aheadResult.exitCode === 0 && !aheadResult.timedOut) {
-      aheadMain = parseInt(aheadResult.stdout.trim(), 10);
-      if (Number.isNaN(aheadMain)) aheadMain = null;
-    }
-    const behindResult = execSync(["git", "rev-list", "--count", `HEAD..origin/${defaultBranch}`], {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-    });
-    if (behindResult.exitCode === 0 && !behindResult.timedOut) {
-      behindMain = parseInt(behindResult.stdout.trim(), 10);
-      if (Number.isNaN(behindMain)) behindMain = null;
-    }
-  } else if (defaultBranch && branch === defaultBranch) {
-    // On the default branch — "ahead/behind" is vs origin/<default>
-    aheadMain = 0;
-    behindMain = 0;
+  if (defaultBranch) {
+    [aheadMain, behindMain] = computeAheadBehind(cwd, defaultBranch, gitTimeoutMs);
   }
 
   // Recent commits on branch (oneline, last 5)
   let recentCommits: string[] = [];
-  const logResult = execSync(["git", "log", "--oneline", "-5", "HEAD"], {
+  const logResult = execWithPath(["git", "log", "--oneline", "-5", "HEAD"], {
     cwd,
-    timeout: GIT_TIMEOUT_MS,
+    timeout: gitTimeoutMs,
   });
   if (logResult.exitCode === 0 && !logResult.timedOut) {
     recentCommits = logResult.stdout
@@ -261,22 +332,6 @@ export function buildGitStateSnapshot(cwd: string): GitStateSnapshot | null {
     recentCommits,
     defaultBranch,
   };
-}
-
-/**
- * Walk up from `cwd` looking for a `.git` directory or file (the latter for
- * git worktrees). Returns true if found. Bounded at 50 parent traversals to
- * avoid pathological loops.
- */
-function isInGitRepo(cwd: string): boolean {
-  let dir = cwd;
-  for (let i = 0; i < 50; i++) {
-    if (existsSync(join(dir, ".git"))) return true;
-    const parent = join(dir, "..");
-    if (parent === dir) return false;
-    dir = parent;
-  }
-  return false;
 }
 
 function isOverrideTruthy(value: string | undefined): boolean {
