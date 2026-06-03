@@ -189,6 +189,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
+  "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
 ]);
 
 /**

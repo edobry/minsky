@@ -2767,6 +2767,109 @@ convention.
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
   contract this hook conforms to).
 
+## Git-State Injection Hook
+
+A `UserPromptSubmit` hook (`.claude/hooks/inject-git-state.ts`) that injects
+the current git state (branch name, working-tree status, ahead/behind counts
+vs the default branch, and the 5 most-recent commits) into every turn's
+`additionalContext` (mt#2275). Sibling of the current-time injection hook
+(mt#2181); same architectural pattern, same override convention, same
+structural-injection rationale (memory `08606f7c` — "structural injection
+beats retrieval discipline").
+
+**Hook file:** `.claude/hooks/inject-git-state.ts`
+
+**Output formats:**
+
+Collapsed (single line, when working tree is clean AND in sync with default
+branch):
+```
+Current git state: on main, clean, in sync with main.
+```
+
+Expanded (multi-line, otherwise):
+```
+Current git state:
+- Branch: task/mt-2275 (vs main: 3 ahead, 0 behind)
+- Working tree: 2 modified, 1 untracked, 0 staged
+- Recent commits on branch:
+  abc1234 feat(mt#2275): add hook
+  def5678 fix(mt#2275): R1 review
+  ...
+```
+
+**Why this exists.** Claude Code's session-start system reminder includes a
+`gitStatus` block (current branch, modified files, recent commits). These
+values are captured once and never refreshed. Long sessions accumulate
+divergence: branch switches, new merges to main, file edits — none of which
+update the anchor. The agent then asserts stale state ("we're on main",
+"the most recent commit was X") without any failure signal until a user
+catches it. This is structurally identical to the time-anchor problem mt#2181
+fixed.
+
+**Performance budget:** <50ms per invocation. Each git command runs with an
+800ms individual timeout; the hook is registered with a 5-second total
+timeout (matches sibling-hook convention). Git commands invoked:
+- `git symbolic-ref --short HEAD` (branch name)
+- `git symbolic-ref --short refs/remotes/origin/HEAD` (default branch, with
+  fallbacks for main/master)
+- `git status --porcelain=v1` (working-tree status)
+- `git rev-list --count origin/<default>..HEAD` (ahead)
+- `git rev-list --count HEAD..origin/<default>` (behind)
+- `git log --oneline -5 HEAD` (recent commits)
+
+**Fail-open posture:** the hook bails silently (no `additionalContext` emitted)
+when:
+- `cwd` is not a git repository (no `.git` found in any parent up to 50 levels)
+- the `HEAD` symbolic-ref lookup fails (detached HEAD, broken repo)
+- any individual git command times out
+
+Subsidiary failures (e.g., ahead/behind can't be computed because the branch
+has no upstream) are tolerated — the snapshot still emits with the missing
+fields filled with sensible defaults. The hook is informational; it should
+never block the user prompt.
+
+**Override mechanism:** Set `MINSKY_SKIP_GIT_STATE_INJECTION=1` (or `true` /
+`yes`) to disable injection:
+
+```bash
+MINSKY_SKIP_GIT_STATE_INJECTION=1 claude
+```
+
+When the override fires, the hook emits an audit-log line to stdout
+(`[inject-git-state] override active: ...`) and returns no
+additionalContext. The audit line is not valid HookOutput JSON, so Claude
+Code's hook-output parser logs it as "Ignoring non-JSON line on stdout" —
+matching the sibling-hook audit convention.
+
+**Env-var registration:** `MINSKY_SKIP_GIT_STATE_INJECTION` is registered in
+`HOOK_ONLY_ENV_VARS` at
+`packages/domain/src/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788. The
+override env-var name's source of truth lives in
+`.claude/hooks/inject-git-state.ts` as the exported constant
+`GIT_STATE_INJECTION_OVERRIDE_ENV` so the hook, tests, and rule documentation
+cannot drift.
+
+**Originating context:** mt#2275 follows from the 2026-05-24/30/31 incident
+memo's open question #2 ("does the injection pattern generalize beyond
+time?"). The memo named git state as the clearest candidate after time:
+session-start system reminder captures it once; staleness produces
+silently-wrong assertions; cost is bounded; value is high.
+
+**Cross-references:**
+
+- mt#2181 — `inject-current-time.ts` (architectural template; same pattern,
+  same override convention)
+- Memory `08606f7c` — Structural injection beats retrieval discipline
+  (synthesis-level lesson; this hook is its second instance)
+- Notion incident memo `371937f03cb481428aeaeedd67f7216f` — originating
+  audit, open question #2
+- `.claude/hooks/memory-search.ts` and `.claude/hooks/skill-staleness-detector.ts`
+  — sibling injection hooks
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+  contract this hook conforms to)
+
 ## Guessed-Session-Path Guard
 
 A PreToolUse hook on `Bash` and `mcp__minsky__session_exec` that scans the
