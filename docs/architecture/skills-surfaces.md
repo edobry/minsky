@@ -13,9 +13,11 @@ original TypeScript-first stance): a skill source under `.minsky/skills/<name>/`
 may be EITHER a TypeScript module (`defineSkill()` in `skill.ts`, type-safe) OR a
 markdown source — **canonicity comes from the `.minsky/` location, not the file
 format**. Sources compile to harness-specific output under `.claude/skills/`,
-`.cursor/rules/`, etc. via `bun run minsky compile`. (The markdown-source reader
-is not built yet — mt#2279 — so as of this writing only `skill.ts` sources
-compile; the 7 current Minsky-authored skills are all TypeScript.)
+`.cursor/rules/`, etc. via `bun run minsky compile`. (As of mt#2279 the compile
+pipeline reads markdown sources — `.minsky/skills/<name>/SKILL.md` — as well as
+`skill.ts`; a directory with BOTH is reported as an ambiguous canonical source
+and skipped with a warning. The 7 current Minsky-authored skills are all
+TypeScript; markdown is now an equally-supported authoring format.)
 
 These skills participate in the Minsky compile pipeline and are loaded by
 agents through harness-native discovery (Claude Code's `.claude/skills/`
@@ -34,6 +36,38 @@ Current Minsky-authored skills under `.minsky/skills/`:
 Always checked into git. Edit the source (TypeScript or markdown) under
 `.minsky/skills/`, then run `bun run minsky compile` to regenerate the
 harness-specific outputs.
+
+### Markdown source format
+
+A markdown skill source is a `.minsky/skills/<name>/SKILL.md` with YAML
+frontmatter plus a markdown body. Minimal example:
+
+    ---
+    name: my-skill
+    description: One-line description of what the skill does and when to use it.
+    user-invocable: true
+    ---
+
+    # My Skill
+
+    The skill body (markdown).
+
+Frontmatter keys (kebab-case) map to the same `SkillDefinition` fields as
+`defineSkill()`:
+
+| Frontmatter key            | SkillDefinition field    | Type                                                          | Default  |
+| -------------------------- | ------------------------ | ------------------------------------------------------------- | -------- |
+| `name`                     | `name`                   | string (lowercase / digits / hyphens, ≤64; matches dir)       | required |
+| `description`              | `description`            | string                                                        | required |
+| `tags`                     | `tags`                   | string[] (a scalar string is normalized to a 1-element array) | omitted  |
+| `user-invocable`           | `userInvocable`          | boolean                                                       | `true`   |
+| `disable-model-invocation` | `disableModelInvocation` | boolean                                                       | `false`  |
+| `allowed-tools`            | `allowedTools`           | string[] (scalar normalized)                                  | omitted  |
+
+The markdown body becomes the skill content. Invalid or missing required fields
+cause the skill to be **skipped with a warning** (not a silent drop). A directory
+containing BOTH `skill.ts` and `SKILL.md` is an ambiguous canonical source and is
+skipped with a warning — keep exactly one.
 
 ### Vendored community skills (third category)
 
