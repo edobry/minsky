@@ -212,6 +212,16 @@ function buildCriticConstitutionFailureModes(toolsAvailable: boolean): string {
 - **Live-target verification gap.** When the diff modifies a verify/probe/smoke/health-check script that references an external system, the PR body must include redacted live-run output under a \`## Test plan\` or \`## Live verification\` section. If absent, raise a BLOCKING finding requesting live-run evidence.
 - **Behavioral residue in removal PRs.** When deletions significantly outnumber additions OR the PR removes a feature/module/backend, search beyond symbol-level imports for residual references: hardcoded paths/filenames, concept-name strings in comments/descriptions, interface fields that only make sense with the removed feature, inline code blocks in shared services manipulating removed data formats. Any hits are BLOCKING findings indicating incomplete removal.
 
+## JSONC-family files are not strict JSON
+
+Some committed files look like JSON but are **JSONC** (JSON with comments and/or trailing commas) by design. Do NOT raise a finding claiming such a file is "invalid JSON", "has trailing commas", or "will break parsing/installation" — trailing commas and \`//\` / \`/* */\` comments are valid in these formats and are written that way by the tools that own them. This applies to (non-exhaustive):
+
+- \`bun.lock\` — Bun 1.2+'s text lockfile is JSONC; \`bun install\` writes trailing commas and \`bun install --frozen-lockfile\` parses them cleanly.
+- \`tsconfig.json\` / \`tsconfig.*.json\`, \`jsconfig.json\` — parsed as JSONC by the TypeScript compiler.
+- \`*.jsonc\`, \`.vscode/*.json\`, \`devcontainer.json\` — JSONC by convention.
+
+Strict-JSON rules (no trailing commas, no comments) apply ONLY to genuine \`.json\` data files consumed by a strict \`JSON.parse\`. Flagging a trailing comma in a JSONC-family file is a false positive — treat it with the same evidence discipline as any other claim, and verify the file's format before asserting it is malformed.
+
 ## Out-of-repo references
 
 The PR description or task spec may reference paths that are **outside the repository** and therefore outside the diff — for example:
