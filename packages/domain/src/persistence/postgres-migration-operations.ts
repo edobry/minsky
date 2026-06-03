@@ -132,7 +132,7 @@ export async function checkUnmergedMigrations(
   // repo top-level; if the CLI is invoked from a subdirectory, a cwd-relative path
   // (with `../` segments) would not resolve and a merged migration would be
   // falsely reported absent → false block. Fail OPEN if the root can't be found.
-  const { resolve, relative } = await import("path");
+  const { resolve, relative, sep } = await import("path");
   let repoRoot: string;
   try {
     // `promisify(execFile)` resolves to `{ stdout, stderr }` in normal runtime
@@ -160,8 +160,12 @@ export async function checkUnmergedMigrations(
     // `migrationsFolder` and otherwise resolves a relative one against `cwd`.
     const absSqlPath = resolve(cwd, migrationsFolder, sqlFileName);
     // Path relative to the REPO ROOT — what `git <tree>:<path>` expects. This is
-    // correct regardless of the directory the CLI was invoked from.
-    const repoRelPath = relative(repoRoot, absSqlPath);
+    // correct regardless of the directory the CLI was invoked from. Normalize to
+    // POSIX separators: git tree-ish paths require forward slashes, but
+    // `path.relative` yields backslashes on Windows (mt#2278 review). The path is
+    // derived from a controlled migration filename under the repo root, so it has
+    // no `..` segments, no leading `-`, and no `:` — safe to interpolate.
+    const repoRelPath = relative(repoRoot, absSqlPath).split(sep).join("/");
 
     try {
       // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
