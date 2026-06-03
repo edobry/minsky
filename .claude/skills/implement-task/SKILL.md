@@ -186,11 +186,19 @@ Before invoking step §8 (Create PR), walk through this checklist; if any check 
 
    Origin: mt#1811 (2026-05-13) — PR #1100 body and the mt#1811 spec's `## Outcome` section both declared "deferred — requires Railway access" while the `railway` CLI was on PATH, the `railway:use-railway` skill was loaded, and the relevant memory was injected mid-session. User pushback ("Are you sure you need me for that?") triggered the probe; total fix time was <5 minutes. This step is the implement-task-pipeline enforcement of the broader `User Preferences §Probe before deferring` rule.
 
+4. **Guard/rule documentation (mt#2208).** If this PR adds or modifies a pre-commit guard, a Claude Code hook (`.claude/hooks/*`), an ESLint rule, or any mechanism whose siblings are documented in a `.minsky/rules/*.mdc` section (e.g., the pre-commit guards documented in `hook-files.mdc`), document the new mechanism in the SOURCE rule and recompile IN THIS PR — before `session_pr_create`. Skipping this means the reviewer-bot's `## Documentation impact` check returns BLOCKING at review time, costing a full extra round.
+
+   - Edit the canonical source — `.minsky/rules/<file>.mdc` — NOT the generated `CLAUDE.md` / `AGENTS.md` / `.cursor/rules/` outputs. Then run `bun run src/cli.ts rules compile`.
+   - **Verify each target regenerated.** The no-`--target` `rules compile` does not reliably regenerate every output — `grep` for the new section in `CLAUDE.md` specifically; if it is absent, run `rules compile --target claude.md` (and `--target cursor-rules`) explicitly.
+   - Register any new `MINSKY_*` override env var in `HOOK_ONLY_ENV_VARS` (mt#1788).
+
+   Origin: mt#2208 / PR #1453 (2026-05-31) — the deploy-domain ownership guard shipped without its `hook-files.mdc` section (every sibling guard there is documented). The reviewer-bot's Documentation-impact check returned BLOCKING, costing an extra round + a recompile gotcha (the no-`--target` invocation regenerated `AGENTS.md` but not `CLAUDE.md`). See `feedback_new_guard_needs_source_rule_doc_at_authoring_time`.
+
 **Reactive phase (when iterating on reviewer findings):**
 
-4. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
+5. **Anti-rationalization.** When responding to a reviewer comment: did you change behavior, or did you just add a doc comment justifying the existing behavior? Documentation alone does not count as a fix. Verify the fix aligns with the _parent task's_ design intent (read the parent spec, not just the immediate ticket's text). Common failure mode: reviewer says "this default is wrong"; implementer adds a JSDoc explaining why the default is OK; reviewer flags it again because the value didn't change.
 
-5. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
+6. **Class-not-instance.** When the reviewer flags one specific site (e.g., "`glob` is unwrapped"), scan the implementation for other sites of the _same class_ (e.g., other unwrapped I/O like `fs.readFile`) and patch them all in one round. The reviewer-bot does cross-cutting audits; matching the comprehensive scan up-front is what converges iteration.
 
 Origin: cascaded reviewer iteration on mt#1258 (PR #796 abandoned across 3+ rounds) and mt#1350 (PR #847, 5 reviewer rounds), plus mt#1811 (PR #1100 deferred-without-probing) for the probe-before-defer step. See `feedback_cascade_defense_in_implementer_prompt.md` and `feedback_probe_before_defer_at_action_time` for the pattern history.
 
