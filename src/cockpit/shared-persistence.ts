@@ -81,11 +81,17 @@ let _initPromise: Promise<PersistenceService> | null = null;
  * cancelled — `PersistenceService.initialize()` / `provider.initialize()` take
  * no AbortSignal today. A new instance is created per attempt (reusing the
  * instance would re-wedge on its own internal init-promise, which a hang leaves
- * permanently pending), so a hung attempt that later completes may leak a
- * provider connection pool. This is the accepted cost of recovering a wedged
- * cockpit without a cancellation path; true cancellation is tracked in mt#2248.
- * The overlap is bounded: callers within a window coalesce, so at most one
- * ACTIVE attempt runs at a time, plus at most one orphan per timeout event.
+ * permanently pending), so a hung attempt that later completes would otherwise
+ * leak a provider connection pool. mt#2248 closes that gap: on timeout we attach
+ * a best-effort `close()` teardown to the orphaned init promise, so if it
+ * resolves after the deadline the orphaned service is torn down (its provider
+ * pool released). Threading an AbortSignal through the provider was rejected —
+ * the porsager/postgres driver accepts no AbortSignal (it exposes only
+ * `.cancel()` on an executed query), and `connect_timeout` already bounds the
+ * connection phase; the cockpit-local teardown is driver-agnostic and covers a
+ * hang wherever it occurs (connect / SELECT 1 / migrations). The overlap is
+ * bounded: callers within a window coalesce, so at most one ACTIVE attempt runs
+ * at a time, plus at most one (now self-closing) orphan per timeout event.
  */
 export async function getSharedPersistenceService(
   initTimeoutMs: number = PERSISTENCE_INIT_TIMEOUT_MS,
@@ -125,6 +131,23 @@ export async function getSharedPersistenceService(
           `[shared-persistence] PersistenceService init timed out after ` +
             `${err.elapsedMs}ms — cleared cached init promise so the next caller retries`
         );
+        // The orphaned init keeps running in the background. If it LATER resolves,
+        // close the service so its provider connection pool doesn't leak (mt#2248)
+        // — the cockpit gave up on it and nothing else holds a reference. This is
+        // best-effort and must not mask the timeout rejection thrown below.
+        void init
+          .then((svc) =>
+            // close() failures are logged at debug (observability) but not rethrown.
+            Promise.resolve(svc?.close?.()).catch((closeErr) =>
+              log.debug(
+                `[shared-persistence] orphan close() after init-timeout failed: ${String(closeErr)}`
+              )
+            )
+          )
+          .catch(() => {
+            // init itself rejected after the deadline — the provider self-cleans
+            // its pool on failure, so there's nothing to close and nothing to report.
+          });
       }
       throw err;
     } finally {
