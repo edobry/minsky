@@ -192,7 +192,8 @@ describe("checkUnmergedMigrations", () => {
         callback: (err: Error | null, stdout: string, stderr: string) => void
       ) => {
         if (args[0] === "rev-parse") {
-          callback(null, "", ""); // origin/main resolves
+          // `--show-toplevel` returns the repo root; `--verify origin/main` resolves.
+          callback(null, args[1] === "--show-toplevel" ? "/repo\n" : "", "");
           return;
         }
         const target = args[2] ?? ""; // "origin/main:<path>"
@@ -270,6 +271,77 @@ describe("checkUnmergedMigrations", () => {
       expect(result.unmergedTags).toEqual([]);
       expect(result.skippedReason).toBeDefined();
       expect(result.skippedReason).toContain("origin/main");
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("computes a REPO-ROOT-relative cat-file path (no '../') even when cwd is a subdirectory (mt#2278)", async () => {
+    // Repo root is /repo; the CLI is invoked from a subdirectory /repo/services/x,
+    // and migrationsFolder is an ABSOLUTE path. The cat-file path must be relative
+    // to the repo root ("packages/.../<tag>.sql"), NOT cwd-relative (which would
+    // contain "../" and make git report the file absent → false block).
+    const catFileTargets: string[] = [];
+    const execFileMock = mock(
+      (
+        _file: string,
+        args: string[],
+        _opts: object,
+        callback: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        if (args[0] === "rev-parse") {
+          callback(null, args[1] === "--show-toplevel" ? "/repo\n" : "", "");
+          return;
+        }
+        catFileTargets.push(args[2] ?? ""); // "origin/main:<path>"
+        callback(null, "", ""); // present on main
+      }
+    );
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
+    try {
+      const entries = [makeEntry(0, "0000_initial")];
+      const result = await checkUnmergedMigrations(
+        "/repo/packages/domain/src/storage/migrations/pg",
+        entries,
+        0,
+        "/repo/services/x" // subdirectory, NOT the repo root
+      );
+      expect(result.blocked).toBe(false);
+      expect(catFileTargets).toHaveLength(1);
+      const target = catFileTargets[0] ?? "";
+      expect(target).toBe("origin/main:packages/domain/src/storage/migrations/pg/0000_initial.sql");
+      expect(target).not.toContain(".."); // the bug this fixes
+    } finally {
+      spyExecFile.mockRestore();
+    }
+  });
+
+  test("FAILS OPEN when the repo root cannot be determined (show-toplevel fails)", async () => {
+    const execFileMock = mock(
+      (
+        _file: string,
+        args: string[],
+        _opts: object,
+        callback: (err: Error | null, stdout: string, stderr: string) => void
+      ) => {
+        if (args[0] === "rev-parse" && args[1] === "--verify") {
+          callback(null, "", ""); // origin/main resolves
+          return;
+        }
+        if (args[0] === "rev-parse" && args[1] === "--show-toplevel") {
+          callback(new Error("not a git repository") as any, "", "");
+          return;
+        }
+        callback(new Error("should not be called") as any, "", "");
+      }
+    );
+    const spyExecFile = spyOn(childProcess, "execFile").mockImplementation(execFileMock as any);
+    try {
+      const entries = [makeEntry(0, "0000_initial")];
+      const result = await checkUnmergedMigrations("migrations/pg", entries, 0, "/repo");
+      expect(result.blocked).toBe(false);
+      expect(result.unmergedTags).toEqual([]);
+      expect(result.skippedReason).toContain("repository root");
     } finally {
       spyExecFile.mockRestore();
     }

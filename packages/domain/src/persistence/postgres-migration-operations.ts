@@ -101,7 +101,6 @@ export async function checkUnmergedMigrations(
   appliedCount: number,
   cwd: string = process.cwd()
 ): Promise<UnmergedMigrationCheckResult> {
-  const { join } = await import("path");
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
   const execFileAsync = promisify(execFile);
@@ -128,20 +127,46 @@ export async function checkUnmergedMigrations(
     };
   }
 
+  // Resolve the repository root so migration paths are computed relative to it,
+  // NOT to `cwd` (mt#2278). `git <tree>:<path>` interprets <path> relative to the
+  // repo top-level; if the CLI is invoked from a subdirectory, a cwd-relative path
+  // (with `../` segments) would not resolve and a merged migration would be
+  // falsely reported absent → false block. Fail OPEN if the root can't be found.
+  const { resolve, relative } = await import("path");
+  let repoRoot: string;
+  try {
+    // `promisify(execFile)` resolves to `{ stdout, stderr }` in normal runtime
+    // (execFile carries the custom-promisify symbol); under a plain test mock it
+    // resolves to the stdout string. Read robustly so both shapes work.
+    const top = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd })) as
+      | string
+      | { stdout: string };
+    repoRoot = String(typeof top === "string" ? top : top.stdout).trim();
+  } catch {
+    return {
+      blocked: false,
+      unmergedTags: [],
+      skippedReason:
+        "could not determine the git repository root (`git rev-parse --show-toplevel` failed); " +
+        "skipping the unmerged-migration guard.",
+    };
+  }
+
   const unmergedTags: string[] = [];
 
   for (const entry of pendingEntries) {
     const sqlFileName = `${entry.tag}.sql`;
-    const sqlFilePath = join(migrationsFolder, sqlFileName);
-
-    // Make path relative to cwd so git can resolve it against origin/main
-    const { relative, isAbsolute } = await import("path");
-    const relPath = isAbsolute(sqlFilePath) ? relative(cwd, sqlFilePath) : sqlFilePath;
+    // Absolute path of the migration file. `resolve` honours an absolute
+    // `migrationsFolder` and otherwise resolves a relative one against `cwd`.
+    const absSqlPath = resolve(cwd, migrationsFolder, sqlFileName);
+    // Path relative to the REPO ROOT — what `git <tree>:<path>` expects. This is
+    // correct regardless of the directory the CLI was invoked from.
+    const repoRelPath = relative(repoRoot, absSqlPath);
 
     try {
       // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
       // non-zero if it doesn't (file not on origin/main)
-      await execFileAsync("git", ["cat-file", "-e", `origin/main:${relPath}`], { cwd });
+      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
       // exit 0 → file is present on origin/main → not blocked
     } catch {
       // non-zero exit → file is NOT on origin/main
