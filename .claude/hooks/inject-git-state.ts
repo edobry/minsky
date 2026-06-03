@@ -49,8 +49,9 @@ export const GIT_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_GIT_STATE_INJECTION
 function computeGitTimeoutMs(): number {
   // IMPORTANT: this hook is registered under UserPromptSubmit, not PreToolUse.
   // readHostCap defaults to scanning PreToolUse entries, so without the events
-  // filter it would fall back to the default 15s cap and derive ~1500ms per
-  // command instead of the intended ~800ms (5s UserPromptSubmit cap × 17%).
+  // filter it would fall back to the default 15s host cap and derive
+  // ~1530ms per command instead of the intended ~510ms (5s UserPromptSubmit
+  // cap × OVERALL_BUDGET_RATIO 0.6 × GIT_TIMEOUT_RATIO 0.17 = ~510ms).
   const capInfo = readHostCap("inject-git-state.ts", undefined, {
     events: ["UserPromptSubmit"],
   });
