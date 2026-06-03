@@ -33,7 +33,13 @@
 
 import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { readFileSync } from "node:fs";
+import {
+  parseTranscript,
+  extractLastAssistantTurn,
+  extractAssistantText,
+  extractToolUseNames,
+} from "./transcript";
+import type { TranscriptLine } from "./transcript";
 
 // ---------------------------------------------------------------------------
 // Public API: exported constants and detection result type
@@ -172,22 +178,6 @@ export const ACTOR_INDICATORS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Transcript JSONL types (minimal subset we use)
-// ---------------------------------------------------------------------------
-
-interface TranscriptLine {
-  type?: string;
-  message?: {
-    role?: string;
-    content?: unknown;
-  };
-  // tool_use lines carry name/input at top level OR inside message.content
-  name?: string;
-  tool_name?: string;
-  input?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
 // Detection result type
 // ---------------------------------------------------------------------------
 
@@ -199,128 +189,8 @@ export interface DetectionResult {
 }
 
 // ---------------------------------------------------------------------------
-// Transcript parsing helpers
+// Skill-invocation helper (substrate-specific)
 // ---------------------------------------------------------------------------
-
-/**
- * Parse JSONL transcript file. Returns array of objects, skipping malformed lines.
- * Never throws; returns [] on any read/parse error.
- */
-export function parseTranscript(transcriptPath: string): TranscriptLine[] {
-  let raw: string;
-  try {
-    raw = readFileSync(transcriptPath, "utf8");
-  } catch {
-    return [];
-  }
-
-  const lines = raw.split("\n");
-  const result: TranscriptLine[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      const parsed = JSON.parse(trimmed) as TranscriptLine;
-      result.push(parsed);
-    } catch {
-      // skip malformed line, continue
-    }
-  }
-  return result;
-}
-
-/**
- * Extract the most-recent assistant turn from a parsed transcript.
- *
- * The "most-recent assistant turn" is all lines after the second-to-last user
- * message, up to (but not including) the current user prompt that fired the hook.
- *
- * A "user message" is a line where `message.role === "user"` or `type === "user"`.
- * Returns [] when there are fewer than 2 user messages (first turn of session,
- * or no prior assistant turn).
- */
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  // Find all user-message indices
-  const userIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (line.type === "user" || line.message?.role === "user") {
-      userIndices.push(i);
-    }
-  }
-
-  // Need at least 2 user messages to have a prior assistant turn
-  if (userIndices.length < 2) {
-    return [];
-  }
-
-  // The second-to-last user message is at userIndices[userIndices.length - 2]
-  const startIdx = (userIndices[userIndices.length - 2] as number) + 1;
-  // The last user message is the current user prompt (not included)
-  const endIdx = userIndices[userIndices.length - 1] as number;
-
-  return lines.slice(startIdx, endIdx);
-}
-
-/**
- * Extract all text content from assistant lines in a turn.
- * Handles both simple string content and content arrays.
- */
-function extractAssistantText(turnLines: TranscriptLine[]): string {
-  const parts: string[] = [];
-  for (const line of turnLines) {
-    if (line.type === "assistant" || line.message?.role === "assistant") {
-      const content = line.message?.content;
-      if (typeof content === "string") {
-        parts.push(content);
-      } else if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block && typeof block === "object") {
-            const b = block as Record<string, unknown>;
-            if (b["type"] === "text" && typeof b["text"] === "string") {
-              parts.push(b["text"] as string);
-            }
-          }
-        }
-      }
-    }
-  }
-  return parts.join("\n");
-}
-
-/**
- * Extract all tool_use tool names from a turn. Handles multiple JSONL formats:
- * - Lines where `type === "tool_use"` and `name` is the tool name
- * - Lines where message.content is an array of blocks with type "tool_use"
- */
-function extractToolUseNames(turnLines: TranscriptLine[]): string[] {
-  const names: string[] = [];
-  for (const line of turnLines) {
-    // Format 1: top-level tool_use line
-    if (line.type === "tool_use") {
-      const n = line.name ?? line.tool_name;
-      if (n) names.push(n);
-    }
-    // Format 2: tool_use embedded in message.content array
-    if (line.message?.content && Array.isArray(line.message.content)) {
-      for (const block of line.message.content as Array<Record<string, unknown>>) {
-        if (block["type"] === "tool_use" && typeof block["name"] === "string") {
-          names.push(block["name"] as string);
-        }
-      }
-    }
-    // Format 3: assistant-type line with content array
-    if (line.type === "assistant" && line.message?.content && Array.isArray(line.message.content)) {
-      for (const block of line.message.content as Array<Record<string, unknown>>) {
-        if (block["type"] === "tool_use" && typeof block["name"] === "string") {
-          names.push(block["name"] as string);
-        }
-      }
-    }
-  }
-  return names;
-}
 
 /**
  * Extract Skill tool invocation names from a turn.
