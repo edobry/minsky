@@ -12,6 +12,7 @@
 
 use std::fs::{File, OpenOptions};
 use std::io;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -21,7 +22,6 @@ use std::time::{Duration, Instant};
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
-use tauri_plugin_autostart::MacosLauncher;
 use tokio::sync::mpsc;
 
 const DAEMON_PORT: u16 = 3737;
@@ -172,15 +172,37 @@ fn resolve_program(name: &str, path: &str) -> Option<PathBuf> {
             continue;
         }
         let cand = Path::new(dir).join(name);
-        if cand.is_file() {
+        if is_executable(&cand) {
             return Some(cand);
         }
     }
     None
 }
 
+/// True when `p` is a regular file with at least one execute bit set.
+#[cfg(unix)]
+fn is_executable(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    p.is_file()
+        && std::fs::metadata(p)
+            .map(|m| m.permissions().mode() & 0o111 != 0)
+            .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable(p: &Path) -> bool {
+    p.is_file()
+}
+
 fn lsof_bin(path: &str) -> PathBuf {
-    resolve_program("lsof", path).unwrap_or_else(|| PathBuf::from("/usr/sbin/lsof"))
+    resolve_program("lsof", path)
+        .or_else(|| {
+            ["/usr/sbin/lsof", "/usr/bin/lsof", "/sbin/lsof"]
+                .iter()
+                .map(PathBuf::from)
+                .find(|p| p.is_file())
+        })
+        .unwrap_or_else(|| PathBuf::from("/usr/sbin/lsof"))
 }
 
 /// The PID of whatever is LISTENing on `port`, if any.
@@ -234,8 +256,11 @@ fn spawn_daemon(port: u16, path: &str) -> io::Result<(Child, u32)> {
     .env("PATH", path)
     .stdin(Stdio::null())
     .stdout(Stdio::from(out))
-    .stderr(Stdio::from(err))
-    .process_group(0);
+    .stderr(Stdio::from(err));
+    // New process group (pgid == child pid) so teardown can SIGTERM the whole
+    // group. Unix-only; on other targets the child is spawned without a group.
+    #[cfg(unix)]
+    cmd.process_group(0);
     let child = cmd.spawn()?;
     let pid = child.id();
     Ok((child, pid))
@@ -287,19 +312,24 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
     }
 }
 
-/// Stop the running daemon. If we spawned it, kill our process group; if it was
-/// adopted (externally started), kill the PID listening on the port. We only
-/// reap a child we own — an adopted daemon's process is not ours to `wait`.
-fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
+/// Stop the running daemon. If we spawned it, kill our process group. If it was
+/// ADOPTED (our health endpoint answers), kill the PID on the port. A foreign
+/// listener (port in use but NOT our daemon) is never killed: `adopted_ok` must
+/// be true for the port-owner kill path. Callers compute `adopted_ok` from a
+/// fresh health probe so a conflict (someone else on :3737) is left untouched.
+fn do_stop(sup: &mut Sup, spawned: &SpawnedPgid, path: &str, adopted_ok: bool) {
     if let Some(mut child) = sup.child.take() {
         let pgid = spawned.lock().ok().and_then(|mut g| g.take());
+        #[cfg(unix)]
         if let Some(pgid) = pgid {
             kill_group(pgid);
         }
         let _ = child.kill();
         let _ = child.wait();
-    } else if let Some(pid) = pid_on_port(DAEMON_PORT, path) {
-        kill_pid(pid);
+    } else if adopted_ok {
+        if let Some(pid) = pid_on_port(DAEMON_PORT, path) {
+            kill_pid(pid);
+        }
     }
 }
 
@@ -354,16 +384,29 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                         }
                     }
                     Some(SupervisorCmd::Stop) => {
-                        do_stop(&mut sup, &spawned, &path);
-                        set_status(&app, &mut sup, LABEL_STOPPED);
+                        let had_child = sup.child.is_some();
+                        let h = health_ok(&client).await;
+                        do_stop(&mut sup, &spawned, &path, h);
+                        if !had_child && !h && port_in_use(DAEMON_PORT, &path) {
+                            // A foreign process owns :3737 — we didn't (and won't) kill it.
+                            set_status(&app, &mut sup, LABEL_CONFLICT);
+                        } else {
+                            set_status(&app, &mut sup, LABEL_STOPPED);
+                        }
                     }
                     Some(SupervisorCmd::Restart) => {
-                        do_stop(&mut sup, &spawned, &path);
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                        do_spawn(&app, &mut sup, &spawned, &path);
+                        let h = health_ok(&client).await;
+                        if sup.child.is_none() && !h && port_in_use(DAEMON_PORT, &path) {
+                            // Foreign listener owns the port — refuse to restart over it.
+                            set_status(&app, &mut sup, LABEL_CONFLICT);
+                        } else {
+                            do_stop(&mut sup, &spawned, &path, h);
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            do_spawn(&app, &mut sup, &spawned, &path);
+                        }
                     }
                     Some(SupervisorCmd::Shutdown) | None => {
-                        do_stop(&mut sup, &spawned, &path);
+                        do_stop(&mut sup, &spawned, &path, true);
                         break;
                     }
                 },
@@ -416,13 +459,21 @@ fn main() {
     let spawned: SpawnedPgid = Arc::new(Mutex::new(None));
     let spawned_setup = spawned.clone();
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        // LaunchAgent mode registers a per-user Login Item that starts THIS app
-        // (com.minsky.cockpit-tray) at login — the RunAtLoad replacement from
-        // ADR-014. Distinct from the daemon's own com.minsky.cockpit launchd
-        // plist (the optional headless path).
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_shell::init());
+    // LaunchAgent mode registers a per-user Login Item that starts THIS app
+    // (com.minsky.cockpit-tray) at login — the RunAtLoad replacement from
+    // ADR-014. Distinct from the daemon's own com.minsky.cockpit launchd plist
+    // (the optional headless path). Release-only so dev runs stay pristine.
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ));
+    }
+
+    let app = builder
         .setup(move |app| {
             let handle = app.handle().clone();
 
