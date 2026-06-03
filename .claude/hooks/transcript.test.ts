@@ -54,8 +54,10 @@ describe("isRealUserPrompt", () => {
     expect(isRealUserPrompt(toolResult())).toBe(false);
   });
 
-  test("empty string content is NOT a real prompt", () => {
-    expect(isRealUserPrompt(userPrompt("   "))).toBe(false);
+  test("whitespace-only string content IS a real prompt (string is never a tool_result)", () => {
+    // A string-content user line is always human input — tool_result lines are
+    // always content arrays — so it still resets the turn boundary (mt#2255 review).
+    expect(isRealUserPrompt(userPrompt("   "))).toBe(true);
   });
 
   test("assistant line is NOT a user prompt", () => {

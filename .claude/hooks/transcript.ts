@@ -83,7 +83,9 @@ function isUserRole(line: TranscriptLine): boolean {
  * `tool_result` line that Claude Code also records with user role.
  *
  * A real prompt carries text content:
- *   - `message.content` is a non-empty string, OR
+ *   - `message.content` is a STRING (always — even empty/whitespace; a
+ *     string-content user line is never a `tool_result`, which is always an
+ *     array, so it is a genuine human boundary), OR
  *   - `message.content` is an array containing at least one `{ type: "text" }`
  *     block.
  *
@@ -93,7 +95,11 @@ function isUserRole(line: TranscriptLine): boolean {
 export function isRealUserPrompt(line: TranscriptLine): boolean {
   if (!isUserRole(line)) return false;
   const content = line.message?.content;
-  if (typeof content === "string") return content.trim().length > 0;
+  // String content is always a real prompt: tool_result lines are always
+  // content ARRAYS, so a string-content user line is unambiguously human input
+  // (an empty/whitespace prompt still resets the turn boundary, matching the
+  // prior user-role-split behavior — review NON-BLOCKING, mt#2255).
+  if (typeof content === "string") return true;
   if (Array.isArray(content)) {
     return content.some(
       (block) =>
