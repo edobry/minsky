@@ -83,7 +83,7 @@ export function createStartCommand(): Command {
       const isDev = !!options.dev;
 
       // Check that the frontend bundle has been built (skip in dev mode)
-      if (!isDev && !fs.existsSync(cockpitIndexHtml())) {
+      if (!isDev && !fs.existsSync(cockpitIndexHtml(__dirname))) {
         console.error("Cockpit bundle not built. Run `bun run cockpit:build` first.");
         process.exit(1);
       }

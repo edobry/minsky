@@ -43,9 +43,9 @@ const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Path to the built SPA assets — bundle-aware (process.cwd()-based, mt#2283). */
-const WEB_DIST_DIR = cockpitWebDistDir();
-const INDEX_HTML = cockpitIndexHtml();
+/** Path to the built SPA assets — bundle-aware (cwd + module-dir walk, mt#2283). */
+const WEB_DIST_DIR = cockpitWebDistDir(__dirname);
+const INDEX_HTML = cockpitIndexHtml(__dirname);
 
 /** Options accepted by createCockpitServer */
 /**
