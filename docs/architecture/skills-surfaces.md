@@ -37,6 +37,38 @@ Always checked into git. Edit the source (TypeScript or markdown) under
 `.minsky/skills/`, then run `bun run minsky compile` to regenerate the
 harness-specific outputs.
 
+### Markdown source format
+
+A markdown skill source is a `.minsky/skills/<name>/SKILL.md` with YAML
+frontmatter plus a markdown body. Minimal example:
+
+    ---
+    name: my-skill
+    description: One-line description of what the skill does and when to use it.
+    user-invocable: true
+    ---
+
+    # My Skill
+
+    The skill body (markdown).
+
+Frontmatter keys (kebab-case) map to the same `SkillDefinition` fields as
+`defineSkill()`:
+
+| Frontmatter key            | SkillDefinition field    | Type                                                          | Default  |
+| -------------------------- | ------------------------ | ------------------------------------------------------------- | -------- |
+| `name`                     | `name`                   | string (lowercase / digits / hyphens, ≤64; matches dir)       | required |
+| `description`              | `description`            | string                                                        | required |
+| `tags`                     | `tags`                   | string[] (a scalar string is normalized to a 1-element array) | omitted  |
+| `user-invocable`           | `userInvocable`          | boolean                                                       | `true`   |
+| `disable-model-invocation` | `disableModelInvocation` | boolean                                                       | `false`  |
+| `allowed-tools`            | `allowedTools`           | string[] (scalar normalized)                                  | omitted  |
+
+The markdown body becomes the skill content. Invalid or missing required fields
+cause the skill to be **skipped with a warning** (not a silent drop). A directory
+containing BOTH `skill.ts` and `SKILL.md` is an ambiguous canonical source and is
+skipped with a warning — keep exactly one.
+
 ### Vendored community skills (third category)
 
 Distinct from Minsky-authored skills: ~12 **vendored community skills** live

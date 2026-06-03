@@ -385,4 +385,54 @@ describe("claudeSkillsTarget.compile (markdown source — mt#2279)", () => {
     expect(skips).toHaveLength(1);
     expect(skips[0]).toContain("bad-md");
   });
+
+  it("applies schema defaults when MD omits user-invocable / disable-model-invocation", async () => {
+    const written: Record<string, string> = {};
+    const minimalMd = `---\nname: minimal-md\ndescription: Minimal markdown skill.\n---\n\n# Minimal\n\nBody.\n`;
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeFakeFs({ [mdSourcePath("minimal-md")]: minimalMd }),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+    const target = makeClaudeSkillsTarget(neverImport);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    expect(result.definitionsIncluded).toEqual(["minimal-md"]);
+    const out = written[result.filesWritten[0] ?? ""];
+    if (out === undefined) throw new Error("expected output to be written");
+    // userInvocable defaults to true; disableModelInvocation defaults to false (omitted from output)
+    expect(out).toContain("user-invocable: true");
+    expect(out).not.toContain("disable-model-invocation");
+  });
+
+  it("normalizes a scalar `tags` frontmatter value into an array", async () => {
+    const written: Record<string, string> = {};
+    const scalarTagsMd = `---\nname: scalar-tags\ndescription: Skill with a scalar tag.\ntags: alpha\n---\n\n# Body\n`;
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeFakeFs({ [mdSourcePath("scalar-tags")]: scalarTagsMd }),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+    const target = makeClaudeSkillsTarget(neverImport);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    // Without scalar→array normalization this would fail schema validation and skip.
+    expect(result.definitionsIncluded).toEqual(["scalar-tags"]);
+    const out = written[result.filesWritten[0] ?? ""];
+    if (out === undefined) throw new Error("expected output to be written");
+    expect(out).toContain("alpha");
+  });
+
+  it("listOutputFiles excludes ambiguous (both-source) dirs", async () => {
+    const fakeFs = makeFakeFs({
+      [skillSourcePath("dual")]: "// sentinel",
+      [mdSourcePath("dual")]: sampleMdSource,
+    });
+    const target = makeClaudeSkillsTarget(neverImport);
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    // "dual" has both sources → compile skips it → listOutputFiles must not list it
+    expect(files).toEqual([]);
+  });
 });

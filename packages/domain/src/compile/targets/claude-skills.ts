@@ -40,6 +40,16 @@ export type SkipLogFn = (message: string) => void;
 
 const defaultSkipLog: SkipLogFn = (message: string) => log.warn(message);
 
+/**
+ * Normalize a markdown frontmatter value that may be authored as a scalar string
+ * (`tags: alpha`) into a single-element array (`["alpha"]`), so authors don't hit
+ * a schema-validation skip for the common singleton case. Non-string values
+ * (already-arrays, etc.) pass through unchanged for the schema to validate.
+ */
+function normalizeToStringArray(value: unknown): unknown {
+  return typeof value === "string" ? [value] : value;
+}
+
 /** Source file names for a skill under `.minsky/skills/<name>/`. */
 const SKILL_TS_SOURCE = "skill.ts";
 const SKILL_MD_SOURCE = "SKILL.md";
@@ -217,12 +227,14 @@ function extractSkillDefinitionFromMd(
   const candidate: Record<string, unknown> = { content: body };
   if (fm["name"] !== undefined) candidate["name"] = fm["name"];
   if (fm["description"] !== undefined) candidate["description"] = fm["description"];
-  if (fm["tags"] !== undefined) candidate["tags"] = fm["tags"];
+  if (fm["tags"] !== undefined) candidate["tags"] = normalizeToStringArray(fm["tags"]);
   if (fm["user-invocable"] !== undefined) candidate["userInvocable"] = fm["user-invocable"];
   if (fm["disable-model-invocation"] !== undefined) {
     candidate["disableModelInvocation"] = fm["disable-model-invocation"];
   }
-  if (fm["allowed-tools"] !== undefined) candidate["allowedTools"] = fm["allowed-tools"];
+  if (fm["allowed-tools"] !== undefined) {
+    candidate["allowedTools"] = normalizeToStringArray(fm["allowed-tools"]);
+  }
 
   const parsed = skillDefinitionSchema.safeParse(candidate);
   if (!parsed.success) {
@@ -258,7 +270,13 @@ function makeClaudeSkillsTarget(
     ): Promise<string[]> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
       const sources = await discoverSkillSources(workspacePath, fs);
-      return sources.map((s) => skillOutputPath(workspacePath, s.dirName));
+      // Exclude `kind: "both"` — compile() skips ambiguous-source dirs and never
+      // produces an output for them, so listing an expected output here would make
+      // staleness checks (which compare listOutputFiles against actual outputs)
+      // false-flag a never-written file as missing/stale.
+      return sources
+        .filter((s) => s.kind !== "both")
+        .map((s) => skillOutputPath(workspacePath, s.dirName));
     },
 
     async compile(
