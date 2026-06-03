@@ -15,6 +15,7 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { cockpitWebDistDir, cockpitIndexHtml } from "./web-dist";
 import { randomUUID } from "crypto";
 import { loadCockpitConfig } from "./config";
 import { WIDGET_REGISTRY } from "./widget-registry";
@@ -42,9 +43,9 @@ const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Path to the built SPA assets */
-const WEB_DIST_DIR = path.join(__dirname, "web", "dist");
-const INDEX_HTML = path.join(WEB_DIST_DIR, "index.html");
+/** Path to the built SPA assets — bundle-aware (process.cwd()-based, mt#2283). */
+const WEB_DIST_DIR = cockpitWebDistDir();
+const INDEX_HTML = cockpitIndexHtml();
 
 /** Options accepted by createCockpitServer */
 /**
