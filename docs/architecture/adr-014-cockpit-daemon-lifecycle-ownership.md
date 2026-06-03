@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (2026-06-02 — principal approved Option C; implemented in mt#2241)
 
 ## Context
 
