@@ -21,6 +21,7 @@ import {
   Network,
   MessageCircleQuestion,
   Bell,
+  Brain,
   Cpu,
   X,
 } from "lucide-react";
@@ -87,6 +88,12 @@ const NAV_ITEMS: NavItem[] = [
     label: "Embeddings",
     description: "Provider health & index coverage",
     icon: Cpu,
+  },
+  {
+    to: "/memories",
+    label: "Memories",
+    description: "Browse, search, and inspect memory records",
+    icon: Brain,
   },
 ];
 
