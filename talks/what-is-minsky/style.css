@@ -606,6 +606,126 @@ a.comp-card .comp-line {
   font-size: 0.95em;
 }
 
+/* --- Simulated terminal ("calling minsky") --- */
+
+.term {
+  max-width: 740px;
+  margin: 0.3em auto 0;
+  background: var(--bg-elevated);
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  overflow: hidden;
+  text-align: left;
+}
+
+.term-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  padding: 0.5em 0.85em;
+  background: #0a0a0a;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.term-bar .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #2a2a2a;
+}
+
+.term-title {
+  margin-left: 0.6em;
+  font-family: var(--font-mono);
+  font-size: 0.7em;
+  color: var(--text-subtle);
+}
+
+.term-body {
+  padding: 0.95em 1.2em;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  line-height: 1.9;
+}
+
+.term-body .tl {
+  white-space: nowrap;
+}
+
+.tp {
+  color: var(--signal-cyan);
+  margin-right: 0.5em;
+}
+
+.tu {
+  color: var(--text-primary);
+}
+
+.tc {
+  color: var(--signal-cyan);
+}
+
+.td {
+  color: var(--text-subtle);
+  margin-left: 0.5em;
+}
+
+.to {
+  color: var(--text-muted);
+}
+
+.te,
+.tr {
+  color: var(--warn-amber);
+}
+
+/* --- Appendix: cockpit feature montage --- */
+
+.appendix-tag {
+  font-family: var(--font-mono);
+  font-size: 0.7em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  margin-bottom: 0.8em;
+  display: block;
+}
+
+.montage {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1em;
+  margin-top: 0.4em;
+}
+
+.montage figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+
+.montage img {
+  width: 100%;
+  height: 196px;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 6px;
+  border: 1px solid #1a1a1a;
+  background: #000;
+}
+
+.montage figcaption {
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  color: var(--text-muted);
+}
+
+.montage figcaption b {
+  color: var(--signal-cyan);
+  font-weight: 500;
+}
+
 .rung-tag {
   font-family: var(--font-mono);
   font-size: 0.8em;
