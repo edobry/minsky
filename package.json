@@ -52,6 +52,7 @@
     "test:debug:integration": "DEBUG_TESTS=1 RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 src/cockpit/web/widgets",
     "validate-commit": "bun scripts/validate-commit-message.ts",
+    "smoke:gh-timeout": "bun scripts/smoke-mt2245-github-timeout.ts",
     "typecheck": "bunx @typescript/native-preview --noEmit",
     "typecheck:hooks": "bunx @typescript/native-preview --noEmit -p tsconfig.hooks.json",
     "validate-all": "bun run format:check && bun run lint && bun run typecheck && bun run test",

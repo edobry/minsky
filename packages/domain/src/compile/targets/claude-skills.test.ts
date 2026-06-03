@@ -8,6 +8,10 @@ import { describe, it, expect } from "bun:test";
 import { makeClaudeSkillsTarget, buildSkillMd } from "./claude-skills";
 import type { MinskyCompileFsDeps } from "../types";
 import type { SkillDefinition } from "../../definitions/types";
+import {
+  COMPILE_GENERATED_BANNER,
+  GENERATION_BANNER_PATTERNS,
+} from "../../rules/compile/banner-constants";
 
 // ─── Fake fs ─────────────────────────────────────────────────────────────────
 
@@ -109,6 +113,28 @@ describe("buildSkillMd", () => {
     expect(md).toContain("Do something useful.");
   });
 
+  it("emits the generation banner as a YAML comment on line 2 (mt#2252)", () => {
+    const md = buildSkillMd(sampleSkill);
+    const lines = md.split("\n");
+    // Line 1 must remain the frontmatter opener; banner goes on line 2.
+    expect(lines[0]).toBe("---");
+    expect(lines[1]).toBe(COMPILE_GENERATED_BANNER);
+  });
+
+  it("banner lands within the first 5 lines so the edit-guard hook detects it", () => {
+    const md = buildSkillMd(sampleSkill);
+    const firstFive = md.split("\n").slice(0, 5).join("\n");
+    const matched = GENERATION_BANNER_PATTERNS.some(({ re }) => re.test(firstFive));
+    expect(matched).toBe(true);
+  });
+
+  it("banner does not break YAML frontmatter parsing (name/description still parse)", async () => {
+    const matter = (await import("gray-matter")).default;
+    const parsed = matter(buildSkillMd(sampleSkill));
+    expect(parsed.data["name"]).toBe("my-skill");
+    expect(parsed.data["description"]).toBe("A sample skill for testing.");
+  });
+
   it("omits disable-model-invocation when false", () => {
     const md = buildSkillMd({ ...sampleSkill, disableModelInvocation: false });
     expect(md).not.toContain("disable-model-invocation");
@@ -208,6 +234,37 @@ describe("claudeSkillsTarget.compile (normal)", () => {
 
     const result = await target.compile({}, WORKSPACE, fakeFs);
     expect(result.definitionsSkipped).toEqual(["invalid-skill"]);
+  });
+
+  // mt#2182: the originating failure was that import errors were swallowed
+  // silently (`catch {}`), so all 7 skills skipped with no warning. These
+  // tests assert the skip is now reported (via the injected onSkip sink, whose
+  // production default is log.warn) with the skill name + the actual error.
+  it("reports a warning (not a silent skip) when a skill import throws", async () => {
+    const skips: string[] = [];
+    const fakeFs = makeSkillFs("bad-skill");
+    const importStub = async () => {
+      throw new Error("module not found: boom");
+    };
+    const target = makeClaudeSkillsTarget(importStub, (m) => skips.push(m));
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    expect(result.definitionsSkipped).toEqual(["bad-skill"]);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]).toContain("bad-skill");
+    expect(skips[0]).toContain("module not found: boom");
+  });
+
+  it("reports a warning (not a silent skip) when a skill fails schema validation", async () => {
+    const skips: string[] = [];
+    const fakeFs = makeSkillFs("invalid-skill");
+    const importStub = async (_path: string) => ({ default: { name: 123 } });
+    const target = makeClaudeSkillsTarget(importStub, (m) => skips.push(m));
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    expect(result.definitionsSkipped).toEqual(["invalid-skill"]);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]).toContain("invalid-skill");
   });
 });
 

@@ -73,6 +73,30 @@ After the first approved launch, the app opens normally.
 - Polls `http://localhost:3737/api/health` every 5 seconds
 - Menu actions: Open in Browser, Start/Stop/Restart Daemon, Quit
 
+## Testing (mt#2226)
+
+Three tiers; standard Tauri WebDriver e2e does **not** apply (it is Windows/Linux-only
+— no macOS WKWebView driver — and this app has no webview window to drive).
+
+1. **Rust unit tests** (`cargo test`) — pure logic (e.g. `status_label`). Run:
+   ```bash
+   cd cockpit-tray/src-tauri && cargo test
+   ```
+2. **CI build + unit-test smoke** — `.github/workflows/cockpit-tray-ci.yml` runs on
+   macOS for any `cockpit-tray/**` change: `cargo test` + `bun run tauri build` +
+   bundle-exists assertion. Catches the "compiles in dev but never built" / compile-error
+   class (mt#2200). A tray app cannot be boot-smoke-tested headlessly (no WindowServer on
+   hosted runners), so live boot/menu behavior is tier 3, not CI.
+3. **Local Accessibility status check** — `cockpit-tray/scripts/smoke-status.sh` reads the
+   **dropdown status line** via the macOS Accessibility API and asserts it matches the live
+   daemon state. This is the check that would have caught mt#2240 (the line was frozen while
+   only the tooltip updated). Local-only — reading another process's menu needs Accessibility
+   (TCC) permission for your terminal, which CI can't grant. Run with the app running:
+   ```bash
+   open "/Applications/Minsky Cockpit.app"
+   cockpit-tray/scripts/smoke-status.sh   # exit 0 = matches, 1 = mismatch, 2 = skipped
+   ```
+
 ## Architecture
 
 Tauri v2 app with no window (tray-only). The Rust backend (`src-tauri/src/main.rs`)

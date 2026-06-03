@@ -62,6 +62,33 @@ const MOCK_CREDENTIALS = [
   },
 ];
 
+const MOCK_PROVIDERS = [
+  {
+    id: "github",
+    displayName: "GitHub",
+    acquireUrl: "https://github.com/settings/tokens",
+    scopeGuidance: "repo, read:org",
+  },
+  {
+    id: "supabase",
+    displayName: "Supabase",
+    acquireUrl: "https://supabase.com/dashboard/account/tokens",
+    scopeGuidance: "access token",
+  },
+  {
+    id: "anthropic",
+    displayName: "Anthropic",
+    acquireUrl: "https://console.anthropic.com/settings/keys",
+    scopeGuidance: "API key",
+  },
+  {
+    id: "railway",
+    displayName: "Railway",
+    acquireUrl: "https://railway.app/account/tokens",
+    scopeGuidance: "API token",
+  },
+];
+
 let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
@@ -73,13 +100,21 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function mockFetchCredentials(credentials = MOCK_CREDENTIALS) {
+function mockFetchCredentials(credentials = MOCK_CREDENTIALS, providers = MOCK_PROVIDERS) {
   globalThis.fetch = mock((url: string, init?: RequestInit) => {
-    if (
-      typeof url === "string" &&
-      url.endsWith("/api/credentials") &&
-      (!init || init.method !== "POST")
-    ) {
+    // Exact pathname matching (not endsWith) so the branch order is irrelevant —
+    // "/api/credentials/providers" also ends with "/api/credentials", which would
+    // misroute under a substring check if the blocks were ever reordered.
+    const pathname = typeof url === "string" ? new URL(url, "http://localhost").pathname : "";
+    if (pathname === "/api/credentials/providers") {
+      return Promise.resolve(
+        new Response(JSON.stringify({ providers }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    }
+    if (pathname === "/api/credentials" && (!init || init.method !== "POST")) {
       return Promise.resolve(
         new Response(JSON.stringify({ credentials }), {
           status: 200,
@@ -87,11 +122,7 @@ function mockFetchCredentials(credentials = MOCK_CREDENTIALS) {
         })
       );
     }
-    if (
-      typeof url === "string" &&
-      url.endsWith("/api/credentials/add") &&
-      init?.method === "POST"
-    ) {
+    if (pathname === "/api/credentials/add" && init?.method === "POST") {
       const body = JSON.parse(init.body as string) as { provider: string };
       return Promise.resolve(
         new Response(
@@ -157,7 +188,10 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const providerSelect = screen.getByLabelText("Select credential provider");
+    // findByLabelText awaits the providers query (a separate fetch from the
+    // parent credentials load) so the add-form controls are deterministically
+    // present before we assert on them.
+    const providerSelect = await screen.findByLabelText("Select credential provider");
     expect(providerSelect).toBeDefined();
 
     const tokenInput = screen.getByLabelText("Paste credential token");
@@ -178,7 +212,9 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const addBtn = screen.getByLabelText("Validate and save token") as HTMLButtonElement;
+    const addBtn = (await screen.findByLabelText(
+      "Validate and save token"
+    )) as HTMLButtonElement;
     expect(addBtn.disabled).toBe(true);
   });
 
@@ -190,7 +226,7 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const tokenInput = screen.getByLabelText("Paste credential token");
+    const tokenInput = await screen.findByLabelText("Paste credential token");
     const addBtn = screen.getByLabelText("Validate and save token") as HTMLButtonElement;
 
     await userEvent.type(tokenInput, "test-token-value");
@@ -231,7 +267,7 @@ describe("Credentials widget", () => {
       expect(screen.queryByText("Loading...")).toBeNull();
     });
 
-    const tokenInput = screen.getByLabelText("Paste credential token");
+    const tokenInput = await screen.findByLabelText("Paste credential token");
     const addBtn = screen.getByLabelText("Validate and save token");
 
     await userEvent.type(tokenInput, "test-token-value");

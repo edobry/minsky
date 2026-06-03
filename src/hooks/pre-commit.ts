@@ -129,7 +129,7 @@ export class PreCommitHook {
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
-      // SQL file under src/domain/storage/migrations/pg/ has a corresponding
+      // SQL file under packages/domain/src/storage/migrations/pg/ has a corresponding
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
       // hand-written SQL file ships without a journal entry, making it
       // invisible to Drizzle's migrator.
@@ -187,10 +187,16 @@ export class PreCommitHook {
         return ruleTestsResult;
       }
 
-      // Step 9: Rules compile staleness check
+      // Step 9: Rules compile staleness check (legacy `rules compile` system)
       const rulesCheckResult = await this.runRulesCompileCheck();
       if (!rulesCheckResult.success) {
         return rulesCheckResult;
+      }
+
+      // Step 9b: Compile staleness check (new `compile` system — mt#2252)
+      const compileCheckResult = await this.runCompileCheck();
+      if (!compileCheckResult.success) {
+        return compileCheckResult;
       }
 
       log.cli("✅ All checks passed! Commit proceeding...");
@@ -867,7 +873,7 @@ export class PreCommitHook {
     }
 
     try {
-      const migrationsDir = join(this.projectRoot, "src/domain/storage/migrations/pg");
+      const migrationsDir = join(this.projectRoot, "packages/domain/src/storage/migrations/pg");
       const metaDir = join(migrationsDir, "meta");
 
       let sqlFiles: string[];
@@ -1282,52 +1288,124 @@ export class PreCommitHook {
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+
+  /**
+   * Run `compile --check` for the NEW definition-compile system's targets
+   * (distinct from the legacy `rules compile` system handled by
+   * runRulesCompileCheck). This closes the mt#2182 gap: the `claude-skills`
+   * target silently skipped all sources for weeks with no staleness guard.
+   *
+   * Targets checked (opted in when their `.minsky/` source dir exists):
+   * - `claude-skills`  (.minsky/skills/) — the mt#2182 originating target.
+   * - `cursor-rules-ts` (.minsky/rules/) — verified in sync as of mt#2252.
+   *
+   * `claude-agents` is intentionally EXCLUDED: as of mt#2252 its output is
+   * stale (source↔output drift, the agents analog of the mt#2253 skills drift).
+   * Enabling its check would block every commit until that drift is reconciled.
+   * Add it here only after reconciliation lands (tracking task: mt#1654 —
+   * "Reconcile agent source-of-truth split: .minsky/agents/ vs .claude/agents/").
+   */
+  private async runCompileCheck(): Promise<HookResult> {
+    log.cli("📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts)...");
+
+    const fsp = await import("fs/promises");
+    const targetsToCheck: string[] = [];
+
+    // claude-skills: opt in when .minsky/skills/ exists.
+    try {
+      await fsp.access(`${this.projectRoot}/.minsky/skills`);
+      targetsToCheck.push("claude-skills");
+    } catch {
+      // No .minsky/skills/ — skip
+    }
+
+    // cursor-rules-ts: opt in when .minsky/rules/ exists.
+    try {
+      await fsp.access(`${this.projectRoot}/.minsky/rules`);
+      targetsToCheck.push("cursor-rules-ts");
+    } catch {
+      // No .minsky/rules/ — skip
+    }
+
+    if (targetsToCheck.length === 0) {
+      log.cli("✅ No new-compile-system outputs detected — skipping compile check.");
+      return { success: true, message: "No compile targets to check", exitCode: 0 };
+    }
+
+    for (const target of targetsToCheck) {
+      try {
+        // `target` is from the locally-built `targetsToCheck` array which
+        // contains only the hardcoded literals "claude-skills" and
+        // "cursor-rules-ts". Bounded enum, no shell metacharacters — no
+        // safeShellQuote needed (mirrors runRulesCompileCheck / mt#1829).
+        await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
+          cwd: this.projectRoot,
+          timeout: 30000,
+        });
+      } catch (error) {
+        const result = classifyCompileCheckError(error, target, "compile");
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
+      }
+    }
+
+    log.cli(`✅ All compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
+    return { success: true, message: "Compile check passed", exitCode: 0 };
+  }
 }
 
 /**
- * Classify a failed `rules compile --check` subprocess error as either genuine
- * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ * Classify a failed compile-check subprocess error as either genuine staleness
+ * or an unrelated compile-command error (e.g., setup-incomplete). Serves BOTH
+ * compile systems via `kind`: the legacy `rules compile --check` (kind="rules")
+ * and the new `compile --check` (kind="compile"). All user-facing hints derive
+ * the command name from `kind` so they never name the wrong system.
  *
- * When the CLI detects stale output it prints a `[rules compile --check]` /
- * `is STALE` marker to stdout before throwing. Any other non-zero exit means
- * the compile command itself failed — telling the operator to "regenerate"
- * would be misleading because the same error will recur.
+ * When the CLI detects stale output it prints a `[<cmd> --check] ... is STALE`
+ * marker to stdout before throwing. Any other non-zero exit means the compile
+ * command itself failed — telling the operator to "regenerate" would be
+ * misleading because the same error will recur.
  *
  * Exported for unit testing; not part of the public hook API.
  */
 export function classifyCompileCheckError(
   error: unknown,
-  target: string
+  target: string,
+  // Which compile system emitted the check: the legacy `rules compile` command
+  // or the new `compile` command. Determines both the STALE-marker prefix to
+  // match and the regenerate hint to print. Defaults to "rules" for backward
+  // compatibility with existing callers/tests.
+  kind: "rules" | "compile" = "rules"
 ): { logLines: string[]; message: string } {
   const execError = error as { stdout?: string; stderr?: string };
   const stdout = execError.stdout ?? "";
   const stderr = execError.stderr ?? "";
 
-  // The CLI emits a line of the exact form:
-  //   [rules compile --check] Target "<target>" is STALE
-  // to stdout only when it has verified the output is out-of-date. Match this
-  // with a per-target line-anchored regex so that near-misses (e.g. a note
-  // about "previous run detected STALE files", or a STALE marker for a
-  // different target) do not count.
+  // The two CLIs emit a marker line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE   (legacy)
+  //   [compile --check] Target "<target>" is STALE          (new)
+  // to stdout only when output is verified out-of-date. Match this with a
+  // per-target line-anchored regex so near-misses (a STALE marker for a
+  // different target, or incidental prose) do not count.
+  const cmd = kind === "rules" ? "rules compile" : "compile";
   const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const staleLineRe = new RegExp(
-    `\\[rules compile --check\\] Target "${escapedTarget}" is STALE`,
-    "m"
-  );
+  const staleLineRe = new RegExp(`\\[${cmd} --check\\] Target "${escapedTarget}" is STALE`, "m");
   const isGenuinelyStale = staleLineRe.test(stdout);
 
   if (isGenuinelyStale) {
     return {
       logLines: [
-        `❌ Rules compile output for target "${target}" is stale.`,
-        `💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`,
+        `❌ Compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
       ],
-      message: `Rules compile output for target "${target}" is stale`,
+      message: `Compile output for target "${target}" is stale`,
     };
   }
 
   // Compile command errored. Surface the actual error so the operator knows
-  // what to fix — re-running "rules compile" will NOT help.
+  // what to fix — re-running the compile command will NOT help.
   const rawDetail = stderr.trim() || stdout.trim();
   const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
 
@@ -1344,22 +1422,22 @@ export function classifyCompileCheckError(
   if (isSetupIncomplete) {
     return {
       logLines: [
-        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        `❌ Compile check for target "${target}" failed: developer setup is incomplete.`,
         indented,
         `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
-        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+        `   (Re-running "${cmd}" will NOT fix this — the setup must be completed first.)`,
       ],
-      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+      message: `Compile check for target "${target}" failed: developer setup incomplete`,
     };
   }
 
   return {
     logLines: [
-      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      `❌ Compile check for target "${target}" failed (not a staleness issue):`,
       indented,
-      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+      `💡 Fix the error above before retrying. ("${cmd}" will NOT fix this.)`,
     ],
-    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+    message: `Compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
   };
 }
 

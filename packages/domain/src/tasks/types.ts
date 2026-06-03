@@ -61,6 +61,10 @@ export interface Task {
   metadata?: Record<string, unknown>;
   spec?: string;
   tags?: string[];
+  /** Creation timestamp from the backend store (populated by DB-backed backends). */
+  createdAt?: Date;
+  /** Last-modification timestamp from the backend store (populated by DB-backed backends). */
+  updatedAt?: Date;
 }
 
 /**
