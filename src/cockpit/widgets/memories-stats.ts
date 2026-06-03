@@ -1,6 +1,5 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import { getSharedPersistenceService } from "../shared-persistence";
-import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { getSharedMemoryService } from "./shared-memory-service";
 import type { MemoryRecord } from "@minsky/domain/memory/types";
 
 export interface MemoriesStatsPayload {
@@ -20,44 +19,13 @@ export interface MemoriesStatsPayload {
   }>;
 }
 
-let _cachedMemorySvc: MemoryServiceSurface | null = null;
-
-async function getMemoryService(): Promise<MemoryServiceSurface | null> {
-  if (_cachedMemorySvc) return _cachedMemorySvc;
-
-  try {
-    const svc = await getSharedPersistenceService();
-    const provider = svc.getProvider();
-
-    if (
-      !provider.capabilities.sql ||
-      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-    ) {
-      return null;
-    }
-
-    const sqlProvider = provider as {
-      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-    };
-    const db = await sqlProvider.getDatabaseConnection();
-    if (!db) return null;
-
-    const { createEmbeddingServiceFromConfig } = await import(
-      "@minsky/domain/ai/embedding-service-factory"
-    );
-    const { createVectorStorageForDomain } = await import(
-      "@minsky/domain/storage/vector/vector-storage-factory"
-    );
-    const { MemoryService } = await import("@minsky/domain/memory/memory-service");
-
-    const embeddingService = await createEmbeddingServiceFromConfig();
-    const vectorStorage = await createVectorStorageForDomain("memory", 1536, provider);
-
-    _cachedMemorySvc = new MemoryService({ db, embeddingService, vectorStorage });
-    return _cachedMemorySvc;
-  } catch {
-    return null;
-  }
+// Drizzle's pg driver returns Date objects in-process, but the same domain types
+// are serialized to ISO strings when crossing HTTP/JSON boundaries (e.g., if a
+// future call-path proxies these records through a serializer). Tolerating both
+// shapes defensively prevents a class of silent NaN bugs at the date arithmetic
+// boundary.
+function toEpochMs(value: Date | string): number {
+  return value instanceof Date ? value.getTime() : new Date(value).getTime();
 }
 
 export const memoriesStatsWidget: WidgetModule = {
@@ -66,7 +34,7 @@ export const memoriesStatsWidget: WidgetModule = {
   updateMode: { type: "polling", intervalMs: 60_000 },
   async fetch(_ctx: WidgetContext): Promise<WidgetData> {
     try {
-      const memSvc = await getMemoryService();
+      const memSvc = await getSharedMemoryService();
       if (!memSvc) {
         return {
           state: "degraded",
@@ -86,7 +54,7 @@ export const memoriesStatsWidget: WidgetModule = {
       for (const rec of allRecords) {
         byType[rec.type] = (byType[rec.type] ?? 0) + 1;
         if (rec.supersededBy != null) supersededCount++;
-        if (rec.createdAt.getTime() >= sevenDaysAgo) recentCount++;
+        if (toEpochMs(rec.createdAt) >= sevenDaysAgo) recentCount++;
       }
 
       const topAccessed = allRecords

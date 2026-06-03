@@ -1,6 +1,5 @@
 import type { WidgetModule, WidgetContext, WidgetData } from "../types";
-import { getSharedPersistenceService } from "../shared-persistence";
-import type { MemoryServiceSurface } from "@minsky/domain/memory/memory-service";
+import { getSharedMemoryService } from "./shared-memory-service";
 import type { MemorySearchResult } from "@minsky/domain/memory/types";
 
 export interface MemoriesSearchPayload {
@@ -8,46 +7,6 @@ export interface MemoriesSearchPayload {
   backend: "embeddings" | "lexical" | "none";
   degraded: boolean;
   query: string;
-}
-
-let _cachedMemorySvc: MemoryServiceSurface | null = null;
-
-async function getMemoryService(): Promise<MemoryServiceSurface | null> {
-  if (_cachedMemorySvc) return _cachedMemorySvc;
-
-  try {
-    const svc = await getSharedPersistenceService();
-    const provider = svc.getProvider();
-
-    if (
-      !provider.capabilities.sql ||
-      typeof (provider as { getDatabaseConnection?: unknown }).getDatabaseConnection !== "function"
-    ) {
-      return null;
-    }
-
-    const sqlProvider = provider as {
-      getDatabaseConnection: () => Promise<import("drizzle-orm/postgres-js").PostgresJsDatabase>;
-    };
-    const db = await sqlProvider.getDatabaseConnection();
-    if (!db) return null;
-
-    const { createEmbeddingServiceFromConfig } = await import(
-      "@minsky/domain/ai/embedding-service-factory"
-    );
-    const { createVectorStorageForDomain } = await import(
-      "@minsky/domain/storage/vector/vector-storage-factory"
-    );
-    const { MemoryService } = await import("@minsky/domain/memory/memory-service");
-
-    const embeddingService = await createEmbeddingServiceFromConfig();
-    const vectorStorage = await createVectorStorageForDomain("memory", 1536, provider);
-
-    _cachedMemorySvc = new MemoryService({ db, embeddingService, vectorStorage });
-    return _cachedMemorySvc;
-  } catch {
-    return null;
-  }
 }
 
 export const memoriesSearchWidget: WidgetModule = {
@@ -70,7 +29,7 @@ export const memoriesSearchWidget: WidgetModule = {
     }
 
     try {
-      const memSvc = await getMemoryService();
+      const memSvc = await getSharedMemoryService();
       if (!memSvc) {
         return {
           state: "degraded",
