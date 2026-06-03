@@ -40,7 +40,7 @@ const LABEL_STARTING: &str = "Cockpit: starting...";
 const LABEL_CONFLICT: &str = "Cockpit: :3737 in use (not cockpit)";
 const LABEL_START_FAILED: &str = "Cockpit: start failed (see logs)";
 const LABEL_NO_REPO: &str = "Cockpit: repo not found";
-const LABEL_NO_MINSKY: &str = "Cockpit: minsky CLI not found";
+const LABEL_NO_BUN: &str = "Cockpit: bun not found";
 
 /// Handle to the dropdown status `MenuItem`, stored in Tauri managed state so
 /// the supervisor loop can update its text directly.
@@ -207,9 +207,10 @@ fn lsof_bin(path: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/sbin/lsof"))
 }
 
-/// A directory looks like the Minsky repo root if it has a `.git` or `package.json`.
-fn is_repo_root(p: &Path) -> bool {
-    p.join(".git").exists() || p.join("package.json").exists()
+/// A directory is a usable source-spawn root if it contains `src/cli.ts` — the
+/// daemon is spawned as `bun run src/cli.ts ...` from here.
+fn has_cli_source(p: &Path) -> bool {
+    p.join("src/cli.ts").exists()
 }
 
 /// Given the canonicalized `minsky` bin path (`<repo>/scripts/cli-entry.ts`),
@@ -240,23 +241,26 @@ fn repo_root_from_launchd_plist() -> Option<PathBuf> {
     }
 }
 
-/// Resolve the Minsky repo root the spawned daemon must run in. `minsky cockpit
-/// start` runs git-based repo-backend detection in its cwd, so a GUI app
-/// launched from /Applications (cwd `/`) would crash it (mt#2282). Mirrors the
-/// launchd plist's `WorkingDirectory`. Sources, in order:
+/// Resolve the Minsky repo root the spawned daemon must run in. The daemon is
+/// started as `bun run src/cli.ts cockpit start` (source, matching the launchd
+/// plist — the `minsky` bundle has a web-bundle path bug, mt#2283), and minsky's
+/// git-based repo-backend detection runs in the cwd, so a GUI app launched from
+/// /Applications (cwd `/`) would otherwise fail (mt#2282). Sources, in order:
 ///   1. the launchd plist's `WorkingDirectory` (explicit user config)
 ///   2. the canonicalized `minsky` bin symlink: `<repo>/scripts/cli-entry.ts` -> `<repo>`
-/// Each candidate is sanity-checked with `is_repo_root`.
-fn resolve_repo_root(minsky: &Path) -> Option<PathBuf> {
+/// Each candidate must contain `src/cli.ts` (`has_cli_source`).
+fn resolve_repo_root(path: &str) -> Option<PathBuf> {
     if let Some(root) = repo_root_from_launchd_plist() {
-        if is_repo_root(&root) {
+        if has_cli_source(&root) {
             return Some(root);
         }
     }
-    if let Ok(real) = std::fs::canonicalize(minsky) {
-        if let Some(repo) = repo_root_from_bin_path(&real) {
-            if is_repo_root(&repo) {
-                return Some(repo);
+    if let Some(minsky) = resolve_program("minsky", path) {
+        if let Ok(real) = std::fs::canonicalize(&minsky) {
+            if let Some(repo) = repo_root_from_bin_path(&real) {
+                if has_cli_source(&repo) {
+                    return Some(repo);
+                }
             }
         }
     }
@@ -290,20 +294,23 @@ fn kill_group(pgid: u32) {
         .output();
 }
 
-/// Spawn `minsky cockpit start --port <port> --no-dev-chromium` as a managed
-/// child in its own process group, in `repo_root` (so git-based repo-backend
-/// detection succeeds — mt#2282), with stdout/stderr appended to the cockpit
-/// log files. Returns the child and its pgid (== child pid under `process_group(0)`).
-fn spawn_daemon(minsky: &Path, repo_root: &Path, port: u16, path: &str) -> io::Result<(Child, u32)> {
+/// Spawn `bun run src/cli.ts cockpit start --no-dev-chromium --port <port>` as a
+/// managed child in its own process group, in `repo_root` (source entry, matching
+/// the launchd plist; resolves the web bundle + git repo-backend correctly —
+/// mt#2282/mt#2283), with stdout/stderr appended to the cockpit log files.
+/// Returns the child and its pgid (== child pid under `process_group(0)`).
+fn spawn_daemon(bun: &Path, repo_root: &Path, port: u16, path: &str) -> io::Result<(Child, u32)> {
     let out = open_log("cockpit-stdout.log")?;
     let err = open_log("cockpit-stderr.log")?;
-    let mut cmd = Command::new(minsky);
+    let mut cmd = Command::new(bun);
     cmd.args([
+        "run",
+        "src/cli.ts",
         "cockpit",
         "start",
+        "--no-dev-chromium",
         "--port",
         &port.to_string(),
-        "--no-dev-chromium",
     ])
     .current_dir(repo_root)
     .env("PATH", path)
@@ -349,25 +356,25 @@ fn set_status(app: &AppHandle, sup: &mut Sup, label: &'static str) {
 }
 
 fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
-    let minsky = match resolve_program("minsky", path) {
-        Some(m) => m,
+    let bun = match resolve_program("bun", path) {
+        Some(b) => b,
         None => {
-            eprintln!("[cockpit-tray] minsky not found on PATH — cannot spawn daemon");
-            set_status(app, sup, LABEL_NO_MINSKY);
+            eprintln!("[cockpit-tray] bun not found on PATH — cannot spawn daemon");
+            set_status(app, sup, LABEL_NO_BUN);
             return;
         }
     };
-    let repo_root = match resolve_repo_root(&minsky) {
+    let repo_root = match resolve_repo_root(path) {
         Some(r) => r,
         None => {
             eprintln!(
-                "[cockpit-tray] could not resolve Minsky repo root — refusing to spawn into a crash cwd (run `minsky cockpit install` or ensure the minsky bin symlinks into the repo)"
+                "[cockpit-tray] could not resolve Minsky repo root with src/cli.ts — refusing to spawn into a crash cwd (run `minsky cockpit install` or link the minsky bin)"
             );
             set_status(app, sup, LABEL_NO_REPO);
             return;
         }
     };
-    match spawn_daemon(&minsky, &repo_root, DAEMON_PORT, path) {
+    match spawn_daemon(&bun, &repo_root, DAEMON_PORT, path) {
         Ok((child, pid)) => {
             sup.child = Some(child);
             sup.last_spawn = Some(Instant::now());
