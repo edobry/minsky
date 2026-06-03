@@ -6,7 +6,10 @@
  */
 
 import { z } from "zod";
-import { TaskBackend } from "../backend-detection";
+// Import from the decorator-free backend-types module (NOT backend-detection) so this
+// schema module — pulled into the Drizzle schema graph via storage/schemas/task-embeddings.ts
+// — stays loadable by drizzle-kit's CJS loader, which cannot parse tsyringe decorators (mt#2276).
+import { TaskBackend } from "../backend-types";
 
 /**
  * Common string validation patterns
