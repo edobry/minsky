@@ -11,10 +11,12 @@ macOS menu bar app for controlling the Minsky cockpit daemon.
   ```
   Verified working with `rustc`/`cargo` 1.96.0 (any recent stable should work).
 - **Bun** (the repo's runtime) — already required by the parent project. The app
-  spawns the daemon via `minsky cockpit start`, which needs `bun` and the `minsky`
-  CLI resolvable on PATH (the app augments PATH with `~/.bun/bin`, `/opt/homebrew/bin`,
+  spawns the daemon via `bun run src/cli.ts cockpit start` (the source entry, in the
+  repo root), so `bun` must be resolvable on PATH; the `minsky` CLI on PATH is only
+  used as a fallback to locate the repo root (the launchd plist's `WorkingDirectory`
+  is tried first). The app augments PATH with `~/.bun/bin`, `/opt/homebrew/bin`,
   `/usr/local/bin`, `~/.local/bin`, and the standard system dirs, mirroring the
-  launchd plist).
+  launchd plist.
 - **The cockpit daemon** does **not** need to be installed via `minsky cockpit install`
   for the menu to work: the app owns the daemon's lifecycle directly (see _Daemon
   lifecycle_ below). `minsky cockpit install` (launchd) is retained as an optional,
@@ -85,9 +87,17 @@ After the first approved launch, the app opens normally.
 The tray app is the **canonical owner/supervisor** of the cockpit daemon:
 
 - **Spawn** — on launch, if nothing is serving `:3737`, the app starts
-  `minsky cockpit start --port 3737 --no-dev-chromium` as a managed child process,
-  with the child's stdout/stderr appended to
-  `~/.local/state/minsky/logs/cockpit-{stdout,stderr}.log`.
+  `bun run src/cli.ts cockpit start --no-dev-chromium --port 3737` as a managed
+  child process (the **source** entry, matching the launchd plist — the `minsky`
+  bundle has a web-bundle path bug, mt#2283), with the child's stdout/stderr
+  appended to `~/.local/state/minsky/logs/cockpit-{stdout,stderr}.log`. The child
+  runs in the **Minsky repo root** so `src/cli.ts`, the web bundle, and minsky's
+  git-based repo-backend detection all resolve (mt#2282); the root is resolved
+  from the launchd plist's `WorkingDirectory` (`minsky cockpit install`) or, failing
+  that, by canonicalizing the `minsky` bin symlink (`<repo>/scripts/cli-entry.ts`
+  → `<repo>`), requiring `src/cli.ts` to be present. If no repo root (or `bun`) can
+  be resolved, the app refuses to spawn and the menu shows "Cockpit: repo not
+  found" / "Cockpit: bun not found" rather than crash-looping.
 - **Adopt** — on launch, if `:3737` is already served by our daemon (e.g. a manual
   `bun --watch ... cockpit start --dev` dev run), the app monitors that daemon via
   the health endpoint instead of double-spawning. Start/Stop/Restart then act on the
@@ -104,6 +114,20 @@ The tray app is the **canonical owner/supervisor** of the cockpit daemon:
 The launchd path (`minsky cockpit install`) and the app honor a single invariant:
 **one daemon owns `:3737` at a time** — whichever binds first wins; the other adopts
 or defers. Don't run both in spawn mode simultaneously.
+
+### Status-line labels
+
+The dropdown status line shows one of:
+
+| Label                                 | Meaning                                                                               | Remediation                                                                                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cockpit: running`                    | A daemon is serving `:3737` (spawned or adopted).                                     | —                                                                                                                                                        |
+| `Cockpit: stopped`                    | Nothing is serving `:3737`.                                                           | Use **Start Daemon**.                                                                                                                                    |
+| `Cockpit: starting...`                | A spawned daemon is booting (not yet healthy).                                        | Wait a few seconds.                                                                                                                                      |
+| `Cockpit: :3737 in use (not cockpit)` | Some other process holds `:3737`.                                                     | Free the port; Stop/Restart won't kill a foreign listener.                                                                                               |
+| `Cockpit: repo not found`             | No Minsky repo root with `src/cli.ts` could be resolved, so the app refused to spawn. | Run `minsky cockpit install` (records the repo in the launchd plist), or ensure the `minsky` bin symlinks into the repo (`<repo>/scripts/cli-entry.ts`). |
+| `Cockpit: bun not found`              | `bun` is not resolvable on PATH.                                                      | Install Bun (`curl -fsSL https://bun.sh/install \| bash`) so it lands on `~/.bun/bin`.                                                                   |
+| `Cockpit: start failed (see logs)`    | The spawn was attempted but errored.                                                  | Check `~/.local/state/minsky/logs/cockpit-stderr.log`.                                                                                                   |
 
 ## Testing (mt#2226)
 

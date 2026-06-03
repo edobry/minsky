@@ -39,6 +39,8 @@ const LABEL_STOPPED: &str = "Cockpit: stopped";
 const LABEL_STARTING: &str = "Cockpit: starting...";
 const LABEL_CONFLICT: &str = "Cockpit: :3737 in use (not cockpit)";
 const LABEL_START_FAILED: &str = "Cockpit: start failed (see logs)";
+const LABEL_NO_REPO: &str = "Cockpit: repo not found";
+const LABEL_NO_BUN: &str = "Cockpit: bun not found";
 
 /// Handle to the dropdown status `MenuItem`, stored in Tauri managed state so
 /// the supervisor loop can update its text directly.
@@ -151,6 +153,15 @@ fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
+/// Non-empty `$HOME`, or `None`. Used where an empty HOME must NOT degrade to a
+/// relative/system path (e.g. resolving the per-user launchd plist).
+fn home_dir() -> Option<String> {
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => Some(h),
+        _ => None,
+    }
+}
+
 fn path_env() -> String {
     augmented_path(&home(), &std::env::var("PATH").unwrap_or_default())
 }
@@ -205,6 +216,79 @@ fn lsof_bin(path: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/sbin/lsof"))
 }
 
+/// A directory is a usable source-spawn root if it contains `src/cli.ts` — the
+/// daemon is spawned as `bun run src/cli.ts ...` from here.
+fn has_cli_source(p: &Path) -> bool {
+    p.join("src/cli.ts").exists()
+}
+
+/// Given the canonicalized `minsky` bin path, derive the repo root — but only
+/// when it has the expected `<repo>/scripts/cli-entry.ts` shape. Returns `None`
+/// for any other shape so a system-installed `minsky` (e.g. `/usr/local/bin/minsky`)
+/// can't mis-resolve `/usr/local` as a "repo root". Pure path arithmetic.
+fn repo_root_from_bin_path(real: &Path) -> Option<PathBuf> {
+    if real.file_name()? != "cli-entry.ts" {
+        return None;
+    }
+    let scripts = real.parent()?;
+    if scripts.file_name()? != "scripts" {
+        return None;
+    }
+    scripts.parent().map(|p| p.to_path_buf())
+}
+
+/// Read `WorkingDirectory` from the daemon's launchd plist (written by
+/// `minsky cockpit install`), if present — the user-configured repo root. Returns
+/// `None` when `$HOME` is unset/empty so we never fall back to a system-level
+/// `/Library/LaunchAgents` plist.
+fn repo_root_from_launchd_plist(path: &str) -> Option<PathBuf> {
+    let home = home_dir()?;
+    let plist = Path::new(&home).join("Library/LaunchAgents/com.minsky.cockpit.plist");
+    if !plist.exists() {
+        return None;
+    }
+    let plutil = resolve_program("plutil", path).unwrap_or_else(|| PathBuf::from("/usr/bin/plutil"));
+    let out = Command::new(plutil)
+        .args(["-extract", "WorkingDirectory", "raw", "-o", "-", plist.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(s))
+    }
+}
+
+/// Resolve the Minsky repo root the spawned daemon must run in. The daemon is
+/// started as `bun run src/cli.ts cockpit start` (source, matching the launchd
+/// plist — the `minsky` bundle has a web-bundle path bug, mt#2283), and minsky's
+/// git-based repo-backend detection runs in the cwd, so a GUI app launched from
+/// /Applications (cwd `/`) would otherwise fail (mt#2282). Sources, in order:
+///   1. the launchd plist's `WorkingDirectory` (explicit user config)
+///   2. the canonicalized `minsky` bin symlink: `<repo>/scripts/cli-entry.ts` -> `<repo>`
+/// Each candidate must contain `src/cli.ts` (`has_cli_source`).
+fn resolve_repo_root(path: &str) -> Option<PathBuf> {
+    if let Some(root) = repo_root_from_launchd_plist(path) {
+        if has_cli_source(&root) {
+            return Some(root);
+        }
+    }
+    if let Some(minsky) = resolve_program("minsky", path) {
+        if let Ok(real) = std::fs::canonicalize(&minsky) {
+            if let Some(repo) = repo_root_from_bin_path(&real) {
+                if has_cli_source(&repo) {
+                    return Some(repo);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// The PID of whatever is LISTENing on `port`, if any.
 fn pid_on_port(port: u16, path: &str) -> Option<u32> {
     let out = Command::new(lsof_bin(path))
@@ -232,27 +316,25 @@ fn kill_group(pgid: u32) {
         .output();
 }
 
-/// Spawn `minsky cockpit start --port <port> --no-dev-chromium` as a managed
-/// child in its own process group, with stdout/stderr appended to the cockpit
-/// log files. Returns the child and its pgid (== child pid, since
-/// `process_group(0)` makes it a new group leader).
-fn spawn_daemon(port: u16, path: &str) -> io::Result<(Child, u32)> {
-    let minsky = resolve_program("minsky", path).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "minsky not found on PATH — install the CLI or run the daemon manually",
-        )
-    })?;
+/// Spawn `bun run src/cli.ts cockpit start --no-dev-chromium --port <port>` as a
+/// managed child in its own process group, in `repo_root` (source entry, matching
+/// the launchd plist; resolves the web bundle + git repo-backend correctly —
+/// mt#2282/mt#2283), with stdout/stderr appended to the cockpit log files.
+/// Returns the child and its pgid (== child pid under `process_group(0)`).
+fn spawn_daemon(bun: &Path, repo_root: &Path, port: u16, path: &str) -> io::Result<(Child, u32)> {
     let out = open_log("cockpit-stdout.log")?;
     let err = open_log("cockpit-stderr.log")?;
-    let mut cmd = Command::new(minsky);
+    let mut cmd = Command::new(bun);
     cmd.args([
+        "run",
+        "src/cli.ts",
         "cockpit",
         "start",
+        "--no-dev-chromium",
         "--port",
         &port.to_string(),
-        "--no-dev-chromium",
     ])
+    .current_dir(repo_root)
     .env("PATH", path)
     .stdin(Stdio::null())
     .stdout(Stdio::from(out))
@@ -296,7 +378,25 @@ fn set_status(app: &AppHandle, sup: &mut Sup, label: &'static str) {
 }
 
 fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
-    match spawn_daemon(DAEMON_PORT, path) {
+    let bun = match resolve_program("bun", path) {
+        Some(b) => b,
+        None => {
+            eprintln!("[cockpit-tray] bun not found on PATH — cannot spawn daemon");
+            set_status(app, sup, LABEL_NO_BUN);
+            return;
+        }
+    };
+    let repo_root = match resolve_repo_root(path) {
+        Some(r) => r,
+        None => {
+            eprintln!(
+                "[cockpit-tray] could not resolve Minsky repo root with src/cli.ts — refusing to spawn into a crash cwd (run `minsky cockpit install` or link the minsky bin)"
+            );
+            set_status(app, sup, LABEL_NO_REPO);
+            return;
+        }
+    };
+    match spawn_daemon(&bun, &repo_root, DAEMON_PORT, path) {
         Ok((child, pid)) => {
             sup.child = Some(child);
             sup.last_spawn = Some(Instant::now());
@@ -685,5 +785,38 @@ mod tests {
         assert!(p.contains(":/custom/bin"));
         // /usr/bin is in the prepend list, so it must not be duplicated.
         assert_eq!(p.matches("/usr/bin").count(), 1);
+    }
+
+    #[test]
+    fn repo_root_from_bin_path_strips_scripts_and_entry() {
+        let real = Path::new("/Users/x/Projects/minsky/scripts/cli-entry.ts");
+        assert_eq!(
+            repo_root_from_bin_path(real),
+            Some(PathBuf::from("/Users/x/Projects/minsky"))
+        );
+        // Too shallow to have a <repo>/scripts/<file> shape.
+        assert_eq!(repo_root_from_bin_path(Path::new("/minsky")), None);
+    }
+
+    #[test]
+    fn repo_root_from_bin_path_rejects_unexpected_shape() {
+        // A system-installed binary must NOT resolve a repo root.
+        assert_eq!(repo_root_from_bin_path(Path::new("/usr/local/bin/minsky")), None);
+        // Right filename, wrong parent dir.
+        assert_eq!(
+            repo_root_from_bin_path(Path::new("/Users/x/elsewhere/cli-entry.ts")),
+            None
+        );
+    }
+
+    #[test]
+    fn has_cli_source_detects_src_cli_ts() {
+        let dir = std::env::temp_dir().join(format!("mt2282-hcs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).expect("mkdir");
+        assert!(!has_cli_source(&dir));
+        std::fs::write(dir.join("src/cli.ts"), b"// test").expect("write");
+        assert!(has_cli_source(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
