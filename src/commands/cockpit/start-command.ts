@@ -8,14 +8,14 @@ import { createCockpitServer, initServerSseBroker } from "../../cockpit/server";
 import { classifyPortHolder, killZombie, openInBrowser } from "../../cockpit/port-recovery";
 import { removeCurrentCockpitState, writeCurrentCockpitState } from "../../cockpit/lifecycle";
 import { ensureDevChromiumRunning } from "../../cockpit/dev-chromium";
+import { cockpitIndexHtml } from "../../cockpit/web-dist";
 
 const DEFAULT_PORT = 3737;
 
-// Resolve the SPA entrypoint relative to *this* compiled file's location.
-// Mirrors `WEB_DIST_DIR` resolution in `src/cockpit/server.ts` (uses
-// fileURLToPath rather than the brittle bun-specific `import.meta.dir`).
+// __dirname is used only for the --dev Vite web root (which requires a source
+// checkout). The PRODUCTION web-dist path is resolved bundle-aware via
+// cockpitIndexHtml() (process.cwd()-based) — see src/cockpit/web-dist.ts (mt#2283).
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const COCKPIT_INDEX_HTML = path.join(__dirname, "..", "..", "cockpit", "web", "dist", "index.html");
 
 type ListenAttempt =
   | { kind: "ok"; server: Server }
@@ -83,7 +83,7 @@ export function createStartCommand(): Command {
       const isDev = !!options.dev;
 
       // Check that the frontend bundle has been built (skip in dev mode)
-      if (!isDev && !fs.existsSync(COCKPIT_INDEX_HTML)) {
+      if (!isDev && !fs.existsSync(cockpitIndexHtml(__dirname))) {
         console.error("Cockpit bundle not built. Run `bun run cockpit:build` first.");
         process.exit(1);
       }
