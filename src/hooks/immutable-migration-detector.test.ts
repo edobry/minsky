@@ -151,6 +151,19 @@ describe("detectImmutableMigrationViolations", () => {
     expect(violations).toHaveLength(0);
   });
 
+  // Rename-of-applied contract (mt#2268 review): the pre-commit layer maps a
+  // staged rename's OLD path to "M" so renaming an applied migration is caught
+  // (an M-only diff-filter would miss `R*`). The detector flags that old path.
+  test("rename of an applied migration is flagged when caller maps old path to 'M'", () => {
+    const modifications = staged([`${PG_DIR}/0014_dapper_changeling.sql`, "M"]);
+    const journals = journal(PG_DIR, TAG_DAPPER);
+
+    const violations = detectImmutableMigrationViolations(modifications, journals);
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0]?.tag).toBe(TAG_DAPPER);
+  });
+
   // File outside migration dirs → ignored
   test("SQL file outside monitored migration dirs is ignored", () => {
     const modifications = staged(["some/other/dir/0014_whatever.sql", "M"]);

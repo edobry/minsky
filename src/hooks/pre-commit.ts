@@ -972,15 +972,23 @@ export class PreCommitHook {
     }
 
     try {
-      // Get staged files with their diff-filter status (M=modified, A=added, etc.)
-      const result = await execGitWithTimeout("diff", "diff --cached --name-only --diff-filter=M", {
-        workdir: this.projectRoot,
-        timeout: 5000,
-      });
+      // Get staged files with their status. We include renames (R) as well as
+      // modifications (M): a rename-with-edit of an applied migration would
+      // otherwise slip past an M-only filter (mt#2268 review). `--name-status`
+      // output is `<status>\t<path>` for M, and `R<score>\t<old>\t<new>` for
+      // renames — for a rename we flag the OLD (applied) path.
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-status --diff-filter=MR",
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
 
-      const modifiedFiles = result.stdout.toString().trim().split("\n").filter(Boolean);
+      const statusLines = result.stdout.toString().trim().split("\n").filter(Boolean);
 
-      if (modifiedFiles.length === 0) {
+      if (statusLines.length === 0) {
         return {
           success: true,
           message: "Immutable-migration check passed (no staged modifications)",
@@ -988,10 +996,25 @@ export class PreCommitHook {
         };
       }
 
-      // Build staged modifications map (path -> 'M')
+      // Build staged modifications map (path -> 'M'). Renames map their OLD path
+      // to 'M' so the detector treats moving an applied migration as a violation.
       const stagedModifications = new Map<string, string>();
-      for (const f of modifiedFiles) {
-        stagedModifications.set(f, "M");
+      for (const line of statusLines) {
+        const parts = line.split("\t");
+        const status = parts[0] ?? "";
+        if (status.startsWith("R") && parts.length >= 3) {
+          // Rename: parts = [R<score>, oldPath, newPath] — flag the old (applied) path.
+          stagedModifications.set(parts[1] as string, "M");
+        } else if (status === "M" && parts[1]) {
+          stagedModifications.set(parts[1] as string, "M");
+        }
+      }
+      if (stagedModifications.size === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
       }
 
       // Load journal tags for each migration directory.

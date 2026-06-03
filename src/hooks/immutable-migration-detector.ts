@@ -115,9 +115,15 @@ export function detectImmutableMigrationViolations(
     // Only .sql files matter.
     if (!filePath.endsWith(".sql")) continue;
 
-    // Find which migration directory this file belongs to.
+    // Find which migration directory this file belongs to. We test dirs
+    // LONGEST-PREFIX-FIRST so a more-specific dir wins over a less-specific one
+    // that is its string prefix (the pg dir is nested under the sqlite dir). This
+    // makes matching independent of MIGRATION_DIRS declaration order (mt#2268
+    // review). The direct-child check below (remainder has no "/") is the second,
+    // independent guard against a parent dir swallowing a nested file.
     let matchedDir: string | null = null;
-    for (const dir of MIGRATION_DIRS) {
+    const dirsBySpecificity = [...MIGRATION_DIRS].sort((a, b) => b.length - a.length);
+    for (const dir of dirsBySpecificity) {
       // Path must be directly inside the migration dir (not a subdirectory
       // like meta/), so check that the file path matches <dir>/<filename>.
       const prefix = `${dir}/`;
