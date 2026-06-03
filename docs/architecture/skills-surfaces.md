@@ -13,9 +13,11 @@ original TypeScript-first stance): a skill source under `.minsky/skills/<name>/`
 may be EITHER a TypeScript module (`defineSkill()` in `skill.ts`, type-safe) OR a
 markdown source — **canonicity comes from the `.minsky/` location, not the file
 format**. Sources compile to harness-specific output under `.claude/skills/`,
-`.cursor/rules/`, etc. via `bun run minsky compile`. (The markdown-source reader
-is not built yet — mt#2279 — so as of this writing only `skill.ts` sources
-compile; the 7 current Minsky-authored skills are all TypeScript.)
+`.cursor/rules/`, etc. via `bun run minsky compile`. (As of mt#2279 the compile
+pipeline reads markdown sources — `.minsky/skills/<name>/SKILL.md` — as well as
+`skill.ts`; a directory with BOTH is reported as an ambiguous canonical source
+and skipped with a warning. The 7 current Minsky-authored skills are all
+TypeScript; markdown is now an equally-supported authoring format.)
 
 These skills participate in the Minsky compile pipeline and are loaded by
 agents through harness-native discovery (Claude Code's `.claude/skills/`

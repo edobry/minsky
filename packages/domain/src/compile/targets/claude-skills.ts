@@ -1,9 +1,14 @@
 /**
  * Claude Skills Compile Target
  *
- * Reads .minsky/skills/*\/skill.ts TypeScript definition modules,
- * validates them via skillDefinitionSchema, and emits
- * .claude/skills/<name>/SKILL.md with YAML frontmatter + content body.
+ * Reads skill sources from `.minsky/skills/<name>/` — EITHER a TypeScript
+ * module (`skill.ts`, via `defineSkill`) OR a markdown source (`SKILL.md` with
+ * YAML frontmatter) — validates them via `skillDefinitionSchema`, and emits
+ * `.claude/skills/<name>/SKILL.md` with YAML frontmatter + content body.
+ *
+ * Hybrid, location-canonical authoring per ADR-015 (mt#2251): canonicity comes
+ * from the `.minsky/skills/` location, not the file format. The markdown-source
+ * path is mt#2279.
  */
 
 import { join, dirname } from "path";
@@ -35,9 +40,13 @@ export type SkipLogFn = (message: string) => void;
 
 const defaultSkipLog: SkipLogFn = (message: string) => log.warn(message);
 
+/** Source file names for a skill under `.minsky/skills/<name>/`. */
+const SKILL_TS_SOURCE = "skill.ts";
+const SKILL_MD_SOURCE = "SKILL.md";
+
 /**
  * Source directory where skills are authored.
- * Pattern: .minsky/skills/<name>/skill.ts
+ * Pattern: `.minsky/skills/<name>/{skill.ts | SKILL.md}`
  */
 function skillSourceDir(workspacePath: string): string {
   return join(workspacePath, ".minsky", "skills");
@@ -97,14 +106,32 @@ export function buildSkillMd(skill: SkillDefinition): string {
   return compiled.replace(/^---\n/, `---\n${COMPILE_GENERATED_BANNER}\n`);
 }
 
+/** Resolved source for one skill directory. */
+type SkillSource =
+  | { dirName: string; kind: "ts"; path: string }
+  | { dirName: string; kind: "md"; path: string }
+  | { dirName: string; kind: "both"; tsPath: string; mdPath: string };
+
+/** True iff the path exists (fs.access does not throw). */
+async function fileExists(fs: MinskyCompileFsDeps, path: string): Promise<boolean> {
+  try {
+    await fs.access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Discover the names of sub-directories under .minsky/skills/ that
- * contain a skill.ts file.
+ * Discover skill sources under `.minsky/skills/`. A directory is a skill source
+ * when it contains a `skill.ts` OR a `SKILL.md`. Directories with neither are
+ * skipped (not skill sources). A directory with BOTH is reported as `kind:
+ * "both"` so the compile step can flag the ambiguous canonical source.
  */
-async function discoverSkillDirNames(
+async function discoverSkillSources(
   workspacePath: string,
   fs: MinskyCompileFsDeps
-): Promise<string[]> {
+): Promise<SkillSource[]> {
   const sourceDir = skillSourceDir(workspacePath);
   let entries: string[];
   try {
@@ -113,21 +140,25 @@ async function discoverSkillDirNames(
     return [];
   }
 
-  const skillDirNames: string[] = [];
-  for (const entry of entries) {
-    const skillTsPath = join(sourceDir, entry, "skill.ts");
-    try {
-      await fs.access(skillTsPath);
-      skillDirNames.push(entry);
-    } catch {
-      // No skill.ts here — skip
+  const sources: SkillSource[] = [];
+  for (const dirName of entries) {
+    const tsPath = join(sourceDir, dirName, SKILL_TS_SOURCE);
+    const mdPath = join(sourceDir, dirName, SKILL_MD_SOURCE);
+    const [hasTs, hasMd] = await Promise.all([fileExists(fs, tsPath), fileExists(fs, mdPath)]);
+    if (hasTs && hasMd) {
+      sources.push({ dirName, kind: "both", tsPath, mdPath });
+    } else if (hasTs) {
+      sources.push({ dirName, kind: "ts", path: tsPath });
+    } else if (hasMd) {
+      sources.push({ dirName, kind: "md", path: mdPath });
     }
+    // neither — not a skill source, skip
   }
-  return skillDirNames;
+  return sources;
 }
 
 /**
- * Load and validate a skill definition from an imported module.
+ * Load and validate a skill definition from an imported TypeScript module.
  * Accepts both `export default defineSkill(...)` and named `export { skill }`.
  */
 function extractSkillDefinition(
@@ -157,6 +188,52 @@ function extractSkillDefinition(
   return { skill: parsed.data as SkillDefinition };
 }
 
+/**
+ * Parse and validate a skill definition from a markdown source (`SKILL.md`).
+ *
+ * The YAML frontmatter carries the metadata (kebab-case keys, matching the
+ * compiled-output frontmatter); the markdown body is the skill content. Maps
+ * frontmatter → SkillDefinition fields and validates via the same schema as
+ * the TypeScript path, so both formats produce identical, validated output.
+ */
+function extractSkillDefinitionFromMd(
+  raw: string,
+  sourcePath: string
+): { skill: SkillDefinition } | { error: string } {
+  let fm: Record<string, unknown>;
+  let body: string;
+  try {
+    const parsed = matter(raw);
+    fm = parsed.data as Record<string, unknown>;
+    body = parsed.content;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { error: `Failed to parse markdown frontmatter at ${sourcePath}: ${reason}` };
+  }
+
+  // Map kebab-case frontmatter keys → camelCase SkillDefinition fields. Omit
+  // undefined keys so the schema's defaults (userInvocable, disableModelInvocation)
+  // apply rather than being overridden with undefined.
+  const candidate: Record<string, unknown> = { content: body };
+  if (fm["name"] !== undefined) candidate["name"] = fm["name"];
+  if (fm["description"] !== undefined) candidate["description"] = fm["description"];
+  if (fm["tags"] !== undefined) candidate["tags"] = fm["tags"];
+  if (fm["user-invocable"] !== undefined) candidate["userInvocable"] = fm["user-invocable"];
+  if (fm["disable-model-invocation"] !== undefined) {
+    candidate["disableModelInvocation"] = fm["disable-model-invocation"];
+  }
+  if (fm["allowed-tools"] !== undefined) candidate["allowedTools"] = fm["allowed-tools"];
+
+  const parsed = skillDefinitionSchema.safeParse(candidate);
+  if (!parsed.success) {
+    return {
+      error: `Invalid skill markdown source at ${sourcePath}: ${parsed.error.message}`,
+    };
+  }
+
+  return { skill: parsed.data as SkillDefinition };
+}
+
 /** Build the claude-skills target, injecting a dynamic-import function for tests. */
 function makeClaudeSkillsTarget(
   dynamicImport: DynamicImportFn = realDynamicImport,
@@ -180,8 +257,8 @@ function makeClaudeSkillsTarget(
       fsDeps?: MinskyCompileFsDeps
     ): Promise<string[]> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-      const dirNames = await discoverSkillDirNames(workspacePath, fs);
-      return dirNames.map((name) => skillOutputPath(workspacePath, name));
+      const sources = await discoverSkillSources(workspacePath, fs);
+      return sources.map((s) => skillOutputPath(workspacePath, s.dirName));
     },
 
     async compile(
@@ -190,7 +267,7 @@ function makeClaudeSkillsTarget(
       fsDeps?: MinskyCompileFsDeps
     ): Promise<MinskyCompileResult> {
       const fs = fsDeps ?? (realFs as MinskyCompileFsDeps);
-      const dirNames = await discoverSkillDirNames(workspacePath, fs);
+      const sources = await discoverSkillSources(workspacePath, fs);
 
       const filesWritten: string[] = [];
       const definitionsIncluded: string[] = [];
@@ -198,24 +275,53 @@ function makeClaudeSkillsTarget(
       const contentsByPath = new Map<string, string>();
       const dryRunParts: string[] = [];
 
-      for (const dirName of dirNames) {
-        const sourcePath = join(skillSourceDir(workspacePath), dirName, "skill.ts");
+      for (const source of sources) {
+        const { dirName } = source;
 
-        let mod: unknown;
-        try {
-          mod = await dynamicImport(sourcePath);
-        } catch (error) {
-          // Do NOT swallow silently (mt#2182): a broken import path here is the
-          // failure mode that left all 7 skills uncompiled with no warning.
-          const reason = error instanceof Error ? error.message : String(error);
+        // Ambiguous canonical source: a skill dir must have exactly one of
+        // skill.ts / SKILL.md. Skip + warn rather than silently picking one
+        // (mt#2279). The skill produces no output until the ambiguity is fixed.
+        if (source.kind === "both") {
           onSkip(
-            `[compile:claude-skills] skipping "${dirName}": failed to import ${sourcePath}: ${reason}`
+            `[compile:claude-skills] skipping "${dirName}": both ${SKILL_TS_SOURCE} and ${SKILL_MD_SOURCE} present under .minsky/skills/${dirName}/ — ambiguous canonical source; keep exactly one`
           );
           definitionsSkipped.push(dirName);
           continue;
         }
 
-        const extracted = extractSkillDefinition(mod, sourcePath);
+        let extracted: { skill: SkillDefinition } | { error: string };
+
+        if (source.kind === "ts") {
+          let mod: unknown;
+          try {
+            mod = await dynamicImport(source.path);
+          } catch (error) {
+            // Do NOT swallow silently (mt#2182): a broken import path here is the
+            // failure mode that left all 7 skills uncompiled with no warning.
+            const reason = error instanceof Error ? error.message : String(error);
+            onSkip(
+              `[compile:claude-skills] skipping "${dirName}": failed to import ${source.path}: ${reason}`
+            );
+            definitionsSkipped.push(dirName);
+            continue;
+          }
+          extracted = extractSkillDefinition(mod, source.path);
+        } else {
+          // markdown source
+          let raw: string;
+          try {
+            raw = await fs.readFile(source.path, "utf-8");
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            onSkip(
+              `[compile:claude-skills] skipping "${dirName}": failed to read ${source.path}: ${reason}`
+            );
+            definitionsSkipped.push(dirName);
+            continue;
+          }
+          extracted = extractSkillDefinitionFromMd(raw, source.path);
+        }
+
         if ("error" in extracted) {
           onSkip(`[compile:claude-skills] skipping "${dirName}": ${extracted.error}`);
           definitionsSkipped.push(dirName);
