@@ -120,3 +120,53 @@ describe("resolveDefaultInitTimeoutMs env override (mt#2244)", () => {
     }
   });
 });
+
+describe("getSharedPersistenceService orphan teardown on timeout (mt#2248)", () => {
+  /** Service stub whose initialize() settles AFTER `settleMs`, tracking close() calls. */
+  function lateService(settle: () => Promise<void>, onClose: () => void): PersistenceService {
+    return {
+      initialize: settle,
+      close: async () => onClose(),
+    } as unknown as PersistenceService;
+  }
+
+  test("a timed-out init that RESOLVES after the deadline closes the orphaned service", async () => {
+    let closeCalls = 0;
+    const factory: PersistenceServiceFactory = async () =>
+      lateService(
+        () => new Promise<void>((resolve) => setTimeout(resolve, 80)),
+        () => {
+          closeCalls += 1;
+        }
+      );
+
+    await expect(getSharedPersistenceService(30, factory)).rejects.toBeInstanceOf(
+      PersistenceInitTimeoutError
+    );
+
+    // Let the orphaned init resolve (~80ms) so the teardown runs.
+    await new Promise((r) => setTimeout(r, 120));
+    expect(closeCalls).toBe(1);
+  });
+
+  test("a timed-out init that REJECTS after the deadline does not call close()", async () => {
+    let closeCalls = 0;
+    const factory: PersistenceServiceFactory = async () =>
+      lateService(
+        () =>
+          new Promise<void>((_resolve, reject) =>
+            setTimeout(() => reject(new Error("late init failure")), 80)
+          ),
+        () => {
+          closeCalls += 1;
+        }
+      );
+
+    await expect(getSharedPersistenceService(30, factory)).rejects.toBeInstanceOf(
+      PersistenceInitTimeoutError
+    );
+
+    await new Promise((r) => setTimeout(r, 120));
+    expect(closeCalls).toBe(0);
+  });
+});
