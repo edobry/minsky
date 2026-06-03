@@ -240,8 +240,11 @@ function computeAheadBehind(
   if (result.exitCode !== 0 || result.timedOut) return [null, null];
   const parts = result.stdout.trim().split(/\s+/);
   if (parts.length !== 2) return [null, null];
-  const ahead = parseInt(parts[0], 10);
-  const behind = parseInt(parts[1], 10);
+  const aheadStr = parts[0];
+  const behindStr = parts[1];
+  if (!aheadStr || !behindStr) return [null, null];
+  const ahead = parseInt(aheadStr, 10);
+  const behind = parseInt(behindStr, 10);
   if (Number.isNaN(ahead) || Number.isNaN(behind)) return [null, null];
   return [ahead, behind];
 }
