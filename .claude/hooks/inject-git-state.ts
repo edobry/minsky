@@ -47,8 +47,14 @@ export const GIT_STATE_INJECTION_OVERRIDE_ENV = "MINSKY_SKIP_GIT_STATE_INJECTION
  * so the agent doesn't over-interpret the staleness.
  */
 function computeGitTimeoutMs(): number {
-  const hostCapSec = readHostCap("inject-git-state.ts");
-  return deriveBudgets(hostCapSec).gitTimeoutMs;
+  // IMPORTANT: this hook is registered under UserPromptSubmit, not PreToolUse.
+  // readHostCap defaults to scanning PreToolUse entries, so without the events
+  // filter it would fall back to the default 15s cap and derive ~1500ms per
+  // command instead of the intended ~800ms (5s UserPromptSubmit cap × 17%).
+  const capInfo = readHostCap("inject-git-state.ts", undefined, {
+    events: ["UserPromptSubmit"],
+  });
+  return deriveBudgets(capInfo.hostCapSec).gitTimeoutMs;
 }
 
 export interface UserPromptSubmitInput extends ClaudeHookInput {
