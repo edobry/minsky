@@ -122,51 +122,64 @@ describe("resolveDefaultInitTimeoutMs env override (mt#2244)", () => {
 });
 
 describe("getSharedPersistenceService orphan teardown on timeout (mt#2248)", () => {
-  /** Service stub whose initialize() settles AFTER `settleMs`, tracking close() calls. */
-  function lateService(settle: () => Promise<void>, onClose: () => void): PersistenceService {
+  /** Service stub backed by an externally-controlled init promise + close() counter. */
+  function controllableService(
+    initPromise: Promise<void>,
+    onClose: () => void
+  ): PersistenceService {
     return {
-      initialize: settle,
+      initialize: () => initPromise,
       close: async () => onClose(),
     } as unknown as PersistenceService;
   }
 
+  /** Flush pending microtasks + one macrotask turn so the teardown chain runs. */
+  function flush(): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  // Deterministic (no wall-clock race): init never settles until we explicitly
+  // resolve/reject it AFTER the timeout rejection has already been observed, so
+  // the deadline always wins regardless of CI load. (PR #1542 R1.)
   test("a timed-out init that RESOLVES after the deadline closes the orphaned service", async () => {
     let closeCalls = 0;
+    let resolveInit!: () => void;
+    const initPromise = new Promise<void>((resolve) => {
+      resolveInit = resolve;
+    });
     const factory: PersistenceServiceFactory = async () =>
-      lateService(
-        () => new Promise<void>((resolve) => setTimeout(resolve, 80)),
-        () => {
-          closeCalls += 1;
-        }
-      );
+      controllableService(initPromise, () => {
+        closeCalls += 1;
+      });
 
-    await expect(getSharedPersistenceService(30, factory)).rejects.toBeInstanceOf(
+    await expect(getSharedPersistenceService(5, factory)).rejects.toBeInstanceOf(
       PersistenceInitTimeoutError
     );
+    expect(closeCalls).toBe(0); // not closed yet — init still pending
 
-    // Let the orphaned init resolve (~80ms) so the teardown runs.
-    await new Promise((r) => setTimeout(r, 120));
+    // Now let the orphaned init resolve; the teardown must close it.
+    resolveInit();
+    await flush();
     expect(closeCalls).toBe(1);
   });
 
   test("a timed-out init that REJECTS after the deadline does not call close()", async () => {
     let closeCalls = 0;
+    let rejectInit!: (err: Error) => void;
+    const initPromise = new Promise<void>((_resolve, reject) => {
+      rejectInit = reject;
+    });
     const factory: PersistenceServiceFactory = async () =>
-      lateService(
-        () =>
-          new Promise<void>((_resolve, reject) =>
-            setTimeout(() => reject(new Error("late init failure")), 80)
-          ),
-        () => {
-          closeCalls += 1;
-        }
-      );
+      controllableService(initPromise, () => {
+        closeCalls += 1;
+      });
 
-    await expect(getSharedPersistenceService(30, factory)).rejects.toBeInstanceOf(
+    await expect(getSharedPersistenceService(5, factory)).rejects.toBeInstanceOf(
       PersistenceInitTimeoutError
     );
 
-    await new Promise((r) => setTimeout(r, 120));
+    rejectInit(new Error("late init failure"));
+    await flush();
     expect(closeCalls).toBe(0);
   });
 });

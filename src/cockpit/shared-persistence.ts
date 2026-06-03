@@ -133,11 +133,21 @@ export async function getSharedPersistenceService(
         );
         // The orphaned init keeps running in the background. If it LATER resolves,
         // close the service so its provider connection pool doesn't leak (mt#2248)
-        // — the cockpit gave up on it and nothing else holds a reference. Best
-        // effort: a late rejection (provider already self-cleaned on failure) and
-        // any close() error are both swallowed and must not mask the timeout
-        // rejection thrown below.
-        void init.then((svc) => svc?.close?.()).catch(() => {});
+        // — the cockpit gave up on it and nothing else holds a reference. This is
+        // best-effort and must not mask the timeout rejection thrown below.
+        void init
+          .then((svc) =>
+            // close() failures are logged at debug (observability) but not rethrown.
+            Promise.resolve(svc?.close?.()).catch((closeErr) =>
+              log.debug(
+                `[shared-persistence] orphan close() after init-timeout failed: ${String(closeErr)}`
+              )
+            )
+          )
+          .catch(() => {
+            // init itself rejected after the deadline — the provider self-cleans
+            // its pool on failure, so there's nothing to close and nothing to report.
+          });
       }
       throw err;
     } finally {
