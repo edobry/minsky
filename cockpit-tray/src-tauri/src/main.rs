@@ -39,6 +39,8 @@ const LABEL_STOPPED: &str = "Cockpit: stopped";
 const LABEL_STARTING: &str = "Cockpit: starting...";
 const LABEL_CONFLICT: &str = "Cockpit: :3737 in use (not cockpit)";
 const LABEL_START_FAILED: &str = "Cockpit: start failed (see logs)";
+const LABEL_NO_REPO: &str = "Cockpit: repo not found";
+const LABEL_NO_MINSKY: &str = "Cockpit: minsky CLI not found";
 
 /// Handle to the dropdown status `MenuItem`, stored in Tauri managed state so
 /// the supervisor loop can update its text directly.
@@ -205,6 +207,62 @@ fn lsof_bin(path: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("/usr/sbin/lsof"))
 }
 
+/// A directory looks like the Minsky repo root if it has a `.git` or `package.json`.
+fn is_repo_root(p: &Path) -> bool {
+    p.join(".git").exists() || p.join("package.json").exists()
+}
+
+/// Given the canonicalized `minsky` bin path (`<repo>/scripts/cli-entry.ts`),
+/// derive `<repo>`. Pure path arithmetic; the caller validates it's a repo.
+fn repo_root_from_bin_path(real: &Path) -> Option<PathBuf> {
+    real.parent()?.parent().map(|p| p.to_path_buf())
+}
+
+/// Read `WorkingDirectory` from the daemon's launchd plist (written by
+/// `minsky cockpit install`), if present — the user-configured repo root.
+fn repo_root_from_launchd_plist() -> Option<PathBuf> {
+    let plist = Path::new(&home()).join("Library/LaunchAgents/com.minsky.cockpit.plist");
+    if !plist.exists() {
+        return None;
+    }
+    let out = Command::new("/usr/bin/plutil")
+        .args(["-extract", "WorkingDirectory", "raw", "-o", "-", plist.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(s))
+    }
+}
+
+/// Resolve the Minsky repo root the spawned daemon must run in. `minsky cockpit
+/// start` runs git-based repo-backend detection in its cwd, so a GUI app
+/// launched from /Applications (cwd `/`) would crash it (mt#2282). Mirrors the
+/// launchd plist's `WorkingDirectory`. Sources, in order:
+///   1. the launchd plist's `WorkingDirectory` (explicit user config)
+///   2. the canonicalized `minsky` bin symlink: `<repo>/scripts/cli-entry.ts` -> `<repo>`
+/// Each candidate is sanity-checked with `is_repo_root`.
+fn resolve_repo_root(minsky: &Path) -> Option<PathBuf> {
+    if let Some(root) = repo_root_from_launchd_plist() {
+        if is_repo_root(&root) {
+            return Some(root);
+        }
+    }
+    if let Ok(real) = std::fs::canonicalize(minsky) {
+        if let Some(repo) = repo_root_from_bin_path(&real) {
+            if is_repo_root(&repo) {
+                return Some(repo);
+            }
+        }
+    }
+    None
+}
+
 /// The PID of whatever is LISTENing on `port`, if any.
 fn pid_on_port(port: u16, path: &str) -> Option<u32> {
     let out = Command::new(lsof_bin(path))
@@ -233,16 +291,10 @@ fn kill_group(pgid: u32) {
 }
 
 /// Spawn `minsky cockpit start --port <port> --no-dev-chromium` as a managed
-/// child in its own process group, with stdout/stderr appended to the cockpit
-/// log files. Returns the child and its pgid (== child pid, since
-/// `process_group(0)` makes it a new group leader).
-fn spawn_daemon(port: u16, path: &str) -> io::Result<(Child, u32)> {
-    let minsky = resolve_program("minsky", path).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::NotFound,
-            "minsky not found on PATH — install the CLI or run the daemon manually",
-        )
-    })?;
+/// child in its own process group, in `repo_root` (so git-based repo-backend
+/// detection succeeds — mt#2282), with stdout/stderr appended to the cockpit
+/// log files. Returns the child and its pgid (== child pid under `process_group(0)`).
+fn spawn_daemon(minsky: &Path, repo_root: &Path, port: u16, path: &str) -> io::Result<(Child, u32)> {
     let out = open_log("cockpit-stdout.log")?;
     let err = open_log("cockpit-stderr.log")?;
     let mut cmd = Command::new(minsky);
@@ -253,6 +305,7 @@ fn spawn_daemon(port: u16, path: &str) -> io::Result<(Child, u32)> {
         &port.to_string(),
         "--no-dev-chromium",
     ])
+    .current_dir(repo_root)
     .env("PATH", path)
     .stdin(Stdio::null())
     .stdout(Stdio::from(out))
@@ -296,7 +349,25 @@ fn set_status(app: &AppHandle, sup: &mut Sup, label: &'static str) {
 }
 
 fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
-    match spawn_daemon(DAEMON_PORT, path) {
+    let minsky = match resolve_program("minsky", path) {
+        Some(m) => m,
+        None => {
+            eprintln!("[cockpit-tray] minsky not found on PATH — cannot spawn daemon");
+            set_status(app, sup, LABEL_NO_MINSKY);
+            return;
+        }
+    };
+    let repo_root = match resolve_repo_root(&minsky) {
+        Some(r) => r,
+        None => {
+            eprintln!(
+                "[cockpit-tray] could not resolve Minsky repo root — refusing to spawn into a crash cwd (run `minsky cockpit install` or ensure the minsky bin symlinks into the repo)"
+            );
+            set_status(app, sup, LABEL_NO_REPO);
+            return;
+        }
+    };
+    match spawn_daemon(&minsky, &repo_root, DAEMON_PORT, path) {
         Ok((child, pid)) => {
             sup.child = Some(child);
             sup.last_spawn = Some(Instant::now());
@@ -685,5 +756,16 @@ mod tests {
         assert!(p.contains(":/custom/bin"));
         // /usr/bin is in the prepend list, so it must not be duplicated.
         assert_eq!(p.matches("/usr/bin").count(), 1);
+    }
+
+    #[test]
+    fn repo_root_from_bin_path_strips_scripts_and_entry() {
+        let real = Path::new("/Users/x/Projects/minsky/scripts/cli-entry.ts");
+        assert_eq!(
+            repo_root_from_bin_path(real),
+            Some(PathBuf::from("/Users/x/Projects/minsky"))
+        );
+        // Too shallow to have a <repo>/scripts/<file> shape.
+        assert_eq!(repo_root_from_bin_path(Path::new("/minsky")), None);
     }
 }
