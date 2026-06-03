@@ -113,6 +113,20 @@ The launchd path (`minsky cockpit install`) and the app honor a single invariant
 **one daemon owns `:3737` at a time** — whichever binds first wins; the other adopts
 or defers. Don't run both in spawn mode simultaneously.
 
+### Status-line labels
+
+The dropdown status line shows one of:
+
+| Label                                 | Meaning                                                                               | Remediation                                                                                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cockpit: running`                    | A daemon is serving `:3737` (spawned or adopted).                                     | —                                                                                                                                                        |
+| `Cockpit: stopped`                    | Nothing is serving `:3737`.                                                           | Use **Start Daemon**.                                                                                                                                    |
+| `Cockpit: starting...`                | A spawned daemon is booting (not yet healthy).                                        | Wait a few seconds.                                                                                                                                      |
+| `Cockpit: :3737 in use (not cockpit)` | Some other process holds `:3737`.                                                     | Free the port; Stop/Restart won't kill a foreign listener.                                                                                               |
+| `Cockpit: repo not found`             | No Minsky repo root with `src/cli.ts` could be resolved, so the app refused to spawn. | Run `minsky cockpit install` (records the repo in the launchd plist), or ensure the `minsky` bin symlinks into the repo (`<repo>/scripts/cli-entry.ts`). |
+| `Cockpit: bun not found`              | `bun` is not resolvable on PATH.                                                      | Install Bun (`curl -fsSL https://bun.sh/install \| bash`) so it lands on `~/.bun/bin`.                                                                   |
+| `Cockpit: start failed (see logs)`    | The spawn was attempted but errored.                                                  | Check `~/.local/state/minsky/logs/cockpit-stderr.log`.                                                                                                   |
+
 ## Testing (mt#2226)
 
 Three tiers; standard Tauri WebDriver e2e does **not** apply (it is Windows/Linux-only

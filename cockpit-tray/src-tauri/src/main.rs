@@ -153,6 +153,15 @@ fn home() -> String {
     std::env::var("HOME").unwrap_or_default()
 }
 
+/// Non-empty `$HOME`, or `None`. Used where an empty HOME must NOT degrade to a
+/// relative/system path (e.g. resolving the per-user launchd plist).
+fn home_dir() -> Option<String> {
+    match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => Some(h),
+        _ => None,
+    }
+}
+
 fn path_env() -> String {
     augmented_path(&home(), &std::env::var("PATH").unwrap_or_default())
 }
@@ -213,20 +222,33 @@ fn has_cli_source(p: &Path) -> bool {
     p.join("src/cli.ts").exists()
 }
 
-/// Given the canonicalized `minsky` bin path (`<repo>/scripts/cli-entry.ts`),
-/// derive `<repo>`. Pure path arithmetic; the caller validates it's a repo.
+/// Given the canonicalized `minsky` bin path, derive the repo root — but only
+/// when it has the expected `<repo>/scripts/cli-entry.ts` shape. Returns `None`
+/// for any other shape so a system-installed `minsky` (e.g. `/usr/local/bin/minsky`)
+/// can't mis-resolve `/usr/local` as a "repo root". Pure path arithmetic.
 fn repo_root_from_bin_path(real: &Path) -> Option<PathBuf> {
-    real.parent()?.parent().map(|p| p.to_path_buf())
+    if real.file_name()? != "cli-entry.ts" {
+        return None;
+    }
+    let scripts = real.parent()?;
+    if scripts.file_name()? != "scripts" {
+        return None;
+    }
+    scripts.parent().map(|p| p.to_path_buf())
 }
 
 /// Read `WorkingDirectory` from the daemon's launchd plist (written by
-/// `minsky cockpit install`), if present — the user-configured repo root.
-fn repo_root_from_launchd_plist() -> Option<PathBuf> {
-    let plist = Path::new(&home()).join("Library/LaunchAgents/com.minsky.cockpit.plist");
+/// `minsky cockpit install`), if present — the user-configured repo root. Returns
+/// `None` when `$HOME` is unset/empty so we never fall back to a system-level
+/// `/Library/LaunchAgents` plist.
+fn repo_root_from_launchd_plist(path: &str) -> Option<PathBuf> {
+    let home = home_dir()?;
+    let plist = Path::new(&home).join("Library/LaunchAgents/com.minsky.cockpit.plist");
     if !plist.exists() {
         return None;
     }
-    let out = Command::new("/usr/bin/plutil")
+    let plutil = resolve_program("plutil", path).unwrap_or_else(|| PathBuf::from("/usr/bin/plutil"));
+    let out = Command::new(plutil)
         .args(["-extract", "WorkingDirectory", "raw", "-o", "-", plist.to_str()?])
         .output()
         .ok()?;
@@ -250,7 +272,7 @@ fn repo_root_from_launchd_plist() -> Option<PathBuf> {
 ///   2. the canonicalized `minsky` bin symlink: `<repo>/scripts/cli-entry.ts` -> `<repo>`
 /// Each candidate must contain `src/cli.ts` (`has_cli_source`).
 fn resolve_repo_root(path: &str) -> Option<PathBuf> {
-    if let Some(root) = repo_root_from_launchd_plist() {
+    if let Some(root) = repo_root_from_launchd_plist(path) {
         if has_cli_source(&root) {
             return Some(root);
         }
@@ -774,5 +796,27 @@ mod tests {
         );
         // Too shallow to have a <repo>/scripts/<file> shape.
         assert_eq!(repo_root_from_bin_path(Path::new("/minsky")), None);
+    }
+
+    #[test]
+    fn repo_root_from_bin_path_rejects_unexpected_shape() {
+        // A system-installed binary must NOT resolve a repo root.
+        assert_eq!(repo_root_from_bin_path(Path::new("/usr/local/bin/minsky")), None);
+        // Right filename, wrong parent dir.
+        assert_eq!(
+            repo_root_from_bin_path(Path::new("/Users/x/elsewhere/cli-entry.ts")),
+            None
+        );
+    }
+
+    #[test]
+    fn has_cli_source_detects_src_cli_ts() {
+        let dir = std::env::temp_dir().join(format!("mt2282-hcs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).expect("mkdir");
+        assert!(!has_cli_source(&dir));
+        std::fs::write(dir.join("src/cli.ts"), b"// test").expect("write");
+        assert!(has_cli_source(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
