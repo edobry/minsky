@@ -2790,7 +2790,7 @@ Current git state: on main, clean, in sync with last-fetched origin/main.
 Expanded (multi-line, otherwise):
 ```
 Current git state:
-- Branch: task/mt-2275 (vs main: 3 ahead, 0 behind)
+- Branch: task/mt-2275 (vs last-fetched origin/main: 3 ahead, 0 behind)
 - Working tree: 2 modified, 1 untracked, 0 staged
 - Recent commits on branch:
   abc1234 feat(mt#2275): add hook
