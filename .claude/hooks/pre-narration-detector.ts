@@ -28,16 +28,24 @@
 // @see .claude/hooks/substrate-bypass-detector.ts -- architectural template
 // @see .claude/hooks/retrospective-trigger-scanner.ts -- calibration-log pattern
 //
-// Known limitation (shared with the sibling hooks): "the just-completed turn" is
-// the span between the last two user-role transcript lines. Claude Code records
-// tool_result lines as user-role messages, so a turn that spans several
-// tool round-trips may be split. This is the established sibling-hook behavior;
-// the calibration log will surface any resulting false positives, and a shared
-// turn-extraction fix (if warranted) is a separate cross-hook task.
+// Turn boundaries (mt#2255): "the just-completed turn" is the span between the
+// last two REAL user prompts, via the shared ./transcript helper. Claude Code
+// records tool_result lines as user-role messages; the helper discriminates a
+// real prompt (text content) from a tool_result line (content array of only
+// tool_result blocks), so a turn spanning several tool round-trips is NOT split
+// — the minting tool in an earlier segment is in scope for a claim in a later
+// one (this fixed the 2026-06-01 end-of-work-summary false positive).
 
 import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { readFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  parseTranscript,
+  extractLastAssistantTurn,
+  extractAssistantText,
+  extractToolUseNames,
+} from "./transcript";
+import type { TranscriptLine } from "./transcript";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -143,21 +151,6 @@ export const OUTCOME_CATEGORIES: OutcomeCategory[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Transcript JSONL types (minimal subset — mirrors sibling hooks)
-// ---------------------------------------------------------------------------
-
-interface TranscriptLine {
-  type?: string;
-  message?: {
-    role?: string;
-    content?: unknown;
-  };
-  name?: string;
-  tool_name?: string;
-  input?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
 // Detection result type
 // ---------------------------------------------------------------------------
 
@@ -165,92 +158,6 @@ export interface ClaimMatch {
   category: string;
   matchedPhrase: string;
   expectedTool: string;
-}
-
-// ---------------------------------------------------------------------------
-// Transcript parsing helpers (mirrors substrate-bypass-detector.ts)
-// ---------------------------------------------------------------------------
-
-export function parseTranscript(transcriptPath: string): TranscriptLine[] {
-  let raw: string;
-  try {
-    raw = readFileSync(transcriptPath, "utf8");
-  } catch {
-    return [];
-  }
-
-  const lines = raw.split("\n");
-  const result: TranscriptLine[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      result.push(JSON.parse(trimmed) as TranscriptLine);
-    } catch {
-      // skip malformed line, continue
-    }
-  }
-  return result;
-}
-
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  const userIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (line.type === "user" || line.message?.role === "user") {
-      userIndices.push(i);
-    }
-  }
-
-  if (userIndices.length < 2) return [];
-
-  const startIdx = (userIndices[userIndices.length - 2] as number) + 1;
-  const endIdx = userIndices[userIndices.length - 1] as number;
-  return lines.slice(startIdx, endIdx);
-}
-
-export function extractAssistantText(turnLines: TranscriptLine[]): string {
-  const parts: string[] = [];
-  for (const line of turnLines) {
-    if (line.type === "assistant" || line.message?.role === "assistant") {
-      const content = line.message?.content;
-      if (typeof content === "string") {
-        parts.push(content);
-      } else if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block && typeof block === "object") {
-            const b = block as Record<string, unknown>;
-            if (b["type"] === "text" && typeof b["text"] === "string") {
-              parts.push(b["text"] as string);
-            }
-          }
-        }
-      }
-    }
-  }
-  return parts.join("\n");
-}
-
-export function extractToolUseNames(turnLines: TranscriptLine[]): string[] {
-  const names: string[] = [];
-  for (const line of turnLines) {
-    if (line.type === "tool_use") {
-      const n = line.name ?? line.tool_name;
-      if (n) names.push(n);
-    }
-    // Single pass over array content — covers assistant lines and any other
-    // line carrying tool_use blocks. (No assistant-specific second loop, which
-    // would double-count names before the Set dedup in detectPreNarration.)
-    if (line.message?.content && Array.isArray(line.message.content)) {
-      for (const block of line.message.content as Array<Record<string, unknown>>) {
-        if (block["type"] === "tool_use" && typeof block["name"] === "string") {
-          names.push(block["name"] as string);
-        }
-      }
-    }
-  }
-  return names;
 }
 
 /**

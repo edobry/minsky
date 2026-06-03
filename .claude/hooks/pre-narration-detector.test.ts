@@ -6,12 +6,13 @@ import { join } from "node:path";
 import {
   detectPreNarration,
   elideMarkdownContexts,
-  parseTranscript,
-  extractLastAssistantTurn,
   OVERRIDE_ENV_VAR,
   OUTCOME_CATEGORIES,
 } from "./pre-narration-detector";
+import { parseTranscript, extractLastAssistantTurn } from "./transcript";
 import type { ClaudeHookInput } from "./types";
+
+const CREATED_PR_CLAIM = "Created PR #4242.";
 
 // ---------------------------------------------------------------------------
 // Transcript JSONL helpers
@@ -35,6 +36,20 @@ function makeAssistantLine(text: string): TranscriptLine {
 
 function makeToolUseLine(toolName: string): TranscriptLine {
   return { type: "tool_use", name: toolName, input: {} };
+}
+
+function makeAssistantToolUseLine(toolName: string): TranscriptLine {
+  return {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", name: toolName, input: {} }] },
+  };
+}
+
+function makeToolResultLine(): TranscriptLine {
+  return {
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+  };
 }
 
 function buildTranscriptJSONL(lines: TranscriptLine[]): string {
@@ -213,11 +228,7 @@ describe("pre-narration-detector E2E", () => {
     const p = join(dir, "claim.jsonl");
     writeFileSync(
       p,
-      buildTranscriptJSONL([
-        makeUserLine(),
-        makeAssistantLine("Created PR #4242."),
-        makeUserLine(),
-      ]),
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine(CREATED_PR_CLAIM), makeUserLine()]),
       "utf8"
     );
     const { exitCode, stdout } = await invokeHook(makeHookInput(p));
@@ -225,15 +236,34 @@ describe("pre-narration-detector E2E", () => {
     expect(stdout).toContain("pre-narrated");
   });
 
-  test("override env var → exit 0, audit line, no JSON envelope", async () => {
-    const p = join(dir, "claim.jsonl");
+  test("multi-round turn: 'PR created' claim + minting tool split by a tool_result → not flagged", async () => {
+    // The minting tool (session_pr_create) ran in an EARLIER segment of the
+    // same logical turn; the claim sits in a LATER segment after a tool_result.
+    // The shared turn extractor spans the whole turn, so the tool is in scope
+    // and the claim is backed — no pre-narration false positive (mt#2255).
+    const p = join(dir, "multiround.jsonl");
     writeFileSync(
       p,
       buildTranscriptJSONL([
         makeUserLine(),
-        makeAssistantLine("Created PR #4242."),
+        makeAssistantLine("Calling create now."),
+        makeAssistantToolUseLine("mcp__minsky__session_pr_create"),
+        makeToolResultLine(),
+        makeAssistantLine(CREATED_PR_CLAIM),
         makeUserLine(),
       ]),
+      "utf8"
+    );
+    const { exitCode, stdout } = await invokeHook(makeHookInput(p));
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toBe("");
+  });
+
+  test("override env var → exit 0, audit line, no JSON envelope", async () => {
+    const p = join(dir, "claim.jsonl");
+    writeFileSync(
+      p,
+      buildTranscriptJSONL([makeUserLine(), makeAssistantLine(CREATED_PR_CLAIM), makeUserLine()]),
       "utf8"
     );
     const { exitCode, stdout } = await invokeHook(makeHookInput(p), { [OVERRIDE_ENV_VAR]: "1" });

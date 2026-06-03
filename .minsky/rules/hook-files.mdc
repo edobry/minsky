@@ -960,10 +960,15 @@ function for testability):
    directly instead of extending `agent_transcripts` /
    `agent_transcript_turns`.
 
-**Detection scope.** The hook inspects the lines between the
-second-to-last user message and the most-recent user message — i.e., the
-just-completed assistant turn. First-turn-of-session (no prior assistant
-turn) is silent.
+**Detection scope.** The hook inspects the just-completed logical turn —
+the span between the last two REAL user prompts, via the shared
+`.claude/hooks/transcript.ts` helper (mt#2255). Because Claude Code records
+`tool_result` blocks as user-role lines, the helper bounds the turn on real
+prompts (text content) rather than every user-role line, so a turn spanning
+several tool round-trips is NOT split at each `tool_result`. First-turn-of-session
+(no prior real prompt) is silent. This shared helper is the single definition
+of the turn-boundary logic for all three UserPromptSubmit detector hooks
+(substrate-bypass, retrospective-trigger, pre-narration).
 
 **On match:** the hook emits a `HookOutput` with
 `hookSpecificOutput.hookEventName: "UserPromptSubmit"` and
