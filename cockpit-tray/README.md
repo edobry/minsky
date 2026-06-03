@@ -11,10 +11,12 @@ macOS menu bar app for controlling the Minsky cockpit daemon.
   ```
   Verified working with `rustc`/`cargo` 1.96.0 (any recent stable should work).
 - **Bun** (the repo's runtime) — already required by the parent project. The app
-  spawns the daemon via `minsky cockpit start`, which needs `bun` and the `minsky`
-  CLI resolvable on PATH (the app augments PATH with `~/.bun/bin`, `/opt/homebrew/bin`,
+  spawns the daemon via `bun run src/cli.ts cockpit start` (the source entry, in the
+  repo root), so `bun` must be resolvable on PATH; the `minsky` CLI on PATH is only
+  used as a fallback to locate the repo root (the launchd plist's `WorkingDirectory`
+  is tried first). The app augments PATH with `~/.bun/bin`, `/opt/homebrew/bin`,
   `/usr/local/bin`, `~/.local/bin`, and the standard system dirs, mirroring the
-  launchd plist).
+  launchd plist.
 - **The cockpit daemon** does **not** need to be installed via `minsky cockpit install`
   for the menu to work: the app owns the daemon's lifecycle directly (see _Daemon
   lifecycle_ below). `minsky cockpit install` (launchd) is retained as an optional,
