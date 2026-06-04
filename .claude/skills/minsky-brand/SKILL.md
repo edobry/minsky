@@ -49,7 +49,7 @@ This is an _emergent_ code with no current AI-tool category instantiation — me
 
 ## 3. Bridge-as-affect
 
-The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. Full framework discussion in [`analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) §3.
+The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. Full framework discussion in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3.
 
 Applied to Minsky:
 
@@ -126,7 +126,7 @@ When designing any Minsky surface, the question to ask is: _does this choice car
 
 ## 6. The Pepsi/Arnell trap
 
-Visual choices must instantiate the myth, never retrofit it. The canonical anti-pattern is the 2008 Pepsi rebrand's "Breathtaking" document — semiotic vocabulary as post-hoc theater. The full discussion of the trap and its symmetrical disciplines (for both analysis and design) lives in [`analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) §2.
+Visual choices must instantiate the myth, never retrofit it. The canonical anti-pattern is the 2008 Pepsi rebrand's "Breathtaking" document — semiotic vocabulary as post-hoc theater. The full discussion of the trap and its symmetrical disciplines (for both analysis and design) lives in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2.
 
 For Minsky-brand work specifically: if you cannot explain a visual or copy choice as a sign carrying a specific connotation that instantiates the locked myth (§1) or one of the layered references (§4), cut it. "It looks cool" is the Pepsi/Arnell tell.
 
@@ -149,7 +149,7 @@ Specific terms the brand can use, drawn from the layered references.
 
 ### 7.1. Naming methodology for new locked primitives (Lexicon framework)
 
-Source: David Placek / Lexicon Branding (Sonos, PowerBook, Pentium, BlackBerry, Vercel, Windsurf, CapCut, Azure), distilled in the [Lexicon landscape analysis](https://www.notion.so/368937f03cb4811b8edffd072f71dce8) and memory `lexicon_branding_naming_framework` (id `7fb49583-f27c-4d2b-a00e-7839a4077370`). Substantive content stays canonical in the Notion analysis; this sub-section carries the operational frame for **adding a new term to the locked vocabulary (§7)** — a new operand, sub-product, or surface name. For end-to-end naming work (candidate generation, screening, trademark-collision check), invoke the [`name-product`](../name-product/SKILL.md) skill (the synthesis side). Its **analytical dual** is [`analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md): that skill _reads_ an existing name semiotically; `name-product` _generates_ one.
+Source: David Placek / Lexicon Branding (Sonos, PowerBook, Pentium, BlackBerry, Vercel, Windsurf, CapCut, Azure), distilled in the [Lexicon landscape analysis](https://www.notion.so/368937f03cb4811b8edffd072f71dce8) and memory `lexicon_branding_naming_framework` (id `7fb49583-f27c-4d2b-a00e-7839a4077370`). Substantive content stays canonical in the Notion analysis; this sub-section carries the operational frame for **adding a new term to the locked vocabulary (§7)** — a new operand, sub-product, or surface name. For end-to-end naming work (candidate generation, screening, trademark-collision check), invoke the [`/name-product`](../name-product/SKILL.md) skill (the synthesis side). Its **analytical dual** is [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md): that skill _reads_ an existing name semiotically; `name-product` _generates_ one.
 
 This is a decision-default layer, **not** a rename trigger. The Minsky head-noun keep/rename question is **mt#2046's** call (see §7a); this sub-section governs naming _new_ primitives inside whatever register is locked.
 
@@ -186,7 +186,7 @@ This is a decision-default layer, **not** a rename trigger. The Minsky head-noun
 2. **Compound** — does it multiply with the locked operands / referent (1 + 1 = 3), rather than sit as a lone token?
 3. **Code-coherence** — does it carry the Cyberbrain / Section 9 register (§2) and survive the bridge-as-affect heuristic (§3)?
 
-Before any candidate ships it must also pass the prior-use / **trademark-collision screen** — that screen lives in [`name-product`](../name-product/SKILL.md) and is mandatory (the `MINSKY` mark itself is contested; see §7a and mt#2046).
+Before any candidate ships it must also pass the prior-use / **trademark-collision screen** — that screen lives in [`/name-product`](../name-product/SKILL.md) and is mandatory (the `MINSKY` mark itself is contested; see §7a and mt#2046).
 
 **Anti-patterns at the naming layer.**
 
@@ -220,7 +220,7 @@ Together they form the brand identity at two layers:
 | Signal  | `pz-voice`                  | Prose substance (manifesto, position paper, blog post) | Voice without channel reads as a Twitter thread, not a brand artifact.  |
 | Channel | `minsky-brand` (this skill) | Visual register (typography, color, layout, imagery)   | Channel without signal reads as a stylish but empty cultural-code play. |
 
-Per-surface balance (workshop output, [`pz-voice/SKILL.md`](../pz-voice/SKILL.md) §7):
+Per-surface balance (workshop output, [`/pz-voice`](../pz-voice/SKILL.md) §7):
 
 | Surface                                                    | Signal / channel split                                                      |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -248,16 +248,16 @@ These violate the locked register at the _foundation_ level (distinct from forma
 - **Strategic anchor (the _why_):** [Position: Principal substrate vs team substrate](https://www.notion.so/365937f03cb481e78fd5e0594a6507c1) (mt#1931). The thesis behind the locked myth and the spectrum-not-binary framing of principal-substrate.
 - **Operational reference (the _how_ at the implementation layer):** [`docs/brand-system.md`](../../../docs/brand-system.md) (mt#1932). Concrete tokens: typography stack, color palette (hex + OKLCH), motion budget, vocabulary inventory, WCAG contrast, font licensing, cockpit migration table. Surfaces consume this directly.
 - **Workshop derivation:** [`marketing-site-design/references/minsky-myth-2026-05.md`](../marketing-site-design/references/minsky-myth-2026-05.md). End-to-end walk through Steps 1–5 of the myth-selection workshop, with Minsky as the brand. Use as the worked reference when running this process for any future Minsky-surface or for an adjacent brand.
-- **Voice substrate:** [`pz-voice/SKILL.md`](../pz-voice/SKILL.md) (mt#1952). The signal layer. Composes per §8 above.
-- **Adjacent-product analytical methodology:** [`analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) (mt#1944). Peirce-Barthes-Oswald semiotic framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis capture workflow. Use when reading a competitor's surface to inform Minsky positioning decisions.
+- **Voice substrate:** [`/pz-voice`](../pz-voice/SKILL.md) (mt#1952). The signal layer. Composes per §8 above.
+- **Adjacent-product analytical methodology:** [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) (mt#1944). Peirce-Barthes-Oswald semiotic framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis capture workflow. Use when reading a competitor's surface to inform Minsky positioning decisions.
 - **Principal corpus:** mt#1930. Query via `mcp__minsky__principal_corpus_search` / `principal_corpus_similar`; synthesized memeplex via `mcp__minsky__memory_search` with tag `principal-thinking`.
 
 ## 11. Surface skills that depend on this foundation
 
-| Skill                                                        | Surface                                                                | What it adds on top of this foundation                                                                                                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`marketing-site-design`](../marketing-site-design/SKILL.md) | Marketing site, microsites, launch pages, position-paper landing pages | Idiom selection (B for product-screenshot-dominant), marketing-specific layout patterns (left-caption + right-product hero, alternating sections, co-product logo strategy), workshop process for new surfaces, marketing-format anti-patterns, vendored Tier-1 skill bundle.                                                                              |
-| [`cockpit-design`](../cockpit-design/SKILL.md)               | Cockpit web app (`src/cockpit/web/**`)                                 | Minsky-domain entity model (tasks/sessions/changesets/PRs/asks/agents), mission-control density patterns, command-palette UX, drill-down navigation, attention-debt visualization, workstream display. Cockpit's mission-control register is **one organ inside the cyberbrain frame, not an independent design language** — this foundation governs both. |
+| Skill                                                         | Surface                                                                | What it adds on top of this foundation                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`/marketing-site-design`](../marketing-site-design/SKILL.md) | Marketing site, microsites, launch pages, position-paper landing pages | Idiom selection (B for product-screenshot-dominant), marketing-specific layout patterns (left-caption + right-product hero, alternating sections, co-product logo strategy), workshop process for new surfaces, marketing-format anti-patterns, vendored Tier-1 skill bundle.                                                                              |
+| [`/cockpit-design`](../cockpit-design/SKILL.md)               | Cockpit web app (`src/cockpit/web/**`)                                 | Minsky-domain entity model (tasks/sessions/changesets/PRs/asks/agents), mission-control density patterns, command-palette UX, drill-down navigation, attention-debt visualization, workstream display. Cockpit's mission-control register is **one organ inside the cyberbrain frame, not an independent design language** — this foundation governs both. |
 
 Future Minsky-surface skills (talk-deck-design, social-post-design, etc.) should reference this skill as their strategic anchor in the same pattern.
 

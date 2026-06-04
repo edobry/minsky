@@ -33,6 +33,8 @@ Per ADR-015 (mt#2251), skill authoring is **hybrid** and **location-canonical**.
 
 When a skill references a SIBLING skill, use the harness-neutral slash form `/<skill-name>` (e.g. `/restate-plan`) — NOT a path into the harness-output dir (`.claude/skills/<name>/SKILL.md`) or the source dir (`.minsky/skills/<name>/SKILL.md`). The slash form is correct in BOTH the `.minsky/` source and the compiled `.claude/` output (the same body serves both), and it matches the dominant existing convention. Decided in mt#2302 under ADR-015 location-canonicity.
 
+When a sibling reference needs to be a clickable link (e.g. pointing at a specific section), keep a **relative** target and put the slash form in the display label: `` [`/minsky-brand`](../minsky-brand/SKILL.md) §6 ``. The relative `../<name>/SKILL.md` target is harness-neutral (it resolves correctly in both the `.minsky/` source tree and the compiled `.claude/` tree); only the display label must be the `/<skill-name>` slash form.
+
 **Exception — descriptive directory mentions are not cross-references.** Stating where outputs live or where the harness discovers skills (e.g. "all skill files under `.claude/skills/`", "auto-discovered from `.claude/skills/`") is a factual description, not a sibling link; leave the literal path.
 
 ## Cross-references

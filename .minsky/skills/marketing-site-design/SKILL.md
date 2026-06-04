@@ -34,23 +34,23 @@ If you are pattern-matching against "what other AI startup sites look like" befo
 
 ## 1. Load the brand foundation first
 
-The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, bridge-as-affect discipline, code-architecture synthesis, vocabulary inventory — lives in [`minsky-brand`](../minsky-brand/SKILL.md). Load it before any marketing-surface decision.
+The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, bridge-as-affect discipline, code-architecture synthesis, vocabulary inventory — lives in [`/minsky-brand`](../minsky-brand/SKILL.md). Load it before any marketing-surface decision.
 
 The operational tokens (typography stack, color palette with hex + OKLCH, motion budget, WCAG contrast targets, font licensing, fallback stacks) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume those directly when implementing.
 
-The voice substance (Macx-register prose, semicolon rhythm, vocabulary precision, no-go register) lives in [`pz-voice`](../pz-voice/SKILL.md). Compose with `minsky-brand` per its §8 (signal/channel split) — voice carries WHAT is claimed; cultural codes carry HOW it feels.
+The voice substance (Macx-register prose, semicolon rhythm, vocabulary precision, no-go register) lives in [`/pz-voice`](../pz-voice/SKILL.md). Compose with `minsky-brand` per its §8 (signal/channel split) — voice carries WHAT is claimed; cultural codes carry HOW it feels.
 
 This skill begins where those leave off.
 
 ## 2. The Pepsi/Arnell trap (marketing-surface application)
 
-Visual choices must instantiate the myth, never retrofit it. The canonical anti-pattern is the 2008 Pepsi rebrand's "Breathtaking" document — semiotic vocabulary as post-hoc theater. The full discussion of the trap and its symmetrical disciplines lives in [`analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) §2; the brand-foundation cut lives in [`minsky-brand/SKILL.md`](../minsky-brand/SKILL.md) §6.
+Visual choices must instantiate the myth, never retrofit it. The canonical anti-pattern is the 2008 Pepsi rebrand's "Breathtaking" document — semiotic vocabulary as post-hoc theater. The full discussion of the trap and its symmetrical disciplines lives in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §2; the brand-foundation cut lives in [`/minsky-brand`](../minsky-brand/SKILL.md) §6.
 
 For marketing-surface work specifically: if you cannot explain a visual choice on a marketing page as a sign carrying a specific connotation that instantiates the locked myth (per `minsky-brand` §1), cut it.
 
 ## 3. Bridge-as-affect (marketing-surface application)
 
-The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. Full framework discussion in [`analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) §3; Minsky-specific application in [`minsky-brand/SKILL.md`](../minsky-brand/SKILL.md) §3.
+The discipline for invoking emergent cultural codes through residual references the audience already recognizes — without going literal. Full framework discussion in [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) §3; Minsky-specific application in [`/minsky-brand`](../minsky-brand/SKILL.md) §3.
 
 On a marketing surface specifically: **borrow at the layer of register, never at the layer of imagery.** Specific register-borrowing rules live in `minsky-brand` §3 ("What goes on every surface" / "What never appears"). On marketing pages, the imagery-rejection rules apply with extra force because the marketing context tempts toward "more dramatic" visuals — the Iron Man / JARVIS framing, the Composio-style multicolor saturation, the WebGL-shader hero. The brand foundation forbids all of these; this skill names the marketing-format equivalents in §8 below.
 
@@ -133,7 +133,7 @@ Each scene is a real screenshot or terminal recording, not a mockup. The site is
 
 ### Voice register (marketing-surface choices)
 
-The brand-vocabulary table lives in [`minsky-brand`](../minsky-brand/SKILL.md) §7. The Macx-prose rhythm and no-go register live in [`pz-voice/SKILL.md`](../pz-voice/SKILL.md). Marketing-surface-specific choices on top:
+The brand-vocabulary table lives in [`/minsky-brand`](../minsky-brand/SKILL.md) §7. The Macx-prose rhythm and no-go register live in [`/pz-voice`](../pz-voice/SKILL.md). Marketing-surface-specific choices on top:
 
 - **Section headlines:** three- to four-word conceptual. Examples to noodle on:
   - _"Tasks that converge"_
@@ -160,7 +160,7 @@ Frame as _"Minsky composes with"_ — borrows credibility from the named product
 
 ## 7. Workshop process — how to pick a NEW marketing-surface myth
 
-Use this when pairing with the operator (or self-running) to pick the myth for a _new_ marketing surface (microsite, launch page, campaign page) before any visual work begins. **The Minsky site itself does not need this — its myth is already locked in [`minsky-brand`](../minsky-brand/SKILL.md) §1.** The first end-to-end walk-through is [`references/minsky-myth-2026-05.md`](references/minsky-myth-2026-05.md) — use it as the worked example.
+Use this when pairing with the operator (or self-running) to pick the myth for a _new_ marketing surface (microsite, launch page, campaign page) before any visual work begins. **The Minsky site itself does not need this — its myth is already locked in [`/minsky-brand`](../minsky-brand/SKILL.md) §1.** The first end-to-end walk-through is [`references/minsky-myth-2026-05.md`](references/minsky-myth-2026-05.md) — use it as the worked example.
 
 Each step produces a written artifact; together they constitute the brief.
 
@@ -192,7 +192,7 @@ Output: one selected myth, written as a single declarative sentence.
 
 Given the selected myth, name the cultural code that carries it. **Invoke the sibling skill `analyze-adjacent-product`** to read adjacent brands and identify which codes are occupied vs. white-space:
 
-- Use the cultural-code-lane discussion in [`minsky-brand`](../minsky-brand/SKILL.md) §4 as the reference for the Minsky-brand layered architecture; new codes are allowed if justified.
+- Use the cultural-code-lane discussion in [`/minsky-brand`](../minsky-brand/SKILL.md) §4 as the reference for the Minsky-brand layered architecture; new codes are allowed if justified.
 - If the myth lives in an _occupied_ code, name the competitor whose visual register the brand will partially share. Decide which signs to adopt and which to reject.
 - If the myth lives in an _available_ code, name the code and its existing exemplars OUTSIDE the AI category (residual codes — see `analyze-adjacent-product` SKILL.md §3 for the bridge-as-affect discipline).
 
@@ -219,7 +219,7 @@ Implement the hero + one feature section. Show it to a buyer-archetype reader. A
 
 ## 7a. Naming the surface (Lexicon framework)
 
-§7 picks the _myth_ for a new marketing surface; this section picks its _name_ — a microsite title, campaign name, launch handle, or a section/feature label that must read as Minsky. The foundation-layer encoding (five principles, sound-symbolism table, compound multiplier, anti-patterns) lives in [`minsky-brand`](../minsky-brand/SKILL.md) §7.1; for full end-to-end naming work invoke the [`name-product`](../name-product/SKILL.md) skill. This section is the marketing-surface cut.
+§7 picks the _myth_ for a new marketing surface; this section picks its _name_ — a microsite title, campaign name, launch handle, or a section/feature label that must read as Minsky. The foundation-layer encoding (five principles, sound-symbolism table, compound multiplier, anti-patterns) lives in [`/minsky-brand`](../minsky-brand/SKILL.md) §7.1; for full end-to-end naming work invoke the [`/name-product`](../name-product/SKILL.md) skill. This section is the marketing-surface cut.
 
 **Three-phase methodology (identify → invent → implement)** applied to a marketing surface:
 
@@ -242,7 +242,7 @@ Implement the hero + one feature section. Show it to a buyer-archetype reader. A
 
 ## 8. Anti-patterns (marketing-format specific)
 
-Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marketing surface. **For brand-foundation anti-patterns** (literal anime, Iron Man / JARVIS, Skynet futurism, mecha imagery, single-reference pastiche) see [`minsky-brand`](../minsky-brand/SKILL.md) §9.
+Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marketing surface. **For brand-foundation anti-patterns** (literal anime, Iron Man / JARVIS, Skynet futurism, mecha imagery, single-reference pastiche) see [`/minsky-brand`](../minsky-brand/SKILL.md) §9.
 
 - **WebGL shader hero.** Signals Idiom A; substitutes decorative motion for product proof.
 - **Centered hero text + centered subhead.** Conference-talk register, not operator-control register.
@@ -258,7 +258,7 @@ Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marke
 ## 9. Worked examples
 
 - **2026-05-19 three-way analysis** of Composio / Cursor / Factory through the Peirce-Barthes-Oswald framework: [`../analyze-adjacent-product/references/case-studies-2026-05.md`](../analyze-adjacent-product/references/case-studies-2026-05.md). This is the canonical worked example of the analytical methodology — read it when running the analyze-adjacent-product workflow.
-- **2026-05-19 Minsky myth workshop** end-to-end output: [`references/minsky-myth-2026-05.md`](references/minsky-myth-2026-05.md). Locked brand thesis including myth statement, cultural code with reference rankings, code-architecture synthesis, vocabulary inventory, and the "drawn from, not literally" discipline as applied to Minsky specifically. **This worked example is now codified into [`minsky-brand`](../minsky-brand/SKILL.md)** — use the reference file when running the workshop for a new surface; use the brand skill when consuming the locked Minsky output.
+- **2026-05-19 Minsky myth workshop** end-to-end output: [`references/minsky-myth-2026-05.md`](references/minsky-myth-2026-05.md). Locked brand thesis including myth statement, cultural code with reference rankings, code-architecture synthesis, vocabulary inventory, and the "drawn from, not literally" discipline as applied to Minsky specifically. **This worked example is now codified into [`/minsky-brand`](../minsky-brand/SKILL.md)** — use the reference file when running the workshop for a new surface; use the brand skill when consuming the locked Minsky output.
 
 ## Cross-references
 
@@ -289,6 +289,6 @@ Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marke
 
 ---
 
-**Refactor 2026-05-20 (mt#1933):** Extracted the brand foundation — locked myth, cultural code (Cyberbrain / Section 9), five-layer reference architecture, bridge-as-affect Minsky-specific application, code-architecture synthesis, vocabulary inventory, and brand-foundation anti-patterns — into the standalone [`minsky-brand`](../minsky-brand/SKILL.md) skill. This file now layers marketing-surface-specific patterns (Idiom B, layout, motion-budget marketing application, product surfaces to show, customer-logo strategy, marketing-format anti-patterns, new-surface workshop process) on top of that foundation. Sections renumbered: prior §5 (cultural codes) and §6 (code architecture) moved to `minsky-brand`; prior §7 (vendored bundle) becomes new §5; prior §8 (Minsky-specific layer) becomes new §6 (split — tokens moved to `docs/brand-system.md` per mt#1932; vocabulary moved to `minsky-brand` §7); prior §9 (workshop) becomes new §7; prior §10 (anti-patterns) becomes new §8 with brand-foundation rejects moved to `minsky-brand` §9; prior §11 (worked examples) becomes new §9. The Idiom C (founder-essay) reference was added to §4 to match the 2026-05-19 three-idiom synthesis. No semantic changes to the methodology — same content, relocated for reusability.
+**Refactor 2026-05-20 (mt#1933):** Extracted the brand foundation — locked myth, cultural code (Cyberbrain / Section 9), five-layer reference architecture, bridge-as-affect Minsky-specific application, code-architecture synthesis, vocabulary inventory, and brand-foundation anti-patterns — into the standalone [`/minsky-brand`](../minsky-brand/SKILL.md) skill. This file now layers marketing-surface-specific patterns (Idiom B, layout, motion-budget marketing application, product surfaces to show, customer-logo strategy, marketing-format anti-patterns, new-surface workshop process) on top of that foundation. Sections renumbered: prior §5 (cultural codes) and §6 (code architecture) moved to `minsky-brand`; prior §7 (vendored bundle) becomes new §5; prior §8 (Minsky-specific layer) becomes new §6 (split — tokens moved to `docs/brand-system.md` per mt#1932; vocabulary moved to `minsky-brand` §7); prior §9 (workshop) becomes new §7; prior §10 (anti-patterns) becomes new §8 with brand-foundation rejects moved to `minsky-brand` §9; prior §11 (worked examples) becomes new §9. The Idiom C (founder-essay) reference was added to §4 to match the 2026-05-19 three-idiom synthesis. No semantic changes to the methodology — same content, relocated for reusability.
 
 **Refactor 2026-05-19 (mt#1944):** Extracted the semiotic-analysis framework, Pepsi/Arnell trap, bridge-as-affect discipline, per-analysis capture workflow, and per-analysis template into the standalone `analyze-adjacent-product` skill. Moved `references/case-studies-2026-05.md` to `../analyze-adjacent-product/references/case-studies-2026-05.md`. No semantic changes to the methodology itself — same content, relocated for reusability.

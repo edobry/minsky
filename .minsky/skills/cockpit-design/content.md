@@ -15,7 +15,7 @@ The path-scoped surface `src/cockpit/CLAUDE.md` is the always-on floor — read 
 
 ## Strategic anchor — `minsky-brand`
 
-Cockpit is **one organ inside the cyberbrain frame, not an independent design language**. The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, vocabulary inventory, bridge-as-affect discipline — lives in [`minsky-brand`](../minsky-brand/SKILL.md). Load it before any cockpit visual decision so cockpit's mission-control register stays coherent with the marketing site, position papers, and any future Minsky surface.
+Cockpit is **one organ inside the cyberbrain frame, not an independent design language**. The brand foundation — locked myth (exocortex / flock), cultural code (Cyberbrain / Section 9), five-layer reference architecture, vocabulary inventory, bridge-as-affect discipline — lives in [`/minsky-brand`](../minsky-brand/SKILL.md). Load it before any cockpit visual decision so cockpit's mission-control register stays coherent with the marketing site, position papers, and any future Minsky surface.
 
 The operational tokens (typography stack, color palette in hex + OKLCH, motion budget with `prefers-reduced-motion` handling, WCAG contrast targets, font licensing) live in [`docs/brand-system.md`](../../../docs/brand-system.md). Consume directly when implementing cockpit widgets.
 

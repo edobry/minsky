@@ -108,7 +108,7 @@ Each analysis produces a structured artifact suitable for archiving as `referenc
 When the analysis is complete, also produce:
 
 - **Idiom placement.** Place the brand against the three-idiom synthesis (see §5 below — Idiom A motion-decorated-infographic / Idiom B product-screenshot-dominant / Idiom C founder-essay). Which idiom is the brand operating in? Are there hybrid moves? If the brand fits none of the three cleanly, it may be evidence for a fourth idiom — surface it.
-- **Implications.** What does this analysis change about positioning for whoever consumes the output? (E.g., for `marketing-site-design` / `minsky-brand` consumers: which codes does this analysis open or close for our own brand? If a new code emerges or an existing claim is invalidated, the cultural-code table to update is the one in [`minsky-brand`](../minsky-brand/SKILL.md) §4 — that's the brand-foundation source of truth.)
+- **Implications.** What does this analysis change about positioning for whoever consumes the output? (E.g., for `marketing-site-design` / `minsky-brand` consumers: which codes does this analysis open or close for our own brand? If a new code emerges or an existing claim is invalidated, the cultural-code table to update is the one in [`/minsky-brand`](../minsky-brand/SKILL.md) §4 — that's the brand-foundation source of truth.)
 
 ## 5. The three-idiom synthesis (current state — 2026-05)
 
@@ -177,7 +177,7 @@ When analyzing a new adjacent product's marketing site:
    - Peirce read (classify principal signs as icon / index / symbol)
    - Cultural codes invoked (per Oswald; cite exemplars)
 4. **Compare to the three-idiom synthesis** (Idiom A motion-decorated-infographic / Idiom B product-screenshot-dominant / Idiom C founder-essay). Which idiom does the site operate in? Which cultural codes does it claim? Which does it explicitly reject?
-5. **Note the implications for the consumer.** For `marketing-site-design` / `minsky-brand` consumers: does this analysis change the recommended cultural-code lane for our own brand? Does it open or close a white-space code? If yes, update the cultural-code table in [`minsky-brand`](../minsky-brand/SKILL.md) §4 — that's the brand-foundation source of truth (was previously in `marketing-site-design` §5 before mt#1933 extraction).
+5. **Note the implications for the consumer.** For `marketing-site-design` / `minsky-brand` consumers: does this analysis change the recommended cultural-code lane for our own brand? Does it open or close a white-space code? If yes, update the cultural-code table in [`/minsky-brand`](../minsky-brand/SKILL.md) §4 — that's the brand-foundation source of truth (was previously in `marketing-site-design` §5 before mt#1933 extraction).
 6. **Apply the Pepsi/Arnell discipline.** When stating the myth, verify it is grounded in the actual visual evidence captured, not constructed post-hoc to make a tactical recommendation sound principled.
 
 The 2026-05 analysis (Composio / Cursor / Factory / Macro) is the canonical four-way instance of this template. Future instances should follow the same shape; archive them in this directory with date-stamped filenames (e.g., `case-studies-2026-08.md`).
