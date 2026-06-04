@@ -1,6 +1,17 @@
 ---
 name: engineering-writing
-description: Writing engineering essays, position papers, technical blog posts, and architecture memos intended for external or semi-external readers. Use when drafting or revising long-form argumentative prose — Notion position papers, public blog posts, shared design docs meant to persuade, RFCs with argumentative structure. Provides structural patterns (lead with position, justify after), section-heading heuristics (sentence case, specific, opinionated), an AI-voice-tells checklist (em dashes, tricolons, vocabulary, heading patterns), and a revision workflow. Skip for task specs (use create-task), rule files (use create-rule), code comments, or short internal-only docs.
+description: >-
+  Writing engineering essays, position papers, technical blog posts, and
+  architecture memos intended for external or semi-external readers. Use when
+  drafting or revising long-form argumentative prose — Notion position papers,
+  public blog posts, shared design docs meant to persuade, RFCs with
+  argumentative structure. Provides structural patterns (lead with position,
+  justify after), section-heading heuristics (sentence case, specific,
+  opinionated), an AI-voice-tells checklist (em dashes, tricolons, vocabulary,
+  heading patterns), and a revision workflow. Skip for task specs (use
+  create-task), rule files (use create-rule), code comments, or short
+  internal-only docs.
+user-invocable: true
 ---
 
 # Engineering Writing
