@@ -202,7 +202,7 @@ Both are instances of the parent anti-pattern **performative language as substit
 - CLAUDE.md `User Preferences §Professional communication` — sibling rule banning the credit direction ("You're absolutely right")
 - `humility.mdc §Decisions Eugene reserves` — defines the legitimate Class C principal-stakes cases
 - `humility.mdc §Escalation packaging` — the five-item checklist for Class C asks
-- `.claude/skills/retrospective/SKILL.md` — sibling skill for the contrition direction (mt#1895 amends its auto-trigger)
-- `.claude/skills/restate-plan/SKILL.md` — sibling pre-output-discipline skill (covers the multi-step-direction-compression family, distinct trigger surface)
+- `/retrospective` — sibling skill for the contrition direction (mt#1895 amends its auto-trigger)
+- `/restate-plan` — sibling pre-output-discipline skill (covers the multi-step-direction-compression family, distinct trigger surface)
 - mt#1895 — sibling task: add self-recognized-failure triggers to `retrospective` skill
 - 2026-05-18 conversation — originating burst (R1 + R2 + R3 in one ~2-hour session)
