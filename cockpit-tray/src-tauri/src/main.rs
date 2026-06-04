@@ -430,6 +430,9 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
         None => {
             eprintln!("[cockpit-tray] bun not found on PATH — cannot spawn daemon");
             set_status(app, sup, LABEL_NO_BUN);
+            // No running child results from this path — don't leave a prior
+            // daemon's uptime line visible (mt#2299, reviewer R1 B2).
+            clear_uptime(app, sup);
             return;
         }
     };
@@ -440,6 +443,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
                 "[cockpit-tray] could not resolve Minsky repo root with src/cli.ts — refusing to spawn into a crash cwd (run `minsky cockpit install` or link the minsky bin)"
             );
             set_status(app, sup, LABEL_NO_REPO);
+            clear_uptime(app, sup);
             return;
         }
     };
@@ -449,6 +453,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
     if cockpit_web_src(&repo_root).is_dir() {
         if let PreflightResult::Refuse = preflight_rebuild(app, sup, &bun, &repo_root, path) {
             set_status(app, sup, LABEL_START_FAILED);
+            clear_uptime(app, sup);
             return;
         }
     }
@@ -459,8 +464,10 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
             // mt#2299: a fresh tray-spawn is current as of now; record the
             // wall-clock start + the backend-source version it reflects so the
             // uptime line can render "running Xs, started against src @ HH:MM:SS".
+            // Gate the source-mtime capture on the BACKEND source root, not the
+            // web root (reviewer R1 B1).
             sup.daemon_started_at = Some(SystemTime::now());
-            sup.daemon_source_mtime = cockpit_source_root(path)
+            sup.daemon_source_mtime = cockpit_backend_root(path)
                 .and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
             if let Ok(mut g) = spawned.lock() {
                 *g = Some(pid);
@@ -470,6 +477,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
         Err(e) => {
             eprintln!("[cockpit-tray] daemon spawn failed: {e}");
             set_status(app, sup, LABEL_START_FAILED);
+            clear_uptime(app, sup);
         }
     }
 }
@@ -524,7 +532,7 @@ fn run_supervisor(
         // mt#2299: runtime backend-source watcher (source-gated). Sibling of
         // `_web_watcher`; dispatches `Restart` (not `Rebuild`) on a backend `.ts`
         // change. `web/**` is excluded so a frontend edit never restarts the daemon.
-        let _backend_watcher = cockpit_source_root(&path)
+        let _backend_watcher = cockpit_backend_root(&path)
             .and_then(|root| start_backend_watcher(&app, &cockpit_backend_src(&root)));
         // pool_max_idle_per_host(0) disables keep-alive reuse: each poll opens a
         // fresh connection. Without this a pooled connection can go stale
@@ -1010,13 +1018,29 @@ fn set_build_status(app: &AppHandle, sup: &mut Sup, label: String) {
 // (`bun run src/cli.ts`), so a plain restart picks up backend changes with NO
 // build step (unlike the web bundle). These helpers detect backend staleness
 // (startup, for an ADOPTED daemon) and watch backend source at runtime,
-// dispatching the existing `SupervisorCmd::Restart`. All gated on source
-// presence via `cockpit_source_root`, like mt#2297.
+// dispatching the existing `SupervisorCmd::Restart`. All gated on BACKEND source
+// presence via `cockpit_backend_root` (NOT `cockpit_source_root`, which requires
+// the web tree — reviewer R1 B1), like mt#2297 gates the rebuild on web presence.
 // ---------------------------------------------------------------------------
 
 /// Path to the cockpit server-side source dir under a repo root.
 fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
     repo_root.join("src/cockpit")
+}
+
+/// The repo root IF it resolves (has `src/cli.ts`) AND contains the backend
+/// source dir (`src/cockpit`). Backend-restart analogue of `cockpit_source_root`
+/// — gated on BACKEND source presence, NOT the web tree. A checkout with backend
+/// source but no `src/cockpit/web` (relocated/removed frontend) still gets
+/// auto-restart; `None` only on a no-backend-source/packaged install (reviewer
+/// R1 B1, the originating cause of the silent no-op).
+fn cockpit_backend_root(path: &str) -> Option<PathBuf> {
+    let root = resolve_repo_root(path)?;
+    if cockpit_backend_src(&root).is_dir() {
+        Some(root)
+    } else {
+        None
+    }
 }
 
 /// Directory names excluded from the backend freshness walk AND watcher: `web`
@@ -1036,18 +1060,28 @@ fn backend_path_is_excluded(path: &Path) -> bool {
     })
 }
 
+/// A TypeScript module file the daemon loads — `.ts`/`.mts`/`.cts`, excluding
+/// test files (`*.test.{ts,mts,cts}`). The cockpit backend is currently all
+/// `.ts`, but `.mts`/`.cts` are included so a future ESM/CJS module still
+/// triggers a restart (reviewer R1 NB1). Operator config
+/// (`~/.config/minsky/cockpit.json`) lives outside `src/cockpit` and is loaded
+/// fresh per request, so it is intentionally not part of the watched tree.
+fn is_backend_module_file(name: &str) -> bool {
+    const EXTS: [&str; 3] = [".ts", ".mts", ".cts"];
+    const TEST_EXTS: [&str; 3] = [".test.ts", ".test.mts", ".test.cts"];
+    EXTS.iter().any(|e| name.ends_with(e)) && !TEST_EXTS.iter().any(|e| name.ends_with(e))
+}
+
 /// True if a path **relative to the backend source root** is a real server-side
-/// change worth a daemon restart: a non-test `.ts` file, not under an excluded
-/// dir (esp. `web/`), not an editor temp file. Callers pass a `src/cockpit`-
-/// relative path (mirrors `is_relevant_source_change`, PR #1558 reviewer R1).
+/// change worth a daemon restart: a non-test TS module file, not under an
+/// excluded dir (esp. `web/`), not an editor temp file. Callers pass a
+/// `src/cockpit`-relative path (mirrors `is_relevant_source_change`, PR #1558).
 fn is_relevant_backend_change(rel: &Path) -> bool {
     if backend_path_is_excluded(rel) {
         return false;
     }
     match rel.file_name().and_then(|n| n.to_str()) {
-        Some(name) => {
-            name.ends_with(".ts") && !name.ends_with(".test.ts") && !is_editor_temp_file(name)
-        }
+        Some(name) => is_backend_module_file(name) && !is_editor_temp_file(name),
         None => false,
     }
 }
@@ -1145,7 +1179,7 @@ enum AdoptDecision {
 /// (never restart on a guess).
 fn adopt_decision(path: &str) -> AdoptDecision {
     let source_mtime =
-        cockpit_source_root(path).and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
+        cockpit_backend_root(path).and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
     let started = pid_on_port(DAEMON_PORT, path).and_then(daemon_start_time);
     if let (Some(st), Some(sm)) = (started, source_mtime) {
         if sm > st {
@@ -1200,11 +1234,10 @@ fn conflict_label_for(pid: Option<u32>) -> String {
     }
 }
 
-/// Last non-empty line of the daemon stderr log, capped — used to summarize a
-/// restart/start failure in the status line (mt#2299, criterion 5).
-fn daemon_error_tail() -> Option<String> {
-    let data = std::fs::read(log_dir().join("cockpit-stderr.log")).ok()?;
-    let line = String::from_utf8_lossy(&data)
+/// Extract the last non-empty line from a byte buffer, trimmed and capped for a
+/// menu item. Pure (unit-tested); the bounded read happens in `daemon_error_tail`.
+fn last_nonempty_capped(bytes: &[u8]) -> Option<String> {
+    let line = String::from_utf8_lossy(bytes)
         .lines()
         .rev()
         .map(|l| l.trim())
@@ -1216,6 +1249,24 @@ fn daemon_error_tail() -> Option<String> {
     } else {
         line
     })
+}
+
+/// Last non-empty line of the daemon stderr log, capped — used to summarize a
+/// restart/start failure in the status line (mt#2299, criterion 5). Reads only
+/// the final ~8 KiB (seek from end) so a large or flapping log can't block the
+/// supervisor loop on each crash within the throttle window (reviewer R1 NB2).
+fn daemon_error_tail() -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const TAIL_BYTES: u64 = 8 * 1024;
+    let mut file = File::open(log_dir().join("cockpit-stderr.log")).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
+        .ok()?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+    // A partial first line in the window is harmless: we take the LAST non-empty
+    // line, and the final line is always intact.
+    last_nonempty_capped(&buf)
 }
 
 /// Start the runtime backend-source watcher on `src/cockpit`. Mirrors
@@ -1766,6 +1817,26 @@ mod tests {
         assert!(!is_relevant_backend_change(Path::new(
             "widgets/.agents.ts.swp"
         )));
+        // .mts/.cts modules trigger; their test variants don't (reviewer R1 NB1).
+        assert!(is_relevant_backend_change(Path::new("server.mts")));
+        assert!(is_relevant_backend_change(Path::new("server.cts")));
+        assert!(!is_relevant_backend_change(Path::new("server.test.mts")));
+        assert!(!is_relevant_backend_change(Path::new("server.test.cts")));
+    }
+
+    #[test]
+    fn last_nonempty_capped_picks_last_line_and_caps() {
+        assert_eq!(
+            last_nonempty_capped(b"warn\n\nError: boom\n\n"),
+            Some("Error: boom".to_string())
+        );
+        assert_eq!(last_nonempty_capped(b""), None);
+        assert_eq!(last_nonempty_capped(b"\n  \n"), None);
+        // Capped at 120 chars + ellipsis.
+        let long = "x".repeat(200);
+        let out = last_nonempty_capped(long.as_bytes()).expect("some");
+        assert_eq!(out.chars().count(), 123); // 120 + "..."
+        assert!(out.ends_with("..."));
     }
 
     #[test]

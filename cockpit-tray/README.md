@@ -186,7 +186,11 @@ keeps the daemon current:
   `Cockpit: start failed: <stderr tail> (see logs)` rather than a silent "stopped".
 
 Operators running through the tray never need to manually `kill <pid>` or know that
-backend changes require a process restart.
+backend changes require a process restart — with one caveat: restart/stop of an
+**adopted** daemon (one the tray didn't spawn) infers the holder via `lsof`/`ps` and
+sends a `SIGTERM`. If those tools are unavailable or the kill is permission-gated on a
+given macOS setup, the tray surfaces the conflict/status message rather than forcibly
+killing a foreign listener, and manual intervention may be needed in that edge case.
 
 ### Status-line labels
 
