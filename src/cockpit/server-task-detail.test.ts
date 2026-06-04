@@ -51,9 +51,7 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
   });
 
   test("returns 503 or 200/404 — never crashes — for a plain task ID", async () => {
-    const { url, close } = await startTestServer({
-      overrideConfig: { widgets: [] },
-    });
+    const { url, close } = await startTestServer({});
     closeServer = close;
 
     const res = await fetch(`${url}/api/tasks/mt%231918`);
@@ -86,9 +84,7 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
   });
 
   test("URL-encoded # in task ID is decoded server-side", async () => {
-    const { url, close } = await startTestServer({
-      overrideConfig: { widgets: [] },
-    });
+    const { url, close } = await startTestServer({});
     closeServer = close;
 
     // Both encoded and raw forms should yield the same response shape
@@ -101,9 +97,7 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
   });
 
   test("does not conflict with GET /api/tasks list endpoint", async () => {
-    const { url, close } = await startTestServer({
-      overrideConfig: { widgets: [] },
-    });
+    const { url, close } = await startTestServer({});
     closeServer = close;
 
     // /api/tasks (no :id segment) → list endpoint
@@ -128,9 +122,7 @@ describe("GET /api/tasks/:id (mt#1918)", () => {
   });
 
   test("the literal segment 'graph' in tasks/graph does not match the :id route", async () => {
-    const { url, close } = await startTestServer({
-      overrideConfig: { widgets: [] },
-    });
+    const { url, close } = await startTestServer({});
     closeServer = close;
 
     // /api/tasks/graph has no server-side endpoint — falls through to the SPA

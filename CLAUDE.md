@@ -2351,7 +2351,19 @@ Tactical asks may be instances of named strategic concepts (cockpit, mesh, atten
 
 When a workflow needs an external system action (creating a GitHub App, configuring infrastructure, registering a service): check first whether Minsky tooling already automates it (manifest flow, TokenProvider, MCP tools, hosted-MCP). The default move is **automation-via-Minsky**; routing the user to a portal is the fallback when automation isn't possible.
 
-**Generic-SE override:** "user goes to GitHub portal / cloud console / docs to provision X." Originating incident: mt#1507 (GitHub App provisioning assumed manual portal flow despite manifest tooling existing).
+**In-band config edits are portals too.** The same rule fires when the "external action" is editing one of Minsky's *own* config files. Telling the user to hand-edit a JSON/YAML file to surface or enable a feature is the in-band equivalent of routing them to a GitHub portal — it's manual operator work the agent could have automated (default-enablement, a reconciliation pass, a settings-UI control, or removing the gate entirely). Documenting the manual edit is **not** the fix; eliminating the need for it is.
+
+**In-band trigger phrases** (when you are about to write any of these in a PR body, summary, docs file, or spec amendment, STOP — treat it as a UX defect, not a workflow):
+
+- "edit `~/.config/X/Y.json`" / "add Z to your `<config-file>`"
+- "operator follow-up: add Z to your config"
+- "manually add Z to surface this feature" / "one-time config edit required"
+
+Before writing the instruction: is there a settings-UI surface that could host the control, a default-enablement / reconciliation path that should kick in automatically, or a gate that should simply be removed? If a proper UX is missing, file the task for it before shipping the manual-edit step, and mark the manual step temporary per `Work Completion §Temporary mechanism budget`.
+
+**Generic-SE override:** "user goes to GitHub portal / cloud console / docs to provision X" — and its in-band sibling, "user edits the config file to turn the feature on."
+
+**Originating incidents:** mt#1507 (GitHub App provisioning assumed manual portal flow despite manifest tooling existing); mt#2150 → mt#2294 (the **canonical retired example**: Cockpit shipped requiring operators to add widget IDs to `~/.config/minsky/cockpit.json` by hand, and the agent documented the hand-edit workflow as the operator interface rather than fixing the gap — mt#2294 removed the config file entirely and made widgets registry-gated so they work with no manual edit).
 
 ## Workarounds: budget + tracking task required
 

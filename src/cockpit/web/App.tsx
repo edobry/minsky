@@ -54,6 +54,21 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
   "basic-health": BasicHealth,
 };
 
+// Widgets whose data App fetches at the app level and distributes via props:
+//   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
+//   - promoted prop-driven page widgets whose routes receive data via props
+//     (WorkstreamsPage, TasksLayout) rather than self-fetching.
+// All other widgets — self-fetching home cards (attention, credentials, ...) and
+// self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
+// the registry-gated /api/widget/:id/data endpoint and must NOT be polled
+// app-wide. This keeps app-level background load bounded to a small fixed set,
+// independent of how many widgets the registry contains (mt#2294).
+const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
+  ...Object.keys(PROP_DRIVEN_RENDERERS),
+  "workstreams",
+  "task-graph",
+]);
+
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
 const PAGE_ROUTE_WIDGET_IDS = new Set([
@@ -177,8 +192,11 @@ export function App() {
       setWidgets(metas.map((meta) => ({ meta, data: null })));
 
       for (const meta of metas) {
-        // Self-fetching widgets own their own data
-        if (SELF_FETCHING_RENDERERS[meta.id]) {
+        // Only app-level-fetch widgets App distributes via props. Everything
+        // else — self-fetching home cards and self-fetching page widgets —
+        // owns its own data via the registry-gated data endpoint, so polling
+        // them here would add background load for widgets App never renders.
+        if (!APP_LEVEL_PROP_WIDGET_IDS.has(meta.id)) {
           continue;
         }
 

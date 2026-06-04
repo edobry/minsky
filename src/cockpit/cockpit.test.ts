@@ -12,6 +12,7 @@ import { createServer } from "http";
 import type { Server } from "http";
 import { createCockpitServer } from "./server";
 import type { CredentialModuleOverride } from "./server";
+import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetModule, WidgetData, WidgetContext } from "./types";
 import { createAgentsWidget } from "./widgets/agents";
 import { createAttentionWidget } from "./widgets/attention";
@@ -50,17 +51,6 @@ async function startTestServer(opts?: Parameters<typeof createCockpitServer>[0])
   return { url, close };
 }
 
-// ---------------------------------------------------------------------------
-// Default registry: real attention widget + basic-health
-// (attention-stub was retired in mt#1147 / PR #1125)
-// ---------------------------------------------------------------------------
-const DEFAULT_CONFIG = {
-  widgets: [
-    { id: "attention", enabled: true },
-    { id: "basic-health", enabled: true },
-  ],
-};
-
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 // Credential error codes — keep in sync with `CredentialErrorCode` in
@@ -91,7 +81,7 @@ describe("Cockpit server", () => {
 
   // 1. Server boots; GET /api/health → 200 + {status, version, uptimeSec}
   test("GET /api/health returns 200 and status ok with uptimeSec", async () => {
-    const url = await server({ overrideConfig: DEFAULT_CONFIG });
+    const url = await server();
     const res = await fetch(`${url}/api/health`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -105,7 +95,7 @@ describe("Cockpit server", () => {
 
   // 2. GET /api/widgets → array containing both enabled widgets
   test("GET /api/widgets returns both enabled widgets", async () => {
-    const url = await server({ overrideConfig: DEFAULT_CONFIG });
+    const url = await server();
     const res = await fetch(`${url}/api/widgets`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
@@ -121,7 +111,7 @@ describe("Cockpit server", () => {
 
   // 4. GET /api/widget/basic-health/data → {state:"ok", payload:{uptimeSec:number, version:string, loadedWidgetCount:2}}
   test("GET /api/widget/basic-health/data returns ok with health payload", async () => {
-    const url = await server({ overrideConfig: DEFAULT_CONFIG });
+    const url = await server();
     const res = await fetch(`${url}/api/widget/basic-health/data`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -131,7 +121,8 @@ describe("Cockpit server", () => {
     expect(body.state).toBe("ok");
     expect(typeof body.payload.uptimeSec).toBe("number");
     expect(typeof body.payload.version).toBe("string");
-    expect(body.payload.loadedWidgetCount).toBe(2);
+    // Every registered widget is loaded (registry-gated, no enable flag — mt#2294).
+    expect(body.payload.loadedWidgetCount).toBe(Object.keys(WIDGET_REGISTRY).length);
   });
 
   // 5. Inject widget that throws → {state:"degraded", reason matching /widget crashed/i}
@@ -145,9 +136,6 @@ describe("Cockpit server", () => {
       },
     };
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "crashing-test", enabled: true }],
-      },
       overrideRegistry: { "crashing-test": crashingWidget },
     });
     const res = await fetch(`${url}/api/widget/crashing-test/data`);
@@ -157,44 +145,8 @@ describe("Cockpit server", () => {
     expect(body.reason).toMatch(/widget crashed/i);
   });
 
-  // 6. overrideConfig disabling attention → only basic-health in /api/widgets
-  test("Disabling attention via overrideConfig excludes it from /api/widgets", async () => {
-    const url = await server({
-      overrideConfig: {
-        widgets: [
-          { id: "attention", enabled: false },
-          { id: "basic-health", enabled: true },
-        ],
-      },
-    });
-    const res = await fetch(`${url}/api/widgets`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ id: string }>;
-    const ids = body.map((w) => w.id);
-    expect(ids).not.toContain("attention");
-    expect(ids).toContain("basic-health");
-  });
-
-  // 8. Malformed config (no widgets array) — server doesn't crash on
-  // /api/widgets and yields an empty list. This exercises the defensive
-  // path in `loadCockpitConfig` for the case where a user's existing
-  // ~/.config/minsky/cockpit.json is empty or malformed (PR #1017 R1).
-  test("Malformed overrideConfig does not crash; /api/widgets returns empty list", async () => {
-    const url = await server({
-      // Intentionally malformed — `widgets` is not an array of valid entries.
-      // The server's effective enabledWidgets must fall back to empty rather
-      // than crash on iteration.
-      overrideConfig: { widgets: [] },
-    });
-    const res = await fetch(`${url}/api/widgets`);
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as Array<{ id: string }>;
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBe(0);
-  });
-
-  // 7. overrideConfig + overrideRegistry adding third placeholder → 3 entries
-  test("Adding third widget via overrideRegistry adds 3 entries to /api/widgets", async () => {
+  // 7. overrideRegistry adds a widget on top of the full registry
+  test("Adding a widget via overrideRegistry adds it to /api/widgets", async () => {
     const thirdWidget: WidgetModule = {
       id: "extra-stub",
       title: "Extra Stub",
@@ -204,21 +156,31 @@ describe("Cockpit server", () => {
       },
     };
     const url = await server({
-      overrideConfig: {
-        widgets: [
-          { id: "attention", enabled: true },
-          { id: "basic-health", enabled: true },
-          { id: "extra-stub", enabled: true },
-        ],
-      },
       overrideRegistry: { "extra-stub": thirdWidget },
     });
     const res = await fetch(`${url}/api/widgets`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
-    expect(body.length).toBe(3);
+    // All registered widgets are served, plus the injected extra-stub.
+    expect(body.length).toBe(Object.keys(WIDGET_REGISTRY).length + 1);
     const ids = body.map((w) => w.id);
     expect(ids).toContain("extra-stub");
+  });
+
+  // Regression (mt#2294; originating incident mt#2150): every registered widget's
+  // data endpoint is served — gating is by registry presence, never a per-widget
+  // enable flag. A registered widget whose backend is unavailable returns a
+  // graceful-degraded 200, never 404. Only an unregistered id returns 404. This
+  // test would have failed before mt#2294 (the memories-* widgets 404'd until an
+  // operator hand-added them to cockpit.json).
+  test("every registered widget's data endpoint is served (never 404); unregistered id 404s", async () => {
+    const url = await server();
+    for (const id of Object.keys(WIDGET_REGISTRY)) {
+      const res = await fetch(`${url}/api/widget/${id}/data`);
+      expect(res.status).not.toBe(404);
+    }
+    const missing = await fetch(`${url}/api/widget/not-a-real-widget/data`);
+    expect(missing.status).toBe(404);
   });
 
   // ---------------------------------------------------------------------------
@@ -349,9 +311,6 @@ describe("Cockpit server", () => {
   test("agents widget present in /api/widgets when enabled", async () => {
     const agentsWidget = createAgentsWidget(async () => makeMockProvider([]));
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "agents", enabled: true }],
-      },
       overrideRegistry: { agents: agentsWidget },
     });
     const res = await fetch(`${url}/api/widgets`);
@@ -367,9 +326,6 @@ describe("Cockpit server", () => {
       makeMockProvider([healthySession, idleSession])
     );
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "agents", enabled: true }],
-      },
       overrideRegistry: { agents: agentsWidget },
     });
     const res = await fetch(`${url}/api/widget/agents/data`);
@@ -411,9 +367,6 @@ describe("Cockpit server", () => {
       makeMockProvider([healthySession, staleSession, mergedSession, closedSession])
     );
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "agents", enabled: true }],
-      },
       overrideRegistry: { agents: agentsWidget },
     });
     const res = await fetch(`${url}/api/widget/agents/data`);
@@ -441,9 +394,6 @@ describe("Cockpit server", () => {
       makeMockProvider([healthySession, branchedSession])
     );
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "agents", enabled: true }],
-      },
       overrideRegistry: { agents: agentsWidget },
     });
     const res = await fetch(`${url}/api/widget/agents/data`);
@@ -469,9 +419,6 @@ describe("Cockpit server", () => {
   test("agents widget doesn't double-prefix already-qualified taskIds", async () => {
     const agentsWidget = createAgentsWidget(async () => makeMockProvider([qualifiedTaskSession]));
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "agents", enabled: true }],
-      },
       overrideRegistry: { agents: agentsWidget },
     });
     const res = await fetch(`${url}/api/widget/agents/data`);
@@ -492,9 +439,6 @@ describe("Cockpit server", () => {
       throw new Error("DB connection failed");
     });
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "agents", enabled: true }],
-      },
       overrideRegistry: { agents: agentsWidget },
     });
     const res = await fetch(`${url}/api/widget/agents/data`);
@@ -586,9 +530,6 @@ describe("Cockpit server", () => {
       makeMockTaskGraphDeps(FIXTURE_TASKS, FIXTURE_EDGES)
     );
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "task-graph", enabled: true }],
-      },
       overrideRegistry: { "task-graph": widget },
     });
     const res = await fetch(`${url}/api/widgets`);
@@ -604,9 +545,6 @@ describe("Cockpit server", () => {
       makeMockTaskGraphDeps(FIXTURE_TASKS, FIXTURE_EDGES)
     );
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "task-graph", enabled: true }],
-      },
       overrideRegistry: { "task-graph": widget },
     });
     const res = await fetch(`${url}/api/widget/task-graph/data`);
@@ -662,9 +600,6 @@ describe("Cockpit server", () => {
       )
     );
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "task-graph", enabled: true }],
-      },
       overrideRegistry: { "task-graph": widget },
     });
     const res = await fetch(`${url}/api/widget/task-graph/data`);
@@ -698,9 +633,6 @@ describe("Cockpit server", () => {
       throw new Error("task DB unavailable");
     });
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "task-graph", enabled: true }],
-      },
       overrideRegistry: { "task-graph": widget },
     });
     const res = await fetch(`${url}/api/widget/task-graph/data`);
@@ -786,9 +718,6 @@ describe("Cockpit server", () => {
   test("workstreams widget present in /api/widgets when enabled", async () => {
     const widget = createWorkstreamsWidget(async () => makeMockWorkstreamsDeps([], []));
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "workstreams", enabled: true }],
-      },
       overrideRegistry: { workstreams: widget },
     });
     const res = await fetch(`${url}/api/widgets`);
@@ -821,9 +750,6 @@ describe("Cockpit server", () => {
 
     const widget = createWorkstreamsWidget(async () => makeMockWorkstreamsDeps(tasks, parentRels));
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "workstreams", enabled: true }],
-      },
       overrideRegistry: { workstreams: widget },
     });
     const res = await fetch(`${url}/api/widget/workstreams/data`);
@@ -861,9 +787,6 @@ describe("Cockpit server", () => {
       throw new Error("task DB connection failed");
     });
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "workstreams", enabled: true }],
-      },
       overrideRegistry: { workstreams: widget },
     });
     const res = await fetch(`${url}/api/widget/workstreams/data`);
@@ -883,9 +806,6 @@ describe("Cockpit server", () => {
     // No parent relationships at all
     const widget = createWorkstreamsWidget(async () => makeMockWorkstreamsDeps(tasks, []));
     const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "workstreams", enabled: true }],
-      },
       overrideRegistry: { workstreams: widget },
     });
     const res = await fetch(`${url}/api/widget/workstreams/data`);
@@ -964,7 +884,6 @@ describe("Cockpit server", () => {
     const repo = makeFakeRepo([]);
     const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widgets`);
@@ -978,7 +897,6 @@ describe("Cockpit server", () => {
     const repo = makeFakeRepo([]);
     const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widget/attention/data`);
@@ -1011,7 +929,6 @@ describe("Cockpit server", () => {
     ]);
     const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widget/attention/data`);
@@ -1068,7 +985,6 @@ describe("Cockpit server", () => {
 
     const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widget/attention/data`);
@@ -1118,7 +1034,6 @@ describe("Cockpit server", () => {
     void baseTime; // suppress unused-var
     const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: null }));
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widget/attention/data`);
@@ -1147,7 +1062,6 @@ describe("Cockpit server", () => {
       },
     ]);
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: {},
       overrideAskRepository: repo,
     });
@@ -1175,7 +1089,6 @@ describe("Cockpit server", () => {
   test("POST /api/asks/:id/resolve returns 404 for unknown ask", async () => {
     const repo = makeFakeRepo([]);
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideRegistry: {},
       overrideAskRepository: repo,
     });
@@ -1193,7 +1106,6 @@ describe("Cockpit server", () => {
       throw new Error("DB unavailable");
     });
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widget/attention/data`);
@@ -1232,7 +1144,6 @@ describe("Cockpit server", () => {
     ]);
     const widget = createAttentionWidget(async () => ({ repo, activeWindowKey: "ask-hours" }));
     const url = await server({
-      overrideConfig: { widgets: [{ id: "attention", enabled: true }] },
       overrideRegistry: { attention: widget },
     });
     const res = await fetch(`${url}/api/widget/attention/data`);
@@ -1273,7 +1184,6 @@ describe("Cockpit server", () => {
       },
     ]);
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideRegistry: {},
       overrideAskRepository: repo,
     });
@@ -1404,7 +1314,6 @@ describe("Cockpit server", () => {
       ],
     });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials`);
@@ -1430,7 +1339,6 @@ describe("Cockpit server", () => {
       ],
     });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials`);
@@ -1448,7 +1356,6 @@ describe("Cockpit server", () => {
       validateDetail: "github:octocat",
     });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/validate`, {
@@ -1471,7 +1378,6 @@ describe("Cockpit server", () => {
       validateDetail: "401 Unauthorized",
     });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/validate`, {
@@ -1490,7 +1396,6 @@ describe("Cockpit server", () => {
   test("POST /api/credentials/validate returns 400 for unknown provider", async () => {
     const credMod = makeCredentialModuleStub({ providerExists: false });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/validate`, {
@@ -1510,7 +1415,6 @@ describe("Cockpit server", () => {
   test("POST /api/credentials/validate returns 400 when token is missing", async () => {
     const credMod = makeCredentialModuleStub();
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/validate`, {
@@ -1531,7 +1435,6 @@ describe("Cockpit server", () => {
       validateDetail: "github:octocat",
     });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/add`, {
@@ -1556,7 +1459,6 @@ describe("Cockpit server", () => {
       validateDetail: "401 bad credentials",
     });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/add`, {
@@ -1579,7 +1481,6 @@ describe("Cockpit server", () => {
   test("POST /api/credentials/add returns 400 for unknown provider", async () => {
     const credMod = makeCredentialModuleStub({ providerExists: false });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/add`, {
@@ -1597,7 +1498,6 @@ describe("Cockpit server", () => {
   test("DELETE /api/credentials/:provider returns removed:true", async () => {
     const credMod = makeCredentialModuleStub({ removeResult: { removed: true } });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/github`, {
@@ -1612,7 +1512,6 @@ describe("Cockpit server", () => {
   test("DELETE /api/credentials/:provider returns 400 for unknown provider", async () => {
     const credMod = makeCredentialModuleStub({ providerExists: false });
     const url = await server({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: credMod,
     });
     const res = await fetch(`${url}/api/credentials/nonexistent`, {
@@ -1626,11 +1525,7 @@ describe("Cockpit server", () => {
 
   // 13l. credentials widget present in /api/widgets when enabled
   test("credentials widget present in /api/widgets when enabled", async () => {
-    const url = await server({
-      overrideConfig: {
-        widgets: [{ id: "credentials", enabled: true }],
-      },
-    });
+    const url = await server({});
     const res = await fetch(`${url}/api/widgets`);
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
@@ -1642,7 +1537,7 @@ describe("Cockpit server", () => {
   test("preview mode blocks POST requests with 403", async () => {
     process.env.MINSKY_COCKPIT_PREVIEW = "true";
     try {
-      const url = await server({ overrideConfig: DEFAULT_CONFIG });
+      const url = await server();
       const res = await fetch(`${url}/api/asks/fake-id/resolve`, {
         method: "POST",
         headers: JSON_HEADERS,
@@ -1659,7 +1554,7 @@ describe("Cockpit server", () => {
   test("preview mode allows GET requests", async () => {
     process.env.MINSKY_COCKPIT_PREVIEW = "true";
     try {
-      const url = await server({ overrideConfig: DEFAULT_CONFIG });
+      const url = await server();
       const res = await fetch(`${url}/api/health`);
       expect(res.status).toBe(200);
     } finally {

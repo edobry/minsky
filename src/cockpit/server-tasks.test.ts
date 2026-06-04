@@ -35,9 +35,7 @@ describe("GET /api/tasks (mt#1917)", () => {
   });
 
   test("returns JSON with tasks array or 503 when DB unavailable", async () => {
-    const { url, close } = await startTestServer({
-      overrideConfig: { widgets: [] },
-    });
+    const { url, close } = await startTestServer({});
     closeServer = close;
 
     const res = await fetch(`${url}/api/tasks`);

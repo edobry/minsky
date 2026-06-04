@@ -5,8 +5,8 @@
  * Adding a new widget:
  *   1. Implement WidgetModule in src/cockpit/widgets/<name>.ts
  *   2. Import it here and add an entry to WIDGET_REGISTRY
- *   3. Enable it in ~/.config/minsky/cockpit.json
- * No shell code changes are needed.
+ * No shell code changes are needed. A registered widget's data endpoint is
+ * served automatically — there is no per-widget enable flag (mt#2294).
  */
 import type { WidgetModule } from "./types";
 import { agentsWidget } from "./widgets/agents";
