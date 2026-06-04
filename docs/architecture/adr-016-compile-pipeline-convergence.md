@@ -8,7 +8,7 @@ Accepted (2026-06-03). Decision task: mt#2280. Migration epic: mt#2293.
 
 Minsky has **two coexisting compile systems** that don't share a code path:
 
-1. **Legacy `rules compile`** — command at `src/adapters/shared/commands/rules/compile-migrate-commands.ts`, implementation under `src/domain/rules/compile/`. Targets: `agents.md`, `claude.md`, `cursor-rules`. Reads **flat `.minsky/rules/*.mdc`** files. Writes the **monolithic `CLAUDE.md` / `AGENTS.md`** plus `.cursor/rules/<name>.mdc`. Pre-commit staleness: `runRulesCompileCheck` in `src/hooks/pre-commit.ts`.
+1. **Legacy `rules compile`** — command at `src/adapters/shared/commands/rules/compile-migrate-commands.ts`, implementation under `packages/domain/src/rules/compile/`. Targets: `agents.md`, `claude.md`, `cursor-rules`. Reads **flat `.minsky/rules/*.mdc`** files. Writes the **monolithic `CLAUDE.md` / `AGENTS.md`** plus `.cursor/rules/<name>.mdc`. Pre-commit staleness: `runRulesCompileCheck` in `src/hooks/pre-commit.ts`.
 
 2. **New `compile`** — command at `src/adapters/shared/commands/compile/compile-commands.ts`, implementation under `packages/domain/src/compile/`. Targets: `claude-skills`, `claude-agents`, `cursor-rules-ts`. Reads **per-artifact definition sources** (`.minsky/skills/<name>/{skill.ts,SKILL.md}`, `.minsky/agents/<name>/agent.ts`, `.minsky/rules/<name>/rule.ts`). Writes `.claude/skills/`, `.claude/agents/`, `.cursor/rules/<name>.mdc`. Pre-commit staleness: `runCompileCheck` in `src/hooks/pre-commit.ts` (added in mt#2252).
 
@@ -26,7 +26,7 @@ This dual-system state is a recurring source of confusion (which command regener
 
 **Converge onto the new `compile` system as the single compile pipeline, and sunset the legacy `rules compile` system.**
 
-The new `compile` system becomes the one pipeline for all behavioral-artifact compilation — skills, agents, AND rules — across all source formats (TypeScript `<name>/X.ts` and the hybrid markdown/`.mdc` forms per ADR-015) to all targets (per-artifact harness outputs, the monolithic `CLAUDE.md`/`AGENTS.md`, and `.cursor/rules/`). The legacy `rules compile` command and `src/domain/rules/compile/` implementation are deprecated and removed once every legacy target is served by the new system.
+The new `compile` system becomes the one pipeline for all behavioral-artifact compilation — skills, agents, AND rules — across all source formats (TypeScript `<name>/X.ts` and the hybrid markdown/`.mdc` forms per ADR-015) to all targets (per-artifact harness outputs, the monolithic `CLAUDE.md`/`AGENTS.md`, and `.cursor/rules/`). The legacy `rules compile` command and `packages/domain/src/rules/compile/` implementation are deprecated and removed once every legacy target is served by the new system.
 
 This matches the established direction: mt#800's `.minsky/`-canonical authoring, ADR-015's hybrid (TS-or-markdown) location-canonical policy, and the per-artifact-definition model the new `compile` already implements for skills and agents.
 
