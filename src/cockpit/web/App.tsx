@@ -63,10 +63,16 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 // the registry-gated /api/widget/:id/data endpoint and must NOT be polled
 // app-wide. This keeps app-level background load bounded to a small fixed set,
 // independent of how many widgets the registry contains (mt#2294).
+//
+// Drift guard: the explicit page-widget entries below MUST also be in
+// PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
+// via props — see workstreamsData / taskGraphData below). A dev-time assertion
+// enforces this so adding a self-fetching page widget here (which would start
+// needless app-wide polling) fails fast rather than silently regressing load.
+const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["workstreams", "task-graph"] as const;
 const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
   ...Object.keys(PROP_DRIVEN_RENDERERS),
-  "workstreams",
-  "task-graph",
+  ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
 ]);
 
 // IDs of widgets that have dedicated page routes — App still polls their data
@@ -78,6 +84,21 @@ const PAGE_ROUTE_WIDGET_IDS = new Set([
   "task-graph",
   "task-list",
 ]);
+
+// Drift guard (mt#2294): every app-level page-prop widget must be a real page
+// route. If one isn't, it has no prop consumer and would only add needless
+// app-wide polling — fail fast in dev rather than silently regress load.
+if (process.env.NODE_ENV !== "production") {
+  for (const id of APP_LEVEL_PAGE_PROP_WIDGET_IDS) {
+    if (!PAGE_ROUTE_WIDGET_IDS.has(id)) {
+      throw new Error(
+        `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is not a page route ` +
+          `(missing from PAGE_ROUTE_WIDGET_IDS) — app-level polling would run for a ` +
+          `widget with no prop consumer. Fix the set (mt#2294).`
+      );
+    }
+  }
+}
 
 interface WidgetState {
   meta: WidgetMeta;

@@ -3,8 +3,9 @@
  *
  * Creates an Express app serving:
  *   GET /api/health           — health + version + uptime
- *   GET /api/widgets          — enabled widget metadata list
- *   GET /api/widget/:id/data  — fetch a single widget's data
+ *   GET /api/widgets          — metadata for every registered widget
+ *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
+ *                               404 only for ids absent from WIDGET_REGISTRY)
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)

@@ -28,8 +28,8 @@ import { workstreamsWidget } from "./widgets/workstreams";
 export type WidgetRegistry = Record<string, WidgetModule>;
 
 // The `attention-stub` widget was retired in mt#1147 once the real `attention`
-// widget shipped. Operator configs that still reference `attention-stub` will
-// see it disabled (not present in registry) — they should migrate to `attention`.
+// widget shipped. It is simply absent from the registry now; any reference to
+// `attention-stub` resolves to a 404 (use `attention` instead).
 export const WIDGET_REGISTRY: WidgetRegistry = {
   agents: agentsWidget,
   attention: attentionWidget,
