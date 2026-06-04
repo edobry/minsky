@@ -65,7 +65,11 @@ function statusLabel(status: OverallStatus): string {
   }
 }
 
-function deployStatusColor(status: DeploymentStatus): string {
+// Param is `string`, not `DeploymentStatus`: the payload arrives as an untrusted
+// JSON cast (`as McpServerStatusPayload`), so the domain could add a status value
+// the web bundle hasn't been rebuilt for. The `default` branch keeps any unseen
+// value rendering with muted styling instead of an undefined className.
+function deployStatusColor(status: string): string {
   switch (status) {
     case "SUCCESS":
       return "bg-emerald-500/10 text-emerald-500";
@@ -77,6 +81,7 @@ function deployStatusColor(status: DeploymentStatus): string {
     case "CANCELLED":
       return "bg-destructive/10 text-destructive";
     case "UNKNOWN":
+    default:
       return "bg-muted text-muted-foreground";
   }
 }
