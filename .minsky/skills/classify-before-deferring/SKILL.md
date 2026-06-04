@@ -59,6 +59,10 @@ The skill description triggers whenever output is about to contain a draft quest
 
 The "but" / "however" / "though" in R3-shape phrases is the tell: a noticed issue paired with a deferral.
 
+**Checklist-manufactured triggers (the question does not read as a deferral):**
+
+A process-checklist or gate step that instructs you to "state the strategy / decision / plan" can manufacture a false Class-C decision out of a mechanical consequence. The trigger is subtle because it reads as legitimately populating a checklist slot, not as deferral prose — so it slips past the asking-shape and R3-shape lists above. **A checklist/gate step that asks you to STATE a strategy or decision is itself a classify-before-deferring trigger.** Populate the slot yourself from convention/lookup; only escalate the genuinely Class-C residue. See Worked Example 4.
+
 **Match by meaning, not literal string.** The lists above are illustrative — operational/explanatory prose can carry the same family ("let me know if...", "we should probably...", "this would be worth...", "it'd be good to..."). If the draft text defers information-gathering, rule-application, OR action-taking onto the user, the skill fires.
 
 ## When NOT to invoke
@@ -137,7 +141,7 @@ Per `Work Completion §Never notice an issue without acting on it`: mentioning i
 
 ## Worked examples
 
-All three are from the 2026-05-18 originating session (memory `8ecfdf66`, recurrences R1/R2/R3).
+Examples 1-3 are from the 2026-05-18 originating session (memory `8ecfdf66`, recurrences R1/R2/R3). Example 4 is the first post-skill-ship recurrence (R4, 2026-06-02, mt#2255).
 
 ### Example 1 — Class A failure caught (R1)
 
@@ -163,6 +167,16 @@ All three are from the 2026-05-18 originating session (memory `8ecfdf66`, recurr
 
 **Correct action:** Call `mcp__minsky__tasks_create` in the same turn, then mention the task ID in the response. Don't write the recommendation as a future-tense promise.
 
+### Example 4 — Checklist-manufactured pseudo-decision caught (Class B, R4)
+
+**Draft:** "Should the hook modules re-export the moved functions (so test imports stay untouched) — or should the tests import from the new shared module? I recommend re-export."
+
+**Classification:** Class B. A test imports from the module that _defines_ the symbol; when the symbol moves, its imports move with it. No principal-level stake. The "re-export" option was manufactured to fill a binary, and recommending it optimized scope-minimization over correctness — re-exporting a moved symbol back through its old module is the barrel-reexport anti-pattern in miniature (dead public surface + indirection; memory `4012b934`).
+
+**Why the skill didn't fire (the surface this example adds):** the question was not free-standing deferral prose — it was produced by a `/plan-task` gate (h) slot that said "enumerate the consumers AND _state the migration strategy_." Enumerating consumers was correct; "state the migration strategy" got mis-read as "surface a strategy _choice_ to the user," turning a mechanical consequence into a false Class-C decision. The asking-shape and R3-shape trigger lists don't match a checklist slot, so it slipped past. **A checklist/gate step that asks you to STATE a strategy/decision is itself a trigger** — see `## When to invoke`.
+
+**Correct action:** State it as fact and proceed: "Tests import from the new shared module (imports move with the symbol)." No question. (Originating incident mt#2255: the user pushed back twice — "am I missing something?" — before it was dropped, the 1-3-turn correction cost anti-pattern #3 warns about.)
+
 ## Anti-patterns
 
 1. **Treating the four classes as a checklist that excuses C-tagging anything inconvenient.** If the draft is Class A or B but feels uncertain, the discipline is to _do the lookup or apply the default_, not to upgrade it to C and ask.
@@ -174,6 +188,8 @@ All three are from the 2026-05-18 originating session (memory `8ecfdf66`, recurr
 4. **Hiding R3 behind "for now" language.** "For now, leaving that as a follow-up" / "noting for later" / "leaving room to do that next round" / "parking lot this" / "circle back later" are all R3-shape. If you noticed it, file it now.
 
 5. **Counting an in-conversation recommendation as the artifact.** If you wrote "worth filing a task for X" in chat without calling `mcp__minsky__tasks_create`, the artifact does not exist. The user has to catch the recommendation and prompt you to file it. That's the failure mode this skill exists for.
+
+6. **Letting a checklist slot manufacture a Class-C decision.** When a process step (a `/plan-task` gate, a convergence checklist, a review template) says "state the strategy/plan/decision," the mechanical answer is often convention-determined (Class A/B) — populate it yourself. Don't promote a mechanical consequence to a user-facing binary just because a checklist slot phrased it as "the strategy." See Worked Example 4.
 
 ## Future structural enforcement (deferred)
 
@@ -204,5 +220,10 @@ Both are instances of the parent anti-pattern **performative language as substit
 - `humility.mdc §Escalation packaging` — the five-item checklist for Class C asks
 - `/retrospective` — sibling skill for the contrition direction (mt#1895 amends its auto-trigger)
 - `/restate-plan` — sibling pre-output-discipline skill (covers the multi-step-direction-compression family, distinct trigger surface)
+- Memory `4012b934` — verify architectural patterns vs community practice (scope-minimization-over-correctness; the Example 4 re-export recommendation is an instance)
+- Memory `9dd8e8ac` — stakes-filter / 30-second-edit test (the Example 4 re-export-vs-reimport choice fails it trivially)
+- Memory `3e3f29d8` — escalation packaging; sibling family (the non-genuine-decision escalation surface)
 - mt#1895 — sibling task: add self-recognized-failure triggers to `retrospective` skill
+- mt#2255 — originating incident for Worked Example 4 (R4)
+- mt#2274 — this task (adds the checklist-manufactured-pseudo-decision surface)
 - 2026-05-18 conversation — originating burst (R1 + R2 + R3 in one ~2-hour session)
