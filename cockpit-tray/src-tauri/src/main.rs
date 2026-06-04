@@ -529,9 +529,12 @@ fn run_supervisor(
         // no-source install — the auto-rebuild feature simply doesn't run.
         let _web_watcher = cockpit_source_root(&path)
             .and_then(|root| start_web_watcher(&app, &cockpit_web_src(&root)));
-        // mt#2299: runtime backend-source watcher (source-gated). Sibling of
-        // `_web_watcher`; dispatches `Restart` (not `Rebuild`) on a backend `.ts`
-        // change. `web/**` is excluded so a frontend edit never restarts the daemon.
+        // mt#2299: runtime backend-source watcher. Sibling of `_web_watcher`;
+        // dispatches `Restart` (not `Rebuild`) on a backend `.ts`/`.mts`/`.cts`
+        // change. `web/**` is excluded so a frontend edit never restarts the
+        // daemon. Gated on `cockpit_backend_root` (BACKEND source presence), NOT
+        // `cockpit_source_root` (web presence) — reviewer R1 B1: the web gate
+        // made the whole feature silently no-op when `web/` was absent.
         let _backend_watcher = cockpit_backend_root(&path)
             .and_then(|root| start_backend_watcher(&app, &cockpit_backend_src(&root)));
         // pool_max_idle_per_host(0) disables keep-alive reuse: each poll opens a
