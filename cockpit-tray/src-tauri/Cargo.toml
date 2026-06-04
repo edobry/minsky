@@ -24,3 +24,7 @@ notify-debouncer-mini = "0.7"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+# Deterministic file-mtime control in tests (cockpit-web freshness checks).
+filetime = "0.2"

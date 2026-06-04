@@ -1171,9 +1171,11 @@ mod tests {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("mkdir");
         }
-        let f = File::create(path).expect("create");
-        // File::set_modified is stable since Rust 1.75 (this repo builds on 1.96).
-        f.set_modified(mtime).expect("set mtime");
+        File::create(path).expect("create");
+        // Set mtime via `filetime` (a dev-dependency) for deterministic,
+        // toolchain-version-independent control of the freshness comparison.
+        filetime::set_file_mtime(path, filetime::FileTime::from_system_time(mtime))
+            .expect("set mtime");
     }
 
     fn tmp(label: &str) -> PathBuf {
