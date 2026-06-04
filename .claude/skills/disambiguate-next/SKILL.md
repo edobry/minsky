@@ -114,8 +114,8 @@ Both: self-derived framing, substantial wasted work, user redirects. This skill 
 - `feedback_disambiguate_multi_next_step_chain_walk` — bridge memory this skill retires (mt#1842)
 - `feedback_auto_mode_chains_skills_at_affirmative_tokens` (id `4b83ff51-…`) — sibling memory; composes with this skill (single-next case)
 - `feedback_strategic_reframe_first` — neighboring shape (strategic frame checks before tactical specking)
-- `.claude/skills/restate-plan/SKILL.md` (mt#1784) — sibling discipline at the same tier (multi-step direction restatement)
-- `.claude/skills/declare-framework/SKILL.md` (mt#1789) — sibling discipline at the same tier (framework declaration before recommendations)
+- `/restate-plan` (mt#1784) — sibling discipline at the same tier (multi-step direction restatement)
+- `/declare-framework` (mt#1789) — sibling discipline at the same tier (framework declaration before recommendations)
 - mt#1478 — auto-mode chain walking parent task (DONE 2026-05-11); this skill extends its scope to multi-next handling
 - mt#1842 — this task
 - 2026-05-12 originating instances (mt#1772 scope-creep + mt#1768/mt#1773 wrong-child-pick)
