@@ -633,6 +633,32 @@ fn path_is_excluded(path: &Path) -> bool {
     })
 }
 
+/// Editor temp/backup/hidden files that shouldn't trigger a rebuild (vim `.swp`,
+/// emacs `#file#`, `~` backups, `.tmp`, dotfiles like `.DS_Store`). Keyed on the
+/// file name only.
+fn is_editor_temp_file(name: &str) -> bool {
+    name.starts_with('.')
+        || name.starts_with('#')
+        || name.ends_with('~')
+        || name.ends_with(".tmp")
+        || name.ends_with(".swp")
+}
+
+/// True if a path **relative to the cockpit-web source root** is a real source
+/// change worth a rebuild: not under an excluded dir, and not an editor temp
+/// file. Callers pass a `web_src`-relative path so an ANCESTOR dir named
+/// `dist`/`node_modules`/`.git` (e.g. the repo lives under one) can't suppress
+/// every event (reviewer R1, PR #1558).
+fn is_relevant_source_change(rel: &Path) -> bool {
+    if path_is_excluded(rel) {
+        return false;
+    }
+    match rel.file_name().and_then(|n| n.to_str()) {
+        Some(name) => !is_editor_temp_file(name),
+        None => false,
+    }
+}
+
 /// Recursively find the newest mtime under `root`, skipping excluded dirs.
 /// Returns `None` if `root` doesn't exist or has no readable entries. The
 /// cockpit-web source tree is small (~60 files), so this completes well under
@@ -814,9 +840,19 @@ fn start_web_watcher(
     web_src: &Path,
 ) -> Option<Debouncer<RecommendedWatcher>> {
     let tx = app.try_state::<SupervisorHandle>()?.0.clone();
+    let root = web_src.to_path_buf();
     let mut debouncer = new_debouncer(BUILD_DEBOUNCE, move |res: DebounceEventResult| {
         if let Ok(events) = res {
-            if events.iter().any(|e| !path_is_excluded(&e.path)) {
+            // Filter on the path RELATIVE to web_src so an ancestor dir named
+            // dist/node_modules/.git can't suppress every event; also drop
+            // editor temp files (reviewer R1, PR #1558).
+            let relevant = events.iter().any(|e| {
+                e.path
+                    .strip_prefix(&root)
+                    .map(is_relevant_source_change)
+                    .unwrap_or(false)
+            });
+            if relevant {
                 let _ = tx.send(SupervisorCmd::Rebuild);
             }
         }
@@ -1136,6 +1172,7 @@ mod tests {
             std::fs::create_dir_all(parent).expect("mkdir");
         }
         let f = File::create(path).expect("create");
+        // File::set_modified is stable since Rust 1.75 (this repo builds on 1.96).
         f.set_modified(mtime).expect("set mtime");
     }
 
@@ -1194,6 +1231,21 @@ mod tests {
         assert!(path_is_excluded(Path::new("/r/src/cockpit/web/.git/HEAD")));
         assert!(!path_is_excluded(Path::new("/r/src/cockpit/web/widgets/Foo.tsx")));
         assert!(!path_is_excluded(Path::new("/r/src/cockpit/web/App.tsx")));
+    }
+
+    #[test]
+    fn is_relevant_source_change_filters_excluded_and_temp() {
+        // Real source edits (paths relative to web_src) trigger a rebuild.
+        assert!(is_relevant_source_change(Path::new("widgets/Foo.tsx")));
+        assert!(is_relevant_source_change(Path::new("App.tsx")));
+        // Excluded dirs do not.
+        assert!(!is_relevant_source_change(Path::new("dist/assets/app.js")));
+        assert!(!is_relevant_source_change(Path::new("node_modules/x/y.js")));
+        assert!(!is_relevant_source_change(Path::new(".git/HEAD")));
+        // Editor temp/backup/hidden files do not.
+        assert!(!is_relevant_source_change(Path::new("widgets/.Foo.tsx.swp")));
+        assert!(!is_relevant_source_change(Path::new("widgets/Foo.tsx~")));
+        assert!(!is_relevant_source_change(Path::new("widgets/#Foo.tsx#")));
     }
 
     #[test]
