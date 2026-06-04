@@ -12,7 +12,9 @@ description: >-
   Act on the classification instead of writing the draft. Use whenever a draft
   question, "want me to X or Y," "should I," "I'd file that," "we should
   investigate," "not in scope for current PR but," "for now leaving X as,"
-  "noting for later," or any deferral-shaped prose is about to land.
+  "noting for later," or any deferral-shaped prose is about to land — OR when a
+  process checklist or gate step asks you to "state a strategy/decision/plan" (a
+  checklist-manufactured trigger that does not read as a deferral).
 user-invocable: true
 ---
 
@@ -61,7 +63,7 @@ The "but" / "however" / "though" in R3-shape phrases is the tell: a noticed issu
 
 **Checklist-manufactured triggers (the question does not read as a deferral):**
 
-A process-checklist or gate step that instructs you to "state the strategy / decision / plan" can manufacture a false Class-C decision out of a mechanical consequence. The trigger is subtle because it reads as legitimately populating a checklist slot, not as deferral prose — so it slips past the asking-shape and R3-shape lists above. **A checklist/gate step that asks you to STATE a strategy or decision is itself a classify-before-deferring trigger.** Populate the slot yourself from convention/lookup; only escalate the genuinely Class-C residue. See Worked Example 4.
+A process-checklist or gate step that instructs you to "state the strategy / decision / plan" can manufacture a false Class-C decision out of a mechanical consequence. The trigger is subtle because it reads as legitimately populating a checklist slot, not as deferral prose — so it slips past the asking-shape and R3-shape lists above. **A checklist/gate step that asks you to STATE a strategy or decision is itself a classify-before-deferring trigger.** Populate the slot yourself from convention/lookup; only escalate the genuinely Class-C residue. See [Worked Example 4](#example-4--checklist-manufactured-pseudo-decision-caught-class-b-r4).
 
 **Match by meaning, not literal string.** The lists above are illustrative — operational/explanatory prose can carry the same family ("let me know if...", "we should probably...", "this would be worth...", "it'd be good to..."). If the draft text defers information-gathering, rule-application, OR action-taking onto the user, the skill fires.
 
@@ -189,7 +191,7 @@ Examples 1-3 are from the 2026-05-18 originating session (memory `8ecfdf66`, rec
 
 5. **Counting an in-conversation recommendation as the artifact.** If you wrote "worth filing a task for X" in chat without calling `mcp__minsky__tasks_create`, the artifact does not exist. The user has to catch the recommendation and prompt you to file it. That's the failure mode this skill exists for.
 
-6. **Letting a checklist slot manufacture a Class-C decision.** When a process step (a `/plan-task` gate, a convergence checklist, a review template) says "state the strategy/plan/decision," the mechanical answer is often convention-determined (Class A/B) — populate it yourself. Don't promote a mechanical consequence to a user-facing binary just because a checklist slot phrased it as "the strategy." See Worked Example 4.
+6. **Letting a checklist slot manufacture a Class-C decision.** When a process step (a `/plan-task` gate, a convergence checklist, a review template) says "state the strategy/plan/decision," the mechanical answer is often convention-determined (Class A/B) — populate it yourself. Don't promote a mechanical consequence to a user-facing binary just because a checklist slot phrased it as "the strategy." See [Worked Example 4](#example-4--checklist-manufactured-pseudo-decision-caught-class-b-r4).
 
 ## Future structural enforcement (deferred)
 
