@@ -6,13 +6,13 @@ Parent task: mt#1143. Engineering bundle: mt#1768.
 
 ## Stack
 
-| Layer           | Value                                                                     |
-| --------------- | ------------------------------------------------------------------------- |
-| Runtime         | Bun                                                                       |
-| Server          | Express (`src/cockpit/server.ts`)                                         |
-| Frontend        | React + Vite + Tailwind + shadcn/ui + TanStack Query (`src/cockpit/web/`) |
-| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`)           |
-| Config          | `~/.config/minsky/cockpit.json`                                           |
+| Layer           | Value                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Runtime         | Bun                                                                                                                 |
+| Server          | Express (`src/cockpit/server.ts`)                                                                                   |
+| Frontend        | React + Vite + Tailwind + shadcn/ui + TanStack Query (`src/cockpit/web/`)                                           |
+| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`)                                                     |
+| Config          | None per-widget (registry-gated, mt#2294); future cockpit config → `cockpit` tree in `~/.config/minsky/config.yaml` |
 
 Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any file under `src/cockpit/**`).
 
@@ -31,33 +31,26 @@ Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any fil
 | `/memories`    | Memories    | Memory subsystem — browse, search, stats, detail, health (mt#2150) |
 | `/settings`    | Settings    | Cockpit configuration + credentials                                |
 
-## Widget IDs (operator configuration)
+## Widgets
 
-The home page renders only widgets enabled in `~/.config/minsky/cockpit.json`. Each widget declares an `id` matching `WidgetModule.id` in its backend module under `src/cockpit/widgets/`. Adding a new widget requires both shipping the code AND enabling it in this file:
+Each widget declares an `id` matching `WidgetModule.id` in its backend module under
+`src/cockpit/widgets/`, registered in `src/cockpit/widget-registry.ts`. **Registering a
+widget is sufficient** — its data endpoint (`/api/widget/<id>/data`) is served whenever the
+widget is in the registry. There is no per-widget enable flag and no `cockpit.json` config
+file (both removed in mt#2294); widgets auto-work on first run with no manual config edit.
 
-```json
-{
-  "widgets": [
-    { "id": "agents", "enabled": true },
-    { "id": "attention", "enabled": true },
-    { "id": "basic-health", "enabled": true },
-    { "id": "context-inspector", "enabled": true },
-    { "id": "credentials", "enabled": true },
-    { "id": "embeddings-health", "enabled": true },
-    { "id": "task-graph", "enabled": true },
-    { "id": "task-list", "enabled": true },
-    { "id": "workstreams", "enabled": true },
+The model separates two concerns the old `enabled` flag conflated:
 
-    { "id": "memories-health", "enabled": true },
-    { "id": "memories-stats", "enabled": true },
-    { "id": "memories-list", "enabled": true },
-    { "id": "memories-search", "enabled": true },
-    { "id": "memories-detail", "enabled": true }
-  ]
-}
-```
+- **Capability** — "does this widget's data endpoint work" — is owned by the registry. A
+  registered widget always serves; an `id` not in the registry returns `HTTP 404
+"Widget not found"`; a registered widget whose backend is unavailable returns its
+  graceful-degraded payload (`{ state: "degraded", reason }`) rather than a 404.
+- **Layout** — "which cards the home System-status grid renders" — is decided on the
+  frontend (`src/cockpit/web/App.tsx`), from the registry plus the renderer maps; it is
+  not operator-configurable today.
 
-The `memories-*` widget IDs (added in mt#2150) must be enabled for the `/memories` page to render its data. A widget that is registered in code but absent from the config returns `HTTP 404 "Widget not found"` from `/api/widget/<id>/data` — this is by design (the registry self-documents what's available; the config gates what's exposed). The `/memories` route itself is always reachable regardless of widget-enablement state; only the data panels degrade.
+Any future cockpit configuration (e.g. polling intervals) lives under a `cockpit` tree in
+the main Minsky config (`~/.config/minsky/config.yaml`), not a separate file.
 
 ### Widget catalog by route
 
