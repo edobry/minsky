@@ -15,6 +15,11 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["json"] }
 tokio = { version = "1", features = ["rt", "macros", "sync", "time"] }
 open = "5"
+# Filesystem watcher for the cockpit-web auto-rebuild (mt#2297). notify is the
+# cross-platform fs-notification crate (CC0-1.0); notify-debouncer-mini coalesces
+# bursty editor-save events into a single debounced rebuild trigger (MIT/Apache-2.0).
+notify = "8"
+notify-debouncer-mini = "0.7"
 
 [features]
 default = ["custom-protocol"]
