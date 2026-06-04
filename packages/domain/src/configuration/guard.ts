@@ -32,8 +32,11 @@ export const EXEMPT_COMMANDS = new Set(["init", "setup", "mcp.register"]);
  *
  * Every entry below was verified to touch only the session DB record or the
  * GitHub API, never the local session workspace or `git` CLI.
+ *
+ * Typed `ReadonlySet` so callers cannot mutate the allowlist at runtime; the
+ * only way to widen it is to edit this literal (which is the intended gate).
  */
-export const HOSTED_SAFE_SESSION_COMMANDS = new Set([
+export const HOSTED_SAFE_SESSION_COMMANDS: ReadonlySet<string> = new Set([
   "session.get", // DB record lookup
   "session.list", // DB list
   "session.dir", // DB path lookup (string only; no fs/git access)
@@ -150,6 +153,12 @@ export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSy
  * @throws {ValidationError} When the command is unsupported on hosted
  */
 export function guardHostedCapability(commandId: string): void {
+  // Shared-registry command IDs are always namespaced (`git.log`,
+  // `session.start`), so the dotted-prefix arms below are what fire in
+  // practice. The bare-equality arms (`=== "git"` / `=== "session"`) are
+  // defensive only — there is no top-level `git` or `session` command in the
+  // registry today, but matching them too means a future bare alias can't slip
+  // past the guard.
   const isGitCommand = commandId === "git" || commandId.startsWith("git.");
   const isSessionCommand = commandId === "session" || commandId.startsWith("session.");
   const isUnsupportedSessionCommand =
