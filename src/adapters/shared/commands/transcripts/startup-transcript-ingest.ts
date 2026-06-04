@@ -35,7 +35,10 @@ export async function triggerStartupTranscriptIngest(
 
   const db = await resolveDb(persistenceProvider);
   if (!db) {
-    log.debug("Startup transcript ingest skipped: DB not available after retry");
+    // mt#2192: surface at warn — a skipped boot sweep means NO automatic
+    // ingestion ran this boot, which is an operationally interesting signal
+    // (not the silent debug-only it was before).
+    log.warn("Startup transcript ingest skipped: DB not available after retry");
     return;
   }
 
@@ -54,7 +57,16 @@ export async function triggerStartupTranscriptIngest(
 
   const result = await svc.ingestAll();
 
-  if (result.totalIngested > 0 || result.sessionsErrored > 0) {
+  // mt#2192 (SC2): make per-session ingest failures observable rather than
+  // silently swallowed. Errored sessions surface at warn; a clean run with
+  // new turns stays at debug.
+  if (result.sessionsErrored > 0) {
+    log.warn("Startup transcript ingest completed with errors", {
+      totalIngested: result.totalIngested,
+      sessionsProcessed: result.sessionsProcessed,
+      sessionsErrored: result.sessionsErrored,
+    });
+  } else if (result.totalIngested > 0) {
     log.debug("Startup transcript ingest complete", {
       totalIngested: result.totalIngested,
       sessionsProcessed: result.sessionsProcessed,

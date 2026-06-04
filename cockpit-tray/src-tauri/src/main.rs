@@ -17,8 +17,10 @@ use std::os::unix::process::CommandExt; // process_group
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
+use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
@@ -33,10 +35,16 @@ const POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// launchd plist's `ThrottleInterval: 5` so a crash-loop doesn't spawn-storm.
 const RESPAWN_THROTTLE: Duration = Duration::from_secs(5);
 const STATUS_MENU_ID: &str = "status";
+/// Dropdown line showing the cockpit-web bundle's last-build state (mt#2297).
+const BUILD_MENU_ID: &str = "build_status";
+/// Debounce window for coalescing bursty editor-save events before a rebuild.
+const BUILD_DEBOUNCE: Duration = Duration::from_millis(500);
 
 const LABEL_RUNNING: &str = "Cockpit: running";
 const LABEL_STOPPED: &str = "Cockpit: stopped";
 const LABEL_STARTING: &str = "Cockpit: starting...";
+/// Daemon status line while a pre-flight bundle rebuild runs before spawn (mt#2297).
+const LABEL_BUILDING: &str = "Cockpit: rebuilding bundle...";
 const LABEL_CONFLICT: &str = "Cockpit: :3737 in use (not cockpit)";
 const LABEL_START_FAILED: &str = "Cockpit: start failed (see logs)";
 const LABEL_NO_REPO: &str = "Cockpit: repo not found";
@@ -49,6 +57,10 @@ const LABEL_NO_BUN: &str = "Cockpit: bun not found";
 /// app, so `app.menu()` returns `None`. Holding the item handle is the reliable
 /// path (mt#2240).
 struct StatusMenuItem(MenuItem<Wry>);
+
+/// Handle to the build-status dropdown `MenuItem` (mt#2297), held in managed
+/// state like `StatusMenuItem` so the supervisor loop can update it directly.
+struct BuildMenuItem(MenuItem<Wry>);
 
 /// Sender for lifecycle commands from the (main-thread) menu handler to the
 /// supervisor thread that owns the daemon `Child`.
@@ -66,6 +78,9 @@ enum SupervisorCmd {
     Stop,
     Restart,
     Shutdown,
+    /// A cockpit-web source file changed at runtime — rebuild the bundle
+    /// without disturbing the running daemon (mt#2297).
+    Rebuild,
 }
 
 /// What to do for a port that may or may not already be serving our daemon.
@@ -365,6 +380,8 @@ struct Sup {
     child: Option<Child>,
     last_spawn: Option<Instant>,
     last_status: Option<&'static str>,
+    /// Last value pushed to the build-status menu line (mt#2297), for dedupe.
+    last_build_label: Option<String>,
 }
 
 /// Update the visible status label (dropdown line + tray tooltip), skipping
@@ -396,6 +413,15 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
             return;
         }
     };
+    // mt#2297: source-gated pre-flight rebuild. Only when the web source is
+    // present (developer/source operator); a no-source install skips this and
+    // serves whatever bundle ships with the app.
+    if cockpit_web_src(&repo_root).is_dir() {
+        if let PreflightResult::Refuse = preflight_rebuild(app, sup, &bun, &repo_root, path) {
+            set_status(app, sup, LABEL_START_FAILED);
+            return;
+        }
+    }
     match spawn_daemon(&bun, &repo_root, DAEMON_PORT, path) {
         Ok((child, pid)) => {
             sup.child = Some(child);
@@ -450,6 +476,11 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
 
     rt.block_on(async move {
         let path = path_env();
+        // mt#2297: runtime cockpit-web watcher (source-gated). Held for the
+        // supervisor's lifetime; dropping it stops the watch. `None` on a
+        // no-source install — the auto-rebuild feature simply doesn't run.
+        let _web_watcher = cockpit_source_root(&path)
+            .and_then(|root| start_web_watcher(&app, &cockpit_web_src(&root)));
         // pool_max_idle_per_host(0) disables keep-alive reuse: each poll opens a
         // fresh connection. Without this a pooled connection can go stale
         // (daemon idle-close / half-open socket) and every poll fails its 2s
@@ -464,6 +495,7 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
             child: None,
             last_spawn: None,
             last_status: None,
+            last_build_label: None,
         };
 
         // Initial adoption-or-spawn.
@@ -505,8 +537,31 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                             do_spawn(&app, &mut sup, &spawned, &path);
                         }
                     }
+                    Some(SupervisorCmd::Rebuild) => {
+                        // Runtime source change. Rebuild WITHOUT touching the
+                        // daemon — Express serves dist from disk per request, so
+                        // a fresh bundle is picked up on the next browser
+                        // refresh; a failed rebuild leaves the prior bundle.
+                        if let (Some(root), Some(bun)) =
+                            (cockpit_source_root(&path), resolve_program("bun", &path))
+                        {
+                            set_build_status(&app, &mut sup, "Rebuilding bundle...".to_string());
+                            let result = run_cockpit_build(&bun, &root, &path);
+                            set_build_status(
+                                &app,
+                                &mut sup,
+                                build_label_for(&result, SystemTime::now(), true),
+                            );
+                        }
+                    }
                     Some(SupervisorCmd::Shutdown) | None => {
-                        do_stop(&mut sup, &spawned, &path, true);
+                        // Pass a fresh health probe as adopted_ok (matching the
+                        // Stop arm) so quitting the app never kills a FOREIGN
+                        // :3737 listener — only our spawned child (via the
+                        // process group inside do_stop) or our health-confirmed
+                        // adopted daemon. (mt#2305; PR #1558 reviewer R3.)
+                        let h = health_ok(&client).await;
+                        do_stop(&mut sup, &spawned, &path, h);
                         break;
                     }
                 },
@@ -543,6 +598,297 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
             }
         }
     });
+}
+
+// ---------------------------------------------------------------------------
+// Cockpit-web bundle freshness + auto-rebuild (mt#2297).
+//
+// The tray serves the pre-built production bundle (src/cockpit/web/dist). When
+// the operator runs from a source checkout, source files drift ahead of dist
+// (e.g. after `git pull`), so the daemon silently serves a stale UI. These
+// helpers keep dist fresh: a startup pre-flight rebuild + a runtime filesystem
+// watcher. ALL of it is gated on source presence (`cockpit_source_root`); a
+// packaged/no-source install skips every path and serves the shipped bundle.
+// ---------------------------------------------------------------------------
+
+/// Path to the cockpit web source dir under a repo root.
+fn cockpit_web_src(repo_root: &Path) -> PathBuf {
+    repo_root.join("src/cockpit/web")
+}
+
+/// The built SPA entry whose mtime stands for "when the bundle was last built".
+fn dist_index(web_src: &Path) -> PathBuf {
+    web_src.join("dist/index.html")
+}
+
+/// Directory names excluded from the freshness walk AND the runtime watcher:
+/// the build OUTPUT (`dist` — counting it would make a rebuild re-trigger
+/// itself), installed deps (`node_modules`), and git internals (`.git`).
+const WALK_EXCLUDES: [&str; 3] = ["dist", "node_modules", ".git"];
+
+fn is_excluded_dir(name: &std::ffi::OsStr) -> bool {
+    WALK_EXCLUDES.iter().any(|e| name == *e)
+}
+
+/// True if `path` lies inside any excluded directory. Used by the watcher's
+/// event filter so our own `dist/` writes don't loop the rebuild.
+fn path_is_excluded(path: &Path) -> bool {
+    path.components().any(|c| match c {
+        std::path::Component::Normal(name) => is_excluded_dir(name),
+        _ => false,
+    })
+}
+
+/// Editor temp/backup/hidden files that shouldn't trigger a rebuild (vim `.swp`,
+/// emacs `#file#`, `~` backups, `.tmp`, dotfiles like `.DS_Store`). Keyed on the
+/// file name only.
+fn is_editor_temp_file(name: &str) -> bool {
+    name.starts_with('.')
+        || name.starts_with('#')
+        || name.ends_with('~')
+        || name.ends_with(".tmp")
+        || name.ends_with(".swp")
+}
+
+/// True if a path **relative to the cockpit-web source root** is a real source
+/// change worth a rebuild: not under an excluded dir, and not an editor temp
+/// file. Callers pass a `web_src`-relative path so an ANCESTOR dir named
+/// `dist`/`node_modules`/`.git` (e.g. the repo lives under one) can't suppress
+/// every event (reviewer R1, PR #1558).
+fn is_relevant_source_change(rel: &Path) -> bool {
+    if path_is_excluded(rel) {
+        return false;
+    }
+    match rel.file_name().and_then(|n| n.to_str()) {
+        Some(name) => !is_editor_temp_file(name),
+        None => false,
+    }
+}
+
+/// Recursively find the newest mtime under `root`, skipping excluded dirs.
+/// Returns `None` if `root` doesn't exist or has no readable entries. The
+/// cockpit-web source tree is small (~60 files), so this completes well under
+/// the 200ms fast-path budget; excluded dirs (dist/node_modules/.git) are
+/// pruned before descent so the walk never touches the large subtrees.
+fn newest_mtime_excluding(root: &Path) -> Option<SystemTime> {
+    fn walk(dir: &Path, newest: &mut Option<SystemTime>) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            if file_type.is_dir() {
+                if entry.file_name().is_empty() || is_excluded_dir(&entry.file_name()) {
+                    continue;
+                }
+                walk(&entry.path(), newest);
+            } else if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
+                if newest.map_or(true, |n| mtime > n) {
+                    *newest = Some(mtime);
+                }
+            }
+        }
+    }
+    let mut newest = None;
+    walk(root, &mut newest);
+    newest
+}
+
+/// Staleness verdict for the built bundle vs the source tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Staleness {
+    /// No built bundle (dist/index.html missing) — must build before serving.
+    NoDist,
+    /// A bundle exists but source is newer — rebuild; the prior bundle can serve.
+    Stale,
+    /// Bundle is at least as new as every source file — serve as-is.
+    Fresh,
+}
+
+/// Compare the built bundle's mtime against the newest source mtime.
+fn dist_staleness(web_src: &Path) -> Staleness {
+    let dist_mtime = match std::fs::metadata(dist_index(web_src)).and_then(|m| m.modified()) {
+        Ok(t) => t,
+        Err(_) => return Staleness::NoDist,
+    };
+    match newest_mtime_excluding(web_src) {
+        Some(src) if src > dist_mtime => Staleness::Stale,
+        _ => Staleness::Fresh,
+    }
+}
+
+/// Format a wall-clock instant as `HH:MM:SS UTC` without a date crate.
+fn format_hms_utc(t: SystemTime) -> String {
+    let secs = t.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let sod = secs % 86_400;
+    format!("{:02}:{:02}:{:02} UTC", sod / 3600, (sod % 3600) / 60, sod % 60)
+}
+
+/// The repo root IF it both resolves (has `src/cli.ts`) AND contains the cockpit
+/// web source. `None` for a no-source/packaged install — the signal that all
+/// auto-rebuild machinery must no-op (mt#2297 source-presence gate).
+fn cockpit_source_root(path: &str) -> Option<PathBuf> {
+    let root = resolve_repo_root(path)?;
+    if cockpit_web_src(&root).is_dir() {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+/// Pick a short human summary from a failed build's output: the last non-empty
+/// stderr line (vite/esbuild errors go to stderr), falling back to stdout,
+/// capped for a menu item.
+fn build_error_summary(stderr: &[u8], stdout: &[u8]) -> String {
+    let pick = |bytes: &[u8]| -> Option<String> {
+        String::from_utf8_lossy(bytes)
+            .lines()
+            .rev()
+            .map(|l| l.trim())
+            .find(|l| !l.is_empty())
+            .map(|l| l.to_string())
+    };
+    let mut s = pick(stderr)
+        .or_else(|| pick(stdout))
+        .unwrap_or_else(|| "build failed".to_string());
+    const MAX: usize = 120;
+    if s.chars().count() > MAX {
+        s = s.chars().take(MAX).collect::<String>() + "...";
+    }
+    s
+}
+
+/// Run `bun run cockpit:build` in `repo_root`. Returns `Ok` on success, or
+/// `Err(summary)` with the tail of the build output. Full output is appended to
+/// the cockpit build log for diagnostics regardless of outcome.
+fn run_cockpit_build(bun: &Path, repo_root: &Path, path: &str) -> Result<(), String> {
+    let output = Command::new(bun)
+        .args(["run", "cockpit:build"])
+        .current_dir(repo_root)
+        .env("PATH", path)
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("could not launch bun: {e}"))?;
+    if let Ok(mut log) = open_log("cockpit-build.log") {
+        use std::io::Write;
+        let _ = writeln!(
+            log,
+            "--- cockpit:build {} ---\n{}{}",
+            if output.status.success() { "OK" } else { "FAILED" },
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    }
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(build_error_summary(&output.stderr, &output.stdout))
+    }
+}
+
+/// Outcome of a pre-spawn freshness check + rebuild.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreflightResult {
+    /// Safe to spawn the daemon (bundle fresh, rebuilt OK, or stale-but-serving).
+    Proceed,
+    /// Refuse to spawn — no servable bundle and the build failed.
+    Refuse,
+}
+
+/// Compute the build-status menu label for a finished/failed/in-progress build.
+fn build_label_for(result: &Result<(), String>, now: SystemTime, servable_prior: bool) -> String {
+    match result {
+        Ok(()) => format!("Last build: {}", format_hms_utc(now)),
+        Err(e) if servable_prior => format!("Build FAILED ({e}) - serving prior bundle"),
+        Err(e) => format!("Build FAILED ({e}) - nothing to serve"),
+    }
+}
+
+/// Source-gated pre-flight rebuild, run inside `do_spawn` before the daemon is
+/// spawned. Caller must have already confirmed the web source is present.
+fn preflight_rebuild(
+    app: &AppHandle,
+    sup: &mut Sup,
+    bun: &Path,
+    repo_root: &Path,
+    path: &str,
+) -> PreflightResult {
+    let web_src = cockpit_web_src(repo_root);
+    match dist_staleness(&web_src) {
+        Staleness::Fresh => PreflightResult::Proceed,
+        staleness => {
+            let servable_prior = staleness == Staleness::Stale;
+            set_status(app, sup, LABEL_BUILDING);
+            set_build_status(app, sup, "Rebuilding bundle...".to_string());
+            let result = run_cockpit_build(bun, repo_root, path);
+            let proceed = result.is_ok() || servable_prior;
+            set_build_status(app, sup, build_label_for(&result, SystemTime::now(), servable_prior));
+            if proceed {
+                PreflightResult::Proceed
+            } else {
+                PreflightResult::Refuse
+            }
+        }
+    }
+}
+
+/// Start the runtime filesystem watcher on the cockpit-web source tree. Events
+/// under excluded dirs (our own `dist/` writes, node_modules, .git) are filtered
+/// out so a rebuild can't re-trigger itself. A relevant change sends a debounced
+/// `Rebuild` command to the supervisor. The returned `Debouncer` must be held
+/// alive for the watch to persist.
+fn start_web_watcher(
+    app: &AppHandle,
+    web_src: &Path,
+) -> Option<Debouncer<RecommendedWatcher>> {
+    let tx = app.try_state::<SupervisorHandle>()?.0.clone();
+    let root = web_src.to_path_buf();
+    let mut debouncer = new_debouncer(BUILD_DEBOUNCE, move |res: DebounceEventResult| {
+        if let Ok(events) = res {
+            // Filter on the path RELATIVE to web_src so an ancestor dir named
+            // dist/node_modules/.git can't suppress every event; also drop
+            // editor temp files (reviewer R1, PR #1558).
+            let relevant = events.iter().any(|e| {
+                e.path
+                    .strip_prefix(&root)
+                    .map(is_relevant_source_change)
+                    .unwrap_or(false)
+            });
+            if relevant {
+                let _ = tx.send(SupervisorCmd::Rebuild);
+            }
+        }
+    })
+    .ok()?;
+    debouncer
+        .watcher()
+        .watch(web_src, RecursiveMode::Recursive)
+        .ok()?;
+    Some(debouncer)
+}
+
+/// Update the build-status dropdown line on the main thread (mt#2297).
+fn update_build_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
+    let app_handle = app.clone();
+    let label = label.to_string();
+    app.run_on_main_thread(move || {
+        if let Some(item) = app_handle.try_state::<BuildMenuItem>() {
+            let _ = item.0.set_text(&label);
+        }
+    })
+}
+
+/// Set the build-status label, skipping the UI round-trip when unchanged.
+fn set_build_status(app: &AppHandle, sup: &mut Sup, label: String) {
+    if sup.last_build_label.as_deref() == Some(label.as_str()) {
+        return;
+    }
+    sup.last_build_label = Some(label.clone());
+    let _ = update_build_status(app, &label);
 }
 
 // ---------------------------------------------------------------------------
@@ -597,6 +943,10 @@ fn main() {
                 .enabled(false)
                 .build(app)?;
             app.manage(StatusMenuItem(status_item.clone()));
+            let build_item = MenuItemBuilder::with_id(BUILD_MENU_ID, "Last build: never")
+                .enabled(false)
+                .build(app)?;
+            app.manage(BuildMenuItem(build_item.clone()));
             let open_window_item =
                 MenuItemBuilder::with_id("open_window", "Open Cockpit").build(app)?;
             let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
@@ -609,6 +959,7 @@ fn main() {
 
             let menu = MenuBuilder::new(app)
                 .item(&status_item)
+                .item(&build_item)
                 .item(&separator1)
                 .item(&open_window_item)
                 .item(&open_item)
@@ -818,5 +1169,117 @@ mod tests {
         std::fs::write(dir.join("src/cli.ts"), b"// test").expect("write");
         assert!(has_cli_source(&dir));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- mt#2297: bundle-freshness + build helpers ---
+
+    fn touch(path: &Path, mtime: SystemTime) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("mkdir");
+        }
+        File::create(path).expect("create");
+        // Set mtime via `filetime` (a dev-dependency) for deterministic,
+        // toolchain-version-independent control of the freshness comparison.
+        filetime::set_file_mtime(path, filetime::FileTime::from_system_time(mtime))
+            .expect("set mtime");
+    }
+
+    fn tmp(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mt2297-{label}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn dist_staleness_no_dist_when_index_missing() {
+        let dir = tmp("nodist");
+        touch(&dir.join("App.tsx"), SystemTime::now());
+        assert_eq!(dist_staleness(&dir), Staleness::NoDist);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dist_staleness_fresh_when_dist_newer() {
+        let dir = tmp("fresh");
+        let base = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        touch(&dir.join("App.tsx"), base);
+        touch(&dist_index(&dir), base + Duration::from_secs(10));
+        assert_eq!(dist_staleness(&dir), Staleness::Fresh);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dist_staleness_stale_when_source_newer() {
+        let dir = tmp("stale");
+        let base = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        touch(&dist_index(&dir), base);
+        touch(&dir.join("widgets/Foo.tsx"), base + Duration::from_secs(10));
+        assert_eq!(dist_staleness(&dir), Staleness::Stale);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dist_staleness_ignores_excluded_dirs() {
+        let dir = tmp("excl");
+        let base = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        touch(&dir.join("App.tsx"), base);
+        touch(&dist_index(&dir), base + Duration::from_secs(10));
+        // Newer files under excluded dirs must NOT flip the verdict to Stale.
+        touch(&dir.join("node_modules/pkg/x.js"), base + Duration::from_secs(100));
+        touch(&dir.join("dist/assets/app.js"), base + Duration::from_secs(100));
+        touch(&dir.join(".git/HEAD"), base + Duration::from_secs(100));
+        assert_eq!(dist_staleness(&dir), Staleness::Fresh);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn path_is_excluded_matches_excluded_dirs() {
+        assert!(path_is_excluded(Path::new("/r/src/cockpit/web/dist/index.html")));
+        assert!(path_is_excluded(Path::new("/r/src/cockpit/web/node_modules/x/y.js")));
+        assert!(path_is_excluded(Path::new("/r/src/cockpit/web/.git/HEAD")));
+        assert!(!path_is_excluded(Path::new("/r/src/cockpit/web/widgets/Foo.tsx")));
+        assert!(!path_is_excluded(Path::new("/r/src/cockpit/web/App.tsx")));
+    }
+
+    #[test]
+    fn is_relevant_source_change_filters_excluded_and_temp() {
+        // Real source edits (paths relative to web_src) trigger a rebuild.
+        assert!(is_relevant_source_change(Path::new("widgets/Foo.tsx")));
+        assert!(is_relevant_source_change(Path::new("App.tsx")));
+        // Excluded dirs do not.
+        assert!(!is_relevant_source_change(Path::new("dist/assets/app.js")));
+        assert!(!is_relevant_source_change(Path::new("node_modules/x/y.js")));
+        assert!(!is_relevant_source_change(Path::new(".git/HEAD")));
+        // Editor temp/backup/hidden files do not.
+        assert!(!is_relevant_source_change(Path::new("widgets/.Foo.tsx.swp")));
+        assert!(!is_relevant_source_change(Path::new("widgets/Foo.tsx~")));
+        assert!(!is_relevant_source_change(Path::new("widgets/#Foo.tsx#")));
+    }
+
+    #[test]
+    fn format_hms_utc_formats_seconds_of_day() {
+        assert_eq!(format_hms_utc(UNIX_EPOCH + Duration::from_secs(3661)), "01:01:01 UTC");
+        assert_eq!(format_hms_utc(UNIX_EPOCH + Duration::from_secs(86_400 * 100)), "00:00:00 UTC");
+    }
+
+    #[test]
+    fn build_error_summary_takes_last_nonempty_line() {
+        assert_eq!(build_error_summary(b"warn\n\nError: boom\n\n", b""), "Error: boom");
+        assert_eq!(build_error_summary(b"", b"out line\n"), "out line");
+        assert_eq!(build_error_summary(b"", b""), "build failed");
+    }
+
+    #[test]
+    fn build_label_for_renders_states() {
+        let t = UNIX_EPOCH + Duration::from_secs(3661);
+        assert_eq!(build_label_for(&Ok(()), t, false), "Last build: 01:01:01 UTC");
+        assert_eq!(
+            build_label_for(&Err("E".to_string()), t, true),
+            "Build FAILED (E) - serving prior bundle"
+        );
+        assert_eq!(
+            build_label_for(&Err("E".to_string()), t, false),
+            "Build FAILED (E) - nothing to serve"
+        );
     }
 }
