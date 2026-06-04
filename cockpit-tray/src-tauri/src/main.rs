@@ -555,7 +555,13 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                         }
                     }
                     Some(SupervisorCmd::Shutdown) | None => {
-                        do_stop(&mut sup, &spawned, &path, true);
+                        // Pass a fresh health probe as adopted_ok (matching the
+                        // Stop arm) so quitting the app never kills a FOREIGN
+                        // :3737 listener — only our spawned child (via the
+                        // process group inside do_stop) or our health-confirmed
+                        // adopted daemon. (mt#2305; PR #1558 reviewer R3.)
+                        let h = health_ok(&client).await;
+                        do_stop(&mut sup, &spawned, &path, h);
                         break;
                     }
                 },
