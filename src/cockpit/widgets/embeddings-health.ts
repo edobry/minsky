@@ -58,7 +58,7 @@ async function fetchCoverage(): Promise<EmbeddingsHealthPayload["coverage"]> {
 
 export const embeddingsHealthWidget: WidgetModule = {
   id: "embeddings-health",
-  title: "Memory & Embeddings",
+  title: "Embeddings",
   updateMode: { type: "polling", intervalMs: 15_000 },
   async fetch(_ctx: WidgetContext): Promise<WidgetData> {
     try {

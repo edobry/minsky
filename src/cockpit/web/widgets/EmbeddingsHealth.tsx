@@ -84,7 +84,7 @@ export function EmbeddingsHealth() {
     return (
       <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
+          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>Failed to load: {query.error.message}</p>
@@ -97,7 +97,7 @@ export function EmbeddingsHealth() {
     return (
       <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
+          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>Loading…</p>
@@ -112,7 +112,7 @@ export function EmbeddingsHealth() {
     return (
       <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
+          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
         </CardHeader>
         <CardContent className="text-muted-foreground text-sm">
           <p>{data.reason}</p>
@@ -127,7 +127,7 @@ export function EmbeddingsHealth() {
     <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">Memory & Embeddings</CardTitle>
+          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
           <div className="flex items-center gap-1.5">
             <span
               className={cn("inline-block h-2 w-2 rounded-full", statusColor(payload.status))}
