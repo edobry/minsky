@@ -84,6 +84,10 @@ After the first approved launch, the app opens normally.
 - Keeps the served cockpit-web bundle fresh automatically (rebuilds at startup and
   on source changes) so the operator never sees a stale UI after pulling main —
   see _Bundle auto-rebuild_ below (mt#2297)
+- Keeps the running daemon fresh against **backend** source automatically (restarts
+  a stale adopted daemon at startup and on backend `.ts` changes) so new widgets /
+  routes are never silently missing, with a "Daemon uptime" line showing currency —
+  see _Backend auto-restart_ below (mt#2299)
 
 ### Daemon lifecycle (supervisor model — mt#2241, ADR-014)
 
@@ -146,23 +150,65 @@ UI. The tray keeps it fresh:
   shows `Build FAILED (...) - nothing to serve`. Full build output is appended to
   `~/.local/state/minsky/logs/cockpit-build.log`.
 
+### Backend auto-restart (mt#2299)
+
+The **server-side** complement to the bundle rebuild above. The daemon loads its
+widget registry and route table **at process start**, so when backend source
+changes (`src/cockpit/server.ts`, `widget-registry.ts`, `widgets/**`, `config.ts`,
+`types.ts`) the running daemon is stale — newly-registered widgets return
+`Widget not found` until the process restarts. Because the daemon is spawned from
+**source** (`bun run src/cli.ts`), a plain process restart picks up backend changes
+with **no build step** (unlike the web bundle, which must be rebuilt). The tray
+keeps the daemon current:
+
+- **Startup staleness (adopted daemon).** When the tray adopts an already-running
+  daemon, it reads that daemon's start time (`ps -o etime=`) and compares it against
+  the newest backend-source mtime under `src/cockpit/**` (excluding `web/**`,
+  `node_modules`, `.git`, `dist`, and `*.test.ts`). If source is newer — the daemon
+  predates the current code — the tray restarts it before reporting ready. This is
+  the originating 2026-06-04 case: an 8-day-old daemon that missed two merged
+  feature PRs. A daemon the tray spawns fresh is trivially current, so no check is
+  needed there.
+- **Runtime watcher.** While the daemon runs, a debounced (~2s — larger than the
+  web rebuild's 500ms, since a restart is more disruptive) filesystem watcher on
+  `src/cockpit/**` restarts the daemon on any relevant backend `.ts` change. `web/**`
+  is excluded (the mt#2297 rebuild path owns it), so a frontend edit rebuilds the
+  bundle without bouncing the daemon, and a backend edit restarts the daemon without
+  a build.
+- **Source-presence gate.** Like the rebuild path, all of the above is gated on a
+  source checkout; a packaged / no-source install skips it.
+- **"Daemon uptime" line.** The tray menu shows how long the daemon has run plus the
+  source mtime it was started against (`Daemon uptime: 3m 12s (src @ 14:30:00 UTC)`),
+  so operators can confirm "is my daemon current?" without inspecting
+  `ps -p <pid> -o lstart`.
+- **Restart-failure surface.** If a restarted daemon crash-loops (e.g. a syntax error
+  in `server.ts` makes the new process fail to bind), the status line shows
+  `Cockpit: start failed: <stderr tail> (see logs)` rather than a silent "stopped".
+
+Operators running through the tray never need to manually `kill <pid>` or know that
+backend changes require a process restart.
+
 ### Status-line labels
 
 The dropdown status line shows one of:
 
-| Label                                 | Meaning                                                                                    | Remediation                                                                                                                                              |
-| ------------------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Cockpit: running`                    | A daemon is serving `:3737` (spawned or adopted).                                          | —                                                                                                                                                        |
-| `Cockpit: stopped`                    | Nothing is serving `:3737`.                                                                | Use **Start Daemon**.                                                                                                                                    |
-| `Cockpit: starting...`                | A spawned daemon is booting (not yet healthy).                                             | Wait a few seconds.                                                                                                                                      |
-| `Cockpit: rebuilding bundle...`       | A startup pre-flight `cockpit:build` is running before spawn (mt#2297).                    | Wait for the build to finish; progress/outcome shows on the **Last build** line.                                                                         |
-| `Cockpit: :3737 in use (not cockpit)` | Some other process holds `:3737`.                                                          | Free the port; Stop/Restart won't kill a foreign listener.                                                                                               |
-| `Cockpit: repo not found`             | No Minsky repo root with `src/cli.ts` could be resolved, so the app refused to spawn.      | Run `minsky cockpit install` (records the repo in the launchd plist), or ensure the `minsky` bin symlinks into the repo (`<repo>/scripts/cli-entry.ts`). |
-| `Cockpit: bun not found`              | `bun` is not resolvable on PATH.                                                           | Install Bun (`curl -fsSL https://bun.sh/install \| bash`) so it lands on `~/.bun/bin`.                                                                   |
-| `Cockpit: start failed (see logs)`    | The spawn was attempted but errored (including a startup rebuild with no servable bundle). | Check `~/.local/state/minsky/logs/cockpit-stderr.log` and `cockpit-build.log`.                                                                           |
+| Label                                                  | Meaning                                                                                                                                                    | Remediation                                                                                                                                              |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Cockpit: running`                                     | A daemon is serving `:3737` (spawned or adopted).                                                                                                          | —                                                                                                                                                        |
+| `Cockpit: stopped`                                     | Nothing is serving `:3737`.                                                                                                                                | Use **Start Daemon**.                                                                                                                                    |
+| `Cockpit: starting...`                                 | A spawned daemon is booting (not yet healthy).                                                                                                             | Wait a few seconds.                                                                                                                                      |
+| `Cockpit: rebuilding bundle...`                        | A startup pre-flight `cockpit:build` is running before spawn (mt#2297).                                                                                    | Wait for the build to finish; progress/outcome shows on the **Last build** line.                                                                         |
+| `Cockpit: :3737 held by pid <N> (not started by tray)` | Some other process holds `:3737` (mt#2299 names the holder pid; falls back to `:3737 in use (not cockpit)` if the pid can't be read).                      | Free the port; Stop/Restart won't kill a foreign listener.                                                                                               |
+| `Cockpit: repo not found`                              | No Minsky repo root with `src/cli.ts` could be resolved, so the app refused to spawn.                                                                      | Run `minsky cockpit install` (records the repo in the launchd plist), or ensure the `minsky` bin symlinks into the repo (`<repo>/scripts/cli-entry.ts`). |
+| `Cockpit: bun not found`                               | `bun` is not resolvable on PATH.                                                                                                                           | Install Bun (`curl -fsSL https://bun.sh/install \| bash`) so it lands on `~/.bun/bin`.                                                                   |
+| `Cockpit: start failed (see logs)`                     | The spawn was attempted but errored (including a startup rebuild with no servable bundle).                                                                 | Check `~/.local/state/minsky/logs/cockpit-stderr.log` and `cockpit-build.log`.                                                                           |
+| `Cockpit: start failed: <tail> (see logs)`             | A spawned daemon crash-looped (exited within the respawn-throttle window — e.g. a syntax error in `server.ts`); the stderr tail is shown inline (mt#2299). | Check `~/.local/state/minsky/logs/cockpit-stderr.log`; fix the backend error (the runtime watcher restarts on the next save).                            |
 
 A separate **Last build** dropdown line shows the bundle's last rebuild outcome
-(`Last build: HH:MM:SS UTC`, `Rebuilding bundle...`, or `Build FAILED (...)`).
+(`Last build: HH:MM:SS UTC`, `Rebuilding bundle...`, or `Build FAILED (...)`). A
+**Daemon uptime** line (mt#2299) shows how long the daemon has run + the source
+mtime it was started against (`Daemon uptime: 3m 12s (src @ 14:30:00 UTC)`), or
+`Daemon uptime: —` when nothing is running.
 
 ## Testing (mt#2226)
 
