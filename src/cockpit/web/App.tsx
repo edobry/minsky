@@ -17,6 +17,7 @@ import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
+import { McpServerStatus } from "./widgets/McpServerStatus";
 import { PageNavTiles } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
@@ -45,6 +46,7 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
   "embeddings-health": EmbeddingsHealth,
+  "mcp-server-status": McpServerStatus,
 };
 
 // Prop-driven widgets: receive data from App-level polling.

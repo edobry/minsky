@@ -15,6 +15,7 @@ import { basicHealthWidget } from "./widgets/basic-health";
 import { contextInspectorWidget } from "./widgets/context-inspector";
 import { credentialsWidget } from "./widgets/credentials";
 import { embeddingsHealthWidget } from "./widgets/embeddings-health";
+import { mcpServerStatusWidget } from "./widgets/mcp-server-status";
 import { memoriesDetailWidget } from "./widgets/memories-detail";
 import { memoriesHealthWidget } from "./widgets/memories-health";
 import { memoriesListWidget } from "./widgets/memories-list";
@@ -36,6 +37,7 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "context-inspector": contextInspectorWidget,
   credentials: credentialsWidget,
   "embeddings-health": embeddingsHealthWidget,
+  "mcp-server-status": mcpServerStatusWidget,
   "memories-detail": memoriesDetailWidget,
   "memories-health": memoriesHealthWidget,
   "memories-list": memoriesListWidget,
