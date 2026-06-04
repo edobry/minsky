@@ -6,7 +6,9 @@ import { describe, it, expect, afterEach } from "bun:test";
 import {
   checkProjectSetup,
   guardProjectSetup,
+  guardHostedCapability,
   EXEMPT_COMMANDS,
+  HOSTED_SAFE_SESSION_COMMANDS,
   setHostedMode,
   isHostedMode,
 } from "./guard";
@@ -125,5 +127,102 @@ describe("hosted mode", () => {
   it("guardProjectSetup still throws when hosted mode is off (preserved stdio behavior)", () => {
     // Default state — no setHostedMode(true) call.
     expect(() => guardProjectSetup("tasks.list", FAKE_REPO, missingDeps)).toThrow(ValidationError);
+  });
+});
+
+describe("guardHostedCapability (mt#1601)", () => {
+  // Representative git/workspace-requiring commands that cannot run on hosted.
+  const UNSUPPORTED = [
+    "git.log", // the secondary originating failure
+    "git.commit",
+    "git.clone",
+    "git.push",
+    "git.status",
+    "git.stash",
+    "session.start", // the primary originating failure
+    "session.commit",
+    "session.update",
+    "session.exec",
+    "session.edit-file",
+    "session.pr.create",
+    "session.changeset.create",
+    "session.cs.merge",
+    "session.cleanup",
+    "session.repair",
+  ];
+
+  it("throws a documented ValidationError for git.* and git/workspace session commands", () => {
+    for (const commandId of UNSUPPORTED) {
+      expect(() => guardHostedCapability(commandId)).toThrow(ValidationError);
+      expect(() => guardHostedCapability(commandId)).toThrow(/not supported on the hosted/);
+      // The error names the command and points at the local server.
+      expect(() => guardHostedCapability(commandId)).toThrow(commandId);
+      expect(() => guardHostedCapability(commandId)).toThrow(
+        /local 'minsky mcp' server|local server/
+      );
+    }
+  });
+
+  it("does not throw for DB/API-served session reads in the allowlist", () => {
+    for (const commandId of HOSTED_SAFE_SESSION_COMMANDS) {
+      expect(() => guardHostedCapability(commandId)).not.toThrow();
+    }
+  });
+
+  it("does not throw for commands outside the git.*/session.* namespaces", () => {
+    for (const commandId of [
+      "tasks.list",
+      "tasks.spec.get",
+      "config.get",
+      "rules.list",
+      "debug.echo",
+    ]) {
+      expect(() => guardHostedCapability(commandId)).not.toThrow();
+    }
+  });
+
+  it("does not misfire on commands that merely start with the same letters", () => {
+    // 'gitfoo' / 'sessions.x' are not 'git.'/'session.' prefixed.
+    expect(() => guardHostedCapability("githubapp.register")).not.toThrow();
+    expect(() => guardHostedCapability("sessionsync.run")).not.toThrow();
+  });
+});
+
+describe("hosted-capability guard wired through guardProjectSetup (mt#1601)", () => {
+  const missingDeps = { existsSync: makeExistsSync(new Set()) };
+
+  afterEach(() => {
+    setHostedMode(false);
+  });
+
+  it("blocks session.start on hosted with the documented error (not raw git: not found)", () => {
+    setHostedMode(true);
+    expect(() => guardProjectSetup("session.start", FAKE_REPO, missingDeps)).toThrow(
+      ValidationError
+    );
+    expect(() => guardProjectSetup("session.start", FAKE_REPO, missingDeps)).toThrow(
+      /not supported on the hosted/
+    );
+  });
+
+  it("blocks git.log on hosted", () => {
+    setHostedMode(true);
+    expect(() => guardProjectSetup("git.log", FAKE_REPO, missingDeps)).toThrow(ValidationError);
+  });
+
+  it("allows allowlisted session reads on hosted", () => {
+    setHostedMode(true);
+    expect(() => guardProjectSetup("session.get", FAKE_REPO, missingDeps)).not.toThrow();
+    expect(() => guardProjectSetup("session.list", FAKE_REPO, missingDeps)).not.toThrow();
+    expect(() => guardProjectSetup("session.pr.list", FAKE_REPO, missingDeps)).not.toThrow();
+  });
+
+  it("does not apply the hosted-capability block when hosted mode is off", () => {
+    // Off-hosted, session.start is gated by the normal setup check instead — to
+    // isolate the hosted block, assert the thrown error is the setup error, not
+    // the hosted-capability error.
+    expect(() => guardProjectSetup("session.start", FAKE_REPO, missingDeps)).toThrow(
+      ERR_NOT_INITIALIZED
+    );
   });
 });

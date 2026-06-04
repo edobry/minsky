@@ -36,6 +36,12 @@ const DEFAULT_CONFIG: CockpitConfig = {
     // and manage credentials from the cockpit home. No external dependency;
     // reads from ~/.config/minsky/config.yaml and credentials-meta.json.
     { id: "credentials", enabled: true },
+    // mcp-server-status (mt#2077) — hosted MCP-server health/deploy surface.
+    // Probes the hosted /health endpoint + reads first-party deployment state.
+    // Defaults to `enabled: false` (same opt-in pattern as agents / task-graph /
+    // workstreams) so first-run behavior stays bound to placeholder widgets and
+    // the cockpit makes no outbound HTTPS probe until an operator opts in.
+    { id: "mcp-server-status", enabled: false },
     // task-graph (mt#1146) is a real-data widget reading from the task DB.
     // Defaulting to `enabled: false` lets users opt in explicitly so the
     // cockpit's first-run behavior stays bound to placeholder widgets.

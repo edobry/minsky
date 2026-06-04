@@ -343,3 +343,45 @@ there is no strong reason to revert.
 Both harnesses share the same `runSaturationSuite` helper, so adding a new acceptance test
 covers both backends with one change. Convergent results across both is the strongest signal
 that the retry path behaves correctly.
+
+## Migration Safety: Unmerged-Migration Guard (mt#2277)
+
+`minsky persistence migrate --execute` will **refuse to apply a pending migration to a
+shared production database if that migration's `.sql` file is not present on `origin/main`**.
+
+This prevents the mt#2229 failure class: a feature-branch-only migration is applied to the
+shared prod DB, the branch is then closed without merging, and the database and the repo
+diverge (the applied migration has no record on `main`).
+
+**How it classifies "production".** The guard runs only when the target connection is a
+shared remote DB. Hosts treated as local/dev (guard skipped): `localhost`, `127.0.0.1`,
+IPv6 loopback (`[::1]` / `::1`), `host.docker.internal`, and the Docker service aliases
+`postgres` / `db` / `database`. Every other host (Supabase, Neon, RDS, any remote) is
+treated as production. An unparseable connection string is treated as production
+(fail-closed).
+
+**What it checks.** For each pending migration (journal entries not yet in the ledger), the
+guard verifies the `<tag>.sql` file resolves on `origin/main` (`git cat-file -e
+origin/main:<path>`). If any pending migration is absent, the apply is blocked with the list
+of offending migrations and the instruction to merge to `main` first.
+
+**Fail-open on infra issues.** If `origin/main` does not resolve locally (no remote, a
+differently-named remote, or simply not fetched), the guard **cannot** determine merge status,
+so it does **not** block — it emits a warning and proceeds. Run `git fetch origin main` to
+re-enable the check. This deliberately avoids false-blocking CI or fresh clones.
+
+**Break-glass override.** Set `MINSKY_SKIP_UNMERGED_MIGRATION_CHECK=1` (or `true` / `yes`) to
+bypass the guard when a migration is intentionally applied ahead of merge. The override is
+audit-logged to stdout (env value + masked connection + timestamp):
+
+```bash
+MINSKY_SKIP_UNMERGED_MIGRATION_CHECK=1 minsky persistence migrate --execute
+```
+
+The override env-var name is registered in `HOOK_ONLY_ENV_VARS`
+(`packages/domain/src/configuration/sources/environment.ts`, per mt#1788) and exported as the
+constant `UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV` so the guard, tests, and this doc cannot drift.
+
+**Complement:** the immutable-migration _pre-commit_ guard (mt#2268) blocks _editing_ an
+already-applied migration file; this guard blocks _applying_ an unmerged one. Together they
+retire the mt#2229 / mt#2250 migration-drift class.

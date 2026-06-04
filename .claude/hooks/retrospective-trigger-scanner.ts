@@ -20,7 +20,14 @@
 
 import { readInput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
-import { readFileSync, appendFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  parseTranscript,
+  extractLastAssistantTurn,
+  extractAssistantText,
+  extractLastUserMessage,
+} from "./transcript";
+import type { TranscriptLine } from "./transcript";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -141,116 +148,8 @@ const FAMILY_PATTERNS: Array<{ family: TriggerFamily; patterns: RegExp[] }> = [
 ];
 
 // ---------------------------------------------------------------------------
-// Transcript JSONL types (minimal subset — mirrors substrate-bypass-detector)
+// Skill-invocation helper (retrospective-specific)
 // ---------------------------------------------------------------------------
-
-interface TranscriptLine {
-  type?: string;
-  message?: {
-    role?: string;
-    content?: unknown;
-  };
-  name?: string;
-  tool_name?: string;
-  input?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Transcript parsing helpers
-// ---------------------------------------------------------------------------
-
-export function parseTranscript(transcriptPath: string): TranscriptLine[] {
-  let raw: string;
-  try {
-    raw = readFileSync(transcriptPath, "utf8");
-  } catch {
-    return [];
-  }
-
-  const lines = raw.split("\n");
-  const result: TranscriptLine[] = [];
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      result.push(JSON.parse(trimmed) as TranscriptLine);
-    } catch {
-      // skip malformed
-    }
-  }
-  return result;
-}
-
-export function extractLastAssistantTurn(lines: TranscriptLine[]): TranscriptLine[] {
-  const userIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (line.type === "user" || line.message?.role === "user") {
-      userIndices.push(i);
-    }
-  }
-
-  if (userIndices.length < 2) return [];
-
-  const startIdx = (userIndices[userIndices.length - 2] as number) + 1;
-  const endIdx = userIndices[userIndices.length - 1] as number;
-  return lines.slice(startIdx, endIdx);
-}
-
-export function extractAssistantText(turnLines: TranscriptLine[]): string {
-  const parts: string[] = [];
-  for (const line of turnLines) {
-    if (line.type === "assistant" || line.message?.role === "assistant") {
-      const content = line.message?.content;
-      if (typeof content === "string") {
-        parts.push(content);
-      } else if (Array.isArray(content)) {
-        for (const block of content) {
-          if (block && typeof block === "object") {
-            const b = block as Record<string, unknown>;
-            if (b["type"] === "text" && typeof b["text"] === "string") {
-              parts.push(b["text"] as string);
-            }
-          }
-        }
-      }
-    }
-  }
-  return parts.join("\n");
-}
-
-export function extractLastUserMessage(lines: TranscriptLine[]): string {
-  const userIndices: number[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-    if (line.type === "user" || line.message?.role === "user") {
-      userIndices.push(i);
-    }
-  }
-
-  if (userIndices.length === 0) return "";
-
-  const lastUserLine = lines[userIndices[userIndices.length - 1] as number];
-  if (!lastUserLine) return "";
-
-  const content = lastUserLine.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const parts: string[] = [];
-    for (const block of content) {
-      if (block && typeof block === "object") {
-        const b = block as Record<string, unknown>;
-        if (b["type"] === "text" && typeof b["text"] === "string") {
-          parts.push(b["text"] as string);
-        }
-      }
-    }
-    return parts.join("\n");
-  }
-  return "";
-}
 
 export function hasRetrospectiveSkillInvocation(turnLines: TranscriptLine[]): boolean {
   const checkBlock = (block: Record<string, unknown>): boolean => {

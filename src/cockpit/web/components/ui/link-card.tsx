@@ -7,7 +7,7 @@ import { cn } from "../../lib/utils";
  * LinkCard — a Card whose entire surface navigates to `to`.
  *
  * Used for home-page System-status cards that summarize a subsystem and have a
- * dedicated page route (Credentials, Memory & Embeddings). The whole card is a
+ * dedicated page route (Credentials, Embeddings). The whole card is a
  * single navigation target, so it MUST NOT contain other interactive elements
  * (buttons, links, selects) — nesting them inside an anchor is invalid HTML and
  * would hijack their clicks. Cards with interactive children (e.g. Attention)

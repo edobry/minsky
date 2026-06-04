@@ -15,6 +15,12 @@ import { basicHealthWidget } from "./widgets/basic-health";
 import { contextInspectorWidget } from "./widgets/context-inspector";
 import { credentialsWidget } from "./widgets/credentials";
 import { embeddingsHealthWidget } from "./widgets/embeddings-health";
+import { mcpServerStatusWidget } from "./widgets/mcp-server-status";
+import { memoriesDetailWidget } from "./widgets/memories-detail";
+import { memoriesHealthWidget } from "./widgets/memories-health";
+import { memoriesListWidget } from "./widgets/memories-list";
+import { memoriesSearchWidget } from "./widgets/memories-search";
+import { memoriesStatsWidget } from "./widgets/memories-stats";
 import { taskGraphWidget } from "./widgets/task-graph";
 import { taskListWidget } from "./widgets/task-list";
 import { workstreamsWidget } from "./widgets/workstreams";
@@ -31,6 +37,12 @@ export const WIDGET_REGISTRY: WidgetRegistry = {
   "context-inspector": contextInspectorWidget,
   credentials: credentialsWidget,
   "embeddings-health": embeddingsHealthWidget,
+  "mcp-server-status": mcpServerStatusWidget,
+  "memories-detail": memoriesDetailWidget,
+  "memories-health": memoriesHealthWidget,
+  "memories-list": memoriesListWidget,
+  "memories-search": memoriesSearchWidget,
+  "memories-stats": memoriesStatsWidget,
   "task-graph": taskGraphWidget,
   "task-list": taskListWidget,
   workstreams: workstreamsWidget,

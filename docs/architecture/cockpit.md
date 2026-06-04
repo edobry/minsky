@@ -1,510 +1,110 @@
-# Cockpit (mt#1143)
+# Cockpit
 
-The **cockpit** is the operator-facing surface for Minsky's own system state — a local web
-server showing what the system is doing, who is working on what, and which decisions are
-waiting on the operator. It is the first instantiation of a more general concept (**Locus**)
-and the externalization, into infrastructure, of cognitive functions that otherwise live in
-operator working memory.
+Operator-facing mission-control web app for Minsky. Local-only v0 (`minsky cockpit`); web-primary, no TUI investment. Architecture is shell + widget framework — each widget is a self-contained module declaring its data dependencies, shipping independently, degrading gracefully when dependencies aren't ready.
 
-This document describes what the cockpit is, where it sits in the VSM architecture, how the
-widget framework lets it grow without rewriting the shell, and which Minsky subsystems feed
-it. For implementation details see mt#1143 and its subtasks; for the philosophical motivation
-see the two Notion essays linked at the end.
+Parent task: mt#1143. Engineering bundle: mt#1768.
 
----
+## Stack
 
-## Cockpit and Locus
+| Layer           | Value                                                                     |
+| --------------- | ------------------------------------------------------------------------- |
+| Runtime         | Bun                                                                       |
+| Server          | Express (`src/cockpit/server.ts`)                                         |
+| Frontend        | React + Vite + Tailwind + shadcn/ui + TanStack Query (`src/cockpit/web/`) |
+| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`)           |
+| Config          | `~/.config/minsky/cockpit.json`                                           |
 
-**Locus** is the general theory: the operator-facing surface that holds and renders the
-"orientation" half of an OODA loop for a one-person organization running many parallel agents.
-It is not specific to Minsky. Any system where a principal coordinates parallel cognition needs
-something Locus-shaped — a durable, glanceable place where in-flight state lives outside
-biological working memory.
+Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any file under `src/cockpit/**`).
 
-**Cockpit** is the first concrete instantiation of Locus inside Minsky. It is bounded to
-Minsky's own state — sessions Minsky tracks, tasks in Minsky's task system, asks routed
-through Minsky's attention-allocation subsystem. AI activity that doesn't bind to Minsky
-(Claude Code sessions that never invoke an MCP tool; off-system agent runs) is out of scope
-by construction.
+## Routes
 
-The naming distinction matters: future work may produce other Locus instantiations
-(cross-project view, multi-principal view, terminal-integrated view) that share Locus's
-shape but differ in scope. Calling the v0 surface "cockpit" — and reserving "Locus" for the
-theoretical frame — keeps that future space open.
+| Path           | Page        | Purpose                                                            |
+| -------------- | ----------- | ------------------------------------------------------------------ |
+| `/`            | Home        | System-status card grid + nav tiles to feature pages               |
+| `/agents`      | Agents      | Sessions in flight                                                 |
+| `/context`     | Context     | Agent context inspector                                            |
+| `/workstreams` | Workstreams | Active work streams                                                |
+| `/tasks`       | Tasks       | List + graph subpages (`/tasks/graph`, `/tasks/:id`)               |
+| `/asks`        | Asks        | Interactive ask management                                         |
+| `/activity`    | Activity    | Event stream                                                       |
+| `/embeddings`  | Embeddings  | Provider health + index coverage                                   |
+| `/memories`    | Memories    | Memory subsystem — browse, search, stats, detail, health (mt#2150) |
+| `/settings`    | Settings    | Cockpit configuration + credentials                                |
 
----
+## Widget IDs (operator configuration)
 
-## VSM placement
+The home page renders only widgets enabled in `~/.config/minsky/cockpit.json`. Each widget declares an `id` matching `WidgetModule.id` in its backend module under `src/cockpit/widgets/`. Adding a new widget requires both shipping the code AND enabling it in this file:
 
-Stafford Beer's Viable System Model identifies five functional organs. The cockpit is the
-operator-facing **externalization of Systems 2, 3, and 4** — the organs that, in a
-one-person organization, normally live in biological working memory. See
-[`docs/theory-of-operation.md`](../theory-of-operation.md) for the full five-organ mapping.
-
-| VSM organ                             | What it does                                       | Cockpit surface                                                           |
-| ------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------- |
-| **System 1** (Operations)             | The work itself: sessions, tasks, code changes     | Underlying data; not "in" the cockpit, but rendered by it                 |
-| **System 2** (Coordination)           | Anti-oscillatory signals between parallel workers  | Agents widget — who is working on what, liveness state                    |
-| **System 3** (Operational feedback)   | Monitors operations, closes the loop               | Workstreams widget — task-tree status rollup; PR / merge state            |
-| **System 4** (Strategic intelligence) | Scans environment for threats and opportunities    | TaskGraph widget — interactive DAG; dependency drill-down                 |
-| **System 5** (Self / identity)        | Policy, identity, what the system won't compromise | Lives in `.minsky/config.yaml` + rules; the cockpit's frame, not a widget |
-
-The cockpit does not implement these organs — Minsky's domain subsystems do. The cockpit
-**renders** them as glanceable surfaces so the operator (System 5) can make informed
-decisions without rebuilding context from scratch on every interaction.
-
-### The algedonic channel
-
-Beer reserves a separate channel — the **algedonic channel** — for signals that must reach
-System 5 directly, bypassing the normal feedback hierarchy. Algedonic literally means
-"pain-pleasure": these are the alerts that demand principal attention because no lower-level
-resolver can handle them.
-
-In the cockpit, the **Attention widget** (mt#1147) is the algedonic surface. It renders
-unresolved asks routed to the operator via the attention-allocation subsystem (mt#1034,
-ADR-008). Algedonic selection is enforced structurally: only asks whose `routingTarget ===
-"operator"` ever appear; asks resolved at lower levels (by policy, by peer agents, by
-reviewer subagents) never surface. The widget does not just display asks — it filters them
-algedonically by construction. See [ADR-008](adr-008-attention-allocation-subsystem.md) for
-the underlying subsystem.
-
-### Operator-facing, not agent-facing
-
-A subtle but load-bearing distinction: the cockpit is for the **principal operator**, not
-for AI agents. Agents already have rich orientation infrastructure — context generation,
-rules compilation, MCP-based introspection. The cockpit's user is the human running the
-system. Its design decisions (web-primary rendering, dark-mode-first density, low-latency
-polling) reflect operator ergonomics, not agent affordances.
-
----
-
-## Widget architecture
-
-The cockpit is a **shell + pluggable widgets**, not a monolithic UI. Adding a new dial to
-the cockpit as Minsky gains observable capability is implementing a widget contract and
-registering it in config — the shell does not change.
-
-### Shell responsibilities
-
-The shell (`src/cockpit/server.ts` + `src/cockpit/web/`) provides:
-
-- **Widget registry** (`src/cockpit/widget-registry.ts`) — a map from widget ID to module
-- **HTTP routes** — `/api/widgets` (list), `/api/widget/:id/data` (fetch), per-widget
-  mutation endpoints when needed
-- **Polling layer** — client-side TanStack Query orchestration with per-widget intervals
-- **Layout + composition** — React tree mounting registered widget renderers
-- **Graceful degradation rendering** — widgets that fail or have unmet dependencies render
-  a `state: "degraded"` payload with a `reason` string; the shell surfaces this without
-  crashing the rest of the UI
-- **Config-driven enablement** — `~/.config/minsky/cockpit.json` toggles widgets;
-  unregistered or disabled widgets are absent from the UI
-
-### Widget contract
-
-Each widget is a self-contained module declaring four things:
-
-```ts
-interface WidgetModule {
-  id: string; // stable identifier, matches config + URL
-  title: string; // display title
-  updateMode: // polling interval OR manual
-  { type: "polling"; intervalMs: number } | { type: "manual" };
-  fetch(ctx: WidgetContext): // returns ok payload OR degraded reason
-  Promise<WidgetData>;
-}
-```
-
-The contract is intentionally narrow. Widgets are free in what they render but constrained
-in how they declare themselves and how they fetch. The shell guarantees that a misbehaving
-widget cannot bring down the cockpit — every `fetch()` is wrapped in an error boundary that
-converts thrown exceptions into `degraded` payloads.
-
-### Why "shell + widgets" and not a single UI
-
-Three engineering consequences fall out of this shape:
-
-1. **Independent shipping.** Widgets ship as separate PRs. The Agents widget (mt#1145)
-   shipped before the TaskGraph widget (mt#1146), which shipped before the Attention
-   widget (mt#1147). The shell stayed stable across all three.
-
-2. **Graceful degradation.** When a widget's data source isn't ready (no DB connection;
-   external API down; pre-shipped dependency like mt#1001 SSE), the widget degrades cleanly
-   rather than blocking the whole surface. The Attention widget defaulted to enabled with
-   "no active window" gracefully degraded state during the period when mt#1411 service
-   windows weren't yet implemented.
-
-3. **Future capability extension.** As Minsky gains new observable subsystems (cost / usage
-   tracking; cross-project state; mesh signal flow), the natural move is a new widget —
-   not a parallel UI, not a new tool. Widget toggle in config; no shell rewrite.
-
-This is a recursive VSM application: the cockpit shell is itself a viable system whose
-operational units are the widgets, coordinated by the shell's polling and routing.
-
-### Frontend stack
-
-The widget renderers use **shadcn/ui + Tailwind 3.x + TanStack Query** on a Vite-built
-React SPA, served by an Express backend. The full stack is documented in
-`src/cockpit/CLAUDE.md` (loads automatically when working on Cockpit code).
-
-Stack-additions decision (mt#1773, DONE 2026-05-12): dark-mode-first, semantic-token-driven,
-shadcn primitives for accessibility-first Radix-based components. The frontend stack is
-deliberately distinct from the Minsky CLI's stack — the CLI uses a tsyringe DI container and
-the Minsky shared command registry, while the cockpit is a standalone Express server with no
-DI container.
-
----
-
-## Subsystem map
-
-The cockpit consumes data from several Minsky subsystems. Each widget is a thin renderer
-over an existing domain capability — the cockpit does not own new state, it surfaces state
-already managed by upstream subsystems.
-
-| Widget      | Data source                                       | Underlying subsystem                                                                                                |
-| ----------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| Agents      | `SessionRecord` table                             | `src/domain/session/` — session liveness (mt#951 chain)                                                             |
-| TaskGraph   | `tasks_deps_graph` query                          | `src/domain/tasks/` — task DAG + dependency edges (mt#239)                                                          |
-| Workstreams | Task parent / child rollup                        | `src/domain/tasks/` — task graph reorganization (mt#1452)                                                           |
-| Attention   | `pending_asks_for_window` SQL view + `asks` table | `src/domain/ask/` — Ask subsystem (mt#1034, ADR-008) + service-window primitives (mt#1411 stack: mt#1488/1489/1490) |
-| BasicHealth | `process.uptime()` + widget count                 | The cockpit itself — health check + smoke test                                                                      |
-
-### Subsystems that feed the cockpit but aren't owned by it
-
-- **Mesh observability** — when mesh signals (mt#1001) ship, the cockpit will be a consumer
-  of mesh notifications via SSE rather than the polling loop it uses today. The transport
-  swap is a widget-internal change; the shell stays stable.
-- **Attention allocation subsystem** (mt#1034, ADR-008) — defines the Ask entity, the
-  routing model, the lifecycle states. The Attention widget is the v0 rendering surface for
-  the operator-facing slice of this subsystem.
-- **Agent identity** (mt#1078, ADR-006) — gives the Agents widget stable display names
-  instead of UUIDs.
-- **Knowledge base** — not currently surfaced in the cockpit. Could become a widget if a
-  use case emerges (e.g., search box + recent ingestion status).
-
-### Subsystems that are independent of the cockpit
-
-- **Persistence layer** — the cockpit reads via existing repositories; it does not own
-  schema or migration.
-- **Rules compilation pipeline** — operates against AI agent contexts, not the cockpit.
-- **Session lifecycle and PR workflow** — agents drive these via MCP; the cockpit observes.
-- **CI / pre-commit hooks** — System 2 / System 3 infrastructure that runs without cockpit
-  involvement.
-
-The cockpit is a **rendering surface**, not a control plane. The operator can resolve asks
-via the Attention widget (a write-back into the Ask lifecycle), but the cockpit does not
-issue commands to agents, run merges, or modify task graphs. Mutations go through the same
-domain layer the CLI and MCP use; the cockpit's mutation surface is intentionally narrow.
-
----
-
-## v0 status (as of 2026-05-14)
-
-All named v0 user-facing widgets are shipped:
-
-| Subtask | Widget                                                                                                | Status                      |
-| ------- | ----------------------------------------------------------------------------------------------------- | --------------------------- |
-| mt#1144 | Shell + widget framework                                                                              | DONE                        |
-| mt#1145 | Agents                                                                                                | DONE                        |
-| mt#1146 | TaskGraph                                                                                             | DONE                        |
-| mt#1147 | Attention (real implementation)                                                                       | DONE (2026-05-14, PR #1125) |
-| mt#1452 | Workstreams                                                                                           | DONE                        |
-| mt#1518 | Frontend stack decision                                                                               | DONE                        |
-| mt#1768 | Design + engineering bundle (10 children: shadcn migration, density treatments, agent + skill bundle) | CLOSED via children         |
-
-Remaining work:
-
-- **mt#1148** (push transport: polling → SSE) — blocked on mt#1001 (mesh signal push). The
-  current polling loop is the v0 transport; SSE is the v1 upgrade once mesh signals ship.
-- **mt#1143** (parent umbrella) — remains PLANNING as a multi-kind-workflow lifecycle
-  artifact rather than implementation incompleteness; tracked by mt#1812.
-
-The cockpit launches via `minsky cockpit`; it is local-only in v0. Multi-principal and
-hosted deployment are out of scope by construction.
-
----
-
-## Operator dev loop — lifecycle module + agent-driven inspection
-
-mt#1904 introduced two coordinated subsystems for the cockpit dev loop:
-
-### Workspace-keyed lifecycle (`src/cockpit/lifecycle.ts`)
-
-The cockpit server writes its runtime state to a per-workspace file at
-`~/.local/state/minsky/cockpit/<workspace-key>.json` on startup and removes it on
-graceful shutdown. The workspace key is the session ID for session workspaces (resolved
-from the working-directory path under `getSessionsDir()`) or the literal string `"main"`
-for the main workspace.
-
-State-file shape:
-
-```ts
-interface CockpitState {
-  pid: number; // server process PID
-  port: number; // listening port
-  url: string; // http://localhost:<port>
-  workspaceId: string; // session ID or "main" (matches the filename stem)
-  workspacePath: string; // absolute path of the workspace the cockpit was started in
-  startedAt: string; // ISO timestamp
-  devChromiumPid?: number; // PID of Minsky's dev chromium, if launched for this cockpit
-}
-```
-
-Multi-workspace concurrency is the reason for the per-workspace keying: under the
-single-global PID file mt#1887 originally shipped, legitimate peer cockpits in different
-operator session workspaces would have been misclassified as recoverable zombies. The
-lifecycle module scopes recognition to **this workspace's prior cockpit** — peer cockpits
-in other workspaces are always "unrecognized" and never auto-killed even with `--force`.
-
-`src/cockpit/port-recovery.ts` (the mt#1887 module) was refactored to consume this module.
-
-### Minsky-managed dev chromium (`src/cockpit/dev-chromium.ts`)
-
-`minsky cockpit start` launches a shared dev chromium with
-`--remote-debugging-port=9222 --user-data-dir=~/.local/share/minsky/dev-chromium` and a
-small set of "first-run-suppressing" flags. The dev chromium spawns detached so it
-survives `minsky cockpit` exit; subsequent invocations probe `/json/version` and reuse
-the already-running instance. Its state lives at `~/.local/state/minsky/dev-chromium.json`.
-
-The dedicated `--user-data-dir` keeps the dev chromium structurally separated from the
-operator's main Chrome profile.
-
-Detection is cross-platform — macOS, Linux, Windows — with `MINSKY_DEV_CHROMIUM_EXECUTABLE`
-as the operator override for non-standard installs.
-
-Opt-out: `minsky cockpit start --no-dev-chromium` skips the launch (for headless / CI
-contexts where the inspection surface is unnecessary).
-
-### chrome-devtools-mcp attachment
-
-Configure `chrome-devtools-mcp` in your Claude Code MCP config with
-`--browser-url=http://127.0.0.1:9222`:
-
-```jsonc
+```json
 {
-  "mcpServers": {
-    "chrome-devtools": {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222"],
-    },
-  },
+  "widgets": [
+    { "id": "agents", "enabled": true },
+    { "id": "attention", "enabled": true },
+    { "id": "basic-health", "enabled": true },
+    { "id": "context-inspector", "enabled": true },
+    { "id": "credentials", "enabled": true },
+    { "id": "embeddings-health", "enabled": true },
+    { "id": "task-graph", "enabled": true },
+    { "id": "task-list", "enabled": true },
+    { "id": "workstreams", "enabled": true },
+
+    { "id": "memories-health", "enabled": true },
+    { "id": "memories-stats", "enabled": true },
+    { "id": "memories-list", "enabled": true },
+    { "id": "memories-search", "enabled": true },
+    { "id": "memories-detail", "enabled": true }
+  ]
 }
 ```
 
-All concurrent Claude Code sessions attach to the same dev chromium. Each session's agent
-opens its workspace's cockpit URL as a NEW tab in the shared window, so the operator can
-scan every active cockpit at a glance. The `cockpit-design` skill's Step 0 encodes the
-URL-discovery + tab-selection procedure, AND auto-starts the cockpit server if it isn't
-running for the current workspace (mt#1925) — operators don't have to remember to run
-`minsky cockpit start` per session. The auto-start uses a cross-platform PID-liveness probe (Bun's `process.kill(pid, 0)` so
-it works on macOS, Linux, and Windows under Bun), resolves the state-file path from
-`MINSKY_STATE_DIR` / `XDG_STATE_HOME` with the same precedence as the lifecycle module
-(no hardcoded `~/.local/state/...`), and has an opt-out via operator-direction phrase
-("don't auto-start cockpit", "skip cockpit start", "I'll start it myself"). Windows
-operators currently run `minsky cockpit start` manually — the auto-start shell snippet is
-POSIX-scoped today.
+The `memories-*` widget IDs (added in mt#2150) must be enabled for the `/memories` page to render its data. A widget that is registered in code but absent from the config returns `HTTP 404 "Widget not found"` from `/api/widget/<id>/data` — this is by design (the registry self-documents what's available; the config gates what's exposed). The `/memories` route itself is always reachable regardless of widget-enablement state; only the data panels degrade.
 
-### chrome://inspect gotcha (do not use)
+### Widget catalog by route
 
-Chrome 144+ added a `chrome://inspect/#remote-debugging` UI toggle that exposes a debug
-port. **Do NOT use it for this setup.** chrome-devtools-mcp upstream issue #1194 is
-closed as wontfix-by-design: `chrome://inspect/#remote-debugging` is intended for the
-separate `--autoConnect` path (which requires per-connection auth dialogs and attaches to
-the operator's main Chrome). For `--browser-url`, Chrome MUST be launched with the
-explicit `--remote-debugging-port=` flag and a non-default `--user-data-dir` — which is
-exactly what mt#1904's dev chromium does.
+| Widget ID                                                                                      | Page                              | Surface                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                               | Home System-Status card grid                                                                                                                          |
+| `task-graph`, `task-list`, `workstreams`                                                       | `/` (promoted to dedicated pages) | Card on home + page route                                                                                                                             |
+| `memories-health`                                                                              | `/memories`                       | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card) |
+| `memories-stats`                                                                               | `/memories`                       | Stats panel: totals by type, recent count, top accessed, superseded count                                                                             |
+| `memories-list`                                                                                | `/memories`                       | Browseable record table with type + scope filters                                                                                                     |
+| `memories-search`                                                                              | `/memories`                       | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
+| `memories-detail`                                                                              | `/memories` (modal)               | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
 
-### Deferred hardening: page-id routing
+## Operator dev loop
 
-mt#1912 tracks enabling chrome-devtools-mcp's `--experimentalPageIdRouting` flag if
-cross-tab interference is ever observed in practice (two agents accidentally
-manipulating each other's tabs in the shared chromium). v0 ignores this in exchange for
-not depending on an experimental flag whose schema may shift; agents stick to the
-discipline of "find tab by URL → select_page once → do work, done."
-
-### Long-running cockpit hangs — symptoms and workaround
-
-A cockpit-server process that has been running for hours or days can accumulate
-zombie internal state — singleton init-promises that started during a transient
-upstream failure (Octokit GitHub call during laptop sleep / DNS hiccup / Supabase
-hiccup) and never resolved. Every later caller of that singleton joins the queue,
-forever. The process stays alive and serves non-DB endpoints fine, but any widget
-that touches persistence appears to hang on "Loading…".
-
-**Recognize the symptom:**
+Dev mode (recommended for active UI work):
 
 ```bash
-curl -sS --max-time 3 http://localhost:3737/api/health                       # 200 ok
-curl -sS --max-time 3 http://localhost:3737/api/widget/basic-health/data     # 200 ok
-curl -sS --max-time 3 http://localhost:3737/api/widget/attention/data        # timeout
-curl -sS --max-time 3 http://localhost:3737/api/widget/embeddings-health/data # timeout
+minsky cockpit start --dev --port 3737
 ```
 
-basic-health responding while DB-backed widgets time out is the signature.
-
-**Workaround (dev-mode):** kill the exact cockpit PID recorded in the per-workspace
-lifecycle file, then restart with `minsky cockpit start`. This avoids the breadth of
-`pkill -f` (which would also match other cockpits or unrelated processes on a shared
-machine).
+Starts Express API + Vite dev middleware on a single port. Frontend changes hot-reload via Vite HMR; API routes are served by Express as normal. For server-side auto-restart, wrap with `bun --watch`:
 
 ```bash
-# Workspace state lives at ~/.local/state/minsky/cockpit/<workspace-key>.json
-STATE_FILE=~/.local/state/minsky/cockpit/main.json    # or your session ID
-
-PID=$(jq -r .pid "$STATE_FILE")
-PORT=$(jq -r .port "$STATE_FILE")
-
-kill "$PID"
-bun --watch run src/cli.ts cockpit start --dev --port "$PORT" --no-dev-chromium
-# or, when running from an installed minsky:
-# minsky cockpit start --dev --no-dev-chromium --port "$PORT"
+bun --watch run src/cli.ts cockpit start --dev --port 3737
 ```
 
-For the **daemon-mode** cockpit (launched via `minsky cockpit install` on macOS), the
-correct restart command is `minsky cockpit restart` (launchd-managed). It does NOT
-apply to dev-mode cockpits — those are not launchd jobs.
+Production mode (pre-built bundle):
 
-Fresh cockpit responds to DB-backed widgets in <1s.
+```bash
+bun run cockpit:build && minsky cockpit start --port 3737
+```
 
-**Self-recovery (mt#2244, shipped).** `getSharedPersistenceService()` now races the
-one-time init sequence (`createService()` + `initialize()`) against a deadline. If init
-hangs past the deadline it throws `PersistenceInitTimeoutError` and clears the cached
-init-promise, so the _next_ caller starts a fresh attempt instead of joining the wedged
-one — the singleton self-heals on the following poll rather than staying wedged until a
-manual restart. Each timeout logs a `warn` line (`[shared-persistence] PersistenceService
-init timed out after <ms>ms …`); grep the cockpit logs for it to confirm the path fired.
+When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-014), this `cockpit:build` step is automatic: the tray rebuilds the bundle at startup if source is newer than `dist/`, and watches `src/cockpit/web/**` for changes while running (mt#2297). Operators running through the tray never need to invoke `cockpit:build` by hand. The auto-rebuild is gated on a source checkout being present — a packaged/no-source install serves the bundle shipped with the app.
 
-- **Default deadline:** 30s. Chosen to bound an _infinite_ hang while tolerating slow-but-
-  finite init (healthy init is ~1.7s; DB cold-start / failover can take double-digit
-  seconds).
-- **Operator override:** set `MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS=<ms>` (positive
-  integer; invalid / non-positive values fall back to the default). Lower it to fail faster
-  on a known-flaky upstream; raise it if a slow failover legitimately exceeds 30s.
-- **Known limit:** the timed-out attempt keeps running in the background and is _not_
-  cancelled (no `AbortSignal` on `PersistenceService.initialize()` yet), so a hung attempt
-  that later completes may leak a provider pool. Bounded — at most one orphan per timeout.
-  True cancellation is tracked in **mt#2248**.
+## Daemon lifecycle and tray
 
-**Related fix in flight:** mt#2245 (bounded Octokit network timeouts for the github-issues
-backend — the upstream root cause of the hang). Originating investigation: mt#2186.
-
----
-
-## Companion principles in the cockpit
-
-The cockpit is shaped by the three companion principles named in
-[`docs/theory-of-operation.md`](../theory-of-operation.md#companion-principles):
-
-- **Attention as the scarce resource.** Every widget's information density and update
-  cadence are calibrated against operator attention budget. The Attention widget's
-  algedonic selection is the most direct expression: it does not show every Ask, only the
-  ones structurally routed to the operator. Asks resolvable by policy or peer agents never
-  reach this surface.
-- **Humility as a design property.** The cockpit does not let agents act on the operator's
-  behalf at System 5 scope. Mark-resolved on an Ask is a System 5 decision; the agent
-  surfaces options, the operator decides. The cockpit is a rendering surface for operator
-  decisions, not an autonomy delegation surface.
-- **Noticing as a structural property.** The cockpit makes drift visible: stale sessions,
-  unresolved asks, blocked task graphs. It cannot make the operator notice, but it
-  removes the failure mode where state silently rots because no one was looking.
-
----
+- `cockpit-tray/` — Tauri v2 menu bar app
+- [ADR-014](adr-014-cockpit-daemon-lifecycle-ownership.md) — daemon lifecycle ownership (tray-app supervisor; mt#2241)
+- Bundle auto-rebuild (mt#2297): the tray keeps the served production bundle fresh — a startup pre-flight rebuild (when `src/cockpit/web/**` is newer than `dist/`) plus a runtime filesystem watcher that rebuilds on source changes (excluding `dist`/`node_modules`/`.git`). A "Last build" line in the tray menu shows when the bundle last refreshed; build failures surface there (serving the prior bundle on a runtime failure, refusing to spawn when there is no bundle at all). All of it no-ops on a no-source install. See `cockpit-tray/README.md` § _Bundle auto-rebuild_.
+- mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
 
 ## Cross-references
 
-### Tasks
-
-- **mt#1143** — Cockpit v0 parent umbrella
-- **mt#1144 / mt#1145 / mt#1146 / mt#1147 / mt#1452 / mt#1518 / mt#1768** — v0 subtasks
-- **mt#1034** — Attention allocation subsystem (ADR + Ask entity)
-- **mt#1411** — Service-window primitives consumed by the Attention widget
-- **mt#1001** — Mesh signal push (gates SSE transport upgrade)
-- **mt#1078** — Agent identity (feeds Agents widget display)
-- **mt#1887** — Cockpit start: port-in-use recovery + `--open` flag
-- **mt#1904** — Workspace-keyed lifecycle module + Minsky-managed dev chromium
-- **mt#1912** — Deferred hardening: enable `--experimentalPageIdRouting` on observed cross-tab interference
-- **mt#1925** — Skill-level cockpit auto-start (eliminates the rote `minsky cockpit start` step before agent UI inspection)
-- **mt#1913** — Generic upstream-issue watcher (sibling of the chrome://inspect gotcha record)
-
-### Docs
-
-- [`docs/theory-of-operation.md`](../theory-of-operation.md) — VSM mapping, companion principles
-- [`docs/architecture.md`](../architecture.md) — Minsky architecture overview
-- [ADR-008](adr-008-attention-allocation-subsystem.md) — Attention allocation subsystem ADR
-- [ADR-006](adr-006-agent-identity.md) — Agent identity scheme
-- `src/cockpit/CLAUDE.md` — Cockpit-specific stack and conventions (auto-loaded when
-  working on `src/cockpit/**`)
-
----
-
-## Daemon mode (mt#2140)
-
-The cockpit can run as a persistent macOS daemon instead of a foreground process,
-managed by launchd with auto-start on login and crash restart.
-
-### CLI commands
-
-```bash
-# Install the daemon (builds frontend first, writes LaunchAgent plist)
-minsky cockpit install [--port 3737] [--repo /path/to/minsky]
-
-# Check daemon status (health probe + launchctl query)
-minsky cockpit status [--port 3737] [--json]
-
-# Stop the daemon (keeps plist installed for restart)
-minsky cockpit stop
-
-# Restart the daemon (unload + reload plist)
-minsky cockpit restart
-
-# Remove the daemon (stops process, removes plist)
-minsky cockpit uninstall
-```
-
-### How it works
-
-`cockpit install` generates a macOS LaunchAgent plist at
-`~/Library/LaunchAgents/com.minsky.cockpit.plist` that runs
-`bun run src/cli.ts cockpit start --no-dev-chromium --port <port>`
-with `WorkingDirectory` set to the repo root. Key plist properties:
-
-- **RunAtLoad** — daemon starts automatically on login
-- **KeepAlive (SuccessfulExit: false)** — launchd restarts on crash (non-zero exit)
-- **ThrottleInterval: 5** — minimum 5s between restart attempts
-- **StandardOutPath / StandardErrorPath** — logs at `~/.local/state/minsky/logs/cockpit-*.log`
-
-The plist passes through `PATH`, `HOME`, and Supabase env vars from the
-install-time environment so the daemon can resolve its dependencies.
-
-### Menu bar app (cockpit-tray)
-
-A Tauri v2 macOS system-tray app lives at `cockpit-tray/`. It provides:
-
-- Status indicator (running/stopped) via health endpoint polling every 5s
-- Open cockpit in default browser
-- Start/Stop/Restart daemon (via `launchctl load/unload`)
-- Quit
-
-**Prerequisites:** Rust toolchain (`rustup`). Build with `cd cockpit-tray && bun install && bun run build`.
-
-### Coexistence with Claude Code
-
-The daemon runs independently from Claude Code's stdio MCP server instances.
-Each Claude Code tab still spawns its own `minsky mcp proxy` → `mcp start` over
-stdio; the cockpit daemon on port 3737 is a separate Express server serving the
-web UI and cockpit API routes. No port conflict or state interference.
-
-### Cross-references
-
-- `src/cockpit/launchd.ts` — plist generation, install/uninstall/status logic
-- `src/commands/cockpit/install-command.ts` — CLI `cockpit install`
-- `src/commands/cockpit/uninstall-command.ts` — CLI `cockpit uninstall`
-- `src/commands/cockpit/status-command.ts` — CLI `cockpit status`
-- `cockpit-tray/` — Tauri v2 menu bar app
-- mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
-
-### Notion essays (philosophical depth)
-
-- [The cockpit problem: from Locus theory to first instantiation](https://www.notion.so/33a937f03cb4819a8865e11164cbb1c8)
-  — the founding essay introducing the cockpit / Locus distinction
-- [The dogfooding inversion](https://www.notion.so/33b937f03cb48161ba1cce36a6751098) — why
-  Minsky's operator surface is Minsky's first customer
+- `src/cockpit/CLAUDE.md` — design vocabulary, engineering standards, IA posture (auto-loaded)
+- Memory `Cockpit stack and design/engineering bundle` (id `0cc1304c-0de3-4e5e-8e7a-b446bc70a995`) — durable cross-cutting reference
+- mt#1143 — Cockpit v0 umbrella
+- mt#2149 — embeddings-health overview card (DONE 2026-05-27)
+- mt#2150 — Memories page (this doc's `/memories` entry)
+- mt#2147 — `EmbeddingsHealthTracker` backend (DONE 2026-05-27)

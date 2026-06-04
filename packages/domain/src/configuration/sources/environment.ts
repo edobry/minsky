@@ -132,6 +132,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_WORKSPACE_COPY_CHECK", // src/hooks/pre-commit.ts (mt#1984) — workspace-COPY check override
   "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
+  "MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
   "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
   // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
   // Many of these arguably belong in environmentMappings with a proper config
@@ -191,6 +192,8 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
   "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
   "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
+  "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
+  "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
 ]);
 
 /**

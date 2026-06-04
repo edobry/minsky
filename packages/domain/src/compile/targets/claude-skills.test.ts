@@ -296,3 +296,143 @@ describe("claudeSkillsTarget.compile (dryRun)", () => {
     expect(result.contentsByPath.get(outPath)).toContain("name: my-skill");
   });
 });
+
+// ─── compile — markdown source path (mt#2279) ──────────────────────────────────
+
+function mdSourcePath(skillName: string): string {
+  return `${WORKSPACE}/.minsky/skills/${skillName}/SKILL.md`;
+}
+
+const sampleMdSource = `---
+name: md-skill
+description: A markdown-authored skill.
+user-invocable: true
+---
+
+# MD Skill
+
+Body content here.
+`;
+
+/** An import stub that fails loudly if invoked — markdown skills must NOT import. */
+const neverImport = async (path: string): Promise<unknown> => {
+  throw new Error(`dynamicImport should not be called for a markdown source: ${path}`);
+};
+
+describe("claudeSkillsTarget.compile (markdown source — mt#2279)", () => {
+  it("compiles a SKILL.md source (no skill.ts) to a banner-bearing output", async () => {
+    const written: Record<string, string> = {};
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeFakeFs({ [mdSourcePath("md-skill")]: sampleMdSource }),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+
+    const target = makeClaudeSkillsTarget(neverImport);
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+
+    expect(result.definitionsIncluded).toEqual(["md-skill"]);
+    expect(result.definitionsSkipped).toEqual([]);
+
+    const outPath = result.filesWritten[0];
+    if (outPath === undefined) throw new Error("expected filesWritten[0] to be defined");
+    expect(outPath).toContain("/.claude/skills/md-skill/SKILL.md");
+    const out = written[outPath];
+    if (out === undefined) throw new Error("expected output to be written");
+    const lines = out.split("\n");
+    expect(lines[0]).toBe("---");
+    expect(lines[1]).toBe(COMPILE_GENERATED_BANNER);
+    expect(out).toContain("name: md-skill");
+    expect(out).toContain("# MD Skill");
+    expect(out).toContain("Body content here.");
+  });
+
+  it("listOutputFiles includes markdown-sourced skill dirs", async () => {
+    const fakeFs = makeFakeFs({ [mdSourcePath("md-skill")]: sampleMdSource });
+    const target = makeClaudeSkillsTarget(neverImport);
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toContain("/.claude/skills/md-skill/SKILL.md");
+  });
+
+  it("TS and markdown both present → skip + warn (ambiguous canonical source)", async () => {
+    const skips: string[] = [];
+    const fakeFs = makeFakeFs({
+      [skillSourcePath("dual")]: "// sentinel",
+      [mdSourcePath("dual")]: sampleMdSource,
+    });
+    // dynamicImport would succeed for the .ts, but the dir must be skipped before that.
+    const importStub = makeImportStub({ [skillSourcePath("dual")]: sampleSkill });
+    const target = makeClaudeSkillsTarget(importStub, (m) => skips.push(m));
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    expect(result.definitionsSkipped).toEqual(["dual"]);
+    expect(result.definitionsIncluded).toEqual([]);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]).toContain("dual");
+    expect(skips[0]).toContain("ambiguous");
+  });
+
+  it("malformed markdown (missing required name) → skip + warn", async () => {
+    const skips: string[] = [];
+    const badMd = `---\ndescription: Missing the name field.\n---\n\n# Body\n`;
+    const fakeFs = makeFakeFs({ [mdSourcePath("bad-md")]: badMd });
+    const target = makeClaudeSkillsTarget(neverImport, (m) => skips.push(m));
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    expect(result.definitionsSkipped).toEqual(["bad-md"]);
+    expect(skips).toHaveLength(1);
+    expect(skips[0]).toContain("bad-md");
+  });
+
+  it("applies schema defaults when MD omits user-invocable / disable-model-invocation", async () => {
+    const written: Record<string, string> = {};
+    const minimalMd = `---\nname: minimal-md\ndescription: Minimal markdown skill.\n---\n\n# Minimal\n\nBody.\n`;
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeFakeFs({ [mdSourcePath("minimal-md")]: minimalMd }),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+    const target = makeClaudeSkillsTarget(neverImport);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    expect(result.definitionsIncluded).toEqual(["minimal-md"]);
+    const out = written[result.filesWritten[0] ?? ""];
+    if (out === undefined) throw new Error("expected output to be written");
+    // userInvocable defaults to true; disableModelInvocation defaults to false (omitted from output)
+    expect(out).toContain("user-invocable: true");
+    expect(out).not.toContain("disable-model-invocation");
+  });
+
+  it("normalizes a scalar `tags` frontmatter value into an array", async () => {
+    const written: Record<string, string> = {};
+    const scalarTagsMd = `---\nname: scalar-tags\ndescription: Skill with a scalar tag.\ntags: alpha\n---\n\n# Body\n`;
+    const fakeFs: MinskyCompileFsDeps = {
+      ...makeFakeFs({ [mdSourcePath("scalar-tags")]: scalarTagsMd }),
+      async writeFile(path: string, data: string): Promise<void> {
+        written[path] = data;
+      },
+    };
+    const target = makeClaudeSkillsTarget(neverImport);
+
+    const result = await target.compile({}, WORKSPACE, fakeFs);
+    // Without scalar→array normalization this would fail schema validation and skip.
+    expect(result.definitionsIncluded).toEqual(["scalar-tags"]);
+    const out = written[result.filesWritten[0] ?? ""];
+    if (out === undefined) throw new Error("expected output to be written");
+    expect(out).toContain("alpha");
+  });
+
+  it("listOutputFiles excludes ambiguous (both-source) dirs", async () => {
+    const fakeFs = makeFakeFs({
+      [skillSourcePath("dual")]: "// sentinel",
+      [mdSourcePath("dual")]: sampleMdSource,
+    });
+    const target = makeClaudeSkillsTarget(neverImport);
+    const files = await target.listOutputFiles({}, WORKSPACE, fakeFs);
+    // "dual" has both sources → compile skips it → listOutputFiles must not list it
+    expect(files).toEqual([]);
+  });
+});

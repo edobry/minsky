@@ -59,15 +59,13 @@ export const deletedTaskIdsTable = pgTable(
   () => []
 );
 
-// Drizzle schema for tasks embeddings (vectors + denormalized filter columns)
-// Uses standardized embeddings schema factory for consistency with rules_embeddings
-// Includes denormalized status and backend columns for server-side filtering
+// Drizzle schema for tasks embeddings (vectors only)
+// Uses standardized embeddings schema factory for consistency with rules_embeddings.
+// The denormalized status/backend columns were removed in migration 0044 (mt#2250):
+// ADR-013 (mt#2220) moved task similarity search to read-time domain filtering via a
+// JOIN to the live `tasks` table, making these columns vestigial (and the source of
+// the mt#2220 NULL-status bug). The `task_status` / `task_backend` enums above are
+// retained because the `tasks` table still uses them.
 export const tasksEmbeddingsTable = createEmbeddingsTable({
   ...EMBEDDINGS_CONFIGS.tasks,
-  domainColumns: {
-    status: taskStatusEnum("status"),
-    backend: taskBackendEnum("backend"),
-  },
-  // Note: Single HNSW index + WHERE clauses perform very well
-  // Partial indexes add complexity without significant benefit for most use cases
 });

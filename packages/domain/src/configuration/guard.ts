@@ -17,12 +17,51 @@ import { ValidationError } from "../errors/index";
 export const EXEMPT_COMMANDS = new Set(["init", "setup", "mcp.register"]);
 
 /**
- * Hosted-mode flag. When true, `guardProjectSetup` is a no-op.
+ * Session commands that are served entirely from the shared task DB or the
+ * GitHub API and therefore work against the hosted HTTP MCP server, which
+ * ships no `git` and has no local session workspace (mt#1601).
+ *
+ * This is an ALLOWLIST: in hosted mode every `git.*` command and every
+ * `session.*` command NOT in this set is rejected with a documented error
+ * (see `guardHostedCapability`). The list is intentionally fail-closed —
+ * a false *allow* would reach the `git clone` / workspace access that fails
+ * with the raw `/bin/sh: 1: git: not found`, which is the exact bad UX this
+ * guard exists to replace; a false *block* merely returns a clean "use the
+ * local server" message. New session commands are therefore blocked-on-hosted
+ * by default until explicitly verified to be DB/API-only and added here.
+ *
+ * Every entry below was verified to touch only the session DB record or the
+ * GitHub API, never the local session workspace or `git` CLI.
+ *
+ * Typed `ReadonlySet` so callers cannot mutate the allowlist at runtime; the
+ * only way to widen it is to edit this literal (which is the intended gate).
+ */
+export const HOSTED_SAFE_SESSION_COMMANDS: ReadonlySet<string> = new Set([
+  "session.get", // DB record lookup
+  "session.list", // DB list
+  "session.dir", // DB path lookup (string only; no fs/git access)
+  "session.search", // DB listSessions + in-memory filter
+  "session.inspect", // DB record inspection
+  "session.pr.list", // GitHub API
+  "session.pr.get", // GitHub API / DB
+  "session.pr.checks", // GitHub API check-runs
+  "session.changeset.list", // DB / GitHub API
+  "session.changeset.get", // DB / GitHub API
+  "session.cs.list", // alias of changeset.list
+  "session.cs.get", // alias of changeset.get
+]);
+
+/**
+ * Hosted-mode flag. When true, `guardProjectSetup` skips the local-setup
+ * nudge but still enforces the hosted-capability guard (mt#1601).
  *
  * The setup guard exists to nudge developers on their laptops into running
  * `minsky setup` so their MCP harness (Cursor/Claude/etc.) gets registered.
  * That intent does not apply to a hosted HTTP MCP server — no harness to
- * register, no developer to nag — so we skip the guard there. See mt#1208.
+ * register, no developer to nag — so we skip that nudge there (mt#1208). But
+ * hosted has a NARROWER capability set than local: it ships no `git` and has
+ * no session workspace, so git/workspace-requiring commands must fail fast
+ * with a documented error rather than the raw `git: not found` (mt#1601).
  */
 let hostedMode = false;
 
@@ -86,6 +125,56 @@ export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSy
 }
 
 /**
+ * Reject git/workspace-requiring commands when running on the hosted HTTP MCP
+ * server, which ships no `git` and has no local session workspace (mt#1601).
+ *
+ * Without this guard, such commands reach a `git clone` / workspace access that
+ * fails with a raw `/bin/sh: 1: git: not found`, which is opaque to the caller.
+ * Instead we throw a documented `ValidationError` naming the command and the
+ * local server as the supported path.
+ *
+ * Unsupported on hosted:
+ *  - every `git.*` command (no `git` binary, no local repo on hosted), and
+ *  - every `session.*` command NOT in `HOSTED_SAFE_SESSION_COMMANDS`
+ *    (session creation, commit, update, exec, file edits, PR push, changeset
+ *    branch ops, etc. — all need the local workspace / `git`).
+ *
+ * Commands outside the `git.*` / `session.*` namespaces are unaffected, as are
+ * the DB/API-served session reads in the allowlist.
+ *
+ * NOTE: this covers the shared-command-registry surface (session + git
+ * commands all dispatch through `guardProjectSetup`). The separately-registered
+ * session FILE tools (`session_read_file` / `session_write_file` / etc. in
+ * `adapters/mcp/session-files.ts`) bypass this chokepoint; on hosted they fail
+ * with a filesystem ENOENT rather than a `git` error. Extending the same
+ * documented-error treatment to that path is a fast-follow (see mt#1601 spec).
+ *
+ * @param commandId - The command ID being dispatched
+ * @throws {ValidationError} When the command is unsupported on hosted
+ */
+export function guardHostedCapability(commandId: string): void {
+  // Shared-registry command IDs are always namespaced (`git.log`,
+  // `session.start`), so the dotted-prefix arms below are what fire in
+  // practice. The bare-equality arms (`=== "git"` / `=== "session"`) are
+  // defensive only — there is no top-level `git` or `session` command in the
+  // registry today, but matching them too means a future bare alias can't slip
+  // past the guard.
+  const isGitCommand = commandId === "git" || commandId.startsWith("git.");
+  const isSessionCommand = commandId === "session" || commandId.startsWith("session.");
+  const isUnsupportedSessionCommand =
+    isSessionCommand && !HOSTED_SAFE_SESSION_COMMANDS.has(commandId);
+
+  if (isGitCommand || isUnsupportedSessionCommand) {
+    throw new ValidationError(
+      `Command '${commandId}' is not supported on the hosted Minsky MCP server. ` +
+        `Hosted is an HTTP MCP / metadata-only surface: it ships no 'git' and has ` +
+        `no local session workspace, so session and workspace operations must run ` +
+        `against the local 'minsky mcp' server. Use the local server for this command.`
+    );
+  }
+}
+
+/**
  * Run the project setup guard unless the command is exempt.
  *
  * @param commandId - The command ID being executed
@@ -94,6 +183,10 @@ export function checkProjectSetup(repoPath: string, deps: GuardDeps = { existsSy
  */
 export function guardProjectSetup(commandId: string, repoPath?: string, deps?: GuardDeps): void {
   if (hostedMode) {
+    // Hosted skips the local-setup nudge but still enforces the narrower
+    // hosted capability set: git/workspace ops fail fast with a documented
+    // error instead of the raw `git: not found` (mt#1601).
+    guardHostedCapability(commandId);
     return;
   }
 

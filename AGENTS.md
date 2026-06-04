@@ -2487,10 +2487,15 @@ function for testability):
    directly instead of extending `agent_transcripts` /
    `agent_transcript_turns`.
 
-**Detection scope.** The hook inspects the lines between the
-second-to-last user message and the most-recent user message — i.e., the
-just-completed assistant turn. First-turn-of-session (no prior assistant
-turn) is silent.
+**Detection scope.** The hook inspects the just-completed logical turn —
+the span between the last two REAL user prompts, via the shared
+`.claude/hooks/transcript.ts` helper (mt#2255). Because Claude Code records
+`tool_result` blocks as user-role lines, the helper bounds the turn on real
+prompts (text content) rather than every user-role line, so a turn spanning
+several tool round-trips is NOT split at each `tool_result`. First-turn-of-session
+(no prior real prompt) is silent. This shared helper is the single definition
+of the turn-boundary logic for all three UserPromptSubmit detector hooks
+(substrate-bypass, retrospective-trigger, pre-narration).
 
 **On match:** the hook emits a `HookOutput` with
 `hookSpecificOutput.hookEventName: "UserPromptSubmit"` and
@@ -2766,6 +2771,190 @@ convention.
 - `.claude/hooks/skill-staleness-detector.ts` — sibling discipline hook.
 - mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
   contract this hook conforms to).
+
+## Git-State Injection Hook
+
+A `UserPromptSubmit` hook (`.claude/hooks/inject-git-state.ts`) that injects
+the current git state (branch name, working-tree status, ahead/behind counts
+vs the default branch, and the 5 most-recent commits) into every turn's
+`additionalContext` (mt#2275). Sibling of the current-time injection hook
+(mt#2181); same architectural pattern, same override convention, same
+structural-injection rationale (memory `08606f7c` — "structural injection
+beats retrieval discipline").
+
+**Hook file:** `.claude/hooks/inject-git-state.ts`
+
+**Output formats:**
+
+Collapsed (single line, when working tree is clean AND in sync with default
+branch):
+```
+Current git state: on main, clean, in sync with last-fetched origin/main.
+```
+
+Expanded (multi-line, otherwise):
+```
+Current git state:
+- Branch: task/mt-2275 (vs last-fetched origin/main: 3 ahead, 0 behind)
+- Working tree: 2 modified, 1 untracked, 0 staged
+- Recent commits on branch:
+  abc1234 feat(mt#2275): add hook
+  def5678 fix(mt#2275): R1 review
+  ...
+```
+
+**Why this exists.** Claude Code's session-start system reminder includes a
+`gitStatus` block (current branch, modified files, recent commits). These
+values are captured once and never refreshed. Long sessions accumulate
+divergence: branch switches, new merges to main, file edits — none of which
+update the anchor. The agent then asserts stale state ("we're on main",
+"the most recent commit was X") without any failure signal until a user
+catches it. This is structurally identical to the time-anchor problem mt#2181
+fixed.
+
+**Performance budget:** <50ms per invocation. Per-command timeout derived
+from the host-imposed cap in settings.json via
+`readHostCap("inject-git-state.ts", undefined, { events: ["UserPromptSubmit"] })`
+and `deriveBudgets(...).gitTimeoutMs` — matches sibling-hook convention
+(see §Branch Freshness Guard for the budget-derivation pattern). At the
+configured 5s cap, this yields ~510ms per command. Git commands invoked:
+- `git rev-parse --is-inside-work-tree` (repo detection; handles worktrees
+  and submodules correctly via git's own check, not a `.git`-existence walk)
+- `git symbolic-ref --short HEAD` (branch name)
+- `git symbolic-ref --short refs/remotes/origin/HEAD` (default branch, with
+  `git config remote.origin.head` and main/master probes as fallbacks)
+- `git status --porcelain=v1` (working-tree status)
+- `git rev-list --left-right --count HEAD...origin/<default>` (ahead/behind
+  in a single call)
+- `git log --oneline -5 HEAD` (recent commits)
+
+**No per-turn `git fetch`.** Ahead/behind is computed against the LOCAL
+CACHE of `origin/<default>`. The hook fires on every UserPromptSubmit
+(potentially hundreds per session); a network call per turn would regress
+the budget by orders of magnitude. The output is explicitly labelled
+"vs last-fetched origin/<X>" so the agent doesn't over-interpret the
+comparison as live-remote-current. Sibling hooks like `check-branch-fresh.ts`
+fetch because they run once per merge attempt — different cost class.
+
+**Fail-open posture:** the hook bails silently (no `additionalContext` emitted)
+when:
+- `cwd` is not a git repository (per `git rev-parse --is-inside-work-tree`)
+- the `HEAD` symbolic-ref lookup fails (detached HEAD, broken repo)
+- any individual git command times out
+
+Subsidiary failures (e.g., ahead/behind can't be computed because the branch
+has no upstream) are tolerated — the snapshot still emits with the missing
+fields filled with sensible defaults. The hook is informational; it should
+never block the user prompt.
+
+**Override mechanism:** Set `MINSKY_SKIP_GIT_STATE_INJECTION=1` (or `true` /
+`yes`) to disable injection:
+
+```bash
+MINSKY_SKIP_GIT_STATE_INJECTION=1 claude
+```
+
+When the override fires, the hook emits an audit-log line to stdout
+(`[inject-git-state] override active: ...`) and returns no
+additionalContext. The audit line is not valid HookOutput JSON, so Claude
+Code's hook-output parser logs it as "Ignoring non-JSON line on stdout" —
+matching the sibling-hook audit convention.
+
+**Env-var registration:** `MINSKY_SKIP_GIT_STATE_INJECTION` is registered in
+`HOOK_ONLY_ENV_VARS` at
+`packages/domain/src/configuration/sources/environment.ts` per the
+`custom/no-unregistered-minsky-env-var` ESLint rule from mt#1788. The
+override env-var name's source of truth lives in
+`.claude/hooks/inject-git-state.ts` as the exported constant
+`GIT_STATE_INJECTION_OVERRIDE_ENV` so the hook, tests, and rule documentation
+cannot drift.
+
+**Originating context:** mt#2275 follows from the 2026-05-24/30/31 incident
+memo's open question #2 ("does the injection pattern generalize beyond
+time?"). The memo named git state as the clearest candidate after time:
+session-start system reminder captures it once; staleness produces
+silently-wrong assertions; cost is bounded; value is high.
+
+**Cross-references:**
+
+- mt#2181 — `inject-current-time.ts` (architectural template; same pattern,
+  same override convention)
+- Memory `08606f7c` — Structural injection beats retrieval discipline
+  (synthesis-level lesson; this hook is its second instance)
+- Notion incident memo `371937f03cb481428aeaeedd67f7216f` — originating
+  audit, open question #2
+- `.claude/hooks/memory-search.ts` and `.claude/hooks/skill-staleness-detector.ts`
+  — sibling injection hooks
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration
+  contract this hook conforms to)
+
+## Immutable-Migration Pre-Commit Guard
+
+A step in the pre-commit pipeline (`src/hooks/pre-commit.ts`,
+`runImmutableMigrationCheck`, between the migration-journal check and the
+deploy-domain check) that blocks committing a staged **modification or rename**
+of a migration `.sql` file whose tag is already listed in that directory's
+`meta/_journal.json` (i.e. has been applied). Like the NUL-byte / Workspace-COPY
+/ Deploy-Domain guards, this is a true git pre-commit step invoked by the
+`PreCommitHook` class from `.husky/pre-commit` — not a Claude Code PreToolUse
+hook.
+
+**Hook file (in-pipeline step):** `src/hooks/pre-commit.ts` →
+`runImmutableMigrationCheck()`. Pure-function implementation:
+`src/hooks/immutable-migration-detector.ts`
+(`detectImmutableMigrationViolations`).
+
+**Why this check exists.** Originating incident: mt#1641 / mt#2250
+(2026-06-02/03). Three applied migrations (`0002`, `0014`, `0015`) were **edited
+after being applied** to the prod database. Drizzle records `sha256(full .sql)`
+at apply-time and never re-checks the file against the ledger, so editing an
+applied migration makes the file-hash diverge from the recorded hash — and (under
+drizzle's timestamp high-water-mark apply logic, see memory `0c2427e5`) silently
+drifts the ledger from actual DB state. Reconciling the resulting prod drift
+required seven hand-audited prod writes. This guard catches the class at the
+commit, the cheapest authoring stage.
+
+**Detection.** Staged files are read via `git diff --cached --name-status
+--diff-filter=MR`. A violation is a staged `M` (modification) — or the OLD path
+of a staged `R` (rename) — that is a `.sql` file located **directly inside** a
+watched migration dir (`packages/domain/src/storage/migrations/pg` or
+`packages/domain/src/storage/migrations`; files under `meta/` or other
+sub-directories are NOT direct children and are skipped) AND whose `<tag>`
+(filename minus `.sql`) appears in that dir's `_journal.json` entries. Dirs are
+matched longest-prefix-first so the nested `pg` dir is never swallowed by its
+parent regardless of declaration order. Pure **additions** of new migration
+files (the correct path) and edits to **unjournaled** (never-applied) tags are
+always allowed.
+
+**On hit:** the step blocks, naming each violating file + tag, explaining the
+immutability invariant, and instructing the operator to write a NEW migration
+(`bun run db:generate:pg`) instead of editing the applied one.
+
+**Override mechanism:** Set `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK=1` (or `true`
+/ `yes`) before committing — for the rare legitimate case (e.g. fixing a
+never-applied migration before its first deploy). The override emits an
+audit-log line to stdout (env value + ISO timestamp).
+
+**Env-var registration:** `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK` is registered
+in `HOOK_ONLY_ENV_VARS` at
+`packages/domain/src/configuration/sources/environment.ts` (per mt#1788). The
+override env-var name's source of truth lives in
+`src/hooks/immutable-migration-detector.ts` as the exported constant
+`IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV` so the hook, the test, and this rule
+cannot drift.
+
+**Relationship to the unmerged-migration guard (mt#2277):** that sibling blocks
+*applying* an unmerged migration to shared prod; this guard blocks *editing* an
+already-applied one. Together they retire the mt#2229 / mt#2250 migration-drift
+class.
+
+**Cross-references:**
+- mt#2268 — this guard's tracking task
+- mt#1641 — runtime schema-drift detector (read-only); mt#2250 — the prod-ledger
+  reconciliation; mt#2227 — runner path/journal-monotonicity fix
+- memory `0c2427e5` — drizzle's timestamp-high-water-mark apply mechanics
+- mt#1824 / mt#1984 / mt#2208 — sibling pre-commit-step guards this one mirrors
+- mt#1788 — ESLint rule + `HOOK_ONLY_ENV_VARS` (env-var registration contract)
 
 ## Guessed-Session-Path Guard
 

@@ -34,6 +34,12 @@ import {
   isDeployDomainOverrideTruthy,
   DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV,
 } from "./deploy-domain-detector";
+import {
+  detectImmutableMigrationViolations,
+  isImmutableMigrationOverrideTruthy,
+  IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
+  MIGRATION_DIRS,
+} from "./immutable-migration-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -136,6 +142,16 @@ export class PreCommitHook {
       const migrationJournalResult = await this.runMigrationJournalCheck();
       if (!migrationJournalResult.success) {
         return migrationJournalResult;
+      }
+
+      // Step 3e-a: Immutable-migration check (mt#2268). Block staged
+      // MODIFICATIONS (not additions) to .sql files under the migration
+      // directories whose tag is already listed in meta/_journal.json.
+      // Editing an applied migration drifts Drizzle's sha256 ledger —
+      // the mt#1641/mt#2250 root cause (migrations 0002/0014/0015).
+      const immutableMigrationResult = await this.runImmutableMigrationCheck();
+      if (!immutableMigrationResult.success) {
+        return immutableMigrationResult;
       }
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
@@ -923,6 +939,146 @@ export class PreCommitHook {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, message: `Migration journal check error: ${msg}`, exitCode: 1 };
+    }
+  }
+
+  /**
+   * Block staged modifications to already-applied SQL migration files (mt#2268).
+   *
+   * Drizzle records sha256(full .sql) at apply-time; editing an applied
+   * migration causes it to re-apply on the next `migrate --execute`, silently
+   * drifting the ledger from actual DB state (mt#1641/mt#2250 root cause).
+   *
+   * Only staged MODIFICATIONS are blocked — additions are the correct path for
+   * new migrations and are always allowed.
+   *
+   * Override: setting `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK` to `1` / `true`
+   * / `yes` skips the check and emits a one-line audit message to stdout.
+   * Use only for the rare legitimate case (e.g. fixing a never-applied
+   * migration before its first deploy).
+   */
+  private async runImmutableMigrationCheck(): Promise<HookResult> {
+    if (isImmutableMigrationOverrideTruthy(process.env[IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:immutable-migration] override ${IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV}=${process.env[IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — immutable-migration check skipped`
+      );
+      return {
+        success: true,
+        message: "Immutable-migration check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      // Get staged files with their status. We include renames (R) as well as
+      // modifications (M): a rename-with-edit of an applied migration would
+      // otherwise slip past an M-only filter (mt#2268 review). `--name-status`
+      // output is `<status>\t<path>` for M, and `R<score>\t<old>\t<new>` for
+      // renames — for a rename we flag the OLD (applied) path.
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-status --diff-filter=MR",
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
+
+      const statusLines = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (statusLines.length === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
+      }
+
+      // Build staged modifications map (path -> 'M'). Renames map their OLD path
+      // to 'M' so the detector treats moving an applied migration as a violation.
+      const stagedModifications = new Map<string, string>();
+      for (const line of statusLines) {
+        const parts = line.split("\t");
+        const status = parts[0] ?? "";
+        if (status.startsWith("R") && parts.length >= 3) {
+          // Rename: parts = [R<score>, oldPath, newPath] — flag the old (applied) path.
+          stagedModifications.set(parts[1] as string, "M");
+        } else if (status === "M" && parts[1]) {
+          stagedModifications.set(parts[1] as string, "M");
+        }
+      }
+      if (stagedModifications.size === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
+      }
+
+      // Load journal tags for each migration directory.
+      const journalTagsByDir = new Map<string, ReadonlySet<string>>();
+      for (const dir of MIGRATION_DIRS) {
+        const journalPath = join(this.projectRoot, dir, "meta", "_journal.json");
+        try {
+          const raw = String(await readFile(journalPath, "utf-8"));
+          const parsed = JSON.parse(raw) as { entries?: Array<{ tag: string }> };
+          const tags = new Set((parsed.entries ?? []).map((e) => e.tag));
+          journalTagsByDir.set(dir, tags);
+        } catch {
+          // No journal for this dir — skip (e.g. dir doesn't exist yet)
+        }
+      }
+
+      const violations = detectImmutableMigrationViolations(stagedModifications, journalTagsByDir);
+
+      if (violations.length === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed",
+          exitCode: 0,
+        };
+      }
+
+      log.cli("");
+      log.cli(
+        `${violations.length} applied migration file(s) staged for modification. Commit blocked.`
+      );
+      log.cli("");
+      for (const v of violations) {
+        log.cli(`   ${v.filePath}  (tag: ${v.tag})`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli(
+        "   Applied migrations are IMMUTABLE. Drizzle records sha256(full .sql) at apply-time;"
+      );
+      log.cli("   editing an applied file causes it to re-apply on the next migrate --execute,");
+      log.cli("   silently drifting the schema ledger from actual DB state.");
+      log.cli("   Originating incidents: mt#1641, mt#2250 (migrations 0002/0014/0015).");
+      log.cli("");
+      log.cli("To fix: write a NEW migration that makes the desired schema change.");
+      log.cli("   Run `bun run db:generate:pg` (or the sqlite equivalent) to generate it.");
+      log.cli("   See .minsky/rules/migration-authoring.mdc for the canonical workflow.");
+      log.cli("");
+      log.cli(`If a modification is genuinely legitimate (e.g. fixing a never-applied migration),`);
+      log.cli(
+        `set ${IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV}=1 to override. The skip is audit-logged.`
+      );
+      return {
+        success: false,
+        message: `Immutable-migration check failed: ${violations.length} applied migration(s) staged for modification`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Immutable-migration check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Immutable-migration check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
     }
   }
 

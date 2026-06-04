@@ -8,6 +8,182 @@
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
 
+/**
+ * Override env-var name for the unmerged-migration guard.
+ * Exported so the guard, tests, and documentation cannot drift.
+ * Registered in HOOK_ONLY_ENV_VARS (packages/domain/src/configuration/sources/environment.ts).
+ */
+export const UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV = "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK";
+
+/**
+ * Classify whether a Postgres connection string targets a shared production
+ * database. The classifier is intentionally conservative: any connection whose
+ * host is NOT a known local/test pattern is treated as a shared remote DB.
+ *
+ * **Assumption (documented per spec):**  the only "local" Postgres hosts are
+ * `localhost`, `127.0.0.1`, and Docker/testcontainer aliases
+ * (`host.docker.internal`, `postgres`, `db`). Everything else — Supabase
+ * pooler hosts (*.pooler.supabase.com), direct Supabase hosts (*.supabase.co),
+ * Neon hosts (*.neon.tech), AWS RDS hosts (*.amazonaws.com), and any other
+ * remote hostname — is classified as prod.
+ *
+ * The conservative choice (remote ⇒ prod) is intentional: applying an
+ * unmerged migration to ANY remote Postgres is dangerous because you can't
+ * easily undo it if the migration is later abandoned.
+ */
+export function isProdPostgresConnection(connectionString: string): boolean {
+  let host: string;
+  try {
+    const url = new URL(connectionString);
+    host = url.hostname.toLowerCase();
+  } catch {
+    // Unparseable connection string — treat as prod (fail-closed)
+    return true;
+  }
+
+  // Known local/test hostnames — NOT prod.
+  // IPv6 loopback is matched in BOTH bracketed and unbracketed forms: Bun's
+  // `URL.hostname` keeps the brackets (`[::1]`) while Node's WHATWG URL strips
+  // them (`::1`). Matching both makes the classifier runtime-agnostic.
+  const localPatterns: Array<string | RegExp> = [
+    "localhost",
+    "127.0.0.1",
+    "[::1]", // IPv6 loopback (Bun's URL.hostname form)
+    "::1", // IPv6 loopback (Node's URL.hostname form)
+    "host.docker.internal",
+    // Common Docker service aliases used in docker-compose and testcontainers
+    "postgres",
+    "db",
+    "database",
+  ];
+
+  for (const pattern of localPatterns) {
+    if (typeof pattern === "string" ? host === pattern : pattern.test(host)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Result of the unmerged-migration check.
+ */
+export interface UnmergedMigrationCheckResult {
+  /** Whether any pending migration is absent from origin/main */
+  blocked: boolean;
+  /** Tags of migrations that are pending but NOT on origin/main */
+  unmergedTags: string[];
+  /**
+   * Set when the check could NOT be performed (e.g. `origin/main` does not
+   * resolve locally — no remote, different remote name, or not fetched). When
+   * present, the guard FAILS OPEN: it does not block, but the operator is warned
+   * so an infra/setup issue is never silently conflated with a true unmerged
+   * migration. Distinguishing this from per-file absence is the mt#2277 review fix.
+   */
+  skippedReason?: string;
+}
+
+/**
+ * For each pending migration file (journal entries beyond `appliedCount`),
+ * verify that the file is present on `origin/main` via
+ * `git cat-file -e origin/main:<path>`. Returns `blocked: true` if any
+ * pending migration is absent from origin/main.
+ *
+ * @param migrationsFolder  Absolute or CWD-relative path to the migrations folder
+ * @param journalEntries    All journal entries (in order)
+ * @param appliedCount      Number already applied in the DB (may be 0 on fresh DB)
+ * @param cwd               Working directory for git commands (default: process.cwd())
+ */
+export async function checkUnmergedMigrations(
+  migrationsFolder: string,
+  journalEntries: JournalEntry[],
+  appliedCount: number,
+  cwd: string = process.cwd()
+): Promise<UnmergedMigrationCheckResult> {
+  const { execFile } = await import("child_process");
+  const { promisify } = await import("util");
+  const execFileAsync = promisify(execFile);
+
+  const pendingEntries = journalEntries.slice(appliedCount);
+  if (pendingEntries.length === 0) {
+    return { blocked: false, unmergedTags: [] };
+  }
+
+  // Verify origin/main resolves locally BEFORE interpreting per-file absence.
+  // Without this, a missing/unfetched/differently-named remote makes every
+  // `git cat-file` fail and falsely blocks (mt#2277 review). If the ref can't be
+  // resolved, fail OPEN with a reason so the operator sees it's an infra issue,
+  // not a real unmerged migration.
+  try {
+    await execFileAsync("git", ["rev-parse", "--verify", "--quiet", "origin/main"], { cwd });
+  } catch {
+    return {
+      blocked: false,
+      unmergedTags: [],
+      skippedReason:
+        "`origin/main` does not resolve locally (no remote, different remote/branch name, " +
+        "or not fetched). Run `git fetch origin main` to enable the unmerged-migration guard.",
+    };
+  }
+
+  // Resolve the repository root so migration paths are computed relative to it,
+  // NOT to `cwd` (mt#2278). `git <tree>:<path>` interprets <path> relative to the
+  // repo top-level; if the CLI is invoked from a subdirectory, a cwd-relative path
+  // (with `../` segments) would not resolve and a merged migration would be
+  // falsely reported absent → false block. Fail OPEN if the root can't be found.
+  const { resolve, relative, sep } = await import("path");
+  let repoRoot: string;
+  try {
+    // `promisify(execFile)` resolves to `{ stdout, stderr }` in normal runtime
+    // (execFile carries the custom-promisify symbol); under a plain test mock it
+    // resolves to the stdout string. Read robustly so both shapes work.
+    const top = (await execFileAsync("git", ["rev-parse", "--show-toplevel"], { cwd })) as
+      | string
+      | { stdout: string };
+    repoRoot = String(typeof top === "string" ? top : top.stdout).trim();
+  } catch {
+    return {
+      blocked: false,
+      unmergedTags: [],
+      skippedReason:
+        "could not determine the git repository root (`git rev-parse --show-toplevel` failed); " +
+        "skipping the unmerged-migration guard.",
+    };
+  }
+
+  const unmergedTags: string[] = [];
+
+  for (const entry of pendingEntries) {
+    const sqlFileName = `${entry.tag}.sql`;
+    // Absolute path of the migration file. `resolve` honours an absolute
+    // `migrationsFolder` and otherwise resolves a relative one against `cwd`.
+    const absSqlPath = resolve(cwd, migrationsFolder, sqlFileName);
+    // Path relative to the REPO ROOT — what `git <tree>:<path>` expects. This is
+    // correct regardless of the directory the CLI was invoked from. Normalize to
+    // POSIX separators: git tree-ish paths require forward slashes, but
+    // `path.relative` yields backslashes on Windows (mt#2278 review). The path is
+    // derived from a controlled migration filename under the repo root, so it has
+    // no `..` segments, no leading `-`, and no `:` — safe to interpolate.
+    const repoRelPath = relative(repoRoot, absSqlPath).split(sep).join("/");
+
+    try {
+      // `git cat-file -e origin/main:<path>` exits 0 if the object exists,
+      // non-zero if it doesn't (file not on origin/main)
+      await execFileAsync("git", ["cat-file", "-e", `origin/main:${repoRelPath}`], { cwd });
+      // exit 0 → file is present on origin/main → not blocked
+    } catch {
+      // non-zero exit → file is NOT on origin/main
+      unmergedTags.push(entry.tag);
+    }
+  }
+
+  return {
+    blocked: unmergedTags.length > 0,
+    unmergedTags,
+  };
+}
+
 /** Shape of a single journal entry from _journal.json */
 export interface JournalEntry {
   idx: number;
@@ -381,6 +557,52 @@ export async function runPostgresSchemaMigrations(
       log.cli(`Executing...`);
       log.cli("");
     }
+
+    // ── Unmerged-migration guard (mt#2277) ─────────────────────────────────
+    // When targeting a shared production database, refuse to apply any pending
+    // migration whose .sql file is not committed AND present on origin/main.
+    // This prevents the mt#2229 class: applying a feature-branch-only migration
+    // to prod, then closing the branch without merging, leaving the DB and the
+    // repo in a diverged state.
+    if (isProdPostgresConnection(connectionString)) {
+      const override = process.env[UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV];
+      const isOverrideActive = ["1", "true", "yes"].includes((override ?? "").toLowerCase());
+
+      if (isOverrideActive) {
+        log.cli(
+          `[unmerged-migration-guard] override active (${UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV}=${override}) — ` +
+            `skipping origin/main presence check. Applied to: ${masked} at ${new Date().toISOString()}`
+        );
+      } else {
+        const check = await checkUnmergedMigrations(
+          migrationsFolder,
+          journal.entries,
+          appliedCount
+        );
+        if (check.skippedReason) {
+          // Fail-open: the guard could not run (origin/main unresolvable). Warn
+          // loudly so an infra issue is never silently treated as "all merged".
+          log.cli(
+            `[unmerged-migration-guard] could not verify against origin/main — ` +
+              `${check.skippedReason} Proceeding WITHOUT the guard.`
+          );
+        }
+        if (check.blocked) {
+          const tagList = check.unmergedTags.map((t) => `  - ${t}.sql`).join("\n");
+          throw new Error(
+            `\n🚫 Unmerged-migration guard blocked apply to shared production DB (${masked})\n\n` +
+              `The following pending migration(s) are NOT present on origin/main:\n` +
+              `${tagList}\n\n` +
+              `Merge the originating branch to main FIRST, then re-run:\n` +
+              `  minsky persistence migrate --execute\n\n` +
+              `Break-glass override (use only when the migration IS intentionally\n` +
+              `applied ahead of merge — will be audit-logged):\n` +
+              `  ${UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV}=1 minsky persistence migrate --execute`
+          );
+        }
+      }
+    }
+    // ── end unmerged-migration guard ────────────────────────────────────────
 
     const start = Date.now();
     if (files.length > 0) {

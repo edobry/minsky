@@ -1,0 +1,332 @@
+---
+name: retrospective
+description: >-
+  Structured post-failure analysis that identifies root causes and produces
+  durable fixes to process artifacts. Auto-triggers on user-side correction
+  signals ("that's wrong", "you keep doing this", "why did you do that?") AND
+  on agent self-recognized failure signals ("I owe you an apology", "I was
+  wrong about X", "I should have caught this", "I anchored on X and missed Y",
+  "I didn't think it through") — match by meaning, not literal string. Use
+  when a post-merge audit finds issues, the same feedback is given repeatedly,
+  a subagent produces incomplete work, or the user asks "what went wrong" /
+  "retrospective" / "why does this keep happening".
+user-invocable: true
+---
+
+# Retrospective Skill
+
+Structured root cause analysis after process failures. Produces durable changes to process artifacts — not a log entry.
+
+## Arguments
+
+Optional: a description of the incident, PR number, or task ID. If omitted, analyze the most recent failure in the conversation.
+
+## When to invoke
+
+- Post-merge audit reveals missed issues
+- User gives the same feedback for the 2nd+ time
+- Subagent produces incomplete or incorrect work
+- A process step is consistently skipped or forgotten
+- User explicitly asks: "what went wrong", "retrospective", "root cause", "why does this keep happening"
+- **Auto-trigger on user-side correction signals** (no explicit invocation required):
+  - Direct correction: "that's wrong", "incorrect", "not right", "that's not what I said"
+  - Frustration indicators: "you keep doing this", "I've told you this before", "again?", "how many times"
+  - Preference directives: "going forward, always...", "from now on...", "I want you to always..."
+  - Rationale questions: "why did you do that?", "what were you thinking?", "why would you..."
+  - Agent error requiring user intervention: when your own action caused an error the user had to correct
+- **Auto-trigger on agent self-recognized failure signals** (no explicit invocation required; **match by _meaning_, not literal string** — the lists below are illustrative, NOT exhaustive):
+
+  - Apology / contrition: "I owe you an apology", "I apologize for X", "that was my fault"
+  - Wrong-recommendation admission: "I was wrong about X", "my recommendation was incorrect", "I made a mistake on X"
+  - Should-have-caught: "I should have caught this", "I should have known better", "I should have thought of that", "I missed the obvious"
+  - Anchoring / conflation: "I anchored on X and missed Y", "I conflated A with B"
+  - Operational / explanatory prose (R2 extension, 2026-05-18): "I didn't think it through", "I didn't think through X", "I went straight to X without checking Y", "I defaulted to Z because I didn't pause to consider W"
+  - Future-behavior commitment without durable encoding (R3 extension, 2026-05-21): "going forward I will X", "next time I'll Y", "from now on I'll Z", "future me will W", "I should retry / surface / check Y from now on", "I'll be more careful about V". These are not failure admissions but _forward-looking commitments to behavior change_. They are anti-patterns because verbal commitments evaporate at end of turn — the next session has no memory of them. The trained response when a user expresses frustration is exactly this phrase shape (apologize + commit), which bypasses the durable-encoding step. The parent rule is `Work Completion §Process corrections require structural fixes`; without this trigger category that rule fires only on memory-recall, which has demonstrably failed (see memory `34ca81be` for the originating recurrence — agent told user "going forward I will retry or surface" after a Claude Code bug analysis without taking ANY structural action; user had to push back to surface the gap).
+
+  **When you are about to write any of these phrases (or a semantic variant) in user-facing output: STOP before the phrase lands.** Invoke the retrospective process and produce durable artifacts (root-cause analysis, memory entry, structural fix) FIRST — then either skip the apology entirely or reduce it to one sentence with the artifacts presented first. Apology language is performative; it does not produce a durable fix. The user does not need the apology — the user needs the same failure not to happen again. Artifacts achieve that; apologies don't.
+
+  **The R3 future-commitment category has an additional requirement beyond the apology/contrition pattern:** when the trigger phrase IS a future-behavior commitment ("going forward I will X"), the durable artifact MUST encode the future behavior in a way that survives session-end (memory entry, skill edit, hook, rule update — NOT a chat-only commitment). Saying it without encoding it is equivalent to not saying it. If the encoding can't be done now (e.g., MCP transport is broken), file a task with the encoding instructions so the next session can complete it; the task IS the durable artifact in that case.
+
+  This is the failure-direction dual of `User Preferences §Professional communication`'s ban on performative credit-language ("You're absolutely right", "Perfect!"). Both substitute language for action. The parent rule is `Work Completion §Never notice an issue without acting on it`: mentioning a self-recognized failure without producing a durable artifact is the same anti-pattern as noticing-without-acting. See memory `feedback_self_recognized_failure_is_retrospective_trigger` (id `1b36a19e`) for the canonical trigger-phrase list (updated continuously; pull from the memory at trigger time, not from this skill body) and the full R2 semantic-family rule.
+
+## Process
+
+### Step 0: Validate the premise
+
+**If the retrospective was triggered by a user correction or challenge** (not by your own observation of a failure):
+
+1. Re-read the actual tool outputs, file contents, or evidence relevant to the alleged mistake.
+2. If the action was justified and the user's premise is incorrect, say so clearly with evidence. Do NOT proceed with the retrospective. Do NOT apologize for correct behavior.
+3. Only proceed to Step 0.5 (triage) if you confirm an actual error occurred.
+
+This gate exists because sycophantic acceptance of false corrections produces false memories and pollutes the process artifact system. A retrospective built on a wrong premise is worse than no retrospective.
+
+### Step 0.5: Triage — determine the appropriate response level
+
+Before running the full retrospective, classify the severity of the failure:
+
+**Minor correction** — A one-off mistake with a clear, isolated fix (e.g., wrong file path, syntax error, missed detail not indicative of a process gap):
+
+- Acknowledge the error type briefly (one sentence)
+- Apply the fix
+- If this represents a new pattern not previously seen, save a memory entry for it
+- Do NOT run the full retrospective — it would be disproportionate
+
+**Process failure** — A pattern-level failure, a missed required step, or a structural issue (e.g., skipped a verification step, used wrong tool category, failed to follow a documented protocol):
+
+- Run the full 6-step retrospective (Steps 1–6 below)
+
+**Repeated failure** — The same feedback has been given before, or the user uses escalation language ("I've told you this", "you keep doing this", "again?"):
+
+- Run the full retrospective with urgency
+- The previous fix was clearly insufficient — this iteration MUST produce more aggressive structural enforcement
+- Prefer hooks over CLAUDE.md rules, skill steps over memory entries, automated checks over manual protocols
+- The output must include an explicit "Escalation" section explaining why the prior fix failed and how the new fix is more structural
+
+If uncertain between triage levels, err toward the higher level.
+
+---
+
+### 1. Identify the incident
+
+State concretely what went wrong. Not "something was missed" but the specific items, with file paths and evidence. If the incident spans multiple items, list each one.
+
+### 2. Categorize the failure mode
+
+**2a. Agent-level error taxonomy (cognitive error)**
+
+First, classify what went wrong in the agent's reasoning. This explains WHAT the cognitive failure was:
+
+- **Assumption Error** — Started with an incorrect premise (assumed X was true without verifying)
+- **Instruction Error** — Misunderstood or skipped explicit requirements (the instruction was present but not followed correctly)
+- **Context Error** — Failed to consider relevant information that was available (ignored context, prior memory, or related files)
+- **Verification Error** — Failed to validate before proceeding (acted without checking, skipped a required confirmation step)
+- **Tool Error** — Misused available tools or functions (wrong tool, wrong parameters, wrong sequencing)
+- **Preference Error** — Failed to adhere to established user preferences (violated a known, documented preference)
+
+**2b. Structural gap category**
+
+Then classify the structural gap that allowed the error to occur. This explains WHY the system permitted it:
+
+- **Verification gap** — Checked X but should have also checked Y. The verification step existed but its scope was too narrow.
+- **Communication gap** — Instruction said X but the agent (or subagent) understood Y. The intent didn't survive the prompt boundary.
+- **Process gap** — No step exists for checking X. The failure mode wasn't anticipated in the process design.
+- **Enforcement gap** — A rule or policy exists but nothing enforces it. The right behavior requires memory/discipline instead of structure.
+- **Scope gap** — Work was scoped by files/symbols instead of by behavior/concepts. Residue survived in adjacent code.
+
+The agent error (2a) explains the proximate failure; the structural gap (2b) explains the systemic cause. Both must be addressed: fixing only one leaves the other a recurring risk.
+
+### 3. Root cause analysis
+
+Answer **why** the gap existed, not just **what** was missed. Dig one level deeper than the obvious:
+
+- If a verification gap: Why was the scope drawn where it was? What assumption made the narrow scope seem sufficient?
+- If a communication gap: What was ambiguous in the prompt? What context was the subagent missing?
+- If a process gap: Was this failure mode foreseeable? What signal should have triggered adding the step?
+- If an enforcement gap: Why does the rule rely on memory instead of structure? Can it be made structural?
+- If a scope gap: What framing led to file-centric instead of behavior-centric scoping?
+
+**Recurrence check**: After the initial root cause analysis, search memory for previous retrospectives or feedback entries about the same pattern:
+
+- Use memory search or grep for keywords related to this failure type
+- If a prior retrospective or feedback entry exists for the same pattern: the previous fix was insufficient. Analyze WHY it failed:
+  - Was the fix behavioral instead of structural? (Required remembering rather than being enforced)
+  - Was the scope too narrow? (Fixed a specific instance without addressing the pattern)
+  - Was the fix in the wrong artifact? (e.g., a memory entry when a hook was needed)
+- Repeated patterns MUST escalate to more aggressive enforcement: if a CLAUDE.md rule was the previous fix, this time it needs a hook, skill step, or automated check. Behavioral fixes that failed once will fail again.
+
+**Family-level recurrence check (2026-05-21, mt#2016)**: beyond the per-pattern check above, scan for **family-level recurrence** — multiple distinct patterns that share a common root. The per-pattern check catches "the same surface failed twice"; this check catches "different surfaces of the same root failed N times, each with its own surface-specific fix accumulating."
+
+Signals that a family exists:
+
+- A "family" tag or naming convention on memories (e.g., "R1 of confabulated-strategic-frame family", "Rn of X family", "<pattern>-lineage")
+- ≥3 memories cross-referencing a single root memory ID or root pattern name in their body
+- A shared parent / mechanization task that multiple memories cite as the structural-fix target (e.g., mt#1541's policy-coverage detector for the confabulated-strategic-frame family)
+
+When ≥3 such memories exist for the same root pattern, the surface-by-surface fix approach has **failed to contain the family**. The retrospective's primary recommendation MUST be **escalating the family's structural-fix task** — not adding another per-surface fix. The cumulative-cost signal across the family is what justifies structural escalation; without aggregating it, each per-surface fix looks individually proportional while the family's true cost compounds invisibly.
+
+Concrete procedure:
+
+1. Search memory for the failure-pattern root keyword (e.g., `mcp__minsky__memory_search "confabulated strategic frame"`).
+2. Count distinct R-numbered or surface-named memories that reference the same root memory ID or pattern name in their body. **Counting rules:**
+   - Count by **unique surface** — what type of agent action or artifact-class the failure occurred on (e.g., "strategic recommendation," "spec-amendment label," "ADR audit-table verdict at PR-implementation time"). One surface = one R.
+   - **Extensions of a prior R count with their parent, not as a new R.** A memory tagged `R2-extension` or "Rn extension" is a refinement of the parent R's surface, not a new instance of the family. Count it together with its parent (R2 + R2-extension = one R toward the threshold).
+   - When in doubt, count by **unique R-label** (R1, R2, R3, ...) as recorded in the memory's `## Recurrences` section, treating extensions as sub-labels of their parent.
+3. If count ≥ 3: write an **"Escalation" section** in the output (see output format below). Name the family, the count, the cumulative window from R1's date to today, and the structural-fix task's status (run the Step 5 liveness check on it now — a dead target itself is part of the escalation signal).
+4. The per-surface fix may still ship, but it MUST be paired with the family-level escalation. If only the per-surface fix lands, this retrospective itself becomes Rn+1 of the family — the per-surface-only response IS the failure pattern at the meta-level.
+
+### 4. Design fixes
+
+For each root cause, propose a fix that is **structural, not behavioral**. Prefer changes that make the wrong thing hard over changes that require remembering the right thing.
+
+Fix types by category:
+
+- **Verification gap** — Add a step to the relevant skill (merge-coordination, auditor) or CLAUDE.md protocol
+- **Communication gap** — Update subagent prompt templates or add explicit instructions to CLAUDE.md
+- **Process gap** — Add a new protocol section to CLAUDE.md or a new step to an existing skill
+- **Enforcement gap** — Convert the rule into a hook, a skill step, or a subagent identity trait
+- **Scope gap** — Update task spec guidelines or removal PR protocol in CLAUDE.md
+
+Each fix must name the specific artifact to change and the specific change.
+
+### 5. Implement fixes
+
+Make the changes. This typically means editing some combination of:
+
+- `CLAUDE.md` — policy and protocol updates
+- `.claude/skills/*/SKILL.md` — process step additions
+- **Memory entries** — call `mcp__minsky__memory_create` to persist durable feedback. The Minsky DB is the canonical store; **do not** write to `~/.claude/projects/.../memory/*.md` files (per `memory-usage` rule).
+- `.minsky/rules/*.mdc` — enforcement rules (Minsky-native source; `.cursor/rules/` is a compiled output)
+
+Use sessions for any repo file changes. Call `mcp__minsky__memory_create` directly for persistent feedback entries — the memory system stores durably in the Minsky DB, not in files.
+
+**Tier choice — file structural task NOW vs memory bridge only**
+
+Before saving a memory entry as the implementation, decide whether the structural fix's shape is already clear:
+
+- **Decision criterion**: if you can name the file/tool/skill that needs to change AND describe the specific change required, the shape IS clear. If you can only name the symptom or the rough direction, the shape is NOT clear yet.
+
+- **Shape is clear** → file the tool/skill/rule task immediately (`tasks_create` / canonical `mcp__minsky__tasks_create`) AND save the memory entry as a bridge until that task ships. Do not defer task-filing to "later this session" or "if the pattern recurs" — the structural task is the durable fix, and the memory exists only to cover the gap until it lands. Before saving the bridge memory, search memory for an existing entry on the same pattern (`mcp__minsky__memory_search`); if one exists, update it with the new task ID rather than creating a near-duplicate.
+
+- **Shape is unclear** → memory tier alone is acceptable while you investigate. The memory entry should record what you DID see (the symptom) and an explicit "fix shape unknown — investigation needed" note so a future agent recognizes it as bridge-only, not the resolution.
+
+**Structural-fix-task liveness verification (2026-05-21, mt#2016)**
+
+Before saving any bridge memory that cites a structural-fix task (the task whose shipping will retire the memory): verify the cited task is **alive**.
+
+- Call `mcp__minsky__tasks_status_get <task-id>` for every structural-fix task ID cited in the memory's body (typically named in cross-references or "Tracking task" sections).
+- A task is **alive** if its status is one of `{TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW}`.
+- A task is **dead-as-target** if its status is one of `{CLOSED, DONE, BLOCKED}`:
+  - `CLOSED` — the task was abandoned; the structural fix is not coming.
+  - `DONE` — the structural fix already shipped. If the memory's pattern recurred anyway, the citation is stale: the shipped fix did not contain the pattern, and citing it as a retirement target perpetuates the false-cover.
+  - `BLOCKED` — the task can't progress without external resolution; citing it commits the memory to a target that may never ship.
+
+If any cited task is dead-as-target:
+
+1. **Do not save the memory citing the dead target.** A bridge memory pointing at a dead task is structurally equivalent to no bridge at all — the gap-cover claim is false.
+2. **Re-target at a live successor task** if one exists. Search via `mcp__minsky__tasks_search` with the family's keywords; if there's a known parent task, list its subtasks via `mcp__minsky__tasks_children` and inspect their statuses.
+3. **If no live successor exists**, file a **"structural-fix task is dead, need replacement"** incident — a new task whose explicit purpose is to identify or create the live successor for this pattern. Cite that new task as the bridge memory's tracking target.
+4. **Surface the dead-target finding to the user explicitly.** A CLOSED structural-fix task that still has load-bearing bridge memories pointing at it is itself a structural failure; it should be named in the retrospective output, not silently re-cited.
+
+This check turns "the structural fix exists" from an assumption into an invariant. Originating case: 2026-05-21 mt#2010 PR #1217 retrospective. The agent saved a bridge memory (`f4306866`) citing mt#1541 (Surface 1 policy-coverage detector) as the family's mechanization target without noticing mt#1541 had been CLOSED. The bridge memory committed to a dead pointer; the user surfaced the gap post-fact. Tracking task for the closure investigation: mt#2015.
+
+The default until the 2026-04-26 meta-retrospective was "save memory, file structural task only after recurrence." That cost 12-24h per pattern. Reference: Notion incident memo `34e937f03cb4813c8046c6e00cb668f2` ("Mitigation-tier inversion") — of four pattern-fixes that day, only one (session_update force-push, mt#1304) followed the corrected sequence; the other three (verify-script-not-run, parallel-work, reviewer-bot misreads) waited 1-2+ days before the structural task was filed, and the failure mode recurred in the meantime.
+
+### 6. Verify the fix
+
+For each fix, answer: **Would this change have prevented the original failure?** Walk through the incident scenario with the new process in place. If the answer is "probably" instead of "yes", the fix isn't structural enough — iterate.
+
+If this is a repeated failure, also answer: **Why will this fix succeed where the previous one failed?** If you cannot articulate the structural difference, the new fix is not sufficient.
+
+## Output format
+
+Present findings to the user as:
+
+```markdown
+## Retrospective: <short description>
+
+### Triage
+
+<Minor correction / Process failure / Repeated failure> — <one sentence rationale>
+
+### Incident
+
+<What went wrong, with specifics>
+
+### Agent error (cognitive)
+
+<Which error type from 2a, and why it applies>
+
+### Failure mode: <structural category>
+
+<Why this category fits>
+
+### Root cause
+
+<One level deeper than the obvious>
+
+### Recurrence check
+
+<Was this pattern seen before? If yes: why did the prior fix fail?>
+
+### Escalation (when triage is Repeated failure OR family-level recurrence ≥3 fires)
+
+**Family**: <name of the failure-pattern family, e.g., "confabulated-strategic-frame">
+**Recurrence count**: <N> — list each R with date and surface descriptor (R1 2026-MM-DD <surface>, R2 ...).
+**Cumulative window**: <date of R1> → <date of current incident> (<N> days).
+**Structural-fix task**: <task-id> — status `<TODO|PLANNING|READY|IN-PROGRESS|IN-REVIEW|CLOSED|DONE|BLOCKED>` (from `mcp__minsky__tasks_status_get`).
+
+- If status ∈ {CLOSED, DONE, BLOCKED}: **DEAD TARGET** — re-target at live successor OR file a "structural-fix task is dead, need replacement" task (see Step 5 liveness check).
+- If status ∈ {TODO, PLANNING, READY, IN-PROGRESS, IN-REVIEW}: alive but stalled given the recurrence count; bump priority or file a comment on the task naming this retrospective as the Nth recurrence. (This set matches the Step 5 liveness alive-set verbatim; an `IN-REVIEW` task is alive — its PR is in flight, and the right escalation is naming this retrospective as a blocker on that PR's review thread.)
+
+**Recommendation**: <"escalate the family's structural-fix task" / "file successor because original is dead" / "the structural fix is alive but stalled — bump priority + name the cumulative cost in a task comment">
+
+### Fixes
+
+1. **<artifact>**: <specific change> — prevents <failure mode> by <mechanism>
+2. ...
+
+### Verification
+
+<Would each fix have caught the original failure?>
+<If repeated failure: why will this fix succeed where the previous one failed?>
+```
+
+For minor corrections (Step 0 triage), use a compressed format:
+
+```markdown
+**Correction noted**: <error type, one sentence>
+**Fix**: <what was changed>
+**Memory saved**: <yes/no — new pattern?>
+```
+
+## Worked example: family-level recurrence escalation
+
+This walkthrough demonstrates the Step 3 family-recurrence check, the Step 5 liveness check, and the Output-format Escalation section together. Scenario: a hypothetical 7th instance (R7) of the confabulated-strategic-frame family at some point after mt#2014 ships.
+
+**Setup.** During a PR-implementation session, the agent labels an artifact "auxiliary capability" inside a spec amendment to justify a build-vs-buy preference, without producing the four-step citation-and-mapping protocol. A reviewer-bot pass misses it; the user catches it post-merge. The agent invokes `/retrospective`.
+
+**Step 3 — recurrence check.** The agent runs `mcp__minsky__memory_search "confabulated strategic frame"`. Surfaced entries (illustrative):
+
+- `88d92439` (family root, "Confabulated strategic frame to justify tactical preference")
+- `feedback_build_vs_buy_default_for_non_core` (R2)
+- `feedback_build_path_as_research_at_action_time` (R2-extension)
+- `feedback_explicit_framework_selection` (R3)
+- `feedback_premise_label_verification_required` (R4)
+- `feedback_subsystem_assignment_verification` (R5)
+- `f4306866` (R6, ADR audit-table verdicts)
+- (this incident → R7)
+
+Count of distinct R-numbered memories sharing the `88d92439` root: 6 prior + this = 7. Threshold (≥3) is exceeded — family-level recurrence fires.
+
+**Step 5 — liveness check on cited structural-fix task.** The R6 memory cited `mt#1541` as the family's mechanization target. The agent runs `mcp__minsky__tasks_status_get mt#1541` → status `CLOSED`. DEAD TARGET. The R6 bridge memory was already committed to a dead pointer; this R7 retrospective must not repeat the mistake.
+
+The agent searches for a live successor via `mcp__minsky__tasks_search` on the family keywords. If mt#2015 (the mt#1541-closure investigation) has produced a successor task by R7's time, that's the live target. If not, the agent files a new task: "Successor structural-fix task for confabulated-strategic-frame family — mt#1541 was CLOSED and no replacement was filed; this task identifies or creates one."
+
+**Output — Escalation section (primary, not Fixes):**
+
+```markdown
+### Escalation (family-level recurrence)
+
+**Family**: confabulated-strategic-frame
+**Recurrence count**: 7 — R1 2026-05-08 (hosted-MCP strategic recommendation), R2 2026-05-12 (build-vs-buy action-execution), R3 2026-05-12 (framework selection), R4 2026-05-13 (spec-amendment label), R5 2026-05-17 (subsystem-assignment recommendation), R6 2026-05-21 (ADR audit-table verdict at PR-implementation time), R7 <date> (auxiliary-capability label at spec-amendment time, missed by reviewer-bot).
+**Cumulative window**: 2026-05-08 → <R7 date> (~<N> days).
+**Structural-fix task**: mt#1541 — status `CLOSED`. DEAD TARGET — successor required. mt#2015 (closure investigation) is <status>; file/wait for the live successor it produces.
+**Recommendation**: file successor mechanization task NOW. The per-surface fix tier is exhausted — every prior R shipped a per-surface fix and the family continued. The bridge-memory tier alone fails because bridges have been pointing at a dead task since R6. Until the live successor exists, every new R adds to a stalled queue without containment.
+```
+
+**Output — Fixes (secondary, paired with escalation):**
+
+The per-surface fix for R7 (a new spec-amendment-time check, or extending an existing one) may still ship — but the PR body and the bridge memory must reference the family Escalation and the live successor task, not mt#1541. If only the per-surface fix ships and the escalation is omitted, R7's retrospective itself becomes R8 of the family at the meta-level.
+
+**Why this walkthrough succeeds where the R6 retrospective did not.** R6 produced a per-surface fix (mt#2014) and a bridge memory (`f4306866`) citing mt#1541 as the mechanization target. The R6 retrospective did NOT run a family-level recurrence count (which would have surfaced 6 R's at that point) and did NOT run a liveness check on mt#1541 (which would have surfaced its CLOSED status). The user surfaced both gaps post-fact. The Step 3 family check and Step 5 liveness check above structurally produce both findings on first run.
+
+## Key principles
+
+- **Structural over behavioral** — If a fix requires "remember to do X", it's not a fix. Make the environment enforce it.
+- **One level deeper** — "We missed it" is not a root cause. WHY did the process design allow missing it?
+- **Durable artifacts only** — Every fix must land in a file that persists across conversations (CLAUDE.md, skills, memory, rules). Chat-only conclusions evaporate.
+- **No blame, only gaps** — The question is never "who messed up" but "what structural gap allowed the failure."
+- **Escalate on recurrence** — If a pattern repeats, the fix tier must increase. Behavioral → CLAUDE.md → skill step → hook. The same fix tier applied twice will fail twice.
+- **Proportionate response** — Minor one-off corrections don't warrant a full retrospective. Reserve the full process for structural and repeated failures.
+- **Connected to Minsky philosophy** — This is variety management (Ashby). A failure means the verification's variety was insufficient to match the codebase's complexity. The fix amplifies regulatory variety.

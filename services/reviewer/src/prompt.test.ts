@@ -1017,6 +1017,20 @@ describe("Critic Constitution disciplines (mt#2058)", () => {
     expect(failureSection).toContain(BEHAVIORAL_RESIDUE_PHRASE);
   });
 
+  test("contains JSONC-family carve-out so bun.lock/tsconfig aren't flagged as invalid JSON (mt#2204)", () => {
+    for (const toolsAvailable of [true, false]) {
+      const c = buildCriticConstitution(toolsAvailable);
+      expect(c).toContain("JSONC-family files are not strict JSON");
+      expect(c).toContain("bun.lock");
+      expect(c).toContain("trailing commas");
+      // The carve-out lives between the Failure modes list and Out-of-repo refs.
+      const failureModesStart = c.indexOf(FAILURE_MODES_HEADING);
+      const outOfRepoStart = c.indexOf("## Out-of-repo references");
+      const failureSection = c.slice(failureModesStart, outOfRepoStart);
+      expect(failureSection).toContain("JSONC-family files are not strict JSON");
+    }
+  });
+
   test("contains spec section-precedence hierarchy (principle 12, mt#2082)", () => {
     expect(constitution).toContain("Spec section-precedence hierarchy");
     expect(constitution).toContain("Success Criteria");

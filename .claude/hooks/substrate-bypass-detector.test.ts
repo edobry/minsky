@@ -10,10 +10,9 @@ import {
   detectDbSubstrateBypass,
   detectPassiveOutcomeAsMechanism,
   elideMarkdownContexts,
-  parseTranscript,
-  extractLastAssistantTurn,
   OVERRIDE_ENV_VAR,
 } from "./substrate-bypass-detector";
+import { parseTranscript, extractLastAssistantTurn } from "./transcript";
 import type { ClaudeHookInput } from "./types";
 
 // ---------------------------------------------------------------------------

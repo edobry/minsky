@@ -318,6 +318,12 @@
           },
           {
             "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/inject-git-state.ts",
+            "timeout": 5,
+            "statusMessage": "Injecting git state..."
+          },
+          {
+            "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/memory-search.ts",
             "timeout": 10,
             "statusMessage": "Searching memory for context..."

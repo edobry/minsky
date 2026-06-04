@@ -6,21 +6,13 @@
  */
 
 import { injectable } from "tsyringe";
+import { TaskBackend, type BackendDetectionService } from "./backend-types";
 
-/**
- * Task backend types supported by Minsky
- */
-export enum TaskBackend {
-  GITHUB_ISSUES = "github-issues",
-  GITHUB = "github",
-  MINSKY = "minsky",
-  DB = "db",
-}
-
-export interface BackendDetectionService {
-  detectBackend(workingDir: string): Promise<TaskBackend>;
-  githubRemoteExists(workingDir: string): Promise<boolean>;
-}
+// Re-export the decorator-free types so existing importers of this module keep
+// working unchanged. The definitions live in `backend-types.ts` so Drizzle schema
+// files can import them without pulling in the `@injectable()` decorator below
+// (which `drizzle-kit generate`'s CJS loader cannot parse — mt#2276).
+export { TaskBackend, type BackendDetectionService };
 
 @injectable()
 export class DefaultBackendDetectionService implements BackendDetectionService {
