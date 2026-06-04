@@ -124,10 +124,10 @@ Invoke this skill when:
 
 ## Cross-references
 
-- [`.claude/skills/minsky-brand/SKILL.md`](../minsky-brand/SKILL.md) §7.1 — locked-register constraint and the canonical sound-symbolism table (single source of truth).
-- [`.claude/skills/marketing-site-design/SKILL.md`](../marketing-site-design/SKILL.md) §7a — marketing-surface naming cut.
-- [`.claude/skills/analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) — analytical dual (reads a name; this skill generates one).
-- [`.claude/skills/pz-voice/SKILL.md`](../pz-voice/SKILL.md) — voice layer.
+- [`/minsky-brand`](../minsky-brand/SKILL.md) §7.1 — locked-register constraint and the canonical sound-symbolism table (single source of truth).
+- [`/marketing-site-design`](../marketing-site-design/SKILL.md) §7a — marketing-surface naming cut.
+- [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) — analytical dual (reads a name; this skill generates one).
+- [`/pz-voice`](../pz-voice/SKILL.md) — voice layer.
 - Upstream sources:
   - [Landscape analysis: Lexicon Branding methodology — & Minsky-the-name applied](https://www.notion.so/368937f03cb4811b8edffd072f71dce8) — full Tier 1 + Tier 2 analysis; canonical substantive content.
   - Memory `lexicon_branding_naming_framework` (id `7fb49583-f27c-4d2b-a00e-7839a4077370`) — distilled principles for memory consultation.

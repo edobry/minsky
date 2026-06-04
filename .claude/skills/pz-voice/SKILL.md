@@ -236,9 +236,9 @@ When asked to write in pz-voice for a specific surface:
 
 ## Cross-references
 
-- `.claude/skills/marketing-site-design/SKILL.md` — sibling skill on the marketing-positioning layer; uses pz-voice for prose surfaces and the cultural-code architecture for visual surfaces
-- `.claude/skills/analyze-adjacent-product/SKILL.md` — sibling skill on semiotic analysis of adjacent brands
-- `.claude/skills/engineering-writing/SKILL.md` — adjacent existing skill on long-form argumentative prose generally; pz-voice is the principal-calibrated variant
+- `/marketing-site-design` — sibling skill on the marketing-positioning layer; uses pz-voice for prose surfaces and the cultural-code architecture for visual surfaces
+- `/analyze-adjacent-product` — sibling skill on semiotic analysis of adjacent brands
+- `/engineering-writing` — adjacent existing skill on long-form argumentative prose generally; pz-voice is the principal-calibrated variant
 - mt#1933 — brand-foundation skill extraction (when minsky-brand lands, it will reference pz-voice as the signal layer and carry the cultural-code architecture as the channel layer)
 - CLAUDE.md `§Principal Context` — names Eugene as the principal whose voice this skill captures
 - CLAUDE.md `§Decision Defaults > Professional communication` — names the no-go register patterns from a different angle (operational discipline); this skill makes them concrete for prose surfaces

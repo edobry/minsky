@@ -30,6 +30,12 @@ Per ADR-015 (mt#2251), skill authoring is **hybrid** and **location-canonical**.
 - **Authoring a new skill only in `.claude/skills/`.** That is the harness-output directory, not an authoring directory. New authored skills go under `.minsky/skills/<name>/`.
 - **Creating a `.minsky/` source for a vendored skill.** Vendored skills are upstream-canonical; a local source falsely claims authorship and breaks refetch-update.
 
+## Cross-reference convention
+
+When a skill references a SIBLING skill, use the harness-neutral slash form `/<skill-name>` (e.g. `/restate-plan`) — NOT a path into the harness-output dir (`.claude/skills/<name>/SKILL.md`) or the source dir (`.minsky/skills/<name>/SKILL.md`). The slash form is correct in BOTH the `.minsky/` source and the compiled `.claude/` output (the same body serves both), and it matches the dominant existing convention. Decided in mt#2302 under ADR-015 location-canonicity.
+
+**Exception — descriptive directory mentions are not cross-references.** Stating where outputs live or where the harness discovers skills (e.g. "all skill files under `.claude/skills/`", "auto-discovered from `.claude/skills/`") is a factual description, not a sibling link; leave the literal path.
+
 ## Cross-references
 
 - ADR-015 (`docs/architecture/adr-015-skill-authoring-format-policy.md`) — the decision this rule encodes

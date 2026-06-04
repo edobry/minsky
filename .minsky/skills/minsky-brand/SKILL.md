@@ -267,10 +267,10 @@ The cited franchises and works (Ghost in the Shell, Stand Alone Complex, Neon Ge
 
 ## Cross-references
 
-- `.claude/skills/marketing-site-design/SKILL.md` — surface skill for marketing-site work; depends on this foundation.
-- `.claude/skills/cockpit-design/SKILL.md` — surface skill for cockpit work; depends on this foundation.
-- `.claude/skills/pz-voice/SKILL.md` — signal layer; composes with this foundation per §8.
-- `.claude/skills/analyze-adjacent-product/SKILL.md` — analytical methodology for reading adjacent brands. The Pepsi/Arnell discussion (§2) and bridge-as-affect framework (§3) referenced from this skill live there.
+- `/marketing-site-design` — surface skill for marketing-site work; depends on this foundation.
+- `/cockpit-design` — surface skill for cockpit work; depends on this foundation.
+- `/pz-voice` — signal layer; composes with this foundation per §8.
+- `/analyze-adjacent-product` — analytical methodology for reading adjacent brands. The Pepsi/Arnell discussion (§2) and bridge-as-affect framework (§3) referenced from this skill live there.
 - `docs/brand-system.md` — operational reference for surface implementations.
 - CLAUDE.md `§Principal Context` — Minsky's commercial-product framing.
 - CLAUDE.md `§Documentation Taxonomy` — the strategic / operational / agent-consumable tier model that places this skill in its slot.

@@ -262,10 +262,10 @@ Reject these explicitly. They instantiate Idiom A or AI-slop defaults on a marke
 
 ## Cross-references
 
-- [`.claude/skills/minsky-brand/SKILL.md`](../minsky-brand/SKILL.md) — **strategic anchor**. Locked myth, cultural code, five-layer reference architecture, vocabulary, bridge-as-affect discipline, code-architecture synthesis. Load first; this skill depends on it.
-- [`.claude/skills/pz-voice/SKILL.md`](../pz-voice/SKILL.md) — signal layer. Compose with `minsky-brand` per its §8 (signal/channel split). Required when drafting marketing copy.
-- [`.claude/skills/analyze-adjacent-product/SKILL.md`](../analyze-adjacent-product/SKILL.md) — sibling skill providing the analytical foundation (Peirce-Barthes-Oswald framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis workflow, two-idiom synthesis). This skill consumes that one's output at §7 workshop Step 4.
-- [`.claude/skills/cockpit-design/SKILL.md`](../cockpit-design/SKILL.md) — structural template; this skill is its marketing-surface sibling. Cockpit's mission-control register is one organ inside the cyberbrain frame, not an independent design language — both depend on `minsky-brand`.
+- [`/minsky-brand`](../minsky-brand/SKILL.md) — **strategic anchor**. Locked myth, cultural code, five-layer reference architecture, vocabulary, bridge-as-affect discipline, code-architecture synthesis. Load first; this skill depends on it.
+- [`/pz-voice`](../pz-voice/SKILL.md) — signal layer. Compose with `minsky-brand` per its §8 (signal/channel split). Required when drafting marketing copy.
+- [`/analyze-adjacent-product`](../analyze-adjacent-product/SKILL.md) — sibling skill providing the analytical foundation (Peirce-Barthes-Oswald framework, Pepsi/Arnell discipline, bridge-as-affect, per-analysis workflow, two-idiom synthesis). This skill consumes that one's output at §7 workshop Step 4.
+- [`/cockpit-design`](../cockpit-design/SKILL.md) — structural template; this skill is its marketing-surface sibling. Cockpit's mission-control register is one organ inside the cyberbrain frame, not an independent design language — both depend on `minsky-brand`.
 - [`docs/brand-system.md`](../../../docs/brand-system.md) — operational reference. Typography stack, color palette (hex + OKLCH), motion budget with `prefers-reduced-motion`, WCAG contrast targets, font licensing, fallback stacks. Consume directly when implementing.
 - `feedback_confabulated_strategic_frame_to_justify_tactical_preference` — discipline against post-hoc framing (the Pepsi/Arnell trap at the recommendation surface)
 - `feedback_strategic_reframe_first` — the connecting direction (when a tactical ask is an instance of a strategic frame, name the frame)
