@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
@@ -17,19 +17,22 @@ import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
-import { AgentsPage } from "./pages/AgentsPage";
-import { ContextPage } from "./pages/ContextPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { WorkstreamsPage } from "./pages/WorkstreamsPage";
-import { TasksLayout } from "./pages/TasksLayout";
-import { TasksListPage } from "./pages/TasksListPage";
-import { TasksGraphPage } from "./pages/TasksGraphPage";
-import { TaskDetailPage } from "./pages/TaskDetailPage";
-import { AsksPage } from "./pages/AsksPage";
-import { ActivityPage } from "./pages/ActivityPage";
-import { EmbeddingsPage } from "./pages/EmbeddingsPage";
-import { MemoriesPage } from "./pages/MemoriesPage";
 import { PageNavTiles } from "./pages/HomePage";
+
+// Lazy-loaded page routes — each becomes its own chunk on first visit.
+// HomePage's PageNavTiles stays eagerly imported above (first-paint critical).
+const AgentsPage = lazy(() => import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage })));
+const ContextPage = lazy(() => import("./pages/ContextPage").then((m) => ({ default: m.ContextPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const WorkstreamsPage = lazy(() => import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage })));
+const TasksLayout = lazy(() => import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout })));
+const TasksListPage = lazy(() => import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage })));
+const TasksGraphPage = lazy(() => import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage })));
+const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage })));
+const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
+const ActivityPage = lazy(() => import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
+const EmbeddingsPage = lazy(() => import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage })));
+const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage })));
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -229,86 +232,94 @@ export function App() {
 
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<HomePage widgets={homeWidgets} />} />
-        <Route
-          path="/agents"
-          element={
-            <ErrorBoundary id="agents-page">
-              <AgentsPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/context"
-          element={
-            <ErrorBoundary id="context-page">
-              <ContextPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/workstreams"
-          element={
-            <ErrorBoundary id="workstreams-page">
-              <WorkstreamsPage data={workstreamsData} />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/tasks"
-          element={
-            <ErrorBoundary id="tasks-layout">
-              <TasksLayout taskGraphData={taskGraphData} />
-            </ErrorBoundary>
-          }
-        >
-          <Route index element={<TasksListPage />} />
-          <Route path="graph" element={<TasksGraphPage />} />
-          {/* React Router v7 matches literal "graph" before ":id" so no conflict */}
-          <Route path=":id" element={<TaskDetailPage />} />
-        </Route>
-        <Route
-          path="/asks"
-          element={
-            <ErrorBoundary id="asks-page">
-              <AsksPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/activity"
-          element={
-            <ErrorBoundary id="activity-page">
-              <ActivityPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ErrorBoundary id="settings-page">
-              <SettingsPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/embeddings"
-          element={
-            <ErrorBoundary id="embeddings-page">
-              <EmbeddingsPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/memories"
-          element={
-            <ErrorBoundary id="memories-page">
-              <MemoriesPage />
-            </ErrorBoundary>
-          }
-        />
-      </Routes>
+      <Suspense
+        fallback={
+          <div className="p-4 text-muted-foreground text-sm" aria-live="polite">
+            Loading…
+          </div>
+        }
+      >
+        <Routes>
+          <Route path="/" element={<HomePage widgets={homeWidgets} />} />
+          <Route
+            path="/agents"
+            element={
+              <ErrorBoundary id="agents-page">
+                <AgentsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/context"
+            element={
+              <ErrorBoundary id="context-page">
+                <ContextPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/workstreams"
+            element={
+              <ErrorBoundary id="workstreams-page">
+                <WorkstreamsPage data={workstreamsData} />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <ErrorBoundary id="tasks-layout">
+                <TasksLayout taskGraphData={taskGraphData} />
+              </ErrorBoundary>
+            }
+          >
+            <Route index element={<TasksListPage />} />
+            <Route path="graph" element={<TasksGraphPage />} />
+            {/* React Router v7 matches literal "graph" before ":id" so no conflict */}
+            <Route path=":id" element={<TaskDetailPage />} />
+          </Route>
+          <Route
+            path="/asks"
+            element={
+              <ErrorBoundary id="asks-page">
+                <AsksPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/activity"
+            element={
+              <ErrorBoundary id="activity-page">
+                <ActivityPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ErrorBoundary id="settings-page">
+                <SettingsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/embeddings"
+            element={
+              <ErrorBoundary id="embeddings-page">
+                <EmbeddingsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/memories"
+            element={
+              <ErrorBoundary id="memories-page">
+                <MemoriesPage />
+              </ErrorBoundary>
+            }
+          />
+        </Routes>
+      </Suspense>
     </Layout>
   );
 }
