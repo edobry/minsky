@@ -651,3 +651,87 @@ export async function fetchBuildLogs(
   );
   return data.buildLogs;
 }
+
+// ---------------------------------------------------------------------------
+// Service resource metrics (mt#2296)
+// ---------------------------------------------------------------------------
+//
+// Railway's `metrics` query on backboard.railway.com/graphql/v2 returns one
+// series per requested MetricMeasurement, each a list of {ts, value}
+// datapoints sampled over [startDate, endDate]. CPU is reported in vCPU
+// (CPU_USAGE / CPU_LIMIT) and memory in GB (MEMORY_USAGE_GB / MEMORY_LIMIT_GB),
+// so percentage utilization is derived usage/limit at the adapter layer.
+//
+// Schema verified live against the minsky-mcp service during mt#2296.
+
+/**
+ * The MetricMeasurement values this client requests for a service-utilization
+ * snapshot. Usage + limit pairs let the adapter derive CPU% and memory%.
+ */
+export const SERVICE_METRIC_MEASUREMENTS = [
+  "CPU_USAGE",
+  "CPU_LIMIT",
+  "MEMORY_USAGE_GB",
+  "MEMORY_LIMIT_GB",
+] as const;
+
+export type ServiceMetricMeasurement = (typeof SERVICE_METRIC_MEASUREMENTS)[number];
+
+export interface RailwayMetricDatapoint {
+  /** Unix epoch seconds. */
+  ts: number;
+  value: number;
+}
+
+export interface RailwayMetricSeries {
+  /** The MetricMeasurement name, e.g. "CPU_USAGE". */
+  measurement: string;
+  values: RailwayMetricDatapoint[];
+}
+
+interface ServiceMetricsResponse {
+  metrics: RailwayMetricSeries[];
+}
+
+const SERVICE_METRICS_QUERY = `
+  query ($serviceId: String!, $startDate: DateTime!, $measurements: [MetricMeasurement!]!, $sampleRateSeconds: Int) {
+    metrics(
+      serviceId: $serviceId
+      startDate: $startDate
+      measurements: $measurements
+      sampleRateSeconds: $sampleRateSeconds
+    ) {
+      measurement
+      values {
+        ts
+        value
+      }
+    }
+  }
+`;
+
+/**
+ * Fetch raw resource-metric series for a service over [startDate, now].
+ *
+ * @param serviceId Railway service ID.
+ * @param startDate ISO8601 lower bound of the metrics window.
+ * @param measurements MetricMeasurement enum values to fetch.
+ * @param token Railway access token (prefer {@link getValidRailwayToken}).
+ * @param sampleRateSeconds Optional bucket size; Railway picks a default when omitted.
+ */
+export async function fetchServiceMetrics(
+  serviceId: string,
+  startDate: string,
+  measurements: readonly string[],
+  token: string,
+  sampleRateSeconds?: number,
+  fetchImpl: typeof fetch = fetch
+): Promise<RailwayMetricSeries[]> {
+  const data = await railwayGraphQL<ServiceMetricsResponse>(
+    SERVICE_METRICS_QUERY,
+    { serviceId, startDate, measurements, sampleRateSeconds: sampleRateSeconds ?? null },
+    token,
+    fetchImpl
+  );
+  return data.metrics;
+}

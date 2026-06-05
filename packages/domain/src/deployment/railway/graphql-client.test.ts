@@ -10,6 +10,8 @@ import {
   refreshRailwayToken,
   getValidRailwayToken,
   railwayGraphQLAuthed,
+  fetchServiceMetrics,
+  SERVICE_METRIC_MEASUREMENTS,
   _resetInflightRefreshForTesting,
 } from "./graphql-client";
 
@@ -419,5 +421,58 @@ describe("railwayGraphQLAuthed()", () => {
     expect(calls).toHaveLength(2);
     expect(requireCall(calls, 0).url).toBe(RAILWAY_OAUTH_TOKEN_URL);
     expect(requireCall(calls, 1).url).toMatch(/\/graphql/);
+  });
+});
+
+describe("fetchServiceMetrics (mt#2296)", () => {
+  test("sends serviceId/startDate/measurements/sampleRate and parses the series", async () => {
+    const { fetchImpl, calls } = makeFetchMock(() =>
+      jsonResponse({
+        data: {
+          metrics: [
+            { measurement: "CPU_USAGE", values: [{ ts: 100, value: 0.5 }] },
+            { measurement: "CPU_LIMIT", values: [{ ts: 100, value: 8 }] },
+          ],
+        },
+      })
+    );
+
+    const result = await fetchServiceMetrics(
+      "svc-1",
+      "2026-06-04T00:00:00.000Z",
+      SERVICE_METRIC_MEASUREMENTS,
+      "tok",
+      300,
+      fetchImpl
+    );
+
+    expect(result).toHaveLength(2);
+    const cpuUsage = result.find((s) => s.measurement === "CPU_USAGE");
+    expect(cpuUsage?.values[0]).toEqual({ ts: 100, value: 0.5 });
+
+    const body = JSON.parse(String(requireCall(calls, 0).init?.body));
+    expect(body.variables).toEqual({
+      serviceId: "svc-1",
+      startDate: "2026-06-04T00:00:00.000Z",
+      measurements: ["CPU_USAGE", "CPU_LIMIT", "MEMORY_USAGE_GB", "MEMORY_LIMIT_GB"],
+      sampleRateSeconds: 300,
+    });
+    expect(body.query).toMatch(/metrics\(/);
+  });
+
+  test("defaults sampleRateSeconds to null when omitted", async () => {
+    const { fetchImpl, calls } = makeFetchMock(() => jsonResponse({ data: { metrics: [] } }));
+
+    await fetchServiceMetrics(
+      "svc-1",
+      "2026-06-04T00:00:00.000Z",
+      ["CPU_USAGE"],
+      "tok",
+      undefined,
+      fetchImpl
+    );
+
+    const body = JSON.parse(String(requireCall(calls, 0).init?.body));
+    expect(body.variables.sampleRateSeconds).toBeNull();
   });
 });
