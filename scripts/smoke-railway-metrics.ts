@@ -27,9 +27,10 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { resolveAdapter } from "@minsky/domain/deployment";
+import { resolveAdapter, resolveDeploymentConfig } from "@minsky/domain/deployment";
 
-import minskyMcpDeployConfig from "../services/minsky-mcp/deploy.config";
+/** The service whose live metrics this smoke test verifies. */
+const SERVICE = "minsky-mcp";
 
 const RAILWAY_CONFIG = join(homedir(), ".railway", "config.json");
 
@@ -39,7 +40,12 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const adapter = resolveAdapter(minskyMcpDeployConfig);
+  // Resolve the deploy config the same way the cockpit consumer (mt#2077)
+  // does — via the domain service-resolver (absolute file-URL import of
+  // services/<svc>/deploy.config.ts), not a brittle relative import. Run from
+  // the repo root so process.cwd() locates the services/ directory.
+  const { config } = await resolveDeploymentConfig(SERVICE);
+  const adapter = resolveAdapter(config);
 
   if (typeof adapter.getServiceMetrics !== "function") {
     console.error("FAIL: resolved adapter does not implement getServiceMetrics()");

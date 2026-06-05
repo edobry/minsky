@@ -145,11 +145,16 @@ export function computeMetricsSnapshot(series: RailwayMetricSeries[]): ServiceMe
   const memoryPercent =
     memUsage && memLimit && memLimit.value > 0 ? (memUsage.value / memLimit.value) * 100 : null;
 
-  const usageTimestamps = [cpuUsage?.ts, memUsage?.ts].filter(
+  // Freshest datapoint across every series that fed this snapshot (usage and
+  // limit are sampled on the same buckets in practice, but including all four
+  // is robust to any series lagging).
+  const sampleTimestamps = [cpuUsage?.ts, cpuLimit?.ts, memUsage?.ts, memLimit?.ts].filter(
     (t): t is number => typeof t === "number"
   );
   const sampledAt =
-    usageTimestamps.length > 0 ? new Date(Math.max(...usageTimestamps) * 1000).toISOString() : null;
+    sampleTimestamps.length > 0
+      ? new Date(Math.max(...sampleTimestamps) * 1000).toISOString()
+      : null;
 
   return {
     cpuPercent,

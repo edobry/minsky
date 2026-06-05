@@ -161,7 +161,7 @@ export interface ServiceMetricsSnapshot {
   memoryUsageGb: number | null;
   /** Memory limit in GB at the latest sample, or null. */
   memoryLimitGb: number | null;
-  /** ISO8601 timestamp of the latest sample used, or null when no datapoints. */
+  /** ISO8601 timestamp of the freshest datapoint across the series used, or null when no datapoints. */
   sampledAt: string | null;
 }
 

@@ -447,8 +447,8 @@ describe("fetchServiceMetrics (mt#2296)", () => {
     );
 
     expect(result).toHaveLength(2);
-    expect(result[0]?.measurement).toBe("CPU_USAGE");
-    expect(result[0]?.values[0]).toEqual({ ts: 100, value: 0.5 });
+    const cpuUsage = result.find((s) => s.measurement === "CPU_USAGE");
+    expect(cpuUsage?.values[0]).toEqual({ ts: 100, value: 0.5 });
 
     const body = JSON.parse(String(requireCall(calls, 0).init?.body));
     expect(body.variables).toEqual({
