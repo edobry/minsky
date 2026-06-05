@@ -104,6 +104,13 @@ export interface PostMergeStateSyncResult {
    * alone. See PR #1121 R1 BLOCKING #3.
    */
   taskStatusUpdated: boolean;
+  /**
+   * The kind-aware terminal status the task was (or already) at: DONE for
+   * implementation-kind tasks, COMPLETED for umbrella-kind (mt#1872). Undefined
+   * when no task is associated. Lets callers render an accurate user-facing
+   * message instead of assuming DONE.
+   */
+  taskTerminalStatus?: string;
   sessionStatusUpdated: boolean;
   pullRequestRecordUpdated: boolean;
   /**
@@ -244,16 +251,38 @@ export async function applyPostMergeStateSync(
     partialFailure: false,
   };
 
-  // (a) Task status: IN-REVIEW → DONE
+  // (a) Task status: post-merge terminal-state transition. Kind-aware (mt#1872):
+  //   - implementation kind → DONE (existing behavior; the merged PR is the completion signal)
+  //   - umbrella kind → COMPLETED (umbrella workflow has no DONE; its success terminal is COMPLETED)
+  // Defensive: umbrella tasks normally don't reach the merge path because they don't ship PRs,
+  // but nothing structurally prevents an operator from associating one with a PR. Without kind
+  // dispatch, setTaskStatus(...,DONE) for an umbrella would throw via the workflow registry's
+  // validateStatusTransition (DONE isn't a valid umbrella state) and the surrounding catch would
+  // log + swallow, leaving the task stuck in IN-PROGRESS.
   if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
     try {
       const currentStatus = await taskService.getTaskStatus(taskId);
-      if (currentStatus !== TASK_STATUS.DONE) {
-        log.debug(`applyPostMergeStateSync: setting task ${taskId} → DONE`, {
+      // getTask is a required TaskServiceInterface method. Guard the result shape
+      // defensively (typeof/null) so a non-object sentinel can't masquerade as a
+      // missing kind — that would silently default umbrella tasks to DONE.
+      const task = await taskService.getTask(taskId);
+      const taskKind =
+        typeof task === "object" &&
+        task !== null &&
+        typeof (task as { kind?: unknown }).kind === "string"
+          ? (task as { kind: string }).kind
+          : "implementation";
+      const targetStatus = taskKind === "umbrella" ? TASK_STATUS.COMPLETED : TASK_STATUS.DONE;
+      result.taskTerminalStatus = targetStatus;
+
+      if (currentStatus !== targetStatus) {
+        log.debug(`applyPostMergeStateSync: setting task ${taskId} → ${targetStatus}`, {
           currentStatus,
+          targetStatus,
+          taskKind,
           trigger,
         });
-        await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+        await taskService.setTaskStatus(taskId, targetStatus);
         result.taskStatusUpdated = true;
       }
     } catch (error) {
@@ -1275,9 +1304,9 @@ export async function mergeSessionPr(
 
   if (!params.json) {
     if (syncResult.taskStatusUpdated) {
-      log.cli("✅ Task status updated to DONE");
+      log.cli(`✅ Task status updated to ${syncResult.taskTerminalStatus ?? "DONE"}`);
     } else if (syncResult.taskId) {
-      log.cli("ℹ️  Task is already marked as DONE");
+      log.cli(`ℹ️  Task is already marked as ${syncResult.taskTerminalStatus ?? "DONE"}`);
     }
     if (syncResult.sessionCleanup?.directoriesRemoved.length) {
       log.cli(
