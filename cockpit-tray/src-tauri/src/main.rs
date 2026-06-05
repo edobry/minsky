@@ -24,6 +24,7 @@ use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 const DAEMON_PORT: u16 = 3737;
@@ -641,11 +642,7 @@ fn run_supervisor(
                         {
                             set_build_status(&app, &mut sup, "Rebuilding bundle...".to_string());
                             let result = run_cockpit_build(&bun, &root, &path);
-                            set_build_status(
-                                &app,
-                                &mut sup,
-                                build_label_for(&result, SystemTime::now(), true),
-                            );
+                            report_build_result(&app, &mut sup, &result, true);
                         }
                     }
                     Some(SupervisorCmd::Shutdown) | None => {
@@ -944,11 +941,7 @@ fn preflight_rebuild(
             set_build_status(app, sup, "Rebuilding bundle...".to_string());
             let result = run_cockpit_build(bun, repo_root, path);
             let proceed = result.is_ok() || servable_prior;
-            set_build_status(
-                app,
-                sup,
-                build_label_for(&result, SystemTime::now(), servable_prior),
-            );
+            report_build_result(app, sup, &result, servable_prior);
             if proceed {
                 PreflightResult::Proceed
             } else {
@@ -1008,6 +1001,33 @@ fn set_build_status(app: &AppHandle, sup: &mut Sup, label: String) {
     }
     sup.last_build_label = Some(label.clone());
     let _ = update_build_status(app, &label);
+}
+
+/// Fire a best-effort OS-toast on build failure (mt#2306). Additive to the
+/// status label + "Last build" menu line; ignored if notification permission is
+/// unavailable.
+fn notify_build_failure(app: &AppHandle, summary: &str) {
+    let _ = app
+        .notification()
+        .builder()
+        .title("Cockpit bundle build failed")
+        .body(summary)
+        .show();
+}
+
+/// Set the build-status label AND fire an OS-toast when the build failed.
+/// Success updates the label only (no toast).
+fn report_build_result(
+    app: &AppHandle,
+    sup: &mut Sup,
+    result: &Result<(), String>,
+    servable_prior: bool,
+) {
+    let label = build_label_for(result, SystemTime::now(), servable_prior);
+    set_build_status(app, sup, label.clone());
+    if result.is_err() {
+        notify_build_failure(app, &label);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1360,7 +1380,9 @@ fn main() {
     let spawned_setup = spawned.clone();
 
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_shell::init());
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init());
     // LaunchAgent mode registers a per-user Login Item that starts THIS app
     // (com.minsky.cockpit-tray) at login — the RunAtLoad replacement from
     // ADR-014. Distinct from the daemon's own com.minsky.cockpit launchd plist
@@ -1401,6 +1423,9 @@ fn main() {
                 .enabled(false)
                 .build(app)?;
             app.manage(BuildMenuItem(build_item.clone()));
+            // Best-effort: request notification permission so build-failure
+            // toasts can appear (mt#2306). Ignored if denied/unavailable.
+            let _ = app.notification().request_permission();
             let uptime_item = MenuItemBuilder::with_id(UPTIME_MENU_ID, "Daemon uptime: —")
                 .enabled(false)
                 .build(app)?;
