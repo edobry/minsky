@@ -115,6 +115,80 @@ export interface DeploymentPlatformAdapter {
    * see mt#1725 for the notification-path discussion.
    */
   getDeploymentLogs(deploymentId: string, type: LogType, lines?: number): Promise<LogLine[]>;
+
+  /**
+   * Read-only snapshot of current resource utilization (CPU %, memory %) for
+   * the configured service. **Optional** on the platform-neutral interface:
+   * resource-metric availability is platform-dependent — not every platform
+   * exposes a Railway-style metrics surface. Adapters that cannot serve
+   * metrics omit this method (callers feature-detect with `if (adapter.getServiceMetrics)`).
+   *
+   * Added mt#2296 (consumer: mt#2077 cockpit MCP-server page CPU%/memory% fields).
+   */
+  getServiceMetrics?(): Promise<ServiceMetricsSnapshot>;
+
+  /**
+   * Count of service restarts within a trailing time window, plus a
+   * per-status breakdown (restart-loop / M4 input for the cockpit). **Optional**
+   * for the same platform-dependence reason as {@link getServiceMetrics}.
+   *
+   * See {@link RestartCountResult} for what a "restart" counts as on each
+   * platform (Railway: deployment records created in the window).
+   *
+   * Added mt#2296 (consumer: mt#2077 cockpit MCP-server page restart-count field + M3).
+   */
+  getRestartCount?(windowHours?: number): Promise<RestartCountResult>;
+}
+
+/**
+ * Read-only snapshot of a service's current resource utilization, normalized
+ * across platforms. Percentages are 0..100; any field is `null` when the
+ * platform did not return the underlying datapoint (e.g. a brand-new service
+ * with no metrics yet, or a divide-by-zero on a zero limit).
+ *
+ * Added mt#2296.
+ */
+export interface ServiceMetricsSnapshot {
+  /** Latest CPU utilization as a percentage of the CPU limit (0..100), or null. */
+  cpuPercent: number | null;
+  /** Latest memory utilization as a percentage of the memory limit (0..100), or null. */
+  memoryPercent: number | null;
+  /** Latest raw CPU usage in vCPU, or null. */
+  cpuUsageVCpu: number | null;
+  /** CPU limit in vCPU at the latest sample, or null. */
+  cpuLimitVCpu: number | null;
+  /** Latest raw memory usage in GB, or null. */
+  memoryUsageGb: number | null;
+  /** Memory limit in GB at the latest sample, or null. */
+  memoryLimitGb: number | null;
+  /** ISO8601 timestamp of the latest sample used, or null when no datapoints. */
+  sampledAt: string | null;
+}
+
+/**
+ * Count of service restarts within a trailing window, with a per-status
+ * breakdown for restart-loop detection.
+ *
+ * **What counts as a "restart" (Railway v1):** a deployment record created
+ * within the window. This covers redeploys, config-change deploys, and
+ * crash-triggered redeploys / failed-deploy clusters — the operationally
+ * visible restart-loop signal. It does NOT count in-place container restarts
+ * that Railway performs under the same deployment without creating a new
+ * deployment record (those are `deploymentInstanceExecutions`, out of scope
+ * for the v1 derivation). `byStatus` lets a consumer threshold on FAILED
+ * clusters specifically (M3 restart-loop).
+ *
+ * Added mt#2296.
+ */
+export interface RestartCountResult {
+  /** Total deployment records created within the window. */
+  count: number;
+  /** Window length in hours. */
+  windowHours: number;
+  /** ISO8601 lower bound of the counted window. */
+  since: string;
+  /** Count per normalized DeploymentStatus within the window. */
+  byStatus: Partial<Record<DeploymentStatus, number>>;
 }
 
 /**
