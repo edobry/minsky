@@ -116,8 +116,13 @@ describe("applyPostMergeStateSync kind-aware terminal state (mt#1872)", () => {
 
     expect(result.taskStatusUpdated).toBe(true);
     expect(result.taskUpdateError).toBeUndefined();
+    expect(result.taskTerminalStatus).toBe(TASK_STATUS.COMPLETED);
     const status = await deps.taskService.getTaskStatus(TASK_ID);
     expect(status).toBe(TASK_STATUS.COMPLETED);
+    // Adjacent post-merge effects must remain intact (mergeSha/mergedAt provided):
+    // session.status → MERGED and the pullRequest record update both still land.
+    expect(result.sessionStatusUpdated).toBe(true);
+    expect(result.pullRequestRecordUpdated).toBe(true);
   });
 
   it("implementation kind already at DONE → idempotent no-op", async () => {

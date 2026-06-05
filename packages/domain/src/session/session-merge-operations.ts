@@ -104,6 +104,13 @@ export interface PostMergeStateSyncResult {
    * alone. See PR #1121 R1 BLOCKING #3.
    */
   taskStatusUpdated: boolean;
+  /**
+   * The kind-aware terminal status the task was (or already) at: DONE for
+   * implementation-kind tasks, COMPLETED for umbrella-kind (mt#1872). Undefined
+   * when no task is associated. Lets callers render an accurate user-facing
+   * message instead of assuming DONE.
+   */
+  taskTerminalStatus?: string;
   sessionStatusUpdated: boolean;
   pullRequestRecordUpdated: boolean;
   /**
@@ -255,9 +262,18 @@ export async function applyPostMergeStateSync(
   if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
     try {
       const currentStatus = await taskService.getTaskStatus(taskId);
-      const task = await taskService.getTask?.(taskId);
-      const taskKind = (task as { kind?: string } | null | undefined)?.kind || "implementation";
+      // getTask is a required TaskServiceInterface method. Guard the result shape
+      // defensively (typeof/null) so a non-object sentinel can't masquerade as a
+      // missing kind — that would silently default umbrella tasks to DONE.
+      const task = await taskService.getTask(taskId);
+      const taskKind =
+        typeof task === "object" &&
+        task !== null &&
+        typeof (task as { kind?: unknown }).kind === "string"
+          ? (task as { kind: string }).kind
+          : "implementation";
       const targetStatus = taskKind === "umbrella" ? TASK_STATUS.COMPLETED : TASK_STATUS.DONE;
+      result.taskTerminalStatus = targetStatus;
 
       if (currentStatus !== targetStatus) {
         log.debug(`applyPostMergeStateSync: setting task ${taskId} → ${targetStatus}`, {
@@ -1288,9 +1304,9 @@ export async function mergeSessionPr(
 
   if (!params.json) {
     if (syncResult.taskStatusUpdated) {
-      log.cli("✅ Task status updated to DONE");
+      log.cli(`✅ Task status updated to ${syncResult.taskTerminalStatus ?? "DONE"}`);
     } else if (syncResult.taskId) {
-      log.cli("ℹ️  Task is already marked as DONE");
+      log.cli(`ℹ️  Task is already marked as ${syncResult.taskTerminalStatus ?? "DONE"}`);
     }
     if (syncResult.sessionCleanup?.directoriesRemoved.length) {
       log.cli(
