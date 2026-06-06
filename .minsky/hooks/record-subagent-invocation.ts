@@ -56,8 +56,11 @@ async function recordInvocation(input: StopHookInput): Promise<void> {
     process.stderr.write(
       `[record-subagent-invocation] warn: could not resolve taskId for cwd=${cwd}\n`
     );
-    // Still record with a placeholder — the dispatch row was written at dispatch
-    // time with the real taskId; we upsert on subagentSessionId so we need it.
+    // KNOWN BUG (mt#2315): this early return contradicts the comment above —
+    // it drops the DB write entirely when taskId can't be resolved, instead of
+    // recording with a placeholder keyed on subagentSessionId. Pre-existing
+    // (predates the mt#2304 relocation); fixing it needs tracker/schema
+    // null-taskId verification, tracked separately in mt#2315.
     return;
   }
 
