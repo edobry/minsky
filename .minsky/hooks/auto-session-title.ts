@@ -2,10 +2,14 @@
 import { readInput, writeOutput } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import { existsSync, readFileSync, unlinkSync } from "fs";
+import { sanitizeSessionId } from "./two-strikes-record";
 
 async function main(): Promise<void> {
   const input = await readInput<ClaudeHookInput>();
-  const sessionId = input.session_id;
+  // Sanitize before composing the /tmp label-file path — must match
+  // post-session-start.ts's sanitization so the write/read filenames agree
+  // (mt#2304 R3; path-traversal hardening).
+  const sessionId = sanitizeSessionId(input.session_id ?? "default");
 
   const labelFile = `/tmp/claude-session-label-${sessionId}.json`;
 
