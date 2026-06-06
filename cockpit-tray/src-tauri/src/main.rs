@@ -24,6 +24,7 @@ use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::mpsc;
 
 const DAEMON_PORT: u16 = 3737;
@@ -39,6 +40,13 @@ const STATUS_MENU_ID: &str = "status";
 const BUILD_MENU_ID: &str = "build_status";
 /// Debounce window for coalescing bursty editor-save events before a rebuild.
 const BUILD_DEBOUNCE: Duration = Duration::from_millis(500);
+/// Dropdown line showing daemon uptime + the source mtime it was started against (mt#2299).
+const UPTIME_MENU_ID: &str = "uptime";
+/// Debounce window for the backend-source watcher (mt#2299). Larger than
+/// `BUILD_DEBOUNCE` because a process restart is more disruptive than a bundle
+/// rebuild (it drops websocket connections + in-memory caches), so we coalesce a
+/// burst of backend edits into a single restart.
+const RESTART_DEBOUNCE: Duration = Duration::from_secs(2);
 
 const LABEL_RUNNING: &str = "Cockpit: running";
 const LABEL_STOPPED: &str = "Cockpit: stopped";
@@ -188,7 +196,10 @@ fn log_dir() -> PathBuf {
 fn open_log(name: &str) -> io::Result<File> {
     let dir = log_dir();
     std::fs::create_dir_all(&dir)?;
-    OpenOptions::new().create(true).append(true).open(dir.join(name))
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(name))
 }
 
 /// Find an executable by name on the given PATH string.
@@ -262,9 +273,17 @@ fn repo_root_from_launchd_plist(path: &str) -> Option<PathBuf> {
     if !plist.exists() {
         return None;
     }
-    let plutil = resolve_program("plutil", path).unwrap_or_else(|| PathBuf::from("/usr/bin/plutil"));
+    let plutil =
+        resolve_program("plutil", path).unwrap_or_else(|| PathBuf::from("/usr/bin/plutil"));
     let out = Command::new(plutil)
-        .args(["-extract", "WorkingDirectory", "raw", "-o", "-", plist.to_str()?])
+        .args([
+            "-extract",
+            "WorkingDirectory",
+            "raw",
+            "-o",
+            "-",
+            plist.to_str()?,
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -379,18 +398,30 @@ fn teardown(spawned: &SpawnedPgid) {
 struct Sup {
     child: Option<Child>,
     last_spawn: Option<Instant>,
-    last_status: Option<&'static str>,
+    /// Last status-line text. Owned `String` (not `&'static str`) so dynamic
+    /// messages — port-conflict holder pid, restart-failure summary — can be
+    /// shown alongside the static `LABEL_*` constants (mt#2299).
+    last_status: Option<String>,
     /// Last value pushed to the build-status menu line (mt#2297), for dedupe.
     last_build_label: Option<String>,
+    /// Wall-clock start time of the daemon currently being supervised (mt#2299):
+    /// `SystemTime::now()` for a tray-spawned daemon, or `now − ps(etime)` for an
+    /// adopted one. `None` when no daemon is running. Drives the uptime line.
+    daemon_started_at: Option<SystemTime>,
+    /// Newest backend-source mtime at the moment the daemon was (re)started — the
+    /// "source version" the running daemon reflects (mt#2299).
+    daemon_source_mtime: Option<SystemTime>,
+    /// Last value pushed to the uptime menu line (mt#2299), for dedupe.
+    last_uptime_label: Option<String>,
 }
 
 /// Update the visible status label (dropdown line + tray tooltip), skipping
 /// the UI round-trip when the label hasn't changed.
-fn set_status(app: &AppHandle, sup: &mut Sup, label: &'static str) {
-    if sup.last_status == Some(label) {
+fn set_status(app: &AppHandle, sup: &mut Sup, label: &str) {
+    if sup.last_status.as_deref() == Some(label) {
         return;
     }
-    sup.last_status = Some(label);
+    sup.last_status = Some(label.to_string());
     let _ = update_status(app, label);
 }
 
@@ -400,6 +431,9 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
         None => {
             eprintln!("[cockpit-tray] bun not found on PATH — cannot spawn daemon");
             set_status(app, sup, LABEL_NO_BUN);
+            // No running child results from this path — don't leave a prior
+            // daemon's uptime line visible (mt#2299, reviewer R1 B2).
+            clear_uptime(app, sup);
             return;
         }
     };
@@ -410,6 +444,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
                 "[cockpit-tray] could not resolve Minsky repo root with src/cli.ts — refusing to spawn into a crash cwd (run `minsky cockpit install` or link the minsky bin)"
             );
             set_status(app, sup, LABEL_NO_REPO);
+            clear_uptime(app, sup);
             return;
         }
     };
@@ -419,6 +454,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
     if cockpit_web_src(&repo_root).is_dir() {
         if let PreflightResult::Refuse = preflight_rebuild(app, sup, &bun, &repo_root, path) {
             set_status(app, sup, LABEL_START_FAILED);
+            clear_uptime(app, sup);
             return;
         }
     }
@@ -426,6 +462,14 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
         Ok((child, pid)) => {
             sup.child = Some(child);
             sup.last_spawn = Some(Instant::now());
+            // mt#2299: a fresh tray-spawn is current as of now; record the
+            // wall-clock start + the backend-source version it reflects so the
+            // uptime line can render "running Xs, started against src @ HH:MM:SS".
+            // Gate the source-mtime capture on the BACKEND source root, not the
+            // web root (reviewer R1 B1).
+            sup.daemon_started_at = Some(SystemTime::now());
+            sup.daemon_source_mtime = cockpit_backend_root(path)
+                .and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
             if let Ok(mut g) = spawned.lock() {
                 *g = Some(pid);
             }
@@ -434,6 +478,7 @@ fn do_spawn(app: &AppHandle, sup: &mut Sup, spawned: &SpawnedPgid, path: &str) {
         Err(e) => {
             eprintln!("[cockpit-tray] daemon spawn failed: {e}");
             set_status(app, sup, LABEL_START_FAILED);
+            clear_uptime(app, sup);
         }
     }
 }
@@ -468,7 +513,11 @@ async fn health_ok(client: &reqwest::Client) -> bool {
         .unwrap_or(false)
 }
 
-fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>, spawned: SpawnedPgid) {
+fn run_supervisor(
+    app: AppHandle,
+    mut rx: mpsc::UnboundedReceiver<SupervisorCmd>,
+    spawned: SpawnedPgid,
+) {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -481,6 +530,14 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
         // no-source install — the auto-rebuild feature simply doesn't run.
         let _web_watcher = cockpit_source_root(&path)
             .and_then(|root| start_web_watcher(&app, &cockpit_web_src(&root)));
+        // mt#2299: runtime backend-source watcher. Sibling of `_web_watcher`;
+        // dispatches `Restart` (not `Rebuild`) on a backend `.ts`/`.mts`/`.cts`
+        // change. `web/**` is excluded so a frontend edit never restarts the
+        // daemon. Gated on `cockpit_backend_root` (BACKEND source presence), NOT
+        // `cockpit_source_root` (web presence) — reviewer R1 B1: the web gate
+        // made the whole feature silently no-op when `web/` was absent.
+        let _backend_watcher = cockpit_backend_root(&path)
+            .and_then(|root| start_backend_watcher(&app, &cockpit_backend_src(&root)));
         // pool_max_idle_per_host(0) disables keep-alive reuse: each poll opens a
         // fresh connection. Without this a pooled connection can go stale
         // (daemon idle-close / half-open socket) and every poll fails its 2s
@@ -496,12 +553,34 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
             last_spawn: None,
             last_status: None,
             last_build_label: None,
+            daemon_started_at: None,
+            daemon_source_mtime: None,
+            last_uptime_label: None,
         };
 
         // Initial adoption-or-spawn.
         match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-            DaemonAction::Adopt => set_status(&app, &mut sup, LABEL_RUNNING),
-            DaemonAction::Conflict => set_status(&app, &mut sup, LABEL_CONFLICT),
+            DaemonAction::Adopt => match adopt_decision(&path) {
+                AdoptDecision::Stale => {
+                    // Adopted daemon predates the current backend source (the
+                    // 2026-06-04 8-day-stale case) — restart it (kill the
+                    // health-confirmed daemon, respawn fresh) so new widget
+                    // registrations / routes load before we report ready (mt#2299).
+                    do_stop(&mut sup, &spawned, &path, true);
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    do_spawn(&app, &mut sup, &spawned, &path);
+                }
+                AdoptDecision::Fresh { started, source_mtime } => {
+                    sup.daemon_started_at = started;
+                    sup.daemon_source_mtime = source_mtime;
+                    set_status(&app, &mut sup, LABEL_RUNNING);
+                    refresh_uptime(&app, &mut sup);
+                }
+            },
+            DaemonAction::Conflict => {
+                set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                clear_uptime(&app, &mut sup);
+            }
             DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
         }
 
@@ -510,8 +589,23 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                 cmd = rx.recv() => match cmd {
                     Some(SupervisorCmd::Start) => {
                         match decide_action(health_ok(&client).await, port_in_use(DAEMON_PORT, &path)) {
-                            DaemonAction::Adopt => set_status(&app, &mut sup, LABEL_RUNNING),
-                            DaemonAction::Conflict => set_status(&app, &mut sup, LABEL_CONFLICT),
+                            DaemonAction::Adopt => match adopt_decision(&path) {
+                                AdoptDecision::Stale => {
+                                    do_stop(&mut sup, &spawned, &path, true);
+                                    tokio::time::sleep(Duration::from_millis(500)).await;
+                                    do_spawn(&app, &mut sup, &spawned, &path);
+                                }
+                                AdoptDecision::Fresh { started, source_mtime } => {
+                                    sup.daemon_started_at = started;
+                                    sup.daemon_source_mtime = source_mtime;
+                                    set_status(&app, &mut sup, LABEL_RUNNING);
+                                    refresh_uptime(&app, &mut sup);
+                                }
+                            },
+                            DaemonAction::Conflict => {
+                                set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
+                                clear_uptime(&app, &mut sup);
+                            }
                             DaemonAction::Spawn => do_spawn(&app, &mut sup, &spawned, &path),
                         }
                     }
@@ -521,16 +615,17 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                         do_stop(&mut sup, &spawned, &path, h);
                         if !had_child && !h && port_in_use(DAEMON_PORT, &path) {
                             // A foreign process owns :3737 — we didn't (and won't) kill it.
-                            set_status(&app, &mut sup, LABEL_CONFLICT);
+                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
                         } else {
                             set_status(&app, &mut sup, LABEL_STOPPED);
                         }
+                        clear_uptime(&app, &mut sup);
                     }
                     Some(SupervisorCmd::Restart) => {
                         let h = health_ok(&client).await;
                         if sup.child.is_none() && !h && port_in_use(DAEMON_PORT, &path) {
                             // Foreign listener owns the port — refuse to restart over it.
-                            set_status(&app, &mut sup, LABEL_CONFLICT);
+                            set_status(&app, &mut sup, &conflict_label_for(pid_on_port(DAEMON_PORT, &path)));
                         } else {
                             do_stop(&mut sup, &spawned, &path, h);
                             tokio::time::sleep(Duration::from_millis(500)).await;
@@ -547,11 +642,7 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                         {
                             set_build_status(&app, &mut sup, "Rebuilding bundle...".to_string());
                             let result = run_cockpit_build(&bun, &root, &path);
-                            set_build_status(
-                                &app,
-                                &mut sup,
-                                build_label_for(&result, SystemTime::now(), true),
-                            );
+                            report_build_result(&app, &mut sup, &result, true);
                         }
                     }
                     Some(SupervisorCmd::Shutdown) | None => {
@@ -568,6 +659,8 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                 _ = tokio::time::sleep(POLL_INTERVAL) => {
                     if health_ok(&client).await {
                         set_status(&app, &mut sup, LABEL_RUNNING);
+                        // mt#2299: keep the uptime line ticking while healthy.
+                        refresh_uptime(&app, &mut sup);
                         continue;
                     }
                     // Health is down. Only a daemon WE spawned is respawned.
@@ -578,10 +671,19 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                             if let Ok(mut g) = spawned.lock() {
                                 *g = None;
                             }
+                            clear_uptime(&app, &mut sup);
                             if throttle_ok(sup.last_spawn, Instant::now(), RESPAWN_THROTTLE) {
                                 do_spawn(&app, &mut sup, &spawned, &path);
                             } else {
-                                set_status(&app, &mut sup, LABEL_STOPPED);
+                                // Crash-looping: exited within the respawn-throttle
+                                // window (e.g. a syntax error in server.ts that makes
+                                // the new process fail to bind). Surface the stderr
+                                // tail instead of a silent "stopped" (mt#2299 #5).
+                                let label = match daemon_error_tail() {
+                                    Some(e) => format!("Cockpit: start failed: {e} (see logs)"),
+                                    None => LABEL_STOPPED.to_string(),
+                                };
+                                set_status(&app, &mut sup, &label);
                             }
                         }
                         Some(Ok(None)) => {
@@ -592,6 +694,7 @@ fn run_supervisor(app: AppHandle, mut rx: mpsc::UnboundedReceiver<SupervisorCmd>
                             // No child of ours (adopted daemon down, or never
                             // spawned). Don't auto-spawn over an adopted daemon.
                             set_status(&app, &mut sup, LABEL_STOPPED);
+                            clear_uptime(&app, &mut sup);
                         }
                     }
                 }
@@ -723,9 +826,17 @@ fn dist_staleness(web_src: &Path) -> Staleness {
 
 /// Format a wall-clock instant as `HH:MM:SS UTC` without a date crate.
 fn format_hms_utc(t: SystemTime) -> String {
-    let secs = t.duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let secs = t
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     let sod = secs % 86_400;
-    format!("{:02}:{:02}:{:02} UTC", sod / 3600, (sod % 3600) / 60, sod % 60)
+    format!(
+        "{:02}:{:02}:{:02} UTC",
+        sod / 3600,
+        (sod % 3600) / 60,
+        sod % 60
+    )
 }
 
 /// The repo root IF it both resolves (has `src/cli.ts`) AND contains the cockpit
@@ -778,7 +889,11 @@ fn run_cockpit_build(bun: &Path, repo_root: &Path, path: &str) -> Result<(), Str
         let _ = writeln!(
             log,
             "--- cockpit:build {} ---\n{}{}",
-            if output.status.success() { "OK" } else { "FAILED" },
+            if output.status.success() {
+                "OK"
+            } else {
+                "FAILED"
+            },
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr),
         );
@@ -826,7 +941,7 @@ fn preflight_rebuild(
             set_build_status(app, sup, "Rebuilding bundle...".to_string());
             let result = run_cockpit_build(bun, repo_root, path);
             let proceed = result.is_ok() || servable_prior;
-            set_build_status(app, sup, build_label_for(&result, SystemTime::now(), servable_prior));
+            report_build_result(app, sup, &result, servable_prior);
             if proceed {
                 PreflightResult::Proceed
             } else {
@@ -841,10 +956,7 @@ fn preflight_rebuild(
 /// out so a rebuild can't re-trigger itself. A relevant change sends a debounced
 /// `Rebuild` command to the supervisor. The returned `Debouncer` must be held
 /// alive for the watch to persist.
-fn start_web_watcher(
-    app: &AppHandle,
-    web_src: &Path,
-) -> Option<Debouncer<RecommendedWatcher>> {
+fn start_web_watcher(app: &AppHandle, web_src: &Path) -> Option<Debouncer<RecommendedWatcher>> {
     let tx = app.try_state::<SupervisorHandle>()?.0.clone();
     let root = web_src.to_path_buf();
     let mut debouncer = new_debouncer(BUILD_DEBOUNCE, move |res: DebounceEventResult| {
@@ -891,6 +1003,368 @@ fn set_build_status(app: &AppHandle, sup: &mut Sup, label: String) {
     let _ = update_build_status(app, &label);
 }
 
+/// Fire a best-effort OS-toast on build failure (mt#2306). Additive to the
+/// status label + "Last build" menu line; ignored if notification permission is
+/// unavailable.
+fn notify_build_failure(app: &AppHandle, summary: &str) {
+    let _ = app
+        .notification()
+        .builder()
+        .title("Cockpit bundle build failed")
+        .body(summary)
+        .show();
+}
+
+/// Set the build-status label AND fire an OS-toast when the build failed.
+/// Success updates the label only (no toast).
+fn report_build_result(
+    app: &AppHandle,
+    sup: &mut Sup,
+    result: &Result<(), String>,
+    servable_prior: bool,
+) {
+    let label = build_label_for(result, SystemTime::now(), servable_prior);
+    set_build_status(app, sup, label.clone());
+    if result.is_err() {
+        notify_build_failure(app, &label);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Backend-source freshness + auto-restart (mt#2299).
+//
+// Complements the mt#2297 web-bundle auto-rebuild. When server-side cockpit
+// source changes (server.ts, widget-registry.ts, widgets/**, config.ts,
+// types.ts, ...), the RUNNING daemon's in-memory state is stale: the widget
+// registry and route table are loaded at process start, so new widgets return
+// "Widget not found" until the process restarts. The daemon spawns from SOURCE
+// (`bun run src/cli.ts`), so a plain restart picks up backend changes with NO
+// build step (unlike the web bundle). These helpers detect backend staleness
+// (startup, for an ADOPTED daemon) and watch backend source at runtime,
+// dispatching the existing `SupervisorCmd::Restart`. All gated on BACKEND source
+// presence via `cockpit_backend_root` (NOT `cockpit_source_root`, which requires
+// the web tree — reviewer R1 B1), like mt#2297 gates the rebuild on web presence.
+// ---------------------------------------------------------------------------
+
+/// Path to the cockpit server-side source dir under a repo root.
+fn cockpit_backend_src(repo_root: &Path) -> PathBuf {
+    repo_root.join("src/cockpit")
+}
+
+/// The repo root IF it resolves (has `src/cli.ts`) AND contains the backend
+/// source dir (`src/cockpit`). Backend-restart analogue of `cockpit_source_root`
+/// — gated on BACKEND source presence, NOT the web tree. A checkout with backend
+/// source but no `src/cockpit/web` (relocated/removed frontend) still gets
+/// auto-restart; `None` only on a no-backend-source/packaged install (reviewer
+/// R1 B1, the originating cause of the silent no-op).
+fn cockpit_backend_root(path: &str) -> Option<PathBuf> {
+    let root = resolve_repo_root(path)?;
+    if cockpit_backend_src(&root).is_dir() {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+/// Directory names excluded from the backend freshness walk AND watcher: `web`
+/// (mt#2297 owns the frontend → rebuild path; backend restart must NOT fire on
+/// web edits — acceptance test 6), plus deps/build/git internals.
+const BACKEND_WALK_EXCLUDES: [&str; 4] = ["web", "node_modules", ".git", "dist"];
+
+fn is_backend_excluded_dir(name: &std::ffi::OsStr) -> bool {
+    BACKEND_WALK_EXCLUDES.iter().any(|e| name == *e)
+}
+
+/// True if a path (relative to the backend source root) lies under an excluded dir.
+fn backend_path_is_excluded(path: &Path) -> bool {
+    path.components().any(|c| match c {
+        std::path::Component::Normal(name) => is_backend_excluded_dir(name),
+        _ => false,
+    })
+}
+
+/// A TypeScript module file the daemon loads — `.ts`/`.mts`/`.cts`, excluding
+/// test files (`*.test.{ts,mts,cts}`). The cockpit backend is currently all
+/// `.ts`, but `.mts`/`.cts` are included so a future ESM/CJS module still
+/// triggers a restart (reviewer R1 NB1). Operator config
+/// (`~/.config/minsky/cockpit.json`) lives outside `src/cockpit` and is loaded
+/// fresh per request, so it is intentionally not part of the watched tree.
+fn is_backend_module_file(name: &str) -> bool {
+    const EXTS: [&str; 3] = [".ts", ".mts", ".cts"];
+    const TEST_EXTS: [&str; 3] = [".test.ts", ".test.mts", ".test.cts"];
+    EXTS.iter().any(|e| name.ends_with(e)) && !TEST_EXTS.iter().any(|e| name.ends_with(e))
+}
+
+/// True if a path **relative to the backend source root** is a real server-side
+/// change worth a daemon restart: a non-test TS module file, not under an
+/// excluded dir (esp. `web/`), not an editor temp file. Callers pass a
+/// `src/cockpit`-relative path (mirrors `is_relevant_source_change`, PR #1558).
+fn is_relevant_backend_change(rel: &Path) -> bool {
+    if backend_path_is_excluded(rel) {
+        return false;
+    }
+    match rel.file_name().and_then(|n| n.to_str()) {
+        Some(name) => is_backend_module_file(name) && !is_editor_temp_file(name),
+        None => false,
+    }
+}
+
+/// Newest mtime among relevant backend-source files under `root` (`src/cockpit`),
+/// skipping excluded dirs. `None` if `root` is absent or has no relevant files.
+fn newest_backend_mtime(root: &Path) -> Option<SystemTime> {
+    fn walk(dir: &Path, root: &Path, newest: &mut Option<SystemTime>) {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            let file_type = match entry.file_type() {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let p = entry.path();
+            if file_type.is_dir() {
+                if entry.file_name().is_empty() || is_backend_excluded_dir(&entry.file_name()) {
+                    continue;
+                }
+                walk(&p, root, newest);
+            } else if let Ok(rel) = p.strip_prefix(root) {
+                if is_relevant_backend_change(rel) {
+                    if let Ok(mtime) = entry.metadata().and_then(|m| m.modified()) {
+                        if newest.map_or(true, |n| mtime > n) {
+                            *newest = Some(mtime);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut newest = None;
+    walk(root, root, &mut newest);
+    newest
+}
+
+/// Parse macOS `ps -o etime=` (`[[dd-]hh:]mm:ss`) into elapsed seconds. Pure.
+fn parse_etime_to_secs(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let (days, hms) = match s.split_once('-') {
+        Some((d, rest)) => (d.trim().parse::<u64>().ok()?, rest),
+        None => (0u64, s),
+    };
+    let mut h = 0u64;
+    let parts: Vec<&str> = hms.split(':').collect();
+    let (m, sec) = match parts.as_slice() {
+        [m, sec] => (m.parse::<u64>().ok()?, sec.parse::<u64>().ok()?),
+        [hh, m, sec] => {
+            h = hh.parse::<u64>().ok()?;
+            (m.parse::<u64>().ok()?, sec.parse::<u64>().ok()?)
+        }
+        _ => return None,
+    };
+    Some(days * 86_400 + h * 3_600 + m * 60 + sec)
+}
+
+/// Wall-clock start time of the process on `pid`, derived from `ps -o etime=`
+/// (elapsed) subtracted from now. Used for an ADOPTED daemon the tray didn't
+/// spawn (so it has no `Instant`). `None` if `ps` fails or the pid is gone.
+fn daemon_start_time(pid: u32) -> Option<SystemTime> {
+    let out = Command::new("/bin/ps")
+        .args(["-o", "etime=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let secs = parse_etime_to_secs(&String::from_utf8_lossy(&out.stdout))?;
+    SystemTime::now().checked_sub(Duration::from_secs(secs))
+}
+
+/// What to do with an adopted (health-confirmed) daemon, given backend staleness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdoptDecision {
+    /// Adopted daemon is current (or staleness is undeterminable) — monitor it.
+    Fresh {
+        started: Option<SystemTime>,
+        source_mtime: Option<SystemTime>,
+    },
+    /// Backend source is newer than the adopted daemon's start — restart it so
+    /// new widget registrations / routes load (the 2026-06-04 originating case).
+    Stale,
+}
+
+/// Decide whether an adopted daemon is backend-stale. Compares the daemon's
+/// start time (`ps` etime) against the newest backend-source mtime. A source
+/// install with both signals available and `source > start` is Stale; anything
+/// undeterminable (no source tree, pid gone, ps failure) is treated as Fresh
+/// (never restart on a guess).
+fn adopt_decision(path: &str) -> AdoptDecision {
+    let source_mtime =
+        cockpit_backend_root(path).and_then(|r| newest_backend_mtime(&cockpit_backend_src(&r)));
+    let started = pid_on_port(DAEMON_PORT, path).and_then(daemon_start_time);
+    if let (Some(st), Some(sm)) = (started, source_mtime) {
+        if sm > st {
+            return AdoptDecision::Stale;
+        }
+    }
+    AdoptDecision::Fresh {
+        started,
+        source_mtime,
+    }
+}
+
+/// Humanize a duration for the uptime line: `5s`, `1m 30s`, `2h 5m`, `8d 3h`. Pure.
+fn format_duration(d: Duration) -> String {
+    let s = d.as_secs();
+    if s < 60 {
+        format!("{s}s")
+    } else if s < 3_600 {
+        format!("{}m {}s", s / 60, s % 60)
+    } else if s < 86_400 {
+        format!("{}h {}m", s / 3_600, (s % 3_600) / 60)
+    } else {
+        format!("{}d {}h", s / 86_400, (s % 86_400) / 3_600)
+    }
+}
+
+/// Render the uptime menu line: how long the daemon has run + the source mtime it
+/// was started against. `started == None` → "Daemon uptime: —". Pure.
+fn uptime_label(
+    started: Option<SystemTime>,
+    source_mtime: Option<SystemTime>,
+    now: SystemTime,
+) -> String {
+    match started {
+        Some(st) => {
+            let dur = now.duration_since(st).unwrap_or_default();
+            let src = source_mtime
+                .map(format_hms_utc)
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("Daemon uptime: {} (src @ {})", format_duration(dur), src)
+        }
+        None => "Daemon uptime: —".to_string(),
+    }
+}
+
+/// Status line for a foreign listener on :3737, naming the holder pid (mt#2299,
+/// narrow scope — message only, no kill). Pure.
+fn conflict_label_for(pid: Option<u32>) -> String {
+    match pid {
+        Some(p) => format!("Cockpit: :3737 held by pid {p} (not started by tray)"),
+        None => LABEL_CONFLICT.to_string(),
+    }
+}
+
+/// Extract the last non-empty line from a byte buffer, trimmed and capped for a
+/// menu item. Pure (unit-tested); the bounded read happens in `daemon_error_tail`.
+fn last_nonempty_capped(bytes: &[u8]) -> Option<String> {
+    let line = String::from_utf8_lossy(bytes)
+        .lines()
+        .rev()
+        .map(|l| l.trim())
+        .find(|l| !l.is_empty())?
+        .to_string();
+    const MAX: usize = 120;
+    Some(if line.chars().count() > MAX {
+        line.chars().take(MAX).collect::<String>() + "..."
+    } else {
+        line
+    })
+}
+
+/// Last non-empty line of the daemon stderr log, capped — used to summarize a
+/// restart/start failure in the status line (mt#2299, criterion 5). Reads only
+/// the final ~8 KiB (seek from end) so a large or flapping log can't block the
+/// supervisor loop on each crash within the throttle window (reviewer R1 NB2).
+fn daemon_error_tail() -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    const TAIL_BYTES: u64 = 8 * 1024;
+    let mut file = File::open(log_dir().join("cockpit-stderr.log")).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(TAIL_BYTES)))
+        .ok()?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).ok()?;
+    // A partial first line in the window is harmless: we take the LAST non-empty
+    // line, and the final line is always intact.
+    last_nonempty_capped(&buf)
+}
+
+/// Start the runtime backend-source watcher on `src/cockpit`. Mirrors
+/// `start_web_watcher` but dispatches `SupervisorCmd::Restart` (not `Rebuild`) on
+/// a larger debounce. `web/**` events are filtered out (mt#2297 owns them), so a
+/// frontend edit never triggers a backend restart. Hold the returned `Debouncer`
+/// alive for the watch to persist.
+fn start_backend_watcher(
+    app: &AppHandle,
+    backend_src: &Path,
+) -> Option<Debouncer<RecommendedWatcher>> {
+    let tx = app.try_state::<SupervisorHandle>()?.0.clone();
+    let root = backend_src.to_path_buf();
+    let mut debouncer = new_debouncer(RESTART_DEBOUNCE, move |res: DebounceEventResult| {
+        if let Ok(events) = res {
+            let relevant = events.iter().any(|e| {
+                e.path
+                    .strip_prefix(&root)
+                    .map(is_relevant_backend_change)
+                    .unwrap_or(false)
+            });
+            if relevant {
+                let _ = tx.send(SupervisorCmd::Restart);
+            }
+        }
+    })
+    .ok()?;
+    debouncer
+        .watcher()
+        .watch(backend_src, RecursiveMode::Recursive)
+        .ok()?;
+    Some(debouncer)
+}
+
+/// Handle to the daemon-uptime dropdown `MenuItem` (mt#2299), held in managed
+/// state like `BuildMenuItem` so the supervisor loop can update it directly.
+struct UptimeMenuItem(MenuItem<Wry>);
+
+/// Update the uptime dropdown line on the main thread (mt#2299).
+fn update_uptime_status(app: &AppHandle, label: &str) -> tauri::Result<()> {
+    let app_handle = app.clone();
+    let label = label.to_string();
+    app.run_on_main_thread(move || {
+        if let Some(item) = app_handle.try_state::<UptimeMenuItem>() {
+            let _ = item.0.set_text(&label);
+        }
+    })
+}
+
+/// Set the uptime label, skipping the UI round-trip when unchanged.
+fn set_uptime_status(app: &AppHandle, sup: &mut Sup, label: String) {
+    if sup.last_uptime_label.as_deref() == Some(label.as_str()) {
+        return;
+    }
+    sup.last_uptime_label = Some(label.clone());
+    let _ = update_uptime_status(app, &label);
+}
+
+/// Recompute + push the uptime line from the current daemon-start/source state.
+fn refresh_uptime(app: &AppHandle, sup: &mut Sup) {
+    let label = uptime_label(
+        sup.daemon_started_at,
+        sup.daemon_source_mtime,
+        SystemTime::now(),
+    );
+    set_uptime_status(app, sup, label);
+}
+
+/// Clear the uptime line + recorded start state (daemon no longer running).
+fn clear_uptime(app: &AppHandle, sup: &mut Sup) {
+    sup.daemon_started_at = None;
+    sup.daemon_source_mtime = None;
+    set_uptime_status(app, sup, uptime_label(None, None, SystemTime::now()));
+}
+
 // ---------------------------------------------------------------------------
 // App wiring.
 // ---------------------------------------------------------------------------
@@ -906,7 +1380,9 @@ fn main() {
     let spawned_setup = spawned.clone();
 
     #[allow(unused_mut)]
-    let mut builder = tauri::Builder::default().plugin(tauri_plugin_shell::init());
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init());
     // LaunchAgent mode registers a per-user Login Item that starts THIS app
     // (com.minsky.cockpit-tray) at login — the RunAtLoad replacement from
     // ADR-014. Distinct from the daemon's own com.minsky.cockpit launchd plist
@@ -947,6 +1423,13 @@ fn main() {
                 .enabled(false)
                 .build(app)?;
             app.manage(BuildMenuItem(build_item.clone()));
+            // Best-effort: request notification permission so build-failure
+            // toasts can appear (mt#2306). Ignored if denied/unavailable.
+            let _ = app.notification().request_permission();
+            let uptime_item = MenuItemBuilder::with_id(UPTIME_MENU_ID, "Daemon uptime: —")
+                .enabled(false)
+                .build(app)?;
+            app.manage(UptimeMenuItem(uptime_item.clone()));
             let open_window_item =
                 MenuItemBuilder::with_id("open_window", "Open Cockpit").build(app)?;
             let open_item = MenuItemBuilder::with_id("open", "Open in Browser").build(app)?;
@@ -960,6 +1443,7 @@ fn main() {
             let menu = MenuBuilder::new(app)
                 .item(&status_item)
                 .item(&build_item)
+                .item(&uptime_item)
                 .item(&separator1)
                 .item(&open_window_item)
                 .item(&open_item)
@@ -1152,7 +1636,10 @@ mod tests {
     #[test]
     fn repo_root_from_bin_path_rejects_unexpected_shape() {
         // A system-installed binary must NOT resolve a repo root.
-        assert_eq!(repo_root_from_bin_path(Path::new("/usr/local/bin/minsky")), None);
+        assert_eq!(
+            repo_root_from_bin_path(Path::new("/usr/local/bin/minsky")),
+            None
+        );
         // Right filename, wrong parent dir.
         assert_eq!(
             repo_root_from_bin_path(Path::new("/Users/x/elsewhere/cli-entry.ts")),
@@ -1225,8 +1712,14 @@ mod tests {
         touch(&dir.join("App.tsx"), base);
         touch(&dist_index(&dir), base + Duration::from_secs(10));
         // Newer files under excluded dirs must NOT flip the verdict to Stale.
-        touch(&dir.join("node_modules/pkg/x.js"), base + Duration::from_secs(100));
-        touch(&dir.join("dist/assets/app.js"), base + Duration::from_secs(100));
+        touch(
+            &dir.join("node_modules/pkg/x.js"),
+            base + Duration::from_secs(100),
+        );
+        touch(
+            &dir.join("dist/assets/app.js"),
+            base + Duration::from_secs(100),
+        );
         touch(&dir.join(".git/HEAD"), base + Duration::from_secs(100));
         assert_eq!(dist_staleness(&dir), Staleness::Fresh);
         let _ = std::fs::remove_dir_all(&dir);
@@ -1234,10 +1727,16 @@ mod tests {
 
     #[test]
     fn path_is_excluded_matches_excluded_dirs() {
-        assert!(path_is_excluded(Path::new("/r/src/cockpit/web/dist/index.html")));
-        assert!(path_is_excluded(Path::new("/r/src/cockpit/web/node_modules/x/y.js")));
+        assert!(path_is_excluded(Path::new(
+            "/r/src/cockpit/web/dist/index.html"
+        )));
+        assert!(path_is_excluded(Path::new(
+            "/r/src/cockpit/web/node_modules/x/y.js"
+        )));
         assert!(path_is_excluded(Path::new("/r/src/cockpit/web/.git/HEAD")));
-        assert!(!path_is_excluded(Path::new("/r/src/cockpit/web/widgets/Foo.tsx")));
+        assert!(!path_is_excluded(Path::new(
+            "/r/src/cockpit/web/widgets/Foo.tsx"
+        )));
         assert!(!path_is_excluded(Path::new("/r/src/cockpit/web/App.tsx")));
     }
 
@@ -1251,20 +1750,31 @@ mod tests {
         assert!(!is_relevant_source_change(Path::new("node_modules/x/y.js")));
         assert!(!is_relevant_source_change(Path::new(".git/HEAD")));
         // Editor temp/backup/hidden files do not.
-        assert!(!is_relevant_source_change(Path::new("widgets/.Foo.tsx.swp")));
+        assert!(!is_relevant_source_change(Path::new(
+            "widgets/.Foo.tsx.swp"
+        )));
         assert!(!is_relevant_source_change(Path::new("widgets/Foo.tsx~")));
         assert!(!is_relevant_source_change(Path::new("widgets/#Foo.tsx#")));
     }
 
     #[test]
     fn format_hms_utc_formats_seconds_of_day() {
-        assert_eq!(format_hms_utc(UNIX_EPOCH + Duration::from_secs(3661)), "01:01:01 UTC");
-        assert_eq!(format_hms_utc(UNIX_EPOCH + Duration::from_secs(86_400 * 100)), "00:00:00 UTC");
+        assert_eq!(
+            format_hms_utc(UNIX_EPOCH + Duration::from_secs(3661)),
+            "01:01:01 UTC"
+        );
+        assert_eq!(
+            format_hms_utc(UNIX_EPOCH + Duration::from_secs(86_400 * 100)),
+            "00:00:00 UTC"
+        );
     }
 
     #[test]
     fn build_error_summary_takes_last_nonempty_line() {
-        assert_eq!(build_error_summary(b"warn\n\nError: boom\n\n", b""), "Error: boom");
+        assert_eq!(
+            build_error_summary(b"warn\n\nError: boom\n\n", b""),
+            "Error: boom"
+        );
         assert_eq!(build_error_summary(b"", b"out line\n"), "out line");
         assert_eq!(build_error_summary(b"", b""), "build failed");
     }
@@ -1272,7 +1782,10 @@ mod tests {
     #[test]
     fn build_label_for_renders_states() {
         let t = UNIX_EPOCH + Duration::from_secs(3661);
-        assert_eq!(build_label_for(&Ok(()), t, false), "Last build: 01:01:01 UTC");
+        assert_eq!(
+            build_label_for(&Ok(()), t, false),
+            "Last build: 01:01:01 UTC"
+        );
         assert_eq!(
             build_label_for(&Err("E".to_string()), t, true),
             "Build FAILED (E) - serving prior bundle"
@@ -1281,5 +1794,124 @@ mod tests {
             build_label_for(&Err("E".to_string()), t, false),
             "Build FAILED (E) - nothing to serve"
         );
+    }
+
+    // --- mt#2299: backend-source freshness + uptime + conflict helpers ---
+
+    #[test]
+    fn parse_etime_handles_all_ps_formats() {
+        assert_eq!(parse_etime_to_secs("00:00"), Some(0));
+        assert_eq!(parse_etime_to_secs("01:30"), Some(90));
+        assert_eq!(parse_etime_to_secs("01:01:01"), Some(3661));
+        assert_eq!(
+            parse_etime_to_secs("2-03:00:00"),
+            Some(2 * 86_400 + 3 * 3_600)
+        );
+        // ps right-pads/space-pads; trim tolerated.
+        assert_eq!(parse_etime_to_secs("  05:00 "), Some(300));
+        assert_eq!(parse_etime_to_secs(""), None);
+        assert_eq!(parse_etime_to_secs("garbage"), None);
+        assert_eq!(parse_etime_to_secs("1:2:3:4"), None);
+    }
+
+    #[test]
+    fn format_duration_picks_unit_by_magnitude() {
+        assert_eq!(format_duration(Duration::from_secs(5)), "5s");
+        assert_eq!(format_duration(Duration::from_secs(90)), "1m 30s");
+        assert_eq!(format_duration(Duration::from_secs(3_700)), "1h 1m");
+        assert_eq!(format_duration(Duration::from_secs(90_000)), "1d 1h");
+    }
+
+    #[test]
+    fn is_relevant_backend_change_filters_web_test_and_nonts() {
+        // Real server-side .ts edits trigger a restart.
+        assert!(is_relevant_backend_change(Path::new("server.ts")));
+        assert!(is_relevant_backend_change(Path::new("widget-registry.ts")));
+        assert!(is_relevant_backend_change(Path::new("widgets/agents.ts")));
+        assert!(is_relevant_backend_change(Path::new("config.ts")));
+        // web/** is mt#2297's territory — must NOT restart the daemon (test 6).
+        assert!(!is_relevant_backend_change(Path::new("web/App.tsx")));
+        assert!(!is_relevant_backend_change(Path::new(
+            "web/dist/index.html"
+        )));
+        // deps/git internals excluded.
+        assert!(!is_relevant_backend_change(Path::new(
+            "node_modules/x/y.ts"
+        )));
+        assert!(!is_relevant_backend_change(Path::new(".git/HEAD")));
+        // non-.ts, test files, and editor temp files excluded.
+        assert!(!is_relevant_backend_change(Path::new("README.md")));
+        assert!(!is_relevant_backend_change(Path::new("server.test.ts")));
+        assert!(!is_relevant_backend_change(Path::new(
+            "widgets/.agents.ts.swp"
+        )));
+        // .mts/.cts modules trigger; their test variants don't (reviewer R1 NB1).
+        assert!(is_relevant_backend_change(Path::new("server.mts")));
+        assert!(is_relevant_backend_change(Path::new("server.cts")));
+        assert!(!is_relevant_backend_change(Path::new("server.test.mts")));
+        assert!(!is_relevant_backend_change(Path::new("server.test.cts")));
+    }
+
+    #[test]
+    fn last_nonempty_capped_picks_last_line_and_caps() {
+        assert_eq!(
+            last_nonempty_capped(b"warn\n\nError: boom\n\n"),
+            Some("Error: boom".to_string())
+        );
+        assert_eq!(last_nonempty_capped(b""), None);
+        assert_eq!(last_nonempty_capped(b"\n  \n"), None);
+        // Capped at 120 chars + ellipsis.
+        let long = "x".repeat(200);
+        let out = last_nonempty_capped(long.as_bytes()).expect("some");
+        assert_eq!(out.chars().count(), 123); // 120 + "..."
+        assert!(out.ends_with("..."));
+    }
+
+    #[test]
+    fn newest_backend_mtime_ignores_web_test_and_excluded() {
+        let dir = tmp("backend");
+        let base = UNIX_EPOCH + Duration::from_secs(1_000_000);
+        touch(&dir.join("server.ts"), base);
+        touch(
+            &dir.join("widgets/agents.ts"),
+            base + Duration::from_secs(10),
+        );
+        // Newer files that must NOT count: web/** (mt#2297), test files, deps.
+        touch(&dir.join("web/App.tsx"), base + Duration::from_secs(100));
+        touch(&dir.join("server.test.ts"), base + Duration::from_secs(100));
+        touch(
+            &dir.join("node_modules/x.ts"),
+            base + Duration::from_secs(100),
+        );
+        assert_eq!(
+            newest_backend_mtime(&dir),
+            Some(base + Duration::from_secs(10))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn uptime_label_renders_duration_and_source() {
+        let now = UNIX_EPOCH + Duration::from_secs(1_000);
+        let started = UNIX_EPOCH + Duration::from_secs(940); // 60s ago
+        let src = UNIX_EPOCH + Duration::from_secs(3661);
+        let l = uptime_label(Some(started), Some(src), now);
+        assert!(l.starts_with("Daemon uptime: 1m 0s"), "got: {l}");
+        assert!(l.contains("src @ 01:01:01 UTC"), "got: {l}");
+        assert_eq!(uptime_label(None, None, now), "Daemon uptime: —");
+        // Unknown source mtime still renders the uptime.
+        assert_eq!(
+            uptime_label(Some(started), None, now),
+            "Daemon uptime: 1m 0s (src @ unknown)"
+        );
+    }
+
+    #[test]
+    fn conflict_label_names_holder_pid() {
+        assert_eq!(
+            conflict_label_for(Some(4242)),
+            "Cockpit: :3737 held by pid 4242 (not started by tray)"
+        );
+        assert_eq!(conflict_label_for(None), LABEL_CONFLICT);
     }
 }

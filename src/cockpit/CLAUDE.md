@@ -26,7 +26,7 @@ For substantial Cockpit design or engineering work, prefer `/agents cockpit-dev`
 | Build | Vite (`vite.config.ts`) |
 | Tests | bun test (`src/cockpit/cockpit.test.ts`) |
 | Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`) |
-| Config | `~/.config/minsky/cockpit.json` |
+| Config | None per-widget — registry-gated; future cockpit config goes under a `cockpit` tree in `~/.config/minsky/config.yaml` (mt#2294) |
 | DI | None (standalone Express, no tsyringe) |
 
 ## Design vocabulary

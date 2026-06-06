@@ -54,6 +54,27 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
   "basic-health": BasicHealth,
 };
 
+// Widgets whose data App fetches at the app level and distributes via props:
+//   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
+//   - promoted prop-driven page widgets whose routes receive data via props
+//     (WorkstreamsPage, TasksLayout) rather than self-fetching.
+// All other widgets — self-fetching home cards (attention, credentials, ...) and
+// self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
+// the registry-gated /api/widget/:id/data endpoint and must NOT be polled
+// app-wide. This keeps app-level background load bounded to a small fixed set,
+// independent of how many widgets the registry contains (mt#2294).
+//
+// Drift guard: the explicit page-widget entries below MUST also be in
+// PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
+// via props — see workstreamsData / taskGraphData below). A dev-time assertion
+// enforces this so adding a self-fetching page widget here (which would start
+// needless app-wide polling) fails fast rather than silently regressing load.
+const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["workstreams", "task-graph"] as const;
+const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
+  ...Object.keys(PROP_DRIVEN_RENDERERS),
+  ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
+]);
+
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
 const PAGE_ROUTE_WIDGET_IDS = new Set([
@@ -63,6 +84,21 @@ const PAGE_ROUTE_WIDGET_IDS = new Set([
   "task-graph",
   "task-list",
 ]);
+
+// Drift guard (mt#2294): every app-level page-prop widget must be a real page
+// route. If one isn't, it has no prop consumer and would only add needless
+// app-wide polling — fail fast in dev rather than silently regress load.
+if (process.env.NODE_ENV !== "production") {
+  for (const id of APP_LEVEL_PAGE_PROP_WIDGET_IDS) {
+    if (!PAGE_ROUTE_WIDGET_IDS.has(id)) {
+      throw new Error(
+        `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is not a page route ` +
+          `(missing from PAGE_ROUTE_WIDGET_IDS) — app-level polling would run for a ` +
+          `widget with no prop consumer. Fix the set (mt#2294).`
+      );
+    }
+  }
+}
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -177,8 +213,11 @@ export function App() {
       setWidgets(metas.map((meta) => ({ meta, data: null })));
 
       for (const meta of metas) {
-        // Self-fetching widgets own their own data
-        if (SELF_FETCHING_RENDERERS[meta.id]) {
+        // Only app-level-fetch widgets App distributes via props. Everything
+        // else — self-fetching home cards and self-fetching page widgets —
+        // owns its own data via the registry-gated data endpoint, so polling
+        // them here would add background load for widgets App never renders.
+        if (!APP_LEVEL_PROP_WIDGET_IDS.has(meta.id)) {
           continue;
         }
 

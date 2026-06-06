@@ -6,13 +6,13 @@ Parent task: mt#1143. Engineering bundle: mt#1768.
 
 ## Stack
 
-| Layer           | Value                                                                     |
-| --------------- | ------------------------------------------------------------------------- |
-| Runtime         | Bun                                                                       |
-| Server          | Express (`src/cockpit/server.ts`)                                         |
-| Frontend        | React + Vite + Tailwind + shadcn/ui + TanStack Query (`src/cockpit/web/`) |
-| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`)           |
-| Config          | `~/.config/minsky/cockpit.json`                                           |
+| Layer           | Value                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Runtime         | Bun                                                                                                                 |
+| Server          | Express (`src/cockpit/server.ts`)                                                                                   |
+| Frontend        | React + Vite + Tailwind + shadcn/ui + TanStack Query (`src/cockpit/web/`)                                           |
+| Widget contract | Custom registry (`src/cockpit/widget-registry.ts` + `types.ts`)                                                     |
+| Config          | None per-widget (registry-gated, mt#2294); future cockpit config → `cockpit` tree in `~/.config/minsky/config.yaml` |
 
 Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any file under `src/cockpit/**`).
 
@@ -31,33 +31,26 @@ Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any fil
 | `/memories`    | Memories    | Memory subsystem — browse, search, stats, detail, health (mt#2150) |
 | `/settings`    | Settings    | Cockpit configuration + credentials                                |
 
-## Widget IDs (operator configuration)
+## Widgets
 
-The home page renders only widgets enabled in `~/.config/minsky/cockpit.json`. Each widget declares an `id` matching `WidgetModule.id` in its backend module under `src/cockpit/widgets/`. Adding a new widget requires both shipping the code AND enabling it in this file:
+Each widget declares an `id` matching `WidgetModule.id` in its backend module under
+`src/cockpit/widgets/`, registered in `src/cockpit/widget-registry.ts`. **Registering a
+widget is sufficient** — its data endpoint (`/api/widget/<id>/data`) is served whenever the
+widget is in the registry. There is no per-widget enable flag and no `cockpit.json` config
+file (both removed in mt#2294); widgets auto-work on first run with no manual config edit.
 
-```json
-{
-  "widgets": [
-    { "id": "agents", "enabled": true },
-    { "id": "attention", "enabled": true },
-    { "id": "basic-health", "enabled": true },
-    { "id": "context-inspector", "enabled": true },
-    { "id": "credentials", "enabled": true },
-    { "id": "embeddings-health", "enabled": true },
-    { "id": "task-graph", "enabled": true },
-    { "id": "task-list", "enabled": true },
-    { "id": "workstreams", "enabled": true },
+The model separates two concerns the old `enabled` flag conflated:
 
-    { "id": "memories-health", "enabled": true },
-    { "id": "memories-stats", "enabled": true },
-    { "id": "memories-list", "enabled": true },
-    { "id": "memories-search", "enabled": true },
-    { "id": "memories-detail", "enabled": true }
-  ]
-}
-```
+- **Capability** — "does this widget's data endpoint work" — is owned by the registry. A
+  registered widget always serves; an `id` not in the registry returns `HTTP 404
+"Widget not found"`; a registered widget whose backend is unavailable returns its
+  graceful-degraded payload (`{ state: "degraded", reason }`) rather than a 404.
+- **Layout** — "which cards the home System-status grid renders" — is decided on the
+  frontend (`src/cockpit/web/App.tsx`), from the registry plus the renderer maps; it is
+  not operator-configurable today.
 
-The `memories-*` widget IDs (added in mt#2150) must be enabled for the `/memories` page to render its data. A widget that is registered in code but absent from the config returns `HTTP 404 "Widget not found"` from `/api/widget/<id>/data` — this is by design (the registry self-documents what's available; the config gates what's exposed). The `/memories` route itself is always reachable regardless of widget-enablement state; only the data panels degrade.
+Any future cockpit configuration (e.g. polling intervals) lives under a `cockpit` tree in
+the main Minsky config (`~/.config/minsky/config.yaml`), not a separate file.
 
 ### Widget catalog by route
 
@@ -98,6 +91,7 @@ When the daemon is run via the **cockpit tray** (the canonical supervisor, ADR-0
 - `cockpit-tray/` — Tauri v2 menu bar app
 - [ADR-014](adr-014-cockpit-daemon-lifecycle-ownership.md) — daemon lifecycle ownership (tray-app supervisor; mt#2241)
 - Bundle auto-rebuild (mt#2297): the tray keeps the served production bundle fresh — a startup pre-flight rebuild (when `src/cockpit/web/**` is newer than `dist/`) plus a runtime filesystem watcher that rebuilds on source changes (excluding `dist`/`node_modules`/`.git`). A "Last build" line in the tray menu shows when the bundle last refreshed; build failures surface there (serving the prior bundle on a runtime failure, refusing to spawn when there is no bundle at all). All of it no-ops on a no-source install. See `cockpit-tray/README.md` § _Bundle auto-rebuild_.
+- Backend auto-restart (mt#2299): the **server-side** complement to the bundle rebuild. The widget registry and route table load at process start, so when backend source (`src/cockpit/server.ts`, `widget-registry.ts`, `widgets/**`, `config.ts`, `types.ts`) changes, the running daemon is stale (new widgets return `Widget not found`) until it restarts. The daemon spawns from source (`bun run src/cli.ts`), so a plain process restart picks up backend changes with no build step. The tray (a) restarts an **adopted** daemon at startup if backend source is newer than the daemon's start time (the originating 2026-06-04 8-day-stale case), and (b) watches `src/cockpit/**` (excluding `web/**`, which the mt#2297 rebuild path owns) and restarts the daemon on a debounced backend change. A "Daemon uptime" line shows how long the daemon has run + the source mtime it was started against, so operators can confirm currency at a glance; a crash-loop on restart (e.g. a syntax error) surfaces the stderr tail in the status line instead of a silent "stopped". Operators never need to manually `kill <pid>` or know that backend changes require a restart (caveat: restart/stop of an _adopted_ daemon depends on `lsof`/`ps` availability + a killable holder; otherwise the tray surfaces the conflict message rather than killing a foreign listener). All of it no-ops on a no-source install. See `cockpit-tray/README.md` § _Backend auto-restart_.
 - mt#2141 — follow-up: evaluate repointing Claude Code at shared HTTP MCP
 
 ## Cross-references

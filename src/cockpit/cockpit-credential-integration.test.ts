@@ -176,7 +176,6 @@ describe("Credential server-route integration", () => {
     test(`POST /api/credentials/add succeeds for provider '${providerId}'`, async () => {
       const tempDir = makeTempConfigDir();
       const { url, close } = await startTestServer({
-        overrideConfig: { widgets: [] },
         overrideCredentialModule: makeRealWriterOverride(tempDir),
       });
       try {
@@ -207,7 +206,6 @@ describe("Credential server-route integration", () => {
   test("POST /api/credentials/add rejects unknown provider", async () => {
     const tempDir = makeTempConfigDir();
     const { url, close } = await startTestServer({
-      overrideConfig: { widgets: [] },
       overrideCredentialModule: makeRealWriterOverride(tempDir),
     });
     try {
