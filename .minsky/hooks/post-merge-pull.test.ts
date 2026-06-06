@@ -56,6 +56,33 @@ describe("runHook — stale-lock failure", () => {
     expect(combinedStderr).toContain("Stale `.git/index.lock`");
     expect(combinedStderr).toContain("rm .git/index.lock");
   });
+
+  it("fires the stale-lock hint when stderr contains only ONE marker (mt#2304 R1: some, not every)", () => {
+    // Real git emits ONE of the marker phrases, not both. Under the old
+    // `every` logic this single-marker stderr would NOT trigger the hint.
+    const singleMarkerStderr =
+      "fatal: Unable to create '/path/to/project/.git/index.lock': File exists.";
+
+    const stderrMessages: string[] = [];
+    const exitCodes: number[] = [];
+
+    const exec = makeExec([
+      { exitCode: 0, stdout: SHA_A, stderr: "" }, // rev-parse HEAD (before)
+      { exitCode: 0, stdout: "", stderr: "" }, // git status --porcelain (clean)
+      { exitCode: 1, stdout: "", stderr: singleMarkerStderr }, // git pull
+    ]);
+
+    runHook(
+      exec,
+      "/fake/project",
+      (msg) => stderrMessages.push(msg),
+      (code) => exitCodes.push(code)
+    );
+
+    expect(exitCodes).toEqual([1]);
+    const combinedStderr = stderrMessages.join("");
+    expect(combinedStderr).toContain("Stale `.git/index.lock`");
+  });
 });
 
 describe("runHook — generic non-zero pull failure", () => {

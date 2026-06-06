@@ -149,7 +149,13 @@ export function getUnmergedPaths(
 
 /** Production git runner using execSync. */
 export function defaultRunGit(cmd: string): string {
-  return execSync(cmd, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+  // 5s timeout so a hung `git` (repo lock, auth prompt) can't stall the
+  // PreToolUse hook past the host cap (mt#2304 R1).
+  return execSync(cmd, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "ignore"],
+    timeout: 5000,
+  });
 }
 
 /**

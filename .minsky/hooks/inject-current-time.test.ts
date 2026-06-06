@@ -1,5 +1,27 @@
 import { describe, expect, it } from "bun:test";
-import { buildTimeContext, TIME_INJECTION_OVERRIDE_ENV } from "./inject-current-time";
+import {
+  buildTimeContext,
+  reconstructZonedUtcMs,
+  TIME_INJECTION_OVERRIDE_ENV,
+} from "./inject-current-time";
+
+describe("reconstructZonedUtcMs (mt#2304 R1 — hour=24 rollover)", () => {
+  it("treats hour=24 as next-day 00:00 (May 30 24:00 === May 31 00:00)", () => {
+    expect(reconstructZonedUtcMs(2026, 5, 30, 24, 0, 0)).toBe(Date.UTC(2026, 4, 31, 0, 0, 0));
+  });
+
+  it("handles month rollover (May 31 24:00 === Jun 1 00:00)", () => {
+    expect(reconstructZonedUtcMs(2026, 5, 31, 24, 0, 0)).toBe(Date.UTC(2026, 5, 1, 0, 0, 0));
+  });
+
+  it("handles year rollover (Dec 31 24:00 === Jan 1 00:00)", () => {
+    expect(reconstructZonedUtcMs(2026, 12, 31, 24, 0, 0)).toBe(Date.UTC(2027, 0, 1, 0, 0, 0));
+  });
+
+  it("leaves normal hours unchanged", () => {
+    expect(reconstructZonedUtcMs(2026, 5, 30, 13, 45, 7)).toBe(Date.UTC(2026, 4, 30, 13, 45, 7));
+  });
+});
 
 // All tests pin timeZone explicitly so the suite is deterministic regardless
 // of CI/developer machine timezone (PR #1427 R1 BLOCKING fix).

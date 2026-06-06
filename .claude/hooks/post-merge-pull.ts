@@ -62,7 +62,9 @@ export function runHook(
       }
     }
 
-    const isStaleLock = STALE_LOCK_STDERR_MARKERS.every((marker) =>
+    // `some`, not `every`: git emits ONE of these phrases, not both. Requiring
+    // all markers meant the stale-lock guidance never fired (mt#2304 R1).
+    const isStaleLock = STALE_LOCK_STDERR_MARKERS.some((marker) =>
       pullResult.stderr.includes(marker)
     );
 

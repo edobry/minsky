@@ -13,11 +13,14 @@ import { existsSync, readFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { readInput, execSync } from "./types";
 import type { StopHookInput } from "./types";
+import { sanitizeSessionId } from "./two-strikes-record";
 
 const input = await readInput<StopHookInput>();
 
-const sessionId = input.session_id ?? "default";
-const agentId = input.agent_id;
+// Sanitize before composing /tmp state-file paths — raw IDs containing `/` or
+// `..` would allow path traversal (mt#2304 R1; same allowlist as two-strikes-record).
+const sessionId = sanitizeSessionId(input.session_id ?? "default");
+const agentId = input.agent_id ? sanitizeSessionId(input.agent_id) : undefined;
 // Determine state file: keyed by session_id and (if subagent) agent_id
 const stateFile = agentId
   ? `/tmp/claude-typecheck-roots-${sessionId}-${agentId}.txt`

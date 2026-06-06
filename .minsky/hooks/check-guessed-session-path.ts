@@ -18,7 +18,7 @@
 // @see .claude/hooks/block-git-gh-cli.ts — PreToolUse deny-class template
 
 import { existsSync } from "node:fs";
-import { readInput } from "./types";
+import { readInput, writeOutput } from "./types";
 import type { ToolHookInput, HookOutput } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -150,8 +150,9 @@ if (import.meta.main) {
           permissionDecisionReason: buildDenialReason(missing),
         },
       };
-      // Emit with a trailing newline for line-oriented consumers (PR #1451 review).
-      process.stdout.write(`${JSON.stringify(output)}\n`);
+      // Use the shared writeOutput helper for protocol-consistent framing
+      // (mt#2304 R1) rather than a manual stdout write.
+      writeOutput(output);
     }
     process.exit(0);
   } catch (err) {

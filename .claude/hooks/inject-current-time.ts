@@ -99,6 +99,26 @@ export function buildTimeContext(now: Date, timeZone?: string): string {
  * given IANA timezone. Used when `buildTimeContext` is called with an explicit
  * timeZone (e.g., from tests).
  */
+/**
+ * Reconstruct a UTC-ms instant from zoned calendar parts. `hour` may be 24:
+ * some ICU builds format midnight as `24:00:00`. Coercing 24→0 keeps the
+ * time-of-day correct but drops a day; we add it back via ms arithmetic so
+ * month/year rollover is handled too (mt#2304 R1). Exported for unit testing
+ * the hour=24 edge case, which can't be forced portably end-to-end.
+ */
+export function reconstructZonedUtcMs(
+  year: number,
+  month1Based: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number
+): number {
+  let ms = Date.UTC(year, month1Based - 1, day, hour === 24 ? 0 : hour, minute, second);
+  if (hour === 24) ms += 24 * 60 * 60 * 1000;
+  return ms;
+}
+
 function computeOffsetMinutesForZone(now: Date, timeZone: string): number {
   // Format the instant as parts in the target zone, then reconstruct the
   // equivalent UTC instant and diff. This avoids depending on Intl's offset
@@ -117,11 +137,11 @@ function computeOffsetMinutesForZone(now: Date, timeZone: string): number {
     const v = parts.find((p) => p.type === type)?.value;
     return v ? parseInt(v, 10) : 0;
   };
-  const asUtcMs = Date.UTC(
+  const asUtcMs = reconstructZonedUtcMs(
     get("year"),
-    get("month") - 1,
+    get("month"),
     get("day"),
-    get("hour") === 24 ? 0 : get("hour"),
+    get("hour"),
     get("minute"),
     get("second")
   );

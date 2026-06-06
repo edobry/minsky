@@ -11,6 +11,7 @@ import os from "os";
 import { appendFileSync } from "fs";
 import { readInput, writeOutput, execSync } from "./types";
 import type { ToolHookInput } from "./types";
+import { sanitizeSessionId } from "./two-strikes-record";
 
 const input = await readInput<ToolHookInput>();
 
@@ -20,8 +21,10 @@ const filePath =
   (input.tool_result?.filePath as string | undefined) ??
   "";
 
-const sessionId = input.session_id ?? "default";
-const agentId = input.agent_id;
+// Sanitize before composing /tmp state-file paths — raw IDs containing `/` or
+// `..` would allow path traversal (mt#2304 R1; same allowlist as two-strikes-record).
+const sessionId = sanitizeSessionId(input.session_id ?? "default");
+const agentId = input.agent_id ? sanitizeSessionId(input.agent_id) : undefined;
 
 // Only run for TypeScript files
 if (!/\.tsx?$/.test(filePath)) {
