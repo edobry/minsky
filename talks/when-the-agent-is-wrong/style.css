@@ -301,8 +301,11 @@ body,
 }
 
 .qr {
-  width: 150px;
-  height: 150px;
+  /* Responsive: scales with the smaller viewport dimension so the codes
+     stay scannable on a projector and don't overflow on small screens,
+     clamped to a sane min/max. */
+  width: clamp(120px, 18vmin, 200px);
+  height: clamp(120px, 18vmin, 200px);
   background: #ffffff;
   padding: 10px;
   border-radius: 8px;
