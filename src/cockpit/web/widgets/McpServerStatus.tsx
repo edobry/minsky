@@ -29,18 +29,31 @@ interface McpServerStatusPayload {
     status: DeploymentStatus;
   } | null;
   recentErrors: string[];
+  metrics: {
+    cpuPercent: number | null;
+    memoryPercent: number | null;
+    restartCount24h: number | null;
+  } | null;
   anomalies: {
     m1HealthFailing: boolean;
     m2DeployFailed: boolean;
+    m3RestartLoop: boolean;
+    m4ResourceNearLimit: boolean;
   };
 }
 
 type OverallStatus = "healthy" | "unreachable" | "down";
 
 function overallStatus(payload: McpServerStatusPayload): OverallStatus {
-  if (payload.anomalies.m1HealthFailing) return "down";
+  // M1 (health failing) and M3 (crash loop) are both down-class signals.
+  if (payload.anomalies.m1HealthFailing || payload.anomalies.m3RestartLoop) return "down";
   if (!payload.health.ok) return "unreachable";
   return "healthy";
+}
+
+/** Format a 0..100 percentage, or an em-dash when the datapoint is absent or non-finite. */
+function formatPercent(pct: number | null): string {
+  return pct === null || !Number.isFinite(pct) ? "—" : `${pct.toFixed(1)}%`;
 }
 
 function statusDotColor(status: OverallStatus): string {
@@ -191,6 +204,19 @@ export function McpServerStatus() {
             M2 — Latest deploy outcome is {payload.deploy.status}. Revert or push a fix.
           </div>
         )}
+        {payload.anomalies.m3RestartLoop && (
+          <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
+            M3 — Restart loop: more than 3 restarts in the last hour. Read deployment logs and
+            identify the crash cause.
+          </div>
+        )}
+        {payload.anomalies.m4ResourceNearLimit && (
+          <div className="mb-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
+            M4 — Resource near limit (CPU {formatPercent(payload.metrics?.cpuPercent ?? null)},
+            memory {formatPercent(payload.metrics?.memoryPercent ?? null)}). Consider upgrading the
+            Railway plan.
+          </div>
+        )}
 
         <dl>
           <Row label="Health check">
@@ -254,6 +280,14 @@ export function McpServerStatus() {
               </span>
             )}
           </Row>
+
+          <Row label="CPU">{payload.metrics ? formatPercent(payload.metrics.cpuPercent) : "—"}</Row>
+
+          <Row label="Memory">
+            {payload.metrics ? formatPercent(payload.metrics.memoryPercent) : "—"}
+          </Row>
+
+          <Row label="Restarts (24h)">{payload.metrics?.restartCount24h ?? "—"}</Row>
         </dl>
       </CardContent>
     </Card>
