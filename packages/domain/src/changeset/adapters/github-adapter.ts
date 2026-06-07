@@ -36,6 +36,7 @@ import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { Octokit } from "@octokit/rest";
 import type { RestEndpointMethodTypes } from "@octokit/rest";
+import { createTimeoutFetch } from "../../github/octokit-timeout";
 import { FallbackTokenProvider, type TokenProvider } from "../../auth";
 
 /** Union of simplified and full PR types from Octokit responses */
@@ -70,7 +71,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   private async getOctokit(): Promise<Octokit> {
     if (!this._octokit) {
       const token = await this.tokenProvider.getServiceToken();
-      this._octokit = new Octokit({ auth: token });
+      // Bound every request so a hung GitHub call can't wedge a long-lived
+      // process (mt#2270 sweep; see octokit-timeout.ts).
+      this._octokit = new Octokit({ auth: token, request: { fetch: createTimeoutFetch() } });
     }
     return this._octokit;
   }

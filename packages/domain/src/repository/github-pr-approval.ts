@@ -6,6 +6,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
+import { createTimeoutFetch } from "../github/octokit-timeout";
 import { MinskyError, getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import type { ApprovalInfo, ApprovalStatus, RawReviewEntry } from "./approval-types";
@@ -248,6 +249,9 @@ export async function getPullRequestApprovalStatus(
             error: (msg: unknown) => log.systemDebug(String(msg)),
           }
         : { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      // Bound every request so a hung GitHub call can't wedge a long-lived
+      // process (mt#2270 sweep; see octokit-timeout.ts).
+      request: { fetch: createTimeoutFetch() },
     });
 
     // Get PR details and ALL reviews (paginated to avoid the ~30 default cap).
