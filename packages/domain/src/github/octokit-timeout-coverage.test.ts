@@ -43,8 +43,9 @@ function collectTsFiles(dir: string): string[] {
       out.push(...collectTsFiles(full));
     } else if (
       entry.isFile() &&
-      entry.name.endsWith(".ts") &&
+      (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx")) &&
       !entry.name.endsWith(".test.ts") &&
+      !entry.name.endsWith(".test.tsx") &&
       !entry.name.endsWith(".d.ts")
     ) {
       out.push(full);
