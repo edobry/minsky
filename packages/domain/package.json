@@ -17,6 +17,7 @@
     "./session": "./src/session/index.ts",
     "./setup/github-app": "./src/setup/github-app/index.ts",
     "./tasks": "./src/tasks/index.ts",
+    "./github/octokit-timeout": "./src/github/octokit-timeout.ts",
     "./*": "./src/*.ts"
   },
   "dependencies": {

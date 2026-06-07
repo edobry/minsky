@@ -13,6 +13,7 @@ import {
 } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
 import { first } from "@minsky/shared/array-safety";
+import { createTimeoutFetch } from "../../github/octokit-timeout";
 
 /**
  * Shape of the live PR data returned from GitHub Octokit pulls.get / pulls.list responses.
@@ -132,7 +133,11 @@ export async function sessionPrGet(
           throw new Error("GitHub token required");
         }
 
-        const octokit = new Octokit({ auth: githubToken });
+        // Bound every request (mt#2270 sweep; see octokit-timeout.ts).
+        const octokit = new Octokit({
+          auth: githubToken,
+          request: { fetch: createTimeoutFetch() },
+        });
 
         // Extract owner/repo from session record
         const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
@@ -197,7 +202,11 @@ export async function sessionPrGet(
           throw new Error("GitHub token required for PR enrichment");
         }
 
-        const octokit = new Octokit({ auth: githubToken });
+        // Bound every request (mt#2270 sweep; see octokit-timeout.ts).
+        const octokit = new Octokit({
+          auth: githubToken,
+          request: { fetch: createTimeoutFetch() },
+        });
 
         // Extract owner/repo from session record
         const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
@@ -264,7 +273,11 @@ export async function sessionPrGet(
         const config = getConfiguration();
         const githubToken = config.github.token;
         if (githubToken) {
-          const octokit = new Octokit({ auth: githubToken });
+          // Bound every request (mt#2270 sweep; see octokit-timeout.ts).
+          const octokit = new Octokit({
+            auth: githubToken,
+            request: { fetch: createTimeoutFetch() },
+          });
 
           // Extract owner/repo from session record
           const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
