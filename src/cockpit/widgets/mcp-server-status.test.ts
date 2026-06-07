@@ -13,6 +13,7 @@ import {
   type DeploymentData,
   type McpServerStatusDeps,
   type McpServerStatusPayload,
+  type MetricsData,
   type ProbeResult,
 } from "./mcp-server-status";
 import type { ProbeHistory, ProbeSample } from "../mcp-probe-history";
@@ -33,6 +34,7 @@ function makeDeps(over: Partial<McpServerStatusDeps> = {}): {
   const deps: McpServerStatusDeps = {
     probeHealth: async (): Promise<ProbeResult> => ({ ok: true, statusCode: 200 }),
     getDeploymentData: async (): Promise<DeploymentData | null> => null,
+    getMetricsData: async (): Promise<MetricsData | null> => null,
     readHistory: () => ({ samples: [] }),
     writeHistory: (h) => {
       written.current = h;
@@ -91,7 +93,12 @@ describe("healthy state (acceptance test 1)", () => {
     // Field 7: recent errors
     expect(payload.recentErrors).toEqual([]);
     // No anomalies
-    expect(payload.anomalies).toEqual({ m1HealthFailing: false, m2DeployFailed: false });
+    expect(payload.anomalies).toEqual({
+      m1HealthFailing: false,
+      m2DeployFailed: false,
+      m3RestartLoop: false,
+      m4ResourceNearLimit: false,
+    });
   });
 
   test("persists the probe sample to history", async () => {
@@ -188,5 +195,101 @@ describe("graceful degradation", () => {
     expect(data.state).toBe("degraded");
     if (data.state !== "degraded") throw new Error("expected degraded");
     expect(data.reason).toContain("disk gone");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Railway metrics + M3/M4 (mt#2317)
+// ---------------------------------------------------------------------------
+
+function metrics(over: Partial<MetricsData> = {}): MetricsData {
+  return {
+    cpuPercent: 1,
+    memoryPercent: 2,
+    restartCount24h: 0,
+    restartCount1h: 0,
+    ...over,
+  };
+}
+
+describe("Railway metrics fields + M3/M4 (mt#2317)", () => {
+  test("M3 fires when the 1h restart count exceeds 3; M4 fires on memory >=80", async () => {
+    const { deps } = makeDeps({
+      getMetricsData: async () =>
+        metrics({ cpuPercent: 50, memoryPercent: 90, restartCount24h: 5, restartCount1h: 4 }),
+    });
+    const payload = await run(deps);
+
+    expect(payload.metrics).toEqual({
+      cpuPercent: 50,
+      memoryPercent: 90,
+      restartCount24h: 5,
+    });
+    expect(payload.anomalies.m4ResourceNearLimit).toBe(true); // memory 90 >= 80
+    expect(payload.anomalies.m3RestartLoop).toBe(true); // 1h count 4 > 3
+  });
+
+  test("M4 fires on CPU >=80; M3 stays off when the 1h count is within bound", async () => {
+    const { deps } = makeDeps({
+      getMetricsData: async () =>
+        metrics({ cpuPercent: 85, memoryPercent: 10, restartCount24h: 6, restartCount1h: 2 }),
+    });
+    const payload = await run(deps);
+
+    expect(payload.anomalies.m4ResourceNearLimit).toBe(true); // CPU 85 >= 80
+    // 1h count 2 <= 3 even though the 24h display count is 6.
+    expect(payload.anomalies.m3RestartLoop).toBe(false);
+    expect(payload.metrics?.restartCount24h).toBe(6);
+  });
+
+  test("neither M3 nor M4 fires on low metrics, but the fields still populate", async () => {
+    const { deps } = makeDeps({
+      getMetricsData: async () =>
+        metrics({ cpuPercent: 1, memoryPercent: 2, restartCount24h: 0, restartCount1h: 0 }),
+    });
+    const payload = await run(deps);
+
+    expect(payload.anomalies.m3RestartLoop).toBe(false);
+    expect(payload.anomalies.m4ResourceNearLimit).toBe(false);
+    expect(payload.metrics).toEqual({ cpuPercent: 1, memoryPercent: 2, restartCount24h: 0 });
+  });
+
+  test("metrics degrade to null independently — deploy + health still render", async () => {
+    const { deps } = makeDeps({
+      probeHealth: async () => ({ ok: true, statusCode: 200 }),
+      getDeploymentData: async () => healthyDeploy(),
+      getMetricsData: async () => {
+        throw new Error("railway metrics unreachable");
+      },
+    });
+    const payload = await run(deps);
+
+    expect(payload.metrics).toBeNull();
+    expect(payload.anomalies.m3RestartLoop).toBe(false);
+    expect(payload.anomalies.m4ResourceNearLimit).toBe(false);
+    // Independent degradation: deploy + health are intact.
+    expect(payload.deploy?.status).toBe("SUCCESS");
+    expect(payload.health.ok).toBe(true);
+  });
+
+  test("null percentages do not fire M4 (no datapoints)", async () => {
+    const { deps } = makeDeps({
+      getMetricsData: async () =>
+        metrics({
+          cpuPercent: null,
+          memoryPercent: null,
+          restartCount24h: null,
+          restartCount1h: null,
+        }),
+    });
+    const payload = await run(deps);
+
+    expect(payload.anomalies.m4ResourceNearLimit).toBe(false);
+    expect(payload.anomalies.m3RestartLoop).toBe(false);
+    expect(payload.metrics).toEqual({
+      cpuPercent: null,
+      memoryPercent: null,
+      restartCount24h: null,
+    });
   });
 });
