@@ -6,11 +6,18 @@ them.
 
 ## `.minsky/skills/` — Minsky-authored skills (canonical)
 
-Source of truth for skills authored as part of Minsky itself. TypeScript-first
-authoring per [mt#800](https://www.notion.so/348937f03cb4811eb4bedb7057217dd3):
-each skill is defined via `defineSkill()` in `.minsky/skills/<name>/skill.ts`
-and compiled to harness-specific output under `.claude/skills/`,
-`.cursor/rules/`, etc. via `bun run minsky compile`.
+Source of truth for skills authored as part of Minsky itself. Authoring is
+**hybrid and location-canonical** per [ADR-015](adr-015-skill-authoring-format-policy.md)
+(which amends [mt#800](https://www.notion.so/348937f03cb4811eb4bedb7057217dd3)'s
+original TypeScript-first stance): a skill source under `.minsky/skills/<name>/`
+may be EITHER a TypeScript module (`defineSkill()` in `skill.ts`, type-safe) OR a
+markdown source — **canonicity comes from the `.minsky/` location, not the file
+format**. Sources compile to harness-specific output under `.claude/skills/`,
+`.cursor/rules/`, etc. via `bun run minsky compile`. (As of mt#2279 the compile
+pipeline reads markdown sources — `.minsky/skills/<name>/SKILL.md` — as well as
+`skill.ts`; a directory with BOTH is reported as an ambiguous canonical source
+and skipped with a warning. The 7 current Minsky-authored skills are all
+TypeScript; markdown is now an equally-supported authoring format.)
 
 These skills participate in the Minsky compile pipeline and are loaded by
 agents through harness-native discovery (Claude Code's `.claude/skills/`
@@ -26,8 +33,53 @@ Current Minsky-authored skills under `.minsky/skills/`:
 - `merge-coordination`
 - `verify-task`
 
-Always checked into git. Edit the TypeScript source under `.minsky/skills/`,
-then run `bun run minsky compile` to regenerate the harness-specific outputs.
+Always checked into git. Edit the source (TypeScript or markdown) under
+`.minsky/skills/`, then run `bun run minsky compile` to regenerate the
+harness-specific outputs.
+
+### Markdown source format
+
+A markdown skill source is a `.minsky/skills/<name>/SKILL.md` with YAML
+frontmatter plus a markdown body. Minimal example:
+
+    ---
+    name: my-skill
+    description: One-line description of what the skill does and when to use it.
+    user-invocable: true
+    ---
+
+    # My Skill
+
+    The skill body (markdown).
+
+Frontmatter keys (kebab-case) map to the same `SkillDefinition` fields as
+`defineSkill()`:
+
+| Frontmatter key            | SkillDefinition field    | Type                                                          | Default  |
+| -------------------------- | ------------------------ | ------------------------------------------------------------- | -------- |
+| `name`                     | `name`                   | string (lowercase / digits / hyphens, ≤64; matches dir)       | required |
+| `description`              | `description`            | string                                                        | required |
+| `tags`                     | `tags`                   | string[] (a scalar string is normalized to a 1-element array) | omitted  |
+| `user-invocable`           | `userInvocable`          | boolean                                                       | `true`   |
+| `disable-model-invocation` | `disableModelInvocation` | boolean                                                       | `false`  |
+| `allowed-tools`            | `allowedTools`           | string[] (scalar normalized)                                  | omitted  |
+
+The markdown body becomes the skill content. Invalid or missing required fields
+cause the skill to be **skipped with a warning** (not a silent drop). A directory
+containing BOTH `skill.ts` and `SKILL.md` is an ambiguous canonical source and is
+skipped with a warning — keep exactly one.
+
+### Vendored community skills (third category)
+
+Distinct from Minsky-authored skills: ~12 **vendored community skills** live
+committed under `.claude/skills/<name>/` with a `_VENDORED.md` provenance marker
+(source URL + commit SHA), sourced from upstream repos (e.g. `anthropics/skills`).
+These are **upstream-canonical** — they are NOT authored under `.minsky/` and are
+NOT compiled from it; update them by refetching from the upstream source URL. Do
+not create a `.minsky/` source for a vendored skill (it would falsely claim
+authorship and break refetch-update). The unified handling of vendored skills
+across the compile pipeline + third-party installer is owned by the mt#1908
+RFC. See ADR-015 for the carve-out.
 
 ## `.agents/skills/` — retired third-party install destination
 
@@ -83,8 +135,15 @@ the postinstall hook is gone.
 
 ## Cross-references
 
-- [mt#800](https://www.notion.so/348937f03cb4811eb4bedb7057217dd3) — ADR for
-  TypeScript-first authoring of behavioral artifacts (skills, rules, agents)
+- [ADR-015](adr-015-skill-authoring-format-policy.md) — skill authoring format
+  policy: hybrid (TypeScript or markdown), location-canonical; amends mt#800's
+  TS-first stance for skills (mt#2251)
+- [mt#800](https://www.notion.so/348937f03cb4811eb4bedb7057217dd3) — original ADR
+  for TypeScript-first authoring of behavioral artifacts (skills, rules, agents),
+  amended by ADR-015 for skills
+- mt#1908 — RFC: unify compile pipeline + third-party skill installer (vendored
+  community-skill category); mt#2279 — markdown-source reader; mt#2280 —
+  two-compile-systems convergence
 - mt#1902 — audit + retirement of the `npx skills` postinstall hook
 - mt#1812, mt#1305 — Minsky compile pipeline tasks
 - `docs/architecture/main-workspace-ops.md` — references the historical

@@ -1397,7 +1397,13 @@ export function createStartCommand(
             if (!container) return;
             return triggerStartupTranscriptIngest(container.get("persistence"));
           })
-          .catch(() => {}); // Transcript ingest is best-effort
+          // mt#2192 (SC2): de-silence the boot sweep — a failed startup ingest
+          // must leave an operator-findable signal, not vanish into .catch(()=>{}).
+          .catch((err) => {
+            log.warn("Startup transcript ingest failed (best-effort)", {
+              error: err instanceof Error ? err.message : String(err),
+            });
+          });
 
         // Start the knowledge sync scheduler (best-effort; non-blocking)
         // ADR-002: scheduler is only constructed here, inside the MCP server start

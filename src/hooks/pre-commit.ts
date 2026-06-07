@@ -34,6 +34,12 @@ import {
   isDeployDomainOverrideTruthy,
   DEPLOY_DOMAIN_CHECK_OVERRIDE_ENV,
 } from "./deploy-domain-detector";
+import {
+  detectImmutableMigrationViolations,
+  isImmutableMigrationOverrideTruthy,
+  IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV,
+  MIGRATION_DIRS,
+} from "./immutable-migration-detector";
 
 export interface ESLintResult {
   filePath: string;
@@ -129,13 +135,23 @@ export class PreCommitHook {
       }
 
       // Step 3d: Migration journal consistency (mt#2087). Verify that every
-      // SQL file under src/domain/storage/migrations/pg/ has a corresponding
+      // SQL file under packages/domain/src/storage/migrations/pg/ has a corresponding
       // entry in meta/_journal.json. Prevents the mt#2086 class where a
       // hand-written SQL file ships without a journal entry, making it
       // invisible to Drizzle's migrator.
       const migrationJournalResult = await this.runMigrationJournalCheck();
       if (!migrationJournalResult.success) {
         return migrationJournalResult;
+      }
+
+      // Step 3e-a: Immutable-migration check (mt#2268). Block staged
+      // MODIFICATIONS (not additions) to .sql files under the migration
+      // directories whose tag is already listed in meta/_journal.json.
+      // Editing an applied migration drifts Drizzle's sha256 ledger —
+      // the mt#1641/mt#2250 root cause (migrations 0002/0014/0015).
+      const immutableMigrationResult = await this.runImmutableMigrationCheck();
+      if (!immutableMigrationResult.success) {
+        return immutableMigrationResult;
       }
 
       // Step 3e: Deploy-domain ownership check (mt#2208, live successor to
@@ -187,10 +203,16 @@ export class PreCommitHook {
         return ruleTestsResult;
       }
 
-      // Step 9: Rules compile staleness check
+      // Step 9: Rules compile staleness check (legacy `rules compile` system)
       const rulesCheckResult = await this.runRulesCompileCheck();
       if (!rulesCheckResult.success) {
         return rulesCheckResult;
+      }
+
+      // Step 9b: Compile staleness check (new `compile` system — mt#2252)
+      const compileCheckResult = await this.runCompileCheck();
+      if (!compileCheckResult.success) {
+        return compileCheckResult;
       }
 
       log.cli("✅ All checks passed! Commit proceeding...");
@@ -867,7 +889,7 @@ export class PreCommitHook {
     }
 
     try {
-      const migrationsDir = join(this.projectRoot, "src/domain/storage/migrations/pg");
+      const migrationsDir = join(this.projectRoot, "packages/domain/src/storage/migrations/pg");
       const metaDir = join(migrationsDir, "meta");
 
       let sqlFiles: string[];
@@ -917,6 +939,146 @@ export class PreCommitHook {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       return { success: false, message: `Migration journal check error: ${msg}`, exitCode: 1 };
+    }
+  }
+
+  /**
+   * Block staged modifications to already-applied SQL migration files (mt#2268).
+   *
+   * Drizzle records sha256(full .sql) at apply-time; editing an applied
+   * migration causes it to re-apply on the next `migrate --execute`, silently
+   * drifting the ledger from actual DB state (mt#1641/mt#2250 root cause).
+   *
+   * Only staged MODIFICATIONS are blocked — additions are the correct path for
+   * new migrations and are always allowed.
+   *
+   * Override: setting `MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK` to `1` / `true`
+   * / `yes` skips the check and emits a one-line audit message to stdout.
+   * Use only for the rare legitimate case (e.g. fixing a never-applied
+   * migration before its first deploy).
+   */
+  private async runImmutableMigrationCheck(): Promise<HookResult> {
+    if (isImmutableMigrationOverrideTruthy(process.env[IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV])) {
+      const ts = new Date().toISOString();
+      log.cli(
+        `[pre-commit:immutable-migration] override ${IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV}=${process.env[IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV]} ` +
+          `at ${ts} — immutable-migration check skipped`
+      );
+      return {
+        success: true,
+        message: "Immutable-migration check skipped via override",
+        exitCode: 0,
+      };
+    }
+
+    try {
+      // Get staged files with their status. We include renames (R) as well as
+      // modifications (M): a rename-with-edit of an applied migration would
+      // otherwise slip past an M-only filter (mt#2268 review). `--name-status`
+      // output is `<status>\t<path>` for M, and `R<score>\t<old>\t<new>` for
+      // renames — for a rename we flag the OLD (applied) path.
+      const result = await execGitWithTimeout(
+        "diff",
+        "diff --cached --name-status --diff-filter=MR",
+        {
+          workdir: this.projectRoot,
+          timeout: 5000,
+        }
+      );
+
+      const statusLines = result.stdout.toString().trim().split("\n").filter(Boolean);
+
+      if (statusLines.length === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
+      }
+
+      // Build staged modifications map (path -> 'M'). Renames map their OLD path
+      // to 'M' so the detector treats moving an applied migration as a violation.
+      const stagedModifications = new Map<string, string>();
+      for (const line of statusLines) {
+        const parts = line.split("\t");
+        const status = parts[0] ?? "";
+        if (status.startsWith("R") && parts.length >= 3) {
+          // Rename: parts = [R<score>, oldPath, newPath] — flag the old (applied) path.
+          stagedModifications.set(parts[1] as string, "M");
+        } else if (status === "M" && parts[1]) {
+          stagedModifications.set(parts[1] as string, "M");
+        }
+      }
+      if (stagedModifications.size === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed (no staged modifications)",
+          exitCode: 0,
+        };
+      }
+
+      // Load journal tags for each migration directory.
+      const journalTagsByDir = new Map<string, ReadonlySet<string>>();
+      for (const dir of MIGRATION_DIRS) {
+        const journalPath = join(this.projectRoot, dir, "meta", "_journal.json");
+        try {
+          const raw = String(await readFile(journalPath, "utf-8"));
+          const parsed = JSON.parse(raw) as { entries?: Array<{ tag: string }> };
+          const tags = new Set((parsed.entries ?? []).map((e) => e.tag));
+          journalTagsByDir.set(dir, tags);
+        } catch {
+          // No journal for this dir — skip (e.g. dir doesn't exist yet)
+        }
+      }
+
+      const violations = detectImmutableMigrationViolations(stagedModifications, journalTagsByDir);
+
+      if (violations.length === 0) {
+        return {
+          success: true,
+          message: "Immutable-migration check passed",
+          exitCode: 0,
+        };
+      }
+
+      log.cli("");
+      log.cli(
+        `${violations.length} applied migration file(s) staged for modification. Commit blocked.`
+      );
+      log.cli("");
+      for (const v of violations) {
+        log.cli(`   ${v.filePath}  (tag: ${v.tag})`);
+      }
+      log.cli("");
+      log.cli("Why this is blocked:");
+      log.cli(
+        "   Applied migrations are IMMUTABLE. Drizzle records sha256(full .sql) at apply-time;"
+      );
+      log.cli("   editing an applied file causes it to re-apply on the next migrate --execute,");
+      log.cli("   silently drifting the schema ledger from actual DB state.");
+      log.cli("   Originating incidents: mt#1641, mt#2250 (migrations 0002/0014/0015).");
+      log.cli("");
+      log.cli("To fix: write a NEW migration that makes the desired schema change.");
+      log.cli("   Run `bun run db:generate:pg` (or the sqlite equivalent) to generate it.");
+      log.cli("   See .minsky/rules/migration-authoring.mdc for the canonical workflow.");
+      log.cli("");
+      log.cli(`If a modification is genuinely legitimate (e.g. fixing a never-applied migration),`);
+      log.cli(
+        `set ${IMMUTABLE_MIGRATION_CHECK_OVERRIDE_ENV}=1 to override. The skip is audit-logged.`
+      );
+      return {
+        success: false,
+        message: `Immutable-migration check failed: ${violations.length} applied migration(s) staged for modification`,
+        exitCode: 1,
+      };
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      log.error(`Immutable-migration check failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Immutable-migration check failed: ${errorMsg}`,
+        exitCode: 1,
+      };
     }
   }
 
@@ -1282,52 +1444,124 @@ export class PreCommitHook {
     log.cli(`✅ All rules compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
     return { success: true, message: "Rules compile check passed", exitCode: 0 };
   }
+
+  /**
+   * Run `compile --check` for the NEW definition-compile system's targets
+   * (distinct from the legacy `rules compile` system handled by
+   * runRulesCompileCheck). This closes the mt#2182 gap: the `claude-skills`
+   * target silently skipped all sources for weeks with no staleness guard.
+   *
+   * Targets checked (opted in when their `.minsky/` source dir exists):
+   * - `claude-skills`  (.minsky/skills/) — the mt#2182 originating target.
+   * - `cursor-rules-ts` (.minsky/rules/) — verified in sync as of mt#2252.
+   *
+   * `claude-agents` is intentionally EXCLUDED: as of mt#2252 its output is
+   * stale (source↔output drift, the agents analog of the mt#2253 skills drift).
+   * Enabling its check would block every commit until that drift is reconciled.
+   * Add it here only after reconciliation lands (tracking task: mt#1654 —
+   * "Reconcile agent source-of-truth split: .minsky/agents/ vs .claude/agents/").
+   */
+  private async runCompileCheck(): Promise<HookResult> {
+    log.cli("📋 Checking compile outputs are up-to-date (claude-skills, cursor-rules-ts)...");
+
+    const fsp = await import("fs/promises");
+    const targetsToCheck: string[] = [];
+
+    // claude-skills: opt in when .minsky/skills/ exists.
+    try {
+      await fsp.access(`${this.projectRoot}/.minsky/skills`);
+      targetsToCheck.push("claude-skills");
+    } catch {
+      // No .minsky/skills/ — skip
+    }
+
+    // cursor-rules-ts: opt in when .minsky/rules/ exists.
+    try {
+      await fsp.access(`${this.projectRoot}/.minsky/rules`);
+      targetsToCheck.push("cursor-rules-ts");
+    } catch {
+      // No .minsky/rules/ — skip
+    }
+
+    if (targetsToCheck.length === 0) {
+      log.cli("✅ No new-compile-system outputs detected — skipping compile check.");
+      return { success: true, message: "No compile targets to check", exitCode: 0 };
+    }
+
+    for (const target of targetsToCheck) {
+      try {
+        // `target` is from the locally-built `targetsToCheck` array which
+        // contains only the hardcoded literals "claude-skills" and
+        // "cursor-rules-ts". Bounded enum, no shell metacharacters — no
+        // safeShellQuote needed (mirrors runRulesCompileCheck / mt#1829).
+        await execAsync(`bun run src/cli.ts compile --check --target ${target}`, {
+          cwd: this.projectRoot,
+          timeout: 30000,
+        });
+      } catch (error) {
+        const result = classifyCompileCheckError(error, target, "compile");
+        for (const line of result.logLines) {
+          log.cli(line);
+        }
+        return { success: false, message: result.message, exitCode: 1 };
+      }
+    }
+
+    log.cli(`✅ All compile outputs are up-to-date (${targetsToCheck.join(", ")}).`);
+    return { success: true, message: "Compile check passed", exitCode: 0 };
+  }
 }
 
 /**
- * Classify a failed `rules compile --check` subprocess error as either genuine
- * staleness or an unrelated compile-command error (e.g., setup-incomplete).
+ * Classify a failed compile-check subprocess error as either genuine staleness
+ * or an unrelated compile-command error (e.g., setup-incomplete). Serves BOTH
+ * compile systems via `kind`: the legacy `rules compile --check` (kind="rules")
+ * and the new `compile --check` (kind="compile"). All user-facing hints derive
+ * the command name from `kind` so they never name the wrong system.
  *
- * When the CLI detects stale output it prints a `[rules compile --check]` /
- * `is STALE` marker to stdout before throwing. Any other non-zero exit means
- * the compile command itself failed — telling the operator to "regenerate"
- * would be misleading because the same error will recur.
+ * When the CLI detects stale output it prints a `[<cmd> --check] ... is STALE`
+ * marker to stdout before throwing. Any other non-zero exit means the compile
+ * command itself failed — telling the operator to "regenerate" would be
+ * misleading because the same error will recur.
  *
  * Exported for unit testing; not part of the public hook API.
  */
 export function classifyCompileCheckError(
   error: unknown,
-  target: string
+  target: string,
+  // Which compile system emitted the check: the legacy `rules compile` command
+  // or the new `compile` command. Determines both the STALE-marker prefix to
+  // match and the regenerate hint to print. Defaults to "rules" for backward
+  // compatibility with existing callers/tests.
+  kind: "rules" | "compile" = "rules"
 ): { logLines: string[]; message: string } {
   const execError = error as { stdout?: string; stderr?: string };
   const stdout = execError.stdout ?? "";
   const stderr = execError.stderr ?? "";
 
-  // The CLI emits a line of the exact form:
-  //   [rules compile --check] Target "<target>" is STALE
-  // to stdout only when it has verified the output is out-of-date. Match this
-  // with a per-target line-anchored regex so that near-misses (e.g. a note
-  // about "previous run detected STALE files", or a STALE marker for a
-  // different target) do not count.
+  // The two CLIs emit a marker line of the exact form:
+  //   [rules compile --check] Target "<target>" is STALE   (legacy)
+  //   [compile --check] Target "<target>" is STALE          (new)
+  // to stdout only when output is verified out-of-date. Match this with a
+  // per-target line-anchored regex so near-misses (a STALE marker for a
+  // different target, or incidental prose) do not count.
+  const cmd = kind === "rules" ? "rules compile" : "compile";
   const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const staleLineRe = new RegExp(
-    `\\[rules compile --check\\] Target "${escapedTarget}" is STALE`,
-    "m"
-  );
+  const staleLineRe = new RegExp(`\\[${cmd} --check\\] Target "${escapedTarget}" is STALE`, "m");
   const isGenuinelyStale = staleLineRe.test(stdout);
 
   if (isGenuinelyStale) {
     return {
       logLines: [
-        `❌ Rules compile output for target "${target}" is stale.`,
-        `💡 Run "bun run minsky rules compile --target ${target}" to regenerate.`,
+        `❌ Compile output for target "${target}" is stale.`,
+        `💡 Run "bun run minsky ${cmd} --target ${target}" to regenerate.`,
       ],
-      message: `Rules compile output for target "${target}" is stale`,
+      message: `Compile output for target "${target}" is stale`,
     };
   }
 
   // Compile command errored. Surface the actual error so the operator knows
-  // what to fix — re-running "rules compile" will NOT help.
+  // what to fix — re-running the compile command will NOT help.
   const rawDetail = stderr.trim() || stdout.trim();
   const errorDetail = rawDetail || (error instanceof Error ? error.message : String(error));
 
@@ -1344,22 +1578,22 @@ export function classifyCompileCheckError(
   if (isSetupIncomplete) {
     return {
       logLines: [
-        `❌ Rules compile check for target "${target}" failed: developer setup is incomplete.`,
+        `❌ Compile check for target "${target}" failed: developer setup is incomplete.`,
         indented,
         `💡 Run "minsky setup --client <client-name>" to complete setup, then retry the commit.`,
-        `   (Re-running "rules compile" will NOT fix this — the setup must be completed first.)`,
+        `   (Re-running "${cmd}" will NOT fix this — the setup must be completed first.)`,
       ],
-      message: `Rules compile check for target "${target}" failed: developer setup incomplete`,
+      message: `Compile check for target "${target}" failed: developer setup incomplete`,
     };
   }
 
   return {
     logLines: [
-      `❌ Rules compile check for target "${target}" failed (not a staleness issue):`,
+      `❌ Compile check for target "${target}" failed (not a staleness issue):`,
       indented,
-      `💡 Fix the error above before retrying. ("rules compile" will NOT fix this.)`,
+      `💡 Fix the error above before retrying. ("${cmd}" will NOT fix this.)`,
     ],
-    message: `Rules compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
+    message: `Compile check for target "${target}" failed: ${errorDetail.split("\n")[0]}`,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
@@ -17,18 +17,23 @@ import { BasicHealth } from "./widgets/BasicHealth";
 import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
-import { AgentsPage } from "./pages/AgentsPage";
-import { ContextPage } from "./pages/ContextPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { WorkstreamsPage } from "./pages/WorkstreamsPage";
-import { TasksLayout } from "./pages/TasksLayout";
-import { TasksListPage } from "./pages/TasksListPage";
-import { TasksGraphPage } from "./pages/TasksGraphPage";
-import { TaskDetailPage } from "./pages/TaskDetailPage";
-import { AsksPage } from "./pages/AsksPage";
-import { ActivityPage } from "./pages/ActivityPage";
-import { EmbeddingsPage } from "./pages/EmbeddingsPage";
+import { McpServerStatus } from "./widgets/McpServerStatus";
 import { PageNavTiles } from "./pages/HomePage";
+
+// Lazy-loaded page routes — each becomes its own chunk on first visit.
+// HomePage's PageNavTiles stays eagerly imported above (first-paint critical).
+const AgentsPage = lazy(() => import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage })));
+const ContextPage = lazy(() => import("./pages/ContextPage").then((m) => ({ default: m.ContextPage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const WorkstreamsPage = lazy(() => import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage })));
+const TasksLayout = lazy(() => import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout })));
+const TasksListPage = lazy(() => import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage })));
+const TasksGraphPage = lazy(() => import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage })));
+const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage })));
+const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
+const ActivityPage = lazy(() => import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
+const EmbeddingsPage = lazy(() => import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage })));
+const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage })));
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -41,12 +46,34 @@ const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
   "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
   "embeddings-health": EmbeddingsHealth,
+  "mcp-server-status": McpServerStatus,
 };
 
 // Prop-driven widgets: receive data from App-level polling.
 const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>> = {
   "basic-health": BasicHealth,
 };
+
+// Widgets whose data App fetches at the app level and distributes via props:
+//   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
+//   - promoted prop-driven page widgets whose routes receive data via props
+//     (WorkstreamsPage, TasksLayout) rather than self-fetching.
+// All other widgets — self-fetching home cards (attention, credentials, ...) and
+// self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
+// the registry-gated /api/widget/:id/data endpoint and must NOT be polled
+// app-wide. This keeps app-level background load bounded to a small fixed set,
+// independent of how many widgets the registry contains (mt#2294).
+//
+// Drift guard: the explicit page-widget entries below MUST also be in
+// PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
+// via props — see workstreamsData / taskGraphData below). A dev-time assertion
+// enforces this so adding a self-fetching page widget here (which would start
+// needless app-wide polling) fails fast rather than silently regressing load.
+const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["workstreams", "task-graph"] as const;
+const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
+  ...Object.keys(PROP_DRIVEN_RENDERERS),
+  ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
+]);
 
 // IDs of widgets that have dedicated page routes — App still polls their data
 // so page routes receive it without a separate fetch setup.
@@ -57,6 +84,21 @@ const PAGE_ROUTE_WIDGET_IDS = new Set([
   "task-graph",
   "task-list",
 ]);
+
+// Drift guard (mt#2294): every app-level page-prop widget must be a real page
+// route. If one isn't, it has no prop consumer and would only add needless
+// app-wide polling — fail fast in dev rather than silently regress load.
+if (process.env.NODE_ENV !== "production") {
+  for (const id of APP_LEVEL_PAGE_PROP_WIDGET_IDS) {
+    if (!PAGE_ROUTE_WIDGET_IDS.has(id)) {
+      throw new Error(
+        `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is not a page route ` +
+          `(missing from PAGE_ROUTE_WIDGET_IDS) — app-level polling would run for a ` +
+          `widget with no prop consumer. Fix the set (mt#2294).`
+      );
+    }
+  }
+}
 
 interface WidgetState {
   meta: WidgetMeta;
@@ -171,8 +213,11 @@ export function App() {
       setWidgets(metas.map((meta) => ({ meta, data: null })));
 
       for (const meta of metas) {
-        // Self-fetching widgets own their own data
-        if (SELF_FETCHING_RENDERERS[meta.id]) {
+        // Only app-level-fetch widgets App distributes via props. Everything
+        // else — self-fetching home cards and self-fetching page widgets —
+        // owns its own data via the registry-gated data endpoint, so polling
+        // them here would add background load for widgets App never renders.
+        if (!APP_LEVEL_PROP_WIDGET_IDS.has(meta.id)) {
           continue;
         }
 
@@ -228,78 +273,94 @@ export function App() {
 
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<HomePage widgets={homeWidgets} />} />
-        <Route
-          path="/agents"
-          element={
-            <ErrorBoundary id="agents-page">
-              <AgentsPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/context"
-          element={
-            <ErrorBoundary id="context-page">
-              <ContextPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/workstreams"
-          element={
-            <ErrorBoundary id="workstreams-page">
-              <WorkstreamsPage data={workstreamsData} />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/tasks"
-          element={
-            <ErrorBoundary id="tasks-layout">
-              <TasksLayout taskGraphData={taskGraphData} />
-            </ErrorBoundary>
-          }
-        >
-          <Route index element={<TasksListPage />} />
-          <Route path="graph" element={<TasksGraphPage />} />
-          {/* React Router v7 matches literal "graph" before ":id" so no conflict */}
-          <Route path=":id" element={<TaskDetailPage />} />
-        </Route>
-        <Route
-          path="/asks"
-          element={
-            <ErrorBoundary id="asks-page">
-              <AsksPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/activity"
-          element={
-            <ErrorBoundary id="activity-page">
-              <ActivityPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ErrorBoundary id="settings-page">
-              <SettingsPage />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="/embeddings"
-          element={
-            <ErrorBoundary id="embeddings-page">
-              <EmbeddingsPage />
-            </ErrorBoundary>
-          }
-        />
-      </Routes>
+      <Suspense
+        fallback={
+          <div className="p-4 text-muted-foreground text-sm" aria-live="polite">
+            Loading…
+          </div>
+        }
+      >
+        <Routes>
+          <Route path="/" element={<HomePage widgets={homeWidgets} />} />
+          <Route
+            path="/agents"
+            element={
+              <ErrorBoundary id="agents-page">
+                <AgentsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/context"
+            element={
+              <ErrorBoundary id="context-page">
+                <ContextPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/workstreams"
+            element={
+              <ErrorBoundary id="workstreams-page">
+                <WorkstreamsPage data={workstreamsData} />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/tasks"
+            element={
+              <ErrorBoundary id="tasks-layout">
+                <TasksLayout taskGraphData={taskGraphData} />
+              </ErrorBoundary>
+            }
+          >
+            <Route index element={<TasksListPage />} />
+            <Route path="graph" element={<TasksGraphPage />} />
+            {/* React Router v7 matches literal "graph" before ":id" so no conflict */}
+            <Route path=":id" element={<TaskDetailPage />} />
+          </Route>
+          <Route
+            path="/asks"
+            element={
+              <ErrorBoundary id="asks-page">
+                <AsksPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/activity"
+            element={
+              <ErrorBoundary id="activity-page">
+                <ActivityPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/settings"
+            element={
+              <ErrorBoundary id="settings-page">
+                <SettingsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/embeddings"
+            element={
+              <ErrorBoundary id="embeddings-page">
+                <EmbeddingsPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/memories"
+            element={
+              <ErrorBoundary id="memories-page">
+                <MemoriesPage />
+              </ErrorBoundary>
+            }
+          />
+        </Routes>
+      </Suspense>
     </Layout>
   );
 }

@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   detectTriggerPhrases,
   detectUserCorrection,
+  hasRetrospectiveSkillInvocation,
+} from "./retrospective-trigger-scanner";
+import {
   extractAssistantText,
   extractLastAssistantTurn,
   extractLastUserMessage,
-  hasRetrospectiveSkillInvocation,
-} from "./retrospective-trigger-scanner";
+} from "./transcript";
 
 const WHY_DID_YOU_DO_THAT = "why did you do that?";
 
@@ -303,6 +305,44 @@ describe("extractLastAssistantTurn", () => {
   test("returns empty when fewer than 2 user messages", () => {
     const lines = [{ type: "user", message: { role: "user", content: "only prompt" } }];
     expect(extractLastAssistantTurn(lines)).toEqual([]);
+  });
+
+  // mt#2255: a trigger phrase in a NON-FINAL assistant segment of a multi-tool-round
+  // turn must still be surfaced. The old user-role split bounded the turn at the last
+  // tool_result, dropping the first segment (Surface 1 never fired — the reason the
+  // hook existed). With real-prompt bounds, the whole turn is scanned.
+  test("trigger phrase in the FIRST segment of a multi-round turn is still detected", () => {
+    const lines = [
+      { type: "user", message: { role: "user", content: "do the thing" } },
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "I should have caught it myself." }],
+        },
+      },
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "tool_use", name: "Edit", input: {} }] },
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "x", content: "ok" }],
+        },
+      },
+      {
+        type: "assistant",
+        message: { role: "assistant", content: [{ type: "text", text: "Fixed it." }] },
+      },
+      { type: "user", message: { role: "user", content: "next" } },
+    ];
+    const turn = extractLastAssistantTurn(lines);
+    const text = extractAssistantText(turn);
+    expect(text).toContain("I should have caught it myself.");
+    const matches = detectTriggerPhrases(text);
+    expect(matches.some((m) => m.family === "R1")).toBe(true);
   });
 });
 

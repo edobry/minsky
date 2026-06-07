@@ -292,14 +292,14 @@
     {
       "idx": 41,
       "version": "7",
-      "when": 1748131869000,
+      "when": 1779900000000,
       "tag": "0041_system_events",
       "breakpoints": true
     },
     {
       "idx": 42,
       "version": "7",
-      "when": 1748372400000,
+      "when": 1779950000000,
       "tag": "0042_embeddings_provider_degraded_event",
       "breakpoints": true
     },
@@ -308,6 +308,13 @@
       "version": "7",
       "when": 1780300000000,
       "tag": "0043_deleted_task_ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1780500000000,
+      "tag": "0044_drop_tasks_embeddings_status_backend",
       "breakpoints": true
     }
   ]

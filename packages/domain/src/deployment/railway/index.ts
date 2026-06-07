@@ -11,12 +11,22 @@ import { railwayAdapterFactory } from "./adapter";
 
 registerAdapter("railway", railwayAdapterFactory);
 
-export { RailwayDeploymentAdapter, railwayAdapterFactory } from "./adapter";
+export {
+  computeMetricsSnapshot,
+  deriveRestartCount,
+  RailwayDeploymentAdapter,
+  railwayAdapterFactory,
+} from "./adapter";
 export {
   fetchBuildLogs,
   fetchDeploymentLogs,
   fetchDeployments,
+  fetchServiceMetrics,
   RailwayApiError,
   RailwayAuthError,
+  type RailwayMetricDatapoint,
+  type RailwayMetricSeries,
   readRailwayToken,
+  SERVICE_METRIC_MEASUREMENTS,
+  type ServiceMetricMeasurement,
 } from "./graphql-client";

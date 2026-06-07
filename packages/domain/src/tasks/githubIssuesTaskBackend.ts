@@ -9,6 +9,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
+import { createTimeoutFetch } from "../github/octokit-timeout";
 import { join } from "path";
 import { getErrorMessage } from "../errors/index";
 import type {
@@ -116,7 +117,11 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       new Octokit({
         auth: options.githubToken,
         userAgent: "minsky-cli",
-        request: { retries: 3, retryAfter: 30 },
+        // `request.fetch` bounds every request (incl. retries) to a deadline;
+        // modern Octokit ignores the legacy `request.timeout`, so a hung GitHub
+        // call would otherwise be unbounded and wedge a long-lived process
+        // (mt#2245, originating incident mt#2186: 27-38 minute requests).
+        request: { retries: 3, retryAfter: 30, fetch: createTimeoutFetch() },
       });
 
     // Auto-create labels (async, fire-and-forget)

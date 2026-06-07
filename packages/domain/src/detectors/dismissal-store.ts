@@ -27,7 +27,7 @@ import { log } from "@minsky/shared/logger";
  * evidence `signature` in the given `repoUrl` project. The `response`
  * field stores the operator's resolution payload (e.g. "dismiss", "snooze").
  *
- * Schema migration: src/domain/storage/migrations/pg/0030_detector_dismissals.sql
+ * Schema migration: packages/domain/src/storage/migrations/pg/0030_detector_dismissals.sql
  */
 export const detectorDismissalsTable = pgTable(
   "detector_dismissals",

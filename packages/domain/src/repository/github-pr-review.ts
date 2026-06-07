@@ -12,6 +12,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
+import { createTimeoutFetch } from "../github/octokit-timeout";
 import { MinskyError } from "../errors/index";
 import { getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
@@ -319,6 +320,8 @@ export async function submitReview(
         log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
         request: {
           headers: { accept: "application/vnd.github.v3.diff" },
+          // Bound every request (mt#2270 sweep; see octokit-timeout.ts).
+          fetch: createTimeoutFetch(),
         },
       });
       const diffResponse = await diffOctokit.request(

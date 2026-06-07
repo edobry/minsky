@@ -132,6 +132,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_SKIP_WORKSPACE_COPY_CHECK", // src/hooks/pre-commit.ts (mt#1984) — workspace-COPY check override
   "MINSKY_SKIP_MIGRATION_JOURNAL_CHECK", // src/hooks/pre-commit.ts (mt#2087) — migration journal consistency check override
   "MINSKY_SKIP_DEPLOY_DOMAIN_CHECK", // src/hooks/pre-commit.ts (mt#2208) — deploy-domain ownership check override
+  "MINSKY_SKIP_IMMUTABLE_MIGRATION_CHECK", // src/hooks/pre-commit.ts (mt#2268) — immutable-migration (edit-applied-migration) check override
   "MINSKY_SKIP_CLI_AUTORUN", // src/cli.ts (mt#1892) — gates the auto-main() invocation for build scripts that need to import createCli without running it
   // mt#1788 sweep — pre-existing src/ reads now registered as hook-only.
   // Many of these arguably belong in environmentMappings with a proper config
@@ -156,6 +157,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_MCP_INSTRUCTIONS_BUNDLE", // src/mcp/middleware/memory-bundle.ts (mt#1625 spike — opt-in flag)
   "MINSKY_MCP_INIT_RETRY_INTERVAL_MS", // src/commands/mcp/start-command.ts (mt#1962 — init retry backoff)
   "MINSKY_POSTGRES_MAX_CONNECTIONS", // src/domain (pool config — promote to persistence.postgres.maxConnections)
+  "MINSKY_COCKPIT_PERSISTENCE_INIT_TIMEOUT_MS", // src/cockpit/shared-persistence.ts (mt#2244 — init-timeout override)
   // mt#1994 — hook-only override env vars whose only read site is in
   // .claude/hooks/*.ts (outside the mt#1788 ESLint rule's prior scan path).
   // Each is documented in CLAUDE.md or the hook's own header as a user-facing
@@ -188,6 +190,10 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_COCKPIT_PREVIEW", // src/cockpit/server.ts (mt#2096) — preview-mode guard disabling mutation endpoints
   "MINSKY_FORCE_BYPASS", // .claude/hooks/block-subagent-bypass-merge.ts (mt#1869) — override for bypass-merge block
   "MINSKY_SKIP_TIME_INJECTION", // .claude/hooks/inject-current-time.ts (mt#2181) — skip current-time injection
+  "MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — skip session-end transcript ingest
+  "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
+  "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
+  "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
 ]);
 
 /**

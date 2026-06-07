@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 560" font-family="'JetBrains Mono', ui-monospace, monospace">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#00BFD8"/>
+    </marker>
+  </defs>
+
+  <!-- principal -->
+  <text x="500" y="30" text-anchor="middle" fill="#A3A3A3" font-size="14" letter-spacing="1.5">you — the principal · declare intent</text>
+  <line x1="500" y1="42" x2="500" y2="74" stroke="#00BFD8" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- harness -->
+  <rect x="320" y="76" width="360" height="66" rx="12" fill="#0E0E0E" stroke="#00BFD8" stroke-width="2"/>
+  <text x="500" y="105" text-anchor="middle" fill="#EEEEEE" font-family="Geist, sans-serif" font-size="21">Claude Code</text>
+  <text x="500" y="127" text-anchor="middle" fill="#A3A3A3" font-size="13">or any harness</text>
+
+  <!-- harness -> substrate -->
+  <line x1="500" y1="142" x2="500" y2="186" stroke="#00BFD8" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="516" y="170" fill="#00BFD8" font-size="13">MCP</text>
+
+  <!-- substrate -->
+  <rect x="180" y="186" width="640" height="178" rx="14" fill="#0E0E0E" stroke="#00BFD8" stroke-width="2.5"/>
+  <text x="208" y="216" fill="#00BFD8" font-size="14" letter-spacing="1.5">MINSKY — THE SUBSTRATE</text>
+
+  <!-- substrate chips: 2 rows x 3 -->
+  <g font-size="15" fill="#EEEEEE" text-anchor="middle">
+    <g>
+      <rect x="205" y="244" width="170" height="42" rx="8" fill="#050608" stroke="#2a2a2a"/>
+      <text x="290" y="271">sessions</text>
+      <rect x="415" y="244" width="170" height="42" rx="8" fill="#050608" stroke="#2a2a2a"/>
+      <text x="500" y="271">memory</text>
+      <rect x="625" y="244" width="170" height="42" rx="8" fill="#050608" stroke="#2a2a2a"/>
+      <text x="710" y="271">tasks</text>
+    </g>
+    <g>
+      <rect x="205" y="300" width="170" height="42" rx="8" fill="#050608" stroke="#2a2a2a"/>
+      <text x="290" y="327">hooks</text>
+      <rect x="415" y="300" width="170" height="42" rx="8" fill="#050608" stroke="#2a2a2a"/>
+      <text x="500" y="327">reviewer bot</text>
+      <rect x="625" y="300" width="170" height="42" rx="8" fill="#050608" stroke="#2a2a2a"/>
+      <text x="710" y="327">asks</text>
+    </g>
+  </g>
+
+  <!-- substrate -> children -->
+  <line x1="350" y1="364" x2="350" y2="420" stroke="#00BFD8" stroke-width="2" marker-end="url(#arr)"/>
+  <line x1="650" y1="364" x2="650" y2="420" stroke="#00BFD8" stroke-width="2" marker-end="url(#arr)"/>
+
+  <!-- postgres -->
+  <rect x="240" y="420" width="220" height="66" rx="10" fill="#0E0E0E" stroke="#0080A0" stroke-width="1.5"/>
+  <text x="350" y="452" text-anchor="middle" fill="#EEEEEE" font-family="Geist, sans-serif" font-size="18">Postgres</text>
+  <text x="350" y="472" text-anchor="middle" fill="#A3A3A3" font-size="12">source of truth</text>
+
+  <!-- cockpit -->
+  <rect x="540" y="420" width="220" height="66" rx="10" fill="#0E0E0E" stroke="#00BFD8" stroke-width="2"/>
+  <text x="650" y="452" text-anchor="middle" fill="#EEEEEE" font-family="Geist, sans-serif" font-size="18">Cockpit</text>
+  <text x="650" y="472" text-anchor="middle" fill="#A3A3A3" font-size="12">you watch it run</text>
+</svg>

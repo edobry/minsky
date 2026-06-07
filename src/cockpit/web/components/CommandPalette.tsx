@@ -67,6 +67,7 @@ const PAGES: PalettePage[] = [
   { type: "page", path: "/asks", label: "Asks", description: "Pending principal-attention asks" },
   { type: "page", path: "/activity", label: "Activity", description: "System event log" },
   { type: "page", path: "/embeddings", label: "Embeddings", description: "Provider health & index coverage" },
+  { type: "page", path: "/memories", label: "Memories", description: "Browse, search, and inspect memory records" },
 ];
 
 // ---------------------------------------------------------------------------

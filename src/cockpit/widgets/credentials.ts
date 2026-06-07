@@ -28,7 +28,7 @@ export const credentialsWidget: WidgetModule = {
     // The credentials widget does not use the generic widget data pipeline.
     // All data is fetched by the frontend React component via the dedicated
     // /api/credentials endpoints. This stub satisfies the WidgetModule contract
-    // so the widget can be registered and enabled in cockpit.json.
+    // so the widget can be registered in widget-registry.ts.
     return { state: "ok", payload: {} };
   },
 };

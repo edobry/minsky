@@ -4,7 +4,9 @@
  * These types form the stable widget contract. Adding a new widget:
  * 1. Implement WidgetModule
  * 2. Add import + entry to widget-registry.ts
- * 3. Enable in ~/.config/minsky/cockpit.json
+ *
+ * Registering a widget is sufficient — its data endpoint is served whenever it
+ * is in WIDGET_REGISTRY. There is no per-widget enable flag (mt#2294).
  */
 
 /** How a widget delivers fresh data to the shell */
@@ -25,17 +27,6 @@ export interface WidgetModule {
   title: string;
   updateMode: WidgetUpdateMode;
   fetch: (ctx: WidgetContext) => Promise<WidgetData>;
-}
-
-/** One entry in ~/.config/minsky/cockpit.json widgets array */
-export interface WidgetConfigEntry {
-  id: string;
-  enabled: boolean;
-}
-
-/** Full cockpit config schema */
-export interface CockpitConfig {
-  widgets: WidgetConfigEntry[];
 }
 
 /** Metadata shape returned by GET /api/widgets */

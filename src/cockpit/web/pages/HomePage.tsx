@@ -17,7 +17,7 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, FileSearch, GitBranch, List, Network, MessageCircleQuestion, Bell, Cpu, ChevronRight } from "lucide-react";
+import { Bot, Brain, FileSearch, GitBranch, List, Network, MessageCircleQuestion, Bell, Cpu, ChevronRight } from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -126,6 +126,12 @@ export function PageNavTiles() {
           icon={Cpu}
           label="Embeddings"
           description="Provider health, index coverage, and error log"
+        />
+        <EntryTile
+          to="/memories"
+          icon={Brain}
+          label="Memories"
+          description="Browse, search, and inspect memory records"
         />
       </div>
     </section>

@@ -542,3 +542,28 @@ Include this information:
 - Steps to reproduce
 - Diagnostic script output
 - Configuration (sanitized)
+
+## Schema-drift audit (Postgres)
+
+`minsky persistence check` runs a **read-only schema-drift audit** on the Postgres backend
+(mt#1641). It exists because the drizzle migration ledger (`drizzle.__drizzle_migrations`)
+records migrations by hash with no post-apply schema verification — so a manual `DROP COLUMN`
+or a migration that was tracked-applied without its `CREATE TABLE` ever running leaves the
+ledger looking clean while the live schema diverges. The audit compares the **declared
+schema (drizzle models)** against the **actual database** and reports:
+
+- **Missing table** — a declared table absent from the DB (e.g. a tracked-but-never-created
+  table).
+- **Missing column** — a declared column absent from an existing table (e.g. a manual
+  `DROP COLUMN`).
+- **Extra column** — a DB column not present in the model (un-modeled column / pending model
+  update).
+- **Duplicate ledger row** — a migration recorded more than once in
+  `drizzle.__drizzle_migrations` (inflates the applied count and trips the migrate
+  count-check).
+
+It is **read-only** — it never modifies the database; findings surface as issues/suggestions
+in the `persistence check` output. v1 covers the embeddings tables; a clean run logs
+`✅ Schema-drift audit clean`. Reconciling reported drift (recreating a table, recording a
+manual drop as a migration, or de-duplicating a ledger row) is a deliberate, separate
+operation — never performed by the audit.

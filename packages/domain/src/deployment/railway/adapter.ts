@@ -21,6 +21,8 @@ import {
   isTerminalStatus,
   type LogLine,
   type LogType,
+  type RestartCountResult,
+  type ServiceMetricsSnapshot,
   type WaitForLatestOptions,
 } from "../types";
 import {
@@ -28,13 +30,30 @@ import {
   fetchDeploymentById,
   fetchDeploymentLogs,
   fetchDeployments,
+  fetchServiceMetrics,
   getValidRailwayToken,
   type RailwayDeploymentNode,
+  type RailwayMetricDatapoint,
+  type RailwayMetricSeries,
+  SERVICE_METRIC_MEASUREMENTS,
 } from "./graphql-client";
 
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const DEFAULT_POLL_INTERVAL_SECONDS = 10;
 const DEFAULT_LOG_LINES = 100;
+
+/** Trailing window for a resource-metrics snapshot. We only need the latest
+ * datapoint, but Railway requires a startDate; one hour gives a few buckets
+ * of headroom so a freshly-deployed service still returns at least one sample. */
+const METRICS_WINDOW_MS = 60 * 60 * 1000;
+/** Sample bucket size for the metrics query (5 min — matches Railway's default granularity). */
+const METRICS_SAMPLE_RATE_SECONDS = 300;
+/** Default trailing window for restart counting. */
+const DEFAULT_RESTART_WINDOW_HOURS = 24;
+/** Upper bound on deployment records fetched for restart derivation. A
+ * crash-looping service can produce many records; 100 covers a 24h window
+ * with wide margin while bounding the query cost. */
+const RESTART_FETCH_LIMIT = 100;
 
 /**
  * Railway-native status → normalized DeploymentStatus.
@@ -86,6 +105,93 @@ function toRecord(node: RailwayDeploymentNode): DeploymentRecord {
     durationMs: null,
     url: deploymentUrl(node),
   };
+}
+
+/**
+ * Latest (max-`ts`) datapoint for a measurement series, or null when the
+ * series is absent or empty.
+ */
+function latestDatapoint(
+  series: RailwayMetricSeries[],
+  measurement: string
+): RailwayMetricDatapoint | null {
+  const found = series.find((s) => s.measurement === measurement);
+  if (!found) {
+    return null;
+  }
+  let latest: RailwayMetricDatapoint | null = null;
+  for (const v of found.values) {
+    if (latest === null || v.ts >= latest.ts) {
+      latest = v;
+    }
+  }
+  return latest;
+}
+
+/**
+ * Derive a normalized utilization snapshot from raw Railway metric series.
+ * Pure — exported for direct unit testing without a live API. CPU% and
+ * memory% are usage/limit ratios; a missing series or a zero/absent limit
+ * yields null for that percentage (no divide-by-zero).
+ */
+export function computeMetricsSnapshot(series: RailwayMetricSeries[]): ServiceMetricsSnapshot {
+  const cpuUsage = latestDatapoint(series, "CPU_USAGE");
+  const cpuLimit = latestDatapoint(series, "CPU_LIMIT");
+  const memUsage = latestDatapoint(series, "MEMORY_USAGE_GB");
+  const memLimit = latestDatapoint(series, "MEMORY_LIMIT_GB");
+
+  const cpuPercent =
+    cpuUsage && cpuLimit && cpuLimit.value > 0 ? (cpuUsage.value / cpuLimit.value) * 100 : null;
+  const memoryPercent =
+    memUsage && memLimit && memLimit.value > 0 ? (memUsage.value / memLimit.value) * 100 : null;
+
+  // Freshest datapoint across every series that fed this snapshot (usage and
+  // limit are sampled on the same buckets in practice, but including all four
+  // is robust to any series lagging).
+  const sampleTimestamps = [cpuUsage?.ts, cpuLimit?.ts, memUsage?.ts, memLimit?.ts].filter(
+    (t): t is number => typeof t === "number"
+  );
+  const sampledAt =
+    sampleTimestamps.length > 0
+      ? new Date(Math.max(...sampleTimestamps) * 1000).toISOString()
+      : null;
+
+  return {
+    cpuPercent,
+    memoryPercent,
+    cpuUsageVCpu: cpuUsage?.value ?? null,
+    cpuLimitVCpu: cpuLimit?.value ?? null,
+    memoryUsageGb: memUsage?.value ?? null,
+    memoryLimitGb: memLimit?.value ?? null,
+    sampledAt,
+  };
+}
+
+/**
+ * Derive a restart count + per-status breakdown from a list of deployment
+ * nodes. Pure — exported for direct unit testing. A "restart" is a deployment
+ * record created within the trailing window (see {@link RestartCountResult}
+ * for the coverage boundary). `nowMs` is injected so tests are deterministic.
+ */
+export function deriveRestartCount(
+  nodes: RailwayDeploymentNode[],
+  windowHours: number,
+  nowMs: number
+): RestartCountResult {
+  const sinceMs = nowMs - windowHours * 60 * 60 * 1000;
+  const since = new Date(sinceMs).toISOString();
+  const byStatus: Partial<Record<DeploymentStatus, number>> = {};
+  let count = 0;
+  for (const node of nodes) {
+    const createdMs = Date.parse(node.createdAt);
+    if (Number.isNaN(createdMs) || createdMs < sinceMs) {
+      continue;
+    }
+    count++;
+    const status = normalizeStatus(node.status);
+    byStatus[status] = (byStatus[status] ?? 0) + 1;
+  }
+  return { count, windowHours, since, byStatus };
 }
 
 @injectable()
@@ -174,6 +280,27 @@ export class RailwayDeploymentAdapter implements DeploymentPlatformAdapter {
       message: e.message,
       attributes: e.attributes ?? [],
     }));
+  }
+
+  async getServiceMetrics(): Promise<ServiceMetricsSnapshot> {
+    const token = await getValidRailwayToken();
+    const startDate = new Date(Date.now() - METRICS_WINDOW_MS).toISOString();
+    const series = await fetchServiceMetrics(
+      this.config.serviceId,
+      startDate,
+      SERVICE_METRIC_MEASUREMENTS,
+      token,
+      METRICS_SAMPLE_RATE_SECONDS
+    );
+    return computeMetricsSnapshot(series);
+  }
+
+  async getRestartCount(
+    windowHours: number = DEFAULT_RESTART_WINDOW_HOURS
+  ): Promise<RestartCountResult> {
+    const token = await getValidRailwayToken();
+    const nodes = await fetchDeployments(this.config.serviceId, RESTART_FETCH_LIMIT, token);
+    return deriveRestartCount(nodes, windowHours, Date.now());
   }
 }
 

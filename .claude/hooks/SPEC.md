@@ -9,6 +9,10 @@ Six TypeScript hooks (in `.claude/hooks/`) forming two subsystems:
 
 All hooks share types and a sync exec helper from `types.ts`. They are self-contained — no imports from `src/` — so they work even when the main codebase has type errors.
 
+Additional standalone hooks beyond the original two subsystems (e.g.,
+`transcript-ingest-on-session-end.ts`) are documented in their own sections
+below; the guard/detector hooks live in `.minsky/rules/hook-files.mdc`.
+
 ## `session-start.ts`
 
 ### Interface
@@ -216,6 +220,73 @@ import without triggering the stdin-blocking entry point. See
 2. Pulls: `git pull --ff-only origin main` (ignores errors)
 3. Records HEAD after pull
 4. If HEAD changed AND `src/` files were modified in the diff: prints warning about stale MCP server
+
+---
+
+## `transcript-ingest-on-session-end.ts`
+
+### Interface
+
+- **Event**: SessionEnd
+- **Input (stdin JSON)**: `session_id`, `cwd`, `hook_event_name`
+- **Env vars**: `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK` (skip the hook),
+  `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED` (opt in to the embedding step),
+  `MINSKY_STATE_DIR` (log-dir override)
+- **Output**: None as `HookOutput` (side effects only; the override path emits a
+  non-JSON audit line to stdout)
+- **Exit code**: Always 0 (SessionEnd is a no-decision-control event; the hook must
+  never block session teardown)
+- **Timeout**: 45s
+
+### Behavior
+
+1. If `MINSKY_SKIP_TRANSCRIPT_INGEST_HOOK` is truthy (`1`/`true`/`yes`), emits a
+   non-JSON audit line to stdout and exits 0.
+2. Reads stdin JSON; on parse failure, no-op exit 0.
+3. If `session_id` is absent, writes a `{skipped: true, reason: "no-session-id"}`
+   record to the log and returns.
+4. Runs `minsky transcripts ingest --session=<id> --harness=claude_code`
+   synchronously (20s budget). The ingest is HWM-gated and incremental, so it is a
+   cheap no-op for an already-ingested session. FTS search (`transcripts_search-text`)
+   works immediately after a successful ingest; no external API is needed.
+5. If ingest succeeded AND `MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED` is truthy, runs
+   `minsky transcripts index-embeddings --session=<id>` (20s budget) — best-effort;
+   failures are logged, not fatal. Default OFF; the default semantic-embed backfill
+   home is mt#2234's cadence sweep.
+6. Appends one JSON record per run to `<state-dir>/transcript-ingest-hook-log.jsonl`.
+
+### Observable log record
+
+`<state-dir>` is `$MINSKY_STATE_DIR` or `~/.local/state/minsky`. Each line is one
+JSON object (append-only JSONL):
+
+```json
+{
+  "timestamp": "...",
+  "event": "session_end",
+  "sessionId": "...",
+  "ingest": { "exitCode": 0, "timedOut": false }
+}
+```
+
+On failure the `ingest` (and `embeddings`, when the embed step is enabled) sub-object
+carries the non-zero `exitCode`, `timedOut`, and a truncated `stderr`. The returned
+`IngestOutcome` mirrors these signals (`ingestExitCode`, `ingestTimedOut`,
+`embeddingsExitCode`, `embeddingsTimedOut`) so a timeout is distinguishable from a
+generic failure.
+
+### Reliability boundary
+
+- **Covers** sessions that end normally (the SessionEnd event fires).
+- **Does NOT cover** SIGKILL / crash-terminated sessions (the event never fires), nor
+  default semantic-embed backfill — both are backstopped by the MCP boot sweep
+  (mt#2051) and the cadence sweep (mt#2234).
+
+### Testable surfaces
+
+The core `runTranscriptIngestOnSessionEnd(input, deps)` is pure over injected deps and
+unit-tested in `transcript-ingest-on-session-end.test.ts`. The end-to-end CLI→Postgres
+path is live-verified by `scripts/smoke-transcript-ingest-hook.ts`.
 
 ---
 

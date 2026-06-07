@@ -167,11 +167,20 @@ export class MinskyTaskBackend implements TaskBackend {
     const MAX_RETRIES = 5;
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
       const id = await this.generateTaskId(title);
-      const inserted = await this.tryInsertTask(id, title, spec, options);
-      if (inserted) {
+      const insertedAt = await this.tryInsertTask(id, title, spec, options);
+      if (insertedAt) {
         const tags = options?.tags || [];
         const kind = options?.kind || "implementation";
-        return { id, title, status: "TODO", kind, backend: this.name, tags };
+        return {
+          id,
+          title,
+          status: "TODO",
+          kind,
+          backend: this.name,
+          tags,
+          createdAt: insertedAt,
+          updatedAt: insertedAt,
+        };
       }
       // id collision — another writer took this id; loop and re-generate
     }
@@ -198,8 +207,12 @@ export class MinskyTaskBackend implements TaskBackend {
     title: string,
     spec: string,
     options?: CreateTaskOptions
-  ): Promise<boolean> {
+  ): Promise<Date | null> {
     const tags = options?.tags || [];
+    // Single timestamp shared by the written row and the returned Task so the
+    // freshly-created object's createdAt/updatedAt exactly match what a later
+    // read surfaces (mt#2259 — avoid post-create vs read shape drift).
+    const now = new Date();
 
     return this.db.transaction(async (tx) => {
       // Insert task metadata row; do nothing on id conflict
@@ -213,15 +226,15 @@ export class MinskyTaskBackend implements TaskBackend {
           title,
           tags: JSON.stringify(tags),
           kind: options?.kind || "implementation",
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: now,
+          updatedAt: now,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });
 
       if (inserted.length === 0) {
         // Conflict — the id was already taken
-        return false;
+        return null;
       }
 
       // Upsert spec content so the new task's spec always wins over any stale
@@ -232,15 +245,15 @@ export class MinskyTaskBackend implements TaskBackend {
           taskId: id,
           content: spec,
           version: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: now,
+          updatedAt: now,
         })
         .onConflictDoUpdate({
           target: taskSpecsTable.taskId,
-          set: { content: spec, updatedAt: new Date() },
+          set: { content: spec, updatedAt: now },
         });
 
-      return true;
+      return now;
     });
   }
 
@@ -256,6 +269,8 @@ export class MinskyTaskBackend implements TaskBackend {
     options?: CreateTaskOptions
   ): Promise<Task> {
     const tags = options?.tags || [];
+    // Single timestamp shared by the written row and the returned Task (mt#2259).
+    const now = new Date();
 
     await this.db.transaction(async (tx) => {
       const inserted = await tx
@@ -268,8 +283,8 @@ export class MinskyTaskBackend implements TaskBackend {
           title,
           tags: JSON.stringify(tags),
           kind: options?.kind || "implementation",
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: now,
+          updatedAt: now,
         })
         .onConflictDoNothing()
         .returning({ id: tasksTable.id });
@@ -289,17 +304,26 @@ export class MinskyTaskBackend implements TaskBackend {
           taskId: id,
           content: spec,
           version: 1,
-          createdAt: new Date(),
-          updatedAt: new Date(),
+          createdAt: now,
+          updatedAt: now,
         })
         .onConflictDoUpdate({
           target: taskSpecsTable.taskId,
-          set: { content: spec, updatedAt: new Date() },
+          set: { content: spec, updatedAt: now },
         });
     });
 
     const kind = options?.kind || "implementation";
-    return { id, title, status: "TODO", kind, backend: this.name, tags };
+    return {
+      id,
+      title,
+      status: "TODO",
+      kind,
+      backend: this.name,
+      tags,
+      createdAt: now,
+      updatedAt: now,
+    };
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -373,8 +397,8 @@ export class MinskyTaskBackend implements TaskBackend {
       spec,
       status: task.status,
       backend: task.backend || this.name,
-      createdAt: undefined,
-      updatedAt: undefined,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
     };
   }
 
@@ -456,6 +480,8 @@ export class MinskyTaskBackend implements TaskBackend {
     status: string | null;
     tags?: string | null;
     kind?: string | null;
+    createdAt?: Date | null;
+    updatedAt?: Date | null;
   }): Task {
     let tags: string[] = [];
     if (row.tags) {
@@ -472,6 +498,8 @@ export class MinskyTaskBackend implements TaskBackend {
       kind: row.kind ?? "implementation",
       backend: this.name,
       tags,
+      ...(row.createdAt ? { createdAt: row.createdAt } : {}),
+      ...(row.updatedAt ? { updatedAt: row.updatedAt } : {}),
     };
   }
 

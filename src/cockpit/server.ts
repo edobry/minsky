@@ -3,8 +3,9 @@
  *
  * Creates an Express app serving:
  *   GET /api/health           — health + version + uptime
- *   GET /api/widgets          — enabled widget metadata list
- *   GET /api/widget/:id/data  — fetch a single widget's data
+ *   GET /api/widgets          — metadata for every registered widget
+ *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
+ *                               404 only for ids absent from WIDGET_REGISTRY)
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
@@ -15,12 +16,12 @@ import express from "express";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { cockpitWebDistDir, cockpitIndexHtml } from "./web-dist";
 import { randomUUID } from "crypto";
-import { loadCockpitConfig } from "./config";
 import { WIDGET_REGISTRY } from "./widget-registry";
 import type { WidgetRegistry } from "./widget-registry";
 import { setLoadedWidgetCount } from "./widgets/basic-health";
-import type { WidgetModule, CockpitConfig } from "./types";
+import type { WidgetModule } from "./types";
 import { SseBroker } from "./sse-broker";
 import type { SseClient, SseEvent } from "./sse-broker";
 import {
@@ -42,9 +43,9 @@ const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Path to the built SPA assets */
-const WEB_DIST_DIR = path.join(__dirname, "web", "dist");
-const INDEX_HTML = path.join(WEB_DIST_DIR, "index.html");
+/** Path to the built SPA assets — bundle-aware (cwd + module-dir walk, mt#2283). */
+const WEB_DIST_DIR = cockpitWebDistDir(__dirname);
+const INDEX_HTML = cockpitIndexHtml(__dirname);
 
 /** Options accepted by createCockpitServer */
 /**
@@ -75,8 +76,6 @@ export interface CredentialModuleOverride {
 }
 
 export interface CockpitServerOptions {
-  /** Override the cockpit.json config (used in tests) */
-  overrideConfig?: CockpitConfig;
   /** Additional widgets to register alongside builtins (used in tests) */
   overrideRegistry?: WidgetRegistry;
   /**
@@ -411,8 +410,11 @@ function writeSseEvent(res: express.Response, event: SseEvent): void {
 }
 
 export function createCockpitServer(opts: CockpitServerOptions = {}): express.Express {
-  // Resolve effective config and registry
-  const config = opts.overrideConfig ?? loadCockpitConfig();
+  // Resolve the effective registry (builtins + any test-injected widgets).
+  // The registry is the single source of truth for which widgets exist; a
+  // registered widget's data endpoint is always served. There is no per-widget
+  // enable flag — capability (does the widget exist) is decoupled from layout
+  // (which cards the home dashboard renders, decided on the frontend). See mt#2294.
   const effectiveRegistry: WidgetRegistry = {
     ...WIDGET_REGISTRY,
     ...(opts.overrideRegistry ?? {}),
@@ -427,18 +429,11 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   // Credential module override for tests
   const credModuleOverride = opts.overrideCredentialModule ?? null;
 
-  // Build the enabled widget set
-  const enabledWidgets = new Map<string, WidgetModule>();
-  for (const entry of config.widgets) {
-    if (!entry.enabled) continue;
-    const widget = effectiveRegistry[entry.id];
-    if (widget) {
-      enabledWidgets.set(entry.id, widget);
-    }
-  }
+  // Every registered widget is available; the data endpoint is registry-gated.
+  const availableWidgets = new Map<string, WidgetModule>(Object.entries(effectiveRegistry));
 
   // Inform basic-health of the loaded widget count
-  setLoadedWidgetCount(enabledWidgets.size);
+  setLoadedWidgetCount(availableWidgets.size);
 
   const app = express();
   app.use(express.json());
@@ -476,9 +471,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     res.json({ status: "ok", version, commit: GIT_COMMIT, uptimeSec });
   });
 
-  /** GET /api/widgets */
+  /** GET /api/widgets — metadata for every registered widget */
   app.get("/api/widgets", (_req, res) => {
-    const widgets = Array.from(enabledWidgets.values()).map((w) => ({
+    const widgets = Array.from(availableWidgets.values()).map((w) => ({
       id: w.id,
       title: w.title,
       updateMode: w.updateMode,
@@ -486,9 +481,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     res.json(widgets);
   });
 
-  /** GET /api/widget/:id/data */
+  /** GET /api/widget/:id/data — registry-gated; 404 only for unregistered ids */
   app.get("/api/widget/:id/data", async (req, res) => {
-    const widget = enabledWidgets.get(req.params.id);
+    const widget = availableWidgets.get(req.params.id);
     if (!widget) {
       res.status(404).json({ error: "Widget not found" });
       return;
