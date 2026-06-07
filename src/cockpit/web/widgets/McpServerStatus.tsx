@@ -51,9 +51,9 @@ function overallStatus(payload: McpServerStatusPayload): OverallStatus {
   return "healthy";
 }
 
-/** Format a 0..100 percentage, or an em-dash when the datapoint is absent. */
+/** Format a 0..100 percentage, or an em-dash when the datapoint is absent or non-finite. */
 function formatPercent(pct: number | null): string {
-  return pct === null ? "—" : `${pct.toFixed(1)}%`;
+  return pct === null || !Number.isFinite(pct) ? "—" : `${pct.toFixed(1)}%`;
 }
 
 function statusDotColor(status: OverallStatus): string {
@@ -206,8 +206,8 @@ export function McpServerStatus() {
         )}
         {payload.anomalies.m3RestartLoop && (
           <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
-            M3 — Restart loop: {payload.metrics?.restartCount24h ?? "several"} restarts recently.
-            Read deployment logs and identify the crash cause.
+            M3 — Restart loop: more than 3 restarts in the last hour. Read deployment logs and
+            identify the crash cause.
           </div>
         )}
         {payload.anomalies.m4ResourceNearLimit && (

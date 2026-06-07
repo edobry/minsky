@@ -206,10 +206,16 @@ export function createMcpServerStatusWidget(deps: McpServerStatusDeps): WidgetMo
           metrics.restartCount1h > M3_RESTART_1H_THRESHOLD;
 
         // M4 — resource near limit: latest CPU % or memory % at/above threshold.
+        // Finite-guard the percentages: a non-finite value from the adapter must
+        // not trip a false anomaly (it renders as "—", not NaN%).
         const m4ResourceNearLimit =
           metrics !== null &&
-          ((metrics.cpuPercent !== null && metrics.cpuPercent >= M4_RESOURCE_PCT_THRESHOLD) ||
-            (metrics.memoryPercent !== null && metrics.memoryPercent >= M4_RESOURCE_PCT_THRESHOLD));
+          ((metrics.cpuPercent !== null &&
+            Number.isFinite(metrics.cpuPercent) &&
+            metrics.cpuPercent >= M4_RESOURCE_PCT_THRESHOLD) ||
+            (metrics.memoryPercent !== null &&
+              Number.isFinite(metrics.memoryPercent) &&
+              metrics.memoryPercent >= M4_RESOURCE_PCT_THRESHOLD));
 
         const payload: McpServerStatusPayload = {
           health: {

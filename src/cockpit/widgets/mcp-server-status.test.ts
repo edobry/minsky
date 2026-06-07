@@ -292,4 +292,14 @@ describe("Railway metrics fields + M3/M4 (mt#2317)", () => {
       restartCount24h: null,
     });
   });
+
+  test("non-finite percentages do not trip a false M4", async () => {
+    const { deps } = makeDeps({
+      getMetricsData: async () =>
+        metrics({ cpuPercent: Number.NaN, memoryPercent: Number.POSITIVE_INFINITY }),
+    });
+    const payload = await run(deps);
+
+    expect(payload.anomalies.m4ResourceNearLimit).toBe(false);
+  });
 });
