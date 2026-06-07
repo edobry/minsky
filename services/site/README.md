@@ -75,8 +75,9 @@ vendored presenter-notes renderer (`assets/slidev/NoteDisplay.*.js`), which assi
 author-authored notes via `innerHTML`. This is upstream slidev's generated code, not ours;
 the notes are authored by us (not untrusted third-party input) and the deck is served as a
 read-only static snapshot, so the `innerHTML` path is not an exploitable XSS sink in this
-context. No CSP is applied (a site-wide CSP is out of scope here; see mt#2198). If decks
-ever render externally-supplied content, revisit with a `/talks/*` CSP as defense-in-depth.
+context. No Content-Security-Policy is applied to the site today (adding a site-wide CSP was
+deliberately deferred as a separate, larger change). If decks ever render externally-supplied
+content, revisit with a `/talks/*` CSP as defense-in-depth.
 
 **SPA deep links.** Slidev decks are client-routed SPAs; `/talks/<deck>/5` has no
 file on disk. `src/server.ts` has an SPA fallback that serves the deck's

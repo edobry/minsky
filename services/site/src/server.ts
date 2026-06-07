@@ -54,6 +54,23 @@ function tryPaths(pathname: string): string | null {
   return null;
 }
 
+/**
+ * Serve `path` as a response iff it is a readable file, else return null so the
+ * caller can fall through. Mirrors the tryPaths guard (mt#2198 review): statSync
+ * in try/catch treats ENOENT (race: file removed after an earlier probe) and
+ * EACCES as "not servable" rather than letting a bare existsSync→Bun.file path
+ * surface a 500. Used for the SPA-deck and 404 fallbacks.
+ */
+function serveIfFile(path: string | null, init?: ResponseInit): Response | null {
+  if (!path) return null;
+  try {
+    if (statSync(path).isFile()) return new Response(Bun.file(path), init);
+  } catch {
+    // ENOENT / EACCES — not a servable file; let the caller fall through.
+  }
+  return null;
+}
+
 const server = Bun.serve({
   port: PORT,
   hostname: "0.0.0.0",
@@ -80,20 +97,19 @@ const server = Bun.serve({
       const deckMatch = url.pathname.match(/^\/talks\/([^/]+)\//);
       if (!hasFileExtension && deckMatch) {
         const deckIndex = safeJoin(DIST_DIR, join("talks", deckMatch[1], "index.html"));
-        if (deckIndex && existsSync(deckIndex)) {
-          return new Response(Bun.file(deckIndex), {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          });
-        }
+        const deckResponse = serveIfFile(deckIndex, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        });
+        if (deckResponse) return deckResponse;
       }
 
       const notFoundPath = safeJoin(DIST_DIR, "404.html");
-      if (notFoundPath && existsSync(notFoundPath)) {
-        return new Response(Bun.file(notFoundPath), {
-          status: 404,
-          headers: { "content-type": "text/html; charset=utf-8" },
-        });
-      }
+      const notFoundResponse = serveIfFile(notFoundPath, {
+        status: 404,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      });
+      if (notFoundResponse) return notFoundResponse;
+
       return new Response("Not Found", { status: 404 });
     }
 
