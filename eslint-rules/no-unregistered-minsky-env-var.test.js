@@ -99,6 +99,12 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
       code: 'if (process.env["MINSKY_FORCE_PARALLEL"] === "1") {}',
       filename: srcFile("utils", "guard.ts"),
     },
+    // mt#2324: a REGISTERED env var read via a non-interpolated TEMPLATE-LITERAL
+    // bracket also passes (statically resolvable, but registered).
+    {
+      code: "if (process.env[`MINSKY_FORCE_PARALLEL`] === `1`) {}",
+      filename: srcFile("utils", "guard.ts"),
+    },
     // PR #1089 R1 BLOCKING #5: only .ts files in src/ are linted; .js files
     // (rare in src/ but possible for transitional/generated content) are out
     // of scope per spec.
@@ -214,6 +220,21 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
           data: {
             name: "MINSKY_BRACKET_SINGLE",
             configPath: "bracket.single",
+          },
+        },
+      ],
+    },
+    // mt#2324: unregistered NON-INTERPOLATED template-literal bracket fires —
+    // it is statically resolvable, analogous to a string literal.
+    {
+      code: "const v = process.env[`MINSKY_TEMPLATE_UNREGISTERED`];",
+      filename: srcFile("utils", "bracket.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_TEMPLATE_UNREGISTERED",
+            configPath: "template.unregistered",
           },
         },
       ],

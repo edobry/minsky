@@ -104,10 +104,16 @@ export default {
     type: "problem",
     docs: {
       description:
-        "Require every `process.env.MINSKY_*` read in src/ to be registered " +
-        "in `environmentMappings` or `HOOK_ONLY_ENV_VARS` to prevent " +
-        "env-var-namespace conflicts with the config-loader's dot-path parser " +
-        "(mt#1610, mt#1624, mt#1785).",
+        "Require every `process.env.MINSKY_*` read in src/ and .claude/hooks/ " +
+        "to be registered in `environmentMappings` or `HOOK_ONLY_ENV_VARS` to " +
+        "prevent env-var-namespace conflicts with the config-loader's dot-path " +
+        "parser (mt#1610, mt#1624, mt#1785). Catches all statically-resolvable " +
+        "access forms (mt#2324): bare-identifier (process.env.MINSKY_FOO), " +
+        'string-literal bracket (process.env["MINSKY_FOO"]), and ' +
+        "non-interpolated template-literal bracket (process.env[`MINSKY_FOO`]). " +
+        "Dynamic computed access (variable key, interpolated template literal) " +
+        "is not statically resolvable and is skipped. The services/* tree is " +
+        "excluded (independent deploy packages with their own config loaders).",
       category: "Best Practices",
       recommended: true,
     },
@@ -184,18 +190,30 @@ export default {
           return;
         }
         const prop = node.property;
-        // Resolve the env-var NAME from the property node (mt#2324):
-        //   - bare-identifier access   process.env.MINSKY_FOO    → prop.name
-        //   - string-literal bracket   process.env["MINSKY_FOO"] → prop.value
-        //     (covers both single- and double-quoted literals)
-        // Genuinely dynamic computed access — process.env[someVar],
-        // process.env[`MINSKY_${x}`] (TemplateLiteral) — cannot be resolved
-        // statically and is intentionally skipped (accepted limitation).
+        // Resolve the env-var NAME from the property node (mt#2324). All
+        // STATICALLY-resolvable forms are covered:
+        //   - bare-identifier access      process.env.MINSKY_FOO    → prop.name
+        //   - string-literal bracket      process.env["MINSKY_FOO"] → prop.value
+        //     (both single- and double-quoted literals)
+        //   - non-interpolated template   process.env[`MINSKY_FOO`] → the cooked
+        //     literal bracket               quasi (zero expressions)
+        // Genuinely DYNAMIC computed access — process.env[someVar],
+        // process.env[`MINSKY_${x}`] (interpolated template literal) — cannot be
+        // resolved statically and is intentionally skipped.
         let name;
         if (!node.computed && prop.type === "Identifier") {
           name = prop.name;
         } else if (node.computed && prop.type === "Literal" && typeof prop.value === "string") {
           name = prop.value;
+        } else if (
+          node.computed &&
+          prop.type === "TemplateLiteral" &&
+          prop.expressions.length === 0 &&
+          prop.quasis.length === 1
+        ) {
+          const cooked = prop.quasis[0].value.cooked;
+          if (typeof cooked !== "string") return;
+          name = cooked;
         } else {
           return;
         }
