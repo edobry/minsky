@@ -211,6 +211,19 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_TRANSCRIPT_INGEST_HOOK_EMBED", // .claude/hooks/transcript-ingest-on-session-end.ts (mt#2192) — opt in to synchronous embedding step at session end
   "MINSKY_SKIP_GIT_STATE_INJECTION", // .claude/hooks/inject-git-state.ts (mt#2275) — skip git-state injection
   "MINSKY_SKIP_UNMERGED_MIGRATION_CHECK", // packages/domain/src/persistence/postgres-migration-operations.ts (mt#2277) — skip unmerged-migration guard for prod apply
+  // mt#2324 — process-only overrides read via the BRACKET form
+  // (process.env["MINSKY_*"]) in src/. They surfaced once the
+  // no-unregistered-minsky-env-var ESLint rule was extended to catch
+  // static-literal computed access (the rule previously skipped all bracket
+  // reads). Registering them hook-only so a value set on a deployed
+  // environment doesn't crash the env-var-to-config dot-path parser at boot.
+  "MINSKY_DEV_CHROMIUM_USER_DATA_DIR", // src/cockpit/dev-chromium.ts (dev Chromium profile dir override)
+  "MINSKY_DEV_CHROMIUM_EXECUTABLE", // src/cockpit/dev-chromium.ts (dev Chromium binary path override)
+  "MINSKY_REVIEWER_WATCH_OWNER", // src/adapters/shared/commands/reviewer-watch.ts (watch-target owner default)
+  "MINSKY_REVIEWER_WATCH_REPO", // src/adapters/shared/commands/reviewer-watch.ts (watch-target repo default)
+  "MINSKY_REVIEWER_WATCH_BOT_LOGIN", // src/adapters/shared/commands/reviewer-watch.ts (reviewer-bot login default)
+  "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
+  "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
 ]);
 
 /**

@@ -57,14 +57,47 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   private owner?: string;
   private repo?: string;
   private sessionProvider: SessionProviderInterface | null = null;
-  private readonly resolveSessionProvider: () => Promise<SessionProviderInterface>;
+  private readonly resolveSessionProvider: (() => Promise<SessionProviderInterface>) | null;
   private readonly tokenProvider: TokenProvider;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionProvider) {
+      if (!this.resolveSessionProvider) {
+        // mt#1430: reached only by a session-dependent (mutation) operation when
+        // the adapter was constructed without a sessionProvider. Read operations
+        // (list/search/get) never get here.
+        throw new MinskyError(
+          "GitHubChangesetAdapter: this operation requires a sessionProvider, but none " +
+            "was provided. Read operations (list/search/get) do not need one; mutation " +
+            "operations (create/update/merge/approve/getDetails) do — construct the adapter " +
+            "with deps.sessionProvider to use them."
+        );
+      }
       this.sessionProvider = await this.resolveSessionProvider();
     }
     return this.sessionProvider;
+  }
+
+  /**
+   * Ensure the repository backend is initialized for a session-dependent (mutation)
+   * operation, and return it. Surfaces the precise missing-sessionProvider error
+   * (which `isAvailable()` catches and downgrades to a `false` return), then a clear
+   * backend-unavailable error if GitHub access failed — so callers never dereference
+   * an undefined `repositoryBackend` and crash with an opaque TypeError (mt#1430 R1).
+   */
+  private async ensureRepositoryBackend(): Promise<RepositoryBackend> {
+    if (!this.repositoryBackend) {
+      // Surface the precise "no sessionProvider" error first; isAvailable() swallows it.
+      await this.getSessionProvider();
+      const ok = await this.isAvailable();
+      if (!ok || !this.repositoryBackend) {
+        throw new MinskyError(
+          "GitHubChangesetAdapter: GitHub backend could not be initialized for this " +
+            "operation (check GitHub token and network access)."
+        );
+      }
+    }
+    return this.repositoryBackend;
   }
 
   /** Returns a cached Octokit instance, creating it on first call. */
@@ -81,17 +114,22 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   constructor(
     private repositoryUrl: string,
     private config?: { token?: string; workdir?: string },
-    deps?: { sessionProvider: SessionProviderInterface; tokenProvider?: TokenProvider }
+    deps?: { sessionProvider?: SessionProviderInterface; tokenProvider?: TokenProvider }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
     this.owner = githubInfo?.owner;
     this.repo = githubInfo?.repo;
 
-    if (!deps?.sessionProvider) {
-      throw new MinskyError("GitHubChangesetAdapter requires sessionProvider in deps");
-    }
-    this.resolveSessionProvider = () => Promise.resolve(deps.sessionProvider);
+    // sessionProvider is OPTIONAL (mt#1430). Read operations (list/search/get) use
+    // Octokit directly and never need it; only the mutation methods
+    // (create/update/merge/approve, via repositoryBackend) do. We resolve it lazily
+    // and throw only when a mutation actually needs it — so the read tools work for
+    // every caller of the factory without per-call-site wiring. The previous eager
+    // constructor throw was the bug: it broke list/search/get/info for all callers
+    // (the factory constructs the adapter with no deps).
+    const provider = deps?.sessionProvider;
+    this.resolveSessionProvider = provider ? () => Promise.resolve(provider) : null;
 
     // Resolve token provider: injected > config token > env vars
     if (deps?.tokenProvider) {
@@ -287,12 +325,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    * Create a GitHub PR using existing repository backend
    */
   async create(options: CreateChangesetOptions): Promise<CreateChangesetResult> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable(); // Initialize backend
-    }
+    const backend = await this.ensureRepositoryBackend();
 
     // Use existing repository backend PR creation
-    const prInfo = await this.repositoryBackend.pr.create({
+    const prInfo = await backend.pr.create({
       title: options.title,
       body: options.description,
       sourceBranch: options.sourceBranch || "HEAD",
@@ -318,12 +354,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    * Update a GitHub PR using existing repository backend
    */
   async update(id: string, updates: Partial<CreateChangesetOptions>): Promise<Changeset> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
     // Use existing repository backend update method
-    const _prInfo = await this.repositoryBackend.pr.update({
+    const _prInfo = await backend.pr.update({
       prIdentifier: parseInt(id),
       title: updates.title,
       body: updates.description,
@@ -345,11 +379,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     id: string,
     options?: { deleteSourceBranch?: boolean }
   ): Promise<MergeChangesetResult> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
-    const mergeInfo = await this.repositoryBackend.pr.merge(parseInt(id));
+    const mergeInfo = await backend.pr.merge(parseInt(id));
 
     return {
       success: true,
@@ -364,11 +396,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    * Approve a GitHub PR using existing repository backend
    */
   async approve(id: string, comment?: string): Promise<{ success: boolean; reviewId: string }> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
-    const approvalInfo = await this.repositoryBackend.review.approve(parseInt(id), comment);
+    const approvalInfo = await backend.review.approve(parseInt(id), comment);
 
     return {
       success: true,
@@ -385,12 +415,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       throw new MinskyError(`Changeset not found: ${id}`);
     }
 
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
     // Get diff information from repository backend
-    const diffInfo = await this.repositoryBackend.pr.getDiff({
+    const diffInfo = await backend.pr.getDiff({
       prIdentifier: parseInt(id),
     });
 
