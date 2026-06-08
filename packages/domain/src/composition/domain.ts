@@ -58,7 +58,7 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
   // --- Session layer (depends on persistence) ---
 
   container.register("sessionProvider", async (c) => {
-    const { createSessionProvider } = await import("../session/session-db-adapter");
+    const { createSessionProvider } = await import("../session/drizzle-session-repository");
     const persistence = c.get("persistence");
     return await createSessionProvider(undefined, {
       persistenceService: {
