@@ -439,3 +439,87 @@ describe("gracefulShutdown", () => {
     await expect(gracefulShutdown()).resolves.toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// /retrigger auth (mt#2346): authenticated by the MCP auth token (cfg.mcpToken,
+// from MINSKY_MCP_AUTH_TOKEN), NOT the webhook HMAC secret.
+// ---------------------------------------------------------------------------
+
+describe("/retrigger auth (mt#2346)", () => {
+  const MCP_TOKEN = "test-mcp-auth-token";
+  const CONFIG_WITH_MCP_TOKEN: ReviewerConfig = { ...BASE_CONFIG, mcpToken: MCP_TOKEN };
+
+  // runReview is never reached by these auth-focused tests: they either fail
+  // auth, or pass auth and fail body validation before any dispatch.
+  const noopRunReview: RunReviewFn = async () => STUB_REVIEW_RESULT;
+
+  async function postRetrigger(
+    baseUrl: string,
+    auth: string | undefined,
+    body: unknown
+  ): Promise<Response> {
+    return fetch(`${baseUrl}/retrigger`, {
+      method: "POST",
+      headers: {
+        "content-type": CONTENT_TYPE_JSON,
+        ...(auth !== undefined ? { authorization: auth } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  test("accepts the MCP auth token — passes auth, reaches body validation (400, not 401)", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      // Correct token but an invalid (empty) body: a 400 — rather than 401 —
+      // proves the request got PAST the auth gate to body validation.
+      const res = await postRetrigger(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`, {});
+      expect(res.status).toBe(400);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects the webhook HMAC secret — no longer valid retrigger auth (SC: secret is webhook-only)", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      const res = await postRetrigger(
+        `http://localhost:${server.port}`,
+        `Bearer ${CONFIG_WITH_MCP_TOKEN.webhookSecret}`,
+        { pr: 1, owner: "o", repo: "r" }
+      );
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("rejects a missing Authorization header with 401", async () => {
+    const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview);
+    try {
+      const res = await postRetrigger(`http://localhost:${server.port}`, undefined, {
+        pr: 1,
+        owner: "o",
+        repo: "r",
+      });
+      expect(res.status).toBe(401);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("returns 503 when MINSKY_MCP_AUTH_TOKEN is unset on the service (fail closed)", async () => {
+    // BASE_CONFIG has mcpToken: undefined.
+    const { server } = createApp(BASE_CONFIG, noopRunReview);
+    try {
+      const res = await postRetrigger(`http://localhost:${server.port}`, `Bearer anything`, {
+        pr: 1,
+        owner: "o",
+        repo: "r",
+      });
+      expect(res.status).toBe(503);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
