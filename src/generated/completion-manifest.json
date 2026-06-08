@@ -4713,11 +4713,11 @@
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only.",
               "options": [
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace directory to run validation in (defaults to current working directory)",
+                  "description": "Specific workspace directory to typecheck (uses that directory's tsconfig.json). When omitted, typechecks the root tsconfig AND every workspace (packages/*, services/*) that declares its own `typecheck` script, reporting per-workspace errors.",
                   "takesValue": true
                 }
               ]

@@ -142,6 +142,7 @@ Before declaring complete:
 - **Verify outcomes, not actions.** Never treat a command succeeding (exit 0, API 200) as proof the desired effect occurred. Read back the result: query the setting you changed, count rows after a migration, call the tool you registered.
 - If the task spec has acceptance tests, **execute them** — don't just re-read the spec
 - Verify rule compliance (architecture, testing, code quality rules)
+- **Typecheck covers sub-workspaces (mt#2256).** A default \`mcp__minsky__validate_typecheck\` (no \`workspace\` arg) typechecks the root tsconfig AND every workspace that declares its own \`typecheck\` script — currently \`services/reviewer\`, whose tsconfig (\`noUncheckedIndexedAccess\`) is stricter-by-scope than root (root's \`include\` set excludes \`services/\`). So when you touch \`services/*\` files, the default run already covers them; you do NOT need to run the sub-workspace's \`bun run typecheck\` separately. (Pass an explicit \`workspace\` to scope the check to a single directory.) This closes the dev-vs-CI gap where a change passed root typecheck but failed CI's separate per-service typecheck step.
 
 #### Convergence checklist (mandatory before §8)
 
