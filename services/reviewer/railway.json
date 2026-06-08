@@ -1,0 +1,13 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "watchPatterns": [
+      "services/reviewer/**",
+      "packages/shared/**",
+      "packages/domain/**",
+      "package.json",
+      "bun.lock",
+      "tsconfig.json"
+    ]
+  }
+}
