@@ -64,7 +64,7 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
       const deps = await getDeps();
       const service = new SessionService(deps);
 
-      await service.update({
+      const updateResult = await service.update({
         sessionId: params.sessionId as string | undefined,
         task: params.task as string | undefined,
         repo: params.repo as string | undefined,
@@ -80,10 +80,29 @@ export function createSessionUpdateCommand(getDeps: LazySessionDeps): CommandDef
         skipIfAlreadyMerged: (params.skipIfAlreadyMerged as boolean | undefined) ?? false,
       });
 
-      return {
+      const payload: Record<string, unknown> = {
         success: true,
         session: params.sessionId || params.task,
       };
+
+      // Surface the stash lifecycle so parked work is never silent (mt#2325).
+      // When the update stashed an initially-dirty tree, report whether the
+      // changes were restored — and, if not, where they are parked + how to
+      // recover them — instead of returning a bare `{success: true}`.
+      const stashRestore = updateResult.stashRestore;
+      if (stashRestore) {
+        payload.stashRestore = stashRestore;
+        if (!stashRestore.restored) {
+          const parked = (stashRestore.parkedFiles ?? []).join(", ");
+          payload.warning =
+            `Session updated, but your uncommitted changes could NOT be restored and ` +
+            `remain parked in ${stashRestore.stashRef}${
+              parked ? ` (files: ${parked})` : ""
+            }${`. ${stashRestore.recovery ?? ""}`.trim()}`;
+        }
+      }
+
+      return payload;
     }),
   };
 }

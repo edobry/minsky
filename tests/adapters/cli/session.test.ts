@@ -212,7 +212,7 @@ describe("Session CLI Commands", () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.sessionId).toBe("update-session");
+      expect(result.session.sessionId).toBe("update-session");
     });
 
     test("should handle session update with git operations", async () => {
@@ -262,7 +262,7 @@ describe("Session CLI Commands", () => {
       );
 
       expect(result).toBeDefined();
-      expect(result.sessionId).toBeDefined();
+      expect(result.session.sessionId).toBeDefined();
     });
   });
 
