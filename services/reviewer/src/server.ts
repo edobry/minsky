@@ -988,10 +988,27 @@ export function createApp(
       // POST /retrigger — programmatic review retrigger (mt#2127 SC#5).
       // Accepts { pr: number, owner: string, repo: string } and triggers a
       // review on the PR's current HEAD.
-      // Authenticated by the same webhook secret as the webhook endpoint.
+      //
+      // mt#2346: authenticated with the Minsky MCP auth token (cfg.mcpToken,
+      // from MINSKY_MCP_AUTH_TOKEN) — the operator->service credential the
+      // operator already holds and the reviewer service already has — NOT the
+      // webhook HMAC secret. The webhook secret stays GitHub->reviewer signature
+      // verification only (see the Webhooks handler above), so on-demand
+      // triggering never requires spreading the signing secret to operators.
       if (request.method === "POST" && url.pathname === "/retrigger") {
+        // Fail closed when the MCP auth token isn't configured on the service,
+        // rather than silently falling back to the webhook secret.
+        if (!cfg.mcpToken) {
+          return new Response(
+            JSON.stringify({
+              error:
+                "retrigger auth not configured: MINSKY_MCP_AUTH_TOKEN is unset on the reviewer service",
+            }),
+            { status: 503, headers: { "content-type": "application/json" } }
+          );
+        }
         const authHeader = request.headers.get("authorization");
-        const expectedToken = `Bearer ${cfg.webhookSecret}`;
+        const expectedToken = `Bearer ${cfg.mcpToken}`;
         if (authHeader !== expectedToken) {
           return new Response(JSON.stringify({ error: "unauthorized" }), {
             status: 401,

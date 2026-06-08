@@ -55,33 +55,43 @@ interface RetriggerResult {
 }
 
 /**
- * Resolve the reviewer-webhook URL + auth secret from Minsky configuration
- * (mt#2269). Both values flow through the standard config system, so the
- * `MINSKY_REVIEWER_URL` / `MINSKY_REVIEWER_WEBHOOK_SECRET` env vars — registered
- * in `environmentMappings` — override the config-file value via the environment
- * source's higher merge priority. The URL falls back to the hosted default;
- * a missing secret is a hard error with a message that names only the
- * resolution paths that actually exist.
+ * Resolve the reviewer-webhook URL + the auth token from Minsky configuration.
  *
- * Accepts the domain `ReviewerConfig` slice directly (the type of
- * `getConfiguration().reviewer`) to avoid a drifting local duplicate.
+ * URL (mt#2269): `reviewer.url` ← `MINSKY_REVIEWER_URL`, falling back to the
+ * hosted default.
+ *
+ * Auth token (mt#2346): `mcp.auth.token` ← `MINSKY_MCP_AUTH_TOKEN` — the
+ * operator->service credential the operator already holds for the hosted Minsky
+ * MCP endpoint, which the reviewer service ALSO holds. The reviewer's
+ * `/retrigger` endpoint authenticates against this token, NOT the webhook HMAC
+ * secret, so on-demand triggering never needs the GitHub-signing secret spread
+ * to operator machines. Both values flow through the standard config system
+ * (env source has the highest merge priority); a missing token is a hard error
+ * naming only the resolution paths that actually exist.
+ *
+ * Accepts the domain `ReviewerConfig` slice (for the URL) and the resolved MCP
+ * auth token (`getConfiguration().mcp?.auth?.token`) directly, to avoid a
+ * drifting local config read.
  */
-export function resolveReviewerEndpoint(reviewer: ReviewerConfig): {
+export function resolveReviewerEndpoint(
+  reviewer: ReviewerConfig,
+  mcpAuthToken: string | undefined
+): {
   url: string;
-  webhookSecret: string;
+  authToken: string;
 } {
   const url = reviewer?.url ?? DEFAULT_REVIEWER_URL;
-  const webhookSecret = reviewer?.webhookSecret;
 
-  if (!webhookSecret) {
+  if (!mcpAuthToken) {
     throw new Error(
-      "reviewer.retrigger requires a reviewer webhook secret to authenticate with the " +
-        "reviewer service. Set `reviewer.webhookSecret` in your Minsky config, or export " +
-        "MINSKY_REVIEWER_WEBHOOK_SECRET (which maps to `reviewer.webhookSecret`)."
+      "reviewer.retrigger requires the Minsky MCP auth token to authenticate with the " +
+        "reviewer service. Set `mcp.auth.token` in your Minsky config, or export " +
+        "MINSKY_MCP_AUTH_TOKEN (which maps to `mcp.auth.token`). The reviewer webhook " +
+        "HMAC secret is no longer used for retrigger auth (mt#2346)."
     );
   }
 
-  return { url, webhookSecret };
+  return { url, authToken: mcpAuthToken };
 }
 
 // ---------------------------------------------------------------------------
@@ -103,13 +113,16 @@ export function registerReviewerRetriggerCommands(): void {
         const owner = params.owner as string;
         const repo = params.repo as string;
 
-        // Resolve the reviewer endpoint from the Minsky config system. The
-        // env overrides (MINSKY_REVIEWER_URL / MINSKY_REVIEWER_WEBHOOK_SECRET)
-        // are merged into `cfg.reviewer` by the environment source (mt#2269),
-        // so this single read honours config-file values AND env overrides.
+        // Resolve the reviewer endpoint from the Minsky config system. The URL
+        // override (MINSKY_REVIEWER_URL → reviewer.url, mt#2269) and the auth
+        // token (MINSKY_MCP_AUTH_TOKEN → mcp.auth.token, mt#2346) are merged
+        // into the config by the environment source, so these reads honour
+        // config-file values AND env overrides.
         const { getConfiguration } = await import("@minsky/domain/configuration/index");
-        const { url: reviewerUrl, webhookSecret } = resolveReviewerEndpoint(
-          getConfiguration().reviewer
+        const cfg = getConfiguration();
+        const { url: reviewerUrl, authToken } = resolveReviewerEndpoint(
+          cfg.reviewer,
+          cfg.mcp?.auth?.token
         );
 
         const url = `${reviewerUrl.replace(/\/$/, "")}/retrigger`;
@@ -126,7 +139,7 @@ export function registerReviewerRetriggerCommands(): void {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${webhookSecret}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({ pr, owner, repo }),
         });
