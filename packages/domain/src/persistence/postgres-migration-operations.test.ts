@@ -11,6 +11,7 @@ import { describe, test, expect, mock, beforeEach, afterEach, spyOn } from "bun:
 import {
   isProdPostgresConnection,
   checkUnmergedMigrations,
+  assertMigrationCountMatch,
   UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV,
   type JournalEntry,
 } from "./postgres-migration-operations";
@@ -355,5 +356,41 @@ describe("checkUnmergedMigrations", () => {
 describe("UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV", () => {
   test("constant is the correct env var name", () => {
     expect(UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV).toBe("MINSKY_SKIP_UNMERGED_MIGRATION_CHECK");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// assertMigrationCountMatch — the count-equality invariant (mt#1771)
+// ---------------------------------------------------------------------------
+//
+// The actual prod drift that motivated mt#1771 (a duplicate ledger row → DB
+// count one ahead of the journal) was reconciled in mt#2250; this is the
+// regression guard the mt#1771 spec asks for, asserting the invariant the
+// post-migration validator enforces.
+
+describe("assertMigrationCountMatch", () => {
+  test("does not throw when DB count equals journal count", () => {
+    expect(() => assertMigrationCountMatch(45, 45)).not.toThrow();
+    expect(() => assertMigrationCountMatch(0, 0)).not.toThrow();
+  });
+
+  test("throws when DB has MORE applied than the journal (the mt#1771 duplicate-row case)", () => {
+    // e.g. an extra/duplicate ledger row → 45 applied vs 44 journal entries.
+    expect(() => assertMigrationCountMatch(45, 44)).toThrow(/Migration count mismatch/);
+    expect(() => assertMigrationCountMatch(45, 44)).toThrow(
+      /DB has 45 applied migrations but journal has 44 entries/
+    );
+  });
+
+  test("throws when DB has FEWER applied than the journal (silent-skip case)", () => {
+    // The drizzle high-water-mark silent-skip shape: a migration the journal
+    // lists never got applied → 44 applied vs 45 journal entries.
+    expect(() => assertMigrationCountMatch(44, 45)).toThrow(
+      /1 migration\(s\) may have been silently skipped/
+    );
+  });
+
+  test("error message names the monotonic-timestamp check", () => {
+    expect(() => assertMigrationCountMatch(43, 45)).toThrow(/monotonically increasing/);
   });
 });
