@@ -8,7 +8,7 @@
 
 import { readFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
-import { join } from "path";
+import { join, relative, resolve } from "path";
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 
@@ -112,16 +112,18 @@ async function runTypecheckTarget(
     stderr: "pipe",
   });
 
-  const output = await new Response(proc.stdout).text();
-  // Drain stderr to avoid blocking
-  await new Response(proc.stderr).text();
-  await proc.exited;
+  // Read both streams concurrently to avoid pipe-buffer deadlock, then await the exit code.
+  const [stdout, stderr] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  const exitCode = await proc.exited;
 
   // Parse tsgo output lines matching: file(line,col): error TSxxxx: message
   const errorPattern = /^(.+?)\((\d+),(\d+)\): error (TS\d+): (.+)$/;
   const errors: TypecheckError[] = [];
 
-  for (const line of output.split("\n")) {
+  for (const line of stdout.split("\n")) {
     const match = errorPattern.exec(line.trim());
     if (match) {
       errors.push({
@@ -135,8 +137,53 @@ async function runTypecheckTarget(
     }
   }
 
+  // A non-zero exit with NO parseable type errors means the checker itself failed to run
+  // (missing package, config error, spawn failure) — never silently report this as a pass.
+  // Surface a synthetic error carrying the exit code and a tail of stderr/stdout for diagnosis.
+  // (When type errors WERE parsed, tsgo's non-zero exit is the normal "found errors" path.)
+  if (exitCode !== 0 && errors.length === 0) {
+    const diagnostic = (stderr.trim() || stdout.trim() || "no output").slice(0, 2000);
+    errors.push({
+      workspace: workspaceLabel,
+      file: projectPath ?? cwd,
+      line: 0,
+      column: 0,
+      code: "TSGO_RUNNER",
+      message: `Type checker exited with code ${exitCode} and produced no parseable errors: ${diagnostic}`,
+    });
+  }
+
   return errors;
 }
+
+/**
+ * Minimal filesystem surface used by {@link discoverTypecheckWorkspaces}.
+ *
+ * Injectable so the discovery logic can be unit-tested against an in-memory tree (no real
+ * filesystem). The default implementation ({@link defaultWorkspaceFs}) wraps Node/Bun `fs`.
+ * All members are async so a slow/remote filesystem can be modeled without a sync footgun.
+ */
+export interface WorkspaceFs {
+  /** Read a UTF-8 text file. Rejects if the file does not exist or is unreadable. */
+  readFile(path: string): Promise<string>;
+  /** List the entries of a directory. Rejects if the directory does not exist. */
+  readdir(path: string): Promise<string[]>;
+  /** Whether a path exists. */
+  exists(path: string): Promise<boolean>;
+}
+
+const defaultWorkspaceFs: WorkspaceFs = {
+  readFile: async (path) => (await readFile(path, "utf8")).toString(),
+  readdir: async (path) => readdir(path),
+  exists: async (path) => existsSync(path),
+};
+
+/**
+ * Directory names a `<glob>/*` workspace pattern must never enumerate into — heavy or
+ * irrelevant trees that can never be a declared workspace. Guards against a stray pattern
+ * like `*` or `./*` walking `node_modules` on some layouts. Dot-directories are also skipped.
+ */
+const WORKSPACE_SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
 
 /**
  * Discover sub-workspaces that own their own typecheck.
@@ -152,28 +199,9 @@ async function runTypecheckTarget(
  * root typecheck still runs. Glob support matches the conservative pre-commit detector
  * convention: literal paths and single trailing `*` (e.g. `packages/*`, `services/*`).
  * Patterns with `**`, negations, or character classes are skipped rather than mis-interpreted.
+ * Enumerated entries in {@link WORKSPACE_SKIP_DIRS} (and dot-directories) are excluded before
+ * any `package.json`/`tsconfig.json` probing.
  */
-/**
- * Minimal filesystem surface used by {@link discoverTypecheckWorkspaces}.
- *
- * Injectable so the discovery logic can be unit-tested against an in-memory tree (no real
- * filesystem). The default implementation ({@link defaultWorkspaceFs}) wraps Node/Bun `fs`.
- */
-export interface WorkspaceFs {
-  /** Read a UTF-8 text file. Rejects if the file does not exist or is unreadable. */
-  readFile(path: string): Promise<string>;
-  /** List the entries of a directory. Rejects if the directory does not exist. */
-  readdir(path: string): Promise<string[]>;
-  /** Whether a path exists. */
-  exists(path: string): boolean;
-}
-
-const defaultWorkspaceFs: WorkspaceFs = {
-  readFile: async (path) => (await readFile(path, "utf8")).toString(),
-  readdir: async (path) => readdir(path),
-  exists: (path) => existsSync(path),
-};
-
 export async function discoverTypecheckWorkspaces(
   rootDir: string,
   fsImpl: WorkspaceFs = defaultWorkspaceFs
@@ -202,6 +230,9 @@ export async function discoverTypecheckWorkspaces(
         continue;
       }
       for (const entry of entries) {
+        if (entry.startsWith(".") || WORKSPACE_SKIP_DIRS.has(entry)) {
+          continue;
+        }
         candidates.push(`${parent}/${entry}`);
       }
     } else if (!pattern.includes("*")) {
@@ -214,7 +245,7 @@ export async function discoverTypecheckWorkspaces(
   const result: string[] = [];
   for (const rel of candidates) {
     const dir = join(rootDir, rel);
-    if (!fsImpl.exists(join(dir, "tsconfig.json"))) {
+    if (!(await fsImpl.exists(join(dir, "tsconfig.json")))) {
       continue;
     }
     let pkg: { scripts?: Record<string, string> };
@@ -315,25 +346,29 @@ export function registerValidateCommands(): void {
       description:
         "Run TypeScript type checker and return structured results. By default covers the root " +
         "tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass " +
-        "`workspace` to typecheck a single directory only.",
+        "`workspace` to typecheck a single directory only. Error `file` paths are root-relative " +
+        "in both modes.",
       parameters: typecheckParams,
       execute: async (params): Promise<TypecheckResult> => {
         const explicitWorkspace = params.workspace as string | undefined;
+        const rootDir = process.cwd();
 
         const errors: TypecheckError[] = [];
         const checked: string[] = [];
 
+        // Every target is spawned from the repo root (reuses the root-installed checker binary)
+        // and selects the workspace's tsconfig via `-p`, so error `file` paths are consistently
+        // root-relative in BOTH single- and multi-workspace modes.
         if (explicitWorkspace) {
-          // Single-workspace mode (backward compatible): run in that directory using its
-          // own tsconfig.json.
+          // Single-workspace mode (backward compatible). `-p <rel>/tsconfig.json` keeps file
+          // paths root-relative; an explicit root (rel === ".") falls back to the root tsconfig.
           checked.push(explicitWorkspace);
-          errors.push(...(await runTypecheckTarget(explicitWorkspace, explicitWorkspace)));
+          const rel = relative(rootDir, resolve(rootDir, explicitWorkspace)) || ".";
+          const projectPath = rel === "." ? undefined : `${rel}/tsconfig.json`;
+          errors.push(...(await runTypecheckTarget(rootDir, explicitWorkspace, projectPath)));
         } else {
           // Multi-workspace mode: root tsconfig + every workspace with its own `typecheck`
-          // script. All targets are spawned from the root so the root-installed checker
-          // binary is reused; per-workspace tsconfigs are selected via `-p`, which yields
-          // root-relative error paths (natural workspace attribution).
-          const rootDir = process.cwd();
+          // script.
           checked.push(".");
           errors.push(...(await runTypecheckTarget(rootDir, ".")));
 

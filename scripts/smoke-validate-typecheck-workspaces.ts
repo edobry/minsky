@@ -60,8 +60,11 @@ async function main(): Promise<void> {
     console.log("SKIP: services/reviewer/tsconfig.json not found (not the minsky repo root?)");
     process.exit(0);
   }
-  if (!existsSync(join(ROOT, "node_modules/.bin/tsgo"))) {
-    console.log("SKIP: tsgo checker binary not installed (run `bun install` first)");
+  // Gate on the SAME package the runner invokes (`bunx @typescript/native-preview`), not a
+  // `tsgo` binary path — otherwise a layout where bunx resolves the package without a
+  // preinstalled `.bin/tsgo` would falsely SKIP and mask a regression.
+  if (!existsSync(join(ROOT, "node_modules/@typescript/native-preview"))) {
+    console.log("SKIP: @typescript/native-preview not installed (run `bun install` first)");
     process.exit(0);
   }
 

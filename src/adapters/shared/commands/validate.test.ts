@@ -45,7 +45,7 @@ function memFs(files: Record<string, string>): WorkspaceFs {
       }
       return [...children];
     },
-    exists: (path) => paths.some((p) => p === path),
+    exists: async (path) => paths.some((p) => p === path),
   };
 }
 
@@ -123,6 +123,24 @@ describe("discoverTypecheckWorkspaces", () => {
     });
 
     expect(await discoverTypecheckWorkspaces(ROOT, fs)).toEqual([]);
+  });
+
+  test("skips heavy/irrelevant dirs (node_modules, dist, dot-dirs) when enumerating a glob", async () => {
+    const fs = memFs({
+      [`${ROOT}/package.json`]: rootPkg(["services/*"]),
+      // Legit workspace
+      [`${ROOT}/services/reviewer/package.json`]: wsPkg("reviewer", TSC),
+      [`${ROOT}/services/reviewer/tsconfig.json`]: TSCONFIG,
+      // Heavy / irrelevant siblings that happen to match the glob — must be skipped before probing
+      [`${ROOT}/services/node_modules/some-pkg/package.json`]: wsPkg("some-pkg", TSC),
+      [`${ROOT}/services/node_modules/some-pkg/tsconfig.json`]: TSCONFIG,
+      [`${ROOT}/services/.cache/package.json`]: wsPkg("cache", TSC),
+      [`${ROOT}/services/.cache/tsconfig.json`]: TSCONFIG,
+      [`${ROOT}/services/dist/package.json`]: wsPkg("dist", TSC),
+      [`${ROOT}/services/dist/tsconfig.json`]: TSCONFIG,
+    });
+
+    expect(await discoverTypecheckWorkspaces(ROOT, fs)).toEqual([REVIEWER]);
   });
 
   test("fail-open: missing root package.json yields empty list", async () => {
