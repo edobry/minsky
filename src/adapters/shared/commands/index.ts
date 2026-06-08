@@ -104,8 +104,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
   // Register changeset commands
   registerChangesetCommands();
 
-  // Register validate commands (lint and typecheck)
-  registerValidateCommands();
+  // Register validate commands (lint and typecheck) — pass the container so the
+  // `task`/`sessionId` params can resolve to a session workspace (mt#2336).
+  registerValidateCommands(container);
 
   // Register MCP commands
   registerMcpCommands();
