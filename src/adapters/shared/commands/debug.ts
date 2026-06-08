@@ -12,6 +12,7 @@ import { log } from "@minsky/shared/logger";
 import { DisconnectTracker } from "../../../mcp/disconnect-tracker";
 import { SubagentDispatchTracker } from "../../../mcp/subagent-dispatch-tracker";
 import { EmbeddingsHealthTracker } from "@minsky/domain/ai/embeddings-health-tracker";
+import { getSourceFreshness } from "../../../mcp/source-freshness";
 
 /** Bun extends the Node.js process with uptime() and memoryUsage() */
 interface BunProcess {
@@ -221,6 +222,17 @@ export function registerDebugCommands(): void {
             escalation: dispatchEscalation,
           },
           embeddingsHealth: EmbeddingsHealthTracker.getInstance().getSummary(),
+          /**
+           * Loaded-source freshness (mt#2335).
+           *
+           * Whether the running daemon's code is current with the repo HEAD.
+           * `bundleFresh: false` means a bundle rebuild is PENDING (benign
+           * latency after a merge — see memory `0e39c87e`), NOT necessarily a
+           * permanent staleness bug. Lets an agent distinguish rebuild-latency
+           * from real staleness without the multi-step `dist/.build-stamp` vs
+           * `git rev-parse HEAD` shell probe.
+           */
+          sourceFreshness: getSourceFreshness(),
           timestamp: new Date().toISOString(),
           interface: context.interface || "unknown",
         };
