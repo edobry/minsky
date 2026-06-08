@@ -4708,16 +4708,36 @@
                   "flags": ["--workspace"],
                   "description": "Workspace directory to run validation in (defaults to current working directory)",
                   "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID whose session workspace should be validated (e.g. 'mt#123')",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID whose workspace should be validated",
+                  "takesValue": true
                 }
               ]
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes.",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes. Pass `task` or `sessionId` to run against a session workspace.",
               "options": [
                 {
                   "flags": ["--workspace"],
                   "description": "Specific workspace directory to typecheck (uses that directory's tsconfig.json). When omitted, typechecks the root tsconfig AND every workspace (packages/*, services/*) that declares its own `typecheck` script, reporting per-workspace errors.",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--task"],
+                  "description": "Task ID whose session workspace should be validated (e.g. 'mt#123')",
+                  "takesValue": true
+                },
+                {
+                  "flags": ["--session-id"],
+                  "description": "Session ID whose workspace should be validated",
                   "takesValue": true
                 }
               ]
