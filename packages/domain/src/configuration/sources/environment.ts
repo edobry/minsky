@@ -88,6 +88,14 @@ export const environmentMappings = {
   MINSKY_REVIEWER_WEBHOOK_SECRET: "reviewer.webhookSecret",
   MINSKY_REVIEWER_URL: "reviewer.url",
 
+  // MCP operator->service auth token (mt#2346). Promoted from HOOK_ONLY_ENV_VARS
+  // to a real config path (its standing TODO). Consumed by `reviewer.retrigger`
+  // to authenticate against the reviewer service's /retrigger endpoint without
+  // the webhook HMAC secret. Explicit mapping mirrors the reviewer.* entries
+  // above; the dot-path auto-conversion would also produce `mcp.auth.token`, but
+  // an explicit entry documents intent and is robust to future renames.
+  MINSKY_MCP_AUTH_TOKEN: "mcp.auth.token",
+
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
 
@@ -163,7 +171,6 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
   "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
-  "MINSKY_MCP_AUTH_TOKEN", // src/mcp (auth — promote to mcp.auth.token)
   "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
   "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
   "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
