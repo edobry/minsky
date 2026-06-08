@@ -57,11 +57,22 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   private owner?: string;
   private repo?: string;
   private sessionProvider: SessionProviderInterface | null = null;
-  private readonly resolveSessionProvider: () => Promise<SessionProviderInterface>;
+  private readonly resolveSessionProvider: (() => Promise<SessionProviderInterface>) | null;
   private readonly tokenProvider: TokenProvider;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionProvider) {
+      if (!this.resolveSessionProvider) {
+        // mt#1430: reached only by a session-dependent (mutation) operation when
+        // the adapter was constructed without a sessionProvider. Read operations
+        // (list/search/get) never get here.
+        throw new MinskyError(
+          "GitHubChangesetAdapter: this operation requires a sessionProvider, but none " +
+            "was provided. Read operations (list/search/get) do not need one; mutation " +
+            "operations (create/update/merge/approve) do — construct the adapter with " +
+            "deps.sessionProvider to use them."
+        );
+      }
       this.sessionProvider = await this.resolveSessionProvider();
     }
     return this.sessionProvider;
@@ -81,17 +92,22 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   constructor(
     private repositoryUrl: string,
     private config?: { token?: string; workdir?: string },
-    deps?: { sessionProvider: SessionProviderInterface; tokenProvider?: TokenProvider }
+    deps?: { sessionProvider?: SessionProviderInterface; tokenProvider?: TokenProvider }
   ) {
     // Extract GitHub owner/repo from URL
     const githubInfo = extractGitHubInfoFromUrl(repositoryUrl);
     this.owner = githubInfo?.owner;
     this.repo = githubInfo?.repo;
 
-    if (!deps?.sessionProvider) {
-      throw new MinskyError("GitHubChangesetAdapter requires sessionProvider in deps");
-    }
-    this.resolveSessionProvider = () => Promise.resolve(deps.sessionProvider);
+    // sessionProvider is OPTIONAL (mt#1430). Read operations (list/search/get) use
+    // Octokit directly and never need it; only the mutation methods
+    // (create/update/merge/approve, via repositoryBackend) do. We resolve it lazily
+    // and throw only when a mutation actually needs it — so the read tools work for
+    // every caller of the factory without per-call-site wiring. The previous eager
+    // constructor throw was the bug: it broke list/search/get/info for all callers
+    // (the factory constructs the adapter with no deps).
+    const provider = deps?.sessionProvider;
+    this.resolveSessionProvider = provider ? () => Promise.resolve(provider) : null;
 
     // Resolve token provider: injected > config token > env vars
     if (deps?.tokenProvider) {
