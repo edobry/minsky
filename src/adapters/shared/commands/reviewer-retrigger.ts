@@ -13,6 +13,7 @@
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory, defineCommand } from "../command-registry";
 import { log } from "@minsky/shared/logger";
+import type { ReviewerConfig } from "@minsky/domain/configuration/schemas/reviewer";
 
 // ---------------------------------------------------------------------------
 // Constants & defaults
@@ -53,12 +54,6 @@ interface RetriggerResult {
   error?: string;
 }
 
-/** Minimal shape of the resolved `reviewer.*` config slice (mt#2269). */
-export interface ReviewerEndpointConfig {
-  url?: string;
-  webhookSecret?: string;
-}
-
 /**
  * Resolve the reviewer-webhook URL + auth secret from Minsky configuration
  * (mt#2269). Both values flow through the standard config system, so the
@@ -67,8 +62,11 @@ export interface ReviewerEndpointConfig {
  * source's higher merge priority. The URL falls back to the hosted default;
  * a missing secret is a hard error with a message that names only the
  * resolution paths that actually exist.
+ *
+ * Accepts the domain `ReviewerConfig` slice directly (the type of
+ * `getConfiguration().reviewer`) to avoid a drifting local duplicate.
  */
-export function resolveReviewerEndpoint(reviewer: ReviewerEndpointConfig | undefined): {
+export function resolveReviewerEndpoint(reviewer: ReviewerConfig): {
   url: string;
   webhookSecret: string;
 } {
