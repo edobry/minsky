@@ -347,14 +347,24 @@ export async function discoverTypecheckWorkspaces(
  * Uses `resolveSessionContextWithFeedback` + `getSessionWorkdir` — the same
  * pattern used by sibling session-aware commands.
  */
-function buildSessionDirResolver(
+export function buildSessionDirResolver(
   container: AppContainerInterface | undefined
 ): (q: { task?: string; sessionId?: string }) => Promise<string> {
   return async (q: { task?: string; sessionId?: string }): Promise<string> => {
     if (!container?.has("sessionDeps")) {
+      // Name the param the caller supplied so the message is actionable. We deliberately
+      // do NOT fall back to cwd here: silently validating main is exactly the footgun this
+      // task fixes — a caller who asked for session routing must get an error, not main.
+      const provided = q.task
+        ? `task='${q.task}'`
+        : q.sessionId
+          ? `sessionId='${q.sessionId}'`
+          : "task/sessionId";
       throw new Error(
-        "Cannot resolve session workspace: DI container or 'sessionDeps' is unavailable. " +
-          "Ensure the container is initialized before calling validate commands with task/sessionId."
+        `Cannot resolve session workspace for ${provided}: this validate command was registered ` +
+          `without a DI container providing 'sessionDeps' (e.g. a CLI/bootstrap context that did not ` +
+          `call container.initialize()). Pass an explicit 'workspace' directory instead, or invoke ` +
+          `from a context where the container is initialized.`
       );
     }
     const { resolveSessionContextWithFeedback } = await import(
@@ -377,7 +387,8 @@ function buildSessionDirResolver(
  * Register the validate commands in the shared command registry.
  *
  * @param container Optional DI container — when provided, the `task` and `sessionId`
- *   parameters resolve to the session workspace via `SessionService.getDir`.
+ *   parameters resolve to the session workspace via `resolveSessionContextWithFeedback`
+ *   + `SessionProviderInterface.getSessionWorkdir` (see `buildSessionDirResolver`).
  *   Mirrors the pattern used by `registerPrWatchCommands` and `registerProvenanceCommands`.
  */
 export function registerValidateCommands(container?: AppContainerInterface): void {

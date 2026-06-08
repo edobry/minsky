@@ -12,6 +12,7 @@ import { describe, test, expect } from "bun:test";
 import {
   discoverTypecheckWorkspaces,
   resolveValidateWorkspace,
+  buildSessionDirResolver,
   lintParams,
   typecheckParams,
   type WorkspaceFs,
@@ -231,5 +232,26 @@ describe("validate param sets — no workspace defaultValue (mt#2336 routing reg
 
   test("typecheck workspace param has no defaultValue", () => {
     expect("defaultValue" in typecheckParams.workspace).toBe(false);
+  });
+});
+
+describe("buildSessionDirResolver — container-absent path", () => {
+  test("rejects with an actionable error (naming the task) when no container is provided", async () => {
+    const resolve = buildSessionDirResolver(undefined);
+    await expect(resolve({ task: "mt#2336" })).rejects.toThrow(/task='mt#2336'/);
+  });
+
+  test("error names sessionId when that is the supplied param, and never falls back to cwd", async () => {
+    const resolve = buildSessionDirResolver(undefined);
+    await expect(resolve({ sessionId: "sess-7" })).rejects.toThrow(/sessionId='sess-7'/);
+  });
+
+  test("rejects (does not resolve) when container lacks sessionDeps", async () => {
+    // A container whose `has("sessionDeps")` is false must error, not silently use cwd.
+    const fakeContainer = { has: () => false } as unknown as Parameters<
+      typeof buildSessionDirResolver
+    >[0];
+    const resolve = buildSessionDirResolver(fakeContainer);
+    await expect(resolve({ task: "mt#9" })).rejects.toThrow(/Cannot resolve session workspace/);
   });
 });
