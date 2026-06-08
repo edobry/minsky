@@ -30,7 +30,7 @@ The Minsky configuration system is designed to be powerful and flexible, support
 Minsky resolves settings by looking in the following places, in order of precedence (highest first):
 
 1.  **Command-Line Flags**: Any flag like `--backend` will always take highest priority.
-2.  **Environment Variables**: Variables like `MINSKY_BACKEND`, `MINSKY_SESSION_BACKEND`, or `GITHUB_TOKEN` are checked next.
+2.  **Environment Variables**: Variables like `MINSKY_PERSISTENCE_BACKEND`, `MINSKY_PERSISTENCE_POSTGRES_URL`, or `GITHUB_TOKEN` are checked next.
 3.  **Global User Config (`~/.config/minsky/config.yaml`)**: Your personal settings and credentials.
 4.  **Repository Config (`.minsky/config.yaml`)**: The project-specific settings committed to the repo.
 5.  **Built-in Defaults**: The sensible defaults that Minsky provides out-of-the-box.
@@ -153,9 +153,9 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
       credentials:
         token: "ghp_xxxxxxxxxxxxxxxxxxxx"
     persistence:
-      backend: "sqlite"
-      sqlite:
-        dbPath: "~/.local/state/minsky/sessions.db"
+      backend: "postgres"
+      postgres:
+        connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
     ```
 
 4.  From now on, any `minsky` command in any repository will automatically use this global token.
