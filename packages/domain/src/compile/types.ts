@@ -53,6 +53,8 @@ export interface MinskyCompileFsDeps {
   mkdir(path: string, options: { recursive: boolean }): Promise<string | undefined>;
   readdir(path: string): Promise<string[]>;
   access(path: string): Promise<void>;
+  /** Set file permissions (mode). Used by claude-hooks to enforce 0o755. */
+  chmod(path: string, mode: number): Promise<void>;
 }
 
 /**

@@ -4,7 +4,7 @@ import {
   evaluateSmokeStatus,
   SMOKE_CHECK_OVERRIDE_ENV,
   EXPECTED_REVIEWER_LOGIN,
-} from "../../../.claude/hooks/require-review-before-merge";
+} from "../../../.minsky/hooks/require-review-before-merge";
 
 describe("parseSmokeStatus", () => {
   it("returns 'pass' for Smoke: pass", () => {

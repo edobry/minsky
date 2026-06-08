@@ -125,7 +125,8 @@ export default {
     // and rewrites separators to `path.sep`.
     const normalized = pathNormalize(filename);
 
-    // Scope per spec: lint src/**/*.ts AND .claude/hooks/**/*.ts.
+    // Scope per spec: lint src/**/*.ts, .claude/hooks/**/*.ts, AND
+    // .minsky/hooks/**/*.ts.
     //
     // - src/**/*.ts: original mt#1788 coverage. Root-level config files like
     //   drizzle.pg.config.ts have their own lifecycle (drizzle-kit migrate,
@@ -136,17 +137,25 @@ export default {
     //
     // - .claude/hooks/**/*.ts: mt#1994 extension. Hook-only override env vars
     //   (e.g., MINSKY_ACK_OOB_MERGE, MINSKY_FORCE_EDIT_GENERATED) have their
-    //   only read site in .claude/hooks/*.ts files. Without scanning this
-    //   directory, the rule missed the hook-only-override slice — operators
-    //   following the documented override instructions would hit a hard CLI
-    //   crash because the env var wasn't registered in HOOK_ONLY_ENV_VARS.
+    //   only read site in hook files. Without scanning this directory, the rule
+    //   missed the hook-only-override slice — operators following the documented
+    //   override instructions would hit a hard CLI crash because the env var
+    //   wasn't registered in HOOK_ONLY_ENV_VARS.
     //   See mt#1994 spec and `feedback_new_minsky_env_var_must_be_registered`.
+    //
+    // - .minsky/hooks/**/*.ts: mt#2304 extension. After moving hook sources to
+    //   .minsky/hooks/ (canonical source location), the compiled .claude/hooks/
+    //   outputs carry the same env var reads but authors write to .minsky/hooks/.
+    //   Scanning the source location catches new hook-only env vars at authoring
+    //   time before compile, matching the intent of mt#1994.
     const srcSegment = `${pathSep}src${pathSep}`;
     const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
+    const minskyHooksSegment = `${pathSep}.minsky${pathSep}hooks${pathSep}`;
     const isTsFile = normalized.endsWith(".ts");
     const inSrc = normalized.includes(srcSegment);
     const inClaudeHooks = normalized.includes(claudeHooksSegment);
-    if (!isTsFile || (!inSrc && !inClaudeHooks)) {
+    const inMinskyHooks = normalized.includes(minskyHooksSegment);
+    if (!isTsFile || (!inSrc && !inClaudeHooks && !inMinskyHooks)) {
       return {};
     }
 
