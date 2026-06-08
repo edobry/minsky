@@ -164,6 +164,10 @@ export async function updateSessionImpl(
     // was stashed (force, clean tree), and conversely a stash created here must be
     // restored (or surfaced) on EVERY return path, never silently abandoned (mt#2325).
     let didStash = false;
+    // The commit SHA of the stash we created, captured while it is unambiguously
+    // on top. Lets the restore step pop OUR stash specifically rather than trust
+    // a positional `stash@{0}` that another process could have shifted.
+    let stashSha: string | undefined;
 
     // Validate current state if not forced
     if (!force) {
@@ -173,7 +177,16 @@ export async function updateSessionImpl(
         const stashResult = await deps.gitService.stashChanges(workdir);
         // stashChanges is a no-op (stashed:false) when the tree is already clean.
         didStash = stashResult.stashed !== false;
-        log.debug("Changes stashed", { didStash });
+        if (didStash) {
+          try {
+            stashSha = (
+              await deps.gitService.execInRepository(workdir, "git rev-parse stash@{0}")
+            ).trim();
+          } catch {
+            // best-effort — restore falls back to the positional pop
+          }
+        }
+        log.debug("Changes stashed", { didStash, stashSha });
       }
     }
 
@@ -188,7 +201,7 @@ export async function updateSessionImpl(
     const finalize = async (): Promise<SessionUpdateResult> => {
       let stashRestore: StashRestoreOutcome | undefined;
       if (didStash && !mergeInProgress) {
-        stashRestore = await restoreSessionStash(workdir, deps.gitService);
+        stashRestore = await restoreSessionStash(workdir, deps.gitService, stashSha);
         if (!stashRestore.restored) {
           const parked = (stashRestore.parkedFiles ?? []).map((f) => `     - ${f}`).join("\n");
           log.cli(

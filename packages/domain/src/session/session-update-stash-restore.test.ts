@@ -248,7 +248,7 @@ describe("restoreSessionStash", () => {
   it("returns restored=true on a clean pop", async () => {
     const git = makeGit([undefined], "");
     const outcome = await restoreSessionStash("/w", git);
-    expect(outcome).toEqual({ stashed: true, restored: true });
+    expect(outcome).toEqual({ stashed: true, restored: true, stashRef: "stash@{0}" });
     expect(git.popCalls).toBe(1);
   });
 
@@ -271,5 +271,53 @@ describe("restoreSessionStash", () => {
     expect(outcome.stashRef).toBe("stash@{0}");
     expect(outcome.parkedFiles).toEqual(["src/a.ts", "src/b.ts"]);
     expect(outcome.recovery).toContain("git stash pop");
+  });
+
+  it("refuses to pop positionally when another stash was pushed on top of ours", async () => {
+    let popCalls = 0;
+    const git: StashRestoreGitDeps = {
+      async popStash() {
+        popCalls++;
+        return { workdir: "/w", stashed: true };
+      },
+      async execInRepository(_workdir: string, command: string) {
+        // Our stash (SHA_OURS) is buried at stash@{1}; a newer one sits at @{0}.
+        if (command.includes("stash list")) {
+          return "stash@{0} SHA_OTHER\nstash@{1} SHA_OURS";
+        }
+        if (command.includes(STASH_SHOW_CMD)) return "src/work.ts";
+        return "";
+      },
+    };
+
+    const outcome = await restoreSessionStash("/w", git, "SHA_OURS");
+
+    expect(outcome.restored).toBe(false);
+    expect(outcome.stashRef).toBe("stash@{1}");
+    expect(outcome.parkedFiles).toEqual(["src/work.ts"]);
+    expect(outcome.recovery).toContain("git stash pop stash@{1}");
+    // Crucially, we never popped — popping @{0} would clobber the wrong stash.
+    expect(popCalls).toBe(0);
+  });
+
+  it("pops our stash when the SHA confirms it is still on top", async () => {
+    let popCalls = 0;
+    const git: StashRestoreGitDeps = {
+      async popStash() {
+        popCalls++;
+        return { workdir: "/w", stashed: true };
+      },
+      async execInRepository(_workdir: string, command: string) {
+        if (command.includes("stash list")) return "stash@{0} SHA_OURS";
+        if (command.includes(STASH_SHOW_CMD)) return "";
+        return "";
+      },
+    };
+
+    const outcome = await restoreSessionStash("/w", git, "SHA_OURS");
+
+    expect(outcome.restored).toBe(true);
+    expect(outcome.stashRef).toBe("stash@{0}");
+    expect(popCalls).toBe(1);
   });
 });

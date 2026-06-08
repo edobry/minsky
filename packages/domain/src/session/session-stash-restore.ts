@@ -56,15 +56,56 @@ export function isGeneratedPath(path: string): boolean {
 /** The git surface this helper needs — a subset of GitServiceInterface. */
 export type StashRestoreGitDeps = Pick<GitServiceInterface, "popStash" | "execInRepository">;
 
-const STASH_REF = "stash@{0}";
+const DEFAULT_STASH_REF = "stash@{0}";
 
 /**
- * List the files captured by the top stash entry. Returns [] on any error
- * (e.g. the stash was already dropped), since this is a best-effort diagnostic.
+ * Locate OUR stash entry by the commit SHA captured at creation time, defending
+ * against another stash being pushed on top between create and restore. Returns
+ * the entry's current ref and whether it is on top of the stack (`stash@{0}`).
+ * Returns undefined when no SHA was captured or it can't be found (caller falls
+ * back to the positional default).
  */
-async function listStashedFiles(workdir: string, git: StashRestoreGitDeps): Promise<string[]> {
+async function resolveOwnStashRef(
+  workdir: string,
+  git: StashRestoreGitDeps,
+  expectedStashSha: string | undefined
+): Promise<{ ref: string; isOnTop: boolean } | undefined> {
+  if (!expectedStashSha) return undefined;
   try {
-    const out = await git.execInRepository(workdir, `git stash show --name-only ${STASH_REF}`);
+    // `%gd` = reflog selector (stash@{n}); `%H` = full commit SHA.
+    const out = await git.execInRepository(workdir, "git stash list --format=%gd %H");
+    const lines = out
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const sep = line.indexOf(" ");
+      if (sep === -1) continue;
+      const ref = line.slice(0, sep).trim();
+      const sha = line.slice(sep + 1).trim();
+      if (sha === expectedStashSha) {
+        return { ref, isOnTop: i === 0 };
+      }
+    }
+  } catch {
+    // best-effort — fall back to positional
+  }
+  return undefined;
+}
+
+/**
+ * List the files captured by a stash entry. Returns [] on any error (e.g. the
+ * stash was already dropped), since this is a best-effort diagnostic.
+ */
+async function listStashedFiles(
+  workdir: string,
+  git: StashRestoreGitDeps,
+  stashRef: string
+): Promise<string[]> {
+  try {
+    const out = await git.execInRepository(workdir, `git stash show --name-only ${stashRef}`);
     return out
       .split("\n")
       .map((s) => s.trim())
@@ -84,27 +125,61 @@ async function listStashedFiles(workdir: string, git: StashRestoreGitDeps): Prom
  * - Pop still cannot complete → NON-silent `{ restored: false, stashRef,
  *   parkedFiles, error, recovery }` so the caller can surface the parked work.
  *
+ * `expectedStashSha` is the commit SHA of the stash this update created (captured
+ * immediately after `git stash push`, when it is unambiguously on top). When
+ * supplied, the pop is gated: if another stash has since been pushed on top, we
+ * REFUSE to pop positionally (which would clobber the wrong entry) and instead
+ * report the parked work against our entry's real ref. This is the robustness
+ * the positional `stash@{0}` assumption lacked.
+ *
  * This function never throws: a stash-restore failure must be REPORTED, not
  * raised (the update itself already succeeded), and it must never be swallowed
  * into a misleading success.
  */
 export async function restoreSessionStash(
   workdir: string,
-  git: StashRestoreGitDeps
+  git: StashRestoreGitDeps,
+  expectedStashSha?: string
 ): Promise<StashRestoreOutcome> {
+  const own = await resolveOwnStashRef(workdir, git, expectedStashSha);
+  const stashRef = own?.ref ?? DEFAULT_STASH_REF;
+
+  // Our stash is buried under another entry — a positional `git stash pop` would
+  // pop the WRONG one. Refuse and report so the operator pops the right ref.
+  if (own && !own.isOnTop) {
+    const parkedFiles = await listStashedFiles(workdir, git, stashRef);
+    log.debug("Refusing positional stash pop — another stash entry is on top of ours", {
+      workdir,
+      ownRef: stashRef,
+    });
+    return {
+      stashed: true,
+      restored: false,
+      stashRef,
+      parkedFiles,
+      error:
+        "Another stash entry was pushed on top of this update's stash; refusing to pop positionally.",
+      recovery:
+        `Your uncommitted changes are preserved in ${stashRef} (a newer stash sits above it). ` +
+        `In the session workspace, run \`git stash pop ${stashRef}\` to restore them.`,
+    };
+  }
+
+  // Normal path: our stash is on top (or we couldn't capture a SHA — fall back to
+  // the positional pop, unchanged from prior behavior).
   try {
     await git.popStash(workdir);
-    return { stashed: true, restored: true };
+    return { stashed: true, restored: true, stashRef };
   } catch (popError) {
-    log.debug("Initial stash pop failed; checking for generated-file collisions", {
-      workdir,
-      error: getErrorMessage(popError),
-    });
-
-    const parkedFiles = await listStashedFiles(workdir, git);
+    const parkedFiles = await listStashedFiles(workdir, git, stashRef);
     const generatedBlockers = parkedFiles.filter(isGeneratedPath);
 
     if (generatedBlockers.length > 0) {
+      log.debug("Stash pop blocked; discarding generated files and retrying", {
+        workdir,
+        generatedBlockers,
+        error: getErrorMessage(popError),
+      });
       // Discard the post-rebase working-tree copy of each generated file so the
       // stashed version can apply. Generated files are reproducible.
       for (const file of generatedBlockers) {
@@ -123,27 +198,35 @@ export async function restoreSessionStash(
           workdir,
           autoRestoredFiles: generatedBlockers,
         });
-        return { stashed: true, restored: true, autoRestoredFiles: generatedBlockers };
+        return { stashed: true, restored: true, stashRef, autoRestoredFiles: generatedBlockers };
       } catch (retryError) {
         log.debug("Stash pop still failed after discarding generated files", {
           workdir,
           error: getErrorMessage(retryError),
         });
       }
+    } else {
+      // Negative path: the pop failed but no generated-file blockers were found,
+      // so there is nothing to auto-discard. Log it before reporting parked.
+      log.debug("Stash pop failed with no generated-file blockers to auto-discard", {
+        workdir,
+        parkedFiles,
+        error: getErrorMessage(popError),
+      });
     }
 
     // Still parked — build the non-silent outcome.
-    const stillParked = await listStashedFiles(workdir, git);
+    const stillParked = await listStashedFiles(workdir, git, stashRef);
     return {
       stashed: true,
       restored: false,
-      stashRef: STASH_REF,
+      stashRef,
       parkedFiles: stillParked.length > 0 ? stillParked : parkedFiles,
       autoRestoredFiles: generatedBlockers.length > 0 ? generatedBlockers : undefined,
       error: getErrorMessage(popError),
       recovery:
-        `Your uncommitted changes are preserved in ${STASH_REF}. ` +
-        `In the session workspace, run \`git stash pop\` to restore them ` +
+        `Your uncommitted changes are preserved in ${stashRef}. ` +
+        `In the session workspace, run \`git stash pop ${stashRef}\` to restore them ` +
         `(discard regenerated files first with \`git checkout -- <file>\` if they block the pop).`,
     };
   }
