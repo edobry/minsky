@@ -37,7 +37,7 @@ Minsky resolves settings by looking in the following places, in order of precede
 
 ## SessionDB Configuration
 
-Minsky supports multiple SessionDB storage backends that can be configured at both repository and user levels:
+Minsky's SessionDB persistence is configured at both repository and user levels. **Postgres is now the required backend**; SQLite is deprecated and pending removal (mt#2339). Configuration uses YAML (`persistence.*`) — the TOML/`[sessiondb]` examples in the (deprecated) migration guide are legacy.
 
 ### Available Backends
 
@@ -59,7 +59,7 @@ version: 1
 persistence:
   backend: "postgres"
   postgres:
-    connectionString: "${MINSKY_POSTGRES_URL}"
+    connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
 backends:
   default: "github-issues"
   github-issues:
@@ -78,9 +78,9 @@ github:
   credentials:
     token: "ghp_xxxxxxxxxxxxxxxxxxxx"
 persistence:
-  backend: "sqlite"
-  sqlite:
-    dbPath: "~/.local/state/minsky/sessions.db"
+  backend: "postgres"
+  postgres:
+    connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
 ```
 
 ### Environment Variable Overrides
@@ -88,14 +88,11 @@ persistence:
 SessionDB backends can also be configured via environment variables:
 
 ```bash
-# Backend selection
-export MINSKY_SESSION_BACKEND=postgres
+# Backend selection (Postgres is required; SQLite removed — mt#2339)
+export MINSKY_PERSISTENCE_BACKEND=postgres
 
-# SQLite configuration
-export MINSKY_SQLITE_PATH=~/.local/state/minsky/sessions.db
-
-# PostgreSQL configuration
-export MINSKY_POSTGRES_URL="postgresql://user:pass@host:5432/db"
+# PostgreSQL configuration (canonical env var)
+export MINSKY_PERSISTENCE_POSTGRES_URL="postgresql://user:pass@host:5432/db"
 
 # Base directory for session workspaces
 export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
@@ -119,7 +116,7 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
     persistence:
       backend: "postgres"
       postgres:
-        connectionString: "${MINSKY_POSTGRES_URL}"
+        connectionString: "${MINSKY_PERSISTENCE_POSTGRES_URL}"
     backends:
       default: "github-issues"
       github-issues:
