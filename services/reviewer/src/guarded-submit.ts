@@ -57,18 +57,31 @@ export interface GuardedSubmitInput {
  * Throws the original submission error on failure (after best-effort recording)
  * so the existing webhook/sweeper bubble-up behavior is preserved.
  */
+/**
+ * Map composed inline comments (file/line/body/side/inReplyTo) to the
+ * `submitReview` shape. Exported for unit testing.
+ *
+ * Preserves `side` (mt#2350 PR #1621 R1): `partitionInlineComments` demotes
+ * LEFT-side comments conservatively, so dropping `side` here would silently
+ * re-anchor an intended LEFT comment to the RIGHT default.
+ */
+export function mapComposedToReviewInlineComments(
+  composed: ComposedInlineComment[]
+): ReviewInlineComment[] {
+  return composed.map((c) => ({
+    path: c.file,
+    line: c.line,
+    body: c.body,
+    ...(c.side !== undefined ? { side: c.side } : {}),
+    ...(c.inReplyTo !== undefined ? { inReplyTo: c.inReplyTo } : {}),
+  }));
+}
+
 export async function submitReviewWithGuards(input: GuardedSubmitInput): Promise<SubmittedReview> {
   const { octokit, owner, repo, prNumber, event, headSha, timeoutMs, db } = input;
   const prUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}`;
 
-  // Map composed inline comments (file/line/body/inReplyTo) to the submitReview
-  // shape (mt#1345).
-  const mappedInlineComments: ReviewInlineComment[] = input.composedInlineComments.map((c) => ({
-    path: c.file,
-    line: c.line,
-    body: c.body,
-    ...(c.inReplyTo !== undefined ? { inReplyTo: c.inReplyTo } : {}),
-  }));
+  const mappedInlineComments = mapComposedToReviewInlineComments(input.composedInlineComments);
 
   // Part 1: pre-validate anchors. A single unresolvable RIGHT-side anchor 422s
   // the ENTIRE createReview payload ("Line could not be resolved"), losing the

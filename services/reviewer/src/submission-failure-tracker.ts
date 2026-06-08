@@ -17,7 +17,7 @@
  * Owned by the reviewer service. No imports from src/.
  */
 
-import { sql, eq } from "drizzle-orm";
+import { sql, eq, and, inArray } from "drizzle-orm";
 import { safeTruncate } from "@minsky/shared/safe-truncate";
 import type { ReviewerDb } from "./db/client";
 import {
@@ -256,12 +256,25 @@ export async function listOpenCircuitsForPRs(
   const result = new Map<string, OpenCircuit>();
   if (prs.length === 0) return result;
 
+  // Narrow the SELECT to the owners/repos under sweep (PR #1621 R1 non-blocking):
+  // the sweeper targets a single {owner, repo}, so scanning every open circuit
+  // across all repos is wasted IO. The exact (owner, repo, pr, head_sha) match
+  // still happens in-memory below to handle the owners×repos cartesian.
+  const owners = [...new Set(prs.map((p) => p.owner))];
+  const repos = [...new Set(prs.map((p) => p.repo))];
+
   let rows: SubmissionFailureRecord[];
   try {
     rows = await db
       .select()
       .from(submissionFailuresTable)
-      .where(eq(submissionFailuresTable.circuitOpen, true));
+      .where(
+        and(
+          eq(submissionFailuresTable.circuitOpen, true),
+          inArray(submissionFailuresTable.owner, owners),
+          inArray(submissionFailuresTable.repo, repos)
+        )
+      );
   } catch {
     // Fail-open: proceed as if no circuit is open.
     return result;
