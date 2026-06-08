@@ -3,7 +3,8 @@
  *
  * Exercises the pure `getSourceFreshness` logic with injected env + git deps:
  * bundleFresh match/mismatch, unknown-commit degradation, missing-package-root
- * degradation, and runMode normalization.
+ * degradation, runMode normalization, the null-state `note`, and the
+ * short-circuit that skips the git call when loadedCommit is unknown (PR #1599 R1).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -27,6 +28,24 @@ function deps(env: Record<string, string | undefined>, head: string | null): Sou
   };
 }
 
+/** Deps that record whether gitRevParseHead was invoked (for short-circuit tests). */
+function spyDeps(
+  env: Record<string, string | undefined>,
+  head: string | null
+): { deps: SourceFreshnessDeps; gitCalls: () => number } {
+  let calls = 0;
+  return {
+    deps: {
+      readEnv: (name) => env[name],
+      gitRevParseHead: () => {
+        calls += 1;
+        return head;
+      },
+    },
+    gitCalls: () => calls,
+  };
+}
+
 describe("getSourceFreshness (mt#2335)", () => {
   test("bundleFresh=true when loadedCommit matches current HEAD", () => {
     const r = getSourceFreshness(
@@ -40,6 +59,7 @@ describe("getSourceFreshness (mt#2335)", () => {
       currentHead: SHA_A,
       bundleFresh: true,
       runMode: "bundle",
+      note: null,
     });
   });
 
@@ -53,6 +73,7 @@ describe("getSourceFreshness (mt#2335)", () => {
     expect(r.bundleFresh).toBe(false);
     expect(r.loadedCommit).toBe(SHA_B);
     expect(r.currentHead).toBe(SHA_A);
+    expect(r.note).toBeNull();
   });
 
   test("source-fallback runMode is preserved", () => {
@@ -70,25 +91,45 @@ describe("getSourceFreshness (mt#2335)", () => {
     expect(r.bundleFresh).toBe(true);
   });
 
-  test("bundleFresh=null when loadedCommit is unknown", () => {
+  test("bundleFresh=null with note when loadedCommit is unknown", () => {
     const r = getSourceFreshness(
       deps({ [RUN_MODE_ENV]: "bundle", [PACKAGE_ROOT_ENV]: "/repo" }, SHA_A)
     );
     expect(r.loadedCommit).toBeNull();
     expect(r.bundleFresh).toBeNull();
-    expect(r.currentHead).toBe(SHA_A);
+    expect(r.note).toMatch(/loadedCommit unavailable/i);
   });
 
-  test("currentHead=null and bundleFresh=null when package root is missing", () => {
+  test("does NOT call git when loadedCommit is unknown (short-circuit)", () => {
+    const { deps: d, gitCalls } = spyDeps(
+      { [RUN_MODE_ENV]: "bundle", [PACKAGE_ROOT_ENV]: "/repo" },
+      SHA_A
+    );
+    const r = getSourceFreshness(d);
+    expect(gitCalls()).toBe(0);
+    expect(r.currentHead).toBeNull();
+  });
+
+  test("calls git exactly once when loadedCommit is known", () => {
+    const { deps: d, gitCalls } = spyDeps(
+      { [LOADED_COMMIT_ENV]: SHA_A, [PACKAGE_ROOT_ENV]: "/repo" },
+      SHA_A
+    );
+    getSourceFreshness(d);
+    expect(gitCalls()).toBe(1);
+  });
+
+  test("currentHead=null and note when package root is missing", () => {
     const r = getSourceFreshness(
       deps({ [LOADED_COMMIT_ENV]: SHA_A, [RUN_MODE_ENV]: "bundle" }, SHA_A)
     );
     expect(r.currentHead).toBeNull();
     expect(r.bundleFresh).toBeNull();
     expect(r.loadedCommit).toBe(SHA_A);
+    expect(r.note).toMatch(/currentHead unavailable/i);
   });
 
-  test("currentHead=null when git fails, bundleFresh=null", () => {
+  test("currentHead=null when git fails, bundleFresh=null with note", () => {
     const r = getSourceFreshness(
       deps(
         { [LOADED_COMMIT_ENV]: SHA_A, [RUN_MODE_ENV]: "bundle", [PACKAGE_ROOT_ENV]: "/repo" },
@@ -97,6 +138,7 @@ describe("getSourceFreshness (mt#2335)", () => {
     );
     expect(r.currentHead).toBeNull();
     expect(r.bundleFresh).toBeNull();
+    expect(r.note).toMatch(/currentHead unavailable/i);
   });
 
   test("unrecognized / missing runMode normalizes to 'unknown'", () => {

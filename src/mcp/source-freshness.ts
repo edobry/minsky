@@ -33,6 +33,15 @@ export const LOADED_COMMIT_ENV = "MINSKY_LOADED_COMMIT";
 export const RUN_MODE_ENV = "MINSKY_RUN_MODE";
 export const PACKAGE_ROOT_ENV = "MINSKY_PACKAGE_ROOT";
 
+/**
+ * TTL for the default git-HEAD cache. `debug.systemInfo` is a diagnostic tool,
+ * not a tight-loop hot path, but a short cache bounds the cost of repeated calls
+ * so the synchronous `git rev-parse` never becomes a CPU/latency sink (PR #1599
+ * R1). HEAD advances on merges; a few seconds of staleness is acceptable for a
+ * freshness *diagnostic*.
+ */
+export const GIT_HEAD_CACHE_TTL_MS = 2_000;
+
 export type RunMode = "bundle" | "source-fallback" | "unknown";
 
 export interface SourceFreshness {
@@ -49,6 +58,8 @@ export interface SourceFreshness {
   bundleFresh: boolean | null;
   /** How the launcher served this process. */
   runMode: RunMode;
+  /** Human-readable reason when `bundleFresh` is null; null when determinate. */
+  note: string | null;
 }
 
 /** Injectable seams so the pure logic can be unit-tested without git or a real env. */
@@ -58,16 +69,30 @@ export interface SourceFreshnessDeps {
   gitRevParseHead(cwd: string): string | null;
 }
 
+/** Module-local cache for the production git runner only (keyed by cwd). */
+const gitHeadCache = new Map<string, { head: string | null; at: number }>();
+
+function uncachedGitRevParseHead(cwd: string): string | null {
+  try {
+    const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" });
+    const out = result.stdout?.trim();
+    return out && out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 const defaultDeps: SourceFreshnessDeps = {
   readEnv: (name) => process.env[name],
   gitRevParseHead: (cwd) => {
-    try {
-      const result = spawnSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" });
-      const out = result.stdout?.trim();
-      return out && out.length > 0 ? out : null;
-    } catch {
-      return null;
+    const now = Date.now();
+    const cached = gitHeadCache.get(cwd);
+    if (cached && now - cached.at < GIT_HEAD_CACHE_TTL_MS) {
+      return cached.head;
     }
+    const head = uncachedGitRevParseHead(cwd);
+    gitHeadCache.set(cwd, { head, at: now });
+    return head;
   },
 };
 
@@ -78,6 +103,11 @@ function normalizeRunMode(raw: string | undefined): RunMode {
 /**
  * Compute the loaded-source freshness snapshot. Pure aside from the injected
  * `gitRevParseHead` call; never throws (all failures degrade to null fields).
+ *
+ * Short-circuits the git call when `loadedCommit` is unknown (CLI / published
+ * install / non-cli-entry launch): with no loaded commit to compare against,
+ * `bundleFresh` is null regardless, so there is nothing to learn from HEAD and
+ * no reason to spawn git (PR #1599 R1 — avoids the shellout on the CLI path).
  */
 export function getSourceFreshness(deps: SourceFreshnessDeps = defaultDeps): SourceFreshness {
   const loadedCommitRaw = deps.readEnv(LOADED_COMMIT_ENV);
@@ -86,12 +116,24 @@ export function getSourceFreshness(deps: SourceFreshnessDeps = defaultDeps): Sou
 
   const runMode = normalizeRunMode(deps.readEnv(RUN_MODE_ENV));
 
-  const packageRoot = deps.readEnv(PACKAGE_ROOT_ENV);
-  const currentHead =
-    packageRoot && packageRoot.length > 0 ? deps.gitRevParseHead(packageRoot) : null;
+  // Only resolve current HEAD when there is a loaded commit to compare against.
+  let currentHead: string | null = null;
+  if (loadedCommit !== null) {
+    const packageRoot = deps.readEnv(PACKAGE_ROOT_ENV);
+    currentHead = packageRoot && packageRoot.length > 0 ? deps.gitRevParseHead(packageRoot) : null;
+  }
 
   const bundleFresh =
     loadedCommit !== null && currentHead !== null ? loadedCommit === currentHead : null;
 
-  return { loadedCommit, currentHead, bundleFresh, runMode };
+  let note: string | null = null;
+  if (loadedCommit === null) {
+    note =
+      "loadedCommit unavailable — process was not launched via cli-entry (CLI / published " +
+      "install) or the build stamp was missing; freshness not tracked";
+  } else if (currentHead === null) {
+    note = "currentHead unavailable — MINSKY_PACKAGE_ROOT unset or git rev-parse failed";
+  }
+
+  return { loadedCommit, currentHead, bundleFresh, runMode, note };
 }
