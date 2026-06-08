@@ -11,8 +11,8 @@
  *   query          Required. The natural-language search query.
  *   limit          Optional. Max results to return (default 10).
  *   role           Optional. Filter to 'user' or 'assistant' turns.
- *   from           Optional. ISO date string — filter sessions started after this date.
- *   to             Optional. ISO date string — filter sessions started before this date.
+ *   from           Optional. ISO date string — include only turns whose own timestamp is on/after this date.
+ *   to             Optional. ISO date string — include only turns whose own timestamp is on/before this date.
  *   session        Optional. Restrict results to a single agent session UUID.
  *
  * DI pattern mirrors index-embeddings-command.ts: persistence provider
@@ -82,12 +82,14 @@ export function registerTranscriptSearchCommand(
       },
       from: {
         schema: z.string(),
-        description: "ISO date string — include only turns from sessions started after this date",
+        description:
+          "ISO date string — include only turns whose own timestamp is on/after this date",
         required: false,
       },
       to: {
         schema: z.string(),
-        description: "ISO date string — include only turns from sessions started before this date",
+        description:
+          "ISO date string — include only turns whose own timestamp is on/before this date",
         required: false,
       },
       session: {
