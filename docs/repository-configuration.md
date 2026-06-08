@@ -41,8 +41,13 @@ Minsky supports multiple SessionDB storage backends that can be configured at bo
 
 ### Available Backends
 
-- **`sqlite`**: Local SQLite database with ACID transactions (default)
-- **`postgres`**: PostgreSQL database for team environments
+> **Update (2026-06-08):** A Postgres connection is now the required backend. SQLite support is
+> being removed (see [ADR-018](architecture/adr-018-domain-persistence-pattern.md) and task mt#2339);
+> it was unused and already broken for the modern code paths. If a zero-dependency offline/local
+> option is ever wanted, the future vehicle is **PGlite** (embedded Postgres — task mt#434), not SQLite.
+
+- **`postgres`**: PostgreSQL database (required) — e.g. hosted Supabase, or a local `docker run postgres`.
+- **`sqlite`**: _Deprecated; being removed (mt#2339)._ Previously the local default.
 
 ### Repository-Level SessionDB Configuration
 

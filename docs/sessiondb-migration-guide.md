@@ -1,5 +1,13 @@
 # SessionDB Migration Guide
 
+> **Deprecated (2026-06-08).** This guide is largely obsolete. The JSON-file backend was removed,
+> and **SQLite support is being removed** (task mt#2339); a Postgres connection is now required.
+> The `[sessiondb]` config keys referenced below are also retired — they now throw at boot (use
+> `persistence.*` / `MINSKY_PERSISTENCE_POSTGRES_URL`). See
+> [ADR-018](architecture/adr-018-domain-persistence-pattern.md) for the canonical persistence
+> decision and task mt#434 for the future PGlite (embedded Postgres) option. The SQLite/legacy
+> content below is retained only for historical reference until the mt#2339 removal lands.
+
 This guide covers migrating session data between different storage backends in Minsky (SQLite, PostgreSQL).
 
 ## Overview
