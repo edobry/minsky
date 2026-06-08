@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
-use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_notification::NotificationExt;
@@ -1466,6 +1466,72 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Application menu (mt#2327): the tray menu above drives the daemon
+            // lifecycle, but it does NOT give the cockpit *window* the standard
+            // web-app keyboard shortcuts. On macOS those come from the
+            // application menu's accelerators, which Tauri (unlike Electron) does
+            // not create by default — so Cmd+R / Cmd+W / Cmd+C&c. were dead in the
+            // cockpit window. Build a minimal app menu so they work when the
+            // window is focused. Zoom (Cmd +/-/0) is handled natively by the
+            // webview via `zoom_hotkeys_enabled` on the window builder, so it is
+            // intentionally NOT duplicated as menu items here.
+            // Custom Quit item (NOT PredefinedMenuItem::quit): the predefined
+            // quit is self-handled by the OS and never reaches handle_menu_event,
+            // so it would bypass the supervisor-aware graceful shutdown
+            // (SupervisorCmd::Shutdown) that the tray Quit uses — risking leaving
+            // an adopted daemon running. Routing a custom "quit" id through
+            // handle_menu_event keeps app-menu Quit and tray Quit identical.
+            let quit_app_item = MenuItemBuilder::with_id("quit", "Quit Minsky Cockpit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
+            let app_submenu = SubmenuBuilder::new(app, "Minsky Cockpit")
+                .about(None)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .item(&quit_app_item)
+                .build()?;
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let reload_item = MenuItemBuilder::with_id("reload", "Reload")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            let view_submenu = SubmenuBuilder::new(app, "View").item(&reload_item).build()?;
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .close_window()
+                .build()?;
+            let app_menu = MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&view_submenu)
+                .item(&window_submenu)
+                .build()?;
+            app.set_menu(app_menu)?;
+            // App-menu custom-id events. Predefined items (copy/paste/minimize/
+            // etc.) are handled natively by the OS; only our custom "reload" and
+            // "quit" items need forwarding. The filter also guards against
+            // double-firing the tray's daemon lifecycle commands should this
+            // global handler also receive tray-menu events on some platforms
+            // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
+            app.on_menu_event(move |app, event| {
+                match event.id().as_ref() {
+                    "reload" | "quit" => handle_menu_event(app, event.id().as_ref()),
+                    _ => {}
+                }
+            });
+
             // Command channel: menu handler (main thread) → supervisor thread.
             let (tx, rx) = mpsc::unbounded_channel::<SupervisorCmd>();
             app.manage(SupervisorHandle(tx));
@@ -1491,6 +1557,13 @@ fn main() {
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "open_window" => open_cockpit_window(app),
+        "reload" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                if let Err(e) = window.eval("window.location.reload()") {
+                    eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+                }
+            }
+        }
         "open" => {
             let _ = open::that(COCKPIT_URL);
         }
@@ -1535,6 +1608,7 @@ fn open_cockpit_window(app: &AppHandle) {
     if let Err(e) = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
+        .zoom_hotkeys_enabled(true)
         .build()
     {
         eprintln!("[cockpit-tray] failed to create cockpit window: {e}");
