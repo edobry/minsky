@@ -42,6 +42,7 @@ import {
 } from "./knowledge-reconciliation";
 import { supabaseConfigSchema, type SupabaseConfig } from "./supabase";
 import { railwayConfigSchema, type RailwayConfig } from "./railway";
+import { reviewerConfigSchema, type ReviewerConfig } from "./reviewer";
 import {
   oauthConfigSchema,
   oauthProviderSchema,
@@ -126,6 +127,9 @@ export const configurationSchema = z.object({
   // Railway API token for Pulumi IaC management (mt#2124 / mt#2138)
   railway: railwayConfigSchema,
 
+  // Reviewer webhook-service configuration (mt#2269 — secret + URL for reviewer.retrigger)
+  reviewer: reviewerConfigSchema,
+
   // OAuth identity provider configuration (mt#1634 / mt#1662)
   oauth: oauthConfigSchema,
 
@@ -180,6 +184,7 @@ export type {
   KnowledgeReconciliationConfig,
   SupabaseConfig,
   RailwayConfig,
+  ReviewerConfig,
   OAuthConfig,
   OAuthProvider,
   ObservabilityConfig,
@@ -207,6 +212,7 @@ export {
   knowledgeReconciliationSchema,
   supabaseConfigSchema,
   railwayConfigSchema,
+  reviewerConfigSchema,
   oauthConfigSchema,
   oauthProviderSchema,
   observabilityConfigSchema,

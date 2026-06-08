@@ -79,6 +79,15 @@ export const environmentMappings = {
   // which lives under MINSKY_PERSISTENCE_POSTGRES_URL.
   MINSKY_SUPABASE_ACCESS_TOKEN: "supabase.accessToken",
 
+  // Reviewer webhook-service configuration (mt#2269). Consumed by the
+  // `reviewer.retrigger` command to authenticate against the reviewer
+  // service's /retrigger endpoint. Explicit mappings are required so a value
+  // set on a deployed environment routes to the correct config path instead of
+  // the dot-path auto-conversion (which would produce `reviewer.webhook.secret`
+  // / a rejected key) and crash the loader at boot.
+  MINSKY_REVIEWER_WEBHOOK_SECRET: "reviewer.webhookSecret",
+  MINSKY_REVIEWER_URL: "reviewer.url",
+
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
 

@@ -18,8 +18,11 @@ import { log } from "@minsky/shared/logger";
 // Constants & defaults
 // ---------------------------------------------------------------------------
 
-const DEFAULT_REVIEWER_URL =
-  process.env["MINSKY_REVIEWER_URL"] ?? "https://minsky-reviewer-webhook.up.railway.app";
+// Fallback reviewer-webhook URL used when neither `reviewer.url` config nor the
+// `MINSKY_REVIEWER_URL` env override (mapped to `reviewer.url`) is set. The env
+// override is resolved through the config system (mt#2269), not a direct
+// `process.env` read here.
+const DEFAULT_REVIEWER_URL = "https://minsky-reviewer-webhook.up.railway.app";
 
 // ---------------------------------------------------------------------------
 // reviewer.retrigger
@@ -50,6 +53,39 @@ interface RetriggerResult {
   error?: string;
 }
 
+/** Minimal shape of the resolved `reviewer.*` config slice (mt#2269). */
+export interface ReviewerEndpointConfig {
+  url?: string;
+  webhookSecret?: string;
+}
+
+/**
+ * Resolve the reviewer-webhook URL + auth secret from Minsky configuration
+ * (mt#2269). Both values flow through the standard config system, so the
+ * `MINSKY_REVIEWER_URL` / `MINSKY_REVIEWER_WEBHOOK_SECRET` env vars — registered
+ * in `environmentMappings` — override the config-file value via the environment
+ * source's higher merge priority. The URL falls back to the hosted default;
+ * a missing secret is a hard error with a message that names only the
+ * resolution paths that actually exist.
+ */
+export function resolveReviewerEndpoint(reviewer: ReviewerEndpointConfig | undefined): {
+  url: string;
+  webhookSecret: string;
+} {
+  const url = reviewer?.url ?? DEFAULT_REVIEWER_URL;
+  const webhookSecret = reviewer?.webhookSecret;
+
+  if (!webhookSecret) {
+    throw new Error(
+      "reviewer.retrigger requires a reviewer webhook secret to authenticate with the " +
+        "reviewer service. Set `reviewer.webhookSecret` in your Minsky config, or export " +
+        "MINSKY_REVIEWER_WEBHOOK_SECRET (which maps to `reviewer.webhookSecret`)."
+    );
+  }
+
+  return { url, webhookSecret };
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -69,15 +105,14 @@ export function registerReviewerRetriggerCommands(): void {
         const owner = params.owner as string;
         const repo = params.repo as string;
 
-        const reviewerUrl = DEFAULT_REVIEWER_URL;
-        const webhookSecret = process.env["MINSKY_REVIEWER_WEBHOOK_SECRET"];
-
-        if (!webhookSecret) {
-          throw new Error(
-            "reviewer.retrigger requires MINSKY_REVIEWER_WEBHOOK_SECRET to authenticate " +
-              "with the reviewer service. Set it in your environment or Minsky config."
-          );
-        }
+        // Resolve the reviewer endpoint from the Minsky config system. The
+        // env overrides (MINSKY_REVIEWER_URL / MINSKY_REVIEWER_WEBHOOK_SECRET)
+        // are merged into `cfg.reviewer` by the environment source (mt#2269),
+        // so this single read honours config-file values AND env overrides.
+        const { getConfiguration } = await import("@minsky/domain/configuration/index");
+        const { url: reviewerUrl, webhookSecret } = resolveReviewerEndpoint(
+          getConfiguration().reviewer
+        );
 
         const url = `${reviewerUrl.replace(/\/$/, "")}/retrigger`;
 
