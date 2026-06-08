@@ -69,13 +69,35 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         throw new MinskyError(
           "GitHubChangesetAdapter: this operation requires a sessionProvider, but none " +
             "was provided. Read operations (list/search/get) do not need one; mutation " +
-            "operations (create/update/merge/approve) do — construct the adapter with " +
-            "deps.sessionProvider to use them."
+            "operations (create/update/merge/approve/getDetails) do — construct the adapter " +
+            "with deps.sessionProvider to use them."
         );
       }
       this.sessionProvider = await this.resolveSessionProvider();
     }
     return this.sessionProvider;
+  }
+
+  /**
+   * Ensure the repository backend is initialized for a session-dependent (mutation)
+   * operation, and return it. Surfaces the precise missing-sessionProvider error
+   * (which `isAvailable()` catches and downgrades to a `false` return), then a clear
+   * backend-unavailable error if GitHub access failed — so callers never dereference
+   * an undefined `repositoryBackend` and crash with an opaque TypeError (mt#1430 R1).
+   */
+  private async ensureRepositoryBackend(): Promise<RepositoryBackend> {
+    if (!this.repositoryBackend) {
+      // Surface the precise "no sessionProvider" error first; isAvailable() swallows it.
+      await this.getSessionProvider();
+      const ok = await this.isAvailable();
+      if (!ok || !this.repositoryBackend) {
+        throw new MinskyError(
+          "GitHubChangesetAdapter: GitHub backend could not be initialized for this " +
+            "operation (check GitHub token and network access)."
+        );
+      }
+    }
+    return this.repositoryBackend;
   }
 
   /** Returns a cached Octokit instance, creating it on first call. */
@@ -303,12 +325,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    * Create a GitHub PR using existing repository backend
    */
   async create(options: CreateChangesetOptions): Promise<CreateChangesetResult> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable(); // Initialize backend
-    }
+    const backend = await this.ensureRepositoryBackend();
 
     // Use existing repository backend PR creation
-    const prInfo = await this.repositoryBackend.pr.create({
+    const prInfo = await backend.pr.create({
       title: options.title,
       body: options.description,
       sourceBranch: options.sourceBranch || "HEAD",
@@ -334,12 +354,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    * Update a GitHub PR using existing repository backend
    */
   async update(id: string, updates: Partial<CreateChangesetOptions>): Promise<Changeset> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
     // Use existing repository backend update method
-    const _prInfo = await this.repositoryBackend.pr.update({
+    const _prInfo = await backend.pr.update({
       prIdentifier: parseInt(id),
       title: updates.title,
       body: updates.description,
@@ -361,11 +379,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
     id: string,
     options?: { deleteSourceBranch?: boolean }
   ): Promise<MergeChangesetResult> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
-    const mergeInfo = await this.repositoryBackend.pr.merge(parseInt(id));
+    const mergeInfo = await backend.pr.merge(parseInt(id));
 
     return {
       success: true,
@@ -380,11 +396,9 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
    * Approve a GitHub PR using existing repository backend
    */
   async approve(id: string, comment?: string): Promise<{ success: boolean; reviewId: string }> {
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
-    const approvalInfo = await this.repositoryBackend.review.approve(parseInt(id), comment);
+    const approvalInfo = await backend.review.approve(parseInt(id), comment);
 
     return {
       success: true,
@@ -401,12 +415,10 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
       throw new MinskyError(`Changeset not found: ${id}`);
     }
 
-    if (!this.repositoryBackend) {
-      await this.isAvailable();
-    }
+    const backend = await this.ensureRepositoryBackend();
 
     // Get diff information from repository backend
-    const diffInfo = await this.repositoryBackend.pr.getDiff({
+    const diffInfo = await backend.pr.getDiff({
       prIdentifier: parseInt(id),
     });
 

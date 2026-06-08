@@ -62,4 +62,19 @@ describe("GitHubChangesetAdapter sessionProvider (mt#1430)", () => {
     ).getSessionProvider.bind(adapter);
     await expect(getSessionProvider()).resolves.toBe(FAKE_SESSION_PROVIDER);
   });
+
+  test("a mutation method errors with a clear MinskyError (not a TypeError) without a provider (R1)", async () => {
+    const adapter = new GitHubChangesetAdapter(REPO_URL, {});
+    // create() -> ensureRepositoryBackend() -> getSessionProvider() throws the clear
+    // error BEFORE any network, so callers never hit the opaque
+    // "Cannot read properties of undefined (reading 'pr')" TypeError.
+    const create = () =>
+      adapter.create({
+        title: "t",
+        description: "d",
+        targetBranch: "main",
+      } as unknown as Parameters<GitHubChangesetAdapter["create"]>[0]);
+    await expect(create()).rejects.toThrow(MinskyError);
+    await expect(create()).rejects.toThrow(/requires a sessionProvider/i);
+  });
 });
