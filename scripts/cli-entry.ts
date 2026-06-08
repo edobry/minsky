@@ -207,15 +207,41 @@ if (import.meta.main) {
     write: (msg) => process.stderr.write(msg),
   };
 
+  const fsDeps = makeProductionFsDeps();
+  const execDeps = makeProductionExecDeps();
+
   const decision = computeBundleDecision(
     packageRoot,
     bundlePath,
     stampPath,
     sourcePath,
-    makeProductionFsDeps(),
-    makeProductionExecDeps(),
+    fsDeps,
+    execDeps,
     stderrDeps
   );
+
+  // mt#2335: record loaded-source freshness facts into process env BEFORE the
+  // import so src/mcp/source-freshness.ts (surfaced in debug.systemInfo) can
+  // report whether the running code is current with HEAD. Must be set before
+  // import(): the freshness module lives inside the bundle and cannot be called
+  // from here. For a bundle run, the loaded commit is the build stamp (the
+  // commit the imported bundle reflects, post-rebuild-attempt); for a
+  // source-fallback run, it is the live HEAD. All three vars are registered in
+  // HOOK_ONLY_ENV_VARS so the config parser skips them at boot (mt#1785 class).
+  const runMode = decision.bundlePresent ? "bundle" : "source-fallback";
+  let loadedCommit = "";
+  if (runMode === "bundle") {
+    try {
+      loadedCommit = fsDeps.readFileSync(stampPath).trim();
+    } catch {
+      loadedCommit = "";
+    }
+  } else {
+    loadedCommit = execDeps.gitRevParseHead(packageRoot);
+  }
+  process.env.MINSKY_LOADED_COMMIT = loadedCommit;
+  process.env.MINSKY_RUN_MODE = runMode;
+  process.env.MINSKY_PACKAGE_ROOT = packageRoot;
 
   if (decision.bundlePresent) {
     // Load-bearing: import(), NOT spawnSync. The current Bun process IS the runtime.

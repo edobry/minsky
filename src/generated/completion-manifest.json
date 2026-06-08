@@ -4713,7 +4713,7 @@
             },
             {
               "name": "typecheck",
-              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only.",
+              "description": "Run TypeScript type checker and return structured results. By default covers the root tsconfig AND every self-typechecking sub-workspace (e.g. services/reviewer); pass `workspace` to typecheck a single directory only. Error `file` paths are root-relative in both modes.",
               "options": [
                 {
                   "flags": ["--workspace"],
