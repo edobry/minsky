@@ -21,10 +21,33 @@
 
 import { z } from "zod";
 import { sharedCommandRegistry, CommandCategory } from "../command-registry";
+import type { CommandExecutionContext } from "../command-registry";
 import { MinskyError } from "@minsky/domain/errors/index";
+import type { PersistenceProvider } from "@minsky/domain/persistence/types";
 import { log } from "@minsky/shared/logger";
 
 // ── Internal helper: resolve a ForgeBackend from config ───────────────────
+
+/**
+ * Pull the persistence provider out of the per-call execution context.
+ *
+ * forge commands register container-free (the registration function takes no
+ * container arg), so persistence is resolved from `ctx.container` at execute
+ * time — the same pattern the sibling principal-corpus command group uses.
+ * Throws a typed error if the container is unavailable rather than falling back
+ * to a bare `createSessionProvider()` (which throws "no persistence dependency"
+ * under the MCP server — the mt#2323 bug). No DI fallback by design.
+ */
+export function resolveForgePersistence(ctx: CommandExecutionContext): PersistenceProvider {
+  if (!ctx.container?.has("persistence")) {
+    throw new MinskyError(
+      "forge commands: persistence provider not available in execution context. " +
+        "Ensure the DI container is initialized before invoking this tool " +
+        "(restart the MCP server with /mcp if this persists)."
+    );
+  }
+  return ctx.container.get("persistence");
+}
 
 /**
  * Build a ForgeBackend by reading the project configuration.
@@ -33,7 +56,7 @@ import { log } from "@minsky/shared/logger";
  * Uses the same code path as createChangesetAwareRepositoryBackend and the
  * github-adapter's `isAvailable` method.
  */
-async function resolveForgeBackend() {
+async function resolveForgeBackend(ctx: CommandExecutionContext) {
   const { getRepositoryBackendFromConfig } = await import(
     "@minsky/domain/session/repository-backend-detection"
   );
@@ -56,7 +79,10 @@ async function resolveForgeBackend() {
     github: github ?? undefined,
   };
 
-  const sessionDB = await createSessionProvider();
+  // Resolve persistence from the DI container (not a bare createSessionProvider()
+  // call, which requires explicit deps and throws under the MCP server — mt#2323).
+  const persistence = resolveForgePersistence(ctx);
+  const sessionDB = await createSessionProvider(undefined, persistence);
   const backend = await createRepositoryBackend(config, sessionDB);
 
   log.debug("forge: resolved ForgeBackend", { backendType, repoUrl });
@@ -100,8 +126,8 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
-    const backend = await resolveForgeBackend();
+  execute: async (params, ctx: CommandExecutionContext) => {
+    const backend = await resolveForgeBackend(ctx);
     const runs = await backend.workflowRuns.list({
       workflow: params.workflow as string | undefined,
       branch: params.branch as string | undefined,
@@ -130,9 +156,9 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const runId = params.runId as number;
-    const backend = await resolveForgeBackend();
+    const backend = await resolveForgeBackend(ctx);
     const logs = await backend.workflowRuns.viewLogs(runId);
     return { success: true, logs, runId };
   },
@@ -156,9 +182,9 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const sha = params.sha as string;
-    const backend = await resolveForgeBackend();
+    const backend = await resolveForgeBackend(ctx);
     const result = await backend.ci.getChecksForRef(sha);
     return { success: true, ...result };
   },
@@ -179,9 +205,9 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const branch = params.branch as string;
-    const backend = await resolveForgeBackend();
+    const backend = await resolveForgeBackend(ctx);
     const protection = await backend.branchProtection.get(branch);
     return { success: true, branch, protection };
   },
@@ -215,10 +241,10 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const branch = params.branch as string;
     const config = params.config as Record<string, unknown>;
-    const backend = await resolveForgeBackend();
+    const backend = await resolveForgeBackend(ctx);
 
     // Pass config as BranchProtection — the impl validates at the API level
     const updated = await backend.branchProtection.set(
@@ -257,8 +283,8 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
-    const backend = await resolveForgeBackend();
+  execute: async (params, ctx: CommandExecutionContext) => {
+    const backend = await resolveForgeBackend(ctx);
     const label = await backend.labels.create({
       name: params.name as string,
       color: params.color as string,
@@ -284,8 +310,8 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
-    const backend = await resolveForgeBackend();
+  execute: async (params, ctx: CommandExecutionContext) => {
+    const backend = await resolveForgeBackend(ctx);
     const labels = await backend.labels.list({
       perPage: params.perPage as number | undefined,
     });
@@ -328,9 +354,9 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const currentName = params.currentName as string;
-    const backend = await resolveForgeBackend();
+    const backend = await resolveForgeBackend(ctx);
     const label = await backend.labels.update(currentName, {
       name: params.name as string | undefined,
       color: params.color as string | undefined,
@@ -355,9 +381,9 @@ sharedCommandRegistry.registerCommand({
     },
   },
   requiresSetup: true,
-  execute: async (params) => {
+  execute: async (params, ctx: CommandExecutionContext) => {
     const name = params.name as string;
-    const backend = await resolveForgeBackend();
+    const backend = await resolveForgeBackend(ctx);
     await backend.labels.delete(name);
     return { success: true, deleted: name };
   },
