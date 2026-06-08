@@ -12,6 +12,8 @@ import { describe, test, expect } from "bun:test";
 import {
   discoverTypecheckWorkspaces,
   resolveValidateWorkspace,
+  lintParams,
+  typecheckParams,
   type WorkspaceFs,
 } from "./validate";
 
@@ -215,5 +217,19 @@ describe("resolveValidateWorkspace", () => {
     const result = await resolveValidateWorkspace({ workspace: "", task: "mt#5" }, r.fn);
     expect(result).toBe(SESSION_DIR);
     expect(r.calls).toEqual([{ task: "mt#5", sessionId: undefined }]);
+  });
+});
+
+describe("validate param sets — no workspace defaultValue (mt#2336 routing regression)", () => {
+  // If `workspace` carried a defaultValue, the parameter layer would always inject
+  // `params.workspace` and resolveValidateWorkspace's "explicit workspace wins" branch
+  // would fire on every call — silently disabling task/sessionId routing. Guard against
+  // a future re-introduction of the default.
+  test("lint workspace param has no defaultValue", () => {
+    expect("defaultValue" in lintParams.workspace).toBe(false);
+  });
+
+  test("typecheck workspace param has no defaultValue", () => {
+    expect("defaultValue" in typecheckParams.workspace).toBe(false);
   });
 });

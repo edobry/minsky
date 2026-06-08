@@ -14,12 +14,18 @@ import { sharedCommandRegistry, CommandCategory, defineCommand } from "../comman
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { SessionProviderInterface } from "@minsky/domain/session";
 
+// NOTE: `workspace` has NO defaultValue. If it defaulted to process.cwd(), the
+// parameter layer would always populate `params.workspace`, so
+// resolveValidateWorkspace's "explicit workspace wins" branch would fire every
+// time and `task`/`sessionId` routing would never run (the cwd default is instead
+// provided by resolveValidateWorkspace's own `cwd` fallback). See mt#2336.
 const workspaceParam = {
   workspace: {
     schema: z.string(),
-    description: "Workspace directory to run validation in (defaults to current working directory)",
+    description:
+      "Workspace directory to run validation in. When omitted (and no task/sessionId), " +
+      "defaults to the current working directory.",
     required: false,
-    defaultValue: process.cwd(),
   },
 };
 
@@ -36,7 +42,7 @@ const sessionParams = {
   },
 };
 
-const lintParams = {
+export const lintParams = {
   ...workspaceParam,
   ...sessionParams,
 };
@@ -49,7 +55,7 @@ const lintParams = {
  * self-typechecking sub-workspace) from "explicit workspace given" (run only that
  * directory, backward-compatible single-workspace mode).
  */
-const typecheckParams = {
+export const typecheckParams = {
   workspace: {
     schema: z.string(),
     description:
@@ -73,6 +79,13 @@ interface LintResult {
   status: "pass" | "fail";
   /** The directory that was actually validated — prevents silent main-repo checks. */
   validatedWorkspace: string;
+  /**
+   * Set only when the eslint runner itself failed (non-JSON stdout) rather than
+   * reporting lint findings — carries the exit code + a stderr/stdout tail so the
+   * cause is diagnosable (missing config/plugins, cwd misrouting, spawn failure),
+   * mirroring the typecheck path's `TSGO_RUNNER` diagnostic.
+   */
+  diagnostic?: string;
 }
 
 /**
@@ -394,17 +407,22 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
           stderr: "pipe",
         });
 
-        const output = await new Response(proc.stdout).text();
-        // Drain stderr to avoid blocking
-        await new Response(proc.stderr).text();
-        await proc.exited;
+        // Read both streams concurrently to avoid pipe-buffer deadlock, then await exit.
+        const [output, stderr] = await Promise.all([
+          new Response(proc.stdout).text(),
+          new Response(proc.stderr).text(),
+        ]);
+        const exitCode = await proc.exited;
 
         // ESLint returns non-zero when issues are found but still outputs JSON on stdout
         let fileResults: EslintFileResult[] = [];
         try {
           fileResults = JSON.parse(output) as EslintFileResult[];
         } catch {
-          // If JSON parse fails, treat as a fatal error (eslint itself crashed)
+          // Non-JSON stdout means the eslint RUNNER itself failed (missing config/plugins,
+          // cwd misrouting, spawn failure) — surface the exit code + a stderr/stdout tail
+          // so the cause is diagnosable, mirroring runTypecheckTarget's TSGO_RUNNER path.
+          const tail = (stderr.trim() || output.trim() || "no output").slice(0, 2000);
           return {
             success: false,
             errorCount: 1,
@@ -412,6 +430,7 @@ export function registerValidateCommands(container?: AppContainerInterface): voi
             fileCount: 0,
             ruleBreakdown: {},
             status: "fail",
+            diagnostic: `ESLINT_RUNNER: eslint exited with code ${exitCode} and produced non-JSON stdout: ${tail}`,
             validatedWorkspace: workspacePath,
           };
         }

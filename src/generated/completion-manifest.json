@@ -4706,7 +4706,7 @@
               "options": [
                 {
                   "flags": ["--workspace"],
-                  "description": "Workspace directory to run validation in (defaults to current working directory)",
+                  "description": "Workspace directory to run validation in. When omitted (and no task/sessionId), defaults to the current working directory.",
                   "takesValue": true
                 },
                 {
