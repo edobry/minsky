@@ -1475,6 +1475,15 @@ fn main() {
             // window is focused. Zoom (Cmd +/-/0) is handled natively by the
             // webview via `zoom_hotkeys_enabled` on the window builder, so it is
             // intentionally NOT duplicated as menu items here.
+            // Custom Quit item (NOT PredefinedMenuItem::quit): the predefined
+            // quit is self-handled by the OS and never reaches handle_menu_event,
+            // so it would bypass the supervisor-aware graceful shutdown
+            // (SupervisorCmd::Shutdown) that the tray Quit uses — risking leaving
+            // an adopted daemon running. Routing a custom "quit" id through
+            // handle_menu_event keeps app-menu Quit and tray Quit identical.
+            let quit_app_item = MenuItemBuilder::with_id("quit", "Quit Minsky Cockpit")
+                .accelerator("CmdOrCtrl+Q")
+                .build(app)?;
             let app_submenu = SubmenuBuilder::new(app, "Minsky Cockpit")
                 .about(None)
                 .separator()
@@ -1484,7 +1493,7 @@ fn main() {
                 .hide_others()
                 .show_all()
                 .separator()
-                .quit()
+                .item(&quit_app_item)
                 .build()?;
             let edit_submenu = SubmenuBuilder::new(app, "Edit")
                 .undo()
@@ -1510,13 +1519,16 @@ fn main() {
                 .item(&window_submenu)
                 .build()?;
             app.set_menu(app_menu)?;
-            // App-menu events. Restricted to the "reload" id: the global handler
-            // can also receive tray-menu events on some platforms, and the tray
-            // already handles those via its own on_menu_event — filtering here
-            // prevents double-firing the daemon lifecycle commands.
+            // App-menu custom-id events. Predefined items (copy/paste/minimize/
+            // etc.) are handled natively by the OS; only our custom "reload" and
+            // "quit" items need forwarding. The filter also guards against
+            // double-firing the tray's daemon lifecycle commands should this
+            // global handler also receive tray-menu events on some platforms
+            // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
             app.on_menu_event(move |app, event| {
-                if event.id().as_ref() == "reload" {
-                    handle_menu_event(app, event.id().as_ref());
+                match event.id().as_ref() {
+                    "reload" | "quit" => handle_menu_event(app, event.id().as_ref()),
+                    _ => {}
                 }
             });
 
