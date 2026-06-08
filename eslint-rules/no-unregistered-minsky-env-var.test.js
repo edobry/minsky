@@ -66,17 +66,44 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
       filename: path.join(repoRoot, "drizzle.pg.config.ts"),
     },
     // The registration file itself is allowed to read any process.env.MINSKY_*
-    // — its reads are loader machinery.
+    // — its reads are loader machinery. (Path is the post-monorepo location
+    // `packages/domain/src/...`, matching REGISTRATION_FILE_POSIX in the rule;
+    // the pre-monorepo `src/domain/...` path no longer matches the exemption.)
     {
       code: "const v = process.env.MINSKY_TOTALLY_BOGUS_NAME;",
-      filename: srcFile("domain", "configuration", "sources", "environment.ts"),
+      filename: path.join(
+        repoRoot,
+        "packages",
+        "domain",
+        "src",
+        "configuration",
+        "sources",
+        "environment.ts"
+      ),
     },
-    // Computed access (process.env["MINSKY_X"]) is intentionally not flagged
-    // — the bracket form is rare and dynamically computed; the originating
-    // incidents all involved bare-identifier access.
+    // mt#2324: dynamically-computed access via a VARIABLE key cannot be
+    // resolved statically, so it is still NOT flagged.
     {
-      code: 'const v = process.env["MINSKY_TOTALLY_BOGUS_NAME"];',
+      code: "const key = makeKey(); const v = process.env[key];",
       filename: srcFile("utils", "dynamic.ts"),
+    },
+    // mt#2324: template-literal computed access (with interpolation) is also
+    // not statically resolvable → not flagged.
+    {
+      code: "const v = process.env[`MINSKY_${suffix}`];",
+      filename: srcFile("utils", "dynamic.ts"),
+    },
+    // mt#2324: a REGISTERED env var read via the static-literal BRACKET form
+    // passes — registration is what matters, not the access syntax.
+    {
+      code: 'if (process.env["MINSKY_FORCE_PARALLEL"] === "1") {}',
+      filename: srcFile("utils", "guard.ts"),
+    },
+    // mt#2324: a REGISTERED env var read via a non-interpolated TEMPLATE-LITERAL
+    // bracket also passes (statically resolvable, but registered).
+    {
+      code: "if (process.env[`MINSKY_FORCE_PARALLEL`] === `1`) {}",
+      filename: srcFile("utils", "guard.ts"),
     },
     // PR #1089 R1 BLOCKING #5: only .ts files in src/ are linted; .js files
     // (rare in src/ but possible for transitional/generated content) are out
@@ -106,6 +133,18 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
     {
       code: "const v = process.env.MINSKY_OUT_OF_SCOPE_FOR_SCRIPTS;",
       filename: path.join(repoRoot, "scripts", "deploy.ts"),
+    },
+    // mt#2324: services/*/src/** are independent deploy packages (reviewer,
+    // site) with their OWN config loaders (requireEnv / direct reads, no
+    // dot-path parser). Even though the path contains `/src/`, the services
+    // tree is excluded — an unregistered bracket read there is NOT flagged.
+    {
+      code: 'const v = process.env["MINSKY_MCP_URL"];',
+      filename: path.join(repoRoot, "services", "reviewer", "src", "config.ts"),
+    },
+    {
+      code: "const v = process.env.MINSKY_REVIEWER_SERVICE_ONLY_VAR;",
+      filename: path.join(repoRoot, "services", "site", "src", "logger.ts"),
     },
   ],
   invalid: [
@@ -154,6 +193,49 @@ tsTester.run("no-unregistered-minsky-env-var", rule, {
         {
           messageId: "unregistered",
           data: { name: "MINSKY_FOO_TWO", configPath: "foo.two" },
+        },
+      ],
+    },
+    // mt#2324: unregistered static-literal BRACKET access fires (double-quote).
+    {
+      code: 'const v = process.env["MINSKY_BRACKET_UNREGISTERED"];',
+      filename: srcFile("utils", "bracket.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_BRACKET_UNREGISTERED",
+            configPath: "bracket.unregistered",
+          },
+        },
+      ],
+    },
+    // mt#2324: single-quoted literal bracket access fires too.
+    {
+      code: "const v = process.env['MINSKY_BRACKET_SINGLE'];",
+      filename: srcFile("utils", "bracket.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_BRACKET_SINGLE",
+            configPath: "bracket.single",
+          },
+        },
+      ],
+    },
+    // mt#2324: unregistered NON-INTERPOLATED template-literal bracket fires —
+    // it is statically resolvable, analogous to a string literal.
+    {
+      code: "const v = process.env[`MINSKY_TEMPLATE_UNREGISTERED`];",
+      filename: srcFile("utils", "bracket.ts"),
+      errors: [
+        {
+          messageId: "unregistered",
+          data: {
+            name: "MINSKY_TEMPLATE_UNREGISTERED",
+            configPath: "template.unregistered",
+          },
         },
       ],
     },
