@@ -99,6 +99,12 @@ export function parseRightSideAnchorableLines(diff: string): Map<string, Set<num
 
     if (!inHunk || currentFile === null) continue;
 
+    // A zero-length line is never a hunk content line: git prefixes every
+    // content line (context=" ", added="+", removed="-"), so a blank context
+    // line is " ", not "". An empty string is the trailing-newline split
+    // artifact (or inter-file separator) — skip it without advancing.
+    if (line.length === 0) continue;
+
     // Within a hunk, classify by the leading marker.
     if (line.startsWith("+")) {
       // Added line — anchorable; advances the new-file counter.
@@ -109,8 +115,7 @@ export function parseRightSideAnchorableLines(diff: string): Map<string, Set<num
     } else if (line.startsWith("\\")) {
       // "\ No newline at end of file" — metadata, not a content line.
     } else {
-      // Context line (leading space, or a blank line inside the hunk which git
-      // emits as a bare empty string). Anchorable; advances the counter.
+      // Context line (leading space). Anchorable; advances the counter.
       add(currentFile, newLine);
       newLine += 1;
     }
