@@ -1403,6 +1403,10 @@ fn main() {
     let app = builder
         .setup(move |app| {
             let handle = app.handle().clone();
+            // Register zoom state before any menu handler that can read it
+            // (mt#2334 review): menu events fire post-setup, but managing it up
+            // front guarantees `try_state::<ZoomLevel>()` is always populated.
+            app.manage(ZoomLevel(Mutex::new(1.0)));
 
             // Keep the app out of the Dock even though it can open a window
             // (mt#2219). mt#2202 owns the Info.plist LSUIElement path; the Tauri
@@ -1477,9 +1481,9 @@ fn main() {
             // application menu's accelerators, which Tauri (unlike Electron) does
             // not create by default — so Cmd+R / Cmd+W / Cmd+C&c. were dead in the
             // cockpit window. Build a minimal app menu so they work when the
-            // window is focused. Zoom (Cmd +/-/0) is handled natively by the
-            // webview via `zoom_hotkeys_enabled` on the window builder, so it is
-            // intentionally NOT duplicated as menu items here.
+            // window is focused. Zoom (Cmd +/-/0) is driven by the View-menu
+            // items below via `WebviewWindow::set_zoom` (mt#2334) — Tauri's
+            // native `zoom_hotkeys_enabled` did not fire for Cmd on macOS.
             // Custom Quit item (NOT PredefinedMenuItem::quit): the predefined
             // quit is self-handled by the OS and never reaches handle_menu_event,
             // so it would bypass the supervisor-aware graceful shutdown
@@ -1512,16 +1516,11 @@ fn main() {
             let reload_item = MenuItemBuilder::with_id("reload", "Reload")
                 .accelerator("CmdOrCtrl+R")
                 .build(app)?;
-            // Zoom items (mt#2334). Two Zoom In bindings: "CmdOrCtrl+=" fires on
-            // the unshifted `=` press, "CmdOrCtrl+Shift+=" on the shifted `+`
-            // press (what users call Cmd++). muda has no "Plus" key token, and
-            // per AppKit the shift-modified equivalent uses the unshifted char
-            // ("=") plus the Shift mask — so both routes land on the `=` key.
+            // Zoom items (mt#2334), applied via `WebviewWindow::set_zoom` in
+            // handle_menu_event. Zoom In binds `CmdOrCtrl+=` — the `=`/`+`
+            // physical key (muda has no "Plus" token).
             let zoom_in_item = MenuItemBuilder::with_id("zoom_in", "Zoom In")
                 .accelerator("CmdOrCtrl+=")
-                .build(app)?;
-            let zoom_in_shift_item = MenuItemBuilder::with_id("zoom_in_shift", "Zoom In")
-                .accelerator("CmdOrCtrl+Shift+=")
                 .build(app)?;
             let zoom_out_item = MenuItemBuilder::with_id("zoom_out", "Zoom Out")
                 .accelerator("CmdOrCtrl+-")
@@ -1533,7 +1532,6 @@ fn main() {
                 .item(&reload_item)
                 .separator()
                 .item(&zoom_in_item)
-                .item(&zoom_in_shift_item)
                 .item(&zoom_out_item)
                 .item(&zoom_reset_item)
                 .build()?;
@@ -1556,8 +1554,9 @@ fn main() {
             // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
             app.on_menu_event(move |app, event| {
                 match event.id().as_ref() {
-                    "reload" | "quit" | "zoom_in" | "zoom_in_shift" | "zoom_out"
-                    | "zoom_reset" => handle_menu_event(app, event.id().as_ref()),
+                    "reload" | "quit" | "zoom_in" | "zoom_out" | "zoom_reset" => {
+                        handle_menu_event(app, event.id().as_ref())
+                    }
                     _ => {}
                 }
             });
@@ -1565,7 +1564,6 @@ fn main() {
             // Command channel: menu handler (main thread) → supervisor thread.
             let (tx, rx) = mpsc::unbounded_channel::<SupervisorCmd>();
             app.manage(SupervisorHandle(tx));
-            app.manage(ZoomLevel(Mutex::new(1.0)));
 
             let sup_app = handle.clone();
             let sup_spawned = spawned_setup.clone();
@@ -1604,14 +1602,18 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
                 }
             }
         }
-        "zoom_in" | "zoom_in_shift" | "zoom_out" | "zoom_reset" => {
-            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
-                let state = app.state::<ZoomLevel>();
-                let mut zoom = state.0.lock().unwrap();
+        "zoom_in" | "zoom_out" | "zoom_reset" => {
+            // try_state (not state) so an early/edge invocation before the
+            // managed value exists is a no-op rather than a panic (mt#2334 review).
+            if let (Some(window), Some(zoom_state)) = (
+                app.get_webview_window(COCKPIT_WINDOW_LABEL),
+                app.try_state::<ZoomLevel>(),
+            ) {
+                let mut zoom = zoom_state.0.lock().unwrap();
                 *zoom = match id {
                     "zoom_out" => (*zoom - 0.1).max(0.3),
                     "zoom_reset" => 1.0,
-                    _ => (*zoom + 0.1).min(3.0), // zoom_in / zoom_in_shift
+                    _ => (*zoom + 0.1).min(3.0), // zoom_in
                 };
                 if let Err(e) = window.set_zoom(*zoom) {
                     eprintln!("[cockpit-tray] failed to set cockpit window zoom: {e}");
@@ -1659,12 +1661,26 @@ fn open_cockpit_window(app: &AppHandle) {
         }
     };
 
-    if let Err(e) = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
+    match WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
         .build()
     {
-        eprintln!("[cockpit-tray] failed to create cockpit window: {e}");
+        // Re-apply the tracked zoom (mt#2334 review): closing the window
+        // destroys it (prevent_exit keeps the *app* alive, not the window), so a
+        // reopened window starts at the webview default — restore the stored
+        // factor or the next zoom step would jump from 1.0 to the tracked value.
+        Ok(window) => {
+            if let Some(zoom_state) = app.try_state::<ZoomLevel>() {
+                let factor = *zoom_state.0.lock().unwrap();
+                if (factor - 1.0).abs() > f64::EPSILON {
+                    if let Err(e) = window.set_zoom(factor) {
+                        eprintln!("[cockpit-tray] failed to apply saved cockpit zoom: {e}");
+                    }
+                }
+            }
+        }
+        Err(e) => eprintln!("[cockpit-tray] failed to create cockpit window: {e}"),
     }
 }
 
