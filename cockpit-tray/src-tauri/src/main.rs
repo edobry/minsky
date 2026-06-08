@@ -21,7 +21,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use notify_debouncer_mini::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{new_debouncer, DebounceEventResult, Debouncer};
-use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder};
+use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder, Wry};
 use tauri_plugin_notification::NotificationExt;
@@ -1466,6 +1466,60 @@ fn main() {
                 })
                 .build(app)?;
 
+            // Application menu (mt#2327): the tray menu above drives the daemon
+            // lifecycle, but it does NOT give the cockpit *window* the standard
+            // web-app keyboard shortcuts. On macOS those come from the
+            // application menu's accelerators, which Tauri (unlike Electron) does
+            // not create by default — so Cmd+R / Cmd+W / Cmd+C&c. were dead in the
+            // cockpit window. Build a minimal app menu so they work when the
+            // window is focused. Zoom (Cmd +/-/0) is handled natively by the
+            // webview via `zoom_hotkeys_enabled` on the window builder, so it is
+            // intentionally NOT duplicated as menu items here.
+            let app_submenu = SubmenuBuilder::new(app, "Minsky Cockpit")
+                .about(None)
+                .separator()
+                .services()
+                .separator()
+                .hide()
+                .hide_others()
+                .show_all()
+                .separator()
+                .quit()
+                .build()?;
+            let edit_submenu = SubmenuBuilder::new(app, "Edit")
+                .undo()
+                .redo()
+                .separator()
+                .cut()
+                .copy()
+                .paste()
+                .select_all()
+                .build()?;
+            let reload_item = MenuItemBuilder::with_id("reload", "Reload")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            let view_submenu = SubmenuBuilder::new(app, "View").item(&reload_item).build()?;
+            let window_submenu = SubmenuBuilder::new(app, "Window")
+                .minimize()
+                .close_window()
+                .build()?;
+            let app_menu = MenuBuilder::new(app)
+                .item(&app_submenu)
+                .item(&edit_submenu)
+                .item(&view_submenu)
+                .item(&window_submenu)
+                .build()?;
+            app.set_menu(app_menu)?;
+            // App-menu events. Restricted to the "reload" id: the global handler
+            // can also receive tray-menu events on some platforms, and the tray
+            // already handles those via its own on_menu_event — filtering here
+            // prevents double-firing the daemon lifecycle commands.
+            app.on_menu_event(move |app, event| {
+                if event.id().as_ref() == "reload" {
+                    handle_menu_event(app, event.id().as_ref());
+                }
+            });
+
             // Command channel: menu handler (main thread) → supervisor thread.
             let (tx, rx) = mpsc::unbounded_channel::<SupervisorCmd>();
             app.manage(SupervisorHandle(tx));
@@ -1491,6 +1545,13 @@ fn main() {
 fn handle_menu_event(app: &AppHandle, id: &str) {
     match id {
         "open_window" => open_cockpit_window(app),
+        "reload" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                if let Err(e) = window.eval("window.location.reload()") {
+                    eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+                }
+            }
+        }
         "open" => {
             let _ = open::that(COCKPIT_URL);
         }
@@ -1535,6 +1596,7 @@ fn open_cockpit_window(app: &AppHandle) {
     if let Err(e) = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
+        .zoom_hotkeys_enabled(true)
         .build()
     {
         eprintln!("[cockpit-tray] failed to create cockpit window: {e}");
