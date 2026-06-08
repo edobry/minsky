@@ -19,13 +19,18 @@
 /* eslint-disable custom/no-real-fs-in-tests -- reading shipped migration SQL IS the point of axis-2 drift checks */
 
 import { describe, test, expect } from "bun:test";
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { join } from "path";
 import { MEMORY_TYPE_VALUES } from "../../memory/types";
 import { memoryTypeEnum } from "./memory-embeddings";
 import { RELATIONSHIP_TYPE_VALUES } from "../../tasks/task-graph-service";
 import { taskRelationshipsTable, PARENT_RELATIONSHIP_TYPE } from "./task-relationships";
-import { SYSTEM_EVENT_TYPE_VALUES, systemEventTypeEnum } from "./system-events-schema";
+import {
+  SYSTEM_EVENT_TYPE_VALUES,
+  EVENT_CATEGORY_VALUES,
+  systemEventTypeEnum,
+  eventCategory,
+} from "./system-events-schema";
 
 // ---------------------------------------------------------------------------
 // Migration-parsing helper
@@ -66,6 +71,45 @@ function parseSqlValueList(sqlFilePath: string, regex: RegExp): string[] {
 // src/domain/storage/schemas/enum-drift.test.ts; migrations live at
 // src/domain/storage/migrations/pg/.
 const MIGRATIONS_DIR = join(import.meta.dir, "../migrations/pg");
+
+/**
+ * Collect the full set of `system_event_type` enum values declared across ALL
+ * migration files: the seeding `CREATE TYPE ... AS ENUM (...)` plus every
+ * `ALTER TYPE ... ADD VALUE '...'`. Returns sorted unique values.
+ *
+ * Reading a single migration (e.g. only 0041) is insufficient: the enum is
+ * seeded in 0041 and extended by later ALTER migrations (0042, 0045, ...).
+ * Tolerant of both generated and hand-authored ALTER forms:
+ *   ALTER TYPE "public"."system_event_type" ADD VALUE 'x'          (drizzle-kit)
+ *   ALTER TYPE "system_event_type" ADD VALUE IF NOT EXISTS 'x'     (hand 0042)
+ */
+function collectSystemEventTypeValuesFromMigrations(): string[] {
+  const values = new Set<string>();
+  const createRe =
+    /CREATE TYPE\s+(?:"[^"]+"\.)?"?system_event_type"?\s+AS\s+ENUM\s*\(([\s\S]*?)\)/i;
+  const alterRe =
+    /ALTER TYPE\s+(?:"[^"]+"\.)?"?system_event_type"?\s+ADD VALUE\s+(?:IF NOT EXISTS\s+)?'([^']+)'/gi;
+
+  for (const file of readdirSync(MIGRATIONS_DIR)) {
+    if (!file.endsWith(".sql")) continue;
+    const sql = readFileSync(join(MIGRATIONS_DIR, file)).toString();
+
+    const createMatch = createRe.exec(sql);
+    if (createMatch?.[1]) {
+      for (const raw of createMatch[1].split(",")) {
+        const v = raw.trim().replace(/^['"]|['"]$/g, "");
+        if (v) values.add(v);
+      }
+    }
+
+    let alterMatch: RegExpExecArray | null;
+    while ((alterMatch = alterRe.exec(sql)) !== null) {
+      if (alterMatch[1]) values.add(alterMatch[1]);
+    }
+  }
+
+  return [...values].sort();
+}
 
 describe("Enum drift-check — memory_type", () => {
   test("MEMORY_TYPE_VALUES matches the values registered in the pgEnum", () => {
@@ -176,13 +220,34 @@ describe("Enum drift-check — system_event_type", () => {
     expect(enumValues).toEqual(tsValues);
   });
 
-  test("SYSTEM_EVENT_TYPE_VALUES matches the migration SQL", () => {
-    const migrationPath = join(MIGRATIONS_DIR, "0041_system_events.sql");
-    const sqlValues = parseSqlValueList(
-      migrationPath,
-      /CREATE TYPE "system_event_type" AS ENUM \(\s*([\s\S]*?)\s*\)/
-    );
+  test("SYSTEM_EVENT_TYPE_VALUES matches the migration SQL (CREATE TYPE + ALTER ADD VALUE union)", () => {
+    // The enum is seeded by CREATE TYPE in 0041 and extended by ALTER TYPE ...
+    // ADD VALUE in later migrations (0042 embeddings.provider_degraded, 0045
+    // informational types). Reading only 0041 would miss every ALTER and
+    // diverge from SYSTEM_EVENT_TYPE_VALUES — so accumulate across all
+    // migrations. This is the only drift axis that catches a migration whose
+    // SQL diverges from the TS const (the runtime-pgEnum test cannot, since the
+    // pgEnum is itself derived from the const).
+    const sqlValues = collectSystemEventTypeValuesFromMigrations();
     const tsValues = [...SYSTEM_EVENT_TYPE_VALUES].sort();
     expect(sqlValues).toEqual(tsValues);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// event category — read-side classification exhaustiveness (mt#2340)
+// ---------------------------------------------------------------------------
+
+describe("Event category map — exhaustiveness", () => {
+  test("every SYSTEM_EVENT_TYPE_VALUES has a valid eventCategory entry", () => {
+    for (const eventType of SYSTEM_EVENT_TYPE_VALUES) {
+      const category = (eventCategory as Record<string, string | undefined>)[eventType];
+      expect(category).toBeDefined();
+      expect(EVENT_CATEGORY_VALUES as readonly string[]).toContain(category);
+    }
+  });
+
+  test("eventCategory has no keys beyond SYSTEM_EVENT_TYPE_VALUES (no stale entries)", () => {
+    expect(Object.keys(eventCategory).sort()).toEqual([...SYSTEM_EVENT_TYPE_VALUES].sort());
   });
 });

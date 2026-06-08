@@ -788,7 +788,10 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * GET /api/activity — list system events for the activity feed (mt#2092)
    *
    * Query params:
-   *   - eventType: filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed)
+   *   - eventType: filter by a single event type
+   *   - category: filter by category (actionable | informational). The feed
+   *               defaults to 'actionable'; pass nothing (or category=all on
+   *               the client) to include informational events. (mt#2340)
    *   - limit: max results (default 100, max 500)
    *
    * Returns: { events: SystemEvent[], total: number, limit: number }
@@ -806,6 +809,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const { listEvents } = await import("@minsky/domain/events/query");
       const eventType =
         typeof req.query["eventType"] === "string" ? req.query["eventType"] : undefined;
+      const category =
+        typeof req.query["category"] === "string" ? req.query["category"] : undefined;
       const limitParam =
         typeof req.query["limit"] === "string" ? parseInt(req.query["limit"], 10) : 100;
       const limit = isNaN(limitParam) ? 100 : Math.min(Math.max(limitParam, 1), 500);
@@ -813,6 +818,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const events = await listEvents(db, {
         eventType: eventType as
           | import("@minsky/domain/storage/schemas/system-events-schema").SystemEventType
+          | undefined,
+        category: category as
+          | import("@minsky/domain/storage/schemas/system-events-schema").EventCategory
           | undefined,
         limit,
       });
