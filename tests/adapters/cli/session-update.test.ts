@@ -76,7 +76,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBe("test-session");
+    expect(result.session.sessionId).toBe("test-session");
   });
 
   test("should handle session with missing directory", async () => {
@@ -114,7 +114,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBeTruthy();
+    expect(result.session.sessionId).toBeTruthy();
   });
 
   test("should handle repository URL detection", async () => {
@@ -160,7 +160,7 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBeTruthy();
+    expect(result.session.sessionId).toBeTruthy();
 
     // dirIsolation.cleanup(); // Not available in this test utility
   });
@@ -199,6 +199,6 @@ describe("session update command", () => {
     );
 
     expect(result).toBeDefined();
-    expect(result.sessionId).toBeTruthy();
+    expect(result.session.sessionId).toBeTruthy();
   });
 });
