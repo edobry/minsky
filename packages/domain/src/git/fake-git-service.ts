@@ -28,7 +28,7 @@
  *   - fetchLatest → { workdir: "/mock/workdir", updated: true }
  *   - mergeBranch → { workdir: "/mock/workdir", merged: true, conflicts: false }
  *   - push → { workdir: "/mock/workdir", pushed: true }
- *   - popStash → { workdir: "/mock/workdir", stashed: false }
+ *   - popStash → { workdir: "/mock/workdir", stashed: true } (unless scripted to throw via setPopStashErrors)
  *   - getStatus → { modified: [], untracked: [], deleted: [] }
  *   - getCurrentBranch → "main"
  *   - hasUncommittedChanges → false
@@ -67,6 +67,13 @@ export class FakeGitService implements GitServiceInterface {
   readonly pushedCalls: Array<PushOptions> = [];
   /** All calls to popStash(), in order (repoPath values). */
   readonly popStashCalls: Array<string> = [];
+  /**
+   * Per-call popStash outcomes, consumed in order. An entry that is an Error
+   * causes that call to throw; `undefined` (or running off the end) makes the
+   * call succeed. Lets tests script the pop-fails / pop-fails-then-succeeds
+   * sequences used by the stash-restore path (mt#2325).
+   */
+  private popStashErrorQueue: Array<Error | undefined> = [];
   /** Configurable command-pattern responses (first match wins). */
   private readonly responses: Array<{ pattern: RegExp | string; response: string }> = [];
   /** Configurable command-pattern errors (first match wins; checked before responses). */
@@ -217,9 +224,22 @@ export class FakeGitService implements GitServiceInterface {
     return { workdir: this.mockWorkdir, pushed: true };
   }
 
+  /**
+   * Script popStash() outcomes consumed in order: an Error throws for that call,
+   * `undefined` succeeds. e.g. `setPopStashErrors([new Error("conflict")])` fails
+   * the first pop; `[new Error("..."), undefined]` fails then succeeds.
+   */
+  setPopStashErrors(errors: Array<Error | undefined>): void {
+    this.popStashErrorQueue = [...errors];
+  }
+
   async popStash(_repoPath: string): Promise<StashResult> {
     this.popStashCalls.push(_repoPath);
-    return { workdir: this.mockWorkdir, stashed: false };
+    const scripted = this.popStashErrorQueue.shift();
+    if (scripted) {
+      throw scripted;
+    }
+    return { workdir: this.mockWorkdir, stashed: true };
   }
 
   async getStatus(_repoPath?: string): Promise<GitStatus> {

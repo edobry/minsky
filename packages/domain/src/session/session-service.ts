@@ -23,6 +23,7 @@ import {
 } from "./session-lifecycle-operations";
 import { startSessionImpl } from "./start-session-operations";
 import { updateSessionImpl } from "./session-update-operations";
+import type { SessionUpdateResult } from "./session-stash-restore";
 import { sessionReviewImpl } from "./session-review-operations";
 import type { SessionReviewParams, SessionReviewResult } from "./session-review-operations";
 import { approveSessionPr } from "./session-approval-operations";
@@ -152,7 +153,7 @@ export class SessionService {
   /**
    * Update a session (fetch/merge latest from base branch).
    */
-  async update(params: SessionUpdateParams): Promise<Session> {
+  async update(params: SessionUpdateParams): Promise<SessionUpdateResult> {
     return updateSessionImpl(params as SessionUpdateParameters, {
       gitService: this.deps.gitService,
       sessionDB: this.deps.sessionProvider,
