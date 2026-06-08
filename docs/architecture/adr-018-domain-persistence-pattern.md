@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted (2026-06-08)
 
 ## Context
 
@@ -110,9 +110,15 @@ principle rather than forcing a `Drizzle*Repository` rename. Ranking fidelity of
 
 Deleting `DatabaseStorage` removes the only SQLite-capable session path. This is acceptable because
 SQLite-as-a-full-backend is _already_ broken for ask / pr-watch / attention / tasks' SQL tier — the
-session island is the lone exception, not a load-bearing capability. If a genuine single-binary /
-embedded-Postgres local story is wanted in future, that is the **PGlite** investigation (mt#434),
-a separate decision — not a reason to keep the mt#091-era abstraction alive for one consumer.
+session island is the lone exception, not a load-bearing capability.
+
+**Decision (2026-06-08):** SQLite is removed outright and a Postgres connection is required —
+consistent with Minsky already requiring hosted-service access (AI providers, the forge) and with
+`decision-defaults.mdc §Datastores`. A bare install with no Postgres connection should fail with a
+clear "configure Postgres" error, not silently fall back to a local SQLite file. The SQLite-backend
+removal is tracked in **mt#2339**. If a zero-dependency offline / single-binary local story is ever
+wanted, the vehicle is **PGlite** (embedded WASM Postgres — same `pg-core` dialect, pgvector-capable),
+tracked in **mt#434** — not SQLite, and not the mt#091-era `DatabaseStorage` abstraction.
 
 ## Consequences
 
@@ -128,8 +134,10 @@ a separate decision — not a reason to keep the mt#091-era abstraction alive fo
 
 **Harder / committed:**
 
-- Sessions become Postgres-only at runtime. Local development without a Postgres connection string
-  loses session persistence (mitigation path is PGlite / mt#434, not retained here).
+- A Postgres connection becomes required (SQLite removed, mt#2339). In practice this removes an
+  already-dead path — SQLite was unused (prod + the principal's config + CI all run Postgres or
+  in-memory fakes) and already broken for the modern repos. The deferred offline option is PGlite
+  (mt#434), not SQLite.
 - The migration touches the hot session-CRUD path; it must preserve `SessionProviderInterface`
   behavior exactly and land behind full session-lifecycle tests (complete-alignment-before-deletion
   discipline — align + verify, then delete).
@@ -144,6 +152,8 @@ a separate decision — not a reason to keep the mt#091-era abstraction alive fo
 3. **mt#2331** — Introduce a `TranscriptSearchRepository` abstraction so transcripts can adopt the
    pattern (owner of the transcripts exclusion).
 4. **mt#2332** — (Lower priority) Name the memory/similarity CRUD seam `*Repository` for consistency.
+5. **mt#2339** — Remove the SQLite persistence backend; require Postgres (the §SQLite-consequence
+   decision; coordinates with mt#2329 — they share `sqlite-storage.ts` + the dual `session-schema.ts`).
 
 ## Cross-references
 
