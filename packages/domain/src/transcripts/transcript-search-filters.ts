@@ -69,6 +69,19 @@ export interface TranscriptSearchResponse {
 }
 
 /**
+ * Assemble the `{ results, coverage }` response, omitting `coverage` entirely
+ * when there is no gap to report (so callers that don't pass a date window, or
+ * whose window is fully indexed, get a clean `{ results }`). Centralizes the
+ * shape decision both search commands use, so they cannot drift.
+ */
+export function buildSearchResponse(
+  results: TranscriptTurnResult[],
+  coverage: TranscriptWindowCoverage
+): TranscriptSearchResponse {
+  return coverage.unindexedSessionsInWindow > 0 ? { results, coverage } : { results };
+}
+
+/**
  * Build the WHERE conditions for a `from`/`to` window, bound to the TURN's
  * own started_at (agent_transcript_turns.started_at) — NOT the parent session's.
  *

@@ -34,6 +34,7 @@ import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import {
   assessWindowCoverage,
+  buildSearchResponse,
   type TranscriptSearchResponse,
 } from "@minsky/domain/transcripts/transcript-search-filters";
 
@@ -174,7 +175,7 @@ export function registerTranscriptSearchTextCommand(
         unindexedSessionsInWindow: coverage.unindexedSessionsInWindow,
       });
 
-      return coverage.unindexedSessionsInWindow > 0 ? { results, coverage } : { results };
+      return buildSearchResponse(results, coverage);
     },
   });
 

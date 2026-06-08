@@ -14,7 +14,12 @@ import { describe, test, expect } from "bun:test";
 import { and } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { buildTurnDateRangeConditions, assessWindowCoverage } from "./transcript-search-filters";
+import {
+  buildTurnDateRangeConditions,
+  assessWindowCoverage,
+  buildSearchResponse,
+} from "./transcript-search-filters";
+import type { TranscriptTurnResult } from "./transcript-similarity-service";
 
 // Qualified columns the date predicate may bind. The fix (mt#2319) is that it
 // binds the TURN column, never the parent-session column.
@@ -140,5 +145,29 @@ describe("assessWindowCoverage", () => {
       { from: new Date("2026-06-04") }
     );
     expect(coverage.unindexedSessionsInWindow).toBe(4);
+  });
+});
+
+// ── buildSearchResponse (the { results, coverage } shape decision) ───────────
+
+describe("buildSearchResponse", () => {
+  const sampleResults = [
+    { agentSessionId: "s", turnIndex: 0 },
+  ] as unknown as TranscriptTurnResult[];
+
+  test("includes coverage when the window has un-indexed sessions", () => {
+    const resp = buildSearchResponse(sampleResults, {
+      unindexedSessionsInWindow: 2,
+      note: "2 session(s) ... index-embeddings",
+    });
+    expect(resp.results).toBe(sampleResults);
+    expect(resp.coverage).toBeDefined();
+    expect(resp.coverage?.unindexedSessionsInWindow).toBe(2);
+  });
+
+  test("omits coverage entirely when there is no gap", () => {
+    const resp = buildSearchResponse(sampleResults, { unindexedSessionsInWindow: 0 });
+    expect(resp.results).toBe(sampleResults);
+    expect("coverage" in resp).toBe(false);
   });
 });
