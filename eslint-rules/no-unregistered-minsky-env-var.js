@@ -143,10 +143,21 @@ export default {
     //   See mt#1994 spec and `feedback_new_minsky_env_var_must_be_registered`.
     const srcSegment = `${pathSep}src${pathSep}`;
     const claudeHooksSegment = `${pathSep}.claude${pathSep}hooks${pathSep}`;
+    const servicesSegment = `${pathSep}services${pathSep}`;
     const isTsFile = normalized.endsWith(".ts");
     const inSrc = normalized.includes(srcSegment);
     const inClaudeHooks = normalized.includes(claudeHooksSegment);
-    if (!isTsFile || (!inSrc && !inClaudeHooks)) {
+    // services/*/** are independent deploy packages (reviewer, site) with their
+    // OWN config loaders — requireEnv() / direct process.env reads, NOT the
+    // main env-var-to-config dot-path parser. The MCP-boot-crash class this rule
+    // guards does not apply to them, so a bracket-form read such as
+    // services/reviewer/src/config.ts's `process.env["MINSKY_MCP_URL"]` must NOT
+    // be forced into the MAIN allowlist (which would mislead readers into
+    // thinking it is a main-config key). Exclude the services tree (mt#2324).
+    // This matches the existing root-config exclusion rationale above — files
+    // with their own lifecycle separate from the MCP boot path.
+    const inServices = normalized.includes(servicesSegment);
+    if (!isTsFile || (!inSrc && !inClaudeHooks) || inServices) {
       return {};
     }
 
@@ -173,13 +184,21 @@ export default {
           return;
         }
         const prop = node.property;
-        // Skip computed access like process.env["MINSKY_FOO"] for now —
-        // the bracket form is rare and dynamically computed; we'd need
-        // string-literal narrowing. Bare-identifier access is the dominant
-        // pattern and what the originating incidents involved.
-        if (node.computed || prop.type !== "Identifier") return;
-
-        const name = prop.name;
+        // Resolve the env-var NAME from the property node (mt#2324):
+        //   - bare-identifier access   process.env.MINSKY_FOO    → prop.name
+        //   - string-literal bracket   process.env["MINSKY_FOO"] → prop.value
+        //     (covers both single- and double-quoted literals)
+        // Genuinely dynamic computed access — process.env[someVar],
+        // process.env[`MINSKY_${x}`] (TemplateLiteral) — cannot be resolved
+        // statically and is intentionally skipped (accepted limitation).
+        let name;
+        if (!node.computed && prop.type === "Identifier") {
+          name = prop.name;
+        } else if (node.computed && prop.type === "Literal" && typeof prop.value === "string") {
+          name = prop.value;
+        } else {
+          return;
+        }
         if (!name.startsWith("MINSKY_")) return;
         if (REGISTERED.has(name)) return;
 
