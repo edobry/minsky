@@ -25,7 +25,7 @@
 // @see .claude/hooks/retrospective-trigger-scanner.ts — sibling pattern (mt#2057)
 // @see .claude/hooks/transcript.ts — shared turn-boundary helper
 
-import { readInput } from "./types";
+import { readInput, readHostCap, deriveBudgets } from "./types";
 import type { ClaudeHookInput, HookOutput } from "./types";
 import {
   parseTranscript,
@@ -185,8 +185,13 @@ export function detectCausalPremise(
     return { matched: false, matchedPhrases: [], hadSameTurnVerification: false };
   }
 
-  // Check for same-turn verification via citation patterns
-  const hasCitationBacking = VERIFICATION_CITATION_PATTERNS.some((re) => re.test(assistantText));
+  // Apply markdown-aware filtering FIRST so all checks run on the same elided text.
+  // This prevents a file:line citation inside a code block from acting as "backing"
+  // (reviewer finding #4: verification was computed on raw text before elision).
+  const filteredText = elideMarkdownContexts(assistantText);
+
+  // Check for same-turn verification via citation patterns — on ELIDED text
+  const hasCitationBacking = VERIFICATION_CITATION_PATTERNS.some((re) => re.test(filteredText));
 
   // Check for same-turn verification via tool invocations
   const hasToolBacking = toolUseNames.some((name) =>
@@ -195,8 +200,12 @@ export function detectCausalPremise(
 
   const hadSameTurnVerification = hasCitationBacking || hasToolBacking;
 
-  // Apply markdown-aware filtering to skip code blocks / blockquotes
-  const filteredText = elideMarkdownContexts(assistantText);
+  // Short-circuit: if same-turn verification is present, do NOT flag as a match.
+  // This enforces the "DOES NOT FIRE when a backing tool/citation is present"
+  // contract (reviewer finding #1: matched was true regardless of verification).
+  if (hadSameTurnVerification) {
+    return { matched: false, matchedPhrases: [], hadSameTurnVerification };
+  }
 
   // Collect matched causal phrases
   const matchedPhrases: string[] = [];
@@ -321,6 +330,18 @@ function buildInjectionReminder(matchedPhrases: string[]): string {
 // ---------------------------------------------------------------------------
 
 export async function main(): Promise<void> {
+  // Derive budget from the host cap in .claude/settings.json so bumping the
+  // host timeout automatically scales all internal deadlines proportionally
+  // (reviewer finding #3: missing host-cap budget derivation).
+  const capInfo = readHostCap("causal-premise-detector.ts", undefined, {
+    events: ["UserPromptSubmit"],
+  });
+  if (capInfo.warning) {
+    process.stderr.write(`[causal-premise-detector] ${capInfo.warning}\n`);
+  }
+  const budgets = deriveBudgets(capInfo.hostCapSec);
+  const overallDeadline = Date.now() + budgets.overallBudgetMs;
+
   const overrideVal = process.env[OVERRIDE_ENV_VAR];
   const isOverride =
     overrideVal === "1" ||
@@ -344,6 +365,14 @@ export async function main(): Promise<void> {
 
   const transcriptPath = input.transcript_path;
   if (!transcriptPath) {
+    process.exit(0);
+  }
+
+  // Short-circuit if we're already past budget (e.g., slow process start-up)
+  if (Date.now() >= overallDeadline) {
+    process.stderr.write(
+      `[causal-premise-detector] budget exhausted before transcript read — skipping\n`
+    );
     process.exit(0);
   }
 
@@ -379,13 +408,15 @@ export async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Always log to calibration JSONL
-  appendCalibrationRecord(input.cwd, {
-    timestamp: new Date().toISOString(),
-    session_id: input.session_id,
-    matchedPhrases: result.matchedPhrases,
-    hadSameTurnVerification: result.hadSameTurnVerification,
-  });
+  // Log to calibration JSONL when within budget
+  if (Date.now() < overallDeadline) {
+    appendCalibrationRecord(input.cwd, {
+      timestamp: new Date().toISOString(),
+      session_id: input.session_id,
+      matchedPhrases: result.matchedPhrases,
+      hadSameTurnVerification: result.hadSameTurnVerification,
+    });
+  }
 
   // Only inject additionalContext when INJECTION_ENABLED is true (v2+)
   if (!INJECTION_ENABLED) {

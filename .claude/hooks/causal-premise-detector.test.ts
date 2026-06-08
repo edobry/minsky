@@ -95,11 +95,9 @@ This was verified by reading the file — the routing logic is at lines 159-174.
 
       const result = detectCausalPremise(text, toolUseNames);
 
-      // hadSameTurnVerification should be true due to tool call
+      // When a tool call backs the claim, matched MUST be false (not just flagged)
+      expect(result.matched).toBe(false);
       expect(result.hadSameTurnVerification).toBe(true);
-      // matched may be true/false; the KEY check is hadSameTurnVerification
-      // In a real hook, when hadSameTurnVerification is true we still log it
-      // but the detector reports the backing. Here we just verify the flag.
     });
 
     test("does NOT flag when file:line citation is present", () => {
@@ -109,7 +107,8 @@ The reason the bot posts COMMENT is that event="COMMENT" propagates via the rout
       // No tool calls but has a file:line citation
       const result = detectCausalPremise(text, []);
 
-      // hadSameTurnVerification = true due to the file:line citation
+      // file:line citation is same-turn backing → must not be flagged
+      expect(result.matched).toBe(false);
       expect(result.hadSameTurnVerification).toBe(true);
     });
 
@@ -120,6 +119,7 @@ This causes the migration to skip rather than apply.`;
 
       const result = detectCausalPremise(text, []);
 
+      expect(result.matched).toBe(false);
       expect(result.hadSameTurnVerification).toBe(true);
     });
 
@@ -129,6 +129,7 @@ This causes the migration to skip rather than apply.`;
 
       const result = detectCausalPremise(text, toolUseNames);
 
+      expect(result.matched).toBe(false);
       expect(result.hadSameTurnVerification).toBe(true);
     });
   });
