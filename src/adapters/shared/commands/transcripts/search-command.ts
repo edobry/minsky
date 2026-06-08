@@ -28,7 +28,10 @@ import { sharedCommandRegistry, CommandCategory } from "../../command-registry";
 import type { SharedCommandRegistry } from "../../command-registry";
 import { log } from "@minsky/shared/logger";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
-import type { TranscriptTurnResult } from "@minsky/domain/transcripts/transcript-similarity-service";
+import {
+  assessWindowCoverage,
+  type TranscriptSearchResponse,
+} from "@minsky/domain/transcripts/transcript-search-filters";
 
 // ── Registration ──────────────────────────────────────────────────────────────
 
@@ -54,8 +57,11 @@ export function registerTranscriptSearchCommand(
       "Embeds the query text and returns the nearest-neighbor turns " +
       "ranked by cosine distance (pgvector). " +
       "Optionally filter by role (user/assistant), date range, or session UUID. " +
-      "Coverage: sessions are auto-ingested on MCP server boot; " +
-      "if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+      "Date filters bind the turn's own timestamp, so turns from long-running " +
+      "sessions are matched by when the turn happened, not when the session started. " +
+      "Returns { results, coverage }: when a date window contains sessions not yet " +
+      "indexed into searchable turns, `coverage` reports the gap instead of a silent " +
+      "empty result (those turns become searchable after `transcripts index-embeddings`).",
     parameters: {
       query: {
         schema: z.string(),
@@ -90,7 +96,7 @@ export function registerTranscriptSearchCommand(
       },
     },
 
-    async execute(params, context): Promise<TranscriptTurnResult[]> {
+    async execute(params, context): Promise<TranscriptSearchResponse> {
       const query = params.query as string;
       const limit = (params.limit as number | undefined) ?? 10;
       const role = params.role as "user" | "assistant" | undefined;
@@ -146,16 +152,30 @@ export function registerTranscriptSearchCommand(
         dateRange.to = new Date(to);
       }
 
+      const windowed = Object.keys(dateRange).length > 0 ? dateRange : undefined;
+
       const results = await svc.search(query, {
         limit,
         role,
-        dateRange: Object.keys(dateRange).length > 0 ? dateRange : undefined,
+        dateRange: windowed,
         sessionId,
       });
 
-      log.debug("transcripts.search complete", { query, resultCount: results.length });
+      // When a date window is supplied, report whether in-window sessions exist
+      // that are not yet indexed (so an empty/short result isn't misread as
+      // "nothing matched"). Omitted when there is no gap. (mt#2319 SC#4)
+      const coverage = await assessWindowCoverage(
+        db as import("drizzle-orm/postgres-js").PostgresJsDatabase,
+        windowed
+      );
 
-      return results;
+      log.debug("transcripts.search complete", {
+        query,
+        resultCount: results.length,
+        unindexedSessionsInWindow: coverage.unindexedSessionsInWindow,
+      });
+
+      return coverage.unindexedSessionsInWindow > 0 ? { results, coverage } : { results };
     },
   });
 
