@@ -70,6 +70,11 @@ struct StatusMenuItem(MenuItem<Wry>);
 /// state like `StatusMenuItem` so the supervisor loop can update it directly.
 struct BuildMenuItem(MenuItem<Wry>);
 
+/// Current webview zoom factor for the cockpit window (mt#2334). Menu-driven
+/// zoom (Cmd +/-/0) applies this via `WebviewWindow::set_zoom`, which takes an
+/// ABSOLUTE factor — so we track the current value here in order to step it.
+struct ZoomLevel(Mutex<f64>);
+
 /// Sender for lifecycle commands from the (main-thread) menu handler to the
 /// supervisor thread that owns the daemon `Child`.
 struct SupervisorHandle(mpsc::UnboundedSender<SupervisorCmd>);
@@ -1507,7 +1512,31 @@ fn main() {
             let reload_item = MenuItemBuilder::with_id("reload", "Reload")
                 .accelerator("CmdOrCtrl+R")
                 .build(app)?;
-            let view_submenu = SubmenuBuilder::new(app, "View").item(&reload_item).build()?;
+            // Zoom items (mt#2334). Two Zoom In bindings: "CmdOrCtrl+=" fires on
+            // the unshifted `=` press, "CmdOrCtrl+Shift+=" on the shifted `+`
+            // press (what users call Cmd++). muda has no "Plus" key token, and
+            // per AppKit the shift-modified equivalent uses the unshifted char
+            // ("=") plus the Shift mask — so both routes land on the `=` key.
+            let zoom_in_item = MenuItemBuilder::with_id("zoom_in", "Zoom In")
+                .accelerator("CmdOrCtrl+=")
+                .build(app)?;
+            let zoom_in_shift_item = MenuItemBuilder::with_id("zoom_in_shift", "Zoom In")
+                .accelerator("CmdOrCtrl+Shift+=")
+                .build(app)?;
+            let zoom_out_item = MenuItemBuilder::with_id("zoom_out", "Zoom Out")
+                .accelerator("CmdOrCtrl+-")
+                .build(app)?;
+            let zoom_reset_item = MenuItemBuilder::with_id("zoom_reset", "Actual Size")
+                .accelerator("CmdOrCtrl+0")
+                .build(app)?;
+            let view_submenu = SubmenuBuilder::new(app, "View")
+                .item(&reload_item)
+                .separator()
+                .item(&zoom_in_item)
+                .item(&zoom_in_shift_item)
+                .item(&zoom_out_item)
+                .item(&zoom_reset_item)
+                .build()?;
             let window_submenu = SubmenuBuilder::new(app, "Window")
                 .minimize()
                 .close_window()
@@ -1527,7 +1556,8 @@ fn main() {
             // (Shutdown + app.exit are idempotent, so a double "quit" is benign).
             app.on_menu_event(move |app, event| {
                 match event.id().as_ref() {
-                    "reload" | "quit" => handle_menu_event(app, event.id().as_ref()),
+                    "reload" | "quit" | "zoom_in" | "zoom_in_shift" | "zoom_out"
+                    | "zoom_reset" => handle_menu_event(app, event.id().as_ref()),
                     _ => {}
                 }
             });
@@ -1535,6 +1565,7 @@ fn main() {
             // Command channel: menu handler (main thread) → supervisor thread.
             let (tx, rx) = mpsc::unbounded_channel::<SupervisorCmd>();
             app.manage(SupervisorHandle(tx));
+            app.manage(ZoomLevel(Mutex::new(1.0)));
 
             let sup_app = handle.clone();
             let sup_spawned = spawned_setup.clone();
@@ -1546,10 +1577,19 @@ fn main() {
         .expect("error building cockpit tray");
 
     app.run(move |_app_handle, event| {
-        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            // Synchronous teardown of the daemon we spawned. Idempotent, so it's
-            // safe to also fire from the "quit" menu path and on both events.
-            teardown(&spawned);
+        match event {
+            // A window-close (Cmd+W or the red close button) requests exit with
+            // code None. This is a menu-bar app: closing the cockpit window must
+            // NOT kill the tray app or the daemon — keep running headless so the
+            // window can be reopened via "Open Cockpit". Only an explicit
+            // app.exit() (code Some — the Quit path) proceeds to teardown.
+            RunEvent::ExitRequested { code: None, api, .. } => api.prevent_exit(),
+            RunEvent::Exit => {
+                // Synchronous teardown of the daemon we spawned. Idempotent, so
+                // it's safe to fire here on the explicit-quit path.
+                teardown(&spawned);
+            }
+            _ => {}
         }
     });
 }
@@ -1561,6 +1601,20 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
             if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
                 if let Err(e) = window.eval("window.location.reload()") {
                     eprintln!("[cockpit-tray] failed to reload cockpit window: {e}");
+                }
+            }
+        }
+        "zoom_in" | "zoom_in_shift" | "zoom_out" | "zoom_reset" => {
+            if let Some(window) = app.get_webview_window(COCKPIT_WINDOW_LABEL) {
+                let state = app.state::<ZoomLevel>();
+                let mut zoom = state.0.lock().unwrap();
+                *zoom = match id {
+                    "zoom_out" => (*zoom - 0.1).max(0.3),
+                    "zoom_reset" => 1.0,
+                    _ => (*zoom + 0.1).min(3.0), // zoom_in / zoom_in_shift
+                };
+                if let Err(e) = window.set_zoom(*zoom) {
+                    eprintln!("[cockpit-tray] failed to set cockpit window zoom: {e}");
                 }
             }
         }
@@ -1608,7 +1662,6 @@ fn open_cockpit_window(app: &AppHandle) {
     if let Err(e) = WebviewWindowBuilder::new(app, COCKPIT_WINDOW_LABEL, WebviewUrl::External(url))
         .title("Minsky Cockpit")
         .inner_size(1200.0, 800.0)
-        .zoom_hotkeys_enabled(true)
         .build()
     {
         eprintln!("[cockpit-tray] failed to create cockpit window: {e}");
