@@ -18,12 +18,13 @@
  */
 
 import { injectable } from "tsyringe";
-import { sql, eq, and, gte, lte, asc, type SQL } from "drizzle-orm";
+import { sql, eq, and, asc, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { agentTranscriptTurnsTable } from "../storage/schemas/agent-transcript-turns-schema";
 import { agentTranscriptsTable } from "../storage/schemas/agent-transcripts-schema";
 import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
+import { buildTurnDateRangeConditions } from "./transcript-search-filters";
 import type {
   TranscriptTurnResult,
   TranscriptSessionMetadata,
@@ -43,7 +44,7 @@ export interface TranscriptFtsSearchOptions {
   limit?: number;
   /** Filter by turn role: 'user' turns have non-null userText; 'assistant' turns have non-null assistantText. */
   role?: "user" | "assistant";
-  /** Filter turns by session start time range. */
+  /** Filter turns by the turn's own start time range (agent_transcript_turns.started_at). */
   dateRange?: { from?: Date; to?: Date };
   /** Filter to turns from a specific agent session. */
   sessionId?: string;
@@ -72,7 +73,7 @@ export class TranscriptFtsService {
    *
    * Applies optional WHERE filters:
    *   - role: 'user' → user_text IS NOT NULL; 'assistant' → assistant_text IS NOT NULL
-   *   - dateRange: filter via parent session's started_at
+   *   - dateRange: filter via the turn's own started_at (agent_transcript_turns.started_at)
    *   - sessionId: restrict to a single agent session
    */
   async searchText(
@@ -102,14 +103,9 @@ export class TranscriptFtsService {
       conditions.push(eq(agentTranscriptTurnsTable.agentSessionId, opts.sessionId));
     }
 
-    if (opts.dateRange?.from || opts.dateRange?.to) {
-      if (opts.dateRange.from) {
-        conditions.push(gte(agentTranscriptsTable.startedAt, opts.dateRange.from));
-      }
-      if (opts.dateRange.to) {
-        conditions.push(lte(agentTranscriptsTable.startedAt, opts.dateRange.to));
-      }
-    }
+    // Date window binds the TURN's started_at (not the parent session's) — see
+    // buildTurnDateRangeConditions / mt#2319.
+    conditions.push(...buildTurnDateRangeConditions(opts.dateRange));
 
     try {
       const rows = await this.db
