@@ -9,7 +9,11 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { discoverTypecheckWorkspaces, type WorkspaceFs } from "./validate";
+import {
+  discoverTypecheckWorkspaces,
+  resolveValidateWorkspace,
+  type WorkspaceFs,
+} from "./validate";
 
 const ROOT = "/repo";
 
@@ -159,5 +163,57 @@ describe("discoverTypecheckWorkspaces", () => {
     });
 
     expect(await discoverTypecheckWorkspaces(ROOT, fs)).toEqual(["services/good"]);
+  });
+});
+
+describe("resolveValidateWorkspace", () => {
+  const SESSION_DIR = "/state/sessions/abc/workdir";
+
+  /** A resolveSessionDir spy that records its calls and returns a fixed session dir. */
+  function sessionResolver() {
+    const calls: Array<{ task?: string; sessionId?: string }> = [];
+    const fn = async (q: { task?: string; sessionId?: string }): Promise<string> => {
+      calls.push(q);
+      return SESSION_DIR;
+    };
+    return { fn, calls };
+  }
+
+  test("explicit workspace wins over task/sessionId (resolver not called)", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace(
+      { workspace: "/explicit/path", task: "mt#1", sessionId: "sess-1" },
+      r.fn
+    );
+    expect(result).toBe("/explicit/path");
+    expect(r.calls).toEqual([]);
+  });
+
+  test("task resolves via the injected resolver when no workspace given", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({ task: "mt#2336" }, r.fn);
+    expect(result).toBe(SESSION_DIR);
+    expect(r.calls).toEqual([{ task: "mt#2336", sessionId: undefined }]);
+  });
+
+  test("sessionId resolves via the injected resolver when no workspace given", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({ sessionId: "sess-9" }, r.fn);
+    expect(result).toBe(SESSION_DIR);
+    expect(r.calls).toEqual([{ task: undefined, sessionId: "sess-9" }]);
+  });
+
+  test("falls back to the injected cwd when neither workspace nor task/sessionId given", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({}, r.fn, "/fake/cwd");
+    expect(result).toBe("/fake/cwd");
+    expect(r.calls).toEqual([]);
+  });
+
+  test("treats an empty-string workspace as 'not provided' and falls through", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({ workspace: "", task: "mt#5" }, r.fn);
+    expect(result).toBe(SESSION_DIR);
+    expect(r.calls).toEqual([{ task: "mt#5", sessionId: undefined }]);
   });
 });
