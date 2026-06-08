@@ -34,16 +34,28 @@ import { log } from "@minsky/shared/logger";
  * forge commands register container-free (the registration function takes no
  * container arg), so persistence is resolved from `ctx.container` at execute
  * time — the same pattern the sibling principal-corpus command group uses.
+ *
+ * `ctx.container` carries an initialized container exposing "persistence" on
+ * BOTH execution interfaces — MCP (`shared-command-integration.ts` sets
+ * `container: config.container`) and CLI (`cli.ts` calls
+ * `cliFactory.setContainer(container)` and `container.initialize()` before
+ * command execution). So this resolution works identically on both; it is not
+ * MCP-only.
+ *
  * Throws a typed error if the container is unavailable rather than falling back
- * to a bare `createSessionProvider()` (which throws "no persistence dependency"
- * under the MCP server — the mt#2323 bug). No DI fallback by design.
+ * to a bare `createSessionProvider()` (which threw "no persistence dependency"
+ * under the MCP server — the mt#2323 bug) or to ad-hoc persistence construction.
+ * A DI fallback is intentionally omitted per the project's "No DI fallbacks"
+ * rule: injected services are required and a missing one fails loudly rather
+ * than silently connecting to real infrastructure.
  */
 export function resolveForgePersistence(ctx: CommandExecutionContext): PersistenceProvider {
   if (!ctx.container?.has("persistence")) {
     throw new MinskyError(
-      "forge commands: persistence provider not available in execution context. " +
-        "Ensure the DI container is initialized before invoking this tool " +
-        "(restart the MCP server with /mcp if this persists)."
+      "forge commands: persistence provider not available in the execution " +
+        "context. The DI container must be initialized and expose persistence " +
+        "before invoking this tool. This is a wiring problem in the calling " +
+        "interface (MCP or CLI), not a stale server. See mt#2323."
     );
   }
   return ctx.container.get("persistence");

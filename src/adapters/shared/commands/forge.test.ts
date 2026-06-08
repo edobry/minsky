@@ -47,8 +47,11 @@ function fakeContainer(hasPersistence: boolean): AppContainerInterface {
   } as unknown as AppContainerInterface;
 }
 
-function ctxWith(container: AppContainerInterface | undefined): CommandExecutionContext {
-  return { interface: "mcp", format: "json", container } as CommandExecutionContext;
+function ctxWith(
+  container: AppContainerInterface | undefined,
+  iface: "mcp" | "cli" = "mcp"
+): CommandExecutionContext {
+  return { interface: iface, format: "json", container } as CommandExecutionContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +69,16 @@ describe("resolveForgePersistence (mt#2323)", () => {
     const ctx = ctxWith(fakeContainer(true));
     // The pre-fix bug raised this exact phrase from createSessionProvider().
     expect(() => resolveForgePersistence(ctx)).not.toThrow();
+  });
+
+  // Resolution is interface-agnostic: ctx.container carries persistence on BOTH
+  // the MCP bridge (shared-command-integration sets container: config.container)
+  // and the CLI bridge (cli.ts setContainer + container.initialize()). This
+  // asserts the CLI path resolves identically — no MCP-only assumption, and no
+  // silent CLI regression (forge threw on CLI before the fix too).
+  test("resolves identically on the CLI interface", () => {
+    const ctx = ctxWith(fakeContainer(true), "cli");
+    expect(resolveForgePersistence(ctx)).toBe(FAKE_PERSISTENCE);
   });
 
   test("throws a typed forge error when the container is absent", () => {
