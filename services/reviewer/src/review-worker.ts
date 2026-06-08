@@ -2019,15 +2019,24 @@ async function runReviewBody(
     };
   }
 
-  const review = await submitReview(
+  // mt#2350 PR #1621 R2: route the prose-path final submission through the same
+  // guard as the output-tools path so the circuit-breaker record/clear chokepoint
+  // covers BOTH paths (a non-retryable 4xx here — closed PR, permission edge —
+  // must also stop the sweeper loop). No inline comments on the prose path, so
+  // anchor pre-validation is a no-op; the breaker recording is the point.
+  const review = await submitReviewWithGuards({
     octokit,
     owner,
     repo,
     prNumber,
-    outcome.event,
-    annotateReviewBody(sanitized.body, output, tier, isSelfReview),
-    config.githubTimeoutMs
-  );
+    event: outcome.event,
+    body: annotateReviewBody(sanitized.body, output, tier, isSelfReview),
+    composedInlineComments: [],
+    diff: pr.diff,
+    headSha: pr.headSha,
+    timeoutMs: config.githubTimeoutMs,
+    db: deps.db,
+  });
 
   // Best-effort count of BLOCKING findings in the submitted review body.
   // Enables "prior-blocker count / new-blocker count" convergence metric in logs.
