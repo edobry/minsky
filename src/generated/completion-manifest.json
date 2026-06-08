@@ -5307,7 +5307,7 @@
         },
         {
           "name": "search",
-          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Search agent transcript turns by semantic similarity. Embeds the query text and returns the nearest-neighbor turns ranked by cosine distance (pgvector). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
@@ -5375,7 +5375,7 @@
         },
         {
           "name": "search-text",
-          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Coverage: sessions are auto-ingested on MCP server boot; if a session is missing, run `transcripts_ingest --all` to force a full sweep.",
+          "description": "Search agent transcript turns by full-text search (FTS). Uses Postgres plainto_tsquery against the fts_text GENERATED column. Results are ranked by ts_rank (higher = more relevant). Optionally filter by role (user/assistant), date range, or session UUID. Date filters bind the turn's own timestamp, so turns from long-running sessions are matched by when the turn happened, not when the session started. Returns { results, coverage }: when a date window contains sessions not yet indexed into searchable turns, `coverage` reports the gap instead of a silent empty result (those turns become searchable after `transcripts index-embeddings`).",
           "options": [
             {
               "flags": ["--limit"],
