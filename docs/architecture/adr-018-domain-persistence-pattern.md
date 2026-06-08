@@ -12,13 +12,13 @@ hierarchy (`BasePersistenceProvider.getStorage()`, `SqlCapablePersistenceProvide
 **domain-repository** layer that sits on top of the provider. As a result the domain layer
 has accreted 3+ divergent persistence idioms with no ADR declaring a canonical one:
 
-| Domain                            | Idiom                                                                                  | Provider tier used            |
-| --------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------- |
-| **sessions**                      | `SessionDbAdapter` → `getStorage()` → `DatabaseStorage<SessionRecord, SessionDbState>` | base/portable `getStorage()`  |
-| **tasks** (minsky backend)        | inline drizzle behind the `MinskyBackendDb` seam                                       | SQL `getDatabaseConnection()` |
-| **ask / pr-watch / wake-pending** | `Drizzle<X>Repository implements <X>Repository` + `Fake<X>Repository`                  | SQL `getDatabaseConnection()` |
-| **memory / similarity**           | service + `VectorStorage` interface (`PostgresVectorStorage` / `MemoryVectorStorage`)  | vector `getVectorStorage()`   |
-| **transcripts**                   | service holding a raw `PostgresJsDatabase`, pgvector `<=>` / Postgres FTS inlined      | SQL `getDatabaseConnection()` |
+| Domain                            | Idiom                                                                                    | Provider tier used            |
+| --------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------- |
+| **sessions**                      | `SessionDbAdapter` -> `getStorage()` -> `DatabaseStorage<SessionRecord, SessionDbState>` | base/portable `getStorage()`  |
+| **tasks** (minsky backend)        | inline drizzle behind the `MinskyBackendDb` seam                                         | SQL `getDatabaseConnection()` |
+| **ask / pr-watch / wake-pending** | `Drizzle<X>Repository implements <X>Repository` + `Fake<X>Repository`                    | SQL `getDatabaseConnection()` |
+| **memory / similarity**           | service + `VectorStorage` interface (`PostgresVectorStorage` / `MemoryVectorStorage`)    | vector `getVectorStorage()`   |
+| **transcripts**                   | service holding a raw `PostgresJsDatabase`, pgvector `<=>` / Postgres FTS inlined        | SQL `getDatabaseConnection()` |
 
 ### Why the divergence exists (it is drift, not principled need)
 
@@ -29,8 +29,8 @@ sessiondb backend entirely" + mt#714), so the portability rationale for the `Dat
 abstraction evaporated — yet sessions were never migrated off it. ADR-002 then introduced the
 capability-based provider, wrapped the old storage layer as the base `getStorage()` tier, and
 new domains (ask, pr-watch) adopted the modern `Drizzle*Repository + Fake` pattern. Sessions
-remain on the obsolete mt#091-era layer. mt#1610 began a `sessiondb`→`persistence` rename but
-left `session-db-adapter` and a misleading "Session provider unavailable… restart with /mcp"
+remain on the obsolete mt#091-era layer. mt#1610 began a `sessiondb`->`persistence` rename but
+left `session-db-adapter` and a misleading "Session provider unavailable... restart with /mcp"
 error in place.
 
 **Conclusion:** the portable `DatabaseStorage` layer guards against a backend (JSON/file) that
@@ -49,10 +49,10 @@ was removed years ago. The divergence is drift with an obsolete historical justi
    partial indexes) and every write uses `.returning()` — a Postgres-only Drizzle feature.
    The sqlite provider returns a `bun-sqlite` handle that is type- and runtime-incompatible
    with the `PostgresJsDatabase` these repositories require. SQLite is the _default_ dev
-   backend, but **no path successfully runs a `Drizzle*Repository` against it.** SQLite-as-a-
-   full-backend is therefore _already_ non-viable for every modern domain (ask, pr-watch,
-   attention, tasks' SQL tier). The portable `DatabaseStorage` layer is an island of SQLite
-   compatibility that **sessions alone** still enjoy.
+   backend, but **no path successfully runs a `Drizzle*Repository` against it.** SQLite-as-a-full-backend
+   is therefore _already_ non-viable for every modern domain (ask, pr-watch, attention,
+   tasks' SQL tier). The portable `DatabaseStorage` layer is an island of SQLite compatibility
+   that **sessions alone** still enjoy.
 4. **Tasks' multi-backend `TaskBackend` abstraction sits above persistence.** Only
    `MinskyTaskBackend` touches the DB (via the narrow `MinskyBackendDb` seam);
    `GitHubIssuesTaskBackend` is Octokit-only and GitHub is the sole store for GHI tasks
@@ -71,28 +71,27 @@ was removed years ago. The divergence is drift with an obsolete historical justi
 
 We will enshrine **one principle with two concrete shapes**, and migrate the laggards toward it.
 
-**The principle:** every domain's persistence is a **domain-owned interface** with a real
-backend implementation and a fake implementation, both injected via DI (no `deps?.x ?? createReal()`
+**The principle.** Every domain's persistence is a domain-owned interface with a real backend
+implementation and a fake implementation, both injected via DI (no `deps?.x ?? createReal()`
 fallbacks). This is the testability contract ADR-002's provider layer enables but never named at
 the domain layer.
 
-\*\*Shape 1 — SQL-CRUD domains (canonical): `Drizzle<Domain>Repository implements <Domain>Repository`
+**Shape 1 — SQL-CRUD domains (canonical).** A `Drizzle<Domain>Repository implements <Domain>Repository`
+paired with a `Fake<Domain>Repository`, constructed from `getDatabaseConnection()`. This is the
+ask / pr-watch / wake-pending pattern. It is **Postgres-targeted** by design; SQLite is not a
+supported runtime for these repositories and the pattern does not pretend otherwise.
 
-- `Fake<Domain>Repository`,** constructed from `getDatabaseConnection()`. This is the ask / pr-watch /
-  wake-pending pattern. It is **Postgres-targeted\*\* by design; SQLite is not a supported runtime for
-  these repositories and the pattern does not pretend otherwise.
-
-**Shape 2 — vector/similarity domains (canonical): the `VectorStorage` interface is the persistence
-seam,** with `PostgresVectorStorage` (real) and `MemoryVectorStorage` (fake) injected via the
-domain factory. We recognize `VectorStorage` as the vector-domain instance of the same principle
-rather than forcing a `Drizzle*Repository` rename. Ranking fidelity of the fake is **not** a test
-contract; tests assert routing, filtering, degradation, and structural behavior.
+**Shape 2 — vector/similarity domains (canonical).** The `VectorStorage` interface is the
+persistence seam, with `PostgresVectorStorage` (real) and `MemoryVectorStorage` (fake) injected via
+the domain factory. We recognize `VectorStorage` as the vector-domain instance of the same
+principle rather than forcing a `Drizzle*Repository` rename. Ranking fidelity of the fake is
+**not** a test contract; tests assert routing, filtering, degradation, and structural behavior.
 
 **Per-domain decisions:**
 
-- **Sessions (migrate):** migrate `SessionDbAdapter` to a `DrizzleSessionRepository implements
-SessionProviderInterface` + a `FakeSessionProvider`, constructed from `getDatabaseConnection()`,
-  then **delete the `DatabaseStorage` storage-backend layer** (~1,834 LOC across `postgres-storage.ts`,
+- **Sessions (migrate):** migrate `SessionDbAdapter` to a `DrizzleSessionRepository implements SessionProviderInterface`
+  plus a `FakeSessionProvider`, constructed from `getDatabaseConnection()`, then **delete the
+  `DatabaseStorage` storage-backend layer** (~1,834 LOC across `postgres-storage.ts`,
   `sqlite-storage.ts`, `database-storage.ts`, `session-db.ts`, `session-db-adapter.ts`, plus the
   `getStorage()` / `SessionStorage` surface on the provider). Sessions become Postgres-only —
   **consistent with every other modern domain**, which already is.
@@ -101,7 +100,7 @@ SessionProviderInterface` + a `FakeSessionProvider`, constructed from `getDataba
   `TaskBackend` abstraction stays above it unchanged; GHI/markdown backends get no repository
   (GitHub is their store).
 - **Memory / similarity (conform-and-rename, lower priority):** these already satisfy the principle
-  via `VectorStorage`. Optionally name the CRUD seam (`MemoryServiceDb` → `MemoryRepository`) for
+  via `VectorStorage`. Optionally name the CRUD seam (`MemoryServiceDb` -> `MemoryRepository`) for
   consistency; no behavioral change.
 - **Transcripts (excluded until an abstraction exists):** adopting the pattern requires first
   introducing a `TranscriptSearchRepository` interface to lift the inlined pgvector/FTS out of the
@@ -149,9 +148,9 @@ a separate decision — not a reason to keep the mt#091-era abstraction alive fo
 ## Cross-references
 
 - **Extends:** ADR-002 (persistence-provider architecture — the provider layer this builds on).
-- **Related tasks:** mt#2328 (this investigation + ADR); mt#434 (SQLite→PGlite, the separate
+- **Related tasks:** mt#2328 (this investigation + ADR); mt#434 (SQLite->PGlite, the separate
   local-backend decision the SQLite consequence defers to); mt#2323 (forge\_\* DI / bare
-  `createSessionProvider` + misleading error string); mt#1610 (partial `sessiondb`→`persistence`
+  `createSessionProvider` + misleading error string); mt#1610 (partial `sessiondb`->`persistence`
   rename); mt#091 (genesis 3-backend storage), #402 / mt#714 (JSON backend removal),
   mt#407 / mt#761 / mt#690 (ADR-002 integration), mt#2108 (domain-package extraction).
 - **Memory:** `df19d9e1` (Postgres-via-Supabase default datastore — ADR-002 builds on it);
