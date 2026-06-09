@@ -421,7 +421,7 @@ function LearningLoop() {
 
       {/* Continuing loop labels */}
       <text x="650" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ rule</text>
-      <text x="740" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ ⟂ new interlock welded onto S1</text>
+      <text x="740" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ ⟂ new interlock welded onto S1 (glows, fades over days)</text>
 
       {/* Arc closing back onto an S2 valve — connects up from y=616 to the pipe level */}
       <path
