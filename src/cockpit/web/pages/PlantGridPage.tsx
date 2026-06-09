@@ -883,13 +883,20 @@ export function PlantGridPage() {
         </span>
         <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
           <span className="text-liveness-healthy">● system nominal</span>
-          {/* Cross-link to the SVG schematic */}
+          {/* Cross-links to the other plant board routes */}
           <Link
             to="/plant"
             className="text-muted-foreground hover:text-foreground transition-colors"
             aria-label="Switch to SVG schematic layout"
           >
             ▢ schematic layout
+          </Link>
+          <Link
+            to="/plant-flow"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Switch to node-link canvas layout"
+          >
+            ◎ flow canvas
           </Link>
         </span>
       </header>

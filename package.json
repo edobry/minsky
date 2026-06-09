@@ -142,6 +142,7 @@
     "@tanstack/react-query": "^5.100.10",
     "@types/logform": "^1.10.1",
     "@types/winston": "^2.4.4",
+    "@xyflow/react": "^12.11.0",
     "ai": "^4.1.5",
     "braintrust": "^3.10.0",
     "chalk": "^5.4.1",
