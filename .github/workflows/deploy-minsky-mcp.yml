@@ -114,7 +114,7 @@ jobs:
           SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
           ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
 
-          RESPONSE=$(curl -sS -X POST https://backboard.railway.app/graphql/v2 \
+          RESPONSE=$(curl -sS -X POST https://backboard.railway.com/graphql/v2 \
             -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}")
@@ -122,9 +122,15 @@ jobs:
           echo "Railway API response: ${RESPONSE}"
 
           if echo "${RESPONSE}" | jq -e '.errors // empty' > /dev/null 2>&1; then
-            echo "::error::Railway redeploy failed"
+            # Non-fatal (mt#2342): this explicit redeploy trigger is redundant —
+            # Railway auto-deploys the pushed ghcr.io/edobry/minsky:latest image
+            # independently (verified: minsky-mcp deploys per-commit without this
+            # call). A failure here (e.g. a wrong-scoped RAILWAY_TOKEN returning
+            # "Not Authorized") must NOT red the build. Warn and continue; fix the
+            # secret's scope if you want the explicit trigger to work.
+            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — Railway auto-deploys the pushed image independently. Check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
             echo "${RESPONSE}" | jq '.errors'
-            exit 1
+            exit 0
           fi
 
           echo "Railway redeploy triggered successfully"
