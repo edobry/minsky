@@ -58,5 +58,8 @@ jobs:
       - name: Test
         run: bun run test
 
+      - name: Test (ESLint rules)
+        run: bun run test:eslint-rules
+
       - name: Build
         run: bun build src/cli.ts --outdir dist --target bun
