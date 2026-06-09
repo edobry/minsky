@@ -120,7 +120,7 @@ The full motion budget — five permitted patterns, `prefers-reduced-motion` def
 
 Idiom B carries through the homepage — specific Minsky scenes that should appear as real screenshots:
 
-1. CLI output of a session running a real task (`minsky session start mt#NNNN` → agent picks up work)
+1. CLI output of a session running a real task (`minsky session start --task mt#NNNN` → agent picks up work)
 2. MCP tool call result inside Claude Code (e.g., `mcp__minsky__tasks_get`)
 3. Cockpit widget showing active workstreams (the mission-control organ inside the larger frame)
 4. Reviewer-bot PR comment catching a real contract violation
