@@ -46,7 +46,7 @@ minsky tasks get gh#456
 minsky tasks status mt#123 IN-PROGRESS
 
 # Create session for qualified task
-minsky session start gh#456
+minsky session start --task gh#456
 ```
 
 ### Backend Selection
@@ -101,7 +101,7 @@ minsky session pr create --title "Implement feature X" --type feat
 minsky tasks list --backend gh
 
 # Start session for GitHub issue
-minsky session start gh#789
+minsky session start --task gh#789
 
 # Work on issue
 cd ~/.local/state/minsky/sessions/task-gh#789
