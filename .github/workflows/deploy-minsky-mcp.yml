@@ -110,27 +110,50 @@ jobs:
             exit 0
           fi
 
-          # Railway service identifiers from services/minsky-mcp/railway.config.ts
+          # Railway service identifiers from services/minsky-mcp/deploy.config.ts
           SERVICE_ID="a7c5195f-55de-472a-87e4-34e921a15171"
           ENVIRONMENT_ID="0289b171-1514-4540-ac93-19b30da3e2c0"
 
-          RESPONSE=$(curl -sS -X POST https://backboard.railway.com/graphql/v2 \
+          # This explicit redeploy trigger is REDUNDANT (mt#2342): Railway auto-deploys
+          # the pushed ghcr.io/edobry/minsky:latest image independently (verified:
+          # minsky-mcp deploys per-commit without this call). Therefore EVERY failure
+          # branch below is warn-not-fail — a failure here must NOT red the build.
+          # (Re-scope the RAILWAY_TOKEN secret to re-enable the explicit trigger; not
+          # required for deploys to happen.)
+          RESP_FILE="$(mktemp)"
+          HTTP_STATUS=$(curl -sS -o "${RESP_FILE}" -w "%{http_code}" -X POST https://backboard.railway.com/graphql/v2 \
             -H "Authorization: Bearer ${RAILWAY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}")
+            -d "{\"query\": \"mutation { serviceInstanceRedeploy(serviceId: \\\"${SERVICE_ID}\\\", environmentId: \\\"${ENVIRONMENT_ID}\\\") }\"}") || {
+              echo "::warning::Railway redeploy request failed (curl/network error). Non-fatal — Railway auto-deploys the pushed image independently."
+              exit 0
+            }
 
-          echo "Railway API response: ${RESPONSE}"
+          echo "Railway API HTTP ${HTTP_STATUS}; body: $(cat "${RESP_FILE}")"
 
-          if echo "${RESPONSE}" | jq -e '.errors // empty' > /dev/null 2>&1; then
-            # Non-fatal (mt#2342): this explicit redeploy trigger is redundant —
-            # Railway auto-deploys the pushed ghcr.io/edobry/minsky:latest image
-            # independently (verified: minsky-mcp deploys per-commit without this
-            # call). A failure here (e.g. a wrong-scoped RAILWAY_TOKEN returning
-            # "Not Authorized") must NOT red the build. Warn and continue; fix the
-            # secret's scope if you want the explicit trigger to work.
-            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — Railway auto-deploys the pushed image independently. Check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
-            echo "${RESPONSE}" | jq '.errors'
+          if [ "${HTTP_STATUS}" -lt 200 ] || [ "${HTTP_STATUS}" -ge 300 ]; then
+            echo "::warning::Railway redeploy got HTTP ${HTTP_STATUS}. Non-fatal — Railway auto-deploys the pushed image independently."
             exit 0
           fi
 
-          echo "Railway redeploy triggered successfully"
+          if ! jq -e . > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy response was not valid JSON. Non-fatal — Railway auto-deploys the pushed image independently."
+            exit 0
+          fi
+
+          if jq -e '.errors and (.errors | length > 0)' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "::warning::Railway redeploy not triggered (API returned errors). Non-fatal — check the RAILWAY_TOKEN secret scope to enable the explicit trigger."
+            jq '.errors' < "${RESP_FILE}"
+            exit 0
+          fi
+
+          # Positive success gate (shape-agnostic): Railway's serviceInstanceRedeploy
+          # return type is undocumented, so accept any present, non-null, non-false
+          # data value as success and warn otherwise — never report false success.
+          if jq -e '.data.serviceInstanceRedeploy != null and .data.serviceInstanceRedeploy != false' > /dev/null 2>&1 < "${RESP_FILE}"; then
+            echo "Railway redeploy triggered successfully"
+          else
+            echo "::warning::Railway redeploy did not confirm success (data.serviceInstanceRedeploy missing/null/false). Non-fatal — Railway auto-deploys the pushed image independently."
+            jq . < "${RESP_FILE}"
+            exit 0
+          fi
