@@ -32,3 +32,16 @@ export {
   MetadataExtractionPipeline,
   type ExtractionPipelineResult,
 } from "./metadata-extraction-pipeline";
+// Transcript pipeline staging (ADR-019 / mt#2381): extraction (turn-writer) and
+// the vector-only embedding backfill (per-turn-embedding-pipeline).
+export {
+  writeTurnsForTranscript,
+  extractTurnsForAllTranscripts,
+  type ExtractAllTurnsResult,
+} from "./turn-writer";
+export {
+  PerTurnEmbeddingPipeline,
+  type PipelineRunResult,
+  type PerTurnEmbeddingPipelineOptions,
+  type PerTurnEmbeddingRunOptions,
+} from "./per-turn-embedding-pipeline";
