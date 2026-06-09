@@ -389,10 +389,17 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
         await targetProvider.initialize();
 
-        const targetStorage = targetProvider.getStorage();
-        const writeResult = await targetStorage.writeState(sourceState);
-        if (!writeResult.success) {
-          throw new Error(`Failed to write to target: ${writeResult.error?.message}`);
+        // DrizzleSessionRepository is CRUD-per-record (no bulk writeState). The
+        // migrate target is a freshly-created backend, so insert each source
+        // session. Sessions are Postgres-only (ADR-018); cross-backend session
+        // migration is being retired with SQLite removal (mt#2349), which owns
+        // this command's broader rework.
+        const { createSessionProvider } = await import(
+          "@minsky/domain/session/drizzle-session-repository"
+        );
+        const targetSessionProvider = await createSessionProvider(undefined, targetProvider);
+        for (const session of sourceState.sessions) {
+          await targetSessionProvider.addSession(session);
         }
 
         log.cli(

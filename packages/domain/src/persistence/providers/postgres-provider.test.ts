@@ -15,7 +15,6 @@ import {
 // (no-real-fs-in-tests) is intentionally suspended for this targeted import.
 // eslint-disable-next-line custom/no-real-fs-in-tests
 import { existsSync } from "node:fs";
-import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../configuration/types";
 import { first } from "@minsky/shared/array-safety";
 import { persistenceConfigSchema } from "../../configuration/schemas/persistence";
@@ -88,24 +87,6 @@ describe("PostgresPersistenceProvider", () => {
 
   afterEach(() => {
     mock.restore();
-  });
-
-  test("getStorage() returns actual PostgresStorage instance, not stub", async () => {
-    // Mock successful connection
-    mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
-    await provider.initialize({ sqlClient: mockSql as any });
-
-    const storage = provider.getStorage();
-
-    // Should return real PostgresStorage instance, not stub
-    expect(storage).toBeInstanceOf(PostgresStorage);
-    expect((storage as unknown as PostgresStorage).readState).toBeDefined();
-    expect((storage as unknown as PostgresStorage).getEntities).toBeDefined();
-    expect((storage as unknown as PostgresStorage).initialize).toBeDefined();
-  });
-
-  test("getStorage() throws error when not initialized", () => {
-    expect(() => provider.getStorage()).toThrow("PostgresPersistenceProvider not initialized");
   });
 
   test("initialize() sets up provider correctly", async () => {

@@ -205,18 +205,19 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
     const provider = await resolvePersistenceProvider();
     if (provider) {
       try {
-        const storage = provider.getStorage();
-        const sessions = await storage.getEntities();
-        if (Array.isArray(sessions)) {
-          for (const s of sessions) {
-            if (s && typeof s === "object" && "taskId" in s && typeof s.taskId === "string") {
-              const rec = s as { taskId: string; sessionId?: string };
-              // Check if cwd is under this session's directory
-              const sessionId = rec.sessionId ?? "";
-              if (sessionId && cwd.includes(sessionId)) {
-                await provider.close();
-                return rec.taskId;
-              }
+        const { createSessionProvider } = await import(
+          "../../packages/domain/src/session/drizzle-session-repository"
+        );
+        // eslint-disable-next-line custom/no-singleton-reach-in -- hook bootstrap: the provider is passed via arg (DI), not reached-in
+        const sessionProvider = await createSessionProvider(undefined, provider);
+        const sessions = await sessionProvider.listSessions();
+        for (const rec of sessions) {
+          if (typeof rec.taskId === "string") {
+            // Check if cwd is under this session's directory
+            const sessionId = rec.sessionId ?? "";
+            if (sessionId && cwd.includes(sessionId)) {
+              await provider.close();
+              return rec.taskId;
             }
           }
         }

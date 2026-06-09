@@ -4,9 +4,7 @@
  * Creates appropriate persistence provider based on configuration.
  */
 
-import { PersistenceProvider, PersistenceConfig, type SessionStorage } from "./types";
-import type { SessionRecord } from "../session/types";
-import type { SessionDbState } from "../session/session-db";
+import { PersistenceProvider, PersistenceConfig } from "./types";
 import { PostgresProviderFactory } from "./providers/postgres-provider-factory";
 import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
 import { log } from "@minsky/shared/logger";
@@ -123,41 +121,6 @@ class MockPersistenceProvider extends PersistenceProvider {
 
   async initialize(): Promise<void> {
     // No-op for mock
-  }
-
-  getStorage(): SessionStorage {
-    const data = new Map<string, SessionRecord>();
-    let state: SessionDbState = { sessions: [], baseDir: "" };
-    const storage: SessionStorage = {
-      readState: async () => ({ success: true, data: state }),
-      writeState: async (newState: SessionDbState) => {
-        state = newState;
-        return { success: true };
-      },
-      getEntity: async (id: string) => data.get(id) ?? null,
-      getEntities: async () => Array.from(data.values()),
-      createEntity: async (entity: SessionRecord) => {
-        const id = entity.sessionId || String(data.size);
-        data.set(id, entity);
-        return entity;
-      },
-      updateEntity: async (id: string, updates: Partial<SessionRecord>) => {
-        const existing = data.get(id);
-        if (existing) {
-          const updated = { ...existing, ...updates };
-          data.set(id, updated);
-          return updated;
-        }
-        return null;
-      },
-      deleteEntity: async (id: string) => {
-        return data.delete(id);
-      },
-      entityExists: async (id: string) => data.has(id),
-      initialize: async () => true,
-      getStorageLocation: () => "mock-storage",
-    };
-    return storage;
   }
 
   async getVectorStorage() {

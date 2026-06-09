@@ -2,7 +2,30 @@ import type { TaskServiceInterface } from "../tasks";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
-import type { DatabaseQueryOptions } from "../storage/database-storage";
+
+/**
+ * Generic options for querying/listing session records at the storage layer.
+ * (Relocated from the retired `storage/database-storage` module in mt#2329;
+ * the sessions domain is now its sole consumer.)
+ */
+export interface DatabaseQueryOptions {
+  /** Inclusive lower bound on createdAt (ISO string) */
+  createdAfter?: string;
+  /** Inclusive upper bound on createdAt (ISO string) */
+  createdBefore?: string;
+  /** Maximum number of records to return */
+  limit?: number;
+  /** Number of records to skip (for paging) */
+  offset?: number;
+  /**
+   * Ordering directives applied at the storage layer.
+   * Multiple entries are applied in order; the first is the primary sort key.
+   * `field` must match a column on the entity (e.g., "lastActivityAt", "createdAt").
+   */
+  orderBy?: Array<{ field: string; direction: "asc" | "desc" }>;
+  /** Allow additional implementation-specific options */
+  [key: string]: unknown;
+}
 
 export enum SessionStatus {
   CREATED = "CREATED",

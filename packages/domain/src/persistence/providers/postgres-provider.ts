@@ -16,7 +16,6 @@ import {
   SqlCapablePersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
-  type SessionStorage,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "@minsky/shared/logger";
@@ -189,7 +188,6 @@ export class PostgresPersistenceProvider
   protected listenSql: ReturnType<typeof postgres> | null = null;
   protected config: PersistenceConfig;
   protected isInitialized = false;
-  private cachedStorage: SessionStorage | null = null;
 
   /**
    * Base PostgreSQL capabilities (no vector storage)
@@ -327,32 +325,6 @@ export class PostgresPersistenceProvider
    */
   getCapabilities(): PersistenceCapabilities {
     return this.capabilities;
-  }
-
-  /**
-   * Get storage instance for domain entities
-   */
-  getStorage(): SessionStorage {
-    if (!this.isInitialized) {
-      throw new Error("PostgresPersistenceProvider not initialized");
-    }
-
-    // Return cached storage instance — creating a new one every call caused
-    // independent connection pools and fire-and-forget initialization (mt#722)
-    if (this.cachedStorage) {
-      return this.cachedStorage;
-    }
-
-    const { PostgresStorage } = require("../../storage/backends/postgres-storage");
-    // PostgresStorage reuses this provider's sql client (see constructor); it
-    // does not open its own sockets, so only connectionString is needed.
-    const storage = new PostgresStorage(
-      { connectionString: this.pgConfig.connectionString },
-      this // Pass provider so storage reuses our connections
-    );
-
-    this.cachedStorage = storage;
-    return storage as SessionStorage;
   }
 
   /**
