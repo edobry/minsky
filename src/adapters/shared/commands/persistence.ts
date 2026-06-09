@@ -388,18 +388,34 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
         await targetProvider.initialize();
 
-        // DrizzleSessionRepository is CRUD-per-record (no bulk writeState). The
-        // migrate target is a freshly-created backend, so insert each source
-        // session. Sessions are Postgres-only (ADR-018); cross-backend session
-        // migration is being retired with SQLite removal (mt#2349), which owns
-        // this command's broader rework.
-        const { createSessionProvider } = await import(
-          "@minsky/domain/session/drizzle-session-repository"
+        // Full replacement (preserves the retired writeState semantics that the
+        // plan text above promises): clear the target sessions table and bulk-
+        // insert the source rows in ONE transaction. (R3 BLOCKING: the per-record
+        // addSession loop did blind inserts — not a replacement — which could
+        // conflict on a same-DB target and contradicted the "full replacement"
+        // plan wording.) Sessions are Postgres-only (ADR-018); the broader migrate
+        // rework is mt#2349.
+        const { postgresSessions, toPostgresInsert } = await import(
+          "@minsky/domain/storage/schemas/session-schema"
         );
-        const targetSessionProvider = await createSessionProvider(undefined, targetProvider);
-        for (const session of sourceState.sessions) {
-          await targetSessionProvider.addSession(session);
+        const targetDb = (await targetProvider.getDatabaseConnection?.()) as
+          | import("drizzle-orm/postgres-js").PostgresJsDatabase
+          | undefined;
+        if (!targetDb) {
+          throw new Error(
+            "Target provider returned no Postgres connection for the migration write."
+          );
         }
+        await targetDb.transaction(async (tx) => {
+          await tx.delete(postgresSessions);
+          const BATCH_SIZE = 250;
+          for (let i = 0; i < sourceState.sessions.length; i += BATCH_SIZE) {
+            const slice = sourceState.sessions.slice(i, i + BATCH_SIZE);
+            if (slice.length > 0) {
+              await tx.insert(postgresSessions).values(slice.map((s) => toPostgresInsert(s)));
+            }
+          }
+        });
 
         log.cli(
           `✅ Data successfully migrated to ${to} backend (${sourceState.sessions.length} sessions)`
