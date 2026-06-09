@@ -129,9 +129,10 @@ mcp:
     # reviewer.retrigger to authenticate against the reviewer service.
     token: "<mcp-auth-token>"
 reviewer:
-  # Base URL of the reviewer webhook service. Optional; defaults to the hosted
-  # service when unset.
-  url: "https://minsky-reviewer-webhook.up.railway.app"
+  # Base URL of the reviewer webhook service. Optional; when unset, falls back to
+  # the hosted production service (minsky-reviewer-webhook-production.up.railway.app).
+  # Set this only to point at a non-default deployment.
+  url: "https://minsky-reviewer-webhook-production.up.railway.app"
 ```
 
 - `mcp.auth.token` — required to run `reviewer.retrigger`. When absent the command errors.

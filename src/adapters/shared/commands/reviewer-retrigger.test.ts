@@ -20,13 +20,15 @@
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { resolveReviewerEndpoint } from "./reviewer-retrigger";
+// mt#2359: import the production constant rather than re-declaring a literal.
+// The prior local copy held the wrong (no `-production`) URL and "passed" while
+// validating the wrong value — the SoT-duplication-masks-the-bug failure. The
+// fallback-URL assertion below is now anchored to the real default the command uses.
+import { resolveReviewerEndpoint, DEFAULT_REVIEWER_URL } from "./reviewer-retrigger";
 import {
   environmentMappings,
   loadEnvironmentConfiguration,
 } from "@minsky/domain/configuration/sources/environment";
-
-const DEFAULT_REVIEWER_URL = "https://minsky-reviewer-webhook.up.railway.app";
 
 const TOKEN_ENV = "MINSKY_MCP_AUTH_TOKEN";
 const URL_ENV = "MINSKY_REVIEWER_URL";
@@ -37,6 +39,18 @@ const CFG_TOKEN = "cfg-token";
 const ENV_TOKEN = "env-token";
 const CFG_URL = "https://reviewer.example.test";
 const ENV_URL = "https://env-reviewer.example.test";
+
+describe("DEFAULT_REVIEWER_URL drift sentinel (mt#2359)", () => {
+  // Offline regression guard: the prior value omitted `-production` and 404'd.
+  // Railway publishes services at `<service>-<environment>.up.railway.app`; the
+  // reviewer service (infra/index.ts) is `minsky-reviewer-webhook` in the
+  // `production` environment. The live /health drift guard is
+  // scripts/smoke-retrigger-default-url.ts; this is the network-free sentinel.
+  it("points at the production Railway host (has the -production suffix)", () => {
+    expect(DEFAULT_REVIEWER_URL).toBe("https://minsky-reviewer-webhook-production.up.railway.app");
+    expect(DEFAULT_REVIEWER_URL).toContain("-production.up.railway.app");
+  });
+});
 
 describe("resolveReviewerEndpoint (mt#2269 URL, mt#2346 auth)", () => {
   it("resolves the auth token from the MCP config and falls back to the default URL", () => {

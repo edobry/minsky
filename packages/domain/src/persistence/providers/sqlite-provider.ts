@@ -6,14 +6,7 @@
 
 import { Database } from "bun:sqlite";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import {
-  PersistenceProvider,
-  PersistenceCapabilities,
-  PersistenceConfig,
-  type SessionStorage,
-} from "../types";
-import { SqliteStorage } from "../../storage/backends/sqlite-storage";
-import type { SqliteStorageConfig } from "../../storage/backends/sqlite-storage";
+import { PersistenceProvider, PersistenceCapabilities, PersistenceConfig } from "../types";
 import { log } from "@minsky/shared/logger";
 import { mkdirSync, existsSync } from "fs";
 import { dirname, join } from "path";
@@ -26,7 +19,6 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
   private config: PersistenceConfig;
   private db: Database | null = null;
   private drizzleDb: ReturnType<typeof drizzle> | null = null;
-  private storage: SqliteStorage | null = null;
   private isInitialized = false;
 
   /**
@@ -88,20 +80,9 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
       openedDb.exec("PRAGMA temp_store = memory;");
       openedDb.exec("PRAGMA busy_timeout = 5000;");
 
-      // Create storage instance
-      const storageConfig: SqliteStorageConfig = {
-        dbPath,
-        enableWAL: true,
-        timeout: 5000,
-      };
-
-      const storage = new SqliteStorage(storageConfig);
-      await storage.initialize();
-
       // All initialization succeeded — now cache
       this.db = openedDb;
       this.drizzleDb = drizzleDb;
-      this.storage = storage;
       this.isInitialized = true;
       log.info(`SQLite database initialized: ${dbPath}`);
     } catch (error) {
@@ -115,7 +96,6 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
       }
       this.db = null;
       this.drizzleDb = null;
-      this.storage = null;
       this.isInitialized = false;
       log.error(
         "Failed to initialize SQLite provider:",
@@ -130,16 +110,6 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
    */
   getCapabilities(): PersistenceCapabilities {
     return this.capabilities;
-  }
-
-  /**
-   * Get storage instance for domain entities
-   */
-  getStorage(): SessionStorage {
-    if (!this.storage) {
-      throw new Error("SqlitePersistenceProvider not initialized");
-    }
-    return this.storage;
   }
 
   /**
@@ -166,10 +136,6 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
    * Close database connections
    */
   async close(): Promise<void> {
-    if (this.storage) {
-      await this.storage.close();
-      this.storage = null;
-    }
     if (this.db) {
       this.db.close();
       this.db = null;

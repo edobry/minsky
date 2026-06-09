@@ -23,7 +23,19 @@ import type { ReviewerConfig } from "@minsky/domain/configuration/schemas/review
 // `MINSKY_REVIEWER_URL` env override (mapped to `reviewer.url`) is set. The env
 // override is resolved through the config system (mt#2269), not a direct
 // `process.env` read here.
-const DEFAULT_REVIEWER_URL = "https://minsky-reviewer-webhook.up.railway.app";
+//
+// mt#2359: this is the SINGLE source of truth for the default reviewer host —
+// the test imports it (rather than re-declaring a literal that can silently
+// drift to a different value and mask a bug). The value MUST be the Railway
+// auto-generated public domain `<service>-<environment>.up.railway.app`; the
+// service is named `minsky-reviewer-webhook` (infra/index.ts) in the
+// `production` environment, hence the `-production` suffix. The prior value
+// omitted `-production` and 404'd the default retrigger path. The public host
+// can't be cheaply derived at runtime (deploy.config.ts holds Railway IDs, not
+// the hostname; live derivation needs Railway API creds the operator lacks), so
+// this cached constant is intentional — guarded by scripts/smoke-retrigger-default-url.ts
+// which probes `/health` so a future drift to a dead host is caught.
+export const DEFAULT_REVIEWER_URL = "https://minsky-reviewer-webhook-production.up.railway.app";
 
 // ---------------------------------------------------------------------------
 // reviewer.retrigger

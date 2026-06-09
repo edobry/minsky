@@ -123,7 +123,9 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
       const {
         to,
         from,
-        sqlitePath,
+        // sqlitePath param retained on the schema but unused: SQLite is no longer a
+        // valid migration target (sessions are Postgres-only, mt#2329).
+        sqlitePath: _sqlitePath,
         backup = true,
         execute,
         setDefault,
@@ -179,6 +181,18 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         if (to !== "sqlite" && to !== "postgres") {
           throw new Error(
             `❌ Unsupported backend target: ${String(to)}. Supported backends: sqlite, postgres`
+          );
+        }
+        // mt#2329 / ADR-018: sessions are Postgres-only. Session writes go through
+        // the Postgres-only DrizzleSessionRepository, so a SQLite TARGET can no
+        // longer perform a session migration (migrating FROM sqlite TO postgres
+        // remains the valid direction). Fail fast with a clear message rather than
+        // throwing deep in the repository. The broader SQLite removal is mt#2349.
+        if (to === "sqlite") {
+          throw new Error(
+            "❌ Session migration to a SQLite target is no longer supported: sessions are " +
+              "Postgres-only (ADR-018 / mt#2329). Migrate to postgres instead. " +
+              "SQLite removal is tracked by mt#2349."
           );
         }
 
@@ -339,61 +353,69 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           }
         }
 
-        // Create target storage with config-driven approach
+        // Create target storage. `to` is narrowed to "postgres" by the
+        // SQLite-target guard above (sessions are Postgres-only, ADR-018 / mt#2329).
         const targetConfig: Record<string, unknown> = { backend: to };
-        let targetSqlitePath: string | undefined;
-        let _targetPostgresConn: string | undefined;
-
-        if (to === "sqlite") {
-          targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
-          targetConfig.sqlite = {
-            dbPath: targetSqlitePath,
-          };
-        } else if (to === "postgres") {
-          const effectiveTarget = getEffectivePersistenceConfig(config);
-          const connectionString = effectiveTarget.connectionString;
-
-          if (!connectionString) {
-            throw new Error(
-              "PostgreSQL connection string not found. " +
-                "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
-            );
-          }
-
-          log.cli(
-            `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
-          );
-          _targetPostgresConn = connectionString;
-          // Use the full postgres sub-object so pool settings are preserved.
-          targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
-        }
-
-        // Use SessionProviderInterface for data migration via DI closure
-        const { sessionProvider: sessionProvider2 } = getPersistenceDeps();
-        if (!sessionProvider2) {
+        const effectiveTarget = getEffectivePersistenceConfig(config);
+        const connectionString = effectiveTarget.connectionString;
+        if (!connectionString) {
           throw new Error(
-            "DI container missing 'sessionProvider'. Ensure container.initialize() was called before command execution."
+            "PostgreSQL connection string not found. " +
+              "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
           );
         }
-        const sessions = await sessionProvider2.listSessions();
+        log.cli(
+          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+        );
+        // Use the full postgres sub-object so pool settings are preserved.
+        targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
 
+        // Source sessions for the write: use the normalized records computed
+        // above — they honor `--from` when a backup file was supplied and skip
+        // legacy taskId-less rows. (R2 BLOCKING fix: EXECUTE previously did a
+        // second listSessions() re-read, ignoring `--from`. The bug pre-dates this
+        // PR — the top-of-command source read already used listSessions for the
+        // configured backend — but it is fixed here while this path is touched.)
         const sourceState = {
-          sessions,
+          sessions: normalizedRecords,
           baseDir: getMinskyStateDir(),
         };
 
-        log.cli(`✅ Read ${sourceState.sessions.length} sessions from source backend`);
+        log.cli(`✅ Migrating ${sourceState.sessions.length} session(s) to the target backend`);
 
         // Create target provider with new backend
         const newTargetConfig = { ...targetConfig, backend: to };
         const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
         await targetProvider.initialize();
 
-        const targetStorage = targetProvider.getStorage();
-        const writeResult = await targetStorage.writeState(sourceState);
-        if (!writeResult.success) {
-          throw new Error(`Failed to write to target: ${writeResult.error?.message}`);
+        // Full replacement (preserves the retired writeState semantics that the
+        // plan text above promises): clear the target sessions table and bulk-
+        // insert the source rows in ONE transaction. (R3 BLOCKING: the per-record
+        // addSession loop did blind inserts — not a replacement — which could
+        // conflict on a same-DB target and contradicted the "full replacement"
+        // plan wording.) Sessions are Postgres-only (ADR-018); the broader migrate
+        // rework is mt#2349.
+        const { postgresSessions, toPostgresInsert } = await import(
+          "@minsky/domain/storage/schemas/session-schema"
+        );
+        const targetDb = (await targetProvider.getDatabaseConnection?.()) as
+          | import("drizzle-orm/postgres-js").PostgresJsDatabase
+          | undefined;
+        if (!targetDb) {
+          throw new Error(
+            "Target provider returned no Postgres connection for the migration write."
+          );
         }
+        await targetDb.transaction(async (tx) => {
+          await tx.delete(postgresSessions);
+          const BATCH_SIZE = 250;
+          for (let i = 0; i < sourceState.sessions.length; i += BATCH_SIZE) {
+            const slice = sourceState.sessions.slice(i, i + BATCH_SIZE);
+            if (slice.length > 0) {
+              await tx.insert(postgresSessions).values(slice.map((s) => toPostgresInsert(s)));
+            }
+          }
+        });
 
         log.cli(
           `✅ Data successfully migrated to ${to} backend (${sourceState.sessions.length} sessions)`

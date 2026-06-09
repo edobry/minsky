@@ -10,6 +10,13 @@
 > **All command / config / env-var examples below are legacy** and may reference superseded
 > names (`MINSKY_POSTGRES_URL`, `[sessiondb]` TOML keys, SQLite backends); the canonical
 > equivalents are `persistence.*` (YAML) and `MINSKY_PERSISTENCE_POSTGRES_URL`.
+>
+> **Migration to a SQLite TARGET is no longer functional (mt#2329).** Sessions are
+> Postgres-only under ADR-018, and session writes go through the Postgres-only
+> `DrizzleSessionRepository`. `minsky persistence migrate ... to sqlite` (and the
+> `to: "sqlite"` target in any wrapper) now **hard-errors** with a clear message —
+> migrate **to postgres** instead. Migrating _from_ SQLite to Postgres remains the
+> valid direction. The broader SQLite removal is tracked by **mt#2349**.
 
 This guide covers migrating session data between different storage backends in Minsky (SQLite, PostgreSQL).
 

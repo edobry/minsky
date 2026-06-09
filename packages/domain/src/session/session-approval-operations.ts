@@ -7,7 +7,7 @@
 
 import { log } from "@minsky/shared/logger";
 import { ValidationError, ResourceNotFoundError } from "../errors/index";
-import { type SessionProviderInterface } from "./session-db-adapter";
+import { type SessionProviderInterface } from "./types";
 import { extractGitHubInfoFromUrl } from "./repository-backend-detection";
 
 import {

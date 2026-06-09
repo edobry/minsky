@@ -87,24 +87,6 @@ export const githubIssueSchema = z.object({
   ),
 });
 
-/**
- * Schema for session database state
- */
-export const sessionDbStateSchema = z.object({
-  sessions: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      repoUrl: z.string(),
-      repoPath: z.string().optional(),
-      createdAt: z.string(),
-      taskId: z.string().optional(),
-      branch: z.string().optional(),
-    })
-  ),
-  lastUpdated: z.string(),
-});
-
 // Export type definitions
 export type TaskState = z.infer<typeof taskStateSchema>;
 export type DatabaseReadResult<T = unknown> = z.infer<typeof databaseReadResultSchema> & {
@@ -114,7 +96,6 @@ export type DatabaseWriteResult = z.infer<typeof databaseWriteResultSchema>;
 export type TaskReadOperationResult = z.infer<typeof taskReadOperationResultSchema>;
 export type TaskWriteOperationResult = z.infer<typeof taskWriteOperationResultSchema>;
 export type GitHubIssue = z.infer<typeof githubIssueSchema>;
-export type SessionDbState = z.infer<typeof sessionDbStateSchema>;
 
 // Validation functions
 export function validateTaskState(data: unknown): TaskState {
@@ -143,8 +124,4 @@ export function validateGitHubIssue(data: unknown): GitHubIssue {
 
 export function validateGitHubIssues(data: unknown): GitHubIssue[] {
   return z.array(githubIssueSchema).parse(data);
-}
-
-export function validateSessionDbState(data: unknown): SessionDbState {
-  return sessionDbStateSchema.parse(data);
 }
