@@ -74,7 +74,7 @@ interpretability:
 
 ### Rules
 
-- **One verification command per call, output visible.** Pipe to `tail -N` if it is chatty;
+- **One verification command per call, output visible.** Pipe to `tail -n N` if it is chatty;
   never `>/dev/null` a command whose pass/fail you need to read.
 - **Never chain verification commands** with `&&` / `||` / `;` in a single call. Run lint,
   then format, then typecheck as separate calls so each result — and which one failed — is
@@ -93,10 +93,10 @@ bun run lint:strict >/dev/null 2>&1 && echo PASS || echo FAIL; bun run format:ch
 
 **✅ Preferred (separate calls, visible output):**
 ```bash
-bun run lint:strict 2>&1 | tail -20
+bun run lint:strict 2>&1 | tail -n 20
 ```
 ```bash
-bun run format:check 2>&1 | tail -20
+bun run format:check 2>&1 | tail -n 20
 ```
 
 ## Rationale
