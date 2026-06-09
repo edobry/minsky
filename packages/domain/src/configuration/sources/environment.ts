@@ -58,7 +58,6 @@ export const environmentMappings = {
 
   // Persistence configuration (modern — populates `persistence.*`)
   MINSKY_PERSISTENCE_BACKEND: "persistence.backend",
-  MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
   MINSKY_PERSISTENCE_POSTGRES_URL: "persistence.postgres.connectionString",
 
   // Persistence configuration (modern key). MINSKY_POSTGRES_URL is the canonical
@@ -351,7 +350,6 @@ function envVarToConfigPath(envVar: string): string | null {
 
   if (parts[0] === "persistence") {
     // PERSISTENCE_BACKEND -> persistence.backend
-    // PERSISTENCE_SQLITE_DBPATH -> persistence.sqlite.dbPath
     // PERSISTENCE_POSTGRES_CONNECTIONSTRING -> persistence.postgres.connectionString
     if (parts.length === 2) {
       return `persistence.${camelCase(elementAt(parts, 1, "persistence field"))}`;

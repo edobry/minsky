@@ -6,7 +6,6 @@
 
 import { PersistenceProvider, PersistenceConfig } from "./types";
 import { PostgresProviderFactory } from "./providers/postgres-provider-factory";
-import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
 import { log } from "@minsky/shared/logger";
 
 /**
@@ -64,13 +63,6 @@ export class PersistenceProviderFactory {
         }
         // Use factory to create appropriate PostgreSQL provider based on runtime capabilities
         provider = await PostgresProviderFactory.create(config);
-        break;
-
-      case "sqlite":
-        if (!config.sqlite) {
-          throw new Error("SQLite configuration required for sqlite backend");
-        }
-        provider = new SqlitePersistenceProvider(config);
         break;
 
       default:

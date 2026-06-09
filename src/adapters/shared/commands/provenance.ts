@@ -89,7 +89,7 @@ export function registerProvenanceCommands(
         if (!db) {
           throw new Error(
             "getDatabaseConnection() returned null. " +
-              "provenance.get requires a PostgreSQL or SQLite backend with Drizzle ORM."
+              "provenance.get requires a PostgreSQL backend with Drizzle ORM."
           );
         }
 

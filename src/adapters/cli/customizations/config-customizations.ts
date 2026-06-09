@@ -285,13 +285,10 @@ export function getPersistenceCustomizations(): {
           parameters: {
             to: {
               asArgument: true,
-              description: "Target backend (sqlite, postgres)",
+              description: "Target backend (postgres)",
             },
             from: {
               description: "Source backend (auto-detect if not specified)",
-            },
-            sqlitePath: {
-              description: "SQLite database file path",
             },
             connectionString: {
               description: "PostgreSQL connection string",

@@ -2,7 +2,7 @@
  * Persistence Configuration Schema
  *
  * Defines the configuration schema for the PersistenceProvider system.
- * Supports PostgreSQL and SQLite storage backends.
+ * Supports the PostgreSQL storage backend.
  */
 
 import { z } from "zod";
@@ -67,16 +67,9 @@ const postgresConfigSchema = z.object({
 });
 
 /**
- * SQLite persistence configuration schema
- */
-const sqliteConfigSchema = z.object({
-  dbPath: z.string(),
-});
-
-/**
  * Persistence provider backend types
  */
-export const persistenceBackendSchema = z.enum(["postgres", "sqlite"]);
+export const persistenceBackendSchema = z.enum(["postgres"]);
 
 /**
  * Main persistence configuration schema
@@ -84,7 +77,6 @@ export const persistenceBackendSchema = z.enum(["postgres", "sqlite"]);
 export const persistenceConfigSchema = z.object({
   backend: persistenceBackendSchema,
   postgres: postgresConfigSchema.optional(),
-  sqlite: sqliteConfigSchema.optional(),
 });
 
 /**
@@ -92,7 +84,6 @@ export const persistenceConfigSchema = z.object({
  */
 export type PersistenceBackend = z.infer<typeof persistenceBackendSchema>;
 export type PostgresConfig = z.infer<typeof postgresConfigSchema>;
-export type SqliteConfig = z.infer<typeof sqliteConfigSchema>;
 export type PersistenceConfig = z.infer<typeof persistenceConfigSchema>;
 
 /**
@@ -109,11 +100,6 @@ export const persistenceValidation = {
       case "postgres":
         if (!config.postgres?.connectionString) {
           errors.push("PostgreSQL backend requires connectionString");
-        }
-        break;
-      case "sqlite":
-        if (!config.sqlite?.dbPath) {
-          errors.push("SQLite backend requires dbPath");
         }
         break;
     }

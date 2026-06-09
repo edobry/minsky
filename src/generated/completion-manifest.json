@@ -4075,11 +4075,6 @@
               "takesValue": true
             },
             {
-              "flags": ["--sqlite-path"],
-              "description": "SQLite database file path",
-              "takesValue": true
-            },
-            {
               "flags": ["--backup"],
               "description": "Create backup in specified directory"
             },
@@ -4106,15 +4101,10 @@
           "description": "Check database integrity and detect issues",
           "options": [
             {
-              "flags": ["--file"],
-              "description": "Path to database file to check (SQLite only)",
-              "takesValue": true
-            },
-            {
               "flags": ["--backend"],
               "description": "Force specific backend validation",
               "takesValue": true,
-              "values": ["sqlite", "postgres"]
+              "values": ["postgres"]
             },
             {
               "flags": ["--fix"],

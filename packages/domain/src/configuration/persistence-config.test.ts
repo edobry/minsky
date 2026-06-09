@@ -48,11 +48,14 @@ describe("getEffectivePersistenceConfig", () => {
     expect(result.connectionString).toBe(POSTGRES_URL);
   });
 
-  test("no config, no env: defaults to sqlite with default dbPath", () => {
+  test("no config, no env: defaults to postgres with no synthesized connection", () => {
     const config = makeConfig({});
     const result = getEffectivePersistenceConfig(config);
-    expect(result.backend).toBe("sqlite");
-    expect(result.dbPath).toBeTruthy();
+    expect(result.backend).toBe("postgres");
+    // No connection string is fabricated — the factory raises a clear
+    // "configure Postgres" error at provider-create time (ADR-018 / mt#2349).
+    expect(result.connectionString).toBeUndefined();
+    expect(result.postgres).toBeUndefined();
   });
 
   test("postgres.maxConnections is preserved on the returned postgres sub-object", () => {
@@ -90,17 +93,6 @@ describe("getEffectivePersistenceConfig", () => {
     });
   });
 
-  test("sqlite sub-object is populated with dbPath when backend is sqlite", () => {
-    const config = makeConfig({
-      persistence: {
-        backend: "sqlite",
-        sqlite: { dbPath: "/tmp/explicit.db" },
-      },
-    });
-    const result = getEffectivePersistenceConfig(config);
-    expect(result.sqlite?.dbPath).toBe("/tmp/explicit.db");
-  });
-
   test("env-var connectionString is merged with modern postgres extras", () => {
     // connectionString comes from env; modern postgres block carries extras but no connectionString.
     process.env.MINSKY_POSTGRES_URL = POSTGRES_URL;
@@ -120,17 +112,7 @@ describe("getEffectivePersistenceConfig", () => {
     expect(result.postgres?.connectTimeout).toBe(30);
   });
 
-  test("postgres sub-object is absent when backend is sqlite", () => {
-    process.env.MINSKY_POSTGRES_URL = POSTGRES_URL;
-    const config = makeConfig({
-      persistence: { backend: "sqlite", sqlite: { dbPath: "/tmp/test.db" } },
-    });
-    const result = getEffectivePersistenceConfig(config);
-    expect(result.postgres).toBeUndefined();
-    expect(result.sqlite?.dbPath).toBe("/tmp/test.db");
-  });
-
-  test("sqlite sub-object is absent when backend is postgres", () => {
+  test("postgres sub-object is present when backend is postgres", () => {
     const config = makeConfig({
       persistence: {
         backend: "postgres",
@@ -138,7 +120,6 @@ describe("getEffectivePersistenceConfig", () => {
       },
     });
     const result = getEffectivePersistenceConfig(config);
-    expect(result.sqlite).toBeUndefined();
     expect(result.postgres?.connectionString).toBe(POSTGRES_URL);
   });
 

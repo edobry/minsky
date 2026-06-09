@@ -27,6 +27,49 @@ interface Registration<T> {
   dispose?: (instance: T) => Promise<void>;
 }
 
+/**
+ * True when an error carries the structural `bootDeferrable` marker — used by
+ * `initialize()` to distinguish "resource not configured at boot" (defer to
+ * use-time) from real wiring bugs (fail fast). The marker is checked
+ * structurally so this generic container layer stays decoupled from the
+ * persistence layer that raises it (see `PersistenceUnavailableError`).
+ */
+function isBootDeferrable(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { bootDeferrable?: unknown }).bootDeferrable === true
+  );
+}
+
+/**
+ * Build a placeholder for a service whose construction was deferred because a
+ * required resource (Postgres) was unavailable at boot. Any attempt to USE the
+ * service throws with the original message; benign symbol / `then` / constructor
+ * lookups return undefined so the placeholder isn't mistaken for a thenable and
+ * doesn't break inspection or `instanceof`-style checks.
+ */
+function makeDeferredFailurePlaceholder(key: string, message: string): object {
+  const fail = (): never => {
+    throw new Error(
+      `Service "${key}" is unavailable: it could not be constructed at startup because a required resource is not configured. ${message}`
+    );
+  };
+  // A callable target so the apply/construct traps are valid for service
+  // placeholders that may be invoked as functions or constructors.
+  const target = function placeholder() {};
+  return new Proxy(target, {
+    get(_t, prop) {
+      if (typeof prop === "symbol" || prop === "then" || prop === "constructor") {
+        return undefined;
+      }
+      return fail();
+    },
+    apply: () => fail(),
+    construct: () => fail(),
+  }) as object;
+}
+
 export class TsyringeContainer implements AppContainerInterface {
   private readonly tsyringe: DependencyContainer;
   private readonly factories = new Map<string, Registration<unknown>>();
@@ -81,8 +124,27 @@ export class TsyringeContainer implements AppContainerInterface {
       const registration = this.factories.get(key);
       if (!registration) continue;
 
-      const instance = await Promise.resolve(registration.factory(this));
-      this.tsyringe.register(key, { useValue: instance });
+      try {
+        const instance = await Promise.resolve(registration.factory(this));
+        this.tsyringe.register(key, { useValue: instance });
+      } catch (err) {
+        // Boot-tolerant deferral (mt#2349): a factory may fail because a
+        // required resource is unavailable at boot — specifically, the absence
+        // of a configured Postgres connection (the former silent SQLite fallback
+        // was removed). Such errors carry a structural `bootDeferrable` marker.
+        // Defer ONLY those to use-time by registering a placeholder that re-throws
+        // when the service is actually touched, so non-DB commands and `/health`
+        // still boot. Every OTHER error (real wiring bug) aborts boot loudly,
+        // preserving the fail-fast / no-DI-fallback discipline.
+        if (isBootDeferrable(err)) {
+          const message = err instanceof Error ? err.message : String(err);
+          this.tsyringe.register(key, {
+            useValue: makeDeferredFailurePlaceholder(String(key), message),
+          });
+          continue;
+        }
+        throw err;
+      }
     }
   }
 

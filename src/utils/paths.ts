@@ -9,7 +9,6 @@ export {
   getSessionDbDir,
   getSessionsDir,
   getSessionDir,
-  getDefaultSqliteDbPath,
   getGlobalUserConfigPath,
   getRepositoryConfigPath,
   expandTilde,
