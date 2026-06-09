@@ -60,6 +60,12 @@ import { decideRouting, extractTierFromPRBody } from "./tier-routing";
 import type { Octokit } from "@octokit/rest";
 import type { ReviewerDb } from "./db/client";
 import { pruneStaleMarkers, listActiveMarkersForPRs, markerKey } from "./inflight-marker";
+import {
+  listOpenCircuitsForPRs,
+  markCircuitAlerted,
+  submissionFailureKey,
+  type OpenCircuit,
+} from "./submission-failure-tracker";
 import { log } from "./logger";
 import { extractPgErrorContext } from "./webhook-events";
 
@@ -319,6 +325,17 @@ export interface SweeperDeps {
    * that don't need it).
    */
   db?: ReviewerDb;
+  /**
+   * Optional override for the open-circuit lookup (mt#2350). Defaults to the
+   * real `listOpenCircuitsForPRs`. Injected in tests to exercise the
+   * circuit-breaker skip path without a real DB.
+   */
+  listOpenCircuitsFn?: typeof listOpenCircuitsForPRs;
+  /**
+   * Optional override for marking an open circuit alerted (mt#2350). Defaults
+   * to the real `markCircuitAlerted`.
+   */
+  markCircuitAlertedFn?: typeof markCircuitAlerted;
 }
 
 /**
@@ -395,7 +412,10 @@ export async function runSweep(
   const startedAt = new Date().toISOString();
   const { owner, repo } = sweeperConfig;
 
-  const { octokit, botLogin, runReviewFn, db } = depsOverride ?? (await buildSweeperDeps(config));
+  const deps = depsOverride ?? (await buildSweeperDeps(config));
+  const { octokit, botLogin, runReviewFn, db } = deps;
+  const listOpenCircuitsFn = deps.listOpenCircuitsFn ?? listOpenCircuitsForPRs;
+  const markCircuitAlertedFn = deps.markCircuitAlertedFn ?? markCircuitAlerted;
 
   log.info("sweeper.cycle_start", {
     event: "sweeper.cycle_start",
@@ -512,6 +532,65 @@ export async function runSweep(
         ...extractPgErrorContext(lookupErr),
       });
       // Fail-open: proceed with all missing PRs if lookup fails.
+    }
+  }
+
+  // 2c. Circuit breaker (mt#2350): drop PRs whose (PR, head_sha) has an OPEN
+  // circuit from a non-retryable submission failure. Retriggering them just
+  // pays another OpenAI review cycle to 422 again on submit. Emit a one-shot
+  // operator alert per open circuit. Fail-open: a lookup error leaves all PRs
+  // eligible (prefer an extra retrigger over blocking the whole sweep).
+  if (db !== undefined && filteredMissing.length > 0) {
+    let openCircuits: Map<string, OpenCircuit>;
+    try {
+      openCircuits = await listOpenCircuitsFn(
+        db,
+        filteredMissing.map((m) => ({ owner, repo, prNumber: m.number, headSha: m.headSha }))
+      );
+    } catch (circuitErr: unknown) {
+      openCircuits = new Map();
+      log.warn("sweeper.circuit_lookup_failed_proceeding", {
+        event: "sweeper.circuit_lookup_failed_proceeding",
+        missing_count: filteredMissing.length,
+        ...extractPgErrorContext(circuitErr),
+      });
+    }
+
+    if (openCircuits.size > 0) {
+      filteredMissing = filteredMissing.filter((m) => {
+        const open = openCircuits.get(submissionFailureKey(owner, repo, m.number, m.headSha));
+        if (open === undefined) return true;
+
+        log.warn("sweeper.circuit_open_skip", {
+          event: "sweeper.circuit_open_skip",
+          pr: m.number,
+          headSha: m.headSha,
+          errorClass: open.errorClass,
+          lastStatus: open.lastStatus,
+          consecutiveCount: open.consecutiveCount,
+        });
+
+        // One-shot operator alert (mt#2350 SC-5). mt#1596 Phase 1's
+        // cloud-native alert sink is not yet shipped (PLANNING), so this routes
+        // through the mt#1372 operator-notify surface — a distinct error-level
+        // structured-log event — and cross-references mt#1596 for convergence.
+        // Deduped via the `alerted` column so we alert at most once per circuit.
+        if (!open.alerted) {
+          log.error("sweeper.circuit_breaker_tripped", {
+            event: "sweeper.circuit_breaker_tripped",
+            message: `Reviewer review submission for PR #${m.number} @ ${m.headSha} keeps failing with a non-retryable error (${open.errorClass}, status ${open.lastStatus ?? "unknown"}) after ${open.consecutiveCount} attempts; the sweeper has stopped retriggering it. Operator action required — see mt#2350 / mt#1596.`,
+            pr: m.number,
+            headSha: m.headSha,
+            errorClass: open.errorClass,
+            lastStatus: open.lastStatus,
+            consecutiveCount: open.consecutiveCount,
+            crossReference: "mt#1596",
+          });
+          void markCircuitAlertedFn(db, open.id);
+        }
+
+        return false;
+      });
     }
   }
 
