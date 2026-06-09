@@ -11,6 +11,10 @@ import type { ReviewerConfig } from "./config";
 import { createHmac } from "crypto";
 
 const TEST_SECRET = "test-webhook-secret-for-mt2127";
+// mt#2356: /retrigger auth uses the MCP auth token (cfg.mcpToken), NOT the
+// webhook HMAC secret (mt#2346 re-authed the endpoint). Distinct constant so
+// the tests exercise the real credential and stay hermetic regardless of env.
+const TEST_MCP_TOKEN = "test-mcp-token-for-mt2346";
 const JSON_CONTENT_TYPE = "application/json";
 
 function makeConfig(overrides?: Partial<ReviewerConfig>): ReviewerConfig {
@@ -230,7 +234,10 @@ describe("/retrigger endpoint", () => {
       })
     ) as unknown as RunReviewFn;
 
-    const { server, gracefulShutdown } = createApp(makeConfig(), runReviewFn);
+    const { server, gracefulShutdown } = createApp(
+      makeConfig({ mcpToken: TEST_MCP_TOKEN }),
+      runReviewFn
+    );
 
     try {
       const res = await fetch(`http://localhost:${server.port}/retrigger`, {
@@ -256,14 +263,17 @@ describe("/retrigger endpoint", () => {
       })
     ) as unknown as RunReviewFn;
 
-    const { server, gracefulShutdown } = createApp(makeConfig(), runReviewFn);
+    const { server, gracefulShutdown } = createApp(
+      makeConfig({ mcpToken: TEST_MCP_TOKEN }),
+      runReviewFn
+    );
 
     try {
       const res = await fetch(`http://localhost:${server.port}/retrigger`, {
         method: "POST",
         headers: {
           "content-type": JSON_CONTENT_TYPE,
-          authorization: `Bearer ${TEST_SECRET}`,
+          authorization: `Bearer ${TEST_MCP_TOKEN}`,
         },
         body: JSON.stringify({ owner: "edobry", repo: "minsky" }),
       });
@@ -285,14 +295,17 @@ describe("/retrigger endpoint", () => {
       })
     ) as unknown as RunReviewFn;
 
-    const { server, gracefulShutdown } = createApp(makeConfig(), runReviewFn);
+    const { server, gracefulShutdown } = createApp(
+      makeConfig({ mcpToken: TEST_MCP_TOKEN }),
+      runReviewFn
+    );
 
     try {
       const res = await fetch(`http://localhost:${server.port}/retrigger`, {
         method: "POST",
         headers: {
           "content-type": JSON_CONTENT_TYPE,
-          authorization: `Bearer ${TEST_SECRET}`,
+          authorization: `Bearer ${TEST_MCP_TOKEN}`,
         },
         body: JSON.stringify({ pr: 42, repo: "minsky" }),
       });
@@ -314,14 +327,17 @@ describe("/retrigger endpoint", () => {
       })
     ) as unknown as RunReviewFn;
 
-    const { server, gracefulShutdown } = createApp(makeConfig(), runReviewFn);
+    const { server, gracefulShutdown } = createApp(
+      makeConfig({ mcpToken: TEST_MCP_TOKEN }),
+      runReviewFn
+    );
 
     try {
       const res = await fetch(`http://localhost:${server.port}/retrigger`, {
         method: "POST",
         headers: {
           "content-type": JSON_CONTENT_TYPE,
-          authorization: `Bearer ${TEST_SECRET}`,
+          authorization: `Bearer ${TEST_MCP_TOKEN}`,
         },
         body: JSON.stringify({ pr: 42, owner: "edobry" }),
       });
