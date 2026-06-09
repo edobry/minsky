@@ -56,6 +56,48 @@ echo 'Step 2 complete'
 echo 'Step 3 complete'
 ```
 
+## Verification Commands
+
+When running a verification command — lint, `format:check`, typecheck, test, build —
+whose pass/fail result you intend to **read and act on**, optimize the command for
+**interpretability on failure**, not terseness. Two anti-patterns destroy that
+interpretability:
+
+1. **Output suppression.** `cmd >/dev/null 2>&1 && echo PASS || echo FAIL` discards the
+   diagnostic you need the moment the check fails — so a failure forces an immediate re-run
+   without `>/dev/null` just to see why. Suppressing the output of a command whose result
+   you must interpret is self-defeating.
+2. **Chaining multiple checks in one call.** `lint && format; typecheck` (or with `||`)
+   collapses several results into one ambiguous exit code — the tool returns "exitCode 1,
+   empty stdout" and you can't tell *which* check failed without re-running each separately.
+
+### Rules
+
+- **One verification command per call, output visible.** Pipe to `tail -N` if it is chatty;
+  never `>/dev/null` a command whose pass/fail you need to read.
+- **Never chain verification commands** with `&&` / `||` / `;` in a single call. Run lint,
+  then format, then typecheck as separate calls so each result — and which one failed — is
+  unambiguous.
+- **Prefer the structured MCP tools where they exist.** `mcp__minsky__validate_lint` and
+  `mcp__minsky__validate_typecheck` return structured `{ errorCount, warningCount, errors[] }`
+  and are session-aware (pass `task` / `sessionId`, per mt#2336) — no shell, no suppression,
+  no ambiguity. For `format:check` / `lint:strict` / `test` (no MCP equivalent, or you need
+  the exact CI gate) run the bare command and READ the output rather than reducing it to a
+  PASS/FAIL echo.
+
+**❌ Problematic (output suppressed + chained — uninterpretable on failure):**
+```bash
+bun run lint:strict >/dev/null 2>&1 && echo PASS || echo FAIL; bun run format:check >/dev/null 2>&1 && echo PASS || echo FAIL
+```
+
+**✅ Preferred (separate calls, visible output):**
+```bash
+bun run lint:strict 2>&1 | tail -20
+```
+```bash
+bun run format:check 2>&1 | tail -20
+```
+
 ## Rationale
 
 Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
