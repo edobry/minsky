@@ -248,6 +248,8 @@ describe("/retrigger endpoint", () => {
       expect(res.status).toBe(401);
       const body = (await res.json()) as { error: string };
       expect(body.error).toBe("unauthorized");
+      // mt#2356: a rejected request must not trigger a review (no side effects).
+      expect(runReviewFn).not.toHaveBeenCalled();
     } finally {
       await gracefulShutdown();
     }
@@ -280,6 +282,8 @@ describe("/retrigger endpoint", () => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error: string };
       expect(body.error).toContain("pr");
+      // mt#2356: a rejected request must not trigger a review (no side effects).
+      expect(runReviewFn).not.toHaveBeenCalled();
     } finally {
       await gracefulShutdown();
     }
@@ -312,6 +316,8 @@ describe("/retrigger endpoint", () => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error: string };
       expect(body.error).toContain("owner");
+      // mt#2356: a rejected request must not trigger a review (no side effects).
+      expect(runReviewFn).not.toHaveBeenCalled();
     } finally {
       await gracefulShutdown();
     }
@@ -344,6 +350,8 @@ describe("/retrigger endpoint", () => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as { error: string };
       expect(body.error).toContain("repo");
+      // mt#2356: a rejected request must not trigger a review (no side effects).
+      expect(runReviewFn).not.toHaveBeenCalled();
     } finally {
       await gracefulShutdown();
     }
