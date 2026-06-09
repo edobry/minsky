@@ -113,24 +113,24 @@ function S5Canopy() {
 function S4Future() {
   return (
     <g role="region" aria-label="S4 Future — roadmap feed and deploy loop">
-      <text x="34" y="108" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-s4) / 1)" fontFamily="var(--font-mono)">S4 · FUTURE</text>
+      <text x="34" y="90" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-s4) / 1)" fontFamily="var(--font-mono)">S4 · FUTURE</text>
 
-      {/* Backlog feed tank */}
-      <rect x="34" y="132" width="86" height="150" rx="6" fill="none" stroke="oklch(var(--vsm-s4) / 0.9)" strokeWidth="1"/>
+      {/* Backlog feed tank — tall to fill vertical space between canopy and S1 */}
+      <rect x="34" y="106" width="86" height="200" rx="6" fill="none" stroke="oklch(var(--vsm-s4) / 0.9)" strokeWidth="1"/>
       {/* Placeholder fill level (~45%) */}
       <rect
-        x="36" y="212" width="82" height="68" rx="4"
+        x="36" y="216" width="82" height="88" rx="4"
         fill="oklch(var(--vsm-s4) / 0.30)"
         className="vsm-breath"
       />
-      <text x="34" y="126" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">backlog feed</text>
-      <text x="77" y="304" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">PLANNING — · TODO —</text>
-      <text x="34" y="338" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">knowledge sources ▸ —</text>
+      <text x="34" y="100" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">backlog feed</text>
+      <text x="77" y="322" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">PLANNING — · TODO —</text>
+      <text x="34" y="344" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">knowledge sources ▸ —</text>
 
       {/* Deploy loop */}
-      <text x="34" y="372" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">deploy loop</text>
-      <rect x="34" y="382" width="240" height="40" rx="6" fill="none" stroke="oklch(var(--vsm-s4) / 0.50)" strokeWidth="1"/>
-      <text x="44" y="406" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">
+      <text x="34" y="366" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">deploy loop</text>
+      <rect x="34" y="376" width="240" height="36" rx="6" fill="none" stroke="oklch(var(--vsm-s4) / 0.50)" strokeWidth="1"/>
+      <text x="44" y="398" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">
         build → smoke → <tspan fill="oklch(var(--liveness-healthy) / 1)">live ✓</tspan>
       </text>
     </g>
@@ -148,16 +148,16 @@ interface ReadyTankProps {
 
 function ReadyTank({ count, isLoading }: ReadyTankProps) {
   const fill = count !== undefined ? tankFill(count, 20) : 0;
-  // Visual tank: 80px tall, fill from bottom
-  const tankH = 80;
+  // Visual tank: 60px tall, fill from bottom; tank top at y=470, pipe at y=510
+  const tankH = 60;
   const fillH = Math.round(tankH * fill);
-  const fillY = 430 + (tankH - fillH);
+  const fillY = 470 + (tankH - fillH);
   const displayCount = isLoading ? "…" : (count ?? "—");
 
   return (
     <g role="img" aria-label={`READY tank: ${displayCount} tasks`}>
       {/* Tank outline */}
-      <rect x="300" y="430" width="60" height={tankH} rx="5" fill="none" stroke="oklch(var(--vsm-s1) / 0.9)" strokeWidth="1"/>
+      <rect x="300" y="470" width="60" height={tankH} rx="5" fill="none" stroke="oklch(var(--vsm-s1) / 0.9)" strokeWidth="1"/>
       {/* Fill level — real data */}
       {fillH > 0 && (
         <rect
@@ -167,8 +167,8 @@ function ReadyTank({ count, isLoading }: ReadyTankProps) {
           aria-hidden="true"
         />
       )}
-      <text x="330" y="424" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">READY</text>
-      <text x="330" y="528" textAnchor="middle" fontSize="11" fill="oklch(var(--vsm-s1) / 0.9)" fontFamily="var(--font-mono)" fontWeight="600">
+      <text x="330" y="464" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">READY</text>
+      <text x="330" y="546" textAnchor="middle" fontSize="11" fill="oklch(var(--vsm-s1) / 0.9)" fontFamily="var(--font-mono)" fontWeight="600">
         {displayCount}
       </text>
     </g>
@@ -187,82 +187,82 @@ interface S1OperationsProps {
 function S1Operations({ readyCount, readyLoading }: S1OperationsProps) {
   return (
     <g role="region" aria-label="S1 Operations — the main process line">
-      {/* Region background */}
+      {/* Region background — pipe at y=510; region y=420-580 */}
       <rect
-        x="150" y="360" width="900" height="150" rx="10"
+        x="150" y="420" width="900" height="160" rx="10"
         fill="oklch(var(--vsm-s1) / 0.04)"
         stroke="oklch(var(--vsm-s1) / 0.22)"
         strokeWidth="1"
       />
-      <text x="164" y="384" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-s1) / 1)" fontFamily="var(--font-mono)">S1 · OPERATIONS</text>
+      <text x="164" y="440" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-s1) / 1)" fontFamily="var(--font-mono)">S1 · OPERATIONS</text>
 
-      {/* Main pipe */}
-      <path d="M180 470 H1020" stroke="oklch(var(--border) / 1)" strokeWidth="10" fill="none" strokeLinecap="round"/>
-      {/* Flow dashes — slow 3★ scan sweep (CSS stroke-dashoffset so prefers-reduced-motion gates it; SVG SMIL would not) */}
-      <path className="vsm-scan" d="M180 470 H1020" stroke="oklch(var(--vsm-s1) / 0.5)" strokeWidth="3" fill="none" strokeDasharray="2 7"/>
+      {/* Main pipe at y=510 */}
+      <path d="M180 510 H1020" stroke="oklch(var(--border) / 1)" strokeWidth="10" fill="none" strokeLinecap="round"/>
+      {/* Flow dashes — slow 3★ scan sweep (CSS stroke-dashoffset so prefers-reduced-motion gates it) */}
+      <path className="vsm-scan" d="M180 510 H1020" stroke="oklch(var(--vsm-s1) / 0.5)" strokeWidth="3" fill="none" strokeDasharray="2 7"/>
 
       {/* Stage: TASKS */}
-      <text x="200" y="450" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">TASKS</text>
-      <circle cx="200" cy="470" r="6" fill="oklch(var(--vsm-s1) / 1)"/>
+      <text x="200" y="494" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">TASKS</text>
+      <circle cx="200" cy="510" r="6" fill="oklch(var(--vsm-s1) / 1)"/>
 
-      {/* READY tank — one real level */}
+      {/* READY tank — one real level; tank y=470–530 straddles pipe */}
       <ReadyTank count={readyCount} isLoading={readyLoading} />
 
       {/* Stage: SESSIONS */}
-      <text x="470" y="450" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">SESSIONS</text>
-      <circle cx="470" cy="470" r="7" fill="oklch(var(--vsm-s1) / 1)" filter="url(#s1-glow)"/>
-      <text x="470" y="528" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">— active</text>
+      <text x="470" y="494" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">SESSIONS</text>
+      <circle cx="470" cy="510" r="7" fill="oklch(var(--vsm-s1) / 1)" filter="url(#s1-glow)"/>
+      <text x="470" y="562" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">— active</text>
 
       {/* Stage: AGENTS */}
-      <text x="620" y="450" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">AGENTS</text>
+      <text x="620" y="494" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">AGENTS</text>
       <g fill="oklch(var(--vsm-s1) / 0.8)">
-        <circle cx="606" cy="470" r="4"/>
-        <circle cx="620" cy="463" r="4"/>
-        <circle cx="634" cy="470" r="4"/>
-        <circle cx="620" cy="477" r="4"/>
+        <circle cx="606" cy="510" r="4"/>
+        <circle cx="620" cy="503" r="4"/>
+        <circle cx="634" cy="510" r="4"/>
+        <circle cx="620" cy="517" r="4"/>
       </g>
-      <text x="620" y="528" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">— dispatched</text>
+      <text x="620" y="562" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">— dispatched</text>
 
       {/* Stage: PR */}
-      <text x="770" y="450" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">PR</text>
-      <circle cx="770" cy="470" r="6" fill="oklch(var(--vsm-s1) / 1)"/>
+      <text x="770" y="494" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">PR</text>
+      <circle cx="770" cy="510" r="6" fill="oklch(var(--vsm-s1) / 1)"/>
 
-      {/* Review tank */}
-      <rect x="850" y="430" width="60" height="80" rx="5" fill="none" stroke="oklch(var(--vsm-s1) / 0.9)" strokeWidth="1"/>
+      {/* Review tank — 60px tall, straddles pipe */}
+      <rect x="850" y="480" width="60" height="60" rx="5" fill="none" stroke="oklch(var(--vsm-s1) / 0.9)" strokeWidth="1"/>
       <rect
-        x="852" y="488" width="56" height="20" rx="3"
+        x="852" y="524" width="56" height="14" rx="3"
         fill="oklch(var(--vsm-s1) / 0.35)"
         className="vsm-breath"
       />
-      <text x="880" y="424" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">REVIEW</text>
-      <text x="880" y="528" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">—</text>
+      <text x="880" y="474" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">REVIEW</text>
+      <text x="880" y="562" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">—</text>
 
-      {/* CHANGES_REQUESTED recirculation arc */}
+      {/* CHANGES_REQUESTED recirculation arc — sweeps up through S4/S3 region */}
       <path
-        d="M880 430 C880 340, 470 340, 470 452"
+        d="M880 480 C880 360, 470 360, 470 492"
         fill="none"
         stroke="oklch(var(--vsm-s1) / 0.4)"
         strokeDasharray="4 5"
         strokeWidth="1.5"
       />
-      <text x="660" y="334" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">⟲ CHANGES_REQUESTED recirculates</text>
+      <text x="660" y="354" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">⟲ CHANGES_REQUESTED recirculates</text>
 
       {/* Stage: DONE */}
-      <text x="1015" y="450" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">DONE</text>
-      <circle cx="1015" cy="470" r="7" fill="oklch(var(--liveness-healthy) / 1)"/>
+      <text x="1015" y="494" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">DONE</text>
+      <circle cx="1015" cy="510" r="7" fill="oklch(var(--liveness-healthy) / 1)"/>
 
       {/* S2 interlock valves (◇) on the pipe */}
       <g fill="oklch(var(--background) / 1)" stroke="oklch(var(--vsm-s2) / 1)" strokeWidth="1.5" aria-label="S2 interlock valves">
         {/* Before READY */}
-        <rect x="252" y="462" width="16" height="16" transform="rotate(45 260 470)" role="img" aria-label="Interlock valve before READY"/>
+        <rect x="252" y="502" width="16" height="16" transform="rotate(45 260 510)" role="img" aria-label="Interlock valve before READY"/>
         {/* Before SESSIONS */}
-        <rect x="412" y="462" width="16" height="16" transform="rotate(45 420 470)" role="img" aria-label="Interlock valve before SESSIONS"/>
+        <rect x="412" y="502" width="16" height="16" transform="rotate(45 420 510)" role="img" aria-label="Interlock valve before SESSIONS"/>
         {/* Before PR */}
-        <rect x="692" y="462" width="16" height="16" transform="rotate(45 700 470)" role="img" aria-label="Interlock valve before PR"/>
+        <rect x="692" y="502" width="16" height="16" transform="rotate(45 700 510)" role="img" aria-label="Interlock valve before PR"/>
         {/* Before DONE */}
-        <rect x="952" y="462" width="16" height="16" transform="rotate(45 960 470)" role="img" aria-label="Interlock valve before DONE"/>
+        <rect x="952" y="502" width="16" height="16" transform="rotate(45 960 510)" role="img" aria-label="Interlock valve before DONE"/>
       </g>
-      <text x="700" y="566" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-s2) / 0.9)" fontFamily="var(--font-mono)">◇ = S2 interlock (hook/guard) · flashes red=blocked / amber=override (v2)</text>
+      <text x="700" y="596" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-s2) / 0.9)" fontFamily="var(--font-mono)">◇ = S2 interlock (hook/guard) · flashes red=blocked / amber=override (v2)</text>
     </g>
   );
 }
@@ -324,11 +324,11 @@ function Gauge({ cx, cy, label, sublabel, needleAngle, setpointAngle }: GaugePro
 function S3Gauges() {
   return (
     <g role="region" aria-label="S3 Management and 3-star — gauges with alarm setpoints">
-      <text x="1110" y="120" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-s3) / 1)" fontFamily="var(--font-mono)">S3 · 3★</text>
+      <text x="1110" y="90" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-s3) / 1)" fontFamily="var(--font-mono)">S3 · 3★</text>
 
       {/* Gauge 1: MCP disconnect cadence — alarm at 3/24h */}
       <Gauge
-        cx={1165} cy={178}
+        cx={1165} cy={160}
         label="mcp disconnect"
         sublabel="— / 24h  (alarm 3)"
         needleAngle={-60}
@@ -337,7 +337,7 @@ function S3Gauges() {
 
       {/* Gauge 2: subagent dispatch cadence — alarm at 2/session */}
       <Gauge
-        cx={1165} cy={288}
+        cx={1165} cy={278}
         label="dispatch cadence"
         sublabel="— partial/sess (alarm 2)"
         needleAngle={-80}
@@ -346,14 +346,14 @@ function S3Gauges() {
 
       {/* Gauge 3: attention load */}
       <Gauge
-        cx={1165} cy={398}
+        cx={1165} cy={396}
         label="attention load"
         sublabel="—"
         needleAngle={-40}
         setpointAngle={20}
       />
 
-      <text x="1165" y="470" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">3★ audit sweep ⟶ over S1</text>
+      <text x="1165" y="460" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">3★ audit sweep ⟶ over S1</text>
     </g>
   );
 }
@@ -365,14 +365,14 @@ function S3Gauges() {
 function AttentionSeam() {
   return (
     <g role="region" aria-label="Attention seam — cognition coupling between system and operator">
-      {/* Vertical dashed line from S1 up to YOU node */}
+      {/* Vertical dashed line from S1 region top (y=420) up to YOU node (y=56) */}
       <line
-        x1="1030" y1="360" x2="1030" y2="62"
+        x1="1030" y1="420" x2="1030" y2="56"
         stroke="oklch(var(--vsm-seam) / 0.6)"
         strokeWidth="2.5"
         strokeDasharray="3 4"
       />
-      <text x="1042" y="232" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-seam) / 1)" fontFamily="var(--font-mono)">attention seam</text>
+      <text x="1042" y="230" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-seam) / 1)" fontFamily="var(--font-mono)">attention seam</text>
 
       {/* Pending ask — pulses when open */}
       <circle
@@ -395,11 +395,11 @@ function AttentionSeam() {
 function LearningLoop() {
   return (
     <g role="region" aria-label="Learning loop — failure to retrospective to memory to rule to new interlock">
-      <text x="164" y="592" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-learn) / 1)" fontFamily="var(--font-mono)">LEARNING LOOP</text>
+      <text x="164" y="620" fontSize="13" letterSpacing="0.12em" fontWeight="700" opacity="0.6" fill="oklch(var(--vsm-learn) / 1)" fontFamily="var(--font-mono)">LEARNING LOOP</text>
 
       {/* Flow path */}
       <path
-        d="M200 612 H980"
+        d="M200 640 H980"
         stroke="oklch(var(--vsm-learn) / 0.35)"
         strokeWidth="2"
         fill="none"
@@ -407,31 +407,31 @@ function LearningLoop() {
       />
 
       {/* Labels along the loop */}
-      <text x="210" y="606" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">failure</text>
-      <text x="330" y="606" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ retrospective</text>
+      <text x="210" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">failure</text>
+      <text x="330" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ retrospective</text>
 
       {/* Memory reservoir tank */}
-      <rect x="470" y="588" width="120" height="44" rx="6" fill="none" stroke="oklch(var(--vsm-learn) / 1)" strokeWidth="1"/>
+      <rect x="470" y="616" width="120" height="44" rx="6" fill="none" stroke="oklch(var(--vsm-learn) / 1)" strokeWidth="1"/>
       <rect
-        x="472" y="612" width="116" height="18" rx="3"
+        x="472" y="638" width="116" height="20" rx="3"
         fill="oklch(var(--vsm-learn) / 0.30)"
         className="vsm-breath"
       />
-      <text x="530" y="582" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">memory reservoir · —</text>
+      <text x="530" y="610" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">memory reservoir · —</text>
 
       {/* Continuing loop labels */}
-      <text x="650" y="606" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ rule</text>
-      <text x="740" y="606" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ ⟂ new interlock welded onto S1 (glows, fades over days)</text>
+      <text x="650" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ rule</text>
+      <text x="740" y="634" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">▸ ⟂ new interlock welded onto S1 (glows, fades over days)</text>
 
-      {/* Arc closing back onto an S2 valve */}
+      {/* Arc closing back onto an S2 valve — connects up from y=616 to the pipe level */}
       <path
-        d="M962 596 C962 545, 962 512, 960 482"
+        d="M962 616 C962 568, 962 536, 960 512"
         fill="none"
         stroke="oklch(var(--vsm-learn) / 0.4)"
         strokeDasharray="2 5"
         strokeWidth="1.5"
       />
-      <text x="970" y="548" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-learn) / 0.7)" fontFamily="var(--font-mono)">↑ closes onto an S2 valve</text>
+      <text x="970" y="568" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-learn) / 0.7)" fontFamily="var(--font-mono)">↑ closes onto an S2 valve</text>
     </g>
   );
 }
@@ -443,13 +443,13 @@ function LearningLoop() {
 function InfraSupply() {
   return (
     <g role="region" aria-label="Infrastructure supply band">
-      <rect x="20" y="700" width="1180" height="100" rx="8" fill="none" stroke="oklch(var(--border) / 1)" strokeWidth="1"/>
-      <text x="34" y="722" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">INFRA SUPPLY</text>
-      <text x="34" y="748" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--liveness-healthy) / 1)" fontFamily="var(--font-mono)">● MCP server — —</text>
-      <text x="34" y="768" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">● Postgres — —</text>
-      <text x="34" y="788" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">● credentials — —</text>
-      <text x="640" y="748" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">● embeddings — —</text>
-      <text x="640" y="768" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">reviewer bot — —</text>
+      <rect x="20" y="720" width="1180" height="100" rx="8" fill="none" stroke="oklch(var(--border) / 1)" strokeWidth="1"/>
+      <text x="34" y="738" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">INFRA SUPPLY</text>
+      <text x="34" y="758" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--liveness-healthy) / 1)" fontFamily="var(--font-mono)">● MCP server — —</text>
+      <text x="34" y="776" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">● Postgres — —</text>
+      <text x="34" y="794" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">● credentials — —</text>
+      <text x="640" y="758" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">● embeddings — —</text>
+      <text x="640" y="776" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--vsm-learn) / 0.8)" fontFamily="var(--font-mono)">reviewer bot — —</text>
     </g>
   );
 }
@@ -591,12 +591,13 @@ export function PlantPage() {
           Legible default: fit-width (boardWidth=1280). On a 1280px viewport the
           board renders at scale 1.0, giving full-size text. Fit-height would
           shrink to ~87% on a 720px content area, making 10px labels unreadable.
-          Vertical pan lets the operator reach the InfraSupply band below the fold.
+          boardHeight=840 matches the typical operator viewport aspect so
+          fitViewBox centering offset y≈(840-836)/2≈2 — nearly zero dead space.
           See PanZoomSVG.tsx for the full implementation rationale.
         */}
         <PanZoomSVG
           boardWidth={1280}
-          boardHeight={820}
+          boardHeight={840}
           ariaLabel="VSM-organ schematic of the whole Minsky system"
           className="flex-1"
         >
