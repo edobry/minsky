@@ -1,30 +1,40 @@
 /**
  * PanZoomSVG — lightweight pan/zoom wrapper for a fixed-coordinate SVG.
  *
- * Implementation choice (mt#2380): custom viewBox handler (~80 lines, dep-free).
- * Rationale: the interaction surface is small (wheel zoom toward cursor + pointer
- * drag), the board is a fixed 1280×820 coordinate space, and adding a library
- * would bring ~20kB for what amounts to one wheel handler and one pointerdown/
- * pointermove/pointerup trio. Zero new dependencies, no license audit needed.
+ * Implementation choice (mt#2380): custom viewBox handler, dep-free. The
+ * interaction surface is small (wheel zoom toward cursor + pointer drag), so a
+ * library is not worth the dependency. Zero new deps, no license audit needed.
  *
- * Default framing (mt#2380): fit-WIDTH with vertical pan.
- * The board is 1280×820. On a 1280px viewport the board fills the full width at
- * scale 1.0, giving full-size text (10px in SVG = 10px on screen). At 1440px it
- * scales up slightly. Fit-HEIGHT on a typical 720–800px content area would shrink
- * the board to ~87% scale, making the 10px labels unreadable. Fit-width with
- * vertical pan is therefore the legible default.
+ * Aspect-ratio correctness (mt#2380 R1):
+ *   The SVG uses preserveAspectRatio="none" so the viewBox maps linearly onto the
+ *   container (pointer→SVG mapping is trivial: it fills the container edge-to-edge).
+ *   "none" stretches the viewBox to the container, so to AVOID distortion the
+ *   viewBox aspect MUST always equal the container aspect — i.e. vbH = vbW * (cH/cW).
+ *   Earlier the fit computed vbH from the container but zoom reset it to the BOARD
+ *   aspect, which stretched circles into ovals on any non-1280×820 container. Now
+ *   every viewBox we produce derives its height from the tracked container aspect,
+ *   so x/y scale stay equal and there is no distortion at any zoom.
  *
- * a11y:
- *   - Zoom + / − / reset buttons are keyboard-focusable and ARIA-labelled.
- *   - The SVG container has role="region" with an aria-label from props.
- *   - Drag is pointer-based (mouse + touch via pointermove) with no keyboard
- *     equivalent needed — panning a schematic has no keyboard accessibility
- *     requirement beyond the explicit button controls.
+ * Default framing: fit-width (full board width, height matched to the container
+ * aspect, vertically centered) with pan/zoom for detail.
  *
- * prefers-reduced-motion:
- *   - No animated transitions on viewBox changes — updates are instant.
- *   - The existing vsm-* CSS animations are unaffected (they're in the SVG
- *     children and already gated via the global reduced-motion rule in index.css).
+ * Resize policy (mt#2380 R1):
+ *   `userInteractedRef` gates auto-refit. Before the user zooms/pans, the board
+ *   auto-refits on container resize. After the first manual interaction, the
+ *   user's framing persists across resizes (only its height is corrected to the
+ *   new aspect so it never distorts).
+ *
+ * Stale-closure safety (mt#2380 R1):
+ *   The wheel listener is attached once and reads the live viewBox via
+ *   `viewBoxRef` / inside the setViewBox updater (focal point passed as
+ *   fractions), so rapid wheel events never compute focus from a stale viewBox.
+ *
+ * a11y: +/-/reset buttons are keyboard-focusable and ARIA-labelled; the SVG has
+ * role="img" with the supplied aria-label.
+ *
+ * prefers-reduced-motion: viewBox changes are instant (no tween), so there is no
+ * motion to gate; the SVG children's vsm-* CSS animations remain gated by the
+ * global reduced-motion rule in index.css.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -71,24 +81,19 @@ function clamp(value: number, lo: number, hi: number): number {
 }
 
 /**
- * Compute the fit-width viewBox for the board.
- * The default framing is fit-width with vertical pan starting from the top.
- * See module comment for the legibility rationale.
+ * Fit-width viewBox: the board's full width fills the container; the height is
+ * matched to the container aspect (cH/cW) so that with preserveAspectRatio="none"
+ * there is no distortion. Vertically centered within the board.
  */
-function fitWidthViewBox(boardWidth: number, boardHeight: number, containerWidth: number, containerHeight: number): ViewBox {
-  // We want the board's full width to fill the container width.
-  // scale = containerWidth / boardWidth
-  // The viewBox height shows the same scale:
-  //   viewBoxH = containerHeight / scale = containerHeight * (boardWidth / containerWidth)
-  // The viewBox starts at the top of the board (y = 0), showing as much as fits.
-  const scale = containerWidth / boardWidth;
-  const viewBoxH = containerHeight / scale;
-  // Center horizontally (viewBoxX stays 0 for fit-width, since the board fills exactly).
+function fitViewBox(boardWidth: number, boardHeight: number, containerWidth: number, containerHeight: number): ViewBox {
+  const aspect = containerHeight / containerWidth;
+  const w = boardWidth;
+  const h = w * aspect;
   return {
     x: 0,
-    y: 0,
-    w: boardWidth,
-    h: viewBoxH,
+    y: (boardHeight - h) / 2,
+    w,
+    h,
   };
 }
 
@@ -100,8 +105,8 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // ViewBox state. Initialized to a placeholder; the real fit-width default is
-  // computed in the layout effect once we know the container dimensions.
+  // ViewBox state. Initialized to the full board; the real fit is computed in the
+  // layout effect once the container dimensions are known.
   const [viewBox, setViewBox] = useState<ViewBox>({
     x: 0,
     y: 0,
@@ -109,134 +114,131 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
     h: boardHeight,
   });
 
-  // Track whether we've done the initial fit-width calculation.
-  const initializedRef = useRef(false);
+  // Live mirror of viewBox so non-React event handlers (wheel) read fresh values
+  // without re-attaching listeners on every change.
+  const viewBoxRef = useRef<ViewBox>(viewBox);
+  useEffect(() => {
+    viewBoxRef.current = viewBox;
+  }, [viewBox]);
 
-  // Compute and apply the fit-width default on mount and on resize.
-  const applyFitWidth = useCallback(() => {
+  // Tracked container size. Defaults to board dims so behavior is deterministic in
+  // zero-size environments (JSDOM): aspect == board aspect there.
+  const containerSizeRef = useRef<{ w: number; h: number }>({ w: boardWidth, h: boardHeight });
+
+  // Has the user manually zoomed/panned? Gates resize auto-refit.
+  const userInteractedRef = useRef(false);
+
+  const applyFit = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
     if (width === 0 || height === 0) return;
-    setViewBox(fitWidthViewBox(boardWidth, boardHeight, width, height));
-    initializedRef.current = true;
+    containerSizeRef.current = { w: width, h: height };
+    setViewBox(fitViewBox(boardWidth, boardHeight, width, height));
   }, [boardWidth, boardHeight]);
 
   useEffect(() => {
-    applyFitWidth();
+    applyFit();
+    const el = containerRef.current;
+    if (!el) return;
     const observer = new ResizeObserver(() => {
-      // Only auto-refit if we haven't manually zoomed/panned.
-      // After the initial fit, let the user's state persist across resizes.
-      if (!initializedRef.current) applyFitWidth();
+      const { width, height } = el.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
+      containerSizeRef.current = { w: width, h: height };
+      if (!userInteractedRef.current) {
+        // Auto-refit until the user takes control.
+        applyFit();
+      } else {
+        // Preserve the user's framing but correct the height to the new aspect so
+        // preserveAspectRatio="none" never distorts.
+        setViewBox((vb) => ({ ...vb, h: vb.w * (height / width) }));
+      }
     });
-    if (containerRef.current) observer.observe(containerRef.current);
+    observer.observe(el);
     return () => observer.disconnect();
-  }, [applyFitWidth]);
+  }, [applyFit]);
 
   // -------------------------------------------------------------------------
-  // Zoom utilities
+  // Zoom (focal point as fractions of the viewport; resolved against the LIVE
+  // viewBox inside the updater so there is no stale-closure focal drift).
   // -------------------------------------------------------------------------
 
-  /**
-   * Zoom the viewBox toward a focal point (in SVG-coordinate space).
-   * focalX, focalY are in SVG coordinates (within the current viewBox).
-   */
-  const zoomAround = useCallback((factor: number, focalX: number, focalY: number) => {
-    setViewBox((vb) => {
-      const currentScale = boardWidth / vb.w;
-      const nextScale = clamp(currentScale * factor, MIN_SCALE, MAX_SCALE);
-      if (nextScale === currentScale) return vb;
-      const nextW = boardWidth / nextScale;
-      const nextH = boardHeight / nextScale;
-      // Keep the focal point stable: the point under the cursor stays fixed.
-      // focalX is the SVG-coord of the cursor; after zoom it should stay at the
-      // same fraction of the viewport.
-      const fracX = (focalX - vb.x) / vb.w;
-      const fracY = (focalY - vb.y) / vb.h;
-      const nextX = focalX - fracX * nextW;
-      const nextY = focalY - fracY * nextH;
-      return { x: nextX, y: nextY, w: nextW, h: nextH };
-    });
-  }, [boardWidth, boardHeight]);
+  const zoomByFraction = useCallback(
+    (factor: number, fracX: number, fracY: number) => {
+      userInteractedRef.current = true;
+      const { w: cW, h: cH } = containerSizeRef.current;
+      const aspect = cH / cW; // height/width — the no-distortion invariant
+      setViewBox((vb) => {
+        const currentScale = boardWidth / vb.w;
+        const nextScale = clamp(currentScale * factor, MIN_SCALE, MAX_SCALE);
+        if (nextScale === currentScale) return vb;
+        const nextW = boardWidth / nextScale;
+        const nextH = nextW * aspect; // aspect from CONTAINER, not board → no distortion
+        const focalX = vb.x + fracX * vb.w;
+        const focalY = vb.y + fracY * vb.h;
+        const nextX = focalX - fracX * nextW;
+        const nextY = focalY - fracY * nextH;
+        return { x: nextX, y: nextY, w: nextW, h: nextH };
+      });
+    },
+    [boardWidth]
+  );
 
-  /** Zoom toward the center of the current viewBox. */
-  const zoomCenter = useCallback((factor: number) => {
-    setViewBox((vb) => {
-      const focalX = vb.x + vb.w / 2;
-      const focalY = vb.y + vb.h / 2;
-      const currentScale = boardWidth / vb.w;
-      const nextScale = clamp(currentScale * factor, MIN_SCALE, MAX_SCALE);
-      if (nextScale === currentScale) return vb;
-      const nextW = boardWidth / nextScale;
-      const nextH = boardHeight / nextScale;
-      const nextX = focalX - nextW / 2;
-      const nextY = focalY - nextH / 2;
-      return { x: nextX, y: nextY, w: nextW, h: nextH };
-    });
-  }, [boardWidth, boardHeight]);
+  const zoomCenter = useCallback((factor: number) => zoomByFraction(factor, 0.5, 0.5), [zoomByFraction]);
 
   // -------------------------------------------------------------------------
-  // Wheel zoom
+  // Wheel zoom — attached once; reads live state via fractions (no stale closure).
   // -------------------------------------------------------------------------
 
   useEffect(() => {
     const el = svgRef.current;
     if (!el) return;
-
     const handleWheel = (e: WheelEvent) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
-      // Convert pointer position to SVG coordinates.
-      const svgX = viewBox.x + ((e.clientX - rect.left) / rect.width) * viewBox.w;
-      const svgY = viewBox.y + ((e.clientY - rect.top) / rect.height) * viewBox.h;
-      // deltaY > 0 = scroll down = zoom out; < 0 = zoom in
+      const fracX = (e.clientX - rect.left) / rect.width;
+      const fracY = (e.clientY - rect.top) / rect.height;
+      // deltaY > 0 = scroll down = zoom out; < 0 = zoom in.
       const factor = 1 - e.deltaY * WHEEL_SENSITIVITY;
-      zoomAround(factor, svgX, svgY);
+      zoomByFraction(factor, fracX, fracY);
     };
-
     el.addEventListener("wheel", handleWheel, { passive: false });
     return () => el.removeEventListener("wheel", handleWheel);
-  }, [viewBox, zoomAround]);
+  }, [zoomByFraction]);
 
   // -------------------------------------------------------------------------
-  // Pointer drag (pan)
+  // Pointer drag (pan) — reads the live viewBox via the ref (deps-free callbacks).
   // -------------------------------------------------------------------------
 
-  const dragRef = useRef<{
-    startX: number;
-    startY: number;
-    startVBX: number;
-    startVBY: number;
-  } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; startVBX: number; startVBY: number } | null>(null);
 
   const handlePointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
-    // Only primary button (mouse left / single touch)
-    if (e.button !== 0) return;
+    if (e.button !== 0) return; // primary button / single touch only
     e.currentTarget.setPointerCapture(e.pointerId);
+    const vb = viewBoxRef.current;
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startVBX: viewBox.x,
-      startVBY: viewBox.y,
+      startVBX: vb.x,
+      startVBY: vb.y,
     };
-  }, [viewBox.x, viewBox.y]);
+    userInteractedRef.current = true;
+  }, []);
 
   const handlePointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
     if (!dragRef.current) return;
     const el = svgRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    // Pixels moved → SVG-coordinate delta
-    const scaleX = viewBox.w / rect.width;
-    const scaleY = viewBox.h / rect.height;
-    const dx = (e.clientX - dragRef.current.startX) * scaleX;
-    const dy = (e.clientY - dragRef.current.startY) * scaleY;
-    setViewBox((vb) => ({
-      ...vb,
+    const vb = viewBoxRef.current;
+    const dx = ((e.clientX - dragRef.current.startX) / rect.width) * vb.w;
+    const dy = ((e.clientY - dragRef.current.startY) / rect.height) * vb.h;
+    setViewBox((cur) => ({
+      ...cur,
       x: dragRef.current!.startVBX - dx,
       y: dragRef.current!.startVBY - dy,
     }));
-  }, [viewBox.w, viewBox.h]);
+  }, []);
 
   const handlePointerUp = useCallback(() => {
     dragRef.current = null;
@@ -249,19 +251,18 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
   const handleZoomIn = useCallback(() => zoomCenter(1 + ZOOM_STEP), [zoomCenter]);
   const handleZoomOut = useCallback(() => zoomCenter(1 / (1 + ZOOM_STEP)), [zoomCenter]);
   const handleReset = useCallback(() => {
+    userInteractedRef.current = false;
     const el = containerRef.current;
     if (el) {
       const { width, height } = el.getBoundingClientRect();
       if (width > 0 && height > 0) {
-        // Real layout: compute fit-width.
-        setViewBox(fitWidthViewBox(boardWidth, boardHeight, width, height));
-        initializedRef.current = true;
+        containerSizeRef.current = { w: width, h: height };
+        setViewBox(fitViewBox(boardWidth, boardHeight, width, height));
         return;
       }
     }
-    // Fallback (JSDOM / zero-size container): restore full-board view.
+    // Fallback (JSDOM / zero-size container): restore the full-board view.
     setViewBox({ x: 0, y: 0, w: boardWidth, h: boardHeight });
-    initializedRef.current = false;
   }, [boardWidth, boardHeight]);
 
   // -------------------------------------------------------------------------
@@ -277,11 +278,7 @@ export function PanZoomSVG({ boardWidth, boardHeight, ariaLabel, className, chil
       data-testid="pan-zoom-svg-container"
     >
       {/* Zoom controls — docked top-right, keyboard-focusable */}
-      <div
-        className="absolute top-2 right-2 z-10 flex flex-col gap-1"
-        role="group"
-        aria-label="Zoom controls"
-      >
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1" role="group" aria-label="Zoom controls">
         <button
           type="button"
           onClick={handleZoomIn}

@@ -200,3 +200,46 @@ describe("PanZoomSVG — reset", () => {
     expect(resetW).toBeGreaterThan(parseFloat(zoomedVB.split(" ")[2]));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Aspect-ratio stability (mt#2380 R1 — no distortion on non-1280×820 containers)
+// ---------------------------------------------------------------------------
+
+describe("PanZoomSVG — aspect-ratio stability", () => {
+  test("viewBox aspect tracks the container aspect through fit and zoom (no distortion)", () => {
+    renderPanZoom();
+    const container = screen.getByTestId("pan-zoom-svg-container");
+    const svg = screen.getByTestId("pan-zoom-svg");
+
+    // Simulate a non-board-aspect container: 1600×400 (4:1, vs the board's 1280:820).
+    const rect = {
+      width: 1600,
+      height: 400,
+      top: 0,
+      left: 0,
+      right: 1600,
+      bottom: 400,
+      x: 0,
+      y: 0,
+      toJSON() {},
+    } as DOMRect;
+    container.getBoundingClientRect = () => rect;
+
+    const aspect = (): number => {
+      const [, , w, h] = (svg.getAttribute("viewBox") ?? "").split(" ").map(Number);
+      return w / h;
+    };
+    const width = (): number => Number((svg.getAttribute("viewBox") ?? "").split(" ")[2]);
+
+    // Reset → fit-width at the container aspect.
+    fireEvent.click(screen.getByRole("button", { name: /reset/i }));
+    expect(aspect()).toBeCloseTo(1600 / 400, 3);
+    const fitW = width();
+
+    // Zoom in — the viewBox aspect MUST still equal the container aspect; if the
+    // zoom math reverted to the board aspect, this would fail (circles → ovals).
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(aspect()).toBeCloseTo(1600 / 400, 3);
+    expect(width()).toBeLessThan(fitW);
+  });
+});
