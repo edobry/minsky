@@ -90,8 +90,14 @@ export async function listEvents(
   if (options.category !== undefined) {
     // Generated WHERE event_type IN (...) from the code-side category map.
     // At v1 volume the existing event_type index covers this; no composite
-    // index needed (RFC defers that to post-50K-rows).
-    conditions.push(inArray(systemEventsTable.eventType, eventTypesForCategory(options.category)));
+    // index needed (RFC defers that to post-50K-rows). Guard the empty-list
+    // case: a valid category always has >=1 member, but skip the filter rather
+    // than emit a degenerate `IN ()` if a future/invalid category resolves
+    // empty (callers validate at the boundary; this is defensive depth).
+    const categoryTypes = eventTypesForCategory(options.category);
+    if (categoryTypes.length > 0) {
+      conditions.push(inArray(systemEventsTable.eventType, categoryTypes));
+    }
   }
 
   if (options.since !== undefined) {
