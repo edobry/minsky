@@ -13,7 +13,6 @@ import { SessionService, type SessionDeps } from "./session/session-service";
 
 // Re-export canonical types from sub-modules
 export type { Session, SessionProviderInterface, SessionRecord } from "./session/types";
-export type { SessionDbState } from "./session/session-db";
 
 // Re-export the session provider factory (DrizzleSessionRepository + auto-repair)
 export { createSessionProvider } from "./session/drizzle-session-repository";

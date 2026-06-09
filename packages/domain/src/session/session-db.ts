@@ -1,11 +1,12 @@
 /**
- * Functional implementation of the SessionDB
- * This module contains pure functions for session management
+ * Session record + pull-request types for the sessions domain.
+ *
+ * (The former `SessionDbState` container and its state-based pure functions
+ * were retired with the DatabaseStorage layer in mt#2329; sessions persist via
+ * `DrizzleSessionRepository`. `SessionRecord` and the PR types remain here as
+ * the canonical domain shapes used across the codebase.)
  */
 
-import { join } from "path";
-import { getMinskyStateDir } from "@minsky/shared/paths";
-import { elementAt } from "@minsky/shared/array-safety";
 import type { SessionStatus } from "./types";
 
 /**
@@ -113,131 +114,4 @@ export interface SessionRecord {
     repo?: string;
     token?: string;
   };
-}
-
-/**
- * State structure for the SessionDB
- */
-export interface SessionDbState {
-  sessions: SessionRecord[];
-  baseDir: string;
-}
-
-/**
- * Initialize a new SessionDB state object
- */
-export function initializeSessionDbState(options: { baseDir?: string } = {}): SessionDbState {
-  const baseDir = options?.baseDir || getMinskyStateDir();
-
-  return {
-    sessions: [],
-    baseDir,
-  };
-}
-
-/**
- * List all sessions
- */
-export function listSessionsFn(state: SessionDbState): SessionRecord[] {
-  return [...state.sessions];
-}
-
-/**
- * Get a specific session by name
- */
-export function getSessionFn(state: SessionDbState, sessionId: string): SessionRecord | null {
-  return state.sessions.find((s) => s.sessionId === sessionId) || null;
-}
-
-/**
- * Get a specific session by task ID
- */
-export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
-  // Normalize taskId by removing # prefix if present
-  const validatedTaskId = taskId.replace(/^#/, "");
-  return state.sessions.find((s) => s.taskId?.replace(/^#/, "") === validatedTaskId) || null;
-}
-
-/**
- * Add a new session to the state
- */
-export function addSessionFn(state: SessionDbState, record: SessionRecord): SessionDbState {
-  return {
-    ...state,
-    sessions: [...state.sessions, record],
-  };
-}
-
-/**
- * Update an existing session.
- *
- * Merge contract: `{ ...existing, ...updates }`. Fields with `undefined` values clear the
- * column. Nested objects (e.g. `prState`, `pullRequest`) replace wholesale (shallow, not deep).
- */
-export function updateSessionFn(
-  state: SessionDbState,
-  sessionId: string,
-  updates: Partial<Omit<SessionRecord, "sessionId">>
-): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.sessionId === sessionId);
-  if (index === -1) {
-    return state;
-  }
-
-  // Strip 'sessionId' key if present (prevents renaming the primary key)
-  const { sessionId: _sessionKey, ...safeUpdates } = updates as Partial<SessionRecord> & {
-    sessionId?: string;
-  };
-  const updatedSessions = [...state.sessions];
-  updatedSessions[index] = {
-    ...elementAt(updatedSessions, index, "session-db updateSession"),
-    ...safeUpdates,
-  } as SessionRecord;
-
-  return {
-    ...state,
-    sessions: updatedSessions,
-  };
-}
-
-/**
- * Delete a session by name
- */
-export function deleteSessionFn(state: SessionDbState, sessionId: string): SessionDbState {
-  const index = state.sessions.findIndex((s) => s.sessionId === sessionId);
-  if (index === -1) {
-    return state;
-  }
-
-  const updatedSessions = [...state.sessions];
-  updatedSessions.splice(index, 1);
-
-  return {
-    ...state,
-    sessions: updatedSessions,
-  };
-}
-
-/**
- * Get the repository path for a session
- */
-export function getRepoPathFn(state: SessionDbState, record: SessionRecord): string {
-  if (!record) {
-    throw new Error("Session record is required");
-  }
-
-  // Use simplified session-based path structure: /sessions/{sessionId}/
-  return join(state.baseDir, "sessions", record.sessionId);
-}
-
-/**
- * Get the working directory for a session
- */
-export function getSessionWorkdirFn(state: SessionDbState, sessionId: string): string | null {
-  const session = getSessionFn(state, sessionId);
-  if (!session) {
-    return null;
-  }
-
-  return getRepoPathFn(state, session);
 }

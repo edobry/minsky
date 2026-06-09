@@ -6,9 +6,9 @@
  * Postgres table via Drizzle, constructed with a `PostgresJsDatabase` obtained
  * from `PersistenceProvider.getDatabaseConnection()` at composition time.
  *
- * Replaces the mt#091-era `SessionDbAdapter` -> `getStorage()` ->
- * `DatabaseStorage<SessionRecord, SessionDbState>` portable-storage layer.
- * The portability rationale (a JSON/file backend) was deleted years ago
+ * Replaces the mt#091-era `SessionDbAdapter` portable-storage layer (the
+ * generic storage abstraction over a `sessions` state container). The
+ * portability rationale (a JSON/file backend) was deleted years ago
  * (#402 / mt#714); sessions are Postgres-only (the SQLite-as-full-backend
  * story is mt#434 / PGlite).
  *

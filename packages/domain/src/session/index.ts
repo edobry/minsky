@@ -13,22 +13,6 @@ export type { SessionProviderInterface };
 export type { Session, SessionRecord, SessionLiveness } from "./types";
 export { SessionStatus, deriveSessionLiveness } from "./types";
 
-// Export core types from session-db
-export type { SessionDbState } from "./session-db";
-
-// Export pure functions from session-db
-export {
-  initializeSessionDbState,
-  listSessionsFn,
-  getSessionFn,
-  getSessionByTaskIdFn,
-  addSessionFn,
-  updateSessionFn,
-  deleteSessionFn,
-  getRepoPathFn,
-  getSessionWorkdirFn,
-} from "./session-db";
-
 // Export canonical session directory resolution utility
 export { resolveSessionDirectory } from "./resolve-session-directory";
 
