@@ -48,6 +48,18 @@ import type { SqlCapablePersistenceProvider } from "@minsky/domain/persistence/t
 export const ASK_CLASSIFIER_VERSION = "reviewer-circuit-breaker/v1";
 export const ASK_REQUESTOR = "minsky-reviewer-service";
 
+/**
+ * Outcome of an Ask-emit attempt. The caller uses this to decide whether to
+ * mark the circuit `alerted` (the dedup flag):
+ *   - "created" — the Ask was persisted; dedup it (don't re-emit).
+ *   - "skipped" — no Ask substrate is wired (no container/DB); this is a
+ *     PERMANENT condition for this deployment, so dedup it to avoid log spam.
+ *   - "failed"  — the substrate is present but `repo.create` threw (likely
+ *     TRANSIENT, e.g. a DB blip). Do NOT dedup — the next sweep cycle should
+ *     retry so a recovered substrate still surfaces the alert.
+ */
+export type AskEmitOutcome = "created" | "skipped" | "failed";
+
 /** Context for a tripped submission-failure circuit breaker (mt#2350). */
 export interface CircuitBreakerAlertContext {
   owner: string;
@@ -66,10 +78,12 @@ export interface CircuitBreakerAlertContext {
  *
  * Implementations MUST be fail-open: a failure to emit an Ask must never crash
  * the caller (the sweep cycle). The production `DomainAskEmitter` catches all
- * errors internally and resolves.
+ * errors internally and resolves with an `AskEmitOutcome` — it never rejects.
+ * The caller uses the returned outcome to decide whether to dedup the circuit
+ * (mark it `alerted`); see `AskEmitOutcome`.
  */
 export interface AskEmitter {
-  emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<void>;
+  emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<AskEmitOutcome>;
 }
 
 /**
@@ -104,13 +118,16 @@ export function makeContainerAskRepoProvider(
 export class DomainAskEmitter implements AskEmitter {
   constructor(private readonly repoProvider: () => Promise<AskRepository | null>) {}
 
-  async emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<void> {
+  async emitCircuitBreakerAlert(ctx: CircuitBreakerAlertContext): Promise<AskEmitOutcome> {
     try {
       const repo = await this.repoProvider();
       if (!repo) {
         // No-container / DB-unavailable path: the sweeper still ran and logged
         // the structured `sweeper.circuit_breaker_tripped` event; we just can't
-        // surface it as an Ask. Warn so the gap is operator-visible.
+        // surface it as an Ask. Warn so the gap is operator-visible. Returning
+        // "skipped" lets the caller dedup the circuit (this is a permanent
+        // condition for a substrate-less deployment — retrying would only spam
+        // the log every sweep cycle with no chance of success).
         log.warn("sweeper.circuit_breaker_ask_skipped_no_repo", {
           event: "sweeper.circuit_breaker_ask_skipped_no_repo",
           pr: ctx.prNumber,
@@ -120,7 +137,7 @@ export class DomainAskEmitter implements AskEmitter {
             "Circuit-breaker tripped but the asks repository is unavailable " +
             "(domain container / DB not booted); skipped operator Ask creation.",
         });
-        return;
+        return "skipped";
       }
 
       const input: CreateAskInput = {
@@ -155,10 +172,13 @@ export class DomainAskEmitter implements AskEmitter {
         headSha: ctx.headSha,
         circuitId: ctx.circuitId,
       });
+      return "created";
     } catch (err: unknown) {
       // Fail-open: emitting the Ask is best-effort. A failure here must not
       // crash the sweep cycle (matches the existing circuit-lookup error
-      // handling in sweeper.ts).
+      // handling in sweeper.ts). Returning "failed" tells the caller NOT to
+      // dedup the circuit, so the next sweep retries — a transient repo/DB
+      // failure must not permanently suppress surfacing the alert (reviewer R1).
       log.error("sweeper.circuit_breaker_ask_failed", {
         event: "sweeper.circuit_breaker_ask_failed",
         pr: ctx.prNumber,
@@ -166,6 +186,7 @@ export class DomainAskEmitter implements AskEmitter {
         circuitId: ctx.circuitId,
         error: err instanceof Error ? err.message : String(err),
       });
+      return "failed";
     }
   }
 }

@@ -568,9 +568,16 @@ export async function runSweep(
     }
 
     if (openCircuits.size > 0) {
-      filteredMissing = filteredMissing.filter((m) => {
+      // NOTE: this is an explicit await-capable loop (not `.filter()`) because
+      // the alert path must await the Ask-emit OUTCOME before deciding whether
+      // to mark the circuit `alerted`. See the dedup discussion below.
+      const keptMissing: MissingReviewPR[] = [];
+      for (const m of filteredMissing) {
         const open = openCircuits.get(submissionFailureKey(owner, repo, m.number, m.headSha));
-        if (open === undefined) return true;
+        if (open === undefined) {
+          keptMissing.push(m);
+          continue;
+        }
 
         log.warn("sweeper.circuit_open_skip", {
           event: "sweeper.circuit_open_skip",
@@ -588,8 +595,17 @@ export async function runSweep(
         //   2. (mt#2363 / mt#1596 Phase 1) An operator-routed
         //      `coordination.notify` Ask, so the failure surfaces on the live
         //      cockpit `AsksPage` instead of only as a log line nothing reads.
-        // The Ask emit is fire-and-forget and fail-open (DomainAskEmitter
-        // catches internally) — it never crashes the sweep.
+        //
+        // Dedup discipline (reviewer R1): the Ask emit is fail-open, but we must
+        // NOT mark the circuit `alerted` when the emit FAILED transiently —
+        // doing so would permanently suppress surfacing once the substrate
+        // recovers. So we gate `markCircuitAlertedFn` on the emit OUTCOME:
+        //   - "created"/"skipped" → mark alerted (success, or permanently no
+        //     substrate — retrying would only spam the log).
+        //   - "failed" → do NOT mark; the next sweep cycle re-emits both the
+        //     log line and the Ask attempt until one lands.
+        // When no emitter is wired at all (tests / log-only), preserve mt#2350's
+        // alert-once semantics by marking alerted unconditionally.
         if (!open.alerted) {
           log.error("sweeper.circuit_breaker_tripped", {
             event: "sweeper.circuit_breaker_tripped",
@@ -601,21 +617,26 @@ export async function runSweep(
             consecutiveCount: open.consecutiveCount,
             crossReference: "mt#1596",
           });
-          void askEmitter?.emitCircuitBreakerAlert({
-            owner,
-            repo,
-            prNumber: m.number,
-            headSha: m.headSha,
-            errorClass: open.errorClass,
-            lastStatus: open.lastStatus,
-            consecutiveCount: open.consecutiveCount,
-            circuitId: open.id,
-          });
-          void markCircuitAlertedFn(db, open.id);
+          const emitOutcome = askEmitter
+            ? await askEmitter.emitCircuitBreakerAlert({
+                owner,
+                repo,
+                prNumber: m.number,
+                headSha: m.headSha,
+                errorClass: open.errorClass,
+                lastStatus: open.lastStatus,
+                consecutiveCount: open.consecutiveCount,
+                circuitId: open.id,
+              })
+            : "skipped";
+          if (emitOutcome !== "failed") {
+            await markCircuitAlertedFn(db, open.id);
+          }
         }
 
-        return false;
-      });
+        // PR dropped from the retrigger set (its circuit is open).
+      }
+      filteredMissing = keptMissing;
     }
   }
 

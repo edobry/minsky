@@ -46,12 +46,14 @@ describe("DomainAskEmitter.emitCircuitBreakerAlert (mt#2363)", () => {
     const emitter = new DomainAskEmitter(() => Promise.resolve(repo));
 
     const { logs, restore } = captureConsoleLogs();
+    let outcome: string;
     try {
-      await emitter.emitCircuitBreakerAlert(CTX);
+      outcome = await emitter.emitCircuitBreakerAlert(CTX);
     } finally {
       restore();
     }
 
+    expect(outcome).toBe("created");
     expect(create).toHaveBeenCalledTimes(1);
     const input = created[0] as CreateAskInput;
     expect(input.kind).toBe("coordination.notify");
@@ -81,8 +83,9 @@ describe("DomainAskEmitter.emitCircuitBreakerAlert (mt#2363)", () => {
 
     const { logs, restore } = captureConsoleLogs();
     let threw = false;
+    let outcome: string | undefined;
     try {
-      await emitter.emitCircuitBreakerAlert(CTX);
+      outcome = await emitter.emitCircuitBreakerAlert(CTX);
     } catch {
       threw = true;
     } finally {
@@ -90,17 +93,20 @@ describe("DomainAskEmitter.emitCircuitBreakerAlert (mt#2363)", () => {
     }
 
     expect(threw).toBe(false);
+    // Transient failure → "failed" so the caller does NOT dedup (reviewer R1).
+    expect(outcome).toBe("failed");
     expect(create).toHaveBeenCalledTimes(1);
     expect(findLogEvent(logs, "sweeper.circuit_breaker_ask_failed")).not.toBeNull();
   });
 
-  test("no-repo: provider returns null → no Ask created, warns", async () => {
+  test("no-repo: provider returns null → no Ask created, warns, returns 'skipped'", async () => {
     const emitter = new DomainAskEmitter(() => Promise.resolve(null));
 
     const { logs, restore } = captureConsoleLogs();
     let threw = false;
+    let outcome: string | undefined;
     try {
-      await emitter.emitCircuitBreakerAlert(CTX);
+      outcome = await emitter.emitCircuitBreakerAlert(CTX);
     } catch {
       threw = true;
     } finally {
@@ -108,16 +114,20 @@ describe("DomainAskEmitter.emitCircuitBreakerAlert (mt#2363)", () => {
     }
 
     expect(threw).toBe(false);
+    // No substrate is a permanent condition → "skipped" so the caller dedups
+    // (retrying would only spam the log every sweep cycle).
+    expect(outcome).toBe("skipped");
     expect(findLogEvent(logs, "sweeper.circuit_breaker_ask_skipped_no_repo")).not.toBeNull();
   });
 
-  test("fail-open: a throwing repoProvider does NOT throw", async () => {
+  test("fail-open: a throwing repoProvider does NOT throw, returns 'failed'", async () => {
     const emitter = new DomainAskEmitter(() => Promise.reject(new Error("container boot failed")));
 
     const { logs, restore } = captureConsoleLogs();
     let threw = false;
+    let outcome: string | undefined;
     try {
-      await emitter.emitCircuitBreakerAlert(CTX);
+      outcome = await emitter.emitCircuitBreakerAlert(CTX);
     } catch {
       threw = true;
     } finally {
@@ -125,6 +135,7 @@ describe("DomainAskEmitter.emitCircuitBreakerAlert (mt#2363)", () => {
     }
 
     expect(threw).toBe(false);
+    expect(outcome).toBe("failed");
     expect(findLogEvent(logs, "sweeper.circuit_breaker_ask_failed")).not.toBeNull();
   });
 });

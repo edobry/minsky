@@ -1022,7 +1022,7 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     let captured: CircuitBreakerAlertContext | undefined;
     const emitCircuitBreakerAlert = mock((c: CircuitBreakerAlertContext) => {
       captured = c;
-      return Promise.resolve();
+      return Promise.resolve("created" as const);
     });
     const askEmitter = { emitCircuitBreakerAlert };
     const openMap = new Map<string, OpenCircuit>([
@@ -1046,6 +1046,8 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     expect(ctx.lastStatus).toBe(422);
     expect(ctx.consecutiveCount).toBe(2);
     expect(ctx.circuitId).toBe(`row-${prNumber}`);
+    // Emit succeeded ("created") → circuit is deduped.
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
   });
 
   test("already-alerted open circuit → askEmitter NOT called (dedup via alerted column) (mt#2363)", async () => {
@@ -1054,7 +1056,7 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
       Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
     );
     const markCircuitAlertedFn = mock(() => Promise.resolve());
-    const emitCircuitBreakerAlert = mock(() => Promise.resolve());
+    const emitCircuitBreakerAlert = mock(() => Promise.resolve("created" as const));
     const askEmitter = { emitCircuitBreakerAlert };
     const openMap = new Map<string, OpenCircuit>([
       [
@@ -1069,15 +1071,16 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     expect(emitCircuitBreakerAlert).not.toHaveBeenCalled();
   });
 
-  test("askEmitter that rejects internally does NOT crash the sweep (fail-open) (mt#2363)", async () => {
+  test("transient emit failure does NOT crash the sweep AND does NOT dedup the circuit (recovering) (mt#2363 / reviewer R1)", async () => {
     const prNumber = 1602;
     const runReviewFn = mock(() =>
       Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
     );
     const markCircuitAlertedFn = mock(() => Promise.resolve());
     // A real DomainAskEmitter wrapping a repo whose create rejects. The
-    // emitter catches internally, so emitCircuitBreakerAlert resolves and the
-    // sweep completes normally.
+    // emitter catches internally and returns "failed", so the sweep completes
+    // normally — but the circuit is NOT marked alerted, so the next cycle can
+    // retry once the substrate recovers.
     const repoProvider = () =>
       Promise.resolve({
         create: () => Promise.reject(new Error("db down")),
@@ -1097,5 +1100,28 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     expect(runReviewFn).not.toHaveBeenCalled();
     expect(result.retriggeredCount).toBe(0);
     expect(result.missing).toHaveLength(0);
+    // Reviewer R1: a transient emit failure must NOT permanently suppress the
+    // alert — the circuit is left un-deduped so the next sweep retries.
+    expect(markCircuitAlertedFn).not.toHaveBeenCalled();
+  });
+
+  test("no emitter wired → circuit still deduped (mt#2350 log-once preserved) (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    // No askEmitter (undefined) → log-only mode preserves mt#2350 alert-once.
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
   });
 });
