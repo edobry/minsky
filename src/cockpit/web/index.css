@@ -143,7 +143,8 @@
 /* VSM plant board animations (mt#2376)
  * vsm-breath — slow 3s oscillation on tank fill levels; simulates the diurnal rhythm.
  * vsm-ask-pulse — seam circle pulses when a pending ask is open.
- * Both honor prefers-reduced-motion below.
+ * vsm-scan — 3★ audit sweep; CSS stroke-dashoffset (NOT SVG SMIL) so the universal
+ *   prefers-reduced-motion rule below disables it. All three honor reduced-motion.
  */
 @keyframes vsm-breath {
   0%,
@@ -175,6 +176,16 @@
   animation: vsm-ask-pulse 2.4s ease-in-out infinite;
   transform-origin: center;
   transform-box: fill-box;
+}
+
+@keyframes vsm-scan {
+  to {
+    stroke-dashoffset: -180;
+  }
+}
+
+.vsm-scan {
+  animation: vsm-scan 9s linear infinite;
 }
 
 @keyframes hook-denial-flash {

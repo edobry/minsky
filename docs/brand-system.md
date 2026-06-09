@@ -286,6 +286,27 @@ The cockpit currently uses shadcn-style HSL custom properties (`src/cockpit/web/
 | `--liveness-orphaned` | (new) `liveness.orphaned`                      | Map onto `text.subtle` range.                                                                                                    |
 | —                     | `signal.cyan`, `signal.cyan.dim`, `iso.pastel` | **New**: add to cockpit during mt#1935 — used for active-status indicators, agent-identity surfaces, and sync-gauge instruments. |
 
+### VSM organ palette (mt#2376, cockpit-local)
+
+The cockpit Plant Board (`/plant`, see [`docs/cockpit-ui.md`](cockpit-ui.md))
+introduces seven cockpit-local OKLCH organ tokens in `src/cockpit/web/index.css`,
+one per VSM organ plus the attention seam and learning loop:
+
+| Token         | Organ                     |
+| ------------- | ------------------------- |
+| `--vsm-s1`    | S1 Operations (teal)      |
+| `--vsm-s2`    | S2 Coordination (amber)   |
+| `--vsm-s3`    | S3 Management + 3★ (cyan) |
+| `--vsm-s4`    | S4 Future (purple)        |
+| `--vsm-s5`    | S5 Identity (neutral)     |
+| `--vsm-seam`  | Attention seam (pink)     |
+| `--vsm-learn` | Learning loop (emerald)   |
+
+They are cockpit-local (not yet promoted to the cross-surface palette in §2) and
+follow the same OKLCH-canonical, semantic-token discipline. The board's three
+motions (`vsm-scan`, `vsm-breath`, `vsm-ask-pulse`) honor `prefers-reduced-motion`
+per §3.
+
 For agent-consumable brand discipline, see the [`minsky-brand`](../.claude/skills/minsky-brand/SKILL.md) skill (mt#1933) — it is the canonical agent-facing surface for the locked myth, cultural code, layered references, vocabulary, and bridge-as-affect discipline. The marketing-site-design skill (§6 marketing-specific layer over the foundation) and this doc (operational tokens) compose on top.
 
 ## Cross-references

@@ -196,17 +196,8 @@ function S1Operations({ readyCount, readyLoading }: S1OperationsProps) {
 
       {/* Main pipe */}
       <path d="M180 470 H1020" stroke="oklch(var(--border) / 1)" strokeWidth="10" fill="none" strokeLinecap="round"/>
-      {/* Flow dashes — slow 3★ scan sweep */}
-      <path d="M180 470 H1020" stroke="oklch(var(--vsm-s1) / 0.5)" strokeWidth="3" fill="none" strokeDasharray="2 7">
-        <animateTransform
-          attributeName="transform"
-          type="translate"
-          from="-40 0"
-          to="860 0"
-          dur="9s"
-          repeatCount="indefinite"
-        />
-      </path>
+      {/* Flow dashes — slow 3★ scan sweep (CSS stroke-dashoffset so prefers-reduced-motion gates it; SVG SMIL would not) */}
+      <path className="vsm-scan" d="M180 470 H1020" stroke="oklch(var(--vsm-s1) / 0.5)" strokeWidth="3" fill="none" strokeDasharray="2 7"/>
 
       {/* Stage: TASKS */}
       <text x="200" y="450" textAnchor="middle" fontSize="10" letterSpacing="0.05em" fill="oklch(var(--muted-foreground) / 1)" fontFamily="var(--font-mono)">TASKS</text>
