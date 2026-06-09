@@ -155,7 +155,8 @@ describe("PerTurnEmbeddingPipeline (vector-only backfill)", () => {
     expect(result.turnsScanned).toBe(2);
     expect(result.turnsEmbedded).toBe(2);
     expect(result.turnsErrored).toBe(0);
-    expect(result.embeddingCallsMade).toBe(2);
+    // 2 turns, default batchSize 10 → 1 generateEmbeddings call.
+    expect(result.embeddingCallsMade).toBe(1);
     expect(store.get(key(SESSION_A, 0))?.embedding).not.toBeNull();
     expect(store.get(key(SESSION_A, 1))?.embedding).not.toBeNull();
   });
@@ -253,6 +254,7 @@ describe("PerTurnEmbeddingPipeline (vector-only backfill)", () => {
 
     expect(result.turnsScanned).toBe(3);
     expect(result.turnsEmbedded).toBe(3);
-    expect(result.embeddingCallsMade).toBe(3);
+    // 3 candidates, batchSize 2 → 2 generateEmbeddings calls (batches of 2 + 1).
+    expect(result.embeddingCallsMade).toBe(2);
   });
 });

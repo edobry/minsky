@@ -72,7 +72,13 @@ export async function writeTurnsForTranscript(
       turnIndex: turn.turnIndex,
       userText: turn.userText ?? undefined,
       assistantText: turn.assistantText ?? undefined,
-      toolCalls: turn.toolCalls ? JSON.stringify(turn.toolCalls) : undefined,
+      // Pass the array directly — `tool_calls` is a jsonb column and Drizzle
+      // serializes the value. JSON.stringify here would DOUBLE-encode it (store a
+      // quoted JSON string, jsonb_typeof = 'string'), which breaks downstream
+      // `Array.isArray(tool_calls)` checks (agent-spawns-pipeline.findAgentToolCall).
+      // (Pre-mt#2381 rows are double-encoded; extractTurnsForAllTranscripts
+      // re-materializes and corrects them on the next index-embeddings --all.)
+      toolCalls: turn.toolCalls ?? undefined,
       startedAt: turn.startedAt ?? undefined,
       endedAt: turn.endedAt ?? undefined,
       isSpawnBoundary: turn.isSpawnBoundary,

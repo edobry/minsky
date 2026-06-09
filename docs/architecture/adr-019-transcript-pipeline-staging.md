@@ -107,6 +107,28 @@ We explicitly reject two alternatives:
   and intended — it is the cost of FTS-on-capture — but it makes capture marginally heavier than the
   pre-split ingest.
 
+## Implementation notes (mt#2381)
+
+The seam split shipped in mt#2381 (PR #1640):
+
+- **Extraction half — `turn-writer.ts`.** `writeTurnsForTranscript(db, sessionId, transcript)` extracts
+  turns (reusing `extractTurns`) and upserts text/metadata columns ONLY — `embedding` is omitted from
+  both the insert values and the `ON CONFLICT … SET`, enforcing the embedding-preservation invariant.
+  `extractTurnsForAllTranscripts(db)` is the historical reconciliation. The ingest service calls
+  `writeTurnsForTranscript` on the capture path (over the full merged transcript).
+- **Embedding half — `PerTurnEmbeddingPipeline` is now vector-only.** Its `PipelineRunResult` fields
+  changed from transcript-centric (`transcriptsScanned/Processed/Skipped/Errored`, `turnsWritten`) to
+  turn-centric: `turnsScanned`, `turnsEmbedded`, `turnsErrored`, `embeddingCallsMade` (now counted **per
+  batch** — one `generateEmbeddings` invocation — not per turn). `run()` takes an optional
+  `{ agentSessionId }` scope.
+- **`transcripts.index-embeddings` command** runs three stages: extraction reconciliation → vector-only
+  embedding → summary; its result shape gained an `extraction` field alongside `perTurn` / `summary`.
+- **`tool_calls` encoding fix.** Pre-mt#2381 the combined pipeline wrote `JSON.stringify(toolCalls)` into
+  the `jsonb` column, double-encoding every row (`jsonb_typeof = 'string'`), which silently broke
+  `Array.isArray(tool_calls)` consumers (`agent-spawns-pipeline.findAgentToolCall`). turn-writer passes
+  the array directly (`jsonb_typeof = 'array'`); `extractTurnsForAllTranscripts` corrects existing
+  double-encoded rows on the next `index-embeddings --all`.
+
 ## Cross-references
 
 - Related tasks: **mt#2234** (cockpit-daemon transcript capture — owns and implements this split),

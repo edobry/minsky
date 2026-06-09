@@ -233,6 +233,22 @@ describe("writeTurnsForTranscript", () => {
     }
   });
 
+  test("tool_calls is stored as an array, not a double-encoded string", async () => {
+    // jsonb column: the value must be the array itself so jsonb_typeof = 'array'
+    // and Array.isArray(tool_calls) holds downstream. JSON.stringify would store
+    // a quoted string (jsonb_typeof = 'string') — the pre-mt#2381 bug.
+    const transcript: RawTurnLine[] = [
+      userLine("dispatch", TS1),
+      assistantLine("ok", [agentToolCall("toolu_a")], TS2),
+    ];
+    const store = new Map<string, FakeTurnRow>();
+    await writeTurnsForTranscript(asPg(makeDb([], store)), SESSION_A, transcript);
+
+    const row = store.get(turnKey(SESSION_A, 0));
+    expect(Array.isArray(row?.toolCalls)).toBe(true);
+    expect((row?.toolCalls as unknown[]).length).toBeGreaterThan(0);
+  });
+
   test("idempotent: re-running upserts without duplicating rows", async () => {
     const transcript: RawTurnLine[] = [userLine("hello", TS1), assistantLine("hi", [], TS2)];
     const store = new Map<string, FakeTurnRow>();

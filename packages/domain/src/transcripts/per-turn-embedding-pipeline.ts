@@ -36,7 +36,7 @@ export interface PipelineRunResult {
   turnsEmbedded: number;
   /** Turns whose embed or update failed (left with NULL embedding for retry). */
   turnsErrored: number;
-  /** Total embedding API calls made (1 per turn with non-empty text). */
+  /** Embedding API calls made — one `generateEmbeddings` invocation per batch. */
   embeddingCallsMade: number;
 }
 
@@ -135,7 +135,8 @@ export class PerTurnEmbeddingPipeline {
       let embeddings: (number[] | null)[];
       try {
         embeddings = await this.embeddingService.generateEmbeddings(batch.map((c) => c.text));
-        result.embeddingCallsMade += batch.length;
+        // One provider invocation per batch (not per turn).
+        result.embeddingCallsMade += 1;
       } catch (err) {
         result.turnsErrored += batch.length;
         log.warn(
