@@ -68,9 +68,20 @@ if (!sessionId) {
   );
   type SidRow = { agent_session_id?: string };
   // postgres-js drizzle returns an array-like RowList; node-postgres wraps in { rows }.
-  const rows: SidRow[] = Array.isArray(rowsRes)
-    ? (rowsRes as SidRow[])
-    : ((rowsRes as { rows?: SidRow[] }).rows ?? []);
+  // Distinguish "query ran, shape unrecognized" (FAIL — never silently skip a
+  // verification) from "query ran, zero matching sessions" (legit SKIP below).
+  let rows: SidRow[];
+  if (Array.isArray(rowsRes)) {
+    rows = rowsRes as SidRow[];
+  } else if (
+    rowsRes !== null &&
+    typeof rowsRes === "object" &&
+    Array.isArray((rowsRes as { rows?: unknown }).rows)
+  ) {
+    rows = (rowsRes as { rows: SidRow[] }).rows;
+  } else {
+    fail(`unrecognized drizzle result shape (${typeof rowsRes}); cannot resolve a session`);
+  }
   sessionId = rows[0]?.agent_session_id;
 }
 if (!sessionId) {

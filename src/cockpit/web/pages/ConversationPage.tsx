@@ -19,24 +19,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ConversationView } from "../widgets/ConversationView";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
-
-/** Inline mirror of ContextInspectorSessionRow (matches ContextInspector.tsx). */
-interface SessionRow {
-  agentSessionId: string;
-  harness: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  cwd: string | null;
-  label: string;
-}
-
-function isSessionsPayload(payload: unknown): payload is { sessions: SessionRow[] } {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    Array.isArray((payload as { sessions?: unknown }).sessions)
-  );
-}
+import { extractSessionRows } from "../lib/sessions-source";
 
 export function ConversationPage() {
   const sessionsQuery = useQuery<WidgetData, Error>({
@@ -47,10 +30,7 @@ export function ConversationPage() {
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
-  const sessions =
-    sessionsQuery.data?.state === "ok" && isSessionsPayload(sessionsQuery.data.payload)
-      ? sessionsQuery.data.payload.sessions
-      : [];
+  const sessions = extractSessionRows(sessionsQuery.data);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4">

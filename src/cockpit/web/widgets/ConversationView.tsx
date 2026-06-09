@@ -131,7 +131,7 @@ function ToolCall({ element }: { element: Extract<ConversationElement, { kind: "
         <span className="font-mono font-medium text-sky-300">{element.name}</span>
         {element.spawn && (
           <span className="ml-auto rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">
-            → subagent ({element.spawn.agentKind})
+            → subagent{element.spawn.agentKind ? ` (${element.spawn.agentKind})` : ""}
           </span>
         )}
       </div>
@@ -243,7 +243,7 @@ function TurnView({
         <span className="font-semibold">{roleStyle.label}</span>
         {turn.isSpawnBoundary && (
           <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium normal-case text-violet-300">
-            → subagent ({turn.spawnAgentKind ?? "subagent"})
+            → subagent{turn.spawnAgentKind ? ` (${turn.spawnAgentKind})` : ""}
           </span>
         )}
         <span className="ml-auto tabular-nums text-muted-foreground/60">

@@ -218,7 +218,7 @@ describe("spawn-boundary detection", () => {
     expect((call as { spawn?: { agentKind: string } }).spawn?.agentKind).toBe("Explore");
   });
 
-  test("Agent tool_use without subagent_type → falls back to 'subagent'", () => {
+  test("Agent tool_use without subagent_type → spawn boundary, agentKind undefined", () => {
     const t = snapshotBlockToConversationTurn(
       block({
         rawJsonlType: "assistant",
@@ -229,7 +229,11 @@ describe("spawn-boundary detection", () => {
       })
     );
     expect(t?.isSpawnBoundary).toBe(true);
-    expect(t?.spawnAgentKind).toBe("subagent");
+    expect(t?.spawnAgentKind).toBeUndefined();
+    // The spawn marker is still present (so the renderer shows a bare "→ subagent").
+    const call = t?.elements[0] as { spawn?: { agentKind?: string } };
+    expect(call.spawn).toBeDefined();
+    expect(call.spawn?.agentKind).toBeUndefined();
   });
 
   test("non-Agent tool_use → not a spawn boundary", () => {

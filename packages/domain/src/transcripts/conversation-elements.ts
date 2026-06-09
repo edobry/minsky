@@ -48,8 +48,13 @@ export type ConversationElement =
       name: string;
       /** Raw tool input payload (renderer pretty-prints). */
       input: unknown;
-      /** Present when this call is a subagent spawn (name === "Agent"). */
-      spawn?: { agentKind: string };
+      /**
+       * Present when this call is a subagent spawn (name === "Agent"). The
+       * `agentKind` is the real subagent type when the harness recorded one,
+       * else `undefined` (older Agent-tool shapes) — the renderer shows a bare
+       * "→ subagent" label in that case rather than echoing a placeholder.
+       */
+      spawn?: { agentKind?: string };
     }
   | {
       kind: "tool-result";
@@ -162,7 +167,7 @@ function blockToElement(block: ContentBlock): ConversationElement {
         input: block.input,
       };
       if (name === AGENT_TOOL_NAME) {
-        el.spawn = { agentKind: spawnAgentKindFromInput(block.input) ?? "subagent" };
+        el.spawn = { agentKind: spawnAgentKindFromInput(block.input) };
       }
       return el;
     }

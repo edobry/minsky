@@ -327,6 +327,14 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/*
+            Self-fetching route (mt#2374): ConversationPage owns its data via
+            TanStack Query (it reuses the `context-inspector` widget-data + the
+            snapshot endpoint). Like the other self-fetching pages (memories,
+            embeddings, asks, activity, plant) it needs NO entry in
+            PAGE_ROUTE_WIDGET_IDS / APP_LEVEL_PAGE_PROP_WIDGET_IDS — those govern
+            app-level PROP-driven polling, which this route does not use.
+          */}
           <Route
             path="/conversation"
             element={
