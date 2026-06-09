@@ -34,6 +34,7 @@ const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m
 const ActivityPage = lazy(() => import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
 const EmbeddingsPage = lazy(() => import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage })));
 const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage })));
+const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default: m.PlantPage })));
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -356,6 +357,14 @@ export function App() {
             element={
               <ErrorBoundary id="memories-page">
                 <MemoriesPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/plant"
+            element={
+              <ErrorBoundary id="plant-page">
+                <PlantPage />
               </ErrorBoundary>
             }
           />
