@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { cn } from "../lib/utils";
 
@@ -40,6 +40,8 @@ export interface WidgetShellProps {
  * boolean through every widget.
  */
 export function WidgetShell({ variant, title, children, className }: WidgetShellProps) {
+  const titleId = useId();
+
   switch (variant) {
     case "card":
       return (
@@ -61,16 +63,20 @@ export function WidgetShell({ variant, title, children, className }: WidgetShell
     case "rail-item":
       return (
         <div
+          role="group"
+          aria-labelledby={titleId}
           className={cn("flex items-center justify-between gap-2 px-2 py-1.5 text-sm", className)}
         >
-          <span className="truncate text-muted-foreground">{title}</span>
+          <span id={titleId} className="truncate text-muted-foreground">
+            {title}
+          </span>
           <div className="flex items-center gap-2">{children}</div>
         </div>
       );
 
     case "compact":
       return (
-        <div className={cn("flex items-center gap-3", className)} aria-label={title}>
+        <div role="group" className={cn("flex items-center gap-3", className)} aria-label={title}>
           {children}
         </div>
       );

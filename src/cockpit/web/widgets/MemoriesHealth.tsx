@@ -51,7 +51,7 @@ function MemoriesHealthBody() {
 
   if (query.isLoading || !query.data) {
     return (
-      <span className="flex items-center gap-1.5 text-muted-foreground">
+      <span className="flex items-center gap-2 text-muted-foreground">
         <span className="inline-block h-2 w-2 rounded-full bg-muted animate-pulse" />
         <span>Checking embeddings health…</span>
       </span>
@@ -60,7 +60,7 @@ function MemoriesHealthBody() {
 
   if (query.isError) {
     return (
-      <span className="flex items-center gap-1.5 text-destructive">
+      <span className="flex items-center gap-2 text-destructive">
         <span className="inline-block h-2 w-2 rounded-full bg-destructive" />
         <span>Health check failed</span>
       </span>
@@ -71,7 +71,7 @@ function MemoriesHealthBody() {
 
   if (data.state === "degraded") {
     return (
-      <span className="flex items-center gap-1.5 text-muted-foreground">
+      <span className="flex items-center gap-2 text-muted-foreground">
         <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
         <span>{data.reason}</span>
       </span>
