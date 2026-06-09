@@ -235,10 +235,13 @@ function DigestRow({ ask }: { ask: AttentionAsk }) {
       {/* Title + kind */}
       <div className="flex-1 min-w-0">
         <p className="text-xs font-medium text-foreground truncate">{ask.title}</p>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground truncate">{ask.kind}</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs text-muted-foreground truncate min-w-0">{ask.kind}</span>
           {ask.parentTaskId && (
-            <span className="text-xs font-mono text-muted-foreground flex-shrink-0">
+            <span
+              className="text-xs font-mono text-muted-foreground truncate max-w-[10rem]"
+              title={ask.parentTaskId}
+            >
               {ask.parentTaskId}
             </span>
           )}
@@ -372,13 +375,25 @@ export function Attention() {
 
       <CardContent>
         {cohort.length === 0 ? (
-          /* Empty state — desirable, not an error */
+          /* Empty state — desirable, not an error.
+             The cohort is active-window-scoped; totalPending is global. When the
+             active window is clear but other windows still hold asks, reflect that
+             instead of asserting "all clear" (which would contradict the header
+             count). */
           <div className="py-3 text-center">
-            <p className="text-sm font-medium text-foreground">No pending asks</p>
+            <p className="text-sm font-medium text-foreground">
+              {activeWindow ? "No asks in this window" : "No pending asks"}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {activeWindow
-                ? `Window "${activeWindow.windowKey}" is open — all clear.`
-                : "No active window — all clear."}
+              {totalPending > 0 ? (
+                <Link to="/asks" className="hover:text-foreground transition-colors">
+                  {totalPending} pending{activeWindow ? " in other windows" : ""} →
+                </Link>
+              ) : activeWindow ? (
+                `Window "${activeWindow.windowKey}" is open — all clear.`
+              ) : (
+                "No active window — all clear."
+              )}
             </p>
           </div>
         ) : (
