@@ -67,6 +67,14 @@ async function exerciseCrud(
     `${label}: listSessions includes the record`
   );
 
+  // R1 BLOCKING regression: listSessions({ taskId }) must find the record by its
+  // qualified task id (previously the prefix-strip made this filter a no-op).
+  const byTaskList = await provider.listSessions({ taskId: TASK_ID });
+  assert(
+    byTaskList.some((s) => s.sessionId === SID),
+    `${label}: listSessions({ taskId }) finds the record`
+  );
+
   const workdir = await provider.getSessionWorkdir(SID);
   if (derivedWorkdir) {
     assert(workdir.endsWith(`/sessions/${SID}`), `${label}: getSessionWorkdir derives the path`);

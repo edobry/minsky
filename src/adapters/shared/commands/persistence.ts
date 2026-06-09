@@ -123,7 +123,9 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
       const {
         to,
         from,
-        sqlitePath,
+        // sqlitePath param retained on the schema but unused: SQLite is no longer a
+        // valid migration target (sessions are Postgres-only, mt#2329).
+        sqlitePath: _sqlitePath,
         backup = true,
         execute,
         setDefault,
@@ -179,6 +181,18 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         if (to !== "sqlite" && to !== "postgres") {
           throw new Error(
             `❌ Unsupported backend target: ${String(to)}. Supported backends: sqlite, postgres`
+          );
+        }
+        // mt#2329 / ADR-018: sessions are Postgres-only. Session writes go through
+        // the Postgres-only DrizzleSessionRepository, so a SQLite TARGET can no
+        // longer perform a session migration (migrating FROM sqlite TO postgres
+        // remains the valid direction). Fail fast with a clear message rather than
+        // throwing deep in the repository. The broader SQLite removal is mt#2349.
+        if (to === "sqlite") {
+          throw new Error(
+            "❌ Session migration to a SQLite target is no longer supported: sessions are " +
+              "Postgres-only (ADR-018 / mt#2329). Migrate to postgres instead. " +
+              "SQLite removal is tracked by mt#2349."
           );
         }
 
@@ -339,34 +353,22 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
           }
         }
 
-        // Create target storage with config-driven approach
+        // Create target storage. `to` is narrowed to "postgres" by the
+        // SQLite-target guard above (sessions are Postgres-only, ADR-018 / mt#2329).
         const targetConfig: Record<string, unknown> = { backend: to };
-        let targetSqlitePath: string | undefined;
-        let _targetPostgresConn: string | undefined;
-
-        if (to === "sqlite") {
-          targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
-          targetConfig.sqlite = {
-            dbPath: targetSqlitePath,
-          };
-        } else if (to === "postgres") {
-          const effectiveTarget = getEffectivePersistenceConfig(config);
-          const connectionString = effectiveTarget.connectionString;
-
-          if (!connectionString) {
-            throw new Error(
-              "PostgreSQL connection string not found. " +
-                "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
-            );
-          }
-
-          log.cli(
-            `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+        const effectiveTarget = getEffectivePersistenceConfig(config);
+        const connectionString = effectiveTarget.connectionString;
+        if (!connectionString) {
+          throw new Error(
+            "PostgreSQL connection string not found. " +
+              "Please configure persistence.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
           );
-          _targetPostgresConn = connectionString;
-          // Use the full postgres sub-object so pool settings are preserved.
-          targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
         }
+        log.cli(
+          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+        );
+        // Use the full postgres sub-object so pool settings are preserved.
+        targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
 
         // Use SessionProviderInterface for data migration via DI closure
         const { sessionProvider: sessionProvider2 } = getPersistenceDeps();

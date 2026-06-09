@@ -39,8 +39,10 @@ export enum SessionStatus {
 /**
  * Core session record interface
  *
- * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
- * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
+ * Task IDs are stored in QUALIFIED format (e.g., "mt#283") — verified against
+ * live rows and matched by getSessionByTaskId / listSessions({ taskId }) via
+ * validateQualifiedTaskId (mt#2329 PR #1625 R1; the prior "plain 283" note was
+ * stale). Use formatTaskIdForDisplay() from task-id-utils.ts for display.
  */
 export interface SessionRecord {
   sessionId: string;
@@ -48,7 +50,7 @@ export interface SessionRecord {
   repoUrl: string;
   repoPath?: string; // Local path to the repository
   createdAt: string;
-  /** Task ID in storage format (plain number string, e.g., "283") */
+  /** Task ID in storage format (qualified, e.g., "mt#283") */
   taskId?: string;
   backendType?: "github" | "gitlab" | "bitbucket"; // Repository backend type
   lastActivityAt?: string;
@@ -112,8 +114,10 @@ export function deriveSessionLiveness(
 /**
  * Session interface for external use
  *
- * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
- * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
+ * Task IDs are stored in QUALIFIED format (e.g., "mt#283") — verified against
+ * live rows and matched by getSessionByTaskId / listSessions({ taskId }) via
+ * validateQualifiedTaskId (mt#2329 PR #1625 R1; the prior "plain 283" note was
+ * stale). Use formatTaskIdForDisplay() from task-id-utils.ts for display.
  */
 export interface Session {
   sessionId: string;
@@ -122,7 +126,7 @@ export interface Session {
   /** @deprecated No longer stored persistently; kept for compatibility with code that still reads it */
   branch?: string;
   createdAt?: string;
-  /** Task ID in storage format (plain number string, e.g., "283") */
+  /** Task ID in storage format (qualified, e.g., "mt#283") */
   taskId?: string;
   /** Computed liveness status derived from lastActivityAt and session status */
   liveness?: SessionLiveness;

@@ -97,8 +97,20 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     return withPgPoolRetry(async () => {
       const conditions: SQL[] = [];
       if (options?.taskId) {
-        // Normalize qualified IDs (e.g. "mt#283" -> "283") to match storage format
-        const normalizedTaskId = options.taskId.replace(/^[a-z]+#/i, "").replace(/^#/, "");
+        // Compare against the QUALIFIED stored form (e.g. "mt#283") — that is the
+        // actual storage format (verified: real rows hold "mt#971", "md#..."), and
+        // it matches getSessionByTaskId's comparison. validateQualifiedTaskId
+        // normalizes the query to the qualified form; if it cannot (already
+        // qualified, or invalid), fall back to the raw value so a qualified id still
+        // matches. (Previously this stripped the prefix to a plain id, which never
+        // matched the qualified storage — the listSessions({taskId}) filter was a
+        // no-result no-op. mt#2329 PR #1625 R1 BLOCKING.)
+        let normalizedTaskId = options.taskId;
+        try {
+          normalizedTaskId = validateQualifiedTaskId(options.taskId) ?? options.taskId;
+        } catch {
+          /* invalid id — fall back to the raw value */
+        }
         conditions.push(eq(postgresSessions.taskId, normalizedTaskId));
       }
       if (options?.repoName) {
@@ -257,7 +269,10 @@ export class DrizzleSessionRepository implements SessionProviderInterface {
     if (!session) {
       throw new Error(`Session '${sessionId}' not found or has no working directory`);
     }
-    return join(getMinskyStateDir(), "sessions", sessionId);
+    // Single source of truth with getRepoPath: prefer the stored repoPath when
+    // present, else the derived <stateDir>/sessions/<id> layout. (R1 BLOCKING:
+    // align the two path accessors so they cannot silently drift.)
+    return this.getRepoPath(session);
   }
 
   /**

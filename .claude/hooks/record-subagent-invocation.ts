@@ -216,7 +216,8 @@ async function resolveTaskId(cwd: string): Promise<string | null> {
             // Check if cwd is under this session's directory
             const sessionId = rec.sessionId ?? "";
             if (sessionId && cwd.includes(sessionId)) {
-              await provider.close();
+              // The `finally` below closes the provider — no inner close (would
+              // double-close + mask close-time errors; PR #1625 R1 NON-BLOCKING).
               return rec.taskId;
             }
           }

@@ -1,13 +1,18 @@
 /**
- * Session record + pull-request types for the sessions domain.
+ * Pull-request types for the sessions domain, plus a re-export of the canonical
+ * `SessionRecord`.
  *
- * (The former `SessionDbState` container and its state-based pure functions
- * were retired with the DatabaseStorage layer in mt#2329; sessions persist via
- * `DrizzleSessionRepository`. `SessionRecord` and the PR types remain here as
- * the canonical domain shapes used across the codebase.)
+ * (The former `SessionDbState` container and its state-based pure functions were
+ * retired with the DatabaseStorage layer in mt#2329; sessions persist via
+ * `DrizzleSessionRepository`. The PR types live here; `SessionRecord` has a
+ * SINGLE canonical definition in `./types` and is re-exported here for the
+ * modules that historically imported it from this file — mt#2329 PR #1625 R1.)
  */
 
-import type { SessionStatus } from "./types";
+// Canonical SessionRecord lives in ./types; re-exported so importers of
+// session-db's SessionRecord keep resolving to the one definition (R1 BLOCKING:
+// de-duplicate the formerly-doubled SessionRecord interface).
+export type { SessionRecord } from "./types";
 
 /**
  * PR commit information
@@ -68,50 +73,4 @@ export interface PullRequestInfo {
   body?: string; // PR description – fetched live, not cached
   filesChanged?: number; // Count of changed files – fetched live, not cached
   commits?: number; // Count of commits – fetched live, not cached
-}
-
-/**
- * Session record structure
- */
-export interface SessionRecord {
-  sessionId: string;
-  repoName: string;
-  repoUrl: string;
-  repoPath?: string; // Local path to the repository
-  createdAt: string;
-  taskId?: string;
-  backendType?: "github" | "gitlab" | "bitbucket"; // Repository backend type
-  lastActivityAt?: string;
-  lastCommitHash?: string;
-  lastCommitMessage?: string;
-  commitCount?: number;
-  status?: SessionStatus;
-  agentId?: string;
-  prState?: {
-    branchName: string;
-    exists?: boolean;
-    lastChecked: string; // ISO timestamp
-    createdAt?: string; // When PR branch was created
-    mergedAt?: string; // When merged (for cleanup)
-  };
-  pullRequest?: PullRequestInfo;
-
-  // NEW: Simple PR approval tracking (Task #358)
-  prBranch?: string; // PR branch if one exists ("pr/session-id")
-  prApproved?: boolean; // Whether this session's PR is approved
-
-  // Legacy / compatibility fields
-  /** @deprecated Use `sessionId` instead */
-  name?: string;
-  workspacePath?: string;
-  sessionPath?: string;
-  /** Branch name - removed from persistent schema but kept for test compatibility */
-  branch?: string;
-  /** @deprecated Use `createdAt` instead */
-  created?: string;
-  github?: {
-    owner?: string;
-    repo?: string;
-    token?: string;
-  };
 }
