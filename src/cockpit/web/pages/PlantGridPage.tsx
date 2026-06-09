@@ -32,6 +32,7 @@
  *   panels. v1 keeps flow only WITHIN the S1 spine panel.
  */
 
+import { type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { useReadyCount } from "../hooks/useReadyCount";
@@ -52,7 +53,7 @@ function tankFill(count: number, max: number): number {
 interface PanelProps {
   "aria-label": string;
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   accentVar: string;
   label: string;
   sublabel?: string;
