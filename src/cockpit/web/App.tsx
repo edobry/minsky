@@ -22,18 +22,43 @@ import { PageNavTiles } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 // HomePage's PageNavTiles stays eagerly imported above (first-paint critical).
-const AgentsPage = lazy(() => import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage })));
-const ContextPage = lazy(() => import("./pages/ContextPage").then((m) => ({ default: m.ContextPage })));
-const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
-const WorkstreamsPage = lazy(() => import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage })));
-const TasksLayout = lazy(() => import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout })));
-const TasksListPage = lazy(() => import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage })));
-const TasksGraphPage = lazy(() => import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage })));
-const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage })));
+const AgentsPage = lazy(() =>
+  import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
+);
+const ContextPage = lazy(() =>
+  import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
+);
+const ConversationPage = lazy(() =>
+  import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
+);
+const WorkstreamsPage = lazy(() =>
+  import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
+);
+const TasksLayout = lazy(() =>
+  import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout }))
+);
+const TasksListPage = lazy(() =>
+  import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage }))
+);
+const TasksGraphPage = lazy(() =>
+  import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage }))
+);
+const TaskDetailPage = lazy(() =>
+  import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage }))
+);
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
-const ActivityPage = lazy(() => import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
-const EmbeddingsPage = lazy(() => import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage })));
-const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage })));
+const ActivityPage = lazy(() =>
+  import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
+);
+const EmbeddingsPage = lazy(() =>
+  import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage }))
+);
+const MemoriesPage = lazy(() =>
+  import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage }))
+);
 const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default: m.PlantPage })));
 
 // ---------------------------------------------------------------------------
@@ -296,6 +321,14 @@ export function App() {
             element={
               <ErrorBoundary id="context-page">
                 <ContextPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/conversation"
+            element={
+              <ErrorBoundary id="conversation-page">
+                <ConversationPage />
               </ErrorBoundary>
             }
           />

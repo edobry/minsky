@@ -17,7 +17,20 @@
  * accessibility structure screen readers need without visible headings.
  */
 import { Link } from "react-router-dom";
-import { Bot, Brain, FileSearch, GitBranch, List, Network, MessageCircleQuestion, Bell, Cpu, Layers, ChevronRight } from "lucide-react";
+import {
+  Bot,
+  Brain,
+  FileSearch,
+  GitBranch,
+  List,
+  Network,
+  MessageCircleQuestion,
+  MessagesSquare,
+  Bell,
+  Cpu,
+  Layers,
+  ChevronRight,
+} from "lucide-react";
 import { cn } from "../lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +103,12 @@ export function PageNavTiles() {
           icon={FileSearch}
           label="Context"
           description="Session context blocks, filters, and content viewer"
+        />
+        <EntryTile
+          to="/conversation"
+          icon={MessagesSquare}
+          label="Conversation"
+          description="Readable chat-thread view of a session transcript"
         />
         <EntryTile
           to="/workstreams"

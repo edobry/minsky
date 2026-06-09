@@ -45,3 +45,14 @@ export {
   type PerTurnEmbeddingPipelineOptions,
   type PerTurnEmbeddingRunOptions,
 } from "./per-turn-embedding-pipeline";
+// Conversation-element parser (mt#2374) — expands a SessionContextSnapshot
+// block into ordered conversational sub-elements for the cockpit renderer.
+export {
+  snapshotBlockToConversationTurn,
+  snapshotBlocksToConversation,
+  spawnAgentKindFromInput,
+  AGENT_TOOL_NAME,
+  type ConversationElement,
+  type ConversationRole,
+  type ConversationTurn,
+} from "./conversation-elements";
