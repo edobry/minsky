@@ -1,6 +1,8 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "services/reviewer/Dockerfile",
     "watchPatterns": [
       "services/reviewer/**",
       "packages/shared/src/**",
