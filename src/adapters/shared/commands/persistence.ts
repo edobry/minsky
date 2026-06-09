@@ -370,21 +370,18 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         // Use the full postgres sub-object so pool settings are preserved.
         targetConfig.postgres = effectiveTarget.postgres ?? { connectionString };
 
-        // Use SessionProviderInterface for data migration via DI closure
-        const { sessionProvider: sessionProvider2 } = getPersistenceDeps();
-        if (!sessionProvider2) {
-          throw new Error(
-            "DI container missing 'sessionProvider'. Ensure container.initialize() was called before command execution."
-          );
-        }
-        const sessions = await sessionProvider2.listSessions();
-
+        // Source sessions for the write: use the normalized records computed
+        // above — they honor `--from` when a backup file was supplied and skip
+        // legacy taskId-less rows. (R2 BLOCKING fix: EXECUTE previously did a
+        // second listSessions() re-read, ignoring `--from`. The bug pre-dates this
+        // PR — the top-of-command source read already used listSessions for the
+        // configured backend — but it is fixed here while this path is touched.)
         const sourceState = {
-          sessions,
+          sessions: normalizedRecords,
           baseDir: getMinskyStateDir(),
         };
 
-        log.cli(`✅ Read ${sourceState.sessions.length} sessions from source backend`);
+        log.cli(`✅ Migrating ${sourceState.sessions.length} session(s) to the target backend`);
 
         // Create target provider with new backend
         const newTargetConfig = { ...targetConfig, backend: to };
