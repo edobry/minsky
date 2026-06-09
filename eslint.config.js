@@ -322,7 +322,7 @@ export default [
             // Session provider composition roots
             "**/src/domain/session/session-service.ts",
             "**/src/domain/session/session-provider-cache.ts",
-            "**/src/domain/session/session-db-adapter.ts",
+            "**/src/domain/session/drizzle-session-repository.ts",
             // Session path resolver (lazy fallback for MCP handlers without DI context)
             "**/src/domain/session/session-path-resolver.ts",
             // Domain-level facade files that re-export/wire providers

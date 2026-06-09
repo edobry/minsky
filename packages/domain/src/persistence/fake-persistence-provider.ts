@@ -15,13 +15,7 @@
  * @see src/utils/test-utils/dependencies.ts (deprecated)
  */
 
-import type {
-  DatabaseStorage,
-  DatabaseReadResult,
-  DatabaseWriteResult,
-  DatabaseQueryOptions,
-} from "../storage/database-storage";
-import { PersistenceProvider, type PersistenceCapabilities, type SessionStorage } from "./types";
+import { PersistenceProvider, type PersistenceCapabilities } from "./types";
 
 /**
  * In-memory FakePersistenceProvider for hermetic tests.
@@ -32,7 +26,6 @@ import { PersistenceProvider, type PersistenceCapabilities, type SessionStorage 
  */
 export class FakePersistenceProvider extends PersistenceProvider {
   readonly capabilities: PersistenceCapabilities;
-  private readonly storage = new InMemoryDatabaseStorage<unknown, unknown>();
   private initialized = false;
 
   constructor(capabilities: Partial<PersistenceCapabilities> = {}) {
@@ -51,10 +44,6 @@ export class FakePersistenceProvider extends PersistenceProvider {
     return this.capabilities;
   }
 
-  getStorage(): SessionStorage {
-    return this.storage as SessionStorage;
-  }
-
   async initialize(): Promise<void> {
     this.initialized = true;
   }
@@ -65,58 +54,5 @@ export class FakePersistenceProvider extends PersistenceProvider {
 
   getConnectionInfo(): string {
     return "fake://in-memory";
-  }
-}
-
-class InMemoryDatabaseStorage<T, S> implements DatabaseStorage<T, S> {
-  private readonly entities = new Map<string, T>();
-  private state: S | null = null;
-  private nextId = 1;
-
-  async readState(): Promise<DatabaseReadResult<S>> {
-    return this.state !== null ? { success: true, data: this.state } : { success: true };
-  }
-
-  async writeState(state: S): Promise<DatabaseWriteResult> {
-    this.state = state;
-    return { success: true, bytesWritten: 0 };
-  }
-
-  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<T | null> {
-    return this.entities.get(id) ?? null;
-  }
-
-  async getEntities(_options?: DatabaseQueryOptions): Promise<T[]> {
-    return Array.from(this.entities.values());
-  }
-
-  async createEntity(entity: T): Promise<T> {
-    const id = `fake-${this.nextId++}`;
-    this.entities.set(id, entity);
-    return entity;
-  }
-
-  async updateEntity(id: string, updates: Partial<T>): Promise<T | null> {
-    const existing = this.entities.get(id);
-    if (existing === undefined) return null;
-    const updated = { ...(existing as object), ...(updates as object) } as T;
-    this.entities.set(id, updated);
-    return updated;
-  }
-
-  async deleteEntity(id: string): Promise<boolean> {
-    return this.entities.delete(id);
-  }
-
-  async entityExists(id: string): Promise<boolean> {
-    return this.entities.has(id);
-  }
-
-  getStorageLocation(): string {
-    return "fake://in-memory";
-  }
-
-  async initialize(): Promise<boolean> {
-    return true;
   }
 }

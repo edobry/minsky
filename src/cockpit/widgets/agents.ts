@@ -339,7 +339,9 @@ let _cachedProvider: SessionProviderInterface | null = null;
 async function defaultProviderFactory(): Promise<SessionProviderInterface> {
   if (_cachedProvider) return _cachedProvider;
 
-  const { createSessionProvider } = await import("@minsky/domain/session/session-db-adapter");
+  const { createSessionProvider } = await import(
+    "@minsky/domain/session/drizzle-session-repository"
+  );
 
   const svc = await getSharedPersistenceService();
   const provider = await createSessionProvider(undefined, {

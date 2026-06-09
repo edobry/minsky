@@ -9,16 +9,13 @@
  *   3. Nested objects replace wholesale (shallow merge, not deep)
  *   4. `pullRequest` nested object replaces wholesale (same as #3)
  *
- * Section A: FakeSessionProvider — exercises the call-site pattern through
- *            the provider interface.
- * Section B: updateSessionFn (direct) — exercises the pure function exported
- *            from session-db.ts directly, confirming the contract independently
- *            of FakeSessionProvider.
+ * Exercised through `FakeSessionProvider` (the call-site pattern via the
+ * provider interface). The former Section B, which tested the retired
+ * `updateSessionFn` pure function directly, was removed in mt#2329.
  */
 
 import { describe, it, expect } from "bun:test";
 import { FakeSessionProvider } from "./fake-session-provider";
-import { updateSessionFn, initializeSessionDbState } from "./session-db";
 import { SessionStatus } from "./types";
 import type { SessionRecord } from "./types";
 
@@ -352,108 +349,5 @@ describe("updateSession — pullRequest nested object replaces wholesale", () =>
 
     // Updated field
     expect(updated.pullRequest?.number).toBe(100);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// B. updateSessionFn (direct) — contract
-//    Tests the pure function exported from session-db.ts directly, without
-//    any provider wrapper, to confirm the contract independently.
-// ---------------------------------------------------------------------------
-
-describe("updateSessionFn (direct) — contract", () => {
-  function makeStateWith(record: SessionRecord) {
-    const state = initializeSessionDbState({ baseDir: "/test" });
-    return { ...state, sessions: [record] };
-  }
-
-  it("partial merge: unspecified fields are preserved", () => {
-    const record = makeFullSession();
-    const state = makeStateWith(record);
-
-    const next = updateSessionFn(state, SESSION_ID, {
-      lastActivityAt: "2024-06-01T00:00:00.000Z",
-    });
-
-    const updated = next.sessions.find((s) => s.sessionId === SESSION_ID);
-    expect(updated).toBeDefined();
-    if (!updated) return;
-
-    // Updated field
-    expect(updated.lastActivityAt).toBe("2024-06-01T00:00:00.000Z");
-
-    // All other fields preserved
-    expect(updated.repoName).toBe("minsky");
-    expect(updated.repoUrl).toBe("https://github.com/edobry/minsky.git");
-    expect(updated.taskId).toBe("mt#1121");
-    expect(updated.lastCommitHash).toBe("abc123");
-    expect(updated.commitCount).toBe(3);
-    expect(updated.status).toBe(SessionStatus.ACTIVE);
-    expect(updated.agentId).toBe("agent-42");
-    expect(updated.prBranch).toBe(PR_BRANCH);
-    expect(updated.prApproved).toBe(false);
-    expect(updated.prState?.branchName).toBe(PR_BRANCH);
-    expect(updated.pullRequest?.number).toBe(99);
-  });
-
-  it("undefined clears the field", () => {
-    const record = makeFullSession({ prBranch: "pr/to-clear" });
-    const state = makeStateWith(record);
-
-    const next = updateSessionFn(state, SESSION_ID, {
-      prBranch: undefined,
-      prState: undefined,
-    });
-
-    const updated = next.sessions.find((s) => s.sessionId === SESSION_ID);
-    expect(updated).toBeDefined();
-    if (!updated) return;
-
-    expect(updated.prBranch == null).toBe(true);
-    expect(updated.prState == null).toBe(true);
-
-    // Unrelated fields untouched
-    expect(updated.repoName).toBe("minsky");
-    expect(updated.taskId).toBe("mt#1121");
-  });
-
-  it("nested object replaces wholesale (shallow merge, not deep)", () => {
-    const prStateWithExtra: PrStateWithLegacy = {
-      branchName: "pr/old",
-      exists: true,
-      lastChecked: "t0",
-      createdAt: "t-create",
-      extraKey: "should-disappear",
-    };
-    const record = makeFullSession({ prState: prStateWithExtra });
-    const state = makeStateWith(record);
-
-    const next = updateSessionFn(state, SESSION_ID, {
-      prState: {
-        branchName: "pr/new",
-        exists: false,
-        lastChecked: "t1",
-        // Note: createdAt intentionally omitted — should be gone after replace
-      },
-    });
-
-    const updated = next.sessions.find((s) => s.sessionId === SESSION_ID);
-    expect(updated).toBeDefined();
-    if (!updated) return;
-
-    const prState = updated.prState;
-    expect(prState).toBeDefined();
-    if (!prState) return;
-
-    // New values present
-    expect(prState.branchName).toBe("pr/new");
-    expect(prState.exists).toBe(false);
-    expect(prState.lastChecked).toBe("t1");
-
-    // createdAt was in the original but not in the replacement — should be gone
-    expect(prState.createdAt).toBeUndefined();
-
-    // Extra legacy key must not survive
-    expect((prState as Record<string, unknown>)["extraKey"]).toBeUndefined();
   });
 });

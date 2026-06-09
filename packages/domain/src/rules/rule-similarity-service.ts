@@ -1,7 +1,6 @@
 import { injectable } from "tsyringe";
 import type { SearchResult } from "../storage/vector/types";
 import { PersistenceProvider } from "../persistence/types";
-import type { SessionStorage } from "../persistence/types";
 import { createRuleSimilarityCore } from "../similarity/create-rule-similarity-core";
 import { EmbeddingsSimilarityBackend } from "../similarity/backends/embeddings-backend";
 import { LexicalSimilarityBackend } from "../similarity/backends/lexical-backend";
@@ -42,9 +41,6 @@ export class RuleSimilarityService {
       };
       getCapabilities() {
         return this.capabilities;
-      }
-      getStorage(): SessionStorage {
-        throw new Error("StubPersistenceProvider.getStorage not implemented");
       }
       async initialize() {}
       async close() {}

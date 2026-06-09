@@ -7,9 +7,6 @@
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage } from "../storage/vector/types";
-import type { DatabaseStorage as StorageDatabaseStorage } from "../storage/database-storage";
-import type { SessionRecord } from "../session/types";
-import type { SessionDbState } from "../session/session-db";
 import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory";
 
 /**
@@ -46,24 +43,11 @@ export interface PersistenceConfig {
 }
 
 /**
- * Re-export DatabaseStorage from storage module for use by providers.
- * The canonical DatabaseStorage interface lives in storage/database-storage.ts.
- */
-export type { StorageDatabaseStorage as DatabaseStorage };
-
-/**
- * Concrete storage type — all providers store sessions.
- * Previously generic `<T, S>` but only ever instantiated with SessionRecord/SessionDbState.
- */
-export type SessionStorage = StorageDatabaseStorage<SessionRecord, SessionDbState>;
-
-/**
  * Base interface for all persistence providers
  */
 export interface BasePersistenceProvider {
   readonly capabilities: PersistenceCapabilities;
   getCapabilities(): PersistenceCapabilities;
-  getStorage(): SessionStorage;
   initialize(): Promise<void>;
   close(): Promise<void>;
   getConnectionInfo(): string;
@@ -112,7 +96,6 @@ export interface VectorCapablePersistenceProvider extends BasePersistenceProvide
 export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract readonly capabilities: PersistenceCapabilities;
   abstract getCapabilities(): PersistenceCapabilities;
-  abstract getStorage(): SessionStorage;
   abstract initialize(): Promise<void>;
   abstract close(): Promise<void>;
   abstract getConnectionInfo(): string;
