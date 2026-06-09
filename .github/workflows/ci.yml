@@ -64,10 +64,9 @@ jobs:
       # or earlier-step failures.
       - name: Test (services/reviewer)
         if: ${{ always() }}
-        working-directory: services/reviewer
         run: |
-          bun install --frozen-lockfile --no-progress
-          bun run test
+          bun install --cwd services/reviewer --frozen-lockfile --no-progress
+          bun run test:reviewer
 
       - name: Test
         run: bun run test
