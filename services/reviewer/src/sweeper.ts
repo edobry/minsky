@@ -68,6 +68,8 @@ import {
 } from "./submission-failure-tracker";
 import { log } from "./logger";
 import { extractPgErrorContext } from "./webhook-events";
+import { DomainAskEmitter, makeContainerAskRepoProvider, type AskEmitter } from "./ask-emitter";
+import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 // ---------------------------------------------------------------------------
 // Public configuration interface
@@ -336,6 +338,14 @@ export interface SweeperDeps {
    * to the real `markCircuitAlerted`.
    */
   markCircuitAlertedFn?: typeof markCircuitAlerted;
+  /**
+   * Optional Ask emitter (mt#2363 / mt#1596 Phase 1). When present, a tripped
+   * circuit breaker also creates an operator-routed `coordination.notify` Ask
+   * so the failure surfaces on the cockpit `AsksPage`, not only as a log line.
+   * When absent (tests, or a DB-less environment with no domain container),
+   * the sweeper falls back to log-only behavior.
+   */
+  askEmitter?: AskEmitter;
 }
 
 /**
@@ -346,11 +356,12 @@ export interface SweeperDeps {
  */
 export async function buildSweeperDeps(
   config: ReviewerConfig,
-  db?: ReviewerDb
+  db?: ReviewerDb,
+  askEmitter?: AskEmitter
 ): Promise<SweeperDeps> {
   const octokit = await createOctokit(config);
   const botIdentity = await getAppIdentity(config);
-  return { octokit, botLogin: botIdentity.login, db };
+  return { octokit, botLogin: botIdentity.login, db, askEmitter };
 }
 
 /**
@@ -413,7 +424,7 @@ export async function runSweep(
   const { owner, repo } = sweeperConfig;
 
   const deps = depsOverride ?? (await buildSweeperDeps(config));
-  const { octokit, botLogin, runReviewFn, db } = deps;
+  const { octokit, botLogin, runReviewFn, db, askEmitter } = deps;
   const listOpenCircuitsFn = deps.listOpenCircuitsFn ?? listOpenCircuitsForPRs;
   const markCircuitAlertedFn = deps.markCircuitAlertedFn ?? markCircuitAlerted;
 
@@ -557,9 +568,16 @@ export async function runSweep(
     }
 
     if (openCircuits.size > 0) {
-      filteredMissing = filteredMissing.filter((m) => {
+      // NOTE: this is an explicit await-capable loop (not `.filter()`) because
+      // the alert path must await the Ask-emit OUTCOME before deciding whether
+      // to mark the circuit `alerted`. See the dedup discussion below.
+      const keptMissing: MissingReviewPR[] = [];
+      for (const m of filteredMissing) {
         const open = openCircuits.get(submissionFailureKey(owner, repo, m.number, m.headSha));
-        if (open === undefined) return true;
+        if (open === undefined) {
+          keptMissing.push(m);
+          continue;
+        }
 
         log.warn("sweeper.circuit_open_skip", {
           event: "sweeper.circuit_open_skip",
@@ -570,11 +588,24 @@ export async function runSweep(
           consecutiveCount: open.consecutiveCount,
         });
 
-        // One-shot operator alert (mt#2350 SC-5). mt#1596 Phase 1's
-        // cloud-native alert sink is not yet shipped (PLANNING), so this routes
-        // through the mt#1372 operator-notify surface — a distinct error-level
-        // structured-log event — and cross-references mt#1596 for convergence.
-        // Deduped via the `alerted` column so we alert at most once per circuit.
+        // One-shot operator alert (mt#2350 SC-5). Two surfaces, both deduped
+        // via the `alerted` column so we alert at most once per open circuit:
+        //   1. The structured error-level log line (the original mt#1372
+        //      operator-notify surface; rotated away by deploy-churn, mt#2345).
+        //   2. (mt#2363 / mt#1596 Phase 1) An operator-routed
+        //      `coordination.notify` Ask, so the failure surfaces on the live
+        //      cockpit `AsksPage` instead of only as a log line nothing reads.
+        //
+        // Dedup discipline (reviewer R1): the Ask emit is fail-open, but we must
+        // NOT mark the circuit `alerted` when the emit FAILED transiently —
+        // doing so would permanently suppress surfacing once the substrate
+        // recovers. So we gate `markCircuitAlertedFn` on the emit OUTCOME:
+        //   - "created"/"skipped" → mark alerted (success, or permanently no
+        //     substrate — retrying would only spam the log).
+        //   - "failed" → do NOT mark; the next sweep cycle re-emits both the
+        //     log line and the Ask attempt until one lands.
+        // When no emitter is wired at all (tests / log-only), preserve mt#2350's
+        // alert-once semantics by marking alerted unconditionally.
         if (!open.alerted) {
           log.error("sweeper.circuit_breaker_tripped", {
             event: "sweeper.circuit_breaker_tripped",
@@ -586,11 +617,26 @@ export async function runSweep(
             consecutiveCount: open.consecutiveCount,
             crossReference: "mt#1596",
           });
-          void markCircuitAlertedFn(db, open.id);
+          const emitOutcome = askEmitter
+            ? await askEmitter.emitCircuitBreakerAlert({
+                owner,
+                repo,
+                prNumber: m.number,
+                headSha: m.headSha,
+                errorClass: open.errorClass,
+                lastStatus: open.lastStatus,
+                consecutiveCount: open.consecutiveCount,
+                circuitId: open.id,
+              })
+            : "skipped";
+          if (emitOutcome !== "failed") {
+            await markCircuitAlertedFn(db, open.id);
+          }
         }
 
-        return false;
-      });
+        // PR dropped from the retrigger set (its circuit is open).
+      }
+      filteredMissing = keptMissing;
     }
   }
 
@@ -653,7 +699,8 @@ export async function runSweep(
 export function startSweeper(
   config: ReviewerConfig,
   sweeperConfig: SweeperConfig,
-  db?: ReviewerDb
+  db?: ReviewerDb,
+  container?: AppContainerInterface
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
     log.info("sweeper.disabled", {
@@ -715,6 +762,12 @@ export function startSweeper(
 
   let isSweeping = false;
 
+  // mt#2363 / mt#1596 Phase 1: build the Ask emitter from the booted domain
+  // container (the mt#2121 direct-domain-import path). When no container is
+  // wired (DB-less / degraded boot), the emitter's repo provider returns null
+  // and the sweeper falls back to log-only behavior.
+  const askEmitter = new DomainAskEmitter(makeContainerAskRepoProvider(container));
+
   // Cache a deps promise so we build octokit + botLogin once and reuse across
   // sweep cycles. The db is forwarded so runSweep can use the inflight marker.
   let cachedDeps: Promise<SweeperDeps> | null = null;
@@ -730,7 +783,7 @@ export function startSweeper(
     isSweeping = true;
     // Lazily build deps on first cycle; reuse on subsequent cycles.
     if (cachedDeps === null) {
-      cachedDeps = buildSweeperDeps(config, db);
+      cachedDeps = buildSweeperDeps(config, db, askEmitter);
     }
     cachedDeps
       .then((deps) => runSweep(config, sweeperConfig, deps))

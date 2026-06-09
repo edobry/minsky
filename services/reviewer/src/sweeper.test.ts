@@ -28,6 +28,7 @@ import {
   type SweeperDeps,
 } from "./sweeper";
 import { submissionFailureKey, type OpenCircuit } from "./submission-failure-tracker";
+import { DomainAskEmitter, type CircuitBreakerAlertContext } from "./ask-emitter";
 import type { ReviewerDb } from "./db/client";
 
 // ---------------------------------------------------------------------------
@@ -906,7 +907,8 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     prNumber: number,
     openMap: Map<string, OpenCircuit>,
     runReviewFn: SweeperDeps["runReviewFn"],
-    markCircuitAlertedFn: SweeperDeps["markCircuitAlertedFn"]
+    markCircuitAlertedFn: SweeperDeps["markCircuitAlertedFn"],
+    askEmitter?: SweeperDeps["askEmitter"]
   ): SweeperDeps {
     return {
       octokit: makeFakeOctokit({
@@ -925,6 +927,7 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
       db: fakeDb,
       listOpenCircuitsFn: () => Promise.resolve(openMap),
       markCircuitAlertedFn,
+      askEmitter,
     };
   }
 
@@ -1004,5 +1007,121 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     expect(runReviewFn).toHaveBeenCalledTimes(1);
     expect(result.retriggeredCount).toBe(1);
     expect(markCircuitAlertedFn).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#2363 / mt#1596 Phase 1: circuit-breaker trip routes into asks substrate
+  // -------------------------------------------------------------------------
+
+  test("open circuit (!alerted) → askEmitter.emitCircuitBreakerAlert called once with PR context (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    let captured: CircuitBreakerAlertContext | undefined;
+    const emitCircuitBreakerAlert = mock((c: CircuitBreakerAlertContext) => {
+      captured = c;
+      return Promise.resolve("created" as const);
+    });
+    const askEmitter = { emitCircuitBreakerAlert };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn, askEmitter);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(emitCircuitBreakerAlert).toHaveBeenCalledTimes(1);
+    expect(captured).toBeDefined();
+    const ctx = captured as CircuitBreakerAlertContext;
+    expect(ctx.owner).toBe(SWEEPER_CONFIG.owner);
+    expect(ctx.repo).toBe(SWEEPER_CONFIG.repo);
+    expect(ctx.prNumber).toBe(prNumber);
+    expect(ctx.headSha).toBe(HEAD_SHA);
+    expect(ctx.errorClass).toBe("non_retryable_4xx");
+    expect(ctx.lastStatus).toBe(422);
+    expect(ctx.consecutiveCount).toBe(2);
+    expect(ctx.circuitId).toBe(`row-${prNumber}`);
+    // Emit succeeded ("created") → circuit is deduped.
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+  });
+
+  test("already-alerted open circuit → askEmitter NOT called (dedup via alerted column) (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const emitCircuitBreakerAlert = mock(() => Promise.resolve("created" as const));
+    const askEmitter = { emitCircuitBreakerAlert };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, true),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn, askEmitter);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(emitCircuitBreakerAlert).not.toHaveBeenCalled();
+  });
+
+  test("transient emit failure does NOT crash the sweep AND does NOT dedup the circuit (recovering) (mt#2363 / reviewer R1)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    // A real DomainAskEmitter wrapping a repo whose create rejects. The
+    // emitter catches internally and returns "failed", so the sweep completes
+    // normally — but the circuit is NOT marked alerted, so the next cycle can
+    // retry once the substrate recovers.
+    const repoProvider = () =>
+      Promise.resolve({
+        create: () => Promise.reject(new Error("db down")),
+      } as unknown as import("@minsky/domain/ask/repository").AskRepository);
+    const askEmitter = new DomainAskEmitter(repoProvider);
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn, askEmitter);
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    // The PR is still dropped from the retrigger set; the sweep returns cleanly.
+    expect(runReviewFn).not.toHaveBeenCalled();
+    expect(result.retriggeredCount).toBe(0);
+    expect(result.missing).toHaveLength(0);
+    // Reviewer R1: a transient emit failure must NOT permanently suppress the
+    // alert — the circuit is left un-deduped so the next sweep retries.
+    expect(markCircuitAlertedFn).not.toHaveBeenCalled();
+  });
+
+  test("no emitter wired → circuit still deduped (mt#2350 log-once preserved) (mt#2363)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    // No askEmitter (undefined) → log-only mode preserves mt#2350 alert-once.
+    const deps = circuitDeps(prNumber, openMap, runReviewFn, markCircuitAlertedFn);
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
   });
 });

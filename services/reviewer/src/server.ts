@@ -1379,7 +1379,10 @@ if (import.meta.main) {
   // Configurable via SWEEPER_ENABLED, SWEEPER_INTERVAL_MS, SWEEPER_REPO_OWNER,
   // SWEEPER_REPO_NAME. Opt-in: sweeper is DISABLED by default; set
   // SWEEPER_ENABLED=true to activate. When disabled, logs event: "sweeper.disabled".
-  startSweeper(config, loadSweeperConfig(), db);
+  // mt#2363 / mt#1596 Phase 1: the domain container is forwarded so a tripped
+  // circuit breaker also surfaces as an operator-routed Ask on the cockpit
+  // (direct domain imports, mt#2121 — no MCP-over-HTTP).
+  startSweeper(config, loadSweeperConfig(), db, domainServices?.container);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Uses domain imports (mt#2121) via the booted domain container — no MCP-over-HTTP.
