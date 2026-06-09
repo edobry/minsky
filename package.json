@@ -52,6 +52,7 @@
     "test:debug:integration": "DEBUG_TESTS=1 RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "test:components": "bun test --preload ./tests/dom-setup.ts --preload ./tests/setup.ts --timeout=15000 src/cockpit/web/widgets",
     "test:eslint-rules": "bun test --timeout=15000 eslint-rules/",
+    "test:reviewer": "cd services/reviewer && bun run test",
     "validate-commit": "bun scripts/validate-commit-message.ts",
     "smoke:gh-timeout": "bun scripts/smoke-mt2245-github-timeout.ts",
     "typecheck": "bunx @typescript/native-preview --noEmit",
