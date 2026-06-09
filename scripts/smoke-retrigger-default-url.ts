@@ -22,7 +22,10 @@
  */
 
 import { DEFAULT_REVIEWER_URL } from "../src/adapters/shared/commands/reviewer-retrigger";
-import { safeTruncate } from "@minsky/shared/safe-truncate";
+// Relative import (not the `@minsky/shared/*` workspace alias): this script runs
+// ad hoc from the non-package `scripts/` context via `bun scripts/...`, where the
+// workspace alias is not guaranteed to resolve. `src/utils/safe-truncate` re-exports it.
+import { safeTruncate } from "../src/utils/safe-truncate";
 
 const SKIP_ENV = "SKIP_REVIEWER_URL_SMOKE";
 
