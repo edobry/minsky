@@ -288,7 +288,7 @@ export function getPersistenceCustomizations(): {
               description: "Target backend (postgres)",
             },
             from: {
-              description: "Source backend (auto-detect if not specified)",
+              description: "Source backup file path (auto-detect if not specified)",
             },
             connectionString: {
               description: "PostgreSQL connection string",

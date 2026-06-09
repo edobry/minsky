@@ -44,10 +44,16 @@ function isBootDeferrable(err: unknown): boolean {
 
 /**
  * Build a placeholder for a service whose construction was deferred because a
- * required resource (Postgres) was unavailable at boot. Any attempt to USE the
- * service throws with the original message; benign symbol / `then` / constructor
- * lookups return undefined so the placeholder isn't mistaken for a thenable and
- * doesn't break inspection or `instanceof`-style checks.
+ * required resource (Postgres) was unavailable at boot.
+ *
+ * Design (per PR #1647 review): property READS are benign — they never throw —
+ * so light-touch inspection (logging, stringification, capability/`in` probes,
+ * `await`) doesn't spuriously crash and undermine boot-tolerance. Only actually
+ * USING the service throws: a normal property read returns a function that
+ * throws when CALLED, so `service.someMethod()` surfaces the clear deferred-
+ * failure error. Symbols, `then`, and `constructor` return undefined (so the
+ * placeholder isn't mistaken for a thenable and inspection works); `toString` /
+ * `valueOf` / `toJSON` return a safe stringifier so logging the service is fine.
  */
 function makeDeferredFailurePlaceholder(key: string, message: string): object {
   const fail = (): never => {
@@ -55,15 +61,24 @@ function makeDeferredFailurePlaceholder(key: string, message: string): object {
       `Service "${key}" is unavailable: it could not be constructed at startup because a required resource is not configured. ${message}`
     );
   };
+  const label = `[unavailable service "${key}"]`;
   // A callable target so the apply/construct traps are valid for service
   // placeholders that may be invoked as functions or constructors.
   const target = function placeholder() {};
   return new Proxy(target, {
     get(_t, prop) {
+      // Benign introspection — never throw, and don't return a throwing function
+      // (so stringify / await / prototype lookups behave normally).
       if (typeof prop === "symbol" || prop === "then" || prop === "constructor") {
         return undefined;
       }
-      return fail();
+      if (prop === "toString" || prop === "valueOf" || prop === "toJSON") {
+        return () => label;
+      }
+      // Any other property read is benign and returns a function that throws
+      // only when invoked — so `service.method()` fails clearly while a bare
+      // read (logging, existence/feature checks) does not crash.
+      return () => fail();
     },
     apply: () => fail(),
     construct: () => fail(),
