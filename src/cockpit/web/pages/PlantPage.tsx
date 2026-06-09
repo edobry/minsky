@@ -30,6 +30,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router-dom";
 import { cn } from "../lib/utils";
 import { PanZoomSVG } from "../components/PanZoomSVG";
 
@@ -579,8 +580,16 @@ export function PlantPage() {
         <span className="text-[11px] font-mono text-muted-foreground">
           v1 · READY tank live · all other levels placeholder · idle-honest
         </span>
-        <span className="ml-auto text-[11px] font-mono text-liveness-healthy">
-          ● system nominal
+        <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
+          <span className="text-liveness-healthy">● system nominal</span>
+          {/* Cross-link to the panel-grid layout (mt#2388) */}
+          <Link
+            to="/plant-grid"
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            aria-label="Switch to panel-grid layout"
+          >
+            ▢ grid layout
+          </Link>
         </span>
       </header>
 
