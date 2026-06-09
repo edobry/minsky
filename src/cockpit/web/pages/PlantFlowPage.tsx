@@ -1097,7 +1097,7 @@ function PlantFlowCanvas() {
 export function PlantFlowPage() {
   return (
     <div
-      className="flex flex-col h-full bg-background text-foreground overflow-hidden"
+      className="flex flex-col h-screen bg-background text-foreground overflow-hidden"
       data-testid="plant-flow-page"
     >
       {/* Header */}
@@ -1129,10 +1129,12 @@ export function PlantFlowPage() {
       </header>
 
       {/* React Flow canvas — fills the remaining height */}
-      <div className="flex-1 min-h-0" data-testid="plant-flow-canvas">
-        <ReactFlowProvider>
-          <PlantFlowCanvas />
-        </ReactFlowProvider>
+      <div className="flex-1 min-h-0 relative" data-testid="plant-flow-canvas">
+        <div className="absolute inset-0">
+          <ReactFlowProvider>
+            <PlantFlowCanvas />
+          </ReactFlowProvider>
+        </div>
       </div>
     </div>
   );
