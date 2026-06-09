@@ -41,7 +41,7 @@ PR/commit, overlapping files, and four recommended actions (wait / coordinate / 
 **Override mechanism:** Set `MINSKY_FORCE_PARALLEL=1` in your environment before invoking the tool:
 
 ```bash
-MINSKY_FORCE_PARALLEL=1 minsky session start mt#<id>
+MINSKY_FORCE_PARALLEL=1 minsky session start --task mt#<id>
 ```
 
 The override is **logged to session stdout** (task ID, ISO timestamp).

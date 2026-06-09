@@ -84,7 +84,7 @@ minsky tasks search "authentication" --backends mt,gh
 minsky tasks create "Implement feature X"  # → mt#125
 
 # Start session
-minsky session start mt#125
+minsky session start --task mt#125
 
 # Work on task
 cd ~/.local/state/minsky/sessions/task-mt#125

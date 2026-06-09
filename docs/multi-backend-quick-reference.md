@@ -34,8 +34,8 @@ minsky tasks status gh#456 DONE
 
 ```bash
 # Start session
-minsky session start mt#123          # Minsky backend task
-minsky session start gh#456          # GitHub backend issue
+minsky session start --task mt#123   # Minsky backend task
+minsky session start --task gh#456   # GitHub backend issue
 
 # List sessions
 minsky session list
