@@ -28,8 +28,10 @@
  *     /tmp/cockpit-plant-board-v1.html.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "../lib/utils";
+import { PanZoomSVG } from "../components/PanZoomSVG";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -453,7 +455,7 @@ function InfraSupply() {
 }
 
 // ---------------------------------------------------------------------------
-// Sub-component: Legend sidebar
+// Sub-component: Legend sidebar (collapsible to preserve board space)
 // ---------------------------------------------------------------------------
 
 function LegendItem({ color, label }: { color: string; label: string }) {
@@ -470,34 +472,62 @@ function LegendItem({ color, label }: { color: string; label: string }) {
 }
 
 function PlantLegend() {
+  const [open, setOpen] = useState(true);
+
   return (
     <aside
-      className="w-[230px] border-l border-border bg-card p-3 overflow-auto flex-none text-xs font-mono"
+      className={cn(
+        "border-l border-border bg-card flex-none flex flex-col transition-[width]",
+        open ? "w-[200px]" : "w-[32px]"
+      )}
       aria-label="Plant board legend"
     >
-      <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-0">Timescale grammar</h2>
-      <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">STABLE</strong> — pipes, stages, gauges, organs. The skeleton you internalize.</p>
-      <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">FLUID</strong> — instances as flow-rate/level, never fixed nodes.</p>
-      <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">BREATH</strong> — tank levels, ~60s poll. The diurnal rhythm.</p>
-      <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">SLOW</strong> — plant grows valves (weld), from registries+git.</p>
+      {/* Toggle button — always visible */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={open ? "Collapse legend" : "Expand legend"}
+        aria-expanded={open}
+        className={cn(
+          "flex items-center justify-center flex-none",
+          "w-8 h-8 border-b border-border",
+          "text-muted-foreground text-[10px] font-mono",
+          "hover:bg-secondary hover:text-foreground",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          open ? "self-end" : "self-center"
+        )}
+      >
+        {open ? "›" : "‹"}
+      </button>
 
-      <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">Organs (VSM)</h2>
-      <LegendItem color="oklch(var(--vsm-s1) / 1)" label="S1 operations" />
-      <LegendItem color="oklch(var(--vsm-s2) / 1)" label="S2 coordination (valves)" />
-      <LegendItem color="oklch(var(--vsm-s3) / 1)" label="S3 management + 3★" />
-      <LegendItem color="oklch(var(--vsm-s4) / 1)" label="S4 future" />
-      <LegendItem color="oklch(var(--vsm-s5) / 1)" label="S5 identity" />
-      <LegendItem color="oklch(var(--vsm-seam) / 1)" label="attention seam (cognition)" />
-      <LegendItem color="oklch(var(--vsm-learn) / 1)" label="learning loop" />
+      {/* Content — hidden when collapsed */}
+      {open && (
+        <div className="overflow-auto p-3 text-xs font-mono flex-1">
+          <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-0">Timescale grammar</h2>
+          <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">STABLE</strong> — pipes, stages, gauges, organs.</p>
+          <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">FLUID</strong> — instances as flow-rate/level.</p>
+          <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">BREATH</strong> — tank levels, ~60s poll.</p>
+          <p className="text-muted-foreground text-[10px] my-1"><strong className="text-foreground">SLOW</strong> — plant grows valves (weld).</p>
 
-      <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">Idle honesty</h2>
-      <p className="text-muted-foreground text-[10px] my-1">Only the <strong className="text-foreground">3★ sweep</strong>, slow <strong className="text-foreground">breath</strong>, and a <strong className="text-foreground">pending ask</strong> pulse move here. No events → no fast motion. A calm system reads calm.</p>
+          <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">Organs (VSM)</h2>
+          <LegendItem color="oklch(var(--vsm-s1) / 1)" label="S1 operations" />
+          <LegendItem color="oklch(var(--vsm-s2) / 1)" label="S2 coordination (valves)" />
+          <LegendItem color="oklch(var(--vsm-s3) / 1)" label="S3 management + 3★" />
+          <LegendItem color="oklch(var(--vsm-s4) / 1)" label="S4 future" />
+          <LegendItem color="oklch(var(--vsm-s5) / 1)" label="S5 identity" />
+          <LegendItem color="oklch(var(--vsm-seam) / 1)" label="attention seam (cognition)" />
+          <LegendItem color="oklch(var(--vsm-learn) / 1)" label="learning loop" />
 
-      <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">v1 = real, no new events</h2>
-      <p className="text-muted-foreground text-[10px] my-1">READY tank wires to <strong className="text-foreground">/api/tasks</strong>. All other levels are <strong className="text-foreground">—</strong> placeholders (v2 wires the rest).</p>
+          <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">Idle honesty</h2>
+          <p className="text-muted-foreground text-[10px] my-1">Only the <strong className="text-foreground">3★ sweep</strong>, slow <strong className="text-foreground">breath</strong>, and a <strong className="text-foreground">pending ask</strong> pulse move here.</p>
 
-      <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">Deferred</h2>
-      <p className="text-muted-foreground text-[10px] my-1">Fast-clock dot-motion = <strong className="text-foreground">v2</strong>. Scrubber + phone = <strong className="text-foreground">v3</strong>.</p>
+          <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">v1 = real</h2>
+          <p className="text-muted-foreground text-[10px] my-1">READY tank wires to <strong className="text-foreground">/api/tasks</strong>. All other levels are <strong className="text-foreground">—</strong> placeholders.</p>
+
+          <h2 className="text-muted-foreground uppercase tracking-widest text-[10px] mb-1.5 mt-3.5">Deferred</h2>
+          <p className="text-muted-foreground text-[10px] my-1">Fast-clock = <strong className="text-foreground">v2</strong>. Phone = <strong className="text-foreground">v3</strong>.</p>
+        </div>
+      )}
     </aside>
   );
 }
@@ -556,27 +586,31 @@ export function PlantPage() {
 
       {/* Board + Legend */}
       <div className="flex flex-1 min-h-0">
-        {/* SVG plant board */}
-        <div className="flex-1 min-w-0 overflow-hidden">
-          <svg
-            viewBox="0 0 1280 820"
-            preserveAspectRatio="xMidYMid meet"
-            className="w-full h-full block"
-            role="img"
-            aria-label="VSM-organ schematic of the whole Minsky system"
-          >
-            <SvgDefs />
-            <S5Canopy />
-            <S4Future />
-            <S1Operations readyCount={readyCount} readyLoading={readyLoading} />
-            <S3Gauges />
-            <AttentionSeam />
-            <LearningLoop />
-            <InfraSupply />
-          </svg>
-        </div>
+        {/*
+          Pan/zoom board: uses PanZoomSVG for wheel-zoom + pointer-drag.
+          Legible default: fit-width (boardWidth=1280). On a 1280px viewport the
+          board renders at scale 1.0, giving full-size text. Fit-height would
+          shrink to ~87% on a 720px content area, making 10px labels unreadable.
+          Vertical pan lets the operator reach the InfraSupply band below the fold.
+          See PanZoomSVG.tsx for the full implementation rationale.
+        */}
+        <PanZoomSVG
+          boardWidth={1280}
+          boardHeight={820}
+          ariaLabel="VSM-organ schematic of the whole Minsky system"
+          className="flex-1"
+        >
+          <SvgDefs />
+          <S5Canopy />
+          <S4Future />
+          <S1Operations readyCount={readyCount} readyLoading={readyLoading} />
+          <S3Gauges />
+          <AttentionSeam />
+          <LearningLoop />
+          <InfraSupply />
+        </PanZoomSVG>
 
-        {/* Legend sidebar */}
+        {/* Legend sidebar — collapsible to preserve board width on narrow viewports */}
         <PlantLegend />
       </div>
     </div>
