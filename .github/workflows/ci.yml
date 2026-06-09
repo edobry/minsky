@@ -55,6 +55,20 @@ jobs:
           bun install --frozen-lockfile --no-progress
           bun run typecheck
 
+      # Run the reviewer unit suite (mt#2367). It lives in
+      # services/reviewer/src/*.test.ts and ran nowhere else in CI before this
+      # step existed — only the reviewer typecheck ran, so reviewer test
+      # regressions merged undetected (mt#2346 / mt#2350 each shipped 4 red
+      # /retrigger tests). if: always() + a self-contained install mirror the
+      # reviewer typecheck step so the gate holds regardless of step ordering
+      # or earlier-step failures.
+      - name: Test (services/reviewer)
+        if: ${{ always() }}
+        working-directory: services/reviewer
+        run: |
+          bun install --frozen-lockfile --no-progress
+          bun run test
+
       - name: Test
         run: bun run test
 
