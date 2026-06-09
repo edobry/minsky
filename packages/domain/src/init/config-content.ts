@@ -24,7 +24,10 @@ export function getMinskyConfigContentYaml(
       strictIds: false,
     },
     persistence: {
-      backend: "sqlite",
+      // Postgres is the sole supported backend (ADR-018 / mt#2349). Set
+      // persistence.postgres.connectionString (or MINSKY_POSTGRES_URL) to a
+      // Postgres/Supabase connection — there is no local-file fallback.
+      backend: "postgres",
     },
     logger: {
       mode: "auto",

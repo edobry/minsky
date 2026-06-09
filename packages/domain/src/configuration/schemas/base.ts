@@ -47,9 +47,6 @@ export const baseSchemas = {
       "Must be a valid PostgreSQL connection string"
     ),
 
-  // SQLite file path
-  sqliteFilePath: z.string().min(1, "SQLite file path cannot be empty"),
-
   // API key pattern (typically alphanumeric with some special chars)
   apiKey: z.string().min(1, "API key cannot be empty"),
 
@@ -89,8 +86,8 @@ export const enumSchemas = {
   }),
 
   // SessionDB backends
-  sessionDbBackend: z.enum(["sqlite", "postgres"], {
-    error: "SessionDB backend must be one of: sqlite, postgres",
+  sessionDbBackend: z.enum(["postgres"], {
+    error: "SessionDB backend must be: postgres",
   }),
 
   // AI providers

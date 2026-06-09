@@ -43,10 +43,48 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
   container.register(
     "persistence",
     async () => {
+      const { log } = await import("@minsky/shared/logger");
+      const { UnconfiguredPersistenceProvider } = await import(
+        "../persistence/unconfigured-provider"
+      );
+
+      // Pre-check (mt#2349): if no Postgres connection is configured, boot in
+      // DB-unavailable mode WITHOUT attempting (and error-logging) a doomed
+      // initialize(). This is the expected bare-install / offline path now that
+      // the silent SQLite fallback is gone — keep it quiet (warn, not error).
+      const { getConfiguration } = await import("../configuration");
+      const { getEffectivePersistenceConfig } = await import("../configuration/persistence-config");
+      const effective = getEffectivePersistenceConfig(getConfiguration());
+      if (effective.backend === "postgres" && !effective.connectionString) {
+        log.warn(
+          "Persistence not configured (no Postgres connection) — booting in " +
+            "DB-unavailable mode. `/health` and non-DB commands work; DB-backed " +
+            "operations fail until persistence.postgres.connectionString (or " +
+            "MINSKY_POSTGRES_URL) is set."
+        );
+        return new UnconfiguredPersistenceProvider("no Postgres connection configured");
+      }
+
       const { PersistenceService } = await import("../persistence/service");
       const service = new PersistenceService();
-      await service.initialize();
-      return service.getProvider();
+      try {
+        await service.initialize();
+        return service.getProvider();
+      } catch (err) {
+        // Boot-tolerant fallback (mt#2349): a connection WAS configured but
+        // initialize() failed (DB unreachable, bad credentials, etc.). Still
+        // don't crash the whole process — boot in DB-unavailable mode so
+        // `/health` responds — but this is a genuine failure, so the underlying
+        // error is already logged by PersistenceService. DB-backed operations
+        // fail with the clear error on first use.
+        const { getErrorMessage } = await import("../errors/index");
+        const reason = getErrorMessage(err);
+        log.warn(
+          "Persistence initialization failed — booting without a database " +
+            `connection. DB-backed operations will fail. Reason: ${reason}`
+        );
+        return new UnconfiguredPersistenceProvider(reason);
+      }
     },
     {
       dispose: async (provider) => {

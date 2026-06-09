@@ -4071,12 +4071,7 @@
           "options": [
             {
               "flags": ["--from"],
-              "description": "Source backend (auto-detect if not specified)",
-              "takesValue": true
-            },
-            {
-              "flags": ["--sqlite-path"],
-              "description": "SQLite database file path",
+              "description": "Source backup file path (auto-detect if not specified)",
               "takesValue": true
             },
             {
@@ -4106,15 +4101,10 @@
           "description": "Check database integrity and detect issues",
           "options": [
             {
-              "flags": ["--file"],
-              "description": "Path to database file to check (SQLite only)",
-              "takesValue": true
-            },
-            {
               "flags": ["--backend"],
               "description": "Force specific backend validation",
               "takesValue": true,
-              "values": ["sqlite", "postgres"]
+              "values": ["postgres"]
             },
             {
               "flags": ["--fix"],

@@ -24,7 +24,7 @@ export interface PersistenceCapabilities {
  * Configuration for different persistence backends
  */
 export interface PersistenceConfig {
-  backend: "postgres" | "sqlite";
+  backend: "postgres";
   postgres?: {
     connectionString: string;
     /**
@@ -36,9 +36,6 @@ export interface PersistenceConfig {
     connectTimeout?: number;
     idleTimeout?: number;
     prepareStatements?: boolean;
-  };
-  sqlite?: {
-    dbPath: string;
   };
 }
 
@@ -101,8 +98,8 @@ export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract getConnectionInfo(): string;
 
   // Optional capability methods — implemented by SQL/vector-capable subclasses.
-  // Returns `unknown` because SQLite and PostgreSQL return different concrete DB types;
-  // callers that need typed connections should narrow via SqlCapablePersistenceProvider.
+  // Returns `unknown` at the base because subclasses return different concrete DB
+  // types; callers that need typed connections should narrow via SqlCapablePersistenceProvider.
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
   /** Session-mode-capable connection for LISTEN/NOTIFY (mt#1852). */

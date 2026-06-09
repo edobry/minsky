@@ -64,14 +64,6 @@ export function getSessionDir(sessionId: string): string {
 }
 
 /**
- * Get default SQLite database path
- * @returns Default SQLite database file path
- */
-export function getDefaultSqliteDbPath(): string {
-  return join(getMinskyStateDir(), "sessions.db");
-}
-
-/**
  * Get global user config file path
  * @returns Global user config file path
  */

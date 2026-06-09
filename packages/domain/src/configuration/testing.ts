@@ -42,7 +42,7 @@ export class TestConfigurationBuilder {
   /**
    * Set persistence configuration
    */
-  persistence(backend: "sqlite" | "postgres", options?: Record<string, unknown>): this {
+  persistence(backend: "postgres", options?: Record<string, unknown>): this {
     this.config.persistence = {
       backend,
       ...options,
@@ -218,7 +218,12 @@ export const testConfigurations = {
    * Minimal valid configuration
    */
   minimal(): PartialConfiguration {
-    return new TestConfigurationBuilder().backend("minsky").persistence("sqlite").build();
+    return new TestConfigurationBuilder()
+      .backend("minsky")
+      .persistence("postgres", {
+        postgres: { connectionString: "postgresql://localhost/minsky_test" },
+      })
+      .build();
   },
 
   /**
@@ -227,7 +232,9 @@ export const testConfigurations = {
   development(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("minsky")
-      .persistence("sqlite", { sqlite: { dbPath: ":memory:" } })
+      .persistence("postgres", {
+        postgres: { connectionString: "postgresql://localhost/minsky_dev" },
+      })
       .logger({ level: "debug", mode: "HUMAN" })
       .build();
   },
@@ -252,7 +259,9 @@ export const testConfigurations = {
   testing(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("minsky")
-      .persistence("sqlite", { sqlite: { dbPath: "/tmp/test.db" } })
+      .persistence("postgres", {
+        postgres: { connectionString: "postgresql://localhost/minsky_test" },
+      })
       .logger({ level: "warn", mode: "auto" })
       .build();
   },
@@ -263,7 +272,9 @@ export const testConfigurations = {
   withAI(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("minsky")
-      .persistence("sqlite")
+      .persistence("postgres", {
+        postgres: { connectionString: "postgresql://localhost/minsky_test" },
+      })
       .ai({
         defaultProvider: "openai",
         providers: {
@@ -284,7 +295,9 @@ export const testConfigurations = {
   withGitHub(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("github-issues")
-      .persistence("sqlite")
+      .persistence("postgres", {
+        postgres: { connectionString: "postgresql://localhost/minsky_test" },
+      })
       .github({
         token: "github-token",
         organization: "test-org",
@@ -356,7 +369,7 @@ export const testEnvironmentVariables = {
       MINSKY_LOG_LEVEL: "silent",
       MINSKY_LOG_MODE: "test",
       MINSKY_BACKEND: "minsky",
-      MINSKY_PERSISTENCE_BACKEND: "sqlite",
+      MINSKY_PERSISTENCE_BACKEND: "postgres",
     });
   },
 };

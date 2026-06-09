@@ -106,11 +106,11 @@ describe("ConfigWriter", () => {
         { fs: mockFs, getUserConfigDir: () => mockConfigDir, userConfigFiles: ["config.yaml"] }
       );
 
-      const result = await writer.setConfigValue("persistence.backend", "sqlite");
+      const result = await writer.setConfigValue("persistence.backend", "postgres");
 
       expect(result.success).toBe(true);
       expect(result.previousValue).toBeUndefined();
-      expect(result.newValue).toBe("sqlite");
+      expect(result.newValue).toBe("postgres");
     });
 
     test("should handle backup failure gracefully", async () => {
