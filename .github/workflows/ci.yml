@@ -59,6 +59,7 @@ jobs:
         run: bun run test
 
       - name: Test (ESLint rules)
+        if: ${{ always() }}
         run: bun run test:eslint-rules
 
       - name: Build
