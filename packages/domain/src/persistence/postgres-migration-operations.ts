@@ -5,8 +5,74 @@
  * Extracted from migration-operations.ts to keep file sizes manageable.
  */
 
+import { join, dirname } from "path";
+import { existsSync } from "fs";
 import { log } from "@minsky/shared/logger";
 import { logPostgresNotice } from "./postgres-notice-handler";
+
+/**
+ * Resolve the absolute path of the Postgres migrations folder.
+ *
+ * Three cases tried in order; returns the first one whose `meta/_journal.json` exists:
+ *
+ * (a) **Dev/source** — `import.meta.dir` is
+ *     `packages/domain/src/persistence/` inside the Minsky checkout, so
+ *     `../storage/migrations/pg` resolves to the correct source-tree path
+ *     regardless of the current working directory.
+ *
+ * (b) **Bundled dist** — `bun run build` copies migrations to
+ *     `dist/storage/migrations/pg` (relative to repo root). When the binary
+ *     is installed or run from an arbitrary directory, `import.meta.dir` is
+ *     the directory containing `dist/minsky.js`, so
+ *     `./storage/migrations/pg` resolves correctly.
+ *     Also tries `<dirname(process.execPath)>/storage/migrations/pg` as a
+ *     secondary probe for environments where `import.meta.dir` differs from
+ *     the binary location.
+ *
+ * (c) **Legacy fallback** — preserves the original cwd-relative path so
+ *     `minsky persistence migrate` continues to work when invoked from the
+ *     Minsky repo root (e.g. `bun run src/cli.ts`).
+ *
+ * If none of the candidates contains `meta/_journal.json`, throws with the
+ * full list of tried paths so the operator can diagnose the issue.
+ *
+ * @see mt#2369 — originating task (Phase 0 portability floor)
+ */
+export function resolvePgMigrationsFolder(): string {
+  const candidates: string[] = [
+    // (a) Dev / source-tree path: this file lives at
+    //     packages/domain/src/persistence/postgres-migration-operations.ts
+    //     so the migrations folder is one directory-level up + storage/migrations/pg.
+    join(import.meta.dir, "../storage/migrations/pg"),
+
+    // (b-1) Bundled binary: migrations are copied next to minsky.js as
+    //       dist/storage/migrations/pg. `import.meta.dir` is the directory
+    //       containing the compiled JS file, so ./storage/migrations/pg is correct.
+    join(import.meta.dir, "storage/migrations/pg"),
+
+    // (b-2) Secondary bundled path: resolves from the executable path.
+    // process.argv[0] is the path to the bun/node executable (or bundle entry).
+    join(dirname(process.argv[0] ?? ""), "storage/migrations/pg"),
+
+    // (c) Legacy cwd-relative fallback: preserves the behaviour that existed
+    //     before mt#2369 when run from the Minsky repo root.
+    join(process.cwd(), "packages/domain/src/storage/migrations/pg"),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(join(candidate, "meta", "_journal.json"))) {
+      return candidate;
+    }
+  }
+
+  throw new Error(
+    `Cannot find Postgres migrations folder. Tried:\n${candidates
+      .map((c) => `  - ${c}`)
+      .join("\n")}\n\nEnsure the migrations folder exists at one of the above paths. ` +
+      `If running the bundled dist/minsky.js, verify that 'bun run build' ` +
+      `completed successfully (it copies migrations to dist/storage/migrations/pg).`
+  );
+}
 
 /**
  * Override env-var name for the unmerged-migration guard.
@@ -281,9 +347,8 @@ export async function getPostgresMigrationsStatus(connectionString: string): Pro
   migrationsFolder: string;
   maskedConn: string;
 }> {
-  const migrationsFolder = "./packages/domain/src/storage/migrations/pg";
+  const migrationsFolder = resolvePgMigrationsFolder();
   const { readdirSync, readFileSync } = await import("fs");
-  const { join } = await import("path");
 
   // Validate journal timestamps before doing anything else
   const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
@@ -454,7 +519,6 @@ export async function runPostgresSchemaMigrations(
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
   const { readdirSync, readFileSync } = await import("fs");
-  const { basename: _basename, join } = await import("path");
 
   const sql = postgres(connectionString, {
     prepare: false,
@@ -473,7 +537,7 @@ export async function runPostgresSchemaMigrations(
       }
     })();
 
-    const migrationsFolder = "./packages/domain/src/storage/migrations/pg";
+    const migrationsFolder = resolvePgMigrationsFolder();
 
     // Read and validate journal timestamps before executing
     const journalRawExec = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
@@ -632,7 +696,7 @@ export async function runPostgresSchemaMigrations(
     success: true,
     applied: true,
     backend,
-    migrationsFolder: "./packages/domain/src/storage/migrations/pg",
+    migrationsFolder: resolvePgMigrationsFolder(),
   };
   {
     appliedPg.printed = true;
@@ -658,7 +722,7 @@ export async function runPostgresSchemaMigrationsForBackend(
   try {
     const db = drizzle(sql, { logger: false });
     await migrate(db, {
-      migrationsFolder: "./packages/domain/src/storage/migrations/pg",
+      migrationsFolder: resolvePgMigrationsFolder(),
     });
   } finally {
     await sql.end();
