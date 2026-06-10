@@ -10,11 +10,10 @@
  */
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ChevronRight } from "lucide-react";
-import { CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { LinkCard } from "../components/ui/link-card";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // ---------------------------------------------------------------------------
 // API types — mirrors domain types without importing server code
@@ -602,41 +601,20 @@ export function CredentialsManager() {
 }
 
 // ---------------------------------------------------------------------------
-// CredentialsSummary — compact homepage widget showing config status
+// CredentialsSummaryBody — chrome-agnostic body, no Card/CardHeader/CardTitle
 // ---------------------------------------------------------------------------
 
-export function CredentialsSummary() {
-  const query = useQuery<CredentialListing[], Error>({
-    queryKey: ["credentials"],
-    queryFn: fetchCredentials,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
-  });
+interface CredentialsSummaryBodyProps {
+  query: ReturnType<typeof useQuery<CredentialListing[], Error>>;
+}
 
+function CredentialsSummaryBody({ query }: CredentialsSummaryBodyProps) {
   if (query.isError) {
-    return (
-      <LinkCard to="/settings" aria-label="Manage credentials">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Credentials</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load</p>
-        </CardContent>
-      </LinkCard>
-    );
+    return <p className="text-muted-foreground text-sm">Failed to load</p>;
   }
 
   if (query.isLoading || !query.data) {
-    return (
-      <LinkCard to="/settings" aria-label="Manage credentials">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Credentials</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading...</p>
-        </CardContent>
-      </LinkCard>
-    );
+    return <p className="text-muted-foreground text-sm">Loading...</p>;
   }
 
   const credentials = query.data;
@@ -645,46 +623,67 @@ export function CredentialsSummary() {
   const allConfigured = configured === total && total > 0;
 
   return (
-    <LinkCard to="/settings" aria-label="Manage credentials">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">Credentials</CardTitle>
-          <ChevronRight
-            aria-hidden
-            className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors"
-          />
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-center gap-3 mb-3">
-          <span
-            className={cn(
-              "inline-block h-2.5 w-2.5 rounded-full flex-shrink-0",
-              allConfigured ? "bg-primary" : configured > 0 ? "bg-yellow-500" : "bg-destructive"
-            )}
-          />
-          <span className="text-sm font-medium tabular-nums">
-            {configured}/{total} configured
-          </span>
-        </div>
+    <>
+      <div className="flex items-center gap-3 mb-3">
+        <span
+          className={cn(
+            "inline-block h-2.5 w-2.5 rounded-full flex-shrink-0",
+            allConfigured ? "bg-primary" : configured > 0 ? "bg-yellow-500" : "bg-destructive"
+          )}
+        />
+        <span className="text-sm font-medium tabular-nums">
+          {configured}/{total} configured
+        </span>
+      </div>
 
-        <div className="space-y-1">
-          {credentials.map((c) => (
-            <div key={c.provider} className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "inline-block h-1.5 w-1.5 rounded-full flex-shrink-0",
-                  c.configured ? "bg-primary" : "bg-muted"
-                )}
-              />
-              <span className="text-xs text-muted-foreground">{c.displayName}</span>
-              {!c.configured && (
-                <span className="text-xs text-muted-foreground/60">— not configured</span>
+      <div className="space-y-1">
+        {credentials.map((c) => (
+          <div key={c.provider} className="flex items-center gap-2">
+            <span
+              className={cn(
+                "inline-block h-1.5 w-1.5 rounded-full flex-shrink-0",
+                c.configured ? "bg-primary" : "bg-muted"
               )}
-            </div>
-          ))}
-        </div>
-      </CardContent>
+            />
+            <span className="text-xs text-muted-foreground">{c.displayName}</span>
+            {!c.configured && (
+              <span className="text-xs text-muted-foreground/60">— not configured</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CredentialsSummary — compact homepage widget (mt#2373)
+//
+// The whole-card navigation (LinkCard) stays outside WidgetShell; the card
+// surface is provided by LinkCard, which is the outer wrapper. WidgetShell
+// supplies the title chrome inside the link target.
+// ---------------------------------------------------------------------------
+
+interface CredentialsSummaryProps {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function CredentialsSummary({ variant = "card", title = "Credentials" }: CredentialsSummaryProps) {
+  const query = useQuery<CredentialListing[], Error>({
+    queryKey: ["credentials"],
+    queryFn: fetchCredentials,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+
+  return (
+    <LinkCard to="/settings" aria-label="Manage credentials">
+      <WidgetShell variant={variant} title={title}>
+        <CredentialsSummaryBody query={query} />
+      </WidgetShell>
     </LinkCard>
   );
 }

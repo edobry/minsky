@@ -25,8 +25,8 @@
  */
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirrors of server AttentionPayload / AttentionAsk.
@@ -264,77 +264,38 @@ function DigestRow({ ask }: { ask: AttentionAsk }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main widget component — self-fetching via TanStack Query
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
 // ---------------------------------------------------------------------------
 
-async function fetchAttention(): Promise<WidgetData> {
-  return fetchWidgetData("attention");
+interface AttentionBodyProps {
+  query: ReturnType<typeof useQuery<WidgetData, Error>>;
 }
 
-export function Attention() {
-  const query = useQuery<WidgetData, Error>({
-    queryKey: ["attention"],
-    queryFn: fetchAttention,
-    staleTime: 10_000,
-    refetchInterval: 10_000,
-  });
-
+function AttentionBody({ query }: AttentionBodyProps) {
   // Error state
   if (query.isError) {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Attention</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load attention data: {query.error.message}</p>
-        </CardContent>
-      </Card>
+      <p className="text-muted-foreground text-sm">
+        Failed to load attention data: {query.error.message}
+      </p>
     );
   }
 
   // Loading state
   if (query.isLoading || !query.data) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Attention</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
   }
 
   const data = query.data;
 
   // Degraded state (server-reported)
   if (data.state === "degraded") {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Attention</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>{data.reason}</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">{data.reason}</p>;
   }
 
   // Payload shape guard
   if (!isAttentionPayload(data.payload)) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Attention</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Unexpected payload shape</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
   }
 
   const { activeWindow, cohort, totalPending } = data.payload;
@@ -342,77 +303,103 @@ export function Attention() {
   const overflow = cohort.length - visible.length;
 
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-base font-semibold">
-            Attention
-            {totalPending > 0 && (
-              <Link
-                to="/asks"
-                className="ml-2 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {totalPending} pending →
-              </Link>
-            )}
-          </CardTitle>
-
-          {/* Active window indicator */}
-          {activeWindow && (
-            <div className="flex-shrink-0 text-right">
-              <div className="text-xs font-mono text-foreground font-medium">
-                {activeWindow.windowKey}
-              </div>
-              {activeWindow.expectedCloseAt && (
-                <div className="text-xs text-muted-foreground">
-                  closes {formatDeadlineRemaining(activeWindow.expectedCloseAt) ?? "soon"}
-                </div>
-              )}
-            </div>
+    <>
+      {/* Pending count + active window — inlined below the shell title */}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div>
+          {totalPending > 0 && (
+            <Link
+              to="/asks"
+              className="text-sm font-normal text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {totalPending} pending →
+            </Link>
           )}
         </div>
-      </CardHeader>
 
-      <CardContent>
-        {cohort.length === 0 ? (
-          /* Empty state — desirable, not an error.
-             The cohort is active-window-scoped; totalPending is global. When the
-             active window is clear but other windows still hold asks, reflect that
-             instead of asserting "all clear" (which would contradict the header
-             count). */
-          <div className="py-3 text-center">
-            <p className="text-sm font-medium text-foreground">
-              {activeWindow ? "No asks in this window" : "No pending asks"}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {totalPending > 0 ? (
-                <Link to="/asks" className="hover:text-foreground transition-colors">
-                  {totalPending} pending{activeWindow ? " in other windows" : ""} →
-                </Link>
-              ) : activeWindow ? (
-                `Window "${activeWindow.windowKey}" is open — all clear.`
-              ) : (
-                "No active window — all clear."
-              )}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {visible.map((ask) => (
-              <DigestRow key={ask.id} ask={ask} />
-            ))}
-
-            {overflow > 0 && (
-              <Link
-                to="/asks"
-                className="block pt-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                + {overflow} more →
-              </Link>
+        {/* Active window indicator */}
+        {activeWindow && (
+          <div className="flex-shrink-0 text-right">
+            <div className="text-xs font-mono text-foreground font-medium">
+              {activeWindow.windowKey}
+            </div>
+            {activeWindow.expectedCloseAt && (
+              <div className="text-xs text-muted-foreground">
+                closes {formatDeadlineRemaining(activeWindow.expectedCloseAt) ?? "soon"}
+              </div>
             )}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+
+      {cohort.length === 0 ? (
+        /* Empty state — desirable, not an error.
+           The cohort is active-window-scoped; totalPending is global. When the
+           active window is clear but other windows still hold asks, reflect that
+           instead of asserting "all clear" (which would contradict the header
+           count). */
+        <div className="py-3 text-center">
+          <p className="text-sm font-medium text-foreground">
+            {activeWindow ? "No asks in this window" : "No pending asks"}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {totalPending > 0 ? (
+              <Link to="/asks" className="hover:text-foreground transition-colors">
+                {totalPending} pending{activeWindow ? " in other windows" : ""} →
+              </Link>
+            ) : activeWindow ? (
+              `Window "${activeWindow.windowKey}" is open — all clear.`
+            ) : (
+              "No active window — all clear."
+            )}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {visible.map((ask) => (
+            <DigestRow key={ask.id} ask={ask} />
+          ))}
+
+          {overflow > 0 && (
+            <Link
+              to="/asks"
+              className="block pt-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              + {overflow} more →
+            </Link>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget component — self-fetching via TanStack Query (mt#2373)
+// ---------------------------------------------------------------------------
+
+async function fetchAttention(): Promise<WidgetData> {
+  return fetchWidgetData("attention");
+}
+
+interface AttentionProps {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function Attention({ variant = "card", title = "Attention" }: AttentionProps) {
+  const query = useQuery<WidgetData, Error>({
+    queryKey: ["attention"],
+    queryFn: fetchAttention,
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+  });
+
+  return (
+    <WidgetShell variant={variant} title={title}>
+      <AttentionBody query={query} />
+    </WidgetShell>
   );
 }

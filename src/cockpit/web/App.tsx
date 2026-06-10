@@ -3,7 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
+import { WidgetShell } from "./components/WidgetShell";
 import {
   fetchWidgets,
   fetchWidgetData,
@@ -165,23 +165,15 @@ function HomePage({ widgets }: HomePageProps) {
                         <SelfFetchingRenderer />
                       )
                     ) : !PropDrivenRenderer ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{meta.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-muted-foreground">
-                          <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
-                        </CardContent>
-                      </Card>
+                      <WidgetShell variant="card" title={meta.title}>
+                        <p className="text-muted-foreground text-sm">
+                          Widget &apos;{meta.id}&apos; has no frontend renderer registered
+                        </p>
+                      </WidgetShell>
                     ) : data === null ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{meta.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-muted-foreground">
-                          <p>Loading...</p>
-                        </CardContent>
-                      </Card>
+                      <WidgetShell variant="card" title={meta.title}>
+                        <p className="text-muted-foreground text-sm">Loading...</p>
+                      </WidgetShell>
                     ) : (
                       <PropDrivenRenderer data={data} />
                     )}

@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
-import { CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { LinkCard } from "../components/ui/link-card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 const EMBEDDINGS_LINK_LABEL = "View embedding infrastructure details";
 
@@ -72,7 +72,120 @@ function formatRelative(isoTimestamp: string): string {
   return `${Math.floor(diffHr / 24)}d ago`;
 }
 
-export function EmbeddingsHealth() {
+// ---------------------------------------------------------------------------
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
+// ---------------------------------------------------------------------------
+
+interface EmbeddingsHealthBodyProps {
+  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+}
+
+function EmbeddingsHealthBody({ query }: EmbeddingsHealthBodyProps) {
+  if (query.isError) {
+    return (
+      <p className="text-muted-foreground text-sm">Failed to load: {query.error.message}</p>
+    );
+  }
+
+  if (query.isLoading || !query.data) {
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
+  }
+
+  const data = query.data;
+
+  if (data.state === "degraded") {
+    return <p className="text-muted-foreground text-sm">{data.reason}</p>;
+  }
+
+  const payload = data.payload as EmbeddingsHealthPayload;
+
+  return (
+    <>
+      {/* Status badge row — mirrors the original CardHeader status area */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <span
+          className={cn("inline-block h-2 w-2 rounded-full", statusColor(payload.status))}
+          aria-label={`Status: ${statusLabel(payload.status)}`}
+        />
+        <span
+          className={cn(
+            "text-xs px-1.5 py-0.5 rounded",
+            payload.status === "healthy"
+              ? "bg-emerald-500/10 text-emerald-500"
+              : payload.status === "degraded"
+                ? "bg-amber-500/10 text-amber-500"
+                : "bg-destructive/10 text-destructive"
+          )}
+        >
+          {statusLabel(payload.status)}
+        </span>
+        <ChevronRight
+          aria-hidden
+          className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors ml-auto"
+        />
+      </div>
+
+      <dl>
+        <div className="flex items-center justify-between py-1.5 border-b border-border text-sm">
+          <dt className="text-muted-foreground">Provider</dt>
+          <dd className="tabular-nums">
+            {payload.provider === "unknown" ? "—" : payload.provider}
+          </dd>
+        </div>
+
+        {payload.coverage && (
+          <>
+            <CoverageRow
+              label="Tasks indexed"
+              indexed={payload.coverage.tasks.indexed}
+              total={payload.coverage.tasks.total}
+            />
+            <CoverageRow
+              label="Memories indexed"
+              indexed={payload.coverage.memories.indexed}
+              total={payload.coverage.memories.total}
+            />
+          </>
+        )}
+
+        {payload.status !== "healthy" && payload.degradedReason && (
+          <div className="flex items-center justify-between py-1.5 border-b border-border text-sm">
+            <dt className="text-muted-foreground">Reason</dt>
+            <dd className="text-destructive text-xs max-w-[60%] text-right">
+              {payload.degradedReason}
+            </dd>
+          </div>
+        )}
+
+        {payload.lastErrorAt && (
+          <div className="flex items-center justify-between py-1.5 text-sm">
+            <dt className="text-muted-foreground">Last error</dt>
+            <dd className="tabular-nums text-muted-foreground" title={payload.lastErrorAt}>
+              {formatRelative(payload.lastErrorAt)}
+            </dd>
+          </div>
+        )}
+      </dl>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget export (mt#2373)
+//
+// The whole-card navigation (LinkCard) stays outside WidgetShell; the card
+// surface is provided by LinkCard. WidgetShell supplies the title chrome
+// inside the link target.
+// ---------------------------------------------------------------------------
+
+interface Props {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function EmbeddingsHealth({ variant = "card", title = "Embeddings" }: Props) {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "embeddings-health"],
     queryFn: () => fetchWidgetData("embeddings-health"),
@@ -80,121 +193,11 @@ export function EmbeddingsHealth() {
     refetchInterval: 15_000,
   });
 
-  if (query.isError) {
-    return (
-      <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load: {query.error.message}</p>
-        </CardContent>
-      </LinkCard>
-    );
-  }
-
-  if (query.isLoading || !query.data) {
-    return (
-      <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
-        </CardContent>
-      </LinkCard>
-    );
-  }
-
-  const data = query.data;
-
-  if (data.state === "degraded") {
-    return (
-      <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>{data.reason}</p>
-        </CardContent>
-      </LinkCard>
-    );
-  }
-
-  const payload = data.payload as EmbeddingsHealthPayload;
-
   return (
     <LinkCard to="/embeddings" aria-label={EMBEDDINGS_LINK_LABEL}>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">Embeddings</CardTitle>
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn("inline-block h-2 w-2 rounded-full", statusColor(payload.status))}
-              aria-label={`Status: ${statusLabel(payload.status)}`}
-            />
-            <span
-              className={cn(
-                "text-xs px-1.5 py-0.5 rounded",
-                payload.status === "healthy"
-                  ? "bg-emerald-500/10 text-emerald-500"
-                  : payload.status === "degraded"
-                    ? "bg-amber-500/10 text-amber-500"
-                    : "bg-destructive/10 text-destructive"
-              )}
-            >
-              {statusLabel(payload.status)}
-            </span>
-            <ChevronRight
-              aria-hidden
-              className="h-4 w-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors"
-            />
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <dl>
-          <div className="flex items-center justify-between py-1.5 border-b border-border text-sm">
-            <dt className="text-muted-foreground">Provider</dt>
-            <dd className="tabular-nums">
-              {payload.provider === "unknown" ? "—" : payload.provider}
-            </dd>
-          </div>
-
-          {payload.coverage && (
-            <>
-              <CoverageRow
-                label="Tasks indexed"
-                indexed={payload.coverage.tasks.indexed}
-                total={payload.coverage.tasks.total}
-              />
-              <CoverageRow
-                label="Memories indexed"
-                indexed={payload.coverage.memories.indexed}
-                total={payload.coverage.memories.total}
-              />
-            </>
-          )}
-
-          {payload.status !== "healthy" && payload.degradedReason && (
-            <div className="flex items-center justify-between py-1.5 border-b border-border text-sm">
-              <dt className="text-muted-foreground">Reason</dt>
-              <dd className="text-destructive text-xs max-w-[60%] text-right">
-                {payload.degradedReason}
-              </dd>
-            </div>
-          )}
-
-          {payload.lastErrorAt && (
-            <div className="flex items-center justify-between py-1.5 text-sm">
-              <dt className="text-muted-foreground">Last error</dt>
-              <dd className="tabular-nums text-muted-foreground" title={payload.lastErrorAt}>
-                {formatRelative(payload.lastErrorAt)}
-              </dd>
-            </div>
-          )}
-        </dl>
-      </CardContent>
+      <WidgetShell variant={variant} title={title}>
+        <EmbeddingsHealthBody query={query} />
+      </WidgetShell>
     </LinkCard>
   );
 }
