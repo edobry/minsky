@@ -32,7 +32,13 @@ COPY postcss.config.js ./
 # just their package.json. The runtime stage copies these too; keep both in
 # sync. (Type-only `@minsky/domain/*/types` imports are erased by esbuild and
 # don't need this, but value imports do.) — mt#2409
+# tsconfigs are copied to mirror the runtime stage exactly, so the two stages
+# share the same source-resolution context (guards against future drift if a
+# package tsconfig starts affecting resolution).
+COPY tsconfig.json ./
+COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
 COPY packages/shared/src ./packages/shared/src
+COPY packages/domain/tsconfig.json ./packages/domain/tsconfig.json
 COPY packages/domain/src ./packages/domain/src
 COPY src/cockpit/web ./src/cockpit/web
 
