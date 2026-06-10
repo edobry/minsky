@@ -730,18 +730,19 @@ const nodeTypes = {
 // Initial node positions — fixed layout encoding the VSM topology
 //
 // Layout design (high-level):
-//   Row 0 (y=30):  S5 Identity (top center — policy canopy)
-//   Row 1 (y=155): S4 Future (left) | S3 Management (right)
-//   Row 2 (y=340): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
-//   Row 3 (y=500): Attention Seam (center) | Learning Loop (right)
-//   Row 4 (y=630): Infra Supply (center bottom)
+//   Row 0 (y=0):   S5 Identity (top center — policy canopy)
+//   Row 1 (y=130): S4 Future (left) | S3 Management (right)
+//   Row 2 (y=310): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
+//   Row 3 (y=460): Attention Seam (center) | Learning Loop (right)
+//   Row 4 (y=585): Infra Supply (center bottom) → bottom ≈ 665
 //
-// S3 sits at y=155 with height ~190px → bottom edge ≈ 345 which just clears SPINE_Y=340.
-// x-coordinates align stages across the spine for readability.
+// S3 sits at y=130 with height ~185px → bottom edge ≈ 315 which just clears SPINE_Y=310.
+// Total vertical span: 0 to ~665; horizontal span 30 to 1265 = 1235px.
+// fitView fills canvas with padding 0.04; infra supply at y=585 avoids bottom clipping.
 // SPINE_SPACING widened to 170px for legibility of edge labels.
 // ---------------------------------------------------------------------------
 
-const SPINE_Y = 340;
+const SPINE_Y = 310;
 const SPINE_SPACING = 170;
 const SPINE_START_X = 50;
 
@@ -751,7 +752,7 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "s5-identity",
       type: "s5-identity",
-      position: { x: 470, y: 30 },
+      position: { x: 470, y: 0 },
       data: { organKey: "s5", label: "S5 · Identity", sublabel: "", accentVar: ORGAN_ACCENTS.s5 },
       draggable: true,
     },
@@ -760,16 +761,16 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "s4-future",
       type: "s4-future",
-      position: { x: 30, y: 155 },
+      position: { x: 30, y: 130 },
       data: { organKey: "s4", label: "S4 · Future", sublabel: "", accentVar: ORGAN_ACCENTS.s4 },
       draggable: true,
     },
 
-    // S3 Management — upper right; height ~185px so bottom ≈ 340, just clears SPINE_Y
+    // S3 Management — upper right; height ~185px so bottom ≈ 315, just clears SPINE_Y=310
     {
       id: "s3-management",
       type: "s3-management",
-      position: { x: 880, y: 155 },
+      position: { x: 880, y: 130 },
       data: { organKey: "s3", label: "S3 · Management", sublabel: "", accentVar: ORGAN_ACCENTS.s3 },
       draggable: true,
     },
@@ -837,7 +838,7 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "attention-seam",
       type: "attention-seam",
-      position: { x: 390, y: 510 },
+      position: { x: 390, y: 460 },
       data: { organKey: "seam", label: "Attention · Ask Seam", sublabel: "", accentVar: ORGAN_ACCENTS.seam },
       draggable: true,
     },
@@ -846,7 +847,7 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "learning-loop",
       type: "learning-loop",
-      position: { x: 750, y: 510 },
+      position: { x: 750, y: 460 },
       data: { organKey: "learn", label: "Learning Loop", sublabel: "", accentVar: ORGAN_ACCENTS.learn },
       draggable: true,
     },
@@ -855,7 +856,7 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "infra-supply",
       type: "infra-supply",
-      position: { x: 220, y: 640 },
+      position: { x: 220, y: 585 },
       data: { organKey: "infra", label: "Infra Supply", sublabel: "", accentVar: ORGAN_ACCENTS.infra },
       draggable: true,
     },
@@ -1128,7 +1129,7 @@ function PlantFlowCanvas() {
       onNodesChange={onNodesChangeCallback}
       onEdgesChange={onEdgesChangeCallback}
       fitView
-      fitViewOptions={{ padding: 0.06, minZoom: 0.35, maxZoom: 1 }}
+      fitViewOptions={{ padding: 0.04, maxZoom: 1.0 }}
       minZoom={0.25}
       maxZoom={2}
       defaultEdgeOptions={{
