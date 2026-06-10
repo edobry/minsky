@@ -2,7 +2,7 @@ import { z } from "zod";
 import { stringify as yamlStringify } from "yaml";
 import { enumSchemas } from "../configuration/schemas/base";
 import type { ResolvedRepositoryConfig } from "../session/repository-backend-detection";
-import { deriveSlugFromGitRemote } from "../project/identity";
+import { deriveSlugFromGitRemote } from "../project/slug";
 
 export interface McpOptions {
   enabled?: boolean;

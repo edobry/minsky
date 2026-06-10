@@ -41,6 +41,7 @@ import { join, resolve } from "path";
 import { execSync as defaultExecSync } from "child_process";
 import { parse as yamlParse } from "yaml";
 import { log } from "@minsky/shared/logger";
+import { deriveSlugFromGitRemote } from "./slug";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -195,59 +196,10 @@ export function resolveProjectIdentity(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Slug stamping helpers
+// Re-export slug helpers for back-compat (consumers that import from identity)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Derive a project slug from the git origin remote URL.
- *
- * Returns `owner/repo` for GitHub/GitLab/Bitbucket remotes (both SSH and HTTPS
- * forms). Returns `null` for detached HEAD, no remote, or unrecognised URL.
- */
-export function deriveSlugFromGitRemote(
-  repoPath: string,
-  deps: ProjectIdentityDeps = defaultDeps
-): string | null {
-  try {
-    const rawUrl = deps
-      .execSync("git remote get-url origin", { cwd: repoPath, encoding: "utf8" })
-      .toString()
-      .trim();
-
-    if (!rawUrl) return null;
-
-    return extractOwnerRepo(rawUrl);
-  } catch {
-    // No remote, not a git repo, or detached HEAD — expected in some environments
-    return null;
-  }
-}
-
-/**
- * Extract `owner/repo` from a remote URL.
- *
- * Handles:
- * - SSH:   `git@github.com:owner/repo.git`
- * - HTTPS: `https://github.com/owner/repo.git`
- * - Both GitHub, GitLab, Bitbucket, and generic hosts
- *
- * Returns `null` if the URL is unrecognised.
- */
-export function extractOwnerRepo(remoteUrl: string): string | null {
-  // SSH: git@<host>:<owner>/<repo>[.git]
-  const sshMatch = remoteUrl.match(/^git@[^:]+:([^/]+)\/([^/\s]+?)(?:\.git)?$/);
-  if (sshMatch && sshMatch[1] && sshMatch[2]) {
-    return `${sshMatch[1]}/${sshMatch[2]}`;
-  }
-
-  // HTTPS: https://<host>/<owner>/<repo>[.git]
-  const httpsMatch = remoteUrl.match(/^https?:\/\/[^/]+\/([^/]+)\/([^/\s]+?)(?:\.git)?(?:\/)?$/);
-  if (httpsMatch && httpsMatch[1] && httpsMatch[2]) {
-    return `${httpsMatch[1]}/${httpsMatch[2]}`;
-  }
-
-  return null;
-}
+export { deriveSlugFromGitRemote, extractOwnerRepo } from "./slug";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config helpers
