@@ -122,7 +122,6 @@ defineVariables("site", siteEnv, siteServiceId, {
 // cockpit preview (mt#2096; project provisioned + IaC reconciled mt#2401)
 // ---------------------------------------------------------------------------
 const cockpitProject = "62db6727-ed10-415e-afc5-7188c9983c81";
-const cockpitEnv = "cc3d2bc3-13cc-4061-9633-cd58f48dc3fe";
 const cockpitServiceId = "83273eef-b451-42af-b3e4-7e1c42b8bb50";
 
 export const cockpitService = new railway.Service("cockpit", {
@@ -137,16 +136,17 @@ export const cockpitService = new railway.Service("cockpit", {
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
-// Variable set mirrors the cockpit server's env reads (services/cockpit/src/server.ts
-// + the domain config-setup it boots): postgres-backed persistence against a
-// dedicated preview DB, plus the preview-mode flag. Secret values resolve from
-// Pulumi stack config (sealed); declaring them here does not mutate the live
-// service — that only happens on an explicit `pulumi up`.
-defineVariables("cockpit", cockpitEnv, cockpitServiceId, {
-  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-cockpit-preview-postgres-url"),
-  MINSKY_COCKPIT_PREVIEW: plain("true"),
-});
+// Env-var IaC for cockpit-preview is deferred to mt#2407. Declaring a
+// `defineVariables(...)` block here would `requireSecret(...)` the
+// `minsky-cockpit-preview-postgres-url` Pulumi stack secret, which is not yet
+// configured in the (gitignored) Pulumi.<stack>.yaml — a latent `pulumi up`
+// break. Managing the live service's env vars is also out of scope for mt#2401
+// (the live service already has its vars set out-of-band). Intended set
+// (production env cc3d2bc3-13cc-4061-9633-cd58f48dc3fe), validated against
+// services/cockpit/src/server.ts + the domain config-setup it boots:
+//   MINSKY_PERSISTENCE_BACKEND=postgres
+//   MINSKY_PERSISTENCE_POSTGRES_URL=<sealed: minsky-cockpit-preview-postgres-url>
+//   MINSKY_COCKPIT_PREVIEW=true
 
 // ---------------------------------------------------------------------------
 // Exports
