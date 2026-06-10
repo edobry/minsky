@@ -18,18 +18,16 @@ import { ContextInspector } from "./widgets/ContextInspector";
 import { CredentialsSummary } from "./widgets/Credentials";
 import { EmbeddingsHealth } from "./widgets/EmbeddingsHealth";
 import { McpServerStatus } from "./widgets/McpServerStatus";
-import { PageNavTiles } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
-// HomePage's PageNavTiles stays eagerly imported above (first-paint critical).
 const AgentsPage = lazy(() =>
   import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
 );
 const ContextPage = lazy(() =>
   import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
 );
-const ConversationPage = lazy(() =>
-  import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
+const SessionPage = lazy(() =>
+  import("./pages/SessionPage").then((m) => ({ default: m.SessionPage }))
 );
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
@@ -157,7 +155,15 @@ function HomePage({ widgets }: HomePageProps) {
                 return (
                   <ErrorBoundary key={meta.id} id={meta.id}>
                     {SelfFetchingRenderer ? (
-                      <SelfFetchingRenderer />
+                      meta.id === "attention" ? (
+                        /* Attention is the algedonic top surface — give it the
+                           full row so the default landing leads with it (mt#2398). */
+                        <div className="md:col-span-2 lg:col-span-3">
+                          <SelfFetchingRenderer />
+                        </div>
+                      ) : (
+                        <SelfFetchingRenderer />
+                      )
                     ) : !PropDrivenRenderer ? (
                       <Card>
                         <CardHeader>
@@ -187,8 +193,8 @@ function HomePage({ widgets }: HomePageProps) {
         </section>
       )}
 
-      {/* Navigate section — below status: where am I going? */}
-      <PageNavTiles />
+      {/* Nav tiles removed (mt#2398): the persistent rail (mt#2397) is the
+          navigation surface; the tile grid duplicated it. */}
     </div>
   );
 }
@@ -327,19 +333,13 @@ export function App() {
               </ErrorBoundary>
             }
           />
-          {/*
-            Self-fetching route (mt#2374): ConversationPage owns its data via
-            TanStack Query (it reuses the `context-inspector` widget-data + the
-            snapshot endpoint). Like the other self-fetching pages (memories,
-            embeddings, asks, activity, plant) it needs NO entry in
-            PAGE_ROUTE_WIDGET_IDS / APP_LEVEL_PAGE_PROP_WIDGET_IDS — those govern
-            app-level PROP-driven polling, which this route does not use.
-          */}
+          {/* Session entity route (mt#2398): URL-addressable session tab; body is
+              mt#2374's ConversationView, re-homed from the retired /conversation host. */}
           <Route
-            path="/conversation"
+            path="/session/:id"
             element={
-              <ErrorBoundary id="conversation-page">
-                <ConversationPage />
+              <ErrorBoundary id="session-page">
+                <SessionPage />
               </ErrorBoundary>
             }
           />
