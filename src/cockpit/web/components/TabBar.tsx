@@ -23,13 +23,21 @@ const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string
   agent: GitBranch,
 };
 
-// Defensive default: tabs are PERSISTED (localStorage), so a kind written by a
-// newer/older build than the one rendering it must degrade to a generic icon —
-// an undefined component here crashes the whole shell (React #130; TabBar sits
-// outside the page ErrorBoundaries). Originating incident: mt#2440 — mt#1919
-// shipped the "agent" kind without this map entry and /agents/:id blanked the
-// cockpit on every load until the entry landed.
 const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
+
+/**
+ * Resolve a tab kind to its icon, degrading to a generic icon for any kind
+ * missing from KIND_ICONS. `loadTabs()` filters kinds it doesn't recognize,
+ * so the realistic gap this guards is a kind ACCEPTED by the loader but
+ * missing from this map — exactly how mt#2440 happened: mt#1919 added
+ * "agent" to the loader's accept-list without a map entry, the undefined
+ * component threw React #130, and (TabBar rendering outside the page
+ * ErrorBoundaries) the whole shell blanked on every load while the tab was
+ * persisted in localStorage.
+ */
+export function resolveKindIcon(kind: EntityTabKind): React.ComponentType<{ className?: string }> {
+  return KIND_ICONS[kind] ?? FALLBACK_ICON;
+}
 
 export function TabBar() {
   const { tabs, activePath, closeTab } = useTabs();
@@ -43,7 +51,7 @@ export function TabBar() {
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
-        const Icon = KIND_ICONS[tab.kind] ?? FALLBACK_ICON;
+        const Icon = resolveKindIcon(tab.kind);
         return (
           <div
             key={tab.path}

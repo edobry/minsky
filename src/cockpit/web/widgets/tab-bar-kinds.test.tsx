@@ -14,7 +14,7 @@ import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { render, screen, cleanup } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { TabsProvider } from "../lib/tabs";
-import { TabBar } from "../components/TabBar";
+import { TabBar, resolveKindIcon } from "../components/TabBar";
 
 function renderAt(path: string) {
   return render(
@@ -47,11 +47,10 @@ describe("TabBar entity kinds (mt#2440)", () => {
     expect(screen.getByText("mt#2440")).toBeDefined();
   });
 
-  test("unknown persisted kind falls back instead of crashing", () => {
-    // Simulate a tab written by a different build with a kind this build
-    // doesn't know. loadTabs filters unknown kinds today, but the fallback
-    // guards the rendering path independently of that filter — write a known
-    // shape, then render a route that opens it alongside.
+  test("persisted agent-kind tab renders on an unrelated route (the mt#2440 crash shape)", () => {
+    // The originating incident: an agent tab already in localStorage blanked
+    // the shell on EVERY route, not just /agents/:id. loadTabs accepts the
+    // kind; rendering must not crash.
     localStorage.setItem(
       "cockpit.tabs.v1", // gitleaks:allow
       JSON.stringify([
@@ -65,5 +64,19 @@ describe("TabBar entity kinds (mt#2440)", () => {
     );
     renderAt("/");
     expect(screen.getByText("abc12345…")).toBeDefined();
+  });
+
+  test("resolveKindIcon falls back for a kind missing from the icon map", () => {
+    // The realistic gap: a kind the loader accepts but the map doesn't carry
+    // (how mt#2440 happened). An unmapped kind must resolve to a component,
+    // never undefined. (Lucide icons are forwardRef components — typeof
+    // "object" — so assert defined-ness, which is what React #130 is about.)
+    const icon = resolveKindIcon("pr" as Parameters<typeof resolveKindIcon>[0]);
+    expect(icon).toBeDefined();
+    expect(icon).not.toBeNull();
+    // Known kinds resolve to defined components too.
+    expect(resolveKindIcon("agent")).toBeDefined();
+    expect(resolveKindIcon("task")).toBeDefined();
+    expect(resolveKindIcon("session")).toBeDefined();
   });
 });
