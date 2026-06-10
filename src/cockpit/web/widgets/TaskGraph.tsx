@@ -30,7 +30,7 @@ import ReactFlow, {
   type NodeMouseHandler,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // ---------------------------------------------------------------------------
 // Types — inline mirror of the server GraphNode / GraphEdge shapes.
@@ -71,6 +71,10 @@ interface Props {
    * card-context usage. Full-page consumers (TasksPage) pass a viewport-relative
    * class like `h-[calc(100vh-14rem)]` so the graph fills the available space. */
   containerClassName?: string;
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -309,7 +313,16 @@ function SelectedPanel({ node, onClose }: SelectedPanelProps) {
 // Main widget component
 // ---------------------------------------------------------------------------
 
-export function TaskGraph({ data, containerClassName = "h-[600px]" }: Props) {
+// ---------------------------------------------------------------------------
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
+// ---------------------------------------------------------------------------
+
+interface TaskGraphBodyProps {
+  data: WidgetData;
+  containerClassName: string;
+}
+
+function TaskGraphBody({ data, containerClassName }: TaskGraphBodyProps) {
   // Track whether ReactFlow has performed its initial fit-to-view. After the
   // first onInit, subsequent renders skip fitView so polling refreshes don't
   // snap the user's viewport back to the default.
@@ -363,63 +376,57 @@ export function TaskGraph({ data, containerClassName = "h-[600px]" }: Props) {
   );
 
   if (data.state === "degraded") {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Task Graph</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          <p>{data.reason}</p>
-        </CardContent>
-      </Card>
-    );
+    return <p className="text-sm text-muted-foreground">{data.reason}</p>;
   }
 
   const payload = data.payload as TaskGraphPayload;
   const nodeCount = payload.nodes?.length ?? 0;
 
+  if (nodeCount === 0) {
+    return <p className="text-sm text-muted-foreground">No tasks yet</p>;
+  }
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">
-          Task Graph
-          {nodeCount > 0 && (
-            <span className="text-sm font-normal text-muted-foreground ml-2">
-              ({nodeCount} tasks)
-            </span>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="p-0">
-        {nodeCount === 0 ? (
-          <p className="text-sm text-muted-foreground p-4">No tasks yet</p>
-        ) : (
-          <div className={`relative ${containerClassName}`}>
-            <ReactFlow
-              nodes={rfNodes}
-              edges={rfEdges}
-              onNodesChange={onNodesChange}
-              onEdgesChange={onEdgesChange}
-              onNodeClick={handleNodeClick}
-              // fitView fires once on first mount only. Subsequent poll
-              // refreshes update node/edge data without resetting the
-              // viewport, so users can zoom/pan and stay there.
-              // (PR #1031 R1 NON-BLOCKING reviewer finding.)
-              {...(hasFittedRef.current ? {} : { fitView: true, fitViewOptions: { padding: 0.2 } })}
-              minZoom={0.1}
-              maxZoom={2}
-              attributionPosition="bottom-left"
-              onInit={() => {
-                hasFittedRef.current = true;
-              }}
-            >
-              <Background />
-              <Controls />
-            </ReactFlow>
-            <SelectedPanel node={selected} onClose={() => setSelected(null)} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <>
+      {nodeCount > 0 && (
+        <p className="text-xs text-muted-foreground mb-1">{nodeCount} tasks</p>
+      )}
+      <div className={`relative ${containerClassName}`}>
+        <ReactFlow
+          nodes={rfNodes}
+          edges={rfEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onNodeClick={handleNodeClick}
+          // fitView fires once on first mount only. Subsequent poll
+          // refreshes update node/edge data without resetting the
+          // viewport, so users can zoom/pan and stay there.
+          // (PR #1031 R1 NON-BLOCKING reviewer finding.)
+          {...(hasFittedRef.current ? {} : { fitView: true, fitViewOptions: { padding: 0.2 } })}
+          minZoom={0.1}
+          maxZoom={2}
+          attributionPosition="bottom-left"
+          onInit={() => {
+            hasFittedRef.current = true;
+          }}
+        >
+          <Background />
+          <Controls />
+        </ReactFlow>
+        <SelectedPanel node={selected} onClose={() => setSelected(null)} />
+      </div>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main widget export (mt#2373)
+// ---------------------------------------------------------------------------
+
+export function TaskGraph({ data, containerClassName = "h-[600px]", variant = "card", title = "Task Graph" }: Props) {
+  return (
+    <WidgetShell variant={variant} title={title}>
+      <TaskGraphBody data={data} containerClassName={containerClassName} />
+    </WidgetShell>
   );
 }
