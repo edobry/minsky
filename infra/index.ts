@@ -119,18 +119,34 @@ defineVariables("site", siteEnv, siteServiceId, {
 });
 
 // ---------------------------------------------------------------------------
-// cockpit preview (placeholder — Railway project not yet created, mt#2096)
+// cockpit preview (mt#2096; project provisioned + IaC reconciled mt#2401)
 // ---------------------------------------------------------------------------
-// const cockpitService = new railway.Service("cockpit", {
-//   projectId: "REPLACE_AFTER_CREATION",
-//   name: "cockpit-preview",
-//   regions: [{ region: "us-west2", numReplicas: 1 }],
-// });
-// defineVariables("cockpit", "REPLACE", "REPLACE", {
-//   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-//   MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-cockpit-preview-postgres-url"),
-//   MINSKY_COCKPIT_PREVIEW: plain("true"),
-// });
+const cockpitProject = "62db6727-ed10-415e-afc5-7188c9983c81";
+const cockpitEnv = "cc3d2bc3-13cc-4061-9633-cd58f48dc3fe";
+const cockpitServiceId = "83273eef-b451-42af-b3e4-7e1c42b8bb50";
+
+export const cockpitService = new railway.Service("cockpit", {
+  projectId: cockpitProject,
+  name: "cockpit-preview",
+  sourceRepo: "edobry/minsky",
+  sourceRepoBranch: "main",
+  // Build context is the repo root; the Dockerfile lives at
+  // services/cockpit/Dockerfile (see services/cockpit/deploy.config.ts for
+  // the build wiring).
+  rootDirectory: "",
+  regions: [{ region: "us-west2", numReplicas: 1 }],
+});
+
+// Variable set mirrors the cockpit server's env reads (services/cockpit/src/server.ts
+// + the domain config-setup it boots): postgres-backed persistence against a
+// dedicated preview DB, plus the preview-mode flag. Secret values resolve from
+// Pulumi stack config (sealed); declaring them here does not mutate the live
+// service — that only happens on an explicit `pulumi up`.
+defineVariables("cockpit", cockpitEnv, cockpitServiceId, {
+  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-cockpit-preview-postgres-url"),
+  MINSKY_COCKPIT_PREVIEW: plain("true"),
+});
 
 // ---------------------------------------------------------------------------
 // Exports
@@ -139,4 +155,5 @@ export const services = {
   minskyMcp: { projectId: minskyMcpProject, serviceId: minskyMcpServiceId },
   reviewer: { projectId: reviewerProject, serviceId: reviewerServiceId },
   site: { projectId: siteProject, serviceId: siteServiceId },
+  cockpit: { projectId: cockpitProject, serviceId: cockpitServiceId },
 };
