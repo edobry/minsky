@@ -10,6 +10,7 @@ import {
   titleOverlapTokens,
   detectDuplicateChild,
   parseChildIdsFromChildrenOutput,
+  parseTaskListJson,
   formatDuplicateBlockMessage,
   decideTasksCreateGuard,
   DUPLICATE_TOKEN_THRESHOLD,
@@ -55,6 +56,14 @@ describe("tokenizeTitle (mt#1435)", () => {
   it("returns empty set for empty / all-stopword / all-short titles", () => {
     expect(tokenizeTitle("")).toEqual(new Set());
     expect(tokenizeTitle("the and for a b c")).toEqual(new Set());
+  });
+
+  it("drops the expanded common function-word stopwords (PR #1660 R1)", () => {
+    const t = tokenizeTitle("which there these those about would build");
+    for (const sw of ["which", "there", "these", "those", "about", "would"]) {
+      expect(t.has(sw)).toBe(false);
+    }
+    expect(t.has("build")).toBe(true); // a real content word is still kept
   });
 });
 
@@ -169,6 +178,50 @@ describe("parseChildIdsFromChildrenOutput (mt#1435)", () => {
 
   it("returns empty for empty input", () => {
     expect(parseChildIdsFromChildrenOutput("")).toEqual([]);
+  });
+
+  it("tolerates bullet markers and trailing status text (CLI format drift, PR #1660 R1)", () => {
+    const out =
+      "mt#2370: 3 subtask(s)\n  - mt#2397 — DONE\n  * mt#2398 (IN-PROGRESS)\n  mt#2399  extra trailing stuff\n";
+    expect(parseChildIdsFromChildrenOutput(out)).toEqual(["mt#2397", "mt#2398", "mt#2399"]);
+  });
+
+  it("still excludes the non-indented header even with trailing text", () => {
+    expect(parseChildIdsFromChildrenOutput("mt#2370: 3 subtask(s)")).toEqual([]);
+  });
+});
+
+describe("parseTaskListJson (mt#1435, PR #1660 R1)", () => {
+  it("parses a bare array into an id -> {title,status} map", () => {
+    const out = JSON.stringify([
+      { id: "mt#1", title: "Alpha", status: "TODO" },
+      { id: "mt#2", title: "Bravo", status: "IN-PROGRESS" },
+    ]);
+    const m = parseTaskListJson(out);
+    expect(m.get("mt#1")).toEqual({ title: "Alpha", status: "TODO" });
+    expect(m.get("mt#2")).toEqual({ title: "Bravo", status: "IN-PROGRESS" });
+  });
+
+  it("parses a { tasks: [...] } envelope", () => {
+    const out = JSON.stringify({ tasks: [{ id: "mt#3", title: "Charlie", status: "READY" }] });
+    expect(parseTaskListJson(out).get("mt#3")).toEqual({ title: "Charlie", status: "READY" });
+  });
+
+  it("defaults a missing status to UNKNOWN and skips entries without id/title", () => {
+    const out = JSON.stringify([
+      { id: "mt#4", title: "Delta" },
+      { id: "mt#5" },
+      { title: "no id" },
+    ]);
+    const m = parseTaskListJson(out);
+    expect(m.get("mt#4")).toEqual({ title: "Delta", status: "UNKNOWN" });
+    expect(m.has("mt#5")).toBe(false);
+    expect(m.size).toBe(1);
+  });
+
+  it("returns an empty map for malformed JSON (callers fall back to per-child gets)", () => {
+    expect(parseTaskListJson("not json").size).toBe(0);
+    expect(parseTaskListJson("").size).toBe(0);
   });
 });
 

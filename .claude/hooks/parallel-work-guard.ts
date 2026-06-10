@@ -1368,8 +1368,27 @@ export interface DuplicateMatch {
 /** Minimum shared substantive tokens to flag a duplicate. */
 export const DUPLICATE_TOKEN_THRESHOLD = 2;
 
-/** Max children fetched per check — bounds the N+1 `tasks get` latency. */
-export const TASKS_CHILDREN_FETCH_CAP = 60;
+// Latency bounds for the N+1 `tasks get` fetch. The PreToolUse host cap for this
+// hook is 30s (.claude/settings.json); blowing it gets the hook SIGTERM'd
+// mid-run with inconsistent allow/deny (PR #1660 R1 BLOCKING). These constants
+// keep the worst case well under that cap: an overall wall-clock budget hard-
+// breaks the loop, a tight per-call timeout bounds any single stuck call, and
+// the cap is a secondary ceiling. Worst case ≈ list(2s) + budget(20s) + one
+// in-flight call(2s) ≈ 24s < 30s.
+
+/** Hard cap on children fetched per check (secondary to the wall-clock budget). */
+export const TASKS_CHILDREN_FETCH_CAP = 25;
+
+/**
+ * Per-CLI-call timeout for the dup-guard path. Must clear the `minsky` CLI
+ * cold-start (~2s) with headroom, or even the initial `tasks children` call
+ * spuriously times out and the guard no-ops. The overall budget below — not
+ * this per-call ceiling — is what bounds total wall-clock under the host cap.
+ */
+export const DUP_GUARD_CLI_TIMEOUT_MS = 4_000;
+
+/** Overall wall-clock budget for the whole dup-guard fetch; the loop hard-breaks past it. */
+export const DUP_GUARD_OVERALL_BUDGET_MS = 20_000;
 
 /**
  * 4+-char common English words that carry no disambiguating signal. The
@@ -1378,9 +1397,24 @@ export const TASKS_CHILDREN_FETCH_CAP = 60;
  * are deliberately NOT stopworded — they ARE the duplicate signal.
  */
 export const TITLE_STOPWORDS: ReadonlySet<string> = new Set([
+  // Common 4-6 char English function words (PR #1660 R1 NON-BLOCKING — a low
+  // threshold of 2 means two shared weak words could deny a valid create).
   "with",
   "into",
+  "onto",
   "when",
+  "where",
+  "what",
+  "which",
+  "while",
+  "would",
+  "could",
+  "should",
+  "there",
+  "their",
+  "these",
+  "those",
+  "about",
   "before",
   "after",
   "that",
@@ -1390,19 +1424,35 @@ export const TITLE_STOPWORDS: ReadonlySet<string> = new Set([
   "have",
   "will",
   "been",
+  "being",
   "were",
   "more",
+  "most",
   "than",
   "then",
+  "them",
+  "they",
   "also",
   "such",
   "each",
   "only",
   "over",
+  "some",
+  "both",
+  "very",
+  "much",
   "make",
   "made",
+  "does",
+  "done",
+  "here",
+  "upon",
+  "between",
+  "within",
+  "without",
   "using",
   "able",
+  // Domain-generic words that carry no disambiguating signal for Minsky tasks.
   "task",
   "tasks",
   "minsky",
@@ -1455,33 +1505,119 @@ export function detectDuplicateChild(
  * Parse child task IDs out of `minsky tasks children <parent>` text output.
  * The format is a header line (`mt#X: N subtask(s)` or `mt#X: no subtasks`)
  * followed by indented `  mt#Y` / `  md#Y` lines. Pure.
+ *
+ * Tolerant of CLI format drift (PR #1660 R1 NON-BLOCKING): an optional bullet
+ * (`-` / `*` / `•`) and any trailing text after the id (e.g. ` — DONE`,
+ * ` (IN-PROGRESS)`) are accepted, so a cosmetic CLI change doesn't silently
+ * disable the guard by returning an empty list. LEADING WHITESPACE is still
+ * required — that's the discriminator that excludes the non-indented header
+ * line (`mt#2370: 3 subtask(s)`), which must NOT be parsed as a child.
  */
 export function parseChildIdsFromChildrenOutput(stdout: string): string[] {
   const ids: string[] = [];
   for (const line of stdout.split("\n")) {
-    const m = line.match(/^\s+((?:mt|md)#\d+)\s*$/);
+    const m = line.match(/^\s+(?:[-*•]\s+)?((?:mt|md)#\d+)\b/);
     if (m && m[1]) ids.push(m[1]);
   }
   return ids;
 }
 
 /**
- * Fetch all children of `parent` (id + title + status), capped at
- * TASKS_CHILDREN_FETCH_CAP. Returns null when the children list itself can't
- * be read (warn-and-permit upstream); individual unreadable children are
- * skipped rather than failing the whole check.
+ * Parse `minsky tasks list --json` into an `id → {title,status}` map. Pure.
+ * Tolerant of either a bare array or a `{ tasks: [...] }` envelope; malformed
+ * input yields an empty map (callers fall back to per-child gets).
  */
-export function fetchTaskChildren(parent: string): ChildTask[] | null {
+export function parseTaskListJson(stdout: string): Map<string, { title: string; status: string }> {
+  const map = new Map<string, { title: string; status: string }>();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return map;
+  }
+  const arr: unknown[] = Array.isArray(parsed)
+    ? parsed
+    : parsed !== null &&
+        typeof parsed === "object" &&
+        Array.isArray((parsed as { tasks?: unknown }).tasks)
+      ? (parsed as { tasks: unknown[] }).tasks
+      : [];
+  for (const t of arr) {
+    if (t !== null && typeof t === "object") {
+      const o = t as { id?: unknown; title?: unknown; status?: unknown };
+      if (typeof o.id === "string" && typeof o.title === "string") {
+        map.set(o.id, {
+          title: o.title,
+          status: typeof o.status === "string" ? o.status : "UNKNOWN",
+        });
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * Fetch children of `parent` (id + title + status). Hybrid strategy that avoids
+ * the per-child N+1 the reviewer flagged (PR #1660 R1 BLOCKING — ~2s of CLI
+ * startup PER `tasks get`):
+ *
+ *   1. `minsky tasks children <parent>` → child IDs (one call).
+ *   2. `minsky tasks list --json` → one bulk call resolving every ACTIVE child
+ *      (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/BLOCKED) by title+status.
+ *   3. Only TERMINAL-state children (DONE/CLOSED/COMPLETED — excluded from the
+ *      default list) fall back to a per-child `minsky tasks get <id> --json`,
+ *      which is budget-bounded.
+ *
+ * So the common case is 2 calls regardless of child count; the per-child path
+ * runs only for the (usually few) terminal-state children. The whole fetch is
+ * bounded by TASKS_CHILDREN_FETCH_CAP and DUP_GUARD_OVERALL_BUDGET_MS so it
+ * cannot blow the 30s PreToolUse host cap.
+ *
+ * Returns null when the children LIST itself can't be read (warn-and-permit
+ * upstream). Unreadable/malformed children are skipped. If the wall-clock
+ * budget is hit during the terminal-child fallback, the loop breaks early and
+ * a visible `[parallel-work-guard]` warning is written (fail-open-on-budget).
+ * The optional `now` injection keeps the budget path deterministically testable.
+ */
+export function fetchTaskChildren(
+  parent: string,
+  now: () => number = Date.now
+): ChildTask[] | null {
+  const startedAt = now();
   const listed = execWithPath(["minsky", "tasks", "children", parent], {
-    timeout: GH_GIT_TIMEOUT_MS,
+    timeout: DUP_GUARD_CLI_TIMEOUT_MS,
   });
   if (listed.exitCode !== 0) return null;
 
   const ids = parseChildIdsFromChildrenOutput(listed.stdout).slice(0, TASKS_CHILDREN_FETCH_CAP);
+  if (ids.length === 0) return [];
+
+  // One bulk call resolves all active children. On failure → empty map, every
+  // child falls through to the per-child get path below.
+  const listResult = execWithPath(["minsky", "tasks", "list", "--json"], {
+    timeout: DUP_GUARD_CLI_TIMEOUT_MS,
+  });
+  const activeById =
+    listResult.exitCode === 0
+      ? parseTaskListJson(listResult.stdout)
+      : new Map<string, { title: string; status: string }>();
+
   const children: ChildTask[] = [];
   for (const id of ids) {
+    const fromList = activeById.get(id);
+    if (fromList) {
+      children.push({ id, title: fromList.title, status: fromList.status });
+      continue;
+    }
+    // Terminal-state (or list-missed) child → per-child fallback, budget-bounded.
+    if (now() - startedAt >= DUP_GUARD_OVERALL_BUDGET_MS) {
+      process.stdout.write(
+        `[parallel-work-guard] dup-guard budget (${DUP_GUARD_OVERALL_BUDGET_MS}ms) exhausted after ${children.length}/${ids.length} children of ${parent} — checking the partial set (fail-open-on-budget)\n`
+      );
+      break;
+    }
     const got = execWithPath(["minsky", "tasks", "get", id, "--json"], {
-      timeout: GH_GIT_TIMEOUT_MS,
+      timeout: DUP_GUARD_CLI_TIMEOUT_MS,
     });
     if (got.exitCode !== 0) continue;
     try {
@@ -1575,9 +1711,26 @@ export function decideTasksCreateGuard(
 
 /** Entrypoint wrapper: resolve the decision and map it to hook output. */
 function runTasksCreateGuard(input: ToolHookInput): void {
+  // Observability (PR #1660 R1 BLOCKING): any unexpected throw is surfaced on
+  // stderr and then fails OPEN (permit). A silent crash on the deny path would
+  // otherwise create block/allow ambiguity. The latency-bound budget above
+  // means the host should not SIGTERM us mid-run; this catch covers logic
+  // exceptions, not the host timeout.
+  try {
+    runTasksCreateGuardInner(input);
+  } catch (err) {
+    process.stderr.write(
+      `[parallel-work-guard] tasks_create dup-guard errored — failing open (permit): ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
+  }
+}
+
+function runTasksCreateGuardInner(input: ToolHookInput): void {
   const overrideActive = process.env["MINSKY_FORCE_DUPLICATE_OK"] === "1";
   const decision = decideTasksCreateGuard(input.tool_input, {
-    fetchChildren: fetchTaskChildren,
+    fetchChildren: (parent) => fetchTaskChildren(parent),
     overrideActive,
   });
 

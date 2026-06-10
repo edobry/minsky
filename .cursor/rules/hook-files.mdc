@@ -66,9 +66,20 @@ which a concurrent agent's children can land. This matcher fires at the *mutatin
 so it catches the concurrent-decomposition case regardless of that time gap.
 
 **How it works:**
-1. On a `tasks_create` with `parent` set, enumerate the parent's children via
-   `minsky tasks children <parent>` + a per-child `minsky tasks get <id> --json`
-   (capped at `TASKS_CHILDREN_FETCH_CAP = 60`). **ALL statuses** are enumerated
+1. On a `tasks_create` with `parent` set, enumerate the parent's children via a
+   **hybrid** strategy that avoids a per-child N+1 (each `minsky tasks get` costs
+   ~2s of CLI startup): `minsky tasks children <parent>` for the IDs, then ONE
+   bulk `minsky tasks list --json` call to resolve every **active** child
+   (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/BLOCKED). Only **terminal-state**
+   children (DONE/CLOSED/COMPLETED — excluded from the default list) fall back to
+   a per-child `minsky tasks get <id> --json`. So the common case is 2 calls
+   regardless of child count. The fetch is still latency-bounded so it can't blow
+   the 30s PreToolUse host cap: a `TASKS_CHILDREN_FETCH_CAP = 25` hard cap, a
+   `DUP_GUARD_CLI_TIMEOUT_MS = 4000` per-call timeout (must clear the ~2s CLI
+   cold-start), AND a
+   `DUP_GUARD_OVERALL_BUDGET_MS = 20000` wall-clock budget that hard-breaks the
+   per-child fallback early (visible warning + partial-set check —
+   fail-open-on-budget). **ALL statuses** are enumerated
    (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
    decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
    terminal-status-only filter would miss exactly the case this exists to catch.
@@ -79,7 +90,10 @@ so it catches the concurrent-decomposition case regardless of that time gap.
    and the overlapping tokens.
 
 **Fail-open posture:** a no-parent create is a no-op; an unreadable children list is
-warn-and-permit; an individual unreadable/malformed child is skipped (not fatal).
+warn-and-permit; an individual unreadable/malformed child is skipped (not fatal); a
+wall-clock-budget exhaustion checks the partial set with a visible warning; and any
+unexpected exception is caught, logged to stderr, and fails OPEN (permit) — so the
+guard can never silently block.
 
 **Override mechanism:** Set `MINSKY_FORCE_DUPLICATE_OK=1` in your environment before the
 `tasks_create` to bypass with an audit line on stdout naming the parent, title, and the
