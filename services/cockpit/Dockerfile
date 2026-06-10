@@ -25,6 +25,15 @@ RUN bun install --frozen-lockfile --ignore-scripts
 COPY vite.config.ts ./
 COPY tailwind.config.ts ./
 COPY postcss.config.js ./
+# The cockpit SPA imports value code from the workspace domain layer (e.g.
+# `snapshotBlocksToConversation` from `@minsky/domain/transcripts/conversation-elements`
+# in ConversationView, mt#2374). Rollup must resolve those imports at build
+# time, so the domain (and shared) source must be present in the builder — not
+# just their package.json. The runtime stage copies these too; keep both in
+# sync. (Type-only `@minsky/domain/*/types` imports are erased by esbuild and
+# don't need this, but value imports do.) — mt#2409
+COPY packages/shared/src ./packages/shared/src
+COPY packages/domain/src ./packages/domain/src
 COPY src/cockpit/web ./src/cockpit/web
 
 RUN bunx vite build --config vite.config.ts
