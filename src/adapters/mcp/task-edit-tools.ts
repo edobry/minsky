@@ -301,6 +301,12 @@ FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ...
             );
           }
 
+          // mt#2408: an empty search string has no well-defined occurrences and
+          // would otherwise drive an unbounded scan. Reject it explicitly.
+          if (typedArgs.search === "") {
+            throw new Error(`Search text must be a non-empty string; received an empty string.`);
+          }
+
           log.debug("Starting task search_replace operation", { taskId: typedArgs.taskId });
 
           // Load current task spec content
