@@ -69,6 +69,8 @@ export default [
       "infra/node_modules/**",
       // Exclude ESLint rule test fixtures (intentionally contain rule violations)
       "eslint-rules/__fixtures__/**",
+      // Exclude GitHub Actions workflows (YAML files; no ESLint config for them)
+      ".github/**",
     ],
   },
   {
