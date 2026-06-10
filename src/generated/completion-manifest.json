@@ -4076,15 +4076,11 @@
             },
             {
               "flags": ["--backup"],
-              "description": "Create backup in specified directory"
+              "description": "Create a JSON backup of the source before migration, written to the Minsky state dir with an auto-generated filename (default: true)"
             },
             {
               "flags": ["--execute"],
               "description": "Actually perform the migration (default is preview mode)"
-            },
-            {
-              "flags": ["--set-default"],
-              "description": "Update configuration to use migrated backend as default"
             },
             {
               "flags": ["-n", "--dry-run"],
@@ -5610,15 +5606,25 @@
           "options": [
             {
               "flags": ["--event-type"],
-              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded)",
+              "description": "Filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed | embeddings.provider_degraded | task.status_changed | pr.merged | subagent.completed | session.started)",
               "takesValue": true,
               "values": [
                 "ask.created",
                 "task.auto_created",
                 "pr.review_posted",
                 "subagent.failed",
-                "embeddings.provider_degraded"
+                "embeddings.provider_degraded",
+                "task.status_changed",
+                "pr.merged",
+                "subagent.completed",
+                "session.started"
               ]
+            },
+            {
+              "flags": ["--category"],
+              "description": "Filter by category (actionable | informational) — the activity feed defaults to 'actionable'",
+              "takesValue": true,
+              "values": ["actionable", "informational"]
             },
             {
               "flags": ["--since"],

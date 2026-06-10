@@ -294,7 +294,8 @@ export function getPersistenceCustomizations(): {
               description: "PostgreSQL connection string",
             },
             backup: {
-              description: "Create backup in specified directory",
+              description:
+                "Create a JSON backup of the source before migration, written to the Minsky state dir with an auto-generated filename (default: true)",
             },
             dryRun: {
               alias: "n",
