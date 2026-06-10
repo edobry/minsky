@@ -29,6 +29,9 @@ const ContextPage = lazy(() =>
 const SessionPage = lazy(() =>
   import("./pages/SessionPage").then((m) => ({ default: m.SessionPage }))
 );
+const SessionsPage = lazy(() =>
+  import("./pages/SessionsPage").then((m) => ({ default: m.SessionsPage }))
+);
 const SettingsPage = lazy(() =>
   import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
@@ -322,6 +325,14 @@ export function App() {
             element={
               <ErrorBoundary id="context-page">
                 <ContextPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/sessions"
+            element={
+              <ErrorBoundary id="sessions-page">
+                <SessionsPage />
               </ErrorBoundary>
             }
           />

@@ -22,6 +22,7 @@ import {
   Bot,
   FileSearch,
   MessageCircleQuestion,
+  MessagesSquare,
   Bell,
   Cpu,
   Brain,
@@ -44,7 +45,8 @@ const SPINE: NavItem[] = [{ to: "/workstreams", label: "Workstreams", icon: GitB
 /** Flat entity entry points below the spine. */
 const BROWSE: NavItem[] = [
   { to: "/tasks", label: "Tasks", icon: Network },
-  { to: "/agents", label: "Sessions", icon: Bot },
+  { to: "/sessions", label: "Sessions", icon: MessagesSquare },
+  { to: "/agents", label: "Agents", icon: Bot },
   { to: "/context", label: "Context", icon: FileSearch },
   { to: "/asks", label: "Asks", icon: MessageCircleQuestion },
   { to: "/activity", label: "Activity", icon: Bell },
