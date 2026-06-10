@@ -1337,13 +1337,295 @@ export function deriveRepoFromGit(repoDir: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Duplicate-child detection (mt#1435)
+//
+// Fires on `mcp__minsky__tasks_create` when `parent` is set. The /plan-task
+// gate (g) and the session_start sweep both run at the *planning* boundary;
+// when an umbrella is decomposed, minutes-to-hours can pass between the gate
+// read and the actual `tasks_create` calls, during which a concurrent agent's
+// children can land (R6, 2026-06-10: mt#2403-2406 duplicated mt#2397/2398/2399
+// under mt#2370). This guard fires at the *mutating action*, so it catches
+// concurrent children regardless of that time gap.
+//
+// Enumerates ALL existing children (any status) — a concurrent decomposition's
+// children are typically still TODO/IN-PROGRESS, not DONE, at file-time, so a
+// terminal-status-only filter would miss exactly this case.
+// ---------------------------------------------------------------------------
+
+/** One existing child of the parent being filed under. */
+export interface ChildTask {
+  id: string;
+  title: string;
+  status: string;
+}
+
+/** A title-overlap hit between the new task and an existing child. */
+export interface DuplicateMatch {
+  child: ChildTask;
+  tokens: string[];
+}
+
+/** Minimum shared substantive tokens to flag a duplicate. */
+export const DUPLICATE_TOKEN_THRESHOLD = 2;
+
+/** Max children fetched per check — bounds the N+1 `tasks get` latency. */
+export const TASKS_CHILDREN_FETCH_CAP = 60;
+
+/**
+ * 4+-char common English words that carry no disambiguating signal. The
+ * 4-char minimum already excludes most stopwords ("the"/"and"/"for"); this set
+ * covers the longer ones. Domain nouns (cockpit, shell, session, reviewer, ...)
+ * are deliberately NOT stopworded — they ARE the duplicate signal.
+ */
+export const TITLE_STOPWORDS: ReadonlySet<string> = new Set([
+  "with",
+  "into",
+  "when",
+  "before",
+  "after",
+  "that",
+  "this",
+  "from",
+  "your",
+  "have",
+  "will",
+  "been",
+  "were",
+  "more",
+  "than",
+  "then",
+  "also",
+  "such",
+  "each",
+  "only",
+  "over",
+  "make",
+  "made",
+  "using",
+  "able",
+  "task",
+  "tasks",
+  "minsky",
+]);
+
+/** Tokenize a title into lowercase 4+-char non-stopword tokens. */
+export function tokenizeTitle(title: string): Set<string> {
+  const tokens = new Set<string>();
+  for (const raw of title.toLowerCase().split(/[^a-z0-9]+/)) {
+    if (raw.length >= 4 && !TITLE_STOPWORDS.has(raw)) {
+      tokens.add(raw);
+    }
+  }
+  return tokens;
+}
+
+/** Substantive tokens shared by two titles (set intersection). */
+export function titleOverlapTokens(a: string, b: string): string[] {
+  const ta = tokenizeTitle(a);
+  const tb = tokenizeTitle(b);
+  const shared: string[] = [];
+  for (const t of ta) {
+    if (tb.has(t)) shared.push(t);
+  }
+  return shared;
+}
+
+/**
+ * Return the strongest duplicate match (most shared tokens) among `children`,
+ * or null if none shares ≥ DUPLICATE_TOKEN_THRESHOLD substantive tokens with
+ * `newTitle`. Pure — children are passed in.
+ */
+export function detectDuplicateChild(
+  newTitle: string,
+  children: ChildTask[]
+): DuplicateMatch | null {
+  let best: DuplicateMatch | null = null;
+  for (const child of children) {
+    const tokens = titleOverlapTokens(newTitle, child.title);
+    if (tokens.length >= DUPLICATE_TOKEN_THRESHOLD) {
+      if (best === null || tokens.length > best.tokens.length) {
+        best = { child, tokens };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Parse child task IDs out of `minsky tasks children <parent>` text output.
+ * The format is a header line (`mt#X: N subtask(s)` or `mt#X: no subtasks`)
+ * followed by indented `  mt#Y` / `  md#Y` lines. Pure.
+ */
+export function parseChildIdsFromChildrenOutput(stdout: string): string[] {
+  const ids: string[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = line.match(/^\s+((?:mt|md)#\d+)\s*$/);
+    if (m && m[1]) ids.push(m[1]);
+  }
+  return ids;
+}
+
+/**
+ * Fetch all children of `parent` (id + title + status), capped at
+ * TASKS_CHILDREN_FETCH_CAP. Returns null when the children list itself can't
+ * be read (warn-and-permit upstream); individual unreadable children are
+ * skipped rather than failing the whole check.
+ */
+export function fetchTaskChildren(parent: string): ChildTask[] | null {
+  const listed = execWithPath(["minsky", "tasks", "children", parent], {
+    timeout: GH_GIT_TIMEOUT_MS,
+  });
+  if (listed.exitCode !== 0) return null;
+
+  const ids = parseChildIdsFromChildrenOutput(listed.stdout).slice(0, TASKS_CHILDREN_FETCH_CAP);
+  const children: ChildTask[] = [];
+  for (const id of ids) {
+    const got = execWithPath(["minsky", "tasks", "get", id, "--json"], {
+      timeout: GH_GIT_TIMEOUT_MS,
+    });
+    if (got.exitCode !== 0) continue;
+    try {
+      const parsed = JSON.parse(got.stdout) as {
+        task?: { id?: string; title?: string; status?: string };
+      };
+      const t = parsed.task;
+      if (t && typeof t.title === "string") {
+        children.push({
+          id: typeof t.id === "string" ? t.id : id,
+          title: t.title,
+          status: typeof t.status === "string" ? t.status : "UNKNOWN",
+        });
+      }
+    } catch {
+      // Malformed JSON for this child — skip it, don't fail the whole check.
+    }
+  }
+  return children;
+}
+
+/** Structured block message naming the colliding child + overlapping tokens. */
+export function formatDuplicateBlockMessage(
+  parent: string,
+  newTitle: string,
+  match: DuplicateMatch
+): string {
+  const lines: string[] = [];
+  lines.push(
+    `Parallel-work guard: this new child of ${parent} looks like a DUPLICATE of an existing sibling.`
+  );
+  lines.push("");
+  lines.push(`  New title:      "${newTitle}"`);
+  lines.push(
+    `  Existing child: ${match.child.id} [${match.child.status}] — "${match.child.title}"`
+  );
+  lines.push(`  Shared tokens:  ${match.tokens.join(", ")}`);
+  lines.push("");
+  lines.push("A concurrent agent may have already decomposed this parent. Before filing, run");
+  lines.push(`  minsky tasks children ${parent}`);
+  lines.push(
+    "and confirm this work isn't already covered. If it is, extend/reference the existing"
+  );
+  lines.push("child instead of creating a second one.");
+  lines.push("");
+  lines.push("If this is genuinely a distinct task, set MINSKY_FORCE_DUPLICATE_OK=1 and retry.");
+  return lines.join("\n");
+}
+
+/** The decision a tasks_create call resolves to (pure; I/O injected). */
+export type DuplicateGuardDecision =
+  | { action: "skip"; reason: string }
+  | { action: "permit" }
+  | { action: "override"; auditMatch: string }
+  | { action: "block"; message: string };
+
+/**
+ * Pure decision for the tasks_create duplicate-child guard. `deps.fetchChildren`
+ * is injected so this is hermetically testable without invoking the CLI.
+ */
+export function decideTasksCreateGuard(
+  toolInput: Record<string, unknown>,
+  deps: { fetchChildren: (parent: string) => ChildTask[] | null; overrideActive: boolean }
+): DuplicateGuardDecision {
+  const parent = typeof toolInput["parent"] === "string" ? (toolInput["parent"] as string) : "";
+  if (!parent) {
+    return { action: "skip", reason: "no parent — top-level create, nothing to dedup" };
+  }
+  const title = typeof toolInput["title"] === "string" ? (toolInput["title"] as string) : "";
+  if (!title) {
+    return { action: "skip", reason: `tasks_create under ${parent} has no title` };
+  }
+
+  if (deps.overrideActive) {
+    const children = deps.fetchChildren(parent) ?? [];
+    const match = detectDuplicateChild(title, children);
+    return { action: "override", auditMatch: match ? match.child.id : "none" };
+  }
+
+  const children = deps.fetchChildren(parent);
+  if (children === null) {
+    return { action: "skip", reason: `could not enumerate children of ${parent}` };
+  }
+
+  const match = detectDuplicateChild(title, children);
+  if (match) {
+    return { action: "block", message: formatDuplicateBlockMessage(parent, title, match) };
+  }
+  return { action: "permit" };
+}
+
+/** Entrypoint wrapper: resolve the decision and map it to hook output. */
+function runTasksCreateGuard(input: ToolHookInput): void {
+  const overrideActive = process.env["MINSKY_FORCE_DUPLICATE_OK"] === "1";
+  const decision = decideTasksCreateGuard(input.tool_input, {
+    fetchChildren: fetchTaskChildren,
+    overrideActive,
+  });
+
+  switch (decision.action) {
+    case "skip":
+      process.stdout.write(
+        `[parallel-work-guard] tasks_create dedup skipped — ${decision.reason}\n`
+      );
+      return;
+    case "override": {
+      const parent =
+        typeof input.tool_input["parent"] === "string" ? input.tool_input["parent"] : "";
+      const title = typeof input.tool_input["title"] === "string" ? input.tool_input["title"] : "";
+      const ts = new Date().toISOString();
+      process.stdout.write(
+        `[parallel-work-guard] override fired: parent=${parent}, title="${title}", duplicate_match=${decision.auditMatch} ts=${ts}\n`
+      );
+      return;
+    }
+    case "block":
+      writeOutput({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: decision.message,
+        },
+      });
+      return;
+    case "permit":
+      return;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Hook entry point
 // ---------------------------------------------------------------------------
 
 if (import.meta.main) {
   const input = await readInput<ToolHookInput>();
 
-  // Only act on session_start
+  // tasks_create with a parent → duplicate-child guard (mt#1435). Fires at the
+  // mutating action, upstream of where session_start would catch it.
+  if (input.tool_name === "mcp__minsky__tasks_create") {
+    runTasksCreateGuard(input);
+    process.exit(0);
+  }
+
+  // Only act on session_start (the original Tier-3 ceiling)
   if (input.tool_name !== "mcp__minsky__session_start") {
     process.exit(0);
   }

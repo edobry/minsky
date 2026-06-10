@@ -120,6 +120,17 @@
         ]
       },
       {
+        "matcher": "mcp__minsky__tasks_create",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/parallel-work-guard.ts",
+            "timeout": 30,
+            "statusMessage": "Checking for duplicate sibling task..."
+          }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           {

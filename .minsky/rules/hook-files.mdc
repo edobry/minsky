@@ -55,6 +55,43 @@ non-allowlisted files, and operator-judgment overrides.
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
 
+### Duplicate-child matcher (mt#1435)
+
+The same hook ALSO fires on `mcp__minsky__tasks_create` when the `parent` argument is set —
+the upstream-of-session_start variant of the same guard. The session_start sweep and the
+`/plan-task` gate (g) both run at the *planning* boundary; when an umbrella is decomposed,
+minutes-to-hours can pass between the gate read and the actual `tasks_create` calls, during
+which a concurrent agent's children can land. This matcher fires at the *mutating action*,
+so it catches the concurrent-decomposition case regardless of that time gap.
+
+**How it works:**
+1. On a `tasks_create` with `parent` set, enumerate the parent's children via
+   `minsky tasks children <parent>` + a per-child `minsky tasks get <id> --json`
+   (capped at `TASKS_CHILDREN_FETCH_CAP = 60`). **ALL statuses** are enumerated
+   (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
+   decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
+   terminal-status-only filter would miss exactly the case this exists to catch.
+2. Tokenize the new title and each child title into lowercase 4+-char non-stopword tokens
+   (domain nouns are deliberately NOT stopworded — they are the duplicate signal).
+3. If the new title shares ≥ `DUPLICATE_TOKEN_THRESHOLD` (2) substantive tokens with any
+   existing child, BLOCK with a structured message naming the offending child's id, status,
+   and the overlapping tokens.
+
+**Fail-open posture:** a no-parent create is a no-op; an unreadable children list is
+warn-and-permit; an individual unreadable/malformed child is skipped (not fatal).
+
+**Override mechanism:** Set `MINSKY_FORCE_DUPLICATE_OK=1` in your environment before the
+`tasks_create` to bypass with an audit line on stdout naming the parent, title, and the
+would-be duplicate match. The override env var is registered in `HOOK_ONLY_ENV_VARS`
+(`packages/domain/src/configuration/sources/environment.ts`) per the
+`custom/no-unregistered-minsky-env-var` rule (mt#1788).
+
+**Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
+umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent
+agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
+~80 minutes before the `tasks_create` calls. See family memory `fe68f2a7`; the Tier-2 floor
+complement is `/plan-task` gate (g) parent-children enumeration (mt#1434).
+
 ## Bypass-Merge Guard
 
 A PreToolUse hook on `Bash` and `mcp__minsky__session_exec` blocks ALL invocations
