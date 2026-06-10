@@ -119,18 +119,34 @@ defineVariables("site", siteEnv, siteServiceId, {
 });
 
 // ---------------------------------------------------------------------------
-// cockpit preview (placeholder — Railway project not yet created, mt#2096)
+// cockpit preview (mt#2096; project provisioned + IaC reconciled mt#2401)
 // ---------------------------------------------------------------------------
-// const cockpitService = new railway.Service("cockpit", {
-//   projectId: "REPLACE_AFTER_CREATION",
-//   name: "cockpit-preview",
-//   regions: [{ region: "us-west2", numReplicas: 1 }],
-// });
-// defineVariables("cockpit", "REPLACE", "REPLACE", {
-//   MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
-//   MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-cockpit-preview-postgres-url"),
-//   MINSKY_COCKPIT_PREVIEW: plain("true"),
-// });
+const cockpitProject = "62db6727-ed10-415e-afc5-7188c9983c81";
+const cockpitServiceId = "83273eef-b451-42af-b3e4-7e1c42b8bb50";
+
+export const cockpitService = new railway.Service("cockpit", {
+  projectId: cockpitProject,
+  name: "cockpit-preview",
+  sourceRepo: "edobry/minsky",
+  sourceRepoBranch: "main",
+  // Build context is the repo root; the Dockerfile lives at
+  // services/cockpit/Dockerfile (see services/cockpit/deploy.config.ts for
+  // the build wiring).
+  rootDirectory: "",
+  regions: [{ region: "us-west2", numReplicas: 1 }],
+});
+
+// Env-var IaC for cockpit-preview is deferred to mt#2407. Declaring a
+// `defineVariables(...)` block here would `requireSecret(...)` the
+// `minsky-cockpit-preview-postgres-url` Pulumi stack secret, which is not yet
+// configured in the (gitignored) Pulumi.<stack>.yaml — a latent `pulumi up`
+// break. Managing the live service's env vars is also out of scope for mt#2401
+// (the live service already has its vars set out-of-band). Intended set
+// (production env cc3d2bc3-13cc-4061-9633-cd58f48dc3fe), validated against
+// services/cockpit/src/server.ts + the domain config-setup it boots:
+//   MINSKY_PERSISTENCE_BACKEND=postgres
+//   MINSKY_PERSISTENCE_POSTGRES_URL=<sealed: minsky-cockpit-preview-postgres-url>
+//   MINSKY_COCKPIT_PREVIEW=true
 
 // ---------------------------------------------------------------------------
 // Exports
@@ -139,4 +155,5 @@ export const services = {
   minskyMcp: { projectId: minskyMcpProject, serviceId: minskyMcpServiceId },
   reviewer: { projectId: reviewerProject, serviceId: reviewerServiceId },
   site: { projectId: siteProject, serviceId: siteServiceId },
+  cockpit: { projectId: cockpitProject, serviceId: cockpitServiceId },
 };

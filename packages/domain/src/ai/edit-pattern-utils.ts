@@ -9,6 +9,28 @@ export function hasExistingCodeMarkers(content: string): boolean {
   return content.includes(EXISTING_CODE_MARKER);
 }
 
+/**
+ * Size-growth factor above which a `replace_all` operation is refused without
+ * an explicit override (mt#2400 fail-closed guard). A `replace_all` that
+ * balloons the file past this multiple of its original size is, far more often
+ * than not, a runaway duplication (the mt#1361 family) rather than an intended
+ * large expansion — so the safe default is to refuse and require the caller to
+ * opt in.
+ */
+export const REPLACE_ALL_GROWTH_REFUSAL_FACTOR = 1.5;
+
+/**
+ * True when an output of `outputLen` bytes exceeds `factor`× the `inputLen`
+ * bytes. Pure helper so the guard and its tests share one definition.
+ */
+export function exceedsGrowthThreshold(
+  inputLen: number,
+  outputLen: number,
+  factor: number = REPLACE_ALL_GROWTH_REFUSAL_FACTOR
+): boolean {
+  return outputLen > inputLen * factor;
+}
+
 export function splitOnMarkers(content: string): string[] {
   return content.split(EXISTING_CODE_MARKER);
 }
