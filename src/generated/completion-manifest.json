@@ -4083,10 +4083,6 @@
               "description": "Actually perform the migration (default is preview mode)"
             },
             {
-              "flags": ["--set-default"],
-              "description": "Update configuration to use migrated backend as default"
-            },
-            {
               "flags": ["-n", "--dry-run"],
               "description": "Simulate migration without making changes"
             },
