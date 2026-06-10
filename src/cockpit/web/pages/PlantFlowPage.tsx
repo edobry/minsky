@@ -34,7 +34,7 @@
  *   - Per-organ drill-down routes (Shneiderman zoom-to-detail).
  */
 
-import { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   ReactFlow,
@@ -79,6 +79,23 @@ const ORGAN_ACCENTS = {
   learn: "var(--vsm-learn)",
   infra: "var(--border)",
 } as const;
+
+// ---------------------------------------------------------------------------
+// Edge label style helpers — dark-theme-native, no white chip
+// ---------------------------------------------------------------------------
+
+/** Base label style for edge text — uses card background, no white chip */
+const EDGE_LABEL_BG_STYLE = {
+  fill: "oklch(var(--card) / 0.9)",
+  fillOpacity: 1,
+  rx: 3,
+  ry: 3,
+} as const;
+
+/** Returns per-edge-type label style objects */
+function edgeLabelStyle(colorVar: string, fontSize = 9): React.CSSProperties {
+  return { fontSize, fill: `oklch(${colorVar} / 0.85)`, fontFamily: "var(--font-mono)" };
+}
 
 // ---------------------------------------------------------------------------
 // Reusable sub-components used inside node panels
@@ -267,19 +284,15 @@ function OrganNodeShell({
       </div>
       {/* Content */}
       <div className="px-3 pb-3">{children}</div>
-      {/* Handles */}
+      {/* Handles — invisible dots; edges use them for routing only */}
       {handles?.map((h) => (
         <Handle
           key={h.id}
           type={h.type}
           position={h.position}
           id={h.id}
-          style={{
-            background: `oklch(${accentVar} / 0.7)`,
-            border: `1px solid oklch(${accentVar} / 0.4)`,
-            width: 8,
-            height: 8,
-          }}
+          isConnectable={false}
+          style={{ opacity: 0, width: 8, height: 8 }}
         />
       ))}
     </div>
@@ -473,6 +486,7 @@ function S1SessionsNode(_props: NodeProps<Node<S1StageNodeData>>) {
         { type: "target", position: Position.Left, id: "sessions-in" },
         { type: "source", position: Position.Right, id: "sessions-out" },
         { type: "target", position: Position.Top, id: "sessions-recirc" },
+        { type: "source", position: Position.Bottom, id: "sessions-seam" },
       ]}
     >
       <div className="text-[9px] font-mono text-muted-foreground">— active</div>
@@ -716,18 +730,20 @@ const nodeTypes = {
 // Initial node positions — fixed layout encoding the VSM topology
 //
 // Layout design (high-level):
-//   Row 0 (y=20):  S5 Identity (top center — policy canopy)
-//   Row 1 (y=150): S4 Future (left) | S3 Management (right)
-//   Row 2 (y=280): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
-//   Row 3 (y=420): Attention Seam (center) | Learning Loop (right)
-//   Row 4 (y=540): Infra Supply (center bottom)
+//   Row 0 (y=30):  S5 Identity (top center — policy canopy)
+//   Row 1 (y=155): S4 Future (left) | S3 Management (right)
+//   Row 2 (y=340): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
+//   Row 3 (y=500): Attention Seam (center) | Learning Loop (right)
+//   Row 4 (y=630): Infra Supply (center bottom)
 //
+// S3 sits at y=155 with height ~190px → bottom edge ≈ 345 which just clears SPINE_Y=340.
 // x-coordinates align stages across the spine for readability.
+// SPINE_SPACING widened to 170px for legibility of edge labels.
 // ---------------------------------------------------------------------------
 
-const SPINE_Y = 295;
-const SPINE_SPACING = 175;
-const SPINE_START_X = 60;
+const SPINE_Y = 340;
+const SPINE_SPACING = 170;
+const SPINE_START_X = 50;
 
 function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean): Node[] {
   return [
@@ -735,25 +751,25 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "s5-identity",
       type: "s5-identity",
-      position: { x: 480, y: 20 },
+      position: { x: 470, y: 30 },
       data: { organKey: "s5", label: "S5 · Identity", sublabel: "", accentVar: ORGAN_ACCENTS.s5 },
       draggable: true,
     },
 
-    // S4 Future — upper left
+    // S4 Future — upper left (y aligned with S3)
     {
       id: "s4-future",
       type: "s4-future",
-      position: { x: 40, y: 150 },
+      position: { x: 30, y: 155 },
       data: { organKey: "s4", label: "S4 · Future", sublabel: "", accentVar: ORGAN_ACCENTS.s4 },
       draggable: true,
     },
 
-    // S3 Management — upper right
+    // S3 Management — upper right; height ~185px so bottom ≈ 340, just clears SPINE_Y
     {
       id: "s3-management",
       type: "s3-management",
-      position: { x: 900, y: 150 },
+      position: { x: 880, y: 155 },
       data: { organKey: "s3", label: "S3 · Management", sublabel: "", accentVar: ORGAN_ACCENTS.s3 },
       draggable: true,
     },
@@ -821,16 +837,16 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "attention-seam",
       type: "attention-seam",
-      position: { x: 480, y: 430 },
+      position: { x: 390, y: 510 },
       data: { organKey: "seam", label: "Attention · Ask Seam", sublabel: "", accentVar: ORGAN_ACCENTS.seam },
       draggable: true,
     },
 
-    // Learning loop — below spine, right
+    // Learning loop — below spine, right (separated from seam horizontally)
     {
       id: "learning-loop",
       type: "learning-loop",
-      position: { x: 820, y: 430 },
+      position: { x: 750, y: 510 },
       data: { organKey: "learn", label: "Learning Loop", sublabel: "", accentVar: ORGAN_ACCENTS.learn },
       draggable: true,
     },
@@ -839,7 +855,7 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "infra-supply",
       type: "infra-supply",
-      position: { x: 260, y: 555 },
+      position: { x: 220, y: 640 },
       data: { organKey: "infra", label: "Infra Supply", sublabel: "", accentVar: ORGAN_ACCENTS.infra },
       draggable: true,
     },
@@ -861,9 +877,13 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "s5-out",
     target: "s1-tasks",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-s5) / 0.35)`, strokeDasharray: "4 6" },
+    style: { stroke: `oklch(var(--vsm-s5) / 0.65)`, strokeDasharray: "4 6", strokeWidth: 1.5 },
     label: "governs",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-s5) / 0.55)" },
+    labelStyle: edgeLabelStyle("var(--vsm-s5)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
   // S4 → S1 Tasks (roadmap feeds the task pool)
@@ -874,12 +894,16 @@ const INITIAL_EDGES: Edge[] = [
     target: "s1-tasks",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s4) / 0.55)` },
+    style: { stroke: `oklch(var(--vsm-s4) / 0.75)`, strokeWidth: 1.5 },
     label: "feeds",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-s4) / 0.65)" },
+    labelStyle: edgeLabelStyle("var(--vsm-s4)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
-  // S1 spine main flow (left to right)
+  // S1 spine main flow (left to right) — primary information channel, most visible
   {
     id: "tasks-to-ready",
     source: "s1-tasks",
@@ -888,7 +912,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "ready-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.75)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
   },
   {
     id: "ready-to-sessions",
@@ -898,7 +922,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "sessions-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.75)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
   },
   {
     id: "sessions-to-agents",
@@ -908,7 +932,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "agents-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.75)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
   },
   {
     id: "agents-to-pr",
@@ -918,7 +942,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "pr-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.75)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
   },
   {
     id: "pr-to-review",
@@ -928,7 +952,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "review-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.75)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
   },
   {
     id: "review-to-done",
@@ -938,10 +962,11 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "done-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.75)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
   },
 
   // CHANGES_REQUESTED recirculation loop: REVIEW → SESSIONS
+  // Routes ABOVE the spine row (via the top handles) — arc up and back
   {
     id: "recirc",
     source: "s1-review",
@@ -950,11 +975,16 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "sessions-recirc",
     type: "smoothstep",
     style: {
-      stroke: `oklch(var(--vsm-s1) / 0.38)`,
+      stroke: `oklch(var(--warn-amber) / 0.75)`,
       strokeDasharray: "4 6",
+      strokeWidth: 1.5,
     },
-    label: "⟲ CHANGES_REQUESTED",
-    labelStyle: { fontSize: 8, fill: "oklch(var(--muted-foreground) / 0.65)" },
+    label: "CHANGES_REQUESTED",
+    labelStyle: edgeLabelStyle("var(--warn-amber)", 8),
+    labelBgStyle: { ...EDGE_LABEL_BG_STYLE, fill: "oklch(var(--card) / 0.95)" },
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
   // S3 → S1 (management instruments the operations pipe)
@@ -965,22 +995,31 @@ const INITIAL_EDGES: Edge[] = [
     target: "s1-agents",
     targetHandle: "agents-in",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-s3) / 0.35)`, strokeDasharray: "3 5" },
+    style: { stroke: `oklch(var(--vsm-s3) / 0.65)`, strokeDasharray: "3 5", strokeWidth: 1.5 },
     label: "monitors",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-s3) / 0.55)" },
+    labelStyle: edgeLabelStyle("var(--vsm-s3)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
   // Attention seam: S1 → Seam → S5 (ask rises to operator, decision flows back)
+  // Use sessions bottom handle (no explicit sourceHandle) → ReactFlow routes optimally
   {
     id: "s1-to-seam",
     source: "s1-sessions",
-    sourceHandle: "sessions-out",
+    sourceHandle: "sessions-seam",
     target: "attention-seam",
     targetHandle: "seam-in",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-seam) / 0.45)`, strokeDasharray: "3 5" },
+    style: { stroke: `oklch(var(--vsm-seam) / 0.70)`, strokeDasharray: "3 5", strokeWidth: 1.5 },
     label: "ask ↑",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-seam) / 0.65)" },
+    labelStyle: edgeLabelStyle("var(--vsm-seam)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
   {
     id: "seam-to-s5",
@@ -988,12 +1027,17 @@ const INITIAL_EDGES: Edge[] = [
     sourceHandle: "seam-out",
     target: "s5-identity",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-seam) / 0.55)` },
+    style: { stroke: `oklch(var(--vsm-seam) / 0.75)`, strokeWidth: 1.5 },
     label: "decision ↓",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-seam) / 0.75)" },
+    labelStyle: edgeLabelStyle("var(--vsm-seam)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
-  // Learning loop weld: failure in sessions/agents → learn → back to S1 (new interlock)
+  // Learning loop: failure in agents → learn; learn outputs new interlock → S1 ops
+  // Routes BELOW the spine to avoid crossing the spine main flow
   {
     id: "s1-to-learn",
     source: "s1-agents",
@@ -1001,20 +1045,30 @@ const INITIAL_EDGES: Edge[] = [
     target: "learning-loop",
     targetHandle: "learn-in",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-learn) / 0.40)`, strokeDasharray: "3 5" },
+    style: { stroke: `oklch(var(--vsm-learn) / 0.65)`, strokeDasharray: "3 5", strokeWidth: 1.5 },
     label: "failure",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-learn) / 0.55)" },
+    labelStyle: edgeLabelStyle("var(--vsm-learn)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
+  // learn-to-s1: new interlock enters sessions from below-left
+  // Uses the sessions-seam (bottom) handle — shares with seam edge but distinct path
   {
     id: "learn-to-s1",
     source: "learning-loop",
     sourceHandle: "learn-out",
     target: "s1-sessions",
-    targetHandle: "sessions-recirc",
+    targetHandle: "sessions-seam",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--vsm-learn) / 0.55)` },
-    label: "⟂ new interlock",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--vsm-learn) / 0.7)" },
+    style: { stroke: `oklch(var(--vsm-learn) / 0.75)`, strokeWidth: 1.5 },
+    label: "new interlock",
+    labelStyle: edgeLabelStyle("var(--vsm-learn)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 
   // Infra Supply → S1 (infra powers the operations pipe)
@@ -1025,9 +1079,13 @@ const INITIAL_EDGES: Edge[] = [
     target: "s1-sessions",
     targetHandle: "sessions-in",
     type: "smoothstep",
-    style: { stroke: `oklch(var(--border) / 0.5)`, strokeDasharray: "2 6" },
+    style: { stroke: `oklch(var(--muted-foreground) / 0.55)`, strokeDasharray: "2 6", strokeWidth: 1.5 },
     label: "powers",
-    labelStyle: { fontSize: 9, fill: "oklch(var(--muted-foreground) / 0.45)" },
+    labelStyle: edgeLabelStyle("var(--muted-foreground)"),
+    labelBgStyle: EDGE_LABEL_BG_STYLE,
+    labelBgPadding: [4, 2] as [number, number],
+    labelBgBorderRadius: 3,
+    labelShowBg: true,
   },
 ];
 
@@ -1070,11 +1128,19 @@ function PlantFlowCanvas() {
       onNodesChange={onNodesChangeCallback}
       onEdgesChange={onEdgesChangeCallback}
       fitView
-      fitViewOptions={{ padding: 0.12 }}
-      minZoom={0.3}
+      fitViewOptions={{ padding: 0.06, minZoom: 0.35, maxZoom: 1 }}
+      minZoom={0.25}
       maxZoom={2}
       defaultEdgeOptions={{
-        style: { stroke: "oklch(var(--border) / 0.7)" },
+        // Visible teal default for any edge without an explicit style
+        style: {
+          stroke: `oklch(var(--vsm-s1) / 0.60)`,
+          strokeWidth: 1.5,
+        },
+        labelBgStyle: EDGE_LABEL_BG_STYLE,
+        labelBgPadding: [4, 2] as [number, number],
+        labelBgBorderRadius: 3,
+        labelShowBg: true,
       }}
       proOptions={{ hideAttribution: true }}
       style={{ background: "oklch(var(--background) / 1)" }}
@@ -1084,7 +1150,7 @@ function PlantFlowCanvas() {
         variant={BackgroundVariant.Dots}
         gap={24}
         size={1}
-        color="oklch(var(--border) / 0.4)"
+        color="oklch(var(--border) / 0.5)"
       />
     </ReactFlow>
   );
