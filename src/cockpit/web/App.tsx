@@ -67,6 +67,9 @@ const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default:
 const PlantGridPage = lazy(() =>
   import("./pages/PlantGridPage").then((m) => ({ default: m.PlantGridPage }))
 );
+const PlantFlowPage = lazy(() =>
+  import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
+);
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -434,6 +437,14 @@ export function App() {
             element={
               <ErrorBoundary id="plant-grid-page">
                 <PlantGridPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/plant-flow"
+            element={
+              <ErrorBoundary id="plant-flow-page">
+                <PlantFlowPage />
               </ErrorBoundary>
             }
           />
