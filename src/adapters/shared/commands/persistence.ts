@@ -45,11 +45,6 @@ const persistenceMigrateCommandParams = {
     description: "Actually perform the migration (default is preview mode)",
     required: false,
   },
-  setDefault: {
-    schema: z.boolean(),
-    description: "Update configuration to use migrated backend as default",
-    required: false,
-  },
   dryRun: {
     schema: z.boolean(),
     description: "For schema-only mode: show what would be executed without applying",
@@ -107,7 +102,7 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
     requiresSetup: false,
     parameters: persistenceMigrateCommandParams,
     async execute(params, context) {
-      const { to, from, backup = true, execute, setDefault, dryRun: _dryRun = false } = params;
+      const { to, from, backup = true, execute, dryRun: _dryRun = false } = params;
 
       // If no target backend provided, run schema migrations for the configured
       // (Postgres-only, ADR-018 / mt#2349) backend.
@@ -239,9 +234,6 @@ export function registerPersistenceCommands(container?: AppContainerInterface): 
         operations.push(
           `Write ${normalizedRecords.length} session(s) to target '${to}' backend (full replacement)`
         );
-        if (setDefault) {
-          operations.push(`Update configuration to set default backend to '${to}'`);
-        }
 
         // PREVIEW MODE: show plan and exit
         if (isPreviewMode) {
