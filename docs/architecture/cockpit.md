@@ -16,20 +16,30 @@ Parent task: mt#1143. Engineering bundle: mt#1768.
 
 Deeper engineering conventions: `src/cockpit/CLAUDE.md` (auto-loaded for any file under `src/cockpit/**`).
 
+## Shell
+
+The app shell (mt#2397/mt#2398) is a persistent left **rail** (attention digest pinned at
+top → workstream spine → browse entity entry points; replaces the former hamburger/NavSheet
+overlay) beside a **tabbed workspace**: list pages navigate the main pane, while entity
+details (a task at `/tasks/:id`, a session at `/session/:id`) open as URL-driven tabs in a
+working-set strip (`TabBar`, hidden when empty; state in localStorage). The ⌘K command
+palette is mounted globally.
+
 ## Routes
 
-| Path           | Page        | Purpose                                                            |
-| -------------- | ----------- | ------------------------------------------------------------------ |
-| `/`            | Home        | System-status card grid + nav tiles to feature pages               |
-| `/agents`      | Agents      | Sessions in flight                                                 |
-| `/context`     | Context     | Agent context inspector                                            |
-| `/workstreams` | Workstreams | Active work streams                                                |
-| `/tasks`       | Tasks       | List + graph subpages (`/tasks/graph`, `/tasks/:id`)               |
-| `/asks`        | Asks        | Interactive ask management                                         |
-| `/activity`    | Activity    | Event stream                                                       |
-| `/embeddings`  | Embeddings  | Provider health + index coverage                                   |
-| `/memories`    | Memories    | Memory subsystem — browse, search, stats, detail, health (mt#2150) |
-| `/settings`    | Settings    | Cockpit configuration + credentials                                |
+| Path           | Page        | Purpose                                                                                                                    |
+| -------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `/`            | Home        | Attention digest (full top row) + system-status card grid; the rail is the navigation surface (nav tiles removed, mt#2398) |
+| `/agents`      | Agents      | Sessions in flight — rows open the session at `/session/:id`                                                               |
+| `/session/:id` | Session     | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)   |
+| `/context`     | Context     | Agent context inspector                                                                                                    |
+| `/workstreams` | Workstreams | Active work streams                                                                                                        |
+| `/tasks`       | Tasks       | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                       |
+| `/asks`        | Asks        | Interactive ask management                                                                                                 |
+| `/activity`    | Activity    | Event stream                                                                                                               |
+| `/embeddings`  | Embeddings  | Provider health + index coverage                                                                                           |
+| `/memories`    | Memories    | Memory subsystem — browse, search, stats, detail, health (mt#2150)                                                         |
+| `/settings`    | Settings    | Cockpit configuration + credentials                                                                                        |
 
 ## Widgets
 
