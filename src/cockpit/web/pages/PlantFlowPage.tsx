@@ -34,7 +34,7 @@
  *   - Per-organ drill-down routes (Shneiderman zoom-to-detail).
  */
 
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import {
   ReactFlow,
@@ -47,6 +47,8 @@ import {
   BackgroundVariant,
   useNodesState,
   useEdgesState,
+  useNodesInitialized,
+  useReactFlow,
   ReactFlowProvider,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -77,7 +79,7 @@ const ORGAN_ACCENTS = {
   s1: "var(--vsm-s1)",
   seam: "var(--vsm-seam)",
   learn: "var(--vsm-learn)",
-  infra: "var(--border)",
+  infra: "var(--muted-foreground)",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -240,7 +242,12 @@ interface OrganNodeInnerProps {
   label: string;
   sublabel: string;
   children: React.ReactNode;
-  handles?: Array<{ type: "source" | "target"; position: Position; id: string }>;
+  handles?: Array<{
+    type: "source" | "target";
+    position: Position;
+    id: string;
+    style?: React.CSSProperties;
+  }>;
   "data-testid"?: string;
 }
 
@@ -292,7 +299,7 @@ function OrganNodeShell({
           position={h.position}
           id={h.id}
           isConnectable={false}
-          style={{ opacity: 0, width: 8, height: 8 }}
+          style={{ opacity: 0, width: 8, height: 8, ...h.style }}
         />
       ))}
     </div>
@@ -311,7 +318,10 @@ function S5IdentityNode(_props: NodeProps<Node<OrganNodeData>>) {
       label="S5 · Identity"
       sublabel="rules corpus · decision-defaults"
       data-testid="flow-node-s5-identity"
-      handles={[{ type: "source", position: Position.Bottom, id: "s5-out" }]}
+      handles={[
+        { type: "source", position: Position.Bottom, id: "s5-out" },
+        { type: "target", position: Position.Left, id: "s5-in" },
+      ]}
     >
       <div className="flex items-center gap-4 flex-wrap">
         <div className="text-[9px] font-mono text-muted-foreground">rules: active</div>
@@ -345,7 +355,7 @@ function S4FutureNode(_props: NodeProps<Node<OrganNodeData>>) {
       sublabel="roadmap · deploy loop"
       data-testid="flow-node-s4-future"
       handles={[
-        { type: "source", position: Position.Right, id: "s4-out" },
+        { type: "source", position: Position.Bottom, id: "s4-out" },
         { type: "target", position: Position.Top, id: "s4-in" },
       ]}
     >
@@ -442,7 +452,11 @@ function S1TasksNode(_props: NodeProps<Node<S1StageNodeData>>) {
       label="TASKS"
       sublabel="source pool"
       data-testid="flow-node-tasks"
-      handles={[{ type: "source", position: Position.Right, id: "tasks-out" }]}
+      handles={[
+        { type: "source", position: Position.Right, id: "tasks-out" },
+        { type: "target", position: Position.Top, id: "tasks-in-top" },
+        { type: "target", position: Position.Bottom, id: "tasks-power-in" },
+      ]}
     >
       <div className="text-[9px] font-mono text-muted-foreground">TODO · PLANNING · READY</div>
     </OrganNodeShell>
@@ -482,11 +496,14 @@ function S1SessionsNode(_props: NodeProps<Node<S1StageNodeData>>) {
       label="SESSIONS"
       sublabel="active workspaces"
       data-testid="flow-node-sessions"
+      // The two bottom handles are offset apart so the ask-exit and
+      // interlock-entry verticals don't coincide at bottom-center.
       handles={[
         { type: "target", position: Position.Left, id: "sessions-in" },
         { type: "source", position: Position.Right, id: "sessions-out" },
         { type: "target", position: Position.Top, id: "sessions-recirc" },
-        { type: "source", position: Position.Bottom, id: "sessions-seam" },
+        { type: "source", position: Position.Bottom, id: "sessions-seam", style: { left: "30%" } },
+        { type: "target", position: Position.Bottom, id: "sessions-learn-in", style: { left: "70%" } },
       ]}
     >
       <div className="text-[9px] font-mono text-muted-foreground">— active</div>
@@ -505,6 +522,8 @@ function S1AgentsNode(_props: NodeProps<Node<S1StageNodeData>>) {
       handles={[
         { type: "target", position: Position.Left, id: "agents-in" },
         { type: "source", position: Position.Right, id: "agents-out" },
+        { type: "target", position: Position.Top, id: "agents-monitor-in" },
+        { type: "source", position: Position.Bottom, id: "agents-fail-out" },
       ]}
     >
       {/* Mini cluster of agent dots — visual texture */}
@@ -592,9 +611,13 @@ function AttentionSeamNode(_props: NodeProps<Node<OrganNodeData>>) {
       label="Attention · Ask Seam"
       sublabel="cognition coupling"
       data-testid="flow-node-attention-seam"
+      // Both seam handles sit on the TOP edge (offset apart): the ask rises
+      // from SESSIONS into the seam's top-right; the decision exits top-left
+      // toward S5. A bottom-side ask handle made the edge pass behind the
+      // seam node itself (occluding its label) to wrap around underneath.
       handles={[
-        { type: "target", position: Position.Bottom, id: "seam-in" },
-        { type: "source", position: Position.Top, id: "seam-out" },
+        { type: "target", position: Position.Top, id: "seam-in", style: { left: "70%" } },
+        { type: "source", position: Position.Top, id: "seam-out", style: { left: "30%" } },
       ]}
     >
       <div className="flex flex-col gap-1.5">
@@ -639,7 +662,7 @@ function LearningLoopNode(_props: NodeProps<Node<OrganNodeData>>) {
       sublabel="failure → rule → interlock"
       data-testid="flow-node-learning-loop"
       handles={[
-        { type: "target", position: Position.Left, id: "learn-in" },
+        { type: "target", position: Position.Top, id: "learn-fail-in" },
         { type: "source", position: Position.Right, id: "learn-out" },
       ]}
     >
@@ -729,30 +752,36 @@ const nodeTypes = {
 // ---------------------------------------------------------------------------
 // Initial node positions — fixed layout encoding the VSM topology
 //
-// Layout design (high-level):
+// Layout design (high-level, mt#2422 vertical-fill pass):
 //   Row 0 (y=0):   S5 Identity (top center — policy canopy)
-//   Row 1 (y=130): S4 Future (left) | S3 Management (right)
-//   Row 2 (y=310): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
-//   Row 3 (y=460): Attention Seam (center) | Learning Loop (right)
-//   Row 4 (y=585): Infra Supply (center bottom) → bottom ≈ 665
+//   Row 1 (y=150): S4 Future (left) | S3 Management (right)
+//   Row 2 (y=385): S1 lifecycle spine — TASKS → READY → SESSIONS → AGENTS → PR → REVIEW → DONE
+//   Row 3 (y=555): Attention Seam (center-left) | Learning Loop (center-right)
+//   Row 4 (y=700): Infra Supply (bottom) → bottom ≈ 770
 //
-// S3 sits at y=130 with height ~185px → bottom edge ≈ 315 which just clears SPINE_Y=310.
-// Total vertical span: 0 to ~665; horizontal span 30 to 1265 = 1235px.
-// fitView fills canvas with padding 0.04; infra supply at y=585 avoids bottom clipping.
-// SPINE_SPACING widened to 170px for legibility of edge labels.
+// S3 sits at y=150 with height ~185px → bottom ≈ 335, leaving ~50px clearance
+// above SPINE_Y=385 for the CHANGES_REQUESTED recirculation arc.
+// Bounding box ≈ 1330 × 770 (aspect ~1.73) — close to a 1440×859 canvas
+// (1440×900 minus header, aspect ~1.68), so fitView fills the viewport in both
+// axes at zoom ≈ 1.0 instead of letterboxing.
+// Robustness: positions are a hint; the nodes-initialized refit effect below
+// re-runs fitView with MEASURED node bounds, so nothing clips even if node
+// heights drift from these estimates.
 // ---------------------------------------------------------------------------
 
-const SPINE_Y = 310;
-const SPINE_SPACING = 170;
-const SPINE_START_X = 50;
+const SPINE_Y = 385;
+const SPINE_SPACING = 195;
+const SPINE_START_X = 30;
 
 function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean): Node[] {
   return [
-    // S5 Identity — top center
+    // S5 Identity — top, left-of-center: x=422 puts the seam→S5 "decision ↓"
+    // approach channel (s5-in left handle, approach ≈ x-22 = 400) through the
+    // READY/SESSIONS spine gap instead of behind a spine node.
     {
       id: "s5-identity",
       type: "s5-identity",
-      position: { x: 470, y: 0 },
+      position: { x: 422, y: 0 },
       data: { organKey: "s5", label: "S5 · Identity", sublabel: "", accentVar: ORGAN_ACCENTS.s5 },
       draggable: true,
     },
@@ -761,16 +790,16 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
     {
       id: "s4-future",
       type: "s4-future",
-      position: { x: 30, y: 130 },
+      position: { x: 30, y: 150 },
       data: { organKey: "s4", label: "S4 · Future", sublabel: "", accentVar: ORGAN_ACCENTS.s4 },
       draggable: true,
     },
 
-    // S3 Management — upper right; height ~185px so bottom ≈ 315, just clears SPINE_Y=310
+    // S3 Management — upper right; height ~185px so bottom ≈ 335, clears SPINE_Y=385
     {
       id: "s3-management",
       type: "s3-management",
-      position: { x: 880, y: 130 },
+      position: { x: 1090, y: 150 },
       data: { organKey: "s3", label: "S3 · Management", sublabel: "", accentVar: ORGAN_ACCENTS.s3 },
       draggable: true,
     },
@@ -834,29 +863,30 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
       draggable: true,
     },
 
-    // Attention / Ask seam — below spine, center
+    // Attention / Ask seam — below spine, center-left
     {
       id: "attention-seam",
       type: "attention-seam",
-      position: { x: 390, y: 460 },
+      position: { x: 440, y: 555 },
       data: { organKey: "seam", label: "Attention · Ask Seam", sublabel: "", accentVar: ORGAN_ACCENTS.seam },
       draggable: true,
     },
 
-    // Learning loop — below spine, right (separated from seam horizontally)
+    // Learning loop — below spine, center-right (separated from seam horizontally)
     {
       id: "learning-loop",
       type: "learning-loop",
-      position: { x: 750, y: 460 },
+      position: { x: 840, y: 555 },
       data: { organKey: "learn", label: "Learning Loop", sublabel: "", accentVar: ORGAN_ACCENTS.learn },
       draggable: true,
     },
 
-    // Infra Supply — bottom center
+    // Infra Supply — bottom left, clear of the seam's column so its supply
+    // edge rises through the open left region
     {
       id: "infra-supply",
       type: "infra-supply",
-      position: { x: 220, y: 585 },
+      position: { x: 140, y: 700 },
       data: { organKey: "infra", label: "Infra Supply", sublabel: "", accentVar: ORGAN_ACCENTS.infra },
       draggable: true,
     },
@@ -871,12 +901,15 @@ function buildInitialNodes(readyCount: number | undefined, readyLoading: boolean
 // ---------------------------------------------------------------------------
 
 const INITIAL_EDGES: Edge[] = [
-  // S5 → S1 Operations (policy governs the work process)
+  // S5 → S1 Operations (policy governs the work process).
+  // Targets the SESSIONS top handle (where work executes) — routing to TASKS
+  // would pass through the S4 node, which sits between S5 and the spine's left end.
   {
     id: "s5-to-s1",
     source: "s5-identity",
     sourceHandle: "s5-out",
-    target: "s1-tasks",
+    target: "s1-sessions",
+    targetHandle: "sessions-recirc",
     type: "smoothstep",
     style: { stroke: `oklch(var(--vsm-s5) / 0.65)`, strokeDasharray: "4 6", strokeWidth: 1.5 },
     label: "governs",
@@ -887,12 +920,14 @@ const INITIAL_EDGES: Edge[] = [
     labelShowBg: true,
   },
 
-  // S4 → S1 Tasks (roadmap feeds the task pool)
+  // S4 → S1 Tasks (roadmap feeds the task pool).
+  // S4 sits directly above TASKS — a clean vertical drop into the top handle.
   {
     id: "s4-to-tasks",
     source: "s4-future",
     sourceHandle: "s4-out",
     target: "s1-tasks",
+    targetHandle: "tasks-in-top",
     type: "smoothstep",
     animated: true,
     style: { stroke: `oklch(var(--vsm-s4) / 0.75)`, strokeWidth: 1.5 },
@@ -913,7 +948,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "ready-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
     id: "ready-to-sessions",
@@ -923,7 +958,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "sessions-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
     id: "sessions-to-agents",
@@ -933,7 +968,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "agents-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
     id: "agents-to-pr",
@@ -943,7 +978,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "pr-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
     id: "pr-to-review",
@@ -953,7 +988,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "review-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
   {
     id: "review-to-done",
@@ -963,7 +998,7 @@ const INITIAL_EDGES: Edge[] = [
     targetHandle: "done-in",
     type: "smoothstep",
     animated: true,
-    style: { stroke: `oklch(var(--vsm-s1) / 0.85)`, strokeWidth: 2 },
+    style: { stroke: `oklch(var(--vsm-s1) / 1)`, strokeWidth: 2.5 },
   },
 
   // CHANGES_REQUESTED recirculation loop: REVIEW → SESSIONS
@@ -994,7 +1029,7 @@ const INITIAL_EDGES: Edge[] = [
     source: "s3-management",
     sourceHandle: "s3-out",
     target: "s1-agents",
-    targetHandle: "agents-in",
+    targetHandle: "agents-monitor-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--vsm-s3) / 0.65)`, strokeDasharray: "3 5", strokeWidth: 1.5 },
     label: "monitors",
@@ -1027,6 +1062,7 @@ const INITIAL_EDGES: Edge[] = [
     source: "attention-seam",
     sourceHandle: "seam-out",
     target: "s5-identity",
+    targetHandle: "s5-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--vsm-seam) / 0.75)`, strokeWidth: 1.5 },
     label: "decision ↓",
@@ -1038,13 +1074,15 @@ const INITIAL_EDGES: Edge[] = [
   },
 
   // Learning loop: failure in agents → learn; learn outputs new interlock → S1 ops
-  // Routes BELOW the spine to avoid crossing the spine main flow
+  // Failure exits AGENTS' dedicated bottom handle and enters LEARNING's top —
+  // through the empty band between the spine and the seam/learn row (not via
+  // the shared spine handle, which made failure appear to originate from PR).
   {
     id: "s1-to-learn",
     source: "s1-agents",
-    sourceHandle: "agents-out",
+    sourceHandle: "agents-fail-out",
     target: "learning-loop",
-    targetHandle: "learn-in",
+    targetHandle: "learn-fail-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--vsm-learn) / 0.65)`, strokeDasharray: "3 5", strokeWidth: 1.5 },
     label: "failure",
@@ -1061,7 +1099,7 @@ const INITIAL_EDGES: Edge[] = [
     source: "learning-loop",
     sourceHandle: "learn-out",
     target: "s1-sessions",
-    targetHandle: "sessions-seam",
+    targetHandle: "sessions-learn-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--vsm-learn) / 0.75)`, strokeWidth: 1.5 },
     label: "new interlock",
@@ -1072,13 +1110,16 @@ const INITIAL_EDGES: Edge[] = [
     labelShowBg: true,
   },
 
-  // Infra Supply → S1 (infra powers the operations pipe)
+  // Infra Supply → S1 (infra powers the operations line).
+  // Enters at the head of the line (TASKS bottom) through the open left
+  // region — entering SESSIONS from the left shared the x≈400 approach
+  // channel with the seam→S5 "decision ↓" edge and superimposed the two.
   {
     id: "infra-to-s1",
     source: "infra-supply",
     sourceHandle: "infra-out",
-    target: "s1-sessions",
-    targetHandle: "sessions-in",
+    target: "s1-tasks",
+    targetHandle: "tasks-power-in",
     type: "smoothstep",
     style: { stroke: `oklch(var(--muted-foreground) / 0.55)`, strokeDasharray: "2 6", strokeWidth: 1.5 },
     label: "powers",
@@ -1096,6 +1137,8 @@ const INITIAL_EDGES: Edge[] = [
 
 function PlantFlowCanvas() {
   const { data: readyCount, isLoading: readyLoading } = useReadyCount();
+  const { fitView } = useReactFlow();
+  const nodesInitialized = useNodesInitialized();
 
   // Build the initial node layout with placeholder ready data.
   // Live readyCount is propagated into the READY node via `updatedNodes` below,
@@ -1104,6 +1147,16 @@ function PlantFlowCanvas() {
 
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(INITIAL_EDGES);
+
+  // Re-run fitView once node dimensions are MEASURED. The `fitView` prop fires
+  // before custom HTML node heights are known (bounds = bare positions), which
+  // over-zooms and clips the bottom row (mt#2422 R1 defect). This effect refits
+  // against real bounds so the whole plant is always inside the viewport.
+  useEffect(() => {
+    if (nodesInitialized) {
+      void fitView({ padding: 0.04, maxZoom: 1.0 });
+    }
+  }, [nodesInitialized, fitView]);
 
   // Propagate live readyCount into the READY node data without resetting layout.
   const updatedNodes = useMemo(() => {
@@ -1164,7 +1217,11 @@ function PlantFlowCanvas() {
 export function PlantFlowPage() {
   return (
     <div
-      className="flex flex-col h-screen bg-background text-foreground overflow-hidden"
+      // The cockpit shell (Layout.tsx) renders a sticky h-14 AppHeader above
+      // <main>, and its min-h-screen root means h-full would collapse here
+      // (react-flow h:0 gotcha). h-[calc(100vh-3.5rem)] sizes the page to
+      // exactly the visible area below the shell header.
+      className="flex flex-col h-[calc(100vh-3.5rem)] bg-background text-foreground overflow-hidden"
       data-testid="plant-flow-page"
     >
       {/* Header */}
