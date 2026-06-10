@@ -17,7 +17,10 @@ import { join } from "path";
 // Set up automatic mock cleanup
 setupTestMocks();
 
-import { registerSessionEditTools } from "../../../src/adapters/mcp/session-edit-tools";
+import {
+  registerSessionEditTools,
+  countOccurrences,
+} from "../../../src/adapters/mcp/session-edit-tools";
 
 // Build a mock container exposing a sessionProvider that points at a real
 // temp directory as the session workspace. SessionPathResolver consumes this
@@ -881,5 +884,49 @@ describe("Session Edit Tools", () => {
         await rm(workspaceDir, { recursive: true, force: true });
       }
     });
+
+    test("mt#2408: empty search string is rejected fast and does not hang (real handler)", async () => {
+      const workspaceDir = await mkdtemp(join(tmpdir(), "mt2408-empty-"));
+      const tools = await registerToolsWithContainer(buildSessionContainer(workspaceDir));
+      const filePath = join(workspaceDir, "test.txt");
+      const originalContent = "some content here\n";
+
+      try {
+        await fsWriteFile(filePath, originalContent, "utf8");
+        const tool = tools["session.search_replace"];
+        expect(tool).toBeDefined();
+        if (!tool) return;
+
+        const result = await tool.handler({
+          sessionId: "test-session",
+          path: "test.txt",
+          search: "",
+          replace: "anything",
+        });
+
+        // Structured error envelope, returned promptly (no infinite loop).
+        expect(result.success).toBe(false);
+        expect(String(result.error)).toContain("non-empty");
+        // File untouched.
+        const actual = await fsReadFile(filePath, "utf8");
+        expect(actual).toBe(originalContent);
+      } finally {
+        // eslint-disable-next-line custom/no-real-fs-in-tests
+        await rm(workspaceDir, { recursive: true, force: true });
+      }
+    });
+  });
+});
+
+describe("countOccurrences — mt#2408 empty-search guard", () => {
+  test("returns 0 for an empty search string (never loops)", () => {
+    expect(countOccurrences("anything at all", "")).toBe(0);
+    expect(countOccurrences("", "")).toBe(0);
+  });
+
+  test("still counts non-empty needles correctly", () => {
+    expect(countOccurrences("foo bar foo baz foo", "foo")).toBe(3);
+    expect(countOccurrences("aaaa", "aa")).toBe(2);
+    expect(countOccurrences("no match here", "xyz")).toBe(0);
   });
 });

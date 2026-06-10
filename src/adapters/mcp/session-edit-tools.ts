@@ -271,6 +271,14 @@ FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ...
             );
           }
 
+          // mt#2408: an empty search string has no well-defined occurrences and
+          // would otherwise drive an unbounded scan. Reject it explicitly.
+          if (searchText === "") {
+            throw new Error(
+              `Search text (or "old_string") must be a non-empty string; received an empty string.`
+            );
+          }
+
           const resolvedPath = await pathResolver.resolvePath(args.sessionId, args.path);
 
           // Validate file exists
@@ -365,9 +373,18 @@ FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ...
 }
 
 /**
- * Count occurrences of a string in content
+ * Count occurrences of a string in content.
+ *
+ * mt#2408: an empty `search` is treated as 0 occurrences. `indexOf("", position)`
+ * returns `position` and `search.length === 0`, so the loop's `position += 0`
+ * would never advance — an infinite loop. Returning 0 here makes the function
+ * total for any caller, independent of the per-tool non-empty validation.
  */
 export function countOccurrences(content: string, search: string): number {
+  if (search === "") {
+    return 0;
+  }
+
   let count = 0;
   let position = 0;
 

@@ -146,6 +146,20 @@ describe("task-edit-tools", () => {
       expect(result.success).toBe(false);
       expect(String(result.error)).toContain("found 2 times");
     });
+
+    test("mt#2408: empty search string is rejected fast (no hang) and leaves the spec intact", async () => {
+      const original = "## Summary\n\nfoo bar foo";
+      const { handler, getStoredSpec } = await buildMockSetup(original);
+
+      const result = await handler({
+        taskId: "mt#2408",
+        search: "",
+        replace: "baz",
+      });
+      expect(result.success).toBe(false);
+      expect(String(result.error)).toContain("non-empty");
+      expect(getStoredSpec()).toBe(original);
+    });
   });
 
   describe("tasks.spec.patch — mt#2400 fail-closed guard", () => {
