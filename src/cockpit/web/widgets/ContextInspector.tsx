@@ -22,7 +22,7 @@
  * @see mt#2033 — canonical SessionContextSnapshot shape
  */
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { isSessionsPayload } from "../lib/sessions-source";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
@@ -226,7 +226,7 @@ function ContentViewer({ block }: { block: SnapshotBlock }) {
 // ── Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch ─────────
 
 interface ContextInspectorBodyProps {
-  sessionsQuery: ReturnType<typeof useQuery<WidgetData, Error>>;
+  sessionsQuery: UseQueryResult<WidgetData, Error>;
 }
 
 function ContextInspectorBody({ sessionsQuery }: ContextInspectorBodyProps) {

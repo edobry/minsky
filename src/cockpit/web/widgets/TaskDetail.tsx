@@ -8,7 +8,7 @@
  * Takes the task ID from a URL param passed by the parent page component.
  */
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@ function TaskDetailInner({ data }: { data: TaskDetailPayload }) {
 
 interface TaskDetailBodyProps {
   taskId: string;
-  query: ReturnType<typeof useQuery<TaskDetailPayload, Error>>;
+  query: UseQueryResult<TaskDetailPayload, Error>;
 }
 
 function TaskDetailBody({ taskId, query }: TaskDetailBodyProps) {

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useState } from "react";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
@@ -137,7 +137,7 @@ interface MemoriesListBodyProps {
   onRowClick?: (record: MemoryRecord) => void;
   filter: FilterState;
   setFilter: (f: FilterState) => void;
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function MemoriesListBody({ onRowClick, filter, setFilter, query }: MemoriesListBodyProps) {

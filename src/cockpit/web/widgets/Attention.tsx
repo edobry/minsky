@@ -24,7 +24,7 @@
  * Types mirror src/cockpit/widgets/attention.ts (no server imports on frontend).
  */
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
@@ -268,7 +268,7 @@ function DigestRow({ ask }: { ask: AttentionAsk }) {
 // ---------------------------------------------------------------------------
 
 interface AttentionBodyProps {
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function AttentionBody({ query }: AttentionBodyProps) {

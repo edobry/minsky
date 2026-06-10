@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
@@ -38,7 +38,7 @@ const TYPE_COLORS: Record<string, string> = {
 // Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
 // ---------------------------------------------------------------------------
 
-function MemoryStatsBody({ query }: { query: ReturnType<typeof useQuery<WidgetData, Error>> }) {
+function MemoryStatsBody({ query }: { query: UseQueryResult<WidgetData, Error> }) {
   if (query.isLoading || !query.data) {
     return <p className="text-xs text-muted-foreground">Loading…</p>;
   }

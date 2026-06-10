@@ -9,7 +9,7 @@
  */
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
@@ -585,7 +585,7 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
 // ---------------------------------------------------------------------------
 
 interface TaskListBodyProps {
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function TaskListBody({ query }: TaskListBodyProps) {

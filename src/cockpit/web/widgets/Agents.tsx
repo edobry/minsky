@@ -8,7 +8,7 @@
  * persistence. Controls use prefix "ag" to namespace params.
  */
 import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
@@ -498,7 +498,7 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
 // ---------------------------------------------------------------------------
 
 interface AgentsBodyProps {
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function AgentsBody({ query }: AgentsBodyProps) {

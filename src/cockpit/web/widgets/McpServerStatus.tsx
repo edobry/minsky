@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
@@ -138,7 +138,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 // ---------------------------------------------------------------------------
 
 interface McpServerStatusBodyProps {
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function McpServerStatusBody({ query }: McpServerStatusBodyProps) {

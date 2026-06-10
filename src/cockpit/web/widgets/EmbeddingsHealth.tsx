@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { LinkCard } from "../components/ui/link-card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
@@ -77,7 +77,7 @@ function formatRelative(isoTimestamp: string): string {
 // ---------------------------------------------------------------------------
 
 interface EmbeddingsHealthBodyProps {
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function EmbeddingsHealthBody({ query }: EmbeddingsHealthBodyProps) {

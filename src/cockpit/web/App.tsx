@@ -68,7 +68,7 @@ const PlantGridPage = lazy(() =>
 // Self-fetching widgets: own their data via TanStack Query; no data prop needed.
 // These remain on the home page grid.
 // ---------------------------------------------------------------------------
-const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
+const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>> = {
   attention: Attention,
   "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
@@ -159,10 +159,10 @@ function HomePage({ widgets }: HomePageProps) {
                         /* Attention is the algedonic top surface — give it the
                            full row so the default landing leads with it (mt#2398). */
                         <div className="md:col-span-2 lg:col-span-3">
-                          <SelfFetchingRenderer />
+                          <SelfFetchingRenderer title={meta.title} />
                         </div>
                       ) : (
-                        <SelfFetchingRenderer />
+                        <SelfFetchingRenderer title={meta.title} />
                       )
                     ) : !PropDrivenRenderer ? (
                       <WidgetShell variant="card" title={meta.title}>

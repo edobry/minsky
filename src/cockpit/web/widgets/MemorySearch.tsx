@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useState } from "react";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
@@ -41,7 +41,7 @@ interface MemorySearchBodyProps {
   inputValue: string;
   debouncedQuery: string;
   handleInput: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  query: ReturnType<typeof useQuery<WidgetData, Error>>;
+  query: UseQueryResult<WidgetData, Error>;
 }
 
 function MemorySearchBody({

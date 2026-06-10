@@ -9,7 +9,7 @@
  * the same API fetch helpers.
  */
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { LinkCard } from "../components/ui/link-card";
 import { Button } from "../components/ui/button";
 import { cn } from "../lib/utils";
@@ -605,7 +605,7 @@ export function CredentialsManager() {
 // ---------------------------------------------------------------------------
 
 interface CredentialsSummaryBodyProps {
-  query: ReturnType<typeof useQuery<CredentialListing[], Error>>;
+  query: UseQueryResult<CredentialListing[], Error>;
 }
 
 function CredentialsSummaryBody({ query }: CredentialsSummaryBodyProps) {
