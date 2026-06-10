@@ -94,7 +94,9 @@ Bias towards repeating as few lines of the original spec as possible. Each edit 
 
 DO NOT omit spans of pre-existing content without using the // ... existing code ... comment. If you omit it, the model may inadvertently delete those sections.
 
-Make all edits to a task spec in a single call instead of multiple calls to the same task.`,
+Make all edits to a task spec in a single call instead of multiple calls to the same task.
+
+FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ... existing code ... marker is REFUSED, because it would silently replace the entire spec. For an intentional full replacement, use tasks_edit with specContent.`,
     parameters: TaskEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy domain imports until first call.

@@ -66,7 +66,9 @@ Block 1
 Block 3
 // ... existing code ...\`.
 Make sure it is clear what the edit should be, and where it should be applied.
-Make edits to a file in a single edit_file call instead of multiple edit_file calls to the same file. The apply model can handle many distinct edits at once.`,
+Make edits to a file in a single edit_file call instead of multiple edit_file calls to the same file. The apply model can handle many distinct edits at once.
+
+FAIL-CLOSED (mt#2400): editing an EXISTING file with content that has NO '// ... existing code ...' marker is REFUSED, because it would silently overwrite the whole file. For an intentional full rewrite, use session_write_file, or pass fullReplace=true.`,
     parameters: SessionFileEditSchema,
     getHandler: async () => {
       // mt#1792: defer heavy runtime imports until first call.
@@ -223,7 +225,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
   commandMapper.addCommand({
     name: "session.search_replace",
     description:
-      "Replace text in a file within a session workspace. By default, requires exactly one occurrence (for safety). Set replace_all=true to replace all occurrences.",
+      "Replace text in a file within a session workspace. By default, requires exactly one occurrence (for safety). Set replace_all=true to replace all occurrences. FAIL-CLOSED (mt#2400): a replace_all matching 2+ occurrences that would grow the file beyond 1.5x its original size is REFUSED as a likely runaway duplication — pass allow_growth=true if the large growth is intended, or use session_write_file for a full rewrite.",
     parameters: SessionSearchReplaceSchema,
     getHandler: async () => {
       // mt#1792: defer heavy runtime imports until first call.
