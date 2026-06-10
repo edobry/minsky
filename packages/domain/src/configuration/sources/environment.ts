@@ -231,6 +231,12 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
   "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
+  // mt#2414 — project identity resolver override. Read by
+  // packages/domain/src/project/identity.ts at identity-resolution time (not
+  // via the config-schema path). Placing it here so the env-var-to-config
+  // dot-path parser skips it at boot — the auto-conversion would produce
+  // "minsky.project" which is rejected as an unrecognised key.
+  "MINSKY_PROJECT", // packages/domain/src/project/identity.ts (project identity override)
 ]);
 
 /**

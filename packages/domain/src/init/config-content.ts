@@ -2,6 +2,7 @@ import { z } from "zod";
 import { stringify as yamlStringify } from "yaml";
 import { enumSchemas } from "../configuration/schemas/base";
 import type { ResolvedRepositoryConfig } from "../session/repository-backend-detection";
+import { deriveSlugFromGitRemote } from "../project/identity";
 
 export interface McpOptions {
   enabled?: boolean;
@@ -11,12 +12,41 @@ export interface McpOptions {
 }
 
 /**
- * Returns the content for the main Minsky config file in YAML format
+ * Options for project slug stamping during `minsky init`.
+ *
+ * `projectSlug` is the stable identifier written into `.minsky/config.yaml`
+ * under `project.slug`. When omitted, `getMinskyConfigContentYaml` tries to
+ * auto-derive it from the git remote (if `repoPath` is provided). Callers
+ * that know the slug (e.g. after running `deriveSlugFromGitRemote` in advance)
+ * should pass it explicitly.
+ */
+export interface ProjectSlugOptions {
+  /**
+   * Explicit project slug to stamp. Takes precedence over auto-derivation.
+   * Example: `"edobry/minsky"`.
+   */
+  projectSlug?: string;
+  /**
+   * Repo root path used for git-remote auto-derivation when `projectSlug`
+   * is not provided. Defaults to `process.cwd()` when absent.
+   */
+  repoPath?: string;
+}
+
+/**
+ * Returns the content for the main Minsky config file in YAML format.
+ * Stamps `project.slug` if it can be derived from the git remote or is
+ * provided explicitly via `projectSlugOptions`.
+ *
+ * The slug defaults to `owner/repo` (e.g. `edobry/minsky`) derived from the
+ * `origin` remote. See `packages/domain/src/project/identity.ts` for the full
+ * slug-derivation rationale and stability tradeoffs.
  */
 export function getMinskyConfigContentYaml(
   backend: z.infer<typeof enumSchemas.backendType>,
   repository?: ResolvedRepositoryConfig,
-  mcp?: McpOptions
+  mcp?: McpOptions,
+  projectSlugOptions?: ProjectSlugOptions
 ): string {
   const config: Record<string, unknown> = {
     tasks: {
@@ -58,6 +88,18 @@ export function getMinskyConfigContentYaml(
       mcpSection.host = mcp.host;
     }
     config.mcp = mcpSection;
+  }
+
+  // Stamp project.slug (mt#2414). Try explicit option first, then auto-derive
+  // from git remote.
+  const slug =
+    projectSlugOptions?.projectSlug ??
+    (projectSlugOptions?.repoPath
+      ? deriveSlugFromGitRemote(projectSlugOptions.repoPath)
+      : undefined);
+
+  if (slug) {
+    config.project = { slug };
   }
 
   return yamlStringify(config);
