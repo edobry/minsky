@@ -79,6 +79,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         { Buffer },
         { createSuccessResponse, createErrorResponse },
         { applyEditPattern },
+        { hasExistingCodeMarkers },
         { generateUnifiedDiff, generateDiffSummary },
       ] = await Promise.all([
         import("fs/promises"),
@@ -88,6 +89,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         import("buffer"),
         import("@minsky/domain/schemas"),
         import("@minsky/domain/ai/edit-pattern-service"),
+        import("@minsky/domain/ai/edit-pattern-utils"),
         import("../../utils/diff"),
       ]);
 
@@ -116,20 +118,34 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
             fileExists = false;
           }
 
+          const hasMarkers = hasExistingCodeMarkers(args.content);
+
           // If file doesn't exist and we have existing code markers, that's an error
-          if (!fileExists && args.content.includes("// ... existing code ...")) {
+          if (!fileExists && hasMarkers) {
             throw new Error(
               `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
             );
           }
 
+          // mt#2400 fail-closed guard: editing an EXISTING file with marker-less
+          // content routes to a direct full-file overwrite (the silent
+          // content-destruction family — R3, mt#2211). Refuse unless the caller
+          // explicitly opts into a full replacement via fullReplace.
+          if (fileExists && !hasMarkers && !args.fullReplace) {
+            throw new Error(
+              `Refusing to apply marker-less content to existing file "${args.path}": this would silently overwrite the entire file. ` +
+                `Add '// ... existing code ...' markers around the changed region for a partial edit, ` +
+                `or use session_write_file (or pass fullReplace=true) for an intentional full replacement.`
+            );
+          }
+
           let finalContent: string;
 
-          if (fileExists && args.content.includes("// ... existing code ...")) {
+          if (fileExists && hasMarkers) {
             // Apply the edit pattern using fast-apply providers, passing optional instruction
             finalContent = await applyEditPattern(originalContent, args.content, args.instructions);
           } else {
-            // Direct write for new files or complete replacements
+            // Direct write for new files, or an explicit full replacement (fullReplace=true)
             finalContent = args.content;
           }
 
@@ -216,11 +232,13 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         { readTextFile },
         { SessionPathResolver },
         { createSuccessResponse, createErrorResponse },
+        { exceedsGrowthThreshold, REPLACE_ALL_GROWTH_REFUSAL_FACTOR },
       ] = await Promise.all([
         import("fs/promises"),
         import("@minsky/shared/fs"),
         import("@minsky/domain/session/session-path-resolver"),
         import("@minsky/domain/schemas"),
+        import("@minsky/domain/ai/edit-pattern-utils"),
       ]);
 
       const pathResolver = new SessionPathResolver(() =>
@@ -281,6 +299,22 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           if (replaceAll) {
             newContent = content.replaceAll(searchText, () => replaceText);
             replacementCount = occurrences;
+
+            // mt#2400 fail-closed guard: a replace_all matching 2+ occurrences
+            // that balloons the file past 1.5x its original size is, far more
+            // often than not, a runaway duplication (the mt#1361 family) rather
+            // than an intended expansion. Refuse unless the caller opts in.
+            if (
+              occurrences > 1 &&
+              !args.allow_growth &&
+              exceedsGrowthThreshold(content.length, newContent.length)
+            ) {
+              throw new Error(
+                `Refusing replace_all on "${args.path}": result would grow the file from ${content.length} to ${newContent.length} bytes ` +
+                  `(more than ${REPLACE_ALL_GROWTH_REFUSAL_FACTOR}x) across ${occurrences} occurrences — a likely runaway duplication. ` +
+                  `If this growth is intended, pass allow_growth=true; otherwise narrow the search text or use session_write_file for a full rewrite.`
+              );
+            }
           } else {
             newContent = content.replace(searchText, () => replaceText);
             replacementCount = 1;
