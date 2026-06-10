@@ -53,13 +53,24 @@ function isSnapshot(value: unknown): value is SessionContextSnapshot {
   );
 }
 
+/** Carries the HTTP status so callers can distinguish "no transcript" (404) from real failures. */
+class SnapshotError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "SnapshotError";
+  }
+}
+
 async function fetchSnapshot(sessionId: string): Promise<SessionContextSnapshot> {
   const res = await fetch(
     `/api/cockpit/context-inspector/snapshot?sessionId=${encodeURIComponent(sessionId)}`
   );
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Snapshot fetch failed (${res.status}): ${text}`);
+    throw new SnapshotError(res.status, `Snapshot fetch failed (${res.status}): ${text}`);
   }
   const json: unknown = await res.json();
   if (!isSnapshot(json)) {
@@ -319,6 +330,20 @@ function ConversationFetcher({ sessionId, className }: { sessionId: string; clas
   });
 
   if (query.isError) {
+    const notFound = query.error instanceof SnapshotError && query.error.status === 404;
+    if (notFound) {
+      return (
+        <div className={cn("flex flex-col items-center gap-1 py-10 text-center", className)}>
+          <p className="text-sm text-muted-foreground">
+            No conversation transcript for this session yet.
+          </p>
+          <p className="max-w-md text-xs text-muted-foreground/70">
+            Transcripts are ingested when a Claude Code session ends; this one may still be running,
+            or its transcript was never ingested.
+          </p>
+        </div>
+      );
+    }
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
         Failed to load conversation: {query.error.message}
