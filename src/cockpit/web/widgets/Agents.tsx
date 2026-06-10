@@ -8,6 +8,7 @@
  * persistence. Controls use prefix "ag" to namespace params.
  */
 import { useCallback } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
@@ -312,7 +313,11 @@ function PaginationBar({ page, pageCount, filteredCount, totalCount, onPage }: P
 function AgentRowItem({ agent }: { agent: AgentRow }) {
   const label = livenessLabel(agent.liveness);
   return (
-    <div className="flex items-center gap-3 py-1.5 border-b border-border last:border-0">
+    <Link
+      to={`/agents/${encodeURIComponent(agent.sessionId)}`}
+      className="flex items-center gap-3 py-1.5 border-b border-border last:border-0 hover:bg-accent/50 transition-colors rounded-sm"
+      aria-label={`Open session ${agent.sessionId}`}
+    >
       {/* Liveness dot — passive `aria-label` (no `role="status"`) avoids screen-reader
           spam on the 5s polling refetch; the label is read when the dot receives focus. */}
       <span
@@ -339,7 +344,7 @@ function AgentRowItem({ agent }: { agent: AgentRow }) {
       <span className="text-xs text-muted-foreground flex-shrink-0 tabular-nums">
         {formatRelative(agent.lastActivityAt)}
       </span>
-    </div>
+    </Link>
   );
 }
 

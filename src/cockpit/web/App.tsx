@@ -23,6 +23,9 @@ import { McpServerStatus } from "./widgets/McpServerStatus";
 const AgentsPage = lazy(() =>
   import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
 );
+const SessionDetailPage = lazy(() =>
+  import("./pages/SessionDetailPage").then((m) => ({ default: m.SessionDetailPage }))
+);
 const ContextPage = lazy(() =>
   import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
 );
@@ -317,6 +320,17 @@ export function App() {
             element={
               <ErrorBoundary id="agents-page">
                 <AgentsPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Workspace-session entity route (mt#1919): keyed by the Minsky
+              workspace sessionId — distinct from /session/:id, which takes the
+              harness agentSessionId (transcript). */}
+          <Route
+            path="/agents/:id"
+            element={
+              <ErrorBoundary id="session-detail-page">
+                <SessionDetailPage />
               </ErrorBoundary>
             }
           />
