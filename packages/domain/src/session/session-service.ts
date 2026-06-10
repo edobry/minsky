@@ -11,7 +11,7 @@ import type { GitServiceInterface } from "../git/types";
 import type { WorkspaceUtilsInterface } from "../workspace";
 import type { TaskServiceInterface } from "../tasks/taskService";
 import { RepositoryBackendType } from "../repository/index";
-import type { SessionProviderInterface } from "./session-db-adapter";
+import type { SessionProviderInterface } from "./types";
 import {
   getSessionImpl,
   listSessionsImpl,

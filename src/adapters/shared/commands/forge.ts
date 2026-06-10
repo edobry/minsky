@@ -75,7 +75,9 @@ async function resolveForgeBackend(ctx: CommandExecutionContext) {
   const { createRepositoryBackend, RepositoryBackendType } = await import(
     "@minsky/domain/repository/index"
   );
-  const { createSessionProvider } = await import("@minsky/domain/session/session-db-adapter");
+  const { createSessionProvider } = await import(
+    "@minsky/domain/session/drizzle-session-repository"
+  );
 
   const { repoUrl, backendType, github } = await getRepositoryBackendFromConfig();
 

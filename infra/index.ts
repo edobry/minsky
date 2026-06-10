@@ -71,6 +71,11 @@ export const reviewerService = new railway.Service("reviewer", {
   name: "minsky-reviewer-webhook",
   sourceRepo: "edobry/minsky",
   sourceRepoBranch: "main",
+  // Scope the deploy trigger to the reviewer's build/dependency closure via
+  // Railway config-as-code `build.watchPatterns` (the provider exposes no
+  // watch field). Without this the service redeploys on EVERY push to main,
+  // and each restart drops in-flight GitHub->reviewer webhooks (mt#2345).
+  configPath: "services/reviewer/railway.json",
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 

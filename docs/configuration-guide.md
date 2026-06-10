@@ -114,27 +114,36 @@ see [Postgres Persistence Configuration](./persistence-configuration.md).
 
 ## Reviewer Configuration
 
-The `reviewer` section configures the `reviewer.retrigger` command, which re-triggers a
-review on a PR's current HEAD by calling the minsky-reviewer webhook service's
-`POST /retrigger` endpoint (mt#2269).
+The `reviewer.retrigger` command re-triggers a review on a PR's current HEAD by calling the
+minsky-reviewer webhook service's `POST /retrigger` endpoint (mt#2269). As of mt#2346 it
+authenticates with the **Minsky MCP auth token** (`mcp.auth.token` ← `MINSKY_MCP_AUTH_TOKEN`)
+— the operator->service credential you already hold for the hosted Minsky MCP endpoint, which
+the reviewer service also has — **not** the webhook HMAC secret. Operators therefore never
+need to obtain or store the reviewer's webhook signing secret locally; that secret stays on
+the reviewer service for GitHub->reviewer webhook signature verification only.
 
 ```yaml
+mcp:
+  auth:
+    # Bearer token for the hosted Minsky MCP endpoint. Also used by
+    # reviewer.retrigger to authenticate against the reviewer service.
+    token: "<mcp-auth-token>"
 reviewer:
-  # Shared secret used to authenticate with the reviewer webhook service
-  # (sent as `Authorization: Bearer <secret>`). Required for reviewer.retrigger.
-  webhookSecret: "<secret>"
-  # Base URL of the reviewer webhook service. Optional; defaults to the hosted
-  # service when unset.
-  url: "https://minsky-reviewer-webhook.up.railway.app"
+  # Base URL of the reviewer webhook service. Optional; when unset, falls back to
+  # the hosted production service (minsky-reviewer-webhook-production.up.railway.app).
+  # Set this only to point at a non-default deployment.
+  url: "https://minsky-reviewer-webhook-production.up.railway.app"
 ```
 
-- `reviewer.webhookSecret` — required to run `reviewer.retrigger`. When absent the command
-  errors. The same value is configured on the reviewer service itself as
-  `MINSKY_REVIEWER_WEBHOOK_SECRET` (generate with `openssl rand -hex 32`).
-- `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL.
-- Environment overrides: `MINSKY_REVIEWER_WEBHOOK_SECRET` → `reviewer.webhookSecret`,
-  `MINSKY_REVIEWER_URL` → `reviewer.url`. Per the precedence order above, environment
-  variables override the config-file values.
+- `mcp.auth.token` — required to run `reviewer.retrigger`. When absent the command errors.
+  Environment override: `MINSKY_MCP_AUTH_TOKEN` → `mcp.auth.token`.
+- `reviewer.url` — optional; when unset, falls back to the hosted reviewer URL. Environment
+  override: `MINSKY_REVIEWER_URL` → `reviewer.url`.
+- `reviewer.webhookSecret` (`MINSKY_REVIEWER_WEBHOOK_SECRET`) — **deprecated for retrigger
+  (mt#2346)**; no longer read by the command. The config key + env mapping are retained only
+  so a lingering value still parses safely at boot. The reviewer service reads its webhook
+  secret from its own loader, not this config path.
+- Per the precedence order above, environment variables override the config-file values.
 
 > Note: posting a `/review` comment on the PR is an alternative re-trigger path that does
-> not require the webhook secret (the reviewer bot advertises it in its status comment).
+> not require any token (the reviewer bot advertises it in its status comment).

@@ -25,22 +25,9 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
+import { isSessionsPayload } from "../lib/sessions-source";
 
 // ── Frontend mirror types — keep in sync with backend ─────────────────────────
-
-/** Inline mirror of ContextInspectorSessionRow from the backend widget. */
-interface SessionRow {
-  agentSessionId: string;
-  harness: string;
-  startedAt: string | null;
-  endedAt: string | null;
-  cwd: string | null;
-  label: string;
-}
-
-interface SessionsPayload {
-  sessions: SessionRow[];
-}
 
 /** Inline mirror of SessionContextSnapshotBlock from src/domain/context/types.ts. */
 interface SnapshotBlock {
@@ -63,14 +50,6 @@ interface Snapshot {
 }
 
 // ── Type guards ──────────────────────────────────────────────────────────────
-
-function isSessionsPayload(payload: unknown): payload is SessionsPayload {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    Array.isArray((payload as { sessions?: unknown }).sessions)
-  );
-}
 
 function isSnapshot(value: unknown): value is Snapshot {
   return (

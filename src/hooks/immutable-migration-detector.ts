@@ -117,7 +117,8 @@ export function detectImmutableMigrationViolations(
 
     // Find which migration directory this file belongs to. We test dirs
     // LONGEST-PREFIX-FIRST so a more-specific dir wins over a less-specific one
-    // that is its string prefix (the pg dir is nested under the sqlite dir). This
+    // that is its string prefix (the pg dir is nested under the parent
+    // migrations dir). This
     // makes matching independent of MIGRATION_DIRS declaration order (mt#2268
     // review). The direct-child check below (remainder has no "/") is the second,
     // independent guard against a parent dir swallowing a nested file.

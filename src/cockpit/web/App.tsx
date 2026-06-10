@@ -22,18 +22,47 @@ import { PageNavTiles } from "./pages/HomePage";
 
 // Lazy-loaded page routes — each becomes its own chunk on first visit.
 // HomePage's PageNavTiles stays eagerly imported above (first-paint critical).
-const AgentsPage = lazy(() => import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage })));
-const ContextPage = lazy(() => import("./pages/ContextPage").then((m) => ({ default: m.ContextPage })));
-const SettingsPage = lazy(() => import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
-const WorkstreamsPage = lazy(() => import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage })));
-const TasksLayout = lazy(() => import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout })));
-const TasksListPage = lazy(() => import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage })));
-const TasksGraphPage = lazy(() => import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage })));
-const TaskDetailPage = lazy(() => import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage })));
+const AgentsPage = lazy(() =>
+  import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
+);
+const ContextPage = lazy(() =>
+  import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
+);
+const ConversationPage = lazy(() =>
+  import("./pages/ConversationPage").then((m) => ({ default: m.ConversationPage }))
+);
+const SettingsPage = lazy(() =>
+  import("./pages/SettingsPage").then((m) => ({ default: m.SettingsPage }))
+);
+const WorkstreamsPage = lazy(() =>
+  import("./pages/WorkstreamsPage").then((m) => ({ default: m.WorkstreamsPage }))
+);
+const TasksLayout = lazy(() =>
+  import("./pages/TasksLayout").then((m) => ({ default: m.TasksLayout }))
+);
+const TasksListPage = lazy(() =>
+  import("./pages/TasksListPage").then((m) => ({ default: m.TasksListPage }))
+);
+const TasksGraphPage = lazy(() =>
+  import("./pages/TasksGraphPage").then((m) => ({ default: m.TasksGraphPage }))
+);
+const TaskDetailPage = lazy(() =>
+  import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage }))
+);
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
-const ActivityPage = lazy(() => import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage })));
-const EmbeddingsPage = lazy(() => import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage })));
-const MemoriesPage = lazy(() => import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage })));
+const ActivityPage = lazy(() =>
+  import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
+);
+const EmbeddingsPage = lazy(() =>
+  import("./pages/EmbeddingsPage").then((m) => ({ default: m.EmbeddingsPage }))
+);
+const MemoriesPage = lazy(() =>
+  import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage }))
+);
+const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default: m.PlantPage })));
+const PlantGridPage = lazy(() =>
+  import("./pages/PlantGridPage").then((m) => ({ default: m.PlantGridPage }))
+);
 
 // ---------------------------------------------------------------------------
 // Widget renderer maps
@@ -298,6 +327,22 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/*
+            Self-fetching route (mt#2374): ConversationPage owns its data via
+            TanStack Query (it reuses the `context-inspector` widget-data + the
+            snapshot endpoint). Like the other self-fetching pages (memories,
+            embeddings, asks, activity, plant) it needs NO entry in
+            PAGE_ROUTE_WIDGET_IDS / APP_LEVEL_PAGE_PROP_WIDGET_IDS — those govern
+            app-level PROP-driven polling, which this route does not use.
+          */}
+          <Route
+            path="/conversation"
+            element={
+              <ErrorBoundary id="conversation-page">
+                <ConversationPage />
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/workstreams"
             element={
@@ -356,6 +401,22 @@ export function App() {
             element={
               <ErrorBoundary id="memories-page">
                 <MemoriesPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/plant"
+            element={
+              <ErrorBoundary id="plant-page">
+                <PlantPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/plant-grid"
+            element={
+              <ErrorBoundary id="plant-grid-page">
+                <PlantGridPage />
               </ErrorBoundary>
             }
           />

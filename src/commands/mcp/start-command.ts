@@ -854,8 +854,8 @@ async function buildMemoryServiceForSpike(
  * resolved. After this call, `debug.systemInfo` returns real dispatch cadence
  * aggregates rather than the zero-filled no-op defaults.
  *
- * Returns null when persistence is unavailable (CLI path, SQLite-only
- * deployment, or construction failure) — the singleton stays as the no-op
+ * Returns null when persistence is unavailable (CLI path, no Postgres
+ * connection, or construction failure) — the singleton stays as the no-op
  * null-DB tracker, so `debug.systemInfo.subagentDispatches` returns zeros.
  *
  * @see mt#1738 — this wiring

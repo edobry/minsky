@@ -4,25 +4,30 @@
  * Registers the `transcripts.index-embeddings` MCP tool and
  * `minsky transcripts reindex` CLI command.
  *
- * Delegates to two pipelines:
- *   1. PerTurnEmbeddingPipeline (mt#1352) — per-turn extraction + embedding
- *   2. SummaryPipeline (mt#1353) — summary generation + summary embedding
+ * Runs three stages (ADR-019):
+ *   1. Extraction reconciliation (turn-writer) — materializes per-turn rows from
+ *      agent_transcripts that capture-on-ingest didn't already write (historical
+ *      sessions). Text-only; FTS-ready; no embedding API.
+ *   2. PerTurnEmbeddingPipeline (mt#1352, vector-only since mt#2381) — fills the
+ *      `embedding` column on turn rows whose embedding IS NULL.
+ *   3. SummaryPipeline (mt#1353) — summary generation + summary embedding.
  *
  * Args:
  *   --session=<uuid>  Target a single agent session by its UUID
  *   --all             Sweep all discoverable sessions
  *
- * When called with --all, runs both pipelines over all agent_transcripts rows.
- * When called with --session, runs both pipelines for that one session.
+ * When called with --all, runs all three stages over all agent_transcripts rows.
+ * When called with --session, runs them scoped to that one session.
  *
- * Idempotent: already-extracted turns are upserted; already-summarized rows
- * are skipped by default.
+ * Idempotent: turn extraction upserts (embedding-preserving); the embedding
+ * backfill only selects NULL-embedding rows; already-summarized rows are skipped.
  *
  * DI pattern mirrors transcripts.ts: persistence provider resolved from
  * `context.container` at execute time.
  *
+ * @see docs/architecture/adr-019-transcript-pipeline-staging.md
  * @see mt#1353 — this file
- * @see mt#1352 — PerTurnEmbeddingPipeline
+ * @see mt#1352 — PerTurnEmbeddingPipeline; mt#2381 — extract/embed seam split
  * @see mt#1313 §Search tools — transcripts.index-embeddings
  */
 
@@ -34,17 +39,24 @@ import { getErrorMessage } from "@minsky/domain/errors/index";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 import type { PipelineRunResult } from "@minsky/domain/transcripts/per-turn-embedding-pipeline";
 import type { SummaryPipelineRunResult } from "@minsky/domain/transcripts/summary-pipeline";
+import type { ExtractAllTurnsResult } from "@minsky/domain/transcripts/turn-writer";
 
 // ── Result shape ──────────────────────────────────────────────────────────────
 
 export interface TranscriptIndexEmbeddingsResult {
-  /** Per-turn pipeline result (null if it failed or was skipped). */
-  perTurn: {
+  /** Extraction reconciliation result (turns materialized from transcripts). */
+  extraction: {
     transcriptsScanned: number;
     transcriptsProcessed: number;
     transcriptsSkipped: number;
     transcriptsErrored: number;
     turnsWritten: number;
+  } | null;
+  /** Per-turn embedding (vector-only) backfill result (null if it failed). */
+  perTurn: {
+    turnsScanned: number;
+    turnsEmbedded: number;
+    turnsErrored: number;
     embeddingCallsMade: number;
   } | null;
   /** Summary pipeline result (null if it failed or was skipped). */
@@ -175,17 +187,36 @@ export function registerTranscriptIndexEmbeddingsCommand(
         { force }
       );
 
+      // turn-writer: extraction reconciliation (ADR-019). Extraction is a
+      // separate, API-free stage from embedding; we run it first so historical
+      // sessions (ingested before extraction-on-capture) have turn rows for the
+      // vector-only backfill to fill.
+      const { extractTurnsForAllTranscripts, writeTurnsForTranscript } = await import(
+        "@minsky/domain/transcripts/turn-writer"
+      );
+      const pgDb = db as import("drizzle-orm/postgres-js").PostgresJsDatabase;
+
       // ── Execute: --all mode ──────────────────────────────────────────────
       if (doAll) {
-        log.info("transcripts.index-embeddings --all: starting per-turn pipeline");
+        log.info("transcripts.index-embeddings --all: starting extraction reconciliation");
+        let extractionResult: ExtractAllTurnsResult | null = null;
+        try {
+          extractionResult = await extractTurnsForAllTranscripts(pgDb);
+        } catch (err) {
+          log.error("transcripts.index-embeddings --all: extraction failed", {
+            error: getErrorMessage(err),
+          });
+        }
+
+        log.info("transcripts.index-embeddings --all: starting per-turn embedding backfill");
         let perTurnResult: PipelineRunResult | null = null;
         try {
           perTurnResult = await perTurnPipeline.run();
-          log.info("transcripts.index-embeddings --all: per-turn pipeline complete", {
+          log.info("transcripts.index-embeddings --all: per-turn backfill complete", {
             ...perTurnResult,
           });
         } catch (err) {
-          log.error("transcripts.index-embeddings --all: per-turn pipeline failed", {
+          log.error("transcripts.index-embeddings --all: per-turn backfill failed", {
             error: getErrorMessage(err),
           });
         }
@@ -204,21 +235,56 @@ export function registerTranscriptIndexEmbeddingsCommand(
         }
 
         const message =
-          `Per-turn: processed=${perTurnResult?.transcriptsProcessed ?? "error"}, ` +
-          `turnsWritten=${perTurnResult?.turnsWritten ?? "error"}; ` +
+          `Extraction: turnsWritten=${extractionResult?.turnsWritten ?? "error"}; ` +
+          `Embedding: embedded=${perTurnResult?.turnsEmbedded ?? "error"}; ` +
           `Summary: processed=${summaryResult?.transcriptsProcessed ?? "error"}`;
 
-        return { perTurn: perTurnResult, summary: summaryResult, message };
+        return {
+          extraction: extractionResult,
+          perTurn: perTurnResult,
+          summary: summaryResult,
+          message,
+        };
       }
 
       // ── Execute: single-session mode ─────────────────────────────────────
-      log.info(`transcripts.index-embeddings --session=${sessionId}: starting per-turn pipeline`);
+      log.info(`transcripts.index-embeddings --session=${sessionId}: extracting turns`);
 
-      // PerTurnEmbeddingPipeline sweeps all rows — run full pipeline for the single session.
-      // Cost is low for a single-row table and keeps the per-turn pipeline API simple.
+      // Scope extraction to this one session: read its transcript and materialize
+      // its turn rows (text-only, embedding-preserving), then embed just its turns.
+      let extractionResult: ExtractAllTurnsResult | null = null;
+      try {
+        const { agentTranscriptsTable } = await import(
+          "@minsky/domain/storage/schemas/agent-transcripts-schema"
+        );
+        const { eq } = await import("drizzle-orm");
+        const trows = await pgDb
+          .select({ transcript: agentTranscriptsTable.transcript })
+          .from(agentTranscriptsTable)
+          .where(eq(agentTranscriptsTable.agentSessionId, sessionId as string))
+          .limit(1);
+        const turnsWritten = await writeTurnsForTranscript(
+          pgDb,
+          sessionId as string,
+          trows[0]?.transcript ?? null
+        );
+        extractionResult = {
+          transcriptsScanned: 1,
+          transcriptsProcessed: turnsWritten > 0 ? 1 : 0,
+          transcriptsSkipped: turnsWritten > 0 ? 0 : 1,
+          transcriptsErrored: 0,
+          turnsWritten,
+        };
+      } catch (err) {
+        log.error(`transcripts.index-embeddings --session=${sessionId}: extraction failed`, {
+          error: getErrorMessage(err),
+        });
+      }
+
+      log.info(`transcripts.index-embeddings --session=${sessionId}: embedding turns`);
       let perTurnResult: PipelineRunResult | null = null;
       try {
-        perTurnResult = await perTurnPipeline.run();
+        perTurnResult = await perTurnPipeline.run({ agentSessionId: sessionId as string });
       } catch (err) {
         log.error(`transcripts.index-embeddings --session=${sessionId}: per-turn failed`, {
           error: getErrorMessage(err),
@@ -243,10 +309,12 @@ export function registerTranscriptIndexEmbeddingsCommand(
       }
 
       const message =
-        `Session ${sessionId}: per-turn done; ` +
+        `Session ${sessionId}: extracted=${extractionResult?.turnsWritten ?? "error"}, ` +
+        `embedded=${perTurnResult?.turnsEmbedded ?? "error"}; ` +
         `summary=${summaryProcessed ? "generated" : "skipped"}`;
 
       return {
+        extraction: extractionResult,
         perTurn: perTurnResult,
         summary: summaryResult,
         agentSessionId: sessionId,

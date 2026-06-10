@@ -9,7 +9,14 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { discoverTypecheckWorkspaces, type WorkspaceFs } from "./validate";
+import {
+  discoverTypecheckWorkspaces,
+  resolveValidateWorkspace,
+  buildSessionDirResolver,
+  lintParams,
+  typecheckParams,
+  type WorkspaceFs,
+} from "./validate";
 
 const ROOT = "/repo";
 
@@ -159,5 +166,92 @@ describe("discoverTypecheckWorkspaces", () => {
     });
 
     expect(await discoverTypecheckWorkspaces(ROOT, fs)).toEqual(["services/good"]);
+  });
+});
+
+describe("resolveValidateWorkspace", () => {
+  const SESSION_DIR = "/state/sessions/abc/workdir";
+
+  /** A resolveSessionDir spy that records its calls and returns a fixed session dir. */
+  function sessionResolver() {
+    const calls: Array<{ task?: string; sessionId?: string }> = [];
+    const fn = async (q: { task?: string; sessionId?: string }): Promise<string> => {
+      calls.push(q);
+      return SESSION_DIR;
+    };
+    return { fn, calls };
+  }
+
+  test("explicit workspace wins over task/sessionId (resolver not called)", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace(
+      { workspace: "/explicit/path", task: "mt#1", sessionId: "sess-1" },
+      r.fn
+    );
+    expect(result).toBe("/explicit/path");
+    expect(r.calls).toEqual([]);
+  });
+
+  test("task resolves via the injected resolver when no workspace given", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({ task: "mt#2336" }, r.fn);
+    expect(result).toBe(SESSION_DIR);
+    expect(r.calls).toEqual([{ task: "mt#2336", sessionId: undefined }]);
+  });
+
+  test("sessionId resolves via the injected resolver when no workspace given", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({ sessionId: "sess-9" }, r.fn);
+    expect(result).toBe(SESSION_DIR);
+    expect(r.calls).toEqual([{ task: undefined, sessionId: "sess-9" }]);
+  });
+
+  test("falls back to the injected cwd when neither workspace nor task/sessionId given", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({}, r.fn, "/fake/cwd");
+    expect(result).toBe("/fake/cwd");
+    expect(r.calls).toEqual([]);
+  });
+
+  test("treats an empty-string workspace as 'not provided' and falls through", async () => {
+    const r = sessionResolver();
+    const result = await resolveValidateWorkspace({ workspace: "", task: "mt#5" }, r.fn);
+    expect(result).toBe(SESSION_DIR);
+    expect(r.calls).toEqual([{ task: "mt#5", sessionId: undefined }]);
+  });
+});
+
+describe("validate param sets — no workspace defaultValue (mt#2336 routing regression)", () => {
+  // If `workspace` carried a defaultValue, the parameter layer would always inject
+  // `params.workspace` and resolveValidateWorkspace's "explicit workspace wins" branch
+  // would fire on every call — silently disabling task/sessionId routing. Guard against
+  // a future re-introduction of the default.
+  test("lint workspace param has no defaultValue", () => {
+    expect("defaultValue" in lintParams.workspace).toBe(false);
+  });
+
+  test("typecheck workspace param has no defaultValue", () => {
+    expect("defaultValue" in typecheckParams.workspace).toBe(false);
+  });
+});
+
+describe("buildSessionDirResolver — container-absent path", () => {
+  test("rejects with an actionable error (naming the task) when no container is provided", async () => {
+    const resolve = buildSessionDirResolver(undefined);
+    await expect(resolve({ task: "mt#2336" })).rejects.toThrow(/task='mt#2336'/);
+  });
+
+  test("error names sessionId when that is the supplied param, and never falls back to cwd", async () => {
+    const resolve = buildSessionDirResolver(undefined);
+    await expect(resolve({ sessionId: "sess-7" })).rejects.toThrow(/sessionId='sess-7'/);
+  });
+
+  test("rejects (does not resolve) when container lacks sessionDeps", async () => {
+    // A container whose `has("sessionDeps")` is false must error, not silently use cwd.
+    const fakeContainer = { has: () => false } as unknown as Parameters<
+      typeof buildSessionDirResolver
+    >[0];
+    const resolve = buildSessionDirResolver(fakeContainer);
+    await expect(resolve({ task: "mt#9" })).rejects.toThrow(/Cannot resolve session workspace/);
   });
 });

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 interface MemoriesHealthPayload {
   provider: string;
@@ -34,8 +35,13 @@ function statusTextColor(status: MemoriesHealthPayload["status"]): string {
   }
 }
 
-/** Compact single-row health indicator for the memories page header. */
-export function MemoriesHealth() {
+/**
+ * Chrome-agnostic body for the embeddings-health indicator (mt#2373): renders
+ * the status dot + label and any degraded/fallback detail, with no surrounding
+ * frame. Self-fetching (owns its TanStack Query). The surrounding chrome is
+ * supplied by {@link WidgetShell}.
+ */
+function MemoriesHealthBody() {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "memories-health"],
     queryFn: () => fetchWidgetData("memories-health"),
@@ -45,19 +51,19 @@ export function MemoriesHealth() {
 
   if (query.isLoading || !query.data) {
     return (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-2 text-muted-foreground">
         <span className="inline-block h-2 w-2 rounded-full bg-muted animate-pulse" />
         <span>Checking embeddings health…</span>
-      </div>
+      </span>
     );
   }
 
   if (query.isError) {
     return (
-      <div className="flex items-center gap-2 text-xs text-destructive">
+      <span className="flex items-center gap-2 text-destructive">
         <span className="inline-block h-2 w-2 rounded-full bg-destructive" />
         <span>Health check failed</span>
-      </div>
+      </span>
     );
   }
 
@@ -65,18 +71,18 @@ export function MemoriesHealth() {
 
   if (data.state === "degraded") {
     return (
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="flex items-center gap-2 text-muted-foreground">
         <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
         <span>{data.reason}</span>
-      </div>
+      </span>
     );
   }
 
   const payload = data.payload as MemoriesHealthPayload;
 
   return (
-    <div className="flex items-center gap-3 text-xs">
-      <div className="flex items-center gap-1.5">
+    <>
+      <span className="flex items-center gap-1.5">
         <span
           className={cn("inline-block h-2 w-2 rounded-full", statusDotColor(payload.status))}
           aria-label={`Embeddings status: ${payload.status}`}
@@ -88,7 +94,7 @@ export function MemoriesHealth() {
               ? "Embeddings degraded"
               : "Embeddings exhausted"}
         </span>
-      </div>
+      </span>
 
       {payload.provider !== "unknown" && (
         <span className="text-muted-foreground">
@@ -107,6 +113,24 @@ export function MemoriesHealth() {
           (fallback: <span className="font-mono">{payload.fallbackProvider}</span>)
         </span>
       )}
-    </div>
+    </>
+  );
+}
+
+interface Props {
+  /** Render-context variant; defaults to the compact single-row header presentation. */
+  variant?: WidgetVariant;
+}
+
+/**
+ * Embeddings-health indicator. Defaults to the `compact` variant (the memories
+ * page header row); the same body can now render as a card or rail item via
+ * {@link WidgetShell} (mt#2373). Title is registry-sourced.
+ */
+export function MemoriesHealth({ variant = "compact" }: Props) {
+  return (
+    <WidgetShell variant={variant} title="Embeddings" className="text-xs">
+      <MemoriesHealthBody />
+    </WidgetShell>
   );
 }

@@ -58,7 +58,6 @@ export const environmentMappings = {
 
   // Persistence configuration (modern — populates `persistence.*`)
   MINSKY_PERSISTENCE_BACKEND: "persistence.backend",
-  MINSKY_PERSISTENCE_SQLITE_PATH: "persistence.sqlite.dbPath",
   MINSKY_PERSISTENCE_POSTGRES_URL: "persistence.postgres.connectionString",
 
   // Persistence configuration (modern key). MINSKY_POSTGRES_URL is the canonical
@@ -87,6 +86,14 @@ export const environmentMappings = {
   // / a rejected key) and crash the loader at boot.
   MINSKY_REVIEWER_WEBHOOK_SECRET: "reviewer.webhookSecret",
   MINSKY_REVIEWER_URL: "reviewer.url",
+
+  // MCP operator->service auth token (mt#2346). Promoted from HOOK_ONLY_ENV_VARS
+  // to a real config path (its standing TODO). Consumed by `reviewer.retrigger`
+  // to authenticate against the reviewer service's /retrigger endpoint without
+  // the webhook HMAC secret. Explicit mapping mirrors the reviewer.* entries
+  // above; the dot-path auto-conversion would also produce `mcp.auth.token`, but
+  // an explicit entry documents intent and is robust to future renames.
+  MINSKY_MCP_AUTH_TOKEN: "mcp.auth.token",
 
   // OAuth configuration
   MINSKY_OAUTH_SIGNING_KEY: "oauth.signingKey",
@@ -163,7 +170,6 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_DEPLOY_MEMORY_FILE", // (deployment-time bootstrap; not config)
   "MINSKY_MAIN_WORKSPACE", // (test-fixture constant)
   "MINSKY_SESSIONDB_POSTGRES_URL", // legacy detection (post-mt#1610 retire)
-  "MINSKY_MCP_AUTH_TOKEN", // src/mcp (auth — promote to mcp.auth.token)
   "MINSKY_MCP_MAX_SESSIONS", // src/mcp/server.ts (server config — promote to mcp.maxSessions)
   "MINSKY_MCP_PROFILE", // src/utils/cold-start-profile.ts (debug flag)
   "MINSKY_MCP_RETRY_AFTER_SECS", // src/mcp (server config — promote to mcp.retryAfterSecs)
@@ -224,6 +230,7 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_WATCH_BOT_LOGIN", // src/adapters/shared/commands/reviewer-watch.ts (reviewer-bot login default)
   "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
+  "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
 ]);
 
 /**
@@ -343,7 +350,6 @@ function envVarToConfigPath(envVar: string): string | null {
 
   if (parts[0] === "persistence") {
     // PERSISTENCE_BACKEND -> persistence.backend
-    // PERSISTENCE_SQLITE_DBPATH -> persistence.sqlite.dbPath
     // PERSISTENCE_POSTGRES_CONNECTIONSTRING -> persistence.postgres.connectionString
     if (parts.length === 2) {
       return `persistence.${camelCase(elementAt(parts, 1, "persistence field"))}`;

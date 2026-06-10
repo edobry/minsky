@@ -5,7 +5,7 @@ import { type GitServiceInterface } from "../git";
 import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
 import { type TaskServiceInterface } from "../tasks";
 import { type WorkspaceUtilsInterface } from "../workspace";
-import { type SessionProviderInterface } from "./session-db-adapter";
+import { type SessionProviderInterface } from "./types";
 
 // Import changeset abstraction for enhanced review capabilities
 import { createChangesetService } from "../changeset/changeset-service";

@@ -130,7 +130,6 @@ describe("PersistenceService (instance)", () => {
         persistence: {
           backend: "postgres",
           postgres: { connectionString: "postgresql://modern" },
-          sqlite: { dbPath: "/never/used" },
         },
       });
       const out = buildPersistenceConfigFrom(config);
@@ -146,18 +145,6 @@ describe("PersistenceService (instance)", () => {
       const out = buildPersistenceConfigFrom(config);
       expect(out.backend).toBe("postgres");
       expect(out.postgres).toBeUndefined();
-    });
-
-    test("sqlite backend: returns sqlite entry with default or configured dbPath", () => {
-      const config = makeConfig({
-        persistence: {
-          backend: "sqlite",
-          sqlite: { dbPath: "/configured/path.db" },
-        },
-      });
-      const out = buildPersistenceConfigFrom(config);
-      expect(out.backend).toBe("sqlite");
-      expect(out.sqlite?.dbPath).toBe("/configured/path.db");
     });
 
     test("MINSKY_POSTGRES_URL env var: bottom-of-stack fallback for connection string", () => {

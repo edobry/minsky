@@ -22,6 +22,7 @@ import { log } from "@minsky/shared/logger";
 import { getErrorMessage } from "../errors/index";
 import type { DiscoveredSession, RawTurnLine, TranscriptSource } from "./transcript-source";
 import { type AttachmentRow, buildAttachmentRow } from "./attachment-row-builder";
+import { writeTurnsForTranscript } from "./turn-writer";
 
 export class AgentTranscriptIngestService {
   constructor(
@@ -173,6 +174,34 @@ export class AgentTranscriptIngestService {
       return { ingested: 0, error: err instanceof Error ? err : new Error(String(err)) };
     }
 
+    // ── 4b. Materialize per-turn rows for FTS (ADR-019, mt#2381) ──────────────
+    // Extraction rides with capture: read back the full MERGED transcript (the
+    // upsert just concatenated the new lines onto any prior transcript) and
+    // upsert text-only turn rows. This makes the session FTS-searchable with no
+    // embedding API call — `fts_text` is a GENERATED column populated on the
+    // text write. The embedding vector is filled later by the vector-only
+    // backfill (PerTurnEmbeddingPipeline); writeTurnsForTranscript never touches
+    // the `embedding` column, so an already-embedded turn is not clobbered.
+    // Turn ordering is assigned over the WHOLE transcript, so we extract from the
+    // full merged row, not from the incremental `newLines` slice.
+    let turnExtractError: Error | undefined;
+    try {
+      const fullRows = await this.db
+        .select({ transcript: agentTranscriptsTable.transcript })
+        .from(agentTranscriptsTable)
+        .where(eq(agentTranscriptsTable.agentSessionId, agentSessionId))
+        .limit(1);
+      const fullTranscript = fullRows[0]?.transcript ?? null;
+      await writeTurnsForTranscript(this.db, agentSessionId, fullTranscript);
+    } catch (err) {
+      turnExtractError = err instanceof Error ? err : new Error(String(err));
+      log.warn(`Failed to materialize turn rows for session ${agentSessionId}`, {
+        error: getErrorMessage(err),
+      });
+      // Don't fail the whole ingest — the transcript upsert already succeeded.
+      // Surface the error so the sweep can count degraded ingests.
+    }
+
     // ── 5. Insert new attachment rows (mt#2022) ──────────────────────────────
     // Write to the sibling table for non-turn JSONL lines (attachment/system).
     // PK is `(agent_session_id, line_index)`; `line_index` is stable on an
@@ -214,7 +243,7 @@ export class AgentTranscriptIngestService {
     // and don't roll into this number.
     return {
       ingested: newLines.length,
-      error: hwmReadError ?? attachmentError,
+      error: hwmReadError ?? turnExtractError ?? attachmentError,
     };
   }
 

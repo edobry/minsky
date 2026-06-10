@@ -1059,7 +1059,7 @@ export class PreCommitHook {
       log.cli("   Originating incidents: mt#1641, mt#2250 (migrations 0002/0014/0015).");
       log.cli("");
       log.cli("To fix: write a NEW migration that makes the desired schema change.");
-      log.cli("   Run `bun run db:generate:pg` (or the sqlite equivalent) to generate it.");
+      log.cli("   Run `bun run db:generate:pg` to generate it.");
       log.cli("   See .minsky/rules/migration-authoring.mdc for the canonical workflow.");
       log.cli("");
       log.cli(`If a modification is genuinely legitimate (e.g. fixing a never-applied migration),`);

@@ -2,29 +2,36 @@ import { z } from "zod";
 import { baseSchemas } from "./base";
 
 /**
- * Reviewer webhook-service configuration (mt#2269).
+ * Reviewer webhook-service configuration (mt#2269, amended mt#2346).
  *
- * Backs the `reviewer.retrigger` command, which authenticates against the
- * minsky-reviewer webhook service's `POST /retrigger` endpoint. Both keys are
- * resolved through the standard config system, so they may be set in the user
- * or project config file OR overridden via the environment (the env source has
- * the highest merge priority):
+ * Backs the `reviewer.retrigger` command's TARGET URL:
  *
- *   - `reviewer.webhookSecret` ← `MINSKY_REVIEWER_WEBHOOK_SECRET`
- *   - `reviewer.url`           ← `MINSKY_REVIEWER_URL`
+ *   - `reviewer.url` ← `MINSKY_REVIEWER_URL`
  *
- * Both env mappings are registered in
- * `sources/environment.ts` `environmentMappings` so a value set on a deployed
- * environment (Railway, CI) does not crash the dot-path config parser at boot.
+ * The env mapping is registered in `sources/environment.ts` `environmentMappings`
+ * so a value set on a deployed environment (Railway, CI) does not crash the
+ * dot-path config parser at boot.
+ *
+ * NOTE on `webhookSecret` (mt#2346): the retrigger command NO LONGER uses this
+ * field — it now authenticates with the Minsky MCP auth token (`mcp.auth.token`
+ * ← `MINSKY_MCP_AUTH_TOKEN`); the webhook HMAC secret is GitHub->reviewer
+ * signature-verification only. The field + its env mapping are RETAINED so a
+ * lingering `MINSKY_REVIEWER_WEBHOOK_SECRET` set in an operator/CI environment
+ * still parses to a known config path instead of tripping the dot-path
+ * auto-conversion and crashing the loader at boot (mt#1788 class). It can be
+ * removed once that env var is confirmed unset everywhere.
  *
  * `strictObject` so typos inside the slot fail loud at load time.
  */
 export const reviewerConfigSchema = z
   .strictObject({
     /**
-     * Shared secret used to authenticate with the reviewer webhook service
-     * (sent as the `Authorization: Bearer <secret>` header). Override via the
-     * `MINSKY_REVIEWER_WEBHOOK_SECRET` env var.
+     * @deprecated (mt#2346) No longer used for `reviewer.retrigger` auth — that
+     * now uses `mcp.auth.token`. Retained only so a lingering
+     * `MINSKY_REVIEWER_WEBHOOK_SECRET` env var still parses to a known path
+     * (boot-safety, mt#1788 class). The reviewer SERVICE reads the webhook
+     * secret from its own loader (`services/reviewer/src/config.ts`), not this
+     * domain config path.
      */
     webhookSecret: baseSchemas.optionalNonEmptyString,
 

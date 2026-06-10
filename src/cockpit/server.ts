@@ -324,7 +324,7 @@ export async function getServerSseBrokerForWidget(): Promise<SseBroker | null> {
  * Initialise the SSE broker and pre-subscribe to all canonical channels in
  * `COCKPIT_SSE_CHANNELS`.
  *
- * When the persistence provider is not Postgres (e.g. SQLite, offline mode),
+ * When the persistence provider is not Postgres (e.g. offline mode),
  * the broker is wired with a no-op listener. Clients that connect to
  * `/api/events` will receive an open SSE stream but no events — the endpoint
  * returns 200 (not 503), because the broker IS available; it just has no

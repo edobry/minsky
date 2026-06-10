@@ -1,9 +1,11 @@
 /**
  * Effective Persistence Configuration Utility
  *
- * Reads `config.persistence`, falls back to MINSKY_POSTGRES_URL for the
- * connection string only, and defaults to a local SQLite path when nothing
- * else is configured.
+ * Reads `config.persistence` and falls back to MINSKY_POSTGRES_URL for the
+ * connection string only. Postgres is the sole supported backend (ADR-018,
+ * mt#2349); when no Postgres connection is configured the provider factory
+ * raises a clear "configure Postgres" error rather than silently falling back
+ * to a local file.
  *
  * The legacy `config.sessiondb` block is no longer supported. If a config
  * file still contains a `sessiondb:` key, this resolver throws
@@ -12,9 +14,8 @@
  * unobserved). See task mt#1610 for the removal.
  */
 
-import { getDefaultSqliteDbPath } from "@minsky/shared/paths";
 import type { Configuration } from "./schemas";
-import type { PostgresConfig, SqliteConfig } from "./schemas/persistence";
+import type { PostgresConfig } from "./schemas/persistence";
 
 /**
  * Thrown by `getEffectivePersistenceConfig` when a merged config still
@@ -38,21 +39,16 @@ export class LegacySessiondbConfigError extends Error {
 }
 
 /**
- * Normalized persistence configuration. The top-level `connectionString` and
- * `dbPath` fields are convenience aliases; the full `postgres` and `sqlite`
- * sub-objects carry every configured field (pool settings, etc.) so callers
- * don't drop them silently.
+ * Normalized persistence configuration. The top-level `connectionString`
+ * field is a convenience alias; the full `postgres` sub-object carries every
+ * configured field (pool settings, etc.) so callers don't drop them silently.
  */
 export interface EffectivePersistenceConfig {
-  backend: "sqlite" | "postgres" | string;
+  backend: "postgres" | string;
   /** Convenience alias for `postgres.connectionString`. */
   connectionString?: string;
-  /** Convenience alias for `sqlite.dbPath`. */
-  dbPath?: string;
   /** Full resolved postgres sub-config (present when backend is "postgres"). */
   postgres?: PostgresConfig;
-  /** Full resolved sqlite sub-config (present when backend is "sqlite"). */
-  sqlite?: SqliteConfig;
 }
 
 /**
@@ -64,7 +60,9 @@ export interface EffectivePersistenceConfig {
  *      kept as the canonical escape hatch — `MINSKY_PERSISTENCE_POSTGRES_URL`
  *      already flows through the standard env→config mapping into
  *      `persistence.postgres.connectionString` and takes priority at step 1).
- *   3. Hard-coded defaults (backend → "sqlite", dbPath → default SQLite path).
+ *   3. Hard-coded default (backend → "postgres"). No connection string is
+ *      synthesized; an unconfigured Postgres connection surfaces as a clear
+ *      error at provider-create time.
  *
  * Throws `LegacySessiondbConfigError` if the merged config still contains a
  * `sessiondb:` block.
@@ -76,7 +74,7 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
     throw new LegacySessiondbConfigError(Object.keys(legacy));
   }
 
-  const backend: string = (config.persistence?.backend as string | undefined) ?? "sqlite";
+  const backend: string = (config.persistence?.backend as string | undefined) ?? "postgres";
 
   // ── connectionString (postgres) ──────────────────────────────────────────
   const modernPostgres = config.persistence?.postgres;
@@ -84,8 +82,8 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
   const connectionString: string | undefined = modernConnString ?? process.env.MINSKY_POSTGRES_URL;
 
   // ── postgres sub-config (full) ───────────────────────────────────────────
-  // Only populate when the active backend is postgres so callers don't
-  // receive a stale postgres sub-object when sqlite is active.
+  // Only populate when the active backend is postgres and a connection string
+  // is available so callers don't receive a half-populated postgres sub-object.
   const resolvedPostgres: PostgresConfig | undefined =
     backend === "postgres" && connectionString
       ? ({
@@ -94,20 +92,9 @@ export function getEffectivePersistenceConfig(config: Configuration): EffectiveP
         } as PostgresConfig)
       : undefined;
 
-  // ── dbPath (sqlite) ──────────────────────────────────────────────────────
-  const modernDbPath = config.persistence?.sqlite?.dbPath;
-  const dbPath: string | undefined =
-    modernDbPath ?? (backend === "sqlite" ? getDefaultSqliteDbPath() : undefined);
-
-  // ── sqlite sub-config (full) ─────────────────────────────────────────────
-  const resolvedSqlite: SqliteConfig | undefined =
-    backend === "sqlite" && dbPath ? { dbPath } : undefined;
-
   return {
     backend,
     connectionString,
-    dbPath,
     postgres: resolvedPostgres,
-    sqlite: resolvedSqlite,
   };
 }

@@ -13,7 +13,6 @@ export interface ResolvedConfigShape {
   backend?: string;
   persistence?: {
     backend?: string;
-    sqlite?: { dbPath?: string };
     postgres?: { connectionString?: string };
   };
   backendConfig?: Record<string, Record<string, unknown>>;
@@ -56,8 +55,6 @@ export function getSessionBackendDisplayName(backend: string): string {
   switch (backend) {
     case "json":
       return "JSON files";
-    case "sqlite":
-      return "SQLite database";
     case "postgres":
       return "PostgreSQL database";
     default:

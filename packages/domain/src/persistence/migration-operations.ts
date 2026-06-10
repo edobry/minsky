@@ -6,20 +6,12 @@
  * clean architecture boundaries.
  *
  * Backend-specific logic lives in:
- *   - sqlite-migration-operations.ts
  *   - postgres-migration-operations.ts
  */
 
 import { getErrorMessage } from "../errors/index";
 import { log } from "@minsky/shared/logger";
-import { getDefaultSqliteDbPath } from "@minsky/shared/paths";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
-import {
-  runSqliteSchemaMigrations,
-  runSqliteSchemaMigrationsForBackend,
-  type SqliteMigrationPlan,
-  type SqliteMigrationResult,
-} from "./sqlite-migration-operations";
 import {
   runPostgresSchemaMigrations,
   runPostgresSchemaMigrationsForBackend,
@@ -53,9 +45,6 @@ export async function checkAndGenerateMigrations(): Promise<{
       const dbConfig = {
         postgres: {
           connectionString: effectiveConfig.connectionString ?? null,
-        },
-        sqlite: {
-          path: effectiveConfig.dbPath ?? null,
         },
         backend: effectiveConfig.backend,
       };
@@ -143,18 +132,11 @@ export async function checkAndGenerateMigrations(): Promise<{
  */
 export async function runSchemaMigrationsForConfiguredBackend(
   options: { dryRun?: boolean } = {}
-): Promise<
-  SqliteMigrationPlan | SqliteMigrationResult | PostgresMigrationPlan | PostgresMigrationResult
-> {
+): Promise<PostgresMigrationPlan | PostgresMigrationResult> {
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../configuration/index");
   const config = getConfiguration();
-  const { backend, dbPath, connectionString } = getEffectivePersistenceConfig(config);
-
-  if (backend === "sqlite") {
-    const resolvedDbPath = dbPath ?? getDefaultSqliteDbPath();
-    return runSqliteSchemaMigrations(resolvedDbPath, { dryRun });
-  }
+  const { backend, connectionString } = getEffectivePersistenceConfig(config);
 
   if (backend === "postgres") {
     if (!connectionString) {
@@ -175,13 +157,10 @@ export async function runSchemaMigrationsForConfiguredBackend(
  * (used during data migrations to prep target DB)
  */
 export async function runSchemaMigrationsForBackend(
-  backend: "sqlite" | "postgres",
-  options: { sqlitePath?: string; connectionString?: string } = {}
+  backend: "postgres",
+  options: { connectionString?: string } = {}
 ): Promise<void> {
-  const { sqlitePath, connectionString } = options;
-  if (backend === "sqlite") {
-    return runSqliteSchemaMigrationsForBackend(sqlitePath);
-  }
+  const { connectionString } = options;
   if (backend === "postgres") {
     const conn = connectionString;
     if (!conn) return; // rely on storage.initialize() fallback

@@ -110,7 +110,7 @@ export function registerAuthorshipCommands(
         if (!db) {
           throw new Error(
             "getDatabaseConnection() returned null. " +
-              "authorship.get requires a PostgreSQL or SQLite backend with Drizzle ORM."
+              "authorship.get requires a PostgreSQL backend with Drizzle ORM."
           );
         }
 
@@ -193,7 +193,7 @@ export function registerAuthorshipCommands(
         if (!db) {
           throw new Error(
             "getDatabaseConnection() returned null. " +
-              "Authorship recomputation requires a PostgreSQL or SQLite backend with Drizzle ORM."
+              "Authorship recomputation requires a PostgreSQL backend with Drizzle ORM."
           );
         }
 

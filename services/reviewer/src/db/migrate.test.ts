@@ -32,12 +32,13 @@ function stubDbReturning(rows: { tablename: string }[]): ReviewerDb {
 }
 
 describe("mt#1967 self-check exports", () => {
-  test("REVIEWER_EXPECTED_TABLES lists all four reviewer tables in migration order", () => {
+  test("REVIEWER_EXPECTED_TABLES lists all reviewer tables in migration order", () => {
     expect(REVIEWER_EXPECTED_TABLES).toEqual([
       "reviewer_convergence_metrics",
       "reviewer_webhook_events",
       "reviewer_inflight_reviews",
       "review_timing",
+      "reviewer_submission_failures",
     ]);
   });
 
@@ -68,6 +69,7 @@ describe("mt#1967 verifyExpectedTables", () => {
       { tablename: "reviewer_convergence_metrics" },
       { tablename: "reviewer_inflight_reviews" },
       { tablename: "review_timing" },
+      { tablename: "reviewer_submission_failures" },
     ]);
     await expect(verifyExpectedTables(db)).rejects.toThrow(/self-check FAILED/);
     await expect(verifyExpectedTables(db)).rejects.toThrow(/1 expected/);
@@ -79,7 +81,7 @@ describe("mt#1967 verifyExpectedTables", () => {
 
   test("throws listing all missing tables when none are present (fresh DB case)", async () => {
     const db = stubDbReturning([]);
-    await expect(verifyExpectedTables(db)).rejects.toThrow(/4 expected/);
+    await expect(verifyExpectedTables(db)).rejects.toThrow(/5 expected/);
     for (const expectedTable of REVIEWER_EXPECTED_TABLES) {
       await expect(verifyExpectedTables(db)).rejects.toThrow(new RegExp(expectedTable));
     }

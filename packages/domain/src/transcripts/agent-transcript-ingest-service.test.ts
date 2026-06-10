@@ -429,17 +429,23 @@ describe("AgentTranscriptIngestService", () => {
       const state = new Map<string, FakeRow>();
       const db = makeDb(state);
 
-      // Throw on the second upsert (session B), let A and C succeed.
-      let upsertCount = 0;
+      // Throw on session B's TRANSCRIPT upsert, let A and C succeed. We key on
+      // the session + the presence of the `transcript` field so the failure
+      // targets the agent_transcripts upsert specifically — ingestSession also
+      // issues per-turn upserts now (ADR-019, mt#2381), which carry `turnIndex`
+      // (not `transcript`) and must not be the thing we fail here.
       const origInsert = db.insert.bind(db);
       (db as Record<string, unknown>).insert = (_table: unknown) => ({
         values: (values: Partial<FakeRow> & { agentSessionId: string }) => {
           const realChain = origInsert(_table).values(values);
+          const isSessionBTranscriptUpsert =
+            values.agentSessionId === SESSION_B && "transcript" in values;
           return {
             then: realChain.then.bind(realChain),
             onConflictDoUpdate: (opts: unknown): Promise<void> => {
-              upsertCount++;
-              if (upsertCount === 2) return Promise.reject(new Error("simulated DB error"));
+              if (isSessionBTranscriptUpsert) {
+                return Promise.reject(new Error("simulated DB error"));
+              }
               return realChain.onConflictDoUpdate(opts);
             },
           };

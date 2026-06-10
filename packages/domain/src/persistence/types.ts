@@ -7,9 +7,6 @@
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { VectorStorage } from "../storage/vector/types";
-import type { DatabaseStorage as StorageDatabaseStorage } from "../storage/database-storage";
-import type { SessionRecord } from "../session/types";
-import type { SessionDbState } from "../session/session-db";
 import type { VectorDomain } from "../storage/schemas/embeddings-schema-factory";
 
 /**
@@ -27,7 +24,7 @@ export interface PersistenceCapabilities {
  * Configuration for different persistence backends
  */
 export interface PersistenceConfig {
-  backend: "postgres" | "sqlite";
+  backend: "postgres";
   postgres?: {
     connectionString: string;
     /**
@@ -40,22 +37,7 @@ export interface PersistenceConfig {
     idleTimeout?: number;
     prepareStatements?: boolean;
   };
-  sqlite?: {
-    dbPath: string;
-  };
 }
-
-/**
- * Re-export DatabaseStorage from storage module for use by providers.
- * The canonical DatabaseStorage interface lives in storage/database-storage.ts.
- */
-export type { StorageDatabaseStorage as DatabaseStorage };
-
-/**
- * Concrete storage type — all providers store sessions.
- * Previously generic `<T, S>` but only ever instantiated with SessionRecord/SessionDbState.
- */
-export type SessionStorage = StorageDatabaseStorage<SessionRecord, SessionDbState>;
 
 /**
  * Base interface for all persistence providers
@@ -63,7 +45,6 @@ export type SessionStorage = StorageDatabaseStorage<SessionRecord, SessionDbStat
 export interface BasePersistenceProvider {
   readonly capabilities: PersistenceCapabilities;
   getCapabilities(): PersistenceCapabilities;
-  getStorage(): SessionStorage;
   initialize(): Promise<void>;
   close(): Promise<void>;
   getConnectionInfo(): string;
@@ -112,14 +93,13 @@ export interface VectorCapablePersistenceProvider extends BasePersistenceProvide
 export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract readonly capabilities: PersistenceCapabilities;
   abstract getCapabilities(): PersistenceCapabilities;
-  abstract getStorage(): SessionStorage;
   abstract initialize(): Promise<void>;
   abstract close(): Promise<void>;
   abstract getConnectionInfo(): string;
 
   // Optional capability methods — implemented by SQL/vector-capable subclasses.
-  // Returns `unknown` because SQLite and PostgreSQL return different concrete DB types;
-  // callers that need typed connections should narrow via SqlCapablePersistenceProvider.
+  // Returns `unknown` at the base because subclasses return different concrete DB
+  // types; callers that need typed connections should narrow via SqlCapablePersistenceProvider.
   getDatabaseConnection?(): Promise<unknown>;
   getRawSqlConnection?(): Promise<unknown>;
   /** Session-mode-capable connection for LISTEN/NOTIFY (mt#1852). */

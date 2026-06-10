@@ -102,7 +102,9 @@ async function main(): Promise<void> {
     await persistenceService.initialize();
     const persistenceProvider = persistenceService.getProvider();
 
-    const { createSessionProvider } = await import("@minsky/domain/session/session-db-adapter");
+    const { createSessionProvider } = await import(
+      "@minsky/domain/session/drizzle-session-repository"
+    );
     sessionProvider = await createSessionProvider(undefined, persistenceProvider);
   } catch (err) {
     process.stderr.write(`[post-commit] Warning: could not initialize session provider: ${err}\n`);

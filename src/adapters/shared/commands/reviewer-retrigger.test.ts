@@ -1,101 +1,117 @@
 /**
- * Unit tests for reviewer.retrigger config resolution (mt#2269).
+ * Unit tests for reviewer.retrigger config resolution (mt#2269 URL, mt#2346 auth).
  *
- * Before mt#2269 the command read its auth secret and target URL from
- * `process.env` only (env-only secret, hardcoded-with-env URL), and the
- * "missing secret" error claimed a Minsky-config fallback that did not exist.
- * mt#2269 routes both values through the Minsky config system, with the
- * `MINSKY_REVIEWER_WEBHOOK_SECRET` / `MINSKY_REVIEWER_URL` env vars overriding
- * config-file values via the environment source's higher merge priority.
+ * mt#2269 routed the target URL through the Minsky config system
+ * (`reviewer.url` ← `MINSKY_REVIEWER_URL`). mt#2346 changed the auth credential
+ * from the reviewer webhook HMAC secret to the Minsky MCP auth token
+ * (`mcp.auth.token` ← `MINSKY_MCP_AUTH_TOKEN`) — the operator->service credential
+ * the operator already holds and the reviewer service already has — so on-demand
+ * triggering never needs the GitHub-signing secret. The webhook HMAC secret is no
+ * longer read by the retrigger client.
  *
  * These tests assert:
- *   - the resolution precedence (config value used; default URL fallback;
- *     missing secret → error) via the pure `resolveReviewerEndpoint` helper;
- *   - the corrected error message names ONLY resolution paths that exist;
+ *   - resolution precedence via the pure `resolveReviewerEndpoint` helper (auth
+ *     token required; default URL fallback; missing token → error);
+ *   - the error message names ONLY resolution paths that exist (mt#2346);
  *   - the env-override registration that provides the precedence
- *     (environmentMappings routes both env vars to their `reviewer.*` paths);
- *   - an end-to-end check that the real environment source populates the
- *     `reviewer.*` slice consumed by the resolver.
+ *     (environmentMappings routes the auth + URL env vars to their config paths);
+ *   - an end-to-end check that the real environment source populates the config
+ *     slices consumed by the resolver.
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { resolveReviewerEndpoint } from "./reviewer-retrigger";
+// mt#2359: import the production constant rather than re-declaring a literal.
+// The prior local copy held the wrong (no `-production`) URL and "passed" while
+// validating the wrong value — the SoT-duplication-masks-the-bug failure. The
+// fallback-URL assertion below is now anchored to the real default the command uses.
+import { resolveReviewerEndpoint, DEFAULT_REVIEWER_URL } from "./reviewer-retrigger";
 import {
   environmentMappings,
   loadEnvironmentConfiguration,
 } from "@minsky/domain/configuration/sources/environment";
 
-const DEFAULT_REVIEWER_URL = "https://minsky-reviewer-webhook.up.railway.app";
-
-const SECRET_ENV = "MINSKY_REVIEWER_WEBHOOK_SECRET";
+const TOKEN_ENV = "MINSKY_MCP_AUTH_TOKEN";
 const URL_ENV = "MINSKY_REVIEWER_URL";
-const SECRET_PATH = "reviewer.webhookSecret";
+const TOKEN_PATH = "mcp.auth.token";
 const URL_PATH = "reviewer.url";
 
-const CFG_SECRET = "cfg-secret";
-const ENV_SECRET = "env-secret";
+const CFG_TOKEN = "cfg-token";
+const ENV_TOKEN = "env-token";
 const CFG_URL = "https://reviewer.example.test";
 const ENV_URL = "https://env-reviewer.example.test";
 
-describe("resolveReviewerEndpoint (mt#2269)", () => {
-  it("resolves the secret from config and falls back to the default URL", () => {
-    const { url, webhookSecret } = resolveReviewerEndpoint({ webhookSecret: CFG_SECRET });
-    expect(webhookSecret).toBe(CFG_SECRET);
-    expect(url).toBe(DEFAULT_REVIEWER_URL);
-  });
-
-  it("resolves the URL from config when present", () => {
-    const { url, webhookSecret } = resolveReviewerEndpoint({
-      webhookSecret: CFG_SECRET,
-      url: CFG_URL,
-    });
-    expect(url).toBe(CFG_URL);
-    expect(webhookSecret).toBe(CFG_SECRET);
-  });
-
-  it("throws when no secret is resolvable (neither config nor env override)", () => {
-    expect(() => resolveReviewerEndpoint(undefined)).toThrow();
-    expect(() => resolveReviewerEndpoint({})).toThrow();
-    expect(() => resolveReviewerEndpoint({ url: CFG_URL })).toThrow();
-  });
-
-  it("error message names only resolution paths that actually exist", () => {
-    let message = "";
-    try {
-      resolveReviewerEndpoint({});
-    } catch (err) {
-      message = err instanceof Error ? err.message : String(err);
-    }
-    // Names the real config key and the real env override...
-    expect(message).toContain(SECRET_PATH);
-    expect(message).toContain(SECRET_ENV);
-    // ...and does NOT repeat the old aspirational "or Minsky config" phrasing
-    // that claimed a fallback the code never implemented.
-    expect(message).not.toContain("Set it in your environment or Minsky config");
+describe("DEFAULT_REVIEWER_URL drift sentinel (mt#2359)", () => {
+  // Offline regression guard: the prior value omitted `-production` and 404'd.
+  // Railway publishes services at `<service>-<environment>.up.railway.app`; the
+  // reviewer service (infra/index.ts) is `minsky-reviewer-webhook` in the
+  // `production` environment. The live /health drift guard is
+  // scripts/smoke-retrigger-default-url.ts; this is the network-free sentinel.
+  it("points at the production Railway host (has the -production suffix)", () => {
+    expect(DEFAULT_REVIEWER_URL).toBe("https://minsky-reviewer-webhook-production.up.railway.app");
+    expect(DEFAULT_REVIEWER_URL).toContain("-production.up.railway.app");
   });
 });
 
-describe("reviewer env-override registration (mt#2269)", () => {
-  it("maps the webhook secret + URL env vars to their reviewer.* config paths", () => {
+describe("resolveReviewerEndpoint (mt#2269 URL, mt#2346 auth)", () => {
+  it("resolves the auth token from the MCP config and falls back to the default URL", () => {
+    const { url, authToken } = resolveReviewerEndpoint(undefined, CFG_TOKEN);
+    expect(authToken).toBe(CFG_TOKEN);
+    expect(url).toBe(DEFAULT_REVIEWER_URL);
+  });
+
+  it("resolves the URL from reviewer config when present", () => {
+    const { url, authToken } = resolveReviewerEndpoint({ url: CFG_URL }, CFG_TOKEN);
+    expect(url).toBe(CFG_URL);
+    expect(authToken).toBe(CFG_TOKEN);
+  });
+
+  it("throws when no auth token is resolvable (neither config nor env override)", () => {
+    expect(() => resolveReviewerEndpoint(undefined, undefined)).toThrow();
+    expect(() => resolveReviewerEndpoint({}, undefined)).toThrow();
+    expect(() => resolveReviewerEndpoint({ url: CFG_URL }, undefined)).toThrow();
+  });
+
+  it("error message names the MCP auth resolution paths, not the webhook secret", () => {
+    let message = "";
+    try {
+      resolveReviewerEndpoint({}, undefined);
+    } catch (err) {
+      message = err instanceof Error ? err.message : String(err);
+    }
+    // Names the real config key and the real env override for the MCP auth token...
+    expect(message).toContain(TOKEN_PATH);
+    expect(message).toContain(TOKEN_ENV);
+    // ...and does NOT instruct the operator to obtain the webhook secret (mt#2346:
+    // the retrigger client no longer uses it).
+    expect(message).not.toContain("MINSKY_REVIEWER_WEBHOOK_SECRET");
+    expect(message).not.toContain("reviewer.webhookSecret");
+  });
+});
+
+describe("reviewer retrigger env-override registration (mt#2269 URL, mt#2346 auth)", () => {
+  it("maps the MCP auth token + reviewer URL env vars to their config paths", () => {
     // The environment source (priority 100) out-prioritizes user/project config
     // (50/25), so these mappings are what make the env vars OVERRIDE the config
-    // file — the precedence relied on by resolveReviewerEndpoint's single read.
-    expect(environmentMappings).toHaveProperty(SECRET_ENV, SECRET_PATH);
+    // file — the precedence relied on by resolveReviewerEndpoint's reads.
+    expect(environmentMappings).toHaveProperty(TOKEN_ENV, TOKEN_PATH);
     expect(environmentMappings).toHaveProperty(URL_ENV, URL_PATH);
   });
 });
 
-describe("reviewer env-override end-to-end (mt#2269)", () => {
+describe("reviewer retrigger env-override end-to-end (mt#2346)", () => {
   // Subset of the env-loaded shape this test asserts on. The runtime shape is
   // `z.input<...>` of nested-optional schemas, which TypeScript can't navigate
   // deeply enough — mirror the pattern in environment.test.ts.
-  type ExpectedShape = { reviewer?: { webhookSecret?: string; url?: string } };
+  type ExpectedShape = {
+    reviewer?: { url?: string };
+    mcp?: { auth?: { token?: string } };
+  };
 
-  const REVIEWER_ENV_KEYS = [SECRET_ENV, URL_ENV];
+  const RETRIGGER_ENV_KEYS = [TOKEN_ENV, URL_ENV];
   let original: Record<string, string | undefined> = {};
 
   afterEach(() => {
-    for (const key of REVIEWER_ENV_KEYS) {
+    for (const key of RETRIGGER_ENV_KEYS) {
       const value = original[key];
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
@@ -103,8 +119,8 @@ describe("reviewer env-override end-to-end (mt#2269)", () => {
     original = {};
   });
 
-  function withReviewerEnv(values: Record<string, string>): ExpectedShape {
-    for (const key of REVIEWER_ENV_KEYS) {
+  function withRetriggerEnv(values: Record<string, string>): ExpectedShape {
+    for (const key of RETRIGGER_ENV_KEYS) {
       original[key] = process.env[key];
       delete process.env[key];
     }
@@ -112,16 +128,16 @@ describe("reviewer env-override end-to-end (mt#2269)", () => {
     return loadEnvironmentConfiguration() as ExpectedShape;
   }
 
-  it("env vars populate reviewer.* through the real environment source, and resolve through to the endpoint", () => {
-    const loaded = withReviewerEnv({ [SECRET_ENV]: ENV_SECRET, [URL_ENV]: ENV_URL });
+  it("env vars populate config through the real environment source, and resolve through to the endpoint", () => {
+    const loaded = withRetriggerEnv({ [TOKEN_ENV]: ENV_TOKEN, [URL_ENV]: ENV_URL });
 
-    // End-to-end: the env source (priority 100, highest) produces the
-    // `reviewer.*` config slice that resolveReviewerEndpoint consumes.
-    expect(loaded.reviewer?.webhookSecret).toBe(ENV_SECRET);
+    // End-to-end: the env source (priority 100, highest) produces the config
+    // slices that resolveReviewerEndpoint consumes.
+    expect(loaded.mcp?.auth?.token).toBe(ENV_TOKEN);
     expect(loaded.reviewer?.url).toBe(ENV_URL);
 
-    const resolved = resolveReviewerEndpoint(loaded.reviewer);
-    expect(resolved.webhookSecret).toBe(ENV_SECRET);
+    const resolved = resolveReviewerEndpoint(loaded.reviewer, loaded.mcp?.auth?.token);
+    expect(resolved.authToken).toBe(ENV_TOKEN);
     expect(resolved.url).toBe(ENV_URL);
   });
 });
