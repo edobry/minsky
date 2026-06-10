@@ -385,3 +385,35 @@ constant `UNMERGED_MIGRATION_CHECK_OVERRIDE_ENV` so the guard, tests, and this d
 **Complement:** the immutable-migration _pre-commit_ guard (mt#2268) blocks _editing_ an
 already-applied migration file; this guard blocks _applying_ an unmerged one. Together they
 retire the mt#2229 / mt#2250 migration-drift class.
+
+## Migration Folder Resolution (bundle-aware, mt#2369)
+
+`minsky persistence migrate` resolves its Postgres migrations folder via
+`resolvePgMigrationsFolder()` in
+`packages/domain/src/persistence/postgres-migration-operations.ts`. The resolver tries
+candidates in order and returns the first one whose `meta/_journal.json` exists:
+
+| #   | Candidate                                         | When it wins                                                                                                                                                                 |
+| --- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| a   | `import.meta.dir/../storage/migrations/pg`        | Source-tree (dev): this file is at `packages/domain/src/persistence/`, one level up is `src/storage/migrations/pg`                                                           |
+| b-1 | `import.meta.dir/storage/migrations/pg`           | Primary bundled-dist probe: `import.meta.dir` is the directory containing `dist/minsky.js`; migrations are copied there as `dist/storage/migrations/pg`                      |
+| b-2 | `dirname(process.argv[1])/storage/migrations/pg`  | Secondary bundled-dist probe: `process.argv[1]` is the invoked script path (e.g. `/usr/local/bin/minsky.js`); useful when `import.meta.dir` differs from the binary location |
+| c   | `<cwd>/packages/domain/src/storage/migrations/pg` | Legacy fallback: preserves pre-mt#2369 behaviour for `bun run src/cli.ts` from the repo root                                                                                 |
+
+**Why `process.argv[1]`, not `process.argv[0]` or `process.execPath`.**
+`process.argv[0]` and `process.execPath` both point to the Bun runtime binary (e.g.
+`/home/user/.bun/bin/bun`), which is NOT co-located with the migration assets.
+`process.argv[1]` is the path of the invoked script (`dist/minsky.js`), which IS
+co-located with the bundled migrations at `dist/storage/migrations/pg`. Using
+`process.argv[0]` / `process.execPath` would produce a wrong path like
+`/home/user/.bun/bin/storage/migrations/pg` and fail to find the migrations.
+
+**Diagnostic output.** If none of the candidates contains `meta/_journal.json`, the
+command throws with the full list of tried paths so the operator can diagnose the issue.
+
+**Cold-start regression gate.** The `.github/workflows/cold-start-migrate.yml` CI workflow
+validates this resolver end-to-end on every PR: it builds the bundle, runs
+`minsky persistence migrate --execute` from a temp directory outside the repo, then asserts
+via `psql` that the `tasks` table was created AND that a follow-up dry-run reports 0 pending
+migrations. A successful run conclusively proves the bundled binary resolves its migrations
+from an arbitrary working directory.
