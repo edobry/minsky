@@ -182,6 +182,13 @@ export const SearchReplaceSchema = z.object({
     .describe(
       "When true, replace ALL occurrences of the search text. When false (default), require exactly one occurrence and replace it."
     ),
+  allow_growth: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Override the replace_all size-growth guard (mt#2400). When false (default), a replace_all matching 2+ occurrences that would grow the file beyond 1.5x its original size is REFUSED as a likely runaway duplication. Set true only when the large growth is genuinely intended."
+    ),
 });
 
 /**
@@ -191,6 +198,13 @@ export const SearchReplaceSchema = z.object({
 export const EditInstructionsSchema = z.object({
   instructions: z.string().describe("Instructions describing the edit to make"),
   content: z.string().describe("The edit content with '// ... existing code ...' markers"),
+  fullReplace: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Override the marker-less fail-closed guard (mt#2400). When false (default), editing an EXISTING file with marker-less content is REFUSED (it would silently overwrite the whole file). Set true to intentionally replace the entire file content (prefer session_write_file for that)."
+    ),
 });
 
 /**
