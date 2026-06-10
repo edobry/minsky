@@ -270,6 +270,50 @@ The benchmark lists recent merged PRs, identifies Tier-3 ones by body marker or 
 - The seeded-bug target directory (`scripts/__seeded_bug_targets__/`) is gitignored locally. Harness runs write files there but do not commit them; the remote branch is deleted by the harness in its cleanup step.
 - Results files (`seeded-bug-results.json`, `reviewer-benchmark-results.json`) are written locally in the `scripts/` directory. Commit them manually if you want to checkpoint a baseline.
 
+## Operator alerts (mt#2364 / mt#1596)
+
+When the submission-failure circuit breaker (mt#2350) trips — a PR's review submission keeps failing with a non-retryable error and the sweeper has stopped retriggering it — the failure is surfaced two ways:
+
+1. **On-cockpit (Phase 1, mt#2363, always on):** an operator-routed `coordination.notify` Ask is created and rendered on the cockpit `AsksPage`.
+2. **Off-cockpit (Phase 2, mt#2364, opt-in):** an external alert sink pushes the same failure to a channel that reaches you when the cockpit isn't open (after-hours, weekend, mobile).
+
+The external sink is **disabled by default**. It fails open — a sink error never crashes the sweep, and never affects the circuit-breaker dedup (which is gated on the cockpit-Ask outcome).
+
+### Telegram (recommended)
+
+```bash
+ALERT_SINK_TYPE=telegram
+TELEGRAM_BOT_TOKEN=<bot token from @BotFather>
+TELEGRAM_CHAT_ID=<your chat id>
+```
+
+To set it up:
+
+1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the bot token it gives you.
+2. Send any message to your new bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `result[].message.chat.id` — that's your `TELEGRAM_CHAT_ID`.
+3. Set the three env vars above on the reviewer's Railway service.
+
+The Telegram sink posts via the Bot API `sendMessage` endpoint with a raw `fetch` — no SDK dependency. A future `MatrixAlertSink` (mt#1454) will drop in behind the same `AlertSink` interface.
+
+### Generic webhook
+
+```bash
+ALERT_SINK_TYPE=webhook
+ALERT_SINK_URL=https://your-endpoint.example/alerts
+ALERT_SINK_SECRET=<optional shared secret>   # sent as the x-alert-secret header
+```
+
+POSTs `{ severity, title, body }` as JSON.
+
+### Verify the wiring
+
+```bash
+ALERT_SINK_TYPE=telegram TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
+  bun services/reviewer/scripts/smoke-alert-sink.ts
+```
+
+Sends one test message through the configured sink (SKIPs gracefully when no sink is configured).
+
 ## Self-hosting
 
 The service is deliberately stateless. Any deployment target that supports Node.js webhooks works (Railway, Fly, Vercel Functions, Render). Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely.
