@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { shortenId } from "./format";
 
 export type EntityTabKind = "task" | "session" | "agent";
 
@@ -62,7 +63,7 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
       kind: "session",
       entityId: id,
       path: pathname,
-      label: id.length > 8 ? `${id.slice(0, 8)}…` : id,
+      label: shortenId(id),
     };
   }
 
@@ -73,7 +74,7 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
       kind: "agent",
       entityId: id,
       path: pathname,
-      label: id.length > 8 ? `${id.slice(0, 8)}…` : id,
+      label: shortenId(id),
     };
   }
 

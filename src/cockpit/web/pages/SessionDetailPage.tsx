@@ -11,6 +11,7 @@
  */
 import { useParams, Link } from "react-router-dom";
 import { SessionDetail } from "../widgets/SessionDetail";
+import { shortenId } from "../lib/format";
 
 export function SessionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,7 +29,7 @@ export function SessionDetailPage() {
         </Link>
         <span aria-hidden="true">/</span>
         <span className="font-mono text-foreground" title={sessionId}>
-          {sessionId.length > 8 ? `${sessionId.slice(0, 8)}…` : sessionId}
+          {shortenId(sessionId)}
         </span>
       </nav>
 

@@ -7,6 +7,8 @@
  *   GET /api/widget/:id/data  — fetch a single widget's data (registry-gated;
  *                               404 only for ids absent from WIDGET_REGISTRY)
  *   GET /api/events           — SSE stream of Postgres NOTIFY events (mt#1853)
+ *   GET /api/agents/:id       — workspace-session detail: meta, commits, PR
+ *                               state, transcript bridge (mt#1919)
  *   GET /api/asks             — list pending operator-routed asks (mt#1916)
  *   POST /api/asks/:id/resolve — mark an Ask as resolved (mt#1147)
  *   GET /assets/*             — static files from web/dist/assets
@@ -722,7 +724,14 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       const commitsPromise: Promise<ReturnType<typeof parseGitLog>> = (async () => {
         if (!workdir) return [];
         const { existsSync } = await import("node:fs");
-        if (!existsSync(workdir)) return [];
+        const { join } = await import("node:path");
+        // .git may be a directory (normal checkout) or a file (worktree
+        // indirection) — existsSync covers both. A workspace without it is
+        // not a git checkout; skip rather than let git walk up to a parent repo.
+        if (!existsSync(workdir) || !existsSync(join(workdir, ".git"))) {
+          log.debug(`[agents] commits enrichment skipped — no git workspace at ${workdir}`);
+          return [];
+        }
         const { execFile } = await import("node:child_process");
         const { promisify } = await import("node:util");
         const execFileAsync = promisify(execFile);
@@ -733,7 +742,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
             { timeout: 5_000, maxBuffer: 256 * 1024 }
           );
           return parseGitLog(stdout, repoWebBase);
-        } catch {
+        } catch (gitErr) {
+          const msg = gitErr instanceof Error ? gitErr.message : String(gitErr);
+          log.debug(`[agents] commits enrichment degraded — git log failed: ${msg}`);
           return [];
         }
       })();
@@ -745,7 +756,9 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
           if (!taskService) return null;
           const task = await taskService.getTask(record.taskId);
           return task?.title ?? null;
-        } catch {
+        } catch (titleErr) {
+          const msg = titleErr instanceof Error ? titleErr.message : String(titleErr);
+          log.debug(`[agents] task-title enrichment degraded: ${msg}`);
           return null;
         }
       })();
@@ -761,20 +774,27 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
             "@minsky/domain/storage/schemas/agent-transcripts-schema"
           );
           const { eq, like, or, desc, sql } = await import("drizzle-orm");
+          // Escape LIKE wildcards in the literal path (Postgres default escape
+          // char is backslash), then match descendants under either separator —
+          // POSIX "/" and Windows "\" (stored as an escaped "\\" in the pattern).
+          const escaped = workdir.replace(/([\\%_])/g, "\\$1");
           const rows = await db
             .select({ agentSessionId: agentTranscriptsTable.agentSessionId })
             .from(agentTranscriptsTable)
             .where(
               or(
                 eq(agentTranscriptsTable.cwd, workdir),
-                like(agentTranscriptsTable.cwd, `${workdir}/%`)
+                like(agentTranscriptsTable.cwd, `${escaped}/%`),
+                like(agentTranscriptsTable.cwd, `${escaped}\\\\%`)
               )
             )
             .orderBy(sql`${desc(agentTranscriptsTable.startedAt)} NULLS LAST`)
             .limit(1);
           const first = rows[0];
           return first ? { agentSessionId: first.agentSessionId } : null;
-        } catch {
+        } catch (convErr) {
+          const msg = convErr instanceof Error ? convErr.message : String(convErr);
+          log.debug(`[agents] conversation enrichment degraded: ${msg}`);
           return null;
         }
       })();

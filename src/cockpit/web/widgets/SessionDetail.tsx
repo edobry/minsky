@@ -15,6 +15,7 @@ import { Link } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
+import { shortenId } from "../lib/format";
 
 // ---------------------------------------------------------------------------
 // Types — mirrors the /api/agents/:id response shape (src/cockpit/session-detail.ts)
@@ -59,13 +60,26 @@ export interface SessionDetailPayload {
   conversation: { agentSessionId: string } | null;
 }
 
+const LIVENESS_VALUES = ["healthy", "idle", "stale", "orphaned"] as const;
+
 function isSessionDetailPayload(v: unknown): v is SessionDetailPayload {
-  return (
-    typeof v === "object" &&
-    v !== null &&
-    "session" in v &&
-    typeof (v as { session: unknown }).session === "object"
-  );
+  if (typeof v !== "object" || v === null) return false;
+  const p = v as Partial<SessionDetailPayload>;
+  if (typeof p.session !== "object" || p.session === null) return false;
+  if (typeof p.session.sessionId !== "string") return false;
+  if (!LIVENESS_VALUES.includes(p.session.liveness as (typeof LIVENESS_VALUES)[number])) {
+    return false;
+  }
+  if (!Array.isArray(p.commits)) return false;
+  if (p.pr !== null && typeof p.pr !== "object") return false;
+  if (
+    p.conversation !== null &&
+    (typeof p.conversation !== "object" ||
+      typeof (p.conversation as { agentSessionId?: unknown }).agentSessionId !== "string")
+  ) {
+    return false;
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +304,7 @@ export function SessionDetail({ sessionId, variant = "card" }: SessionDetailProp
 
   // Dynamic title: branch on success (the human-meaningful name, matching the
   // Agents list's primary-label precedence), sessionId prefix otherwise.
-  const shortId = sessionId.length > 8 ? `${sessionId.slice(0, 8)}…` : sessionId;
+  const shortId = shortenId(sessionId);
   const title =
     query.data && isSessionDetailPayload(query.data)
       ? (query.data.session.branch ?? shortId)
