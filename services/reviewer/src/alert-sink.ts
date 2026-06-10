@@ -33,6 +33,7 @@
  */
 
 import { log } from "./logger";
+import { safeTruncate } from "@minsky/shared/safe-truncate";
 
 /** Alert severity. The circuit-breaker path emits `error`. */
 export type AlertSeverity = "info" | "warn" | "error";
@@ -47,6 +48,23 @@ export interface AlertSink {
 
 /** Injectable fetch for tests. */
 export type FetchFn = typeof fetch;
+
+/** Max bytes of a non-2xx response body to include in diagnostics. */
+const MAX_BODY_SNIPPET = 1000;
+
+/**
+ * Best-effort read of a bounded snippet of a response body for diagnostics.
+ * Guarded: any failure (no `text()`, already-consumed body, throw) returns
+ * `undefined` so it can never break the fail-open path.
+ */
+async function safeReadBodySnippet(res: Response): Promise<string | undefined> {
+  try {
+    const text = await res.text();
+    return safeTruncate(text, MAX_BODY_SNIPPET, "head");
+  } catch {
+    return undefined;
+  }
+}
 
 export type AlertSinkType = "telegram" | "webhook" | "off";
 
@@ -117,6 +135,10 @@ export class TelegramAlertSink implements AlertSink {
           status: res.status,
           severity,
           title,
+          // Telegram returns a JSON error body (e.g. {ok:false, description:
+          // "Bad Request: chat not found"}) — include a bounded snippet so
+          // operators can diagnose bad chat id / bot-not-started without guessing.
+          responseBody: await safeReadBodySnippet(res),
         });
       }
     } catch (err: unknown) {
@@ -156,6 +178,9 @@ export class WebhookAlertSink implements AlertSink {
           status: res.status,
           severity,
           title,
+          // Include a bounded snippet of the receiver's response so auth /
+          // validation errors on the endpoint side are diagnosable.
+          responseBody: await safeReadBodySnippet(res),
         });
       }
     } catch (err: unknown) {

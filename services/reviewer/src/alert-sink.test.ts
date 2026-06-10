@@ -16,8 +16,13 @@ import {
 } from "./alert-sink";
 
 // A fetch double that records calls and returns a configurable Response-like.
+// The returned object may include a `text()` method to exercise the non-2xx
+// response-body diagnostics path.
 function fakeFetch(
-  impl: (url: string, init?: RequestInit) => { ok: boolean; status: number } | Promise<never>
+  impl: (
+    url: string,
+    init?: RequestInit
+  ) => { ok: boolean; status: number; text?: () => Promise<string> } | Promise<never>
 ): { fetchFn: FetchFn; calls: Array<{ url: string; init?: RequestInit }> } {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const fetchFn = mock((url: string, init?: RequestInit) => {
@@ -152,8 +157,12 @@ describe("TelegramAlertSink.notify (mt#2364)", () => {
     expect(payload.text).toContain("details here");
   });
 
-  test("fail-open: non-2xx response does not throw (logs)", async () => {
-    const { fetchFn } = fakeFetch(() => ({ ok: false, status: 503 }));
+  test("fail-open: non-2xx response does not throw, logs status + response body", async () => {
+    const { fetchFn } = fakeFetch(() => ({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve('{"ok":false,"description":"Bad Request: chat not found"}'),
+    }));
     const sink = new TelegramAlertSink("tok", "1", fetchFn);
     const { logs, restore } = captureConsoleLogs();
     let threw = false;
@@ -165,7 +174,10 @@ describe("TelegramAlertSink.notify (mt#2364)", () => {
       restore();
     }
     expect(threw).toBe(false);
-    expect(findLogEvent(logs, "sweeper.alert_sink_telegram_non_ok")).not.toBeNull();
+    const ev = findLogEvent(logs, "sweeper.alert_sink_telegram_non_ok");
+    expect(ev).not.toBeNull();
+    expect(ev?.status).toBe(400);
+    expect(String(ev?.responseBody)).toContain("chat not found");
   });
 
   test("fail-open: fetch throwing does not throw (logs)", async () => {

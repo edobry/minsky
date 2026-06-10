@@ -634,11 +634,23 @@ export async function runSweep(
           // and deliberately NOT awaited / NOT gating dedup — the sink is
           // best-effort redundancy alongside the Phase-1 cockpit Ask, which
           // remains the source-of-truth surface that drives the `alerted` mark.
-          void alertSink?.notify(
-            "error",
-            `Reviewer circuit-breaker tripped — PR #${m.number}`,
-            `Reviewer review submission for ${owner}/${repo} PR #${m.number} @ ${m.headSha} keeps failing with a non-retryable error (${open.errorClass}, status ${open.lastStatus ?? "unknown"}) after ${open.consecutiveCount} attempts; the sweeper has stopped retriggering it. Operator action required (mt#2350 / mt#1596).`
-          );
+          // The `Promise.resolve(...).catch` is belt-and-suspenders: the
+          // AlertSink contract says notify never throws, but a future/external
+          // sink that violates it must not surface as an unhandled rejection.
+          void Promise.resolve(
+            alertSink?.notify(
+              "error",
+              `Reviewer circuit-breaker tripped — PR #${m.number}`,
+              `Reviewer review submission for ${owner}/${repo} PR #${m.number} @ ${m.headSha} keeps failing with a non-retryable error (${open.errorClass}, status ${open.lastStatus ?? "unknown"}) after ${open.consecutiveCount} attempts; the sweeper has stopped retriggering it. Operator action required (mt#2350 / mt#1596).`
+            )
+          ).catch((sinkErr: unknown) => {
+            log.warn("sweeper.alert_sink_unhandled", {
+              event: "sweeper.alert_sink_unhandled",
+              pr: m.number,
+              headSha: m.headSha,
+              error: sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
+            });
+          });
           const emitOutcome = askEmitter
             ? await askEmitter.emitCircuitBreakerAlert({
                 owner,
