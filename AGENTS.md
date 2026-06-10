@@ -1624,6 +1624,57 @@ non-allowlisted files, and operator-judgment overrides.
 **When the hook warns but permits:** If the spec lacks a parseable `## Scope` → `**In scope:**`
 section, the hook emits a warning to stdout and allows the session_start to proceed.
 
+### Duplicate-child matcher (mt#1435)
+
+The same hook ALSO fires on `mcp__minsky__tasks_create` when the `parent` argument is set —
+the upstream-of-session_start variant of the same guard. The session_start sweep and the
+`/plan-task` gate (g) both run at the *planning* boundary; when an umbrella is decomposed,
+minutes-to-hours can pass between the gate read and the actual `tasks_create` calls, during
+which a concurrent agent's children can land. This matcher fires at the *mutating action*,
+so it catches the concurrent-decomposition case regardless of that time gap.
+
+**How it works:**
+1. On a `tasks_create` with `parent` set, enumerate the parent's children via a
+   **hybrid** strategy that avoids a per-child N+1 (each `minsky tasks get` costs
+   ~2s of CLI startup): `minsky tasks children <parent>` for the IDs, then ONE
+   bulk `minsky tasks list --json` call to resolve every **active** child
+   (TODO/PLANNING/READY/IN-PROGRESS/IN-REVIEW/BLOCKED). Only **terminal-state**
+   children (DONE/CLOSED/COMPLETED — excluded from the default list) fall back to
+   a per-child `minsky tasks get <id> --json`. So the common case is 2 calls
+   regardless of child count. The fetch is still latency-bounded so it can't blow
+   the 30s PreToolUse host cap: a `TASKS_CHILDREN_FETCH_CAP = 25` hard cap, a
+   `DUP_GUARD_CLI_TIMEOUT_MS = 4000` per-call timeout (must clear the ~2s CLI
+   cold-start), AND a
+   `DUP_GUARD_OVERALL_BUDGET_MS = 20000` wall-clock budget that hard-breaks the
+   per-child fallback early (visible warning + partial-set check —
+   fail-open-on-budget). **ALL statuses** are enumerated
+   (TODO / PLANNING / IN-PROGRESS / IN-REVIEW / DONE / CLOSED) — a concurrent
+   decomposition's children are typically still TODO/IN-PROGRESS at file-time, so a
+   terminal-status-only filter would miss exactly the case this exists to catch.
+2. Tokenize the new title and each child title into lowercase 4+-char non-stopword tokens
+   (domain nouns are deliberately NOT stopworded — they are the duplicate signal).
+3. If the new title shares ≥ `DUPLICATE_TOKEN_THRESHOLD` (2) substantive tokens with any
+   existing child, BLOCK with a structured message naming the offending child's id, status,
+   and the overlapping tokens.
+
+**Fail-open posture:** a no-parent create is a no-op; an unreadable children list is
+warn-and-permit; an individual unreadable/malformed child is skipped (not fatal); a
+wall-clock-budget exhaustion checks the partial set with a visible warning; and any
+unexpected exception is caught, logged to stderr, and fails OPEN (permit) — so the
+guard can never silently block.
+
+**Override mechanism:** Set `MINSKY_FORCE_DUPLICATE_OK=1` in your environment before the
+`tasks_create` to bypass with an audit line on stdout naming the parent, title, and the
+would-be duplicate match. The override env var is registered in `HOOK_ONLY_ENV_VARS`
+(`packages/domain/src/configuration/sources/environment.ts`) per the
+`custom/no-unregistered-minsky-env-var` rule (mt#1788).
+
+**Originating incident:** R6 of the parallel-work family (2026-06-10) — while decomposing
+umbrella mt#2370, an agent filed four duplicate children (mt#2403-2406) of a concurrent
+agent's mt#2397 (DONE) / mt#2398 (IN-PROGRESS) / mt#2399 because gate (g) read "no subtasks"
+~80 minutes before the `tasks_create` calls. See family memory `fe68f2a7`; the Tier-2 floor
+complement is `/plan-task` gate (g) parent-children enumeration (mt#1434).
+
 ## Bypass-Merge Guard
 
 A PreToolUse hook on `Bash` and `mcp__minsky__session_exec` blocks ALL invocations
