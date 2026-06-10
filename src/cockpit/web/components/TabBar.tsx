@@ -13,14 +13,23 @@
  * Links and the close buttons are natively focusable and keyboard-operable.
  */
 import { Link } from "react-router-dom";
-import { X, Network, Bot } from "lucide-react";
+import { X, Network, Bot, GitBranch } from "lucide-react";
 import { useTabs, type EntityTabKind } from "../lib/tabs";
 import { cn } from "../lib/utils";
 
 const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string }>> = {
   task: Network,
   session: Bot,
+  agent: GitBranch,
 };
+
+// Defensive default: tabs are PERSISTED (localStorage), so a kind written by a
+// newer/older build than the one rendering it must degrade to a generic icon —
+// an undefined component here crashes the whole shell (React #130; TabBar sits
+// outside the page ErrorBoundaries). Originating incident: mt#2440 — mt#1919
+// shipped the "agent" kind without this map entry and /agents/:id blanked the
+// cockpit on every load until the entry landed.
+const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
 
 export function TabBar() {
   const { tabs, activePath, closeTab } = useTabs();
@@ -34,7 +43,7 @@ export function TabBar() {
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
-        const Icon = KIND_ICONS[tab.kind];
+        const Icon = KIND_ICONS[tab.kind] ?? FALLBACK_ICON;
         return (
           <div
             key={tab.path}
