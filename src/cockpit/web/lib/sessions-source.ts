@@ -3,7 +3,8 @@
  *
  * The `/api/widget/context-inspector/data` widget endpoint returns the
  * top-N known agent sessions used to populate the session picker in both the
- * ContextInspector widget (mt#2023) and the interim ConversationPage (mt#2374).
+ * ContextInspector widget (mt#2023) and the session tab (mt#2374's
+ * ConversationView, hosted at /session/:id since mt#2398).
  * Both surfaces need the same row shape + payload guard; keeping a single
  * definition here prevents the two inline mirrors from drifting (PR #1645 R1).
  *

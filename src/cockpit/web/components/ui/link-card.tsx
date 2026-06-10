@@ -14,7 +14,8 @@ import { cn } from "../../lib/utils";
  * keep a header-only link instead.
  *
  * Base surface mirrors `Card` (card.tsx); the hover/focus affordance mirrors the
- * nav-tile `EntryTile` in pages/HomePage.tsx so the two home-page tiers read as
+ * nav-tile `EntryTile` pattern (retired with the home nav tiles in mt#2398;
+ * the persistent rail is the navigation surface now) so the two tiers read as
  * the same interaction vocabulary. The `group` class lets child elements (e.g. a
  * header chevron) brighten on card hover.
  */
