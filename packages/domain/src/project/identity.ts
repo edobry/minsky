@@ -12,13 +12,13 @@
  *
  * ## Slug derivation
  * The default slug is `owner/repo` (e.g. `edobry/minsky`), derived from the
- * `origin` remote URL at init time and stamped into `.minsky/config.yaml`.
- * **Tradeoff:** this slug changes when the repo is forked (the fork gets a
- * different `owner/repo`). If stability across forks is required, use a
- * generated UUID instead — pass `slugDerivation: "uuid"` to
- * `deriveProjectSlug()`.  The `owner/repo` form was chosen as the v1 default
- * because it is human-readable, matches how GitHub refers to repos, and is
- * stable for the common case (single canonical upstream).
+ * `origin` remote URL via `deriveSlugFromGitRemote()`. This slug changes when
+ * the repo is forked (the fork gets a different `owner/repo`). For stability
+ * across forks, stamp a fixed slug into `.minsky/config.yaml` (tier 3) or
+ * pass `--project <slug>` (tier 1). UUID-based slug keying is a possible
+ * future option but is NOT implemented in v1. The `owner/repo` form was chosen
+ * as the v1 default because it is human-readable, matches how GitHub refers to
+ * repos, and is stable for the common case (single canonical upstream).
  *
  * ## MCP multi-repo case (v1 documented constraint)
  * The MCP server may serve client sessions from different repos. In v1 the

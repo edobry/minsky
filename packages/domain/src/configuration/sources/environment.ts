@@ -441,7 +441,21 @@ export function getEnvironmentConfiguration(): {
       // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
       // Stays in sync with loadEnvironmentConfiguration so metadata reporting
       // does not diverge from actual load behavior.
-      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+      //
+      // Exception (mt#2414): MINSKY_PROJECT is hook-only (no dot-path mapping)
+      // but IS surfaced in loadedVariables for observability — operators need an
+      // audit trail for why a project resolved as it did. It deliberately has NO
+      // entry in `mappings` (it is not a config dot-path value).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) {
+        if (
+          envVar === "MINSKY_PROJECT" &&
+          process.env[envVar] !== undefined &&
+          process.env[envVar] !== ""
+        ) {
+          loadedVariables.push(envVar);
+        }
+        continue;
+      }
 
       const configPath = envVarToConfigPath(envVar);
       if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {
