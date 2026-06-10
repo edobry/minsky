@@ -3,7 +3,7 @@ import { Routes, Route } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/card";
+import { WidgetShell } from "./components/WidgetShell";
 import {
   fetchWidgets,
   fetchWidgetData,
@@ -68,7 +68,7 @@ const PlantGridPage = lazy(() =>
 // Self-fetching widgets: own their data via TanStack Query; no data prop needed.
 // These remain on the home page grid.
 // ---------------------------------------------------------------------------
-const SELF_FETCHING_RENDERERS: Record<string, ComponentType> = {
+const SELF_FETCHING_RENDERERS: Record<string, ComponentType<{ title?: string }>> = {
   attention: Attention,
   "context-inspector": ContextInspector,
   credentials: CredentialsSummary,
@@ -159,29 +159,21 @@ function HomePage({ widgets }: HomePageProps) {
                         /* Attention is the algedonic top surface — give it the
                            full row so the default landing leads with it (mt#2398). */
                         <div className="md:col-span-2 lg:col-span-3">
-                          <SelfFetchingRenderer />
+                          <SelfFetchingRenderer title={meta.title} />
                         </div>
                       ) : (
-                        <SelfFetchingRenderer />
+                        <SelfFetchingRenderer title={meta.title} />
                       )
                     ) : !PropDrivenRenderer ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{meta.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-muted-foreground">
-                          <p>Widget &apos;{meta.id}&apos; has no frontend renderer registered</p>
-                        </CardContent>
-                      </Card>
+                      <WidgetShell variant="card" title={meta.title}>
+                        <p className="text-muted-foreground text-sm">
+                          Widget &apos;{meta.id}&apos; has no frontend renderer registered
+                        </p>
+                      </WidgetShell>
                     ) : data === null ? (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle>{meta.title}</CardTitle>
-                        </CardHeader>
-                        <CardContent className="text-muted-foreground">
-                          <p>Loading...</p>
-                        </CardContent>
-                      </Card>
+                      <WidgetShell variant="card" title={meta.title}>
+                        <p className="text-muted-foreground text-sm">Loading...</p>
+                      </WidgetShell>
                     ) : (
                       <PropDrivenRenderer data={data} />
                     )}

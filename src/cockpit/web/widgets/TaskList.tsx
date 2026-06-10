@@ -9,9 +9,9 @@
  */
 import { useCallback } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 
@@ -581,10 +581,45 @@ function TaskListInner({ tasks }: { tasks: TaskListItem[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main widget component — self-fetching via TanStack Query
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
 // ---------------------------------------------------------------------------
 
-export function TaskList() {
+interface TaskListBodyProps {
+  query: UseQueryResult<WidgetData, Error>;
+}
+
+function TaskListBody({ query }: TaskListBodyProps) {
+  if (query.isError) {
+    return <p className="text-muted-foreground text-sm">Failed to load tasks: {query.error.message}</p>;
+  }
+  if (query.isLoading || !query.data) {
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
+  }
+
+  const data = query.data;
+
+  if (data.state === "degraded") {
+    return <p className="text-muted-foreground text-sm">{data.reason}</p>;
+  }
+  if (!isTaskListPayload(data.payload)) {
+    return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
+  }
+
+  return <TaskListInner tasks={data.payload.tasks} />;
+}
+
+// ---------------------------------------------------------------------------
+// Main widget component — self-fetching via TanStack Query (mt#2373)
+// ---------------------------------------------------------------------------
+
+interface TaskListProps {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function TaskList({ variant = "card", title = "Tasks" }: TaskListProps = {}) {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["task-list"],
     queryFn: fetchTaskList,
@@ -592,68 +627,9 @@ export function TaskList() {
     refetchInterval: 10_000,
   });
 
-  if (query.isError) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Tasks</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load tasks: {query.error.message}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (query.isLoading || !query.data) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Tasks</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const data = query.data;
-
-  if (data.state === "degraded") {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Tasks</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>{data.reason}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!isTaskListPayload(data.payload)) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Tasks</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Unexpected payload shape</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">Tasks</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <TaskListInner tasks={data.payload.tasks} />
-      </CardContent>
-    </Card>
+    <WidgetShell variant={variant} title={title}>
+      <TaskListBody query={query} />
+    </WidgetShell>
   );
 }

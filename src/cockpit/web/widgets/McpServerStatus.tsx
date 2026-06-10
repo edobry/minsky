@@ -1,7 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { CardHeader, CardTitle, CardContent, Card } from "../components/ui/card";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 
 // Mirrors McpServerStatusPayload in src/cockpit/widgets/mcp-server-status.ts.
 type DeploymentStatus =
@@ -133,18 +133,166 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function CardShell({ children }: { children: React.ReactNode }) {
+// ---------------------------------------------------------------------------
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
+// ---------------------------------------------------------------------------
+
+interface McpServerStatusBodyProps {
+  query: UseQueryResult<WidgetData, Error>;
+}
+
+function McpServerStatusBody({ query }: McpServerStatusBodyProps) {
+  if (query.isError) {
+    return (
+      <p className="text-muted-foreground text-sm">Failed to load: {query.error.message}</p>
+    );
+  }
+
+  if (query.isLoading || !query.data) {
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
+  }
+
+  if (query.data.state === "degraded") {
+    return <p className="text-muted-foreground text-sm">{query.data.reason}</p>;
+  }
+
+  const payload = query.data.payload as McpServerStatusPayload;
+  const status = overallStatus(payload);
+
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">MCP Server</CardTitle>
-      </CardHeader>
-      <CardContent className="text-muted-foreground text-sm">{children}</CardContent>
-    </Card>
+    <>
+      {/* Status badge row — replaces original CardHeader status area */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <span
+          className={cn("inline-block h-2 w-2 rounded-full", statusDotColor(status))}
+          aria-label={`Status: ${statusLabel(status)}`}
+        />
+        <span
+          className={cn(
+            "text-xs px-1.5 py-0.5 rounded",
+            status === "healthy"
+              ? "bg-emerald-500/10 text-emerald-500"
+              : status === "unreachable"
+                ? "bg-amber-500/10 text-amber-500"
+                : "bg-destructive/10 text-destructive"
+          )}
+        >
+          {statusLabel(status)}
+        </span>
+      </div>
+
+      {payload.anomalies.m1HealthFailing && (
+        <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
+          M1 — Health check failing for {formatDuration(payload.health.consecutiveFailureMs)}.
+          Hosted MCP is down; check Railway.
+        </div>
+      )}
+      {payload.anomalies.m2DeployFailed && payload.deploy && (
+        <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
+          M2 — Latest deploy outcome is {payload.deploy.status}. Revert or push a fix.
+        </div>
+      )}
+      {payload.anomalies.m3RestartLoop && (
+        <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
+          M3 — Restart loop: more than 3 restarts in the last hour. Read deployment logs and
+          identify the crash cause.
+        </div>
+      )}
+      {payload.anomalies.m4ResourceNearLimit && (
+        <div className="mb-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
+          M4 — Resource near limit (CPU {formatPercent(payload.metrics?.cpuPercent ?? null)},
+          memory {formatPercent(payload.metrics?.memoryPercent ?? null)}). Consider upgrading the
+          Railway plan.
+        </div>
+      )}
+
+      <dl>
+        <Row label="Health check">
+          {payload.health.ok ? (
+            <span className="text-emerald-500">200 OK</span>
+          ) : (
+            <span className="text-destructive">{payload.health.statusCode ?? "no response"}</span>
+          )}
+        </Row>
+
+        <Row label="Uptime (24h)">
+          {payload.uptime24hPct === null ? "—" : `${payload.uptime24hPct.toFixed(1)}%`}
+        </Row>
+
+        <Row label="Last downtime">
+          {payload.lastDowntimeAt ? (
+            <span title={payload.lastDowntimeAt}>{formatRelative(payload.lastDowntimeAt)}</span>
+          ) : (
+            <span className="text-muted-foreground">none recorded</span>
+          )}
+        </Row>
+
+        <Row label="Version">
+          {payload.deploy ? (
+            <span title={payload.deploy.commitMessage ?? undefined}>
+              {shortSha(payload.deploy.commitHash)}
+            </span>
+          ) : (
+            "—"
+          )}
+        </Row>
+
+        <Row label="Last deploy">
+          {payload.deploy ? (
+            <span className="inline-flex items-center gap-1.5">
+              {payload.deploy.lastDeployAt ? (
+                <span className="text-muted-foreground" title={payload.deploy.lastDeployAt}>
+                  {formatRelative(payload.deploy.lastDeployAt)}
+                </span>
+              ) : null}
+              <span
+                className={cn(
+                  "text-xs px-1.5 py-0.5 rounded",
+                  deployStatusColor(payload.deploy.status)
+                )}
+              >
+                {payload.deploy.status}
+              </span>
+            </span>
+          ) : (
+            "—"
+          )}
+        </Row>
+
+        <Row label="Recent errors">
+          {payload.recentErrors.length === 0 ? (
+            <span className="text-muted-foreground">none</span>
+          ) : (
+            <span className="text-destructive" title={payload.recentErrors.join("\n")}>
+              {payload.recentErrors.length}
+            </span>
+          )}
+        </Row>
+
+        <Row label="CPU">{payload.metrics ? formatPercent(payload.metrics.cpuPercent) : "—"}</Row>
+
+        <Row label="Memory">
+          {payload.metrics ? formatPercent(payload.metrics.memoryPercent) : "—"}
+        </Row>
+
+        <Row label="Restarts (24h)">{payload.metrics?.restartCount24h ?? "—"}</Row>
+      </dl>
+    </>
   );
 }
 
-export function McpServerStatus() {
+// ---------------------------------------------------------------------------
+// Main widget export (mt#2373)
+// ---------------------------------------------------------------------------
+
+interface Props {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function McpServerStatus({ variant = "card", title = "MCP Server" }: Props) {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "mcp-server-status"],
     queryFn: () => fetchWidgetData("mcp-server-status"),
@@ -152,144 +300,9 @@ export function McpServerStatus() {
     refetchInterval: 30_000,
   });
 
-  if (query.isError) {
-    return <CardShell>Failed to load: {query.error.message}</CardShell>;
-  }
-
-  if (query.isLoading || !query.data) {
-    return <CardShell>Loading…</CardShell>;
-  }
-
-  if (query.data.state === "degraded") {
-    return <CardShell>{query.data.reason}</CardShell>;
-  }
-
-  const payload = query.data.payload as McpServerStatusPayload;
-  const status = overallStatus(payload);
-
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">MCP Server</CardTitle>
-          <div className="flex items-center gap-1.5">
-            <span
-              className={cn("inline-block h-2 w-2 rounded-full", statusDotColor(status))}
-              aria-label={`Status: ${statusLabel(status)}`}
-            />
-            <span
-              className={cn(
-                "text-xs px-1.5 py-0.5 rounded",
-                status === "healthy"
-                  ? "bg-emerald-500/10 text-emerald-500"
-                  : status === "unreachable"
-                    ? "bg-amber-500/10 text-amber-500"
-                    : "bg-destructive/10 text-destructive"
-              )}
-            >
-              {statusLabel(status)}
-            </span>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {payload.anomalies.m1HealthFailing && (
-          <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
-            M1 — Health check failing for {formatDuration(payload.health.consecutiveFailureMs)}.
-            Hosted MCP is down; check Railway.
-          </div>
-        )}
-        {payload.anomalies.m2DeployFailed && payload.deploy && (
-          <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
-            M2 — Latest deploy outcome is {payload.deploy.status}. Revert or push a fix.
-          </div>
-        )}
-        {payload.anomalies.m3RestartLoop && (
-          <div className="mb-2 rounded bg-destructive/10 px-2 py-1 text-xs text-destructive">
-            M3 — Restart loop: more than 3 restarts in the last hour. Read deployment logs and
-            identify the crash cause.
-          </div>
-        )}
-        {payload.anomalies.m4ResourceNearLimit && (
-          <div className="mb-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-500">
-            M4 — Resource near limit (CPU {formatPercent(payload.metrics?.cpuPercent ?? null)},
-            memory {formatPercent(payload.metrics?.memoryPercent ?? null)}). Consider upgrading the
-            Railway plan.
-          </div>
-        )}
-
-        <dl>
-          <Row label="Health check">
-            {payload.health.ok ? (
-              <span className="text-emerald-500">200 OK</span>
-            ) : (
-              <span className="text-destructive">{payload.health.statusCode ?? "no response"}</span>
-            )}
-          </Row>
-
-          <Row label="Uptime (24h)">
-            {payload.uptime24hPct === null ? "—" : `${payload.uptime24hPct.toFixed(1)}%`}
-          </Row>
-
-          <Row label="Last downtime">
-            {payload.lastDowntimeAt ? (
-              <span title={payload.lastDowntimeAt}>{formatRelative(payload.lastDowntimeAt)}</span>
-            ) : (
-              <span className="text-muted-foreground">none recorded</span>
-            )}
-          </Row>
-
-          <Row label="Version">
-            {payload.deploy ? (
-              <span title={payload.deploy.commitMessage ?? undefined}>
-                {shortSha(payload.deploy.commitHash)}
-              </span>
-            ) : (
-              "—"
-            )}
-          </Row>
-
-          <Row label="Last deploy">
-            {payload.deploy ? (
-              <span className="inline-flex items-center gap-1.5">
-                {payload.deploy.lastDeployAt ? (
-                  <span className="text-muted-foreground" title={payload.deploy.lastDeployAt}>
-                    {formatRelative(payload.deploy.lastDeployAt)}
-                  </span>
-                ) : null}
-                <span
-                  className={cn(
-                    "text-xs px-1.5 py-0.5 rounded",
-                    deployStatusColor(payload.deploy.status)
-                  )}
-                >
-                  {payload.deploy.status}
-                </span>
-              </span>
-            ) : (
-              "—"
-            )}
-          </Row>
-
-          <Row label="Recent errors">
-            {payload.recentErrors.length === 0 ? (
-              <span className="text-muted-foreground">none</span>
-            ) : (
-              <span className="text-destructive" title={payload.recentErrors.join("\n")}>
-                {payload.recentErrors.length}
-              </span>
-            )}
-          </Row>
-
-          <Row label="CPU">{payload.metrics ? formatPercent(payload.metrics.cpuPercent) : "—"}</Row>
-
-          <Row label="Memory">
-            {payload.metrics ? formatPercent(payload.metrics.memoryPercent) : "—"}
-          </Row>
-
-          <Row label="Restarts (24h)">{payload.metrics?.restartCount24h ?? "—"}</Row>
-        </dl>
-      </CardContent>
-    </Card>
+    <WidgetShell variant={variant} title={title}>
+      <McpServerStatusBody query={query} />
+    </WidgetShell>
   );
 }

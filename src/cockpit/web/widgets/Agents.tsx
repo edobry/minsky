@@ -8,9 +8,9 @@
  * persistence. Controls use prefix "ag" to namespace params.
  */
 import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
+import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { useListControls, type SortDir } from "../lib/useListControls";
 import { Link } from "react-router-dom";
@@ -494,10 +494,49 @@ function AgentsInner({ agents }: { agents: AgentRow[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main widget component — self-fetching via TanStack Query
+// Chrome-agnostic body — no Card/CardHeader/CardTitle in any branch
 // ---------------------------------------------------------------------------
 
-export function Agents() {
+interface AgentsBodyProps {
+  query: UseQueryResult<WidgetData, Error>;
+}
+
+function AgentsBody({ query }: AgentsBodyProps) {
+  // Error state (network failure, non-200, JSON parse error)
+  if (query.isError) {
+    return <p className="text-muted-foreground text-sm">Failed to load agents: {query.error.message}</p>;
+  }
+  // Loading state (no data yet, not an error)
+  if (query.isLoading || !query.data) {
+    return <p className="text-muted-foreground text-sm">Loading…</p>;
+  }
+
+  const data = query.data;
+
+  // Degraded state (server-reported)
+  if (data.state === "degraded") {
+    return <p className="text-muted-foreground text-sm">{data.reason}</p>;
+  }
+  // Payload shape guard
+  if (!isAgentsPayload(data.payload)) {
+    return <p className="text-muted-foreground text-sm">Unexpected payload shape</p>;
+  }
+
+  return <AgentsInner agents={data.payload.agents} />;
+}
+
+// ---------------------------------------------------------------------------
+// Main widget component — self-fetching via TanStack Query (mt#2373)
+// ---------------------------------------------------------------------------
+
+interface AgentsProps {
+  /** Render-context variant; defaults to the home-grid card frame. */
+  variant?: WidgetVariant;
+  /** Title from the registry; defaults to the widget's canonical title for back-compat. */
+  title?: string;
+}
+
+export function Agents({ variant = "card", title = "Agents" }: AgentsProps = {}) {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["agents"],
     queryFn: fetchAgents,
@@ -505,74 +544,9 @@ export function Agents() {
     refetchInterval: 5_000,
   });
 
-  // Error state (network failure, non-200, JSON parse error)
-  if (query.isError) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Agents</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Failed to load agents: {query.error.message}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Loading state (no data yet, not an error)
-  if (query.isLoading || !query.data) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Agents</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Loading…</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const data = query.data;
-
-  // Degraded state (server-reported)
-  if (data.state === "degraded") {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Agents</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>{data.reason}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Payload shape guard
-  if (!isAgentsPayload(data.payload)) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold">Agents</CardTitle>
-        </CardHeader>
-        <CardContent className="text-muted-foreground text-sm">
-          <p>Unexpected payload shape</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const agents = data.payload.agents;
-
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">Agents</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <AgentsInner agents={agents} />
-      </CardContent>
-    </Card>
+    <WidgetShell variant={variant} title={title}>
+      <AgentsBody query={query} />
+    </WidgetShell>
   );
 }
