@@ -53,7 +53,10 @@ const TaskEditSchema = TaskIdentifierSchema.extend(
  */
 const TaskSearchReplaceSchema = TaskIdentifierSchema.extend(
   z.object({
-    search: z.string().describe("Text to search for (must be unique in the task spec)"),
+    search: z
+      .string()
+      .min(1, "search text must be non-empty")
+      .describe("Text to search for (must be unique in the task spec)"),
     replace: z.string().describe("Text to replace with"),
   }).shape
 );
