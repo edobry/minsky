@@ -258,16 +258,18 @@ Run all three:
 3. **Parent/sibling enumeration** — if the task has a parent:
 
    - Walk \`mcp__minsky__tasks_parent\` then \`mcp__minsky__tasks_children\` to enumerate the
-     full sibling/descendant set. **Fail CLOSED:** if \`tasks_children\` errors or returns a
-     result you cannot trust (transient MCP failure), do NOT pass this criterion — retry, or
-     record a blocking gap. A silent "no children" read is exactly how the duplicate-decomposition
-     recurrences slipped through (mt#1423/1424/1425 duplicated DONE mt#1188/1189; mt#2403-2406
-     duplicated mt#2397/2398/2399).
-   - For **each** child surface its \`(taskId, status, title)\` — **including DONE / CLOSED**
-     children. A sibling that already SHIPPED the scope is just as much a duplicate as one in
-     flight; the time-windowed open-PR/recent-merge checks above do not catch an already-DONE
-     sibling outside the window. Flag any child whose title shares **≥2 substantive tokens**
-     (4+ char, non-stopword) with the task being planned.
+     full sibling/descendant set. **Fail closed (do not pass):** if \`tasks_children\` errors or
+     returns a result you cannot trust (transient MCP failure), do NOT pass this criterion —
+     retry, or record a blocking gap. A silent "no children" read is exactly how the
+     duplicate-decomposition recurrences slipped through (mt#1423/1424/1425 duplicated DONE
+     mt#1188/1189; mt#2403-2406 duplicated mt#2397/2398/2399).
+   - For **each** child surface its \`(taskId, status, title)\` — **including children in a
+     terminal status** (DONE / CLOSED / COMPLETED are all valid Minsky task statuses; see
+     CLAUDE.md §Task Lifecycle), not just active/in-flight ones. A sibling that already SHIPPED
+     or was closed-as-redundant is just as much a duplicate as one in flight; the time-windowed
+     open-PR/recent-merge checks above do not catch a terminal-status sibling outside the
+     window. Flag any child whose title shares **≥2 substantive tokens** (4+ char, non-stopword)
+     with the task being planned.
    - For each related task ID, call \`mcp__minsky__session_pr_list\` with \`status: "open"\`
      and \`task: "mt#X"\`; surface any open PR.
    - **Hard reconciliation requirement:** any flagged title-overlap or already-shipped sibling
