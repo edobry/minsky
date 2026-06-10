@@ -25,9 +25,12 @@ import { logPostgresNotice } from "./postgres-notice-handler";
  *     is installed or run from an arbitrary directory, `import.meta.dir` is
  *     the directory containing `dist/minsky.js`, so
  *     `./storage/migrations/pg` resolves correctly.
- *     Also tries `<dirname(process.execPath)>/storage/migrations/pg` as a
+ *     Also tries `<dirname(process.argv[1])>/storage/migrations/pg` as a
  *     secondary probe for environments where `import.meta.dir` differs from
- *     the binary location.
+ *     the binary location (`process.argv[1]` is the invoked script path —
+ *     i.e. `dist/minsky.js` — which is co-located with the migrations;
+ *     `process.execPath` is the bun/node runtime binary and is NOT the right
+ *     anchor for asset resolution).
  *
  * (c) **Legacy fallback** — preserves the original cwd-relative path so
  *     `minsky persistence migrate` continues to work when invoked from the
@@ -50,9 +53,12 @@ export function resolvePgMigrationsFolder(): string {
     //       containing the compiled JS file, so ./storage/migrations/pg is correct.
     join(import.meta.dir, "storage/migrations/pg"),
 
-    // (b-2) Secondary bundled path: resolves from the executable path.
-    // process.argv[0] is the path to the bun/node executable (or bundle entry).
-    join(dirname(process.argv[0] ?? ""), "storage/migrations/pg"),
+    // (b-2) Secondary bundled path: resolves from the invoked script path.
+    // process.argv[1] is the path to the invoked script (dist/minsky.js),
+    // which is co-located with the migrations at dist/storage/migrations/pg.
+    // NOTE: process.argv[0] and process.execPath are the bun/node runtime binary
+    // — NOT co-located with the bundle assets — so they are the WRONG anchor here.
+    join(dirname(process.argv[1] ?? ""), "storage/migrations/pg"),
 
     // (c) Legacy cwd-relative fallback: preserves the behaviour that existed
     //     before mt#2369 when run from the Minsky repo root.

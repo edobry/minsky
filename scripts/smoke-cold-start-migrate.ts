@@ -101,11 +101,17 @@ if (!migrateResult.ok) {
 }
 
 // ── step 2: verify 'tasks' table was created ─────────────────────────────────
+// Hard assertion: SELECT COUNT(*) FROM tasks MUST succeed. If psql is not
+// available we treat this as a FAIL rather than a skip — in CI psql is always
+// present alongside Postgres. This conclusively proves the migration ran.
 
 if (!failed) {
-  console.log("\n--- Step 2: verify 'tasks' table exists in Postgres ---");
+  console.log("\n--- Step 2: verify 'tasks' table exists in Postgres (hard assertion) ---");
+  let tableVerified = false;
   try {
-    // Use psql to check for the table. Requires psql in PATH (available in CI).
+    // Use psql to check for the table. psql is required in CI environments that
+    // run this script against a real Postgres service — if it's absent that is
+    // itself a CI configuration problem, not a skip-worthy condition.
     const psqlResult = spawnSync(
       "psql",
       [DATABASE_URL, "-c", "SELECT COUNT(*) FROM tasks;", "--no-psqlrc", "-t"],
@@ -113,33 +119,52 @@ if (!failed) {
     );
     if (psqlResult.status === 0) {
       console.log("PASS: 'tasks' table exists (SELECT COUNT(*) FROM tasks succeeded).");
+      tableVerified = true;
     } else {
-      // psql may not be available; fall back to checking via minsky tasks list
-      console.log("Note: psql not available, skipping table existence check via psql.");
+      const psqlOut = [psqlResult.stdout ?? "", psqlResult.stderr ?? ""].join("\n").trim();
+      console.error("FAIL: psql returned non-zero exit; 'tasks' table may not exist.");
+      console.error(psqlOut);
+      failed = true;
     }
-  } catch {
-    console.log("Note: psql not available or failed — skipping direct table check.");
+  } catch (err) {
+    // psql not found in PATH — treat as hard failure in environments where the
+    // database is actually running (psql should always be installed alongside Postgres).
+    console.error("FAIL: psql not available in PATH. Cannot verify 'tasks' table existence.");
+    console.error(
+      "Note: if running locally without psql, use DATABASE_URL pointing to an empty DB"
+    );
+    console.error(`  and install psql (e.g. brew install libpq). Error: ${err}`);
+    failed = true;
+  }
+  if (!tableVerified && !failed) {
+    console.error("FAIL: 'tasks' table existence could not be confirmed.");
+    failed = true;
   }
 }
 
-// ── step 3: minsky persistence migrate (dry-run) — must show 0 pending ───────
+// ── step 3: minsky persistence migrate (dry-run) — MUST show 0 pending ───────
+// Hard assertion: the output MUST contain "0 pending" to conclusively prove that
+// --execute applied all migrations. A dry-run that exits 0 but doesn't report
+// "0 pending" would indicate an unexpected state (e.g. resolver found wrong folder).
 
 if (!failed) {
-  console.log("\n--- Step 3: dry-run migrate — should report 0 pending migrations ---");
+  console.log("\n--- Step 3: dry-run migrate — MUST confirm 0 pending migrations ---");
   const dryResult = run("bun", [bundlePath, "persistence", "migrate"], tempDir);
   console.log(dryResult.output);
 
   if (!dryResult.ok) {
     console.error("FAIL: 'minsky persistence migrate' (dry-run) failed after execute.");
     failed = true;
-  } else if (
-    dryResult.output.includes("pending migrations") &&
-    !dryResult.output.includes("0 pending")
-  ) {
-    console.error("FAIL: dry-run reports pending migrations even after --execute ran.");
+  } else if (!dryResult.output.includes("0 pending")) {
+    // The dry-run must explicitly report "0 pending" — this is the only way to
+    // conclusively prove that (a) the migrations resolved correctly and (b) all
+    // of them were applied. An exit-0 without this string means the resolver may
+    // have found an empty/wrong folder or the count report format changed.
+    console.error("FAIL: dry-run did NOT report '0 pending'. Migrations may not have applied.");
+    console.error("Expected the output to contain '0 pending'; got the output above.");
     failed = true;
   } else {
-    console.log("PASS: dry-run exited 0.");
+    console.log("PASS: dry-run confirms 0 pending migrations.");
   }
 }
 
