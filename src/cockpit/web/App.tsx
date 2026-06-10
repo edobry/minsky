@@ -23,6 +23,9 @@ import { McpServerStatus } from "./widgets/McpServerStatus";
 const AgentsPage = lazy(() =>
   import("./pages/AgentsPage").then((m) => ({ default: m.AgentsPage }))
 );
+const SessionDetailPage = lazy(() =>
+  import("./pages/SessionDetailPage").then((m) => ({ default: m.SessionDetailPage }))
+);
 const ContextPage = lazy(() =>
   import("./pages/ContextPage").then((m) => ({ default: m.ContextPage }))
 );
@@ -63,6 +66,9 @@ const MemoriesPage = lazy(() =>
 const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default: m.PlantPage })));
 const PlantGridPage = lazy(() =>
   import("./pages/PlantGridPage").then((m) => ({ default: m.PlantGridPage }))
+);
+const PlantFlowPage = lazy(() =>
+  import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
 );
 
 // ---------------------------------------------------------------------------
@@ -320,6 +326,17 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Workspace-session entity route (mt#1919): keyed by the Minsky
+              workspace sessionId — distinct from /session/:id, which takes the
+              harness agentSessionId (transcript). */}
+          <Route
+            path="/agents/:id"
+            element={
+              <ErrorBoundary id="session-detail-page">
+                <SessionDetailPage />
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/context"
             element={
@@ -420,6 +437,14 @@ export function App() {
             element={
               <ErrorBoundary id="plant-grid-page">
                 <PlantGridPage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/plant-flow"
+            element={
+              <ErrorBoundary id="plant-flow-page">
+                <PlantFlowPage />
               </ErrorBoundary>
             }
           />
