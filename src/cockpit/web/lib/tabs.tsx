@@ -27,8 +27,9 @@ import {
   type ReactNode,
 } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { shortenId } from "./format";
 
-export type EntityTabKind = "task" | "session";
+export type EntityTabKind = "task" | "session" | "agent";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -50,7 +51,9 @@ const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
  *
  * Registry (PR1): tasks (`/tasks/:id`, excluding the literal `graph` sibling)
  * and sessions (`/session/:id`). PR/ask/memory kinds join as their detail
- * routes land (mt#2398 PR2 + later).
+ * routes land (mt#2398 PR2 + later). Workspace sessions (`/agents/:id`,
+ * kind "agent") joined via mt#1919 — distinct id-space from "session"
+ * (harness agentSessionId vs Minsky workspace sessionId).
  */
 export function matchEntityRoute(pathname: string): EntityTab | null {
   const session = pathname.match(/^\/session\/([^/]+)$/);
@@ -60,7 +63,18 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
       kind: "session",
       entityId: id,
       path: pathname,
-      label: id.length > 8 ? `${id.slice(0, 8)}…` : id,
+      label: shortenId(id),
+    };
+  }
+
+  const agent = pathname.match(/^\/agents\/([^/]+)$/);
+  if (agent?.[1]) {
+    const id = decodeURIComponent(agent[1]);
+    return {
+      kind: "agent",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
     };
   }
 
@@ -94,7 +108,9 @@ function loadTabs(): EntityTab[] {
         t !== null &&
         typeof (t as EntityTab).path === "string" &&
         typeof (t as EntityTab).label === "string" &&
-        ((t as EntityTab).kind === "task" || (t as EntityTab).kind === "session")
+        ((t as EntityTab).kind === "task" ||
+          (t as EntityTab).kind === "session" ||
+          (t as EntityTab).kind === "agent")
     );
   } catch {
     return [];
