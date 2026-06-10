@@ -15,18 +15,78 @@ import { pgTable, text, uuid, timestamp, jsonb, index, pgEnum } from "drizzle-or
  * @see RFC: https://www.notion.so/36a937f03cb481289df2ee5d2fa932d4
  */
 
-/** System event type enum — exactly 4 actionable values per mt#2092 spec */
+/**
+ * System event type enum.
+ *
+ * Write-scope is deliberately WIDER than the activity feed's default read-scope
+ * (mt#2340). The feed defaults to the `actionable` category; the broader
+ * `informational` types are persisted unconditionally so the Phase 2
+ * attention-allocation noticer (mt#1034) has populated trajectory history to
+ * consume when it lands, rather than starting cold. Which category a type
+ * belongs to is read-side classification (see `eventCategory` below) — it is
+ * NOT stored per-row, mirroring the RFC's "no `source` column; derive from the
+ * type" decision.
+ *
+ * Actionability is a property of the TYPE, not the instance. Where a payload
+ * subtype would change actionability (a failed vs. successful deploy), SPLIT
+ * the event type rather than branching the classifier on payload — keeping the
+ * `eventCategory` map a pure type→category lookup.
+ */
 export const SYSTEM_EVENT_TYPE_VALUES = [
+  // --- actionable (mt#2092 / mt#2147) — operator must know to take action ---
   "ask.created",
   "task.auto_created",
   "pr.review_posted",
   "subagent.failed",
   "embeddings.provider_degraded",
+  // --- informational / trajectory (mt#2340) — discoverable on the operator's
+  //     own schedule; primary consumer is the Phase 2 noticer ---
+  "task.status_changed",
+  "pr.merged",
+  "subagent.completed",
+  "session.started",
 ] as const;
 
 export type SystemEventType = (typeof SYSTEM_EVENT_TYPE_VALUES)[number];
 
 export const systemEventTypeEnum = pgEnum("system_event_type", SYSTEM_EVENT_TYPE_VALUES);
+
+// ---------------------------------------------------------------------------
+// Event category — read-side classification (mt#2340)
+// ---------------------------------------------------------------------------
+
+/** Feed-filter categories. `actionable` is the activity feed's default view. */
+export const EVENT_CATEGORY_VALUES = ["actionable", "informational"] as const;
+
+export type EventCategory = (typeof EVENT_CATEGORY_VALUES)[number];
+
+/**
+ * The single source of truth mapping each event type to its category.
+ *
+ * `satisfies Record<SystemEventType, EventCategory>` gives compile-time
+ * exhaustiveness: adding a value to `SYSTEM_EVENT_TYPE_VALUES` without a
+ * category entry fails the typecheck. `enum-drift.test.ts` asserts the same
+ * invariant at runtime as a second guard.
+ *
+ * Producers emit a TYPE; they never set a category. The category is resolved
+ * read-side (query filter, cockpit feed) from this map.
+ */
+export const eventCategory = {
+  "ask.created": "actionable",
+  "task.auto_created": "actionable",
+  "pr.review_posted": "actionable",
+  "subagent.failed": "actionable",
+  "embeddings.provider_degraded": "actionable",
+  "task.status_changed": "informational",
+  "pr.merged": "informational",
+  "subagent.completed": "informational",
+  "session.started": "informational",
+} satisfies Record<SystemEventType, EventCategory>;
+
+/** Return all event types belonging to a given category (for `WHERE IN` filters). */
+export function eventTypesForCategory(category: EventCategory): SystemEventType[] {
+  return SYSTEM_EVENT_TYPE_VALUES.filter((t) => eventCategory[t] === category);
+}
 
 /**
  * system_events table.
@@ -65,6 +125,10 @@ export const systemEventsTable = pgTable(
      * pr.review_posted:               { prUrl, prNumber, reviewer, state, taskId? }
      * subagent.failed:                { outcome, taskId, sessionId?, errorSummary? }
      * embeddings.provider_degraded:   { provider, errorCode, status, failureCount, degradedReason }
+     * task.status_changed:            { taskId, previousStatus, newStatus }
+     * pr.merged:                      { prUrl, prNumber, taskId? }
+     * subagent.completed:             { agentType, taskId, outcome? }
+     * session.started:                { sessionId, taskId? }
      */
     payload: jsonb("payload").notNull(),
 

@@ -787,9 +787,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
   /**
    * GET /api/activity — list system events for the activity feed (mt#2092)
    *
-   * Query params:
-   *   - eventType: filter by event type (ask.created | task.auto_created | pr.review_posted | subagent.failed)
-   *   - limit: max results (default 100, max 500)
+   * Query params (mt#2340):
+   *   - eventType: filter by a single event type. Must be a valid
+   *                SystemEventType; an invalid value is a 400.
+   *   - category:  filter by category — `actionable` or `informational`.
+   *                Omit the param entirely to include ALL categories (the
+   *                client drops it rather than sending a sentinel). An invalid
+   *                value is a 400 (no `all` sentinel; strict at the boundary
+   *                so a typo can't silently produce an empty `IN ()` filter).
+   *   - limit:     max results (default 100, max 500)
    *
    * Returns: { events: SystemEvent[], total: number, limit: number }
    */
@@ -804,18 +810,47 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
       }
 
       const { listEvents } = await import("@minsky/domain/events/query");
-      const eventType =
-        typeof req.query["eventType"] === "string" ? req.query["eventType"] : undefined;
+      const { SYSTEM_EVENT_TYPE_VALUES, EVENT_CATEGORY_VALUES } = await import(
+        "@minsky/domain/storage/schemas/system-events-schema"
+      );
+      type SystemEventType =
+        import("@minsky/domain/storage/schemas/system-events-schema").SystemEventType;
+      type EventCategory =
+        import("@minsky/domain/storage/schemas/system-events-schema").EventCategory;
+
+      // Validate filter params strictly at the trust boundary. Invalid values
+      // are rejected with 400 rather than cast through — a bogus `category`
+      // would otherwise resolve to an empty `WHERE event_type IN ()` and
+      // silently return zero rows (mt#2340 R1 review).
+      const rawEventType = req.query["eventType"];
+      let eventType: SystemEventType | undefined;
+      if (typeof rawEventType === "string") {
+        if (!(SYSTEM_EVENT_TYPE_VALUES as readonly string[]).includes(rawEventType)) {
+          res.status(400).json({
+            error: `Invalid eventType '${rawEventType}'. Valid values: ${SYSTEM_EVENT_TYPE_VALUES.join(", ")}`,
+          });
+          return;
+        }
+        eventType = rawEventType as SystemEventType;
+      }
+
+      const rawCategory = req.query["category"];
+      let category: EventCategory | undefined;
+      if (typeof rawCategory === "string") {
+        if (!(EVENT_CATEGORY_VALUES as readonly string[]).includes(rawCategory)) {
+          res.status(400).json({
+            error: `Invalid category '${rawCategory}'. Valid values: ${EVENT_CATEGORY_VALUES.join(", ")} (omit the param for all categories)`,
+          });
+          return;
+        }
+        category = rawCategory as EventCategory;
+      }
+
       const limitParam =
         typeof req.query["limit"] === "string" ? parseInt(req.query["limit"], 10) : 100;
       const limit = isNaN(limitParam) ? 100 : Math.min(Math.max(limitParam, 1), 500);
 
-      const events = await listEvents(db, {
-        eventType: eventType as
-          | import("@minsky/domain/storage/schemas/system-events-schema").SystemEventType
-          | undefined,
-        limit,
-      });
+      const events = await listEvents(db, { eventType, category, limit });
 
       res.json({ events, total: events.length, limit });
     } catch (err: unknown) {

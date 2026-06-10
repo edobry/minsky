@@ -1,12 +1,16 @@
 /**
  * ActivityPage — full-page route for the system event activity feed (/activity).
  *
- * Read-only chronological log of actionable system events. The operator
- * scrolls through to see what happened while they weren't looking.
+ * Read-only chronological log of system events. Defaults to the `actionable`
+ * category (asks, auto-filed tasks, reviews, failures); a "Show informational"
+ * toggle reveals the wider informational/trajectory stream that is persisted
+ * for the Phase 2 noticer but hidden by default. The operator scrolls through
+ * to see what happened while they weren't looking.
  *
  * Self-fetching via TanStack Query against GET /api/activity.
  *
  * @see mt#2092 — Event log Phase 1a
+ * @see mt#2340 — write/read-scope split (category filter + informational toggle)
  */
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "../components/ui/card";
@@ -17,7 +21,16 @@ import { useState } from "react";
 // Types — mirrors of server SystemEvent shape
 // ---------------------------------------------------------------------------
 
-type SystemEventType = "ask.created" | "task.auto_created" | "pr.review_posted" | "subagent.failed";
+type SystemEventType =
+  | "ask.created"
+  | "task.auto_created"
+  | "pr.review_posted"
+  | "subagent.failed"
+  | "embeddings.provider_degraded"
+  | "task.status_changed"
+  | "pr.merged"
+  | "subagent.completed"
+  | "session.started";
 
 interface SystemEvent {
   id: string;
@@ -39,9 +52,19 @@ interface ActivityListResponse {
 // API helper
 // ---------------------------------------------------------------------------
 
-async function fetchActivity(eventType?: string): Promise<ActivityListResponse> {
+async function fetchActivity(
+  eventType: string,
+  showInformational: boolean
+): Promise<ActivityListResponse> {
   const params = new URLSearchParams();
-  if (eventType && eventType !== "all") params.set("eventType", eventType);
+  if (eventType !== "all") {
+    // Explicit single-type drill-down wins over the category default.
+    params.set("eventType", eventType);
+  } else if (!showInformational) {
+    // Default view: actionable category only. Toggling "show informational"
+    // drops the category filter so the feed includes trajectory events.
+    params.set("category", "actionable");
+  }
   params.set("limit", "100");
   const url = `/api/activity${params.toString() ? `?${params}` : ""}`;
   const res = await fetch(url);
@@ -100,6 +123,36 @@ function eventStyle(type: SystemEventType): EventStyle {
         label: "Subagent failed",
         badgeClass: "bg-destructive text-destructive-foreground",
       };
+    case "embeddings.provider_degraded":
+      return {
+        icon: "~",
+        label: "Embeddings degraded",
+        badgeClass: "bg-destructive text-destructive-foreground",
+      };
+    case "task.status_changed":
+      return {
+        icon: ">",
+        label: "Task status changed",
+        badgeClass: "bg-muted text-muted-foreground",
+      };
+    case "pr.merged":
+      return {
+        icon: "M",
+        label: "PR merged",
+        badgeClass: "bg-muted text-muted-foreground",
+      };
+    case "subagent.completed":
+      return {
+        icon: "*",
+        label: "Subagent completed",
+        badgeClass: "bg-muted text-muted-foreground",
+      };
+    case "session.started":
+      return {
+        icon: "S",
+        label: "Session started",
+        badgeClass: "bg-muted text-muted-foreground",
+      };
   }
 }
 
@@ -114,6 +167,16 @@ function eventSummary(event: SystemEvent): string {
       return `PR #${String(p.prNumber ?? "?")} — ${String(p.state ?? "review")} by ${String(p.reviewer ?? "bot")}`;
     case "subagent.failed":
       return `${String(p.agentType ?? "agent")} on ${String(p.taskId ?? "?")} — ${String(p.outcome ?? "failed")}`;
+    case "embeddings.provider_degraded":
+      return `${String(p.provider ?? "provider")} degraded — ${String(p.degradedReason ?? p.errorCode ?? "error")}`;
+    case "task.status_changed":
+      return `${String(p.taskId ?? "?")}: ${String(p.previousStatus ?? "?")} → ${String(p.newStatus ?? "?")}`;
+    case "pr.merged":
+      return `PR #${String(p.prNumber ?? "?")} merged${p.taskId ? ` (${String(p.taskId)})` : ""}`;
+    case "subagent.completed":
+      return `${String(p.agentType ?? "agent")} on ${String(p.taskId ?? "?")} — ${String(p.outcome ?? "completed")}`;
+    case "session.started":
+      return `Session started${p.taskId ? ` for ${String(p.taskId)}` : ""}`;
   }
 }
 
@@ -145,9 +208,7 @@ function EventRow({ event }: { event: SystemEvent }) {
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-xs text-muted-foreground">{style.label}</span>
           {event.relatedTaskId && (
-            <span className="text-xs font-mono text-muted-foreground">
-              {event.relatedTaskId}
-            </span>
+            <span className="text-xs font-mono text-muted-foreground">{event.relatedTaskId}</span>
           )}
           {event.actor && (
             <span className="text-xs text-muted-foreground truncate max-w-[150px]">
@@ -170,18 +231,28 @@ function EventRow({ event }: { event: SystemEvent }) {
 
 const EVENT_TYPES: { value: string; label: string }[] = [
   { value: "all", label: "All events" },
+  // actionable
   { value: "ask.created", label: "Asks" },
   { value: "task.auto_created", label: "Auto-filed tasks" },
   { value: "pr.review_posted", label: "PR reviews" },
   { value: "subagent.failed", label: "Subagent failures" },
+  { value: "embeddings.provider_degraded", label: "Embeddings degraded" },
+  // informational / trajectory
+  { value: "task.status_changed", label: "Task status changes" },
+  { value: "pr.merged", label: "PR merges" },
+  { value: "subagent.completed", label: "Subagent completions" },
+  { value: "session.started", label: "Session starts" },
 ];
 
 export function ActivityPage() {
   const [filterType, setFilterType] = useState("all");
+  // Default read-scope is the actionable category; informational/trajectory
+  // events are persisted but hidden until the operator opts in (mt#2340).
+  const [showInformational, setShowInformational] = useState(false);
 
   const query = useQuery<ActivityListResponse, Error>({
-    queryKey: ["activity", filterType],
-    queryFn: () => fetchActivity(filterType),
+    queryKey: ["activity", filterType, showInformational],
+    queryFn: () => fetchActivity(filterType, showInformational),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
@@ -191,9 +262,7 @@ export function ActivityPage() {
   if (query.isError) {
     return (
       <div className="p-4 max-w-5xl mx-auto w-full">
-        <p className="text-sm text-destructive">
-          Failed to load activity: {query.error.message}
-        </p>
+        <p className="text-sm text-destructive">Failed to load activity: {query.error.message}</p>
       </div>
     );
   }
@@ -210,18 +279,42 @@ export function ActivityPage() {
           )}
         </h1>
 
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
-          aria-label="Filter by event type"
-        >
-          {EVENT_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-3">
+          <label
+            className={cn(
+              "flex items-center gap-1.5 text-xs text-muted-foreground select-none",
+              filterType !== "all" && "opacity-40"
+            )}
+            title={
+              filterType !== "all"
+                ? "Not applied while a specific event type is selected"
+                : "Include informational / trajectory events (task status changes, merges, session starts)"
+            }
+          >
+            <input
+              type="checkbox"
+              checked={showInformational}
+              disabled={filterType !== "all"}
+              onChange={(e) => setShowInformational(e.target.checked)}
+              className="accent-current"
+              aria-label="Show informational events"
+            />
+            Show informational
+          </label>
+
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value)}
+            className="text-xs bg-muted border border-border rounded px-2 py-1 text-foreground"
+            aria-label="Filter by event type"
+          >
+            {EVENT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {query.isLoading ? (

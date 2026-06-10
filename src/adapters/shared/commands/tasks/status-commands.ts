@@ -12,8 +12,45 @@ import { TASK_STATUS } from "@minsky/domain/tasks/taskConstants";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 import { isInteractive } from "../../../../utils/interactive";
-import type { PersistenceProvider } from "@minsky/domain/persistence/types";
+import type {
+  PersistenceProvider,
+  SqlCapablePersistenceProvider,
+} from "@minsky/domain/persistence/types";
 import type { TaskServiceInterface } from "@minsky/domain/tasks/taskService";
+import { log } from "@minsky/shared/logger";
+
+/**
+ * Emit a `task.status_changed` system event (best-effort, informational — mt#2340).
+ *
+ * Write-scope for the event log is deliberately wider than the activity feed's
+ * default read-scope: this trajectory event is hidden from the default
+ * (actionable) feed but captured unconditionally so the Phase 2 noticer has
+ * history. Wired at the shared-command layer so it fires for both CLI and MCP
+ * `tasks status set`, across all task backends. Never throws — event emission
+ * must not affect the status-set outcome.
+ */
+async function emitTaskStatusChangedEvent(
+  provider: PersistenceProvider | undefined,
+  payload: { taskId: string; previousStatus: string | null; newStatus: string }
+): Promise<void> {
+  try {
+    const sqlProvider = provider as SqlCapablePersistenceProvider | undefined;
+    if (!sqlProvider?.getDatabaseConnection) return;
+    const db = await sqlProvider.getDatabaseConnection();
+    if (!db) return;
+    const { DrizzleEventEmitter } = await import("@minsky/domain/events/emitter");
+    await new DrizzleEventEmitter(db).emit({
+      eventType: "task.status_changed",
+      payload,
+      relatedTaskId: payload.taskId,
+    });
+  } catch (err: unknown) {
+    log.warn("task.status_changed: event emission failed (best-effort, swallowed)", {
+      taskId: payload.taskId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 /**
  * Parameters for tasks status get command
@@ -137,6 +174,14 @@ export class TasksStatusSetCommand extends BaseTaskCommand<TasksStatusSetParams>
       },
       { persistenceProvider: this.getPersistenceProvider?.(), taskService: this.getTaskService?.() }
     );
+
+    // Best-effort informational event (mt#2340) — captured for the Phase 2
+    // noticer; hidden from the activity feed's default actionable view.
+    await emitTaskStatusChangedEvent(this.getPersistenceProvider?.(), {
+      taskId: validatedTaskId,
+      previousStatus: previousStatus ?? null,
+      newStatus: status,
+    });
 
     const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
     this.debug("Task status set successfully");
