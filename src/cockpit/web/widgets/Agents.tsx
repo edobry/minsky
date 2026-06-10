@@ -8,8 +8,7 @@
  * persistence. Controls use prefix "ag" to namespace params.
  */
 import { useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardContent } from "../components/ui/card";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { Button } from "../components/ui/button";
 import { WidgetShell, type WidgetVariant } from "../components/WidgetShell";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
