@@ -217,7 +217,7 @@ export const INDEX_TEMPLATE: RuleTemplate = {
 
     return `# Minsky Rules Index
 
-This document categorizes all available rules in the Minsky ecosystem, describes their purpose, and identifies which rules apply in different usage scenarios.
+This document describes the rules installed in this project and identifies which apply in different usage scenarios.
 
 ## Core Workflow Rules
 
@@ -226,51 +226,11 @@ These rules define the fundamental workflow and processes for using Minsky:
 | Rule | Description | When to Apply |
 |------|-------------|--------------|
 | **minsky-workflow** | Defines the complete workflow for working with tasks and sessions. Includes task selection, status management, implementation process, and PR preparation | **Always required**. Applies to any interaction with tasks or sessions |
-| **changelog** | Requirements for maintaining a structured changelog | When completing tasks that modify code |
-
-## Code Organization Rules
-
-These rules ensure consistent organization and structure in the codebase:
-
-| Rule | Description | When to Apply |
-|------|-------------|--------------|
-| **module-organization** | Enforces separation between business logic and CLI concerns | When designing new modules or features |
-| **domain-oriented-modules** | Promotes organizing code by domain concepts | When designing module structure or refactoring |
-| **constants-management** | Best practices for organizing constants | When adding new constants or refactoring existing ones |
-
-## Quality Assurance Rules
-
-These rules enforce quality and robustness in code:
-
-| Rule | Description | When to Apply |
-|------|-------------|--------------|
-| **error-handling** (skill) | Standards for comprehensive error handling | When working with operations that might fail |
-| **dont-ignore-errors** | Enforces addressing all errors before considering tasks complete | During implementation and review of any code |
-| **tests** | Requirements for test coverage and when to run tests | When modifying code that requires testing |
-| **testing-standards** | Test structure, organization, testable design, and CLI output testing | When writing or modifying tests, or designing testable code |
-| **test-infrastructure** | Centralized test utilities under \`src/utils/test-utils/\` | When writing tests that need mocks, fixtures, or setup helpers |
-| **testing-boundaries** | What to test and what NOT to test | When deciding test scope |
-| **test-expectations** | Best practices for managing test expectations | When updating code that changes expected behavior |
-| **testing-session-repo-changes** | Procedures for testing changes in session repositories | When modifying code that affects session repositories |
-
-## Documentation & Communication Rules
-
-These rules ensure clear communication about changes and design:
-
-| Rule | Description | When to Apply |
-|------|-------------|--------------|
-| **pr-description-guidelines** | Format and content requirements for PR descriptions | When preparing pull requests |
-| **rule-creation-guidelines** | Standards for creating or updating rule files | When modifying existing rules or creating new ones |
-| **json-parsing** | Best practices for working with JSON output | When implementing commands that output JSON |
-
-## Tooling & Environment Rules
-
-These rules standardize the development environment:
-
-| Rule | Description | When to Apply |
-|------|-------------|--------------|
-| **bun_over_node** | Mandates using Bun instead of Node.js | For all JavaScript/TypeScript execution and package management |
-| **user-preferences** | Records user preferences from interactions | When implementing features that should respect user preferences |
+| **minsky-workflow-orchestrator** | Entry point for the Minsky workflow system — links to the focused workflow rules | Start here to understand the overall workflow |
+| **task-implementation-workflow** | Step-by-step process for implementing tasks in a session workspace | When starting or continuing implementation work |
+| **task-status-protocol** | Procedures for checking and updating task status correctly | When transitioning task state or checking current status |
+| **pr-preparation-workflow** | Guidelines for preparing and submitting pull requests | When creating or updating a PR |
+| **minsky-session-management** | Session lifecycle management — creation, navigation, cleanup | When working with sessions |
 
 ## Command Reference Quick Guide
 
@@ -302,10 +262,6 @@ ${helpers.readableCommand("session.get", "Retrieve session details")}
 #### Get Session Directory
 ${helpers.readableCommand("session.dir", "Get session path")}
 
-${helpers.conditionalSection(context.config.interface === "mcp", "mcp,hybrid", "")}
-
-${helpers.conditionalSection(context.config.interface === "cli", "cli,hybrid", "")}
-
 ## Usage Scenarios & Applicable Rules
 
 ### For New Contributors
@@ -313,60 +269,46 @@ ${helpers.conditionalSection(context.config.interface === "cli", "cli,hybrid", "
 When a developer first joins the project, they should focus on:
 
 1. **minsky-workflow** - Understand the overall process
-2. **module-organization** & **domain-oriented-modules** - Understand the codebase structure
+2. **task-implementation-workflow** - Learn the implementation workflow
 
 ### When Implementing Features
 
 During feature implementation, the most relevant rules are:
 
 1. **minsky-workflow** - Follow the proper process
-2. **domain-oriented-modules** & **module-organization** - Structure code correctly
-3. **error-handling** (skill) & **dont-ignore-errors** - Ensure resilient code
-4. **tests** - Create properly tested features
-5. **changelog** - Document the changes
+2. **task-implementation-workflow** - Step-by-step implementation guidance
+3. **task-status-protocol** - Keep task status accurate
 
 ### When Fixing Bugs
 
 For bug fixes, prioritize:
 
-1. **dont-ignore-errors** - Ensure all errors are handled
-2. **test-expectations** - Update tests appropriately
-3. **changelog** - Document the fix
+1. **minsky-workflow** - Follow the correct task/session workflow
+2. **task-implementation-workflow** - Apply structured implementation process
+3. **pr-preparation-workflow** - Document the fix in the PR
 
 ### When Reviewing Code
 
 Code reviewers should focus on:
 
-1. **pr-description-guidelines** - Ensure proper documentation
-2. **error-handling** (skill) & **dont-ignore-errors** - Verify error handling
-3. **domain-oriented-modules** & **module-organization** - Check structural alignment
-4. **tests** - Validate test coverage
-5. **changelog** - Confirm changes are documented
-
-### When Creating New Rules
-
-When developing new Minsky rules:
-
-1. **rule-creation-guidelines** - Follow the standards for rule creation
+1. **pr-preparation-workflow** - Ensure proper PR documentation
 
 ### When Setting Up New Projects
 
 For initializing new projects with Minsky:
 
 1. **minsky-workflow** - Establish the core workflow
-2. **changelog** - Set up change tracking
-3. **module-organization** & **domain-oriented-modules** - If developing with the same architecture
+2. **minsky-session-management** - Understand session creation
 
 ## Rule Relationships
 
 Some rules are closely related and often used together:
 
-- **module-organization** and **domain-oriented-modules** complement each other for code structuring
-- **tests** and **testing-standards** form a comprehensive testing approach
-- **error-handling** (skill) and **dont-ignore-errors** ensure comprehensive error management
-- **pr-description-guidelines** and **changelog** both contribute to documentation of changes
+- **minsky-workflow** and **minsky-workflow-orchestrator** provide the top-level orientation; the other rules drill into specific sub-workflows
+- **task-implementation-workflow**, **task-status-protocol**, and **pr-preparation-workflow** form the complete implementation lifecycle
+- **minsky-session-management** supports all rules that involve session workspaces
 
-This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.`;
+This index describes the rules installed in this project. Additional rules can be added via \`minsky rules create\`.`;
   },
   generateMeta: (context) => ({
     name: "Rules Index",
@@ -387,6 +329,15 @@ export const MINSKY_WORKFLOW_ORCHESTRATOR_TEMPLATE: RuleTemplate = {
   generateContent: (context) => {
     const { helpers } = context;
 
+    const isCursorFormat = context.config.ruleFormat === "cursor";
+    const ruleLink = (name: string, description: string): string => {
+      if (isCursorFormat) {
+        return `[**${name}**](mdc:.cursor/rules/${name}.mdc) - ${description}`;
+      }
+      // Generic rule format — plain text reference works under any agent/IDE
+      return `**${name}** — ${description}`;
+    };
+
     return `# Minsky Workflow System
 
 This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
@@ -395,9 +346,9 @@ This rule provides an overview of the Minsky workflow system and serves as an en
 
 The following rules form the complete Minsky workflow system:
 
-2. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
-3. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
-4. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
+2. ${ruleLink("task-implementation-workflow", "Step-by-step process for implementing tasks")}
+3. ${ruleLink("task-status-protocol", "Procedures for checking and updating task status")}
+4. ${ruleLink("pr-preparation-workflow", "Guidelines for preparing and submitting PRs")}
 
 ## Fundamental Principle: Command-Based Workflow
 
@@ -511,8 +462,8 @@ These workflow rules should be applied:
 
 The Minsky workflow is supported by these additional rules:
 
-- [**pr-description-guidelines**](mdc:.cursor/rules/pr-description-guidelines.mdc) - Format and content requirements for PR descriptions
-- [**rules-management**](mdc:.cursor/rules/rules-management.mdc) - Guidelines for managing Minsky rules`;
+- ${ruleLink("minsky-session-management", "Session lifecycle management — creation, navigation, cleanup")}
+- ${ruleLink("task-status-protocol", "Procedures for checking and updating task status")}`;
   },
   generateMeta: (context) => ({
     name: "Minsky Workflow Orchestrator",

@@ -28,8 +28,17 @@ describe("observabilityConfigSchema", () => {
     });
     expect(parsed.providers.braintrust?.apiKey).toBe("bt-test-key");
     expect(parsed.providers.braintrust?.enabled).toBe(true);
-    expect(parsed.providers.braintrust?.projectName).toBe("minsky");
+    // projectName has no hard-coded default (mt#2369: removed "minsky" default
+    // so external projects don't silently log to a Minsky-named project)
+    expect(parsed.providers.braintrust?.projectName).toBeUndefined();
     expect(parsed.providers.braintrust?.apiUrl).toBe("https://api.braintrust.dev");
+  });
+
+  it("accepts an explicit projectName", () => {
+    const parsed = observabilityConfigSchema.parse({
+      providers: { braintrust: { apiKey: "bt-test-key", projectName: "my-project" } },
+    });
+    expect(parsed.providers.braintrust?.projectName).toBe("my-project");
   });
 
   it("accepts apiKeyFile as alternative to apiKey", () => {

@@ -41,9 +41,13 @@ export const observabilityProviderConfigSchema = z.object({
  * project routing and a default api URL.
  */
 export const braintrustConfigSchema = observabilityProviderConfigSchema.extend({
-  // Braintrust project to log traces and events into. Defaults to "minsky"
-  // so a fresh setup ships to a project named for the product.
-  projectName: z.string().min(1).default("minsky"),
+  // Braintrust project to log traces and events into.
+  // No default — an external project must set this explicitly so it doesn't
+  // silently log into a project named "minsky". Configure via
+  // BRAINTRUST_PROJECT_NAME env var or observability.providers.braintrust.projectName
+  // in .minsky/config.yaml.
+  // (mt#2369: removed "minsky" hard-default to support external projects)
+  projectName: z.string().min(1).optional(),
 
   // Braintrust API base URL. Defaults to the hosted cloud endpoint.
   apiUrl: baseSchemas.url.default("https://api.braintrust.dev"),
