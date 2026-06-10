@@ -53,7 +53,10 @@ const TaskEditSchema = TaskIdentifierSchema.extend(
  */
 const TaskSearchReplaceSchema = TaskIdentifierSchema.extend(
   z.object({
-    search: z.string().describe("Text to search for (must be unique in the task spec)"),
+    search: z
+      .string()
+      .min(1, "search text must be non-empty")
+      .describe("Text to search for (must be unique in the task spec)"),
     replace: z.string().describe("Text to replace with"),
   }).shape
 );
@@ -299,6 +302,12 @@ FAIL-CLOSED (mt#2400): patching an EXISTING spec with content that has NO // ...
               `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
                 `Expected: taskId, search, replace`
             );
+          }
+
+          // mt#2408: an empty search string has no well-defined occurrences and
+          // would otherwise drive an unbounded scan. Reject it explicitly.
+          if (typedArgs.search === "") {
+            throw new Error(`Search text must be a non-empty string; received an empty string.`);
           }
 
           log.debug("Starting task search_replace operation", { taskId: typedArgs.taskId });
