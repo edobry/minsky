@@ -32,9 +32,11 @@ COPY postcss.config.js ./
 # just their package.json. The runtime stage copies these too; keep both in
 # sync. (Type-only `@minsky/domain/*/types` imports are erased by esbuild and
 # don't need this, but value imports do.) — mt#2409
-# tsconfigs are copied to mirror the runtime stage exactly, so the two stages
-# share the same source-resolution context (guards against future drift if a
-# package tsconfig starts affecting resolution).
+# Copy the workspace tsconfigs that govern domain/shared resolution (root +
+# shared + domain) so the builder shares the same source-resolution context as
+# the runtime stage and won't drift if a package tsconfig starts affecting
+# resolution. (services/cockpit/tsconfig.json is NOT copied here — it governs
+# the server runtime, not the Vite SPA build.)
 COPY tsconfig.json ./
 COPY packages/shared/tsconfig.json ./packages/shared/tsconfig.json
 COPY packages/shared/src ./packages/shared/src
