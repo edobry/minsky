@@ -216,3 +216,55 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// mt#2414: MINSKY_PROJECT observability in metadata.loadedVariables
+//
+// MINSKY_PROJECT is hook-only (no dot-path config mapping — it would be
+// rejected as "minsky.project" by the strict schema). However, it DOES
+// influence which project identity was resolved, so operators need an audit
+// trail. The fix: surface it in loadedVariables when set, WITHOUT adding it
+// to `mappings`. This test guards that invariant.
+// ---------------------------------------------------------------------------
+
+describe("environment configuration source — MINSKY_PROJECT observability (mt#2414)", () => {
+  let original: string | undefined;
+
+  beforeEach(() => {
+    original = process.env.MINSKY_PROJECT;
+    delete process.env.MINSKY_PROJECT;
+  });
+
+  afterEach(() => {
+    if (original === undefined) {
+      delete process.env.MINSKY_PROJECT;
+    } else {
+      process.env.MINSKY_PROJECT = original;
+    }
+  });
+
+  test("MINSKY_PROJECT set: appears in loadedVariables", () => {
+    process.env.MINSKY_PROJECT = "owner/repo";
+    const { metadata } = getEnvironmentConfiguration();
+    expect(metadata.loadedVariables).toContain("MINSKY_PROJECT");
+  });
+
+  test("MINSKY_PROJECT set: does NOT appear in mappings (not dot-path-mapped)", () => {
+    process.env.MINSKY_PROJECT = "owner/repo";
+    const { metadata } = getEnvironmentConfiguration();
+    expect(metadata.mappings["MINSKY_PROJECT"]).toBeUndefined();
+  });
+
+  test("MINSKY_PROJECT unset: does NOT appear in loadedVariables", () => {
+    // env var cleared in beforeEach — nothing to set
+    const { metadata } = getEnvironmentConfiguration();
+    expect(metadata.loadedVariables).not.toContain("MINSKY_PROJECT");
+  });
+
+  test("MINSKY_PROJECT set: does NOT produce a top-level config key (stays hook-only)", () => {
+    process.env.MINSKY_PROJECT = "owner/repo";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    expect(config.minsky).toBeUndefined();
+    expect(config.project).toBeUndefined();
+  });
+});

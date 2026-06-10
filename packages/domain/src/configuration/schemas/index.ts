@@ -58,6 +58,8 @@ import {
   type ObservabilityProvidersConfig,
 } from "./observability";
 
+import { projectConfigSchema, type ProjectConfig } from "./project";
+
 /**
  * Complete application configuration schema
  *
@@ -135,6 +137,10 @@ export const configurationSchema = z.object({
 
   // Observability provider configuration (mt#1791 — Braintrust + future providers)
   observability: observabilityConfigSchema,
+
+  // Project identity configuration (mt#2414 — Phase 1.1 of mt#2391)
+  // Stamped by `minsky init` / `minsky setup` with the project slug.
+  project: projectConfigSchema,
 });
 
 /**
@@ -191,6 +197,7 @@ export type {
   BraintrustConfig,
   ObservabilityProviderConfig,
   ObservabilityProvidersConfig,
+  ProjectConfig,
 };
 
 // Re-export schemas for external use
@@ -216,6 +223,7 @@ export {
   oauthConfigSchema,
   oauthProviderSchema,
   observabilityConfigSchema,
+  projectConfigSchema,
 };
 
 // Export the main schema as default

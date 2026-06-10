@@ -231,6 +231,12 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   "MINSKY_REVIEWER_WATCH_THRESHOLD", // src/adapters/shared/commands/reviewer-watch.ts (missed-review alert threshold default)
   "MINSKY_REVIEWER_WATCH_INTERVAL_MS", // src/adapters/shared/commands/reviewer-watch.ts (daemon poll-interval default)
   "MINSKY_ACK_CAUSAL_PREMISE", // .claude/hooks/causal-premise-detector.ts (mt#2216) — override for causal-premise warning injection
+  // mt#2414 — project identity resolver override. Read by
+  // packages/domain/src/project/identity.ts at identity-resolution time (not
+  // via the config-schema path). Placing it here so the env-var-to-config
+  // dot-path parser skips it at boot — the auto-conversion would produce
+  // "minsky.project" which is rejected as an unrecognised key.
+  "MINSKY_PROJECT", // packages/domain/src/project/identity.ts (project identity override)
 ]);
 
 /**
@@ -435,7 +441,21 @@ export function getEnvironmentConfiguration(): {
       // Skip hook-only env vars — see HOOK_ONLY_ENV_VARS docstring (mt#1644).
       // Stays in sync with loadEnvironmentConfiguration so metadata reporting
       // does not diverge from actual load behavior.
-      if (HOOK_ONLY_ENV_VARS.has(envVar)) continue;
+      //
+      // Exception (mt#2414): MINSKY_PROJECT is hook-only (no dot-path mapping)
+      // but IS surfaced in loadedVariables for observability — operators need an
+      // audit trail for why a project resolved as it did. It deliberately has NO
+      // entry in `mappings` (it is not a config dot-path value).
+      if (HOOK_ONLY_ENV_VARS.has(envVar)) {
+        if (
+          envVar === "MINSKY_PROJECT" &&
+          process.env[envVar] !== undefined &&
+          process.env[envVar] !== ""
+        ) {
+          loadedVariables.push(envVar);
+        }
+        continue;
+      }
 
       const configPath = envVarToConfigPath(envVar);
       if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {
