@@ -54,7 +54,11 @@ const BROWSE: NavItem[] = [
 ];
 
 function isActive(pathname: string, to: string): boolean {
-  return to === "/" ? pathname === "/" : pathname.startsWith(to);
+  if (to === "/") return pathname === "/";
+  // Segment-aware: exact match, or a deeper path UNDER this route — but not a
+  // sibling that merely shares a string prefix (e.g. /plant must NOT match
+  // /plant-grid, while /agents DOES match /agents/<id>).
+  return pathname === to || pathname.startsWith(to + "/");
 }
 
 function RailLink({ item, pathname }: { item: NavItem; pathname: string }) {
