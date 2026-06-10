@@ -69,6 +69,7 @@ import {
 import { log } from "./logger";
 import { extractPgErrorContext } from "./webhook-events";
 import { DomainAskEmitter, makeContainerAskRepoProvider, type AskEmitter } from "./ask-emitter";
+import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
 import type { AppContainerInterface } from "@minsky/domain/composition/types";
 
 // ---------------------------------------------------------------------------
@@ -346,6 +347,15 @@ export interface SweeperDeps {
    * the sweeper falls back to log-only behavior.
    */
   askEmitter?: AskEmitter;
+  /**
+   * Optional external alert sink (mt#2364 / mt#1596 Phase 2). When present, a
+   * tripped circuit breaker also pushes to an external channel (Telegram /
+   * webhook) so the failure reaches the principal off-cockpit / after-hours.
+   * Best-effort redundancy alongside the Phase-1 Ask: sink success/failure does
+   * NOT affect the `alerted` dedup mark (which stays gated on the Ask outcome).
+   * `null`/absent when no sink is configured (opt-in).
+   */
+  alertSink?: AlertSink | null;
 }
 
 /**
@@ -357,11 +367,12 @@ export interface SweeperDeps {
 export async function buildSweeperDeps(
   config: ReviewerConfig,
   db?: ReviewerDb,
-  askEmitter?: AskEmitter
+  askEmitter?: AskEmitter,
+  alertSink?: AlertSink | null
 ): Promise<SweeperDeps> {
   const octokit = await createOctokit(config);
   const botIdentity = await getAppIdentity(config);
-  return { octokit, botLogin: botIdentity.login, db, askEmitter };
+  return { octokit, botLogin: botIdentity.login, db, askEmitter, alertSink };
 }
 
 /**
@@ -424,7 +435,7 @@ export async function runSweep(
   const { owner, repo } = sweeperConfig;
 
   const deps = depsOverride ?? (await buildSweeperDeps(config));
-  const { octokit, botLogin, runReviewFn, db, askEmitter } = deps;
+  const { octokit, botLogin, runReviewFn, db, askEmitter, alertSink } = deps;
   const listOpenCircuitsFn = deps.listOpenCircuitsFn ?? listOpenCircuitsForPRs;
   const markCircuitAlertedFn = deps.markCircuitAlertedFn ?? markCircuitAlerted;
 
@@ -617,6 +628,29 @@ export async function runSweep(
             consecutiveCount: open.consecutiveCount,
             crossReference: "mt#1596",
           });
+          // mt#2364 / mt#1596 Phase 2: also push to the external off-cockpit
+          // alert sink (Telegram / webhook) so the failure reaches the principal
+          // after-hours. Fire-and-forget + fail-open (notify catches internally),
+          // and deliberately NOT awaited / NOT gating dedup — the sink is
+          // best-effort redundancy alongside the Phase-1 cockpit Ask, which
+          // remains the source-of-truth surface that drives the `alerted` mark.
+          // The `Promise.resolve(...).catch` is belt-and-suspenders: the
+          // AlertSink contract says notify never throws, but a future/external
+          // sink that violates it must not surface as an unhandled rejection.
+          void Promise.resolve(
+            alertSink?.notify(
+              "error",
+              `Reviewer circuit-breaker tripped — PR #${m.number}`,
+              `Reviewer review submission for ${owner}/${repo} PR #${m.number} @ ${m.headSha} keeps failing with a non-retryable error (${open.errorClass}, status ${open.lastStatus ?? "unknown"}) after ${open.consecutiveCount} attempts; the sweeper has stopped retriggering it. Operator action required (mt#2350 / mt#1596).`
+            )
+          ).catch((sinkErr: unknown) => {
+            log.warn("sweeper.alert_sink_unhandled", {
+              event: "sweeper.alert_sink_unhandled",
+              pr: m.number,
+              headSha: m.headSha,
+              error: sinkErr instanceof Error ? sinkErr.message : String(sinkErr),
+            });
+          });
           const emitOutcome = askEmitter
             ? await askEmitter.emitCircuitBreakerAlert({
                 owner,
@@ -768,6 +802,11 @@ export function startSweeper(
   // and the sweeper falls back to log-only behavior.
   const askEmitter = new DomainAskEmitter(makeContainerAskRepoProvider(container));
 
+  // mt#2364 / mt#1596 Phase 2: build the external off-cockpit alert sink from
+  // the reviewer's env config. Opt-in (ALERT_SINK_TYPE); null when unset/off,
+  // in which case the sweeper falls back to log + the Phase-1 cockpit Ask only.
+  const alertSink = buildAlertSink(loadAlertSinkConfig());
+
   // Cache a deps promise so we build octokit + botLogin once and reuse across
   // sweep cycles. The db is forwarded so runSweep can use the inflight marker.
   let cachedDeps: Promise<SweeperDeps> | null = null;
@@ -783,7 +822,7 @@ export function startSweeper(
     isSweeping = true;
     // Lazily build deps on first cycle; reuse on subsequent cycles.
     if (cachedDeps === null) {
-      cachedDeps = buildSweeperDeps(config, db, askEmitter);
+      cachedDeps = buildSweeperDeps(config, db, askEmitter, alertSink);
     }
     cachedDeps
       .then((deps) => runSweep(config, sweeperConfig, deps))

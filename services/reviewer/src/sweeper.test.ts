@@ -29,6 +29,7 @@ import {
 } from "./sweeper";
 import { submissionFailureKey, type OpenCircuit } from "./submission-failure-tracker";
 import { DomainAskEmitter, type CircuitBreakerAlertContext } from "./ask-emitter";
+import { WebhookAlertSink } from "./alert-sink";
 import type { ReviewerDb } from "./db/client";
 
 // ---------------------------------------------------------------------------
@@ -891,12 +892,16 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     select: () => ({ from: () => ({ where: () => Promise.resolve([]) }) }),
   } as unknown as ReviewerDb;
 
+  // The non-retryable error class used by the fixture open circuit. Extracted
+  // so the helper and the assertions that check it share one source of truth.
+  const CIRCUIT_ERROR_CLASS = "non_retryable_4xx";
+
   function openCircuit(prNumber: number, headSha: string, alerted: boolean): OpenCircuit {
     return {
       id: `row-${prNumber}`,
       prNumber,
       headSha,
-      errorClass: "non_retryable_4xx",
+      errorClass: CIRCUIT_ERROR_CLASS,
       lastStatus: 422,
       consecutiveCount: 2,
       alerted,
@@ -908,7 +913,8 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     openMap: Map<string, OpenCircuit>,
     runReviewFn: SweeperDeps["runReviewFn"],
     markCircuitAlertedFn: SweeperDeps["markCircuitAlertedFn"],
-    askEmitter?: SweeperDeps["askEmitter"]
+    askEmitter?: SweeperDeps["askEmitter"],
+    alertSink?: SweeperDeps["alertSink"]
   ): SweeperDeps {
     return {
       octokit: makeFakeOctokit({
@@ -928,6 +934,7 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
       listOpenCircuitsFn: () => Promise.resolve(openMap),
       markCircuitAlertedFn,
       askEmitter,
+      alertSink,
     };
   }
 
@@ -1042,7 +1049,7 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     expect(ctx.repo).toBe(SWEEPER_CONFIG.repo);
     expect(ctx.prNumber).toBe(prNumber);
     expect(ctx.headSha).toBe(HEAD_SHA);
-    expect(ctx.errorClass).toBe("non_retryable_4xx");
+    expect(ctx.errorClass).toBe(CIRCUIT_ERROR_CLASS);
     expect(ctx.lastStatus).toBe(422);
     expect(ctx.consecutiveCount).toBe(2);
     expect(ctx.circuitId).toBe(`row-${prNumber}`);
@@ -1123,5 +1130,141 @@ describe("runSweep — circuit breaker (mt#2350)", () => {
     await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
 
     expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+  });
+
+  // -------------------------------------------------------------------------
+  // mt#2364 / mt#1596 Phase 2: circuit-breaker trip also pushes to alertSink
+  // -------------------------------------------------------------------------
+
+  test("open circuit (!alerted) → alertSink.notify called once with error severity + PR context (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const notify = mock(() => Promise.resolve());
+    const alertSink = { notify };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      undefined,
+      alertSink
+    );
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    const [severity, title, body] = notify.mock.calls[0] as unknown as [string, string, string];
+    expect(severity).toBe("error");
+    expect(title).toContain(`#${prNumber}`);
+    expect(body).toContain(HEAD_SHA);
+    expect(body).toContain(CIRCUIT_ERROR_CLASS);
+    expect(body).toContain("422");
+  });
+
+  test("already-alerted open circuit → alertSink.notify NOT called (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    const notify = mock(() => Promise.resolve());
+    const alertSink = { notify };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, true),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      undefined,
+      alertSink
+    );
+    await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  test("alertSink fire does NOT affect dedup: circuit still marked alerted on Ask success (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    // Sink whose notify rejects internally would be a contract violation; a
+    // well-behaved sink resolves. The sweeper fires it fire-and-forget and does
+    // NOT gate dedup on it — dedup is gated on the Ask outcome ("created").
+    const notify = mock(() => Promise.resolve());
+    const alertSink = { notify };
+    const emitCircuitBreakerAlert = mock(() => Promise.resolve("created" as const));
+    const askEmitter = { emitCircuitBreakerAlert };
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      askEmitter,
+      alertSink
+    );
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(emitCircuitBreakerAlert).toHaveBeenCalledTimes(1);
+    // Dedup gated on the Ask outcome only — sink does not change it.
+    expect(markCircuitAlertedFn).toHaveBeenCalledTimes(1);
+    expect(result.retriggeredCount).toBe(0);
+  });
+
+  test("real (fail-open) WebhookAlertSink with throwing fetch → sweep completes cleanly (mt#2364)", async () => {
+    const prNumber = 1602;
+    const runReviewFn = mock(() =>
+      Promise.resolve({ status: "reviewed" as const, reason: "x", tier: 3 as const })
+    );
+    const markCircuitAlertedFn = mock(() => Promise.resolve());
+    // A real WebhookAlertSink whose fetch rejects — notify catches internally,
+    // so the fire-and-forget at the seam never produces an unhandled rejection
+    // and the sweep completes.
+    const throwingFetch = (() =>
+      Promise.reject(new Error("network down"))) as unknown as import("./alert-sink").FetchFn;
+    const alertSink = new WebhookAlertSink("https://hook/x", undefined, throwingFetch);
+    const openMap = new Map<string, OpenCircuit>([
+      [
+        submissionFailureKey(SWEEPER_CONFIG.owner, SWEEPER_CONFIG.repo, prNumber, HEAD_SHA),
+        openCircuit(prNumber, HEAD_SHA, false),
+      ],
+    ]);
+
+    const deps = circuitDeps(
+      prNumber,
+      openMap,
+      runReviewFn,
+      markCircuitAlertedFn,
+      undefined,
+      alertSink
+    );
+    const result = await runSweep(BASE_CONFIG, SWEEPER_CONFIG, deps);
+
+    expect(result.retriggeredCount).toBe(0);
+    expect(result.missing).toHaveLength(0);
   });
 });
