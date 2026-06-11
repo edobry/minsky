@@ -132,11 +132,18 @@ async function callGetUpdatesSummary(token: string): Promise<CredentialCheckResu
       .map(String)
   ).size;
   if (chatCount === 0) {
+    // Self-disambiguating hint (2026-06-11 retro): name the exact bot this
+    // token belongs to — "your bot" is ambiguous when the operator has
+    // several or messaged the wrong one. Best-effort getMe; generic fallback.
+    let botHint = "your bot";
+    const me = await callGetMe(token);
+    if (me.ok && me.detail.startsWith("telegram:@")) {
+      botHint = me.detail.slice("telegram:".length);
+    }
     return {
       ok: true,
       scopeGap: true,
-      detail:
-        "token valid; no chats visible yet — send your bot one message so chat-id discovery can find you",
+      detail: `token valid; no chats visible yet — send ${botHint} one message so chat-id discovery can find you`,
     };
   }
   return { ok: true, detail: `token valid; ${chatCount} chat(s) visible to discovery` };

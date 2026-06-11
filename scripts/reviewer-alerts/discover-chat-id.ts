@@ -87,9 +87,27 @@ async function main(): Promise<void> {
 
   const chats = extractChats(body);
   if (chats.length === 0) {
+    // Self-disambiguate (2026-06-11 retro): "message your bot" is ambiguous
+    // when the operator has several bots or messaged the wrong one — name the
+    // exact bot this token belongs to. getMe is public bot identity, not a
+    // secret. Best-effort: if getMe fails, fall back to the generic message.
+    let botHint = "your bot";
+    try {
+      const me = await fetch(`https://api.telegram.org/bot${token}/getMe`);
+      const meBody = (await me.json()) as { ok?: boolean; result?: { username?: string } };
+      if (meBody.ok === true && meBody.result?.username) {
+        botHint = `@${meBody.result.username}`;
+      }
+    } catch {
+      // keep generic hint
+    }
     fail(
-      "no updates found. Open Telegram, send your bot any message (e.g. 'hi'), then re-run. " +
-        "(Telegram only exposes a chat id after the user has messaged the bot.)"
+      redactSecret(
+        token,
+        `no updates found. Open Telegram, send ${botHint} any message (e.g. 'hi'), then re-run. ` +
+          "(Telegram only exposes a chat id after the user has messaged the bot — and only " +
+          "messages to THIS token's bot count.)"
+      )
     );
   }
 

@@ -7,6 +7,9 @@ import { describe, it, expect, afterEach, mock } from "bun:test";
 import { telegramProvider, resolveInfraDir } from "./telegram";
 import { join } from "path";
 
+/** Shared fixture bot username (extracted per no-magic-string-duplication). */
+const TEST_BOT_USERNAME = "minsky_alerts_bot";
+
 type FetchHandler = (url: string, init?: RequestInit) => Response | Promise<Response>;
 
 function installFetchStub(handler: FetchHandler): { restore: () => void } {
@@ -39,11 +42,11 @@ describe("telegramProvider.validate (getMe)", () => {
   it("200 ok:true → ok with bot identity", async () => {
     stub = installFetchStub((url) => {
       expect(url).toContain("/getMe");
-      return jsonResponse({ ok: true, result: { username: "minsky_alerts_bot" } });
+      return jsonResponse({ ok: true, result: { username: TEST_BOT_USERNAME } });
     });
     const result = await telegramProvider.validate("tok");
     expect(result.ok).toBe(true);
-    expect(result.detail).toContain("minsky_alerts_bot");
+    expect(result.detail).toContain(TEST_BOT_USERNAME);
   });
 
   it("401 → unauthorized", async () => {
@@ -87,8 +90,24 @@ describe("telegramProvider.test (getUpdates summary)", () => {
     expect(result.detail).toContain("2 chat(s)");
   });
 
-  it("no chats yet → ok with scopeGap hint (message your bot)", async () => {
-    stub = installFetchStub(() => jsonResponse({ ok: true, result: [] }));
+  it("no chats yet → ok with scopeGap hint naming the exact bot (self-disambiguation)", async () => {
+    stub = installFetchStub((url) => {
+      if (url.includes("/getMe")) {
+        return jsonResponse({ ok: true, result: { username: TEST_BOT_USERNAME } });
+      }
+      return jsonResponse({ ok: true, result: [] });
+    });
+    const result = await telegramProvider.test("tok");
+    expect(result.ok).toBe(true);
+    expect(result.scopeGap).toBe(true);
+    expect(result.detail).toContain(`send @${TEST_BOT_USERNAME} one message`);
+  });
+
+  it("no chats + getMe unavailable → generic 'your bot' fallback", async () => {
+    stub = installFetchStub((url) => {
+      if (url.includes("/getMe")) return new Response("", { status: 500 });
+      return jsonResponse({ ok: true, result: [] });
+    });
     const result = await telegramProvider.test("tok");
     expect(result.ok).toBe(true);
     expect(result.scopeGap).toBe(true);

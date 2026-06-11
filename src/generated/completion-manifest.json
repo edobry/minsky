@@ -4025,7 +4025,7 @@
                     },
                     {
                       "flags": ["--provider"],
-                      "description": "Credential provider id (supabase | github | anthropic | railway | google). Omit to recheck all configured providers.",
+                      "description": "Credential provider id (supabase | github | anthropic | railway | google | telegram). Omit to recheck all configured providers.",
                       "takesValue": true
                     }
                   ]
