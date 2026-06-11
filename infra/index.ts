@@ -92,6 +92,13 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
   MINSKY_SESSIONDB_POSTGRES_URL: sealed("minsky-sessiondb-postgres-url"),
+  // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
+  // trips to the operator's Telegram after-hours. Token entered via the
+  // cockpit credentials widget (masked) into the Pulumi stack secret; chat id
+  // discovered via scripts/reviewer-alerts/discover-chat-id.ts (2026-06-11).
+  ALERT_SINK_TYPE: plain("telegram"),
+  TELEGRAM_CHAT_ID: plain("167346572"),
+  TELEGRAM_BOT_TOKEN: sealed("minsky-reviewer-telegram-bot-token"),
 });
 
 // ---------------------------------------------------------------------------
