@@ -7,6 +7,13 @@
  * Deploys to Railway (or any Node-compatible target). See DEPLOY.md.
  */
 
+// MUST be the first import (mt#2450): tsyringe (used by the domain container,
+// mt#2121) requires the reflect-metadata polyfill before any decorated class
+// loads. Without this, bootDomainContainer() throws at every production boot
+// and the service silently degrades (no pr-watch scheduler, no merge-state
+// sweeper, no tier resolution, no circuit-breaker→Ask path) behind a single
+// warn-level log line — the mt#1596 "logging ≠ surfacing" failure class.
+import "reflect-metadata";
 import { Webhooks } from "@octokit/webhooks";
 import type { ReviewerConfig } from "./config";
 import { loadConfig, parsePositiveIntEnv } from "./config";
@@ -14,6 +21,7 @@ import { log } from "./logger";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
+import { buildAlertSink, loadAlertSinkConfig } from "./alert-sink";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -1297,12 +1305,28 @@ if (import.meta.main) {
     domainServices = await bootDomainContainer();
     log.info("domain_container_booted", { event: "domain_container_booted" });
   } catch (err: unknown) {
+    const errorDetail = err instanceof Error ? err.message : String(err);
     log.warn("domain_container_boot_failed", {
       event: "domain_container_boot_failed",
-      error: err instanceof Error ? err.message : String(err),
+      error: errorDetail,
       message:
         "Domain services unavailable — task-spec fetch and tier resolution will degrade gracefully.",
     });
+    // mt#2450 surfacing: this failure silently disables the pr-watch
+    // scheduler, merge-state sweeper, tier resolution, AND the
+    // circuit-breaker→Ask path (mt#2363) — it went unnoticed in production
+    // behind the warn line above (the mt#1596 "logging ≠ surfacing" class).
+    // Push it through the external alert sink so the operator is paged.
+    // Fail-open: a sink failure must not affect boot.
+    void Promise.resolve(
+      buildAlertSink(loadAlertSinkConfig())?.notify(
+        "error",
+        "Reviewer domain container failed to boot",
+        `bootDomainContainer() threw at startup: ${errorDetail}. ` +
+          "Degraded: no pr-watch scheduler, no merge-state sweeper, no tier " +
+          "resolution, no circuit-breaker Asks. See mt#2450."
+      )
+    ).catch(() => {});
   }
 
   const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices);

@@ -127,6 +127,20 @@ After setting variables, trigger a redeploy:
 railway redeploy
 ```
 
+### Operator alert sink (optional — mt#2364 / mt#2419 / mt#2450)
+
+The service can push operator alerts (circuit-breaker trips, domain-container
+boot failures) to an external channel. Opt-in via:
+
+- `ALERT_SINK_TYPE` — `telegram` or `webhook` (unset = disabled)
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — for `telegram`
+- `ALERT_SINK_URL`, `ALERT_SINK_SECRET` — for `webhook`
+
+On the Minsky production stack these are **Pulumi-managed** (declared in
+`infra/index.ts`, gated on the per-stack `reviewer-telegram-chat-id` config) —
+do NOT hand-set them in the Railway dashboard there (drift). Full setup +
+verification flow: `services/reviewer/README.md §Operator alerts`.
+
 ## Generate a public URL
 
 ```bash
