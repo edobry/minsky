@@ -26,7 +26,7 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "../lib/utils";
 import {
@@ -268,6 +268,16 @@ function TurnView({
 
 // ── Thread (pure, snapshot-in) ──────────────────────────────────────────────────
 
+/**
+ * Tail-first window (mt#2433): the measured cost on long sessions is the eager
+ * MOUNT of every formatted block (265 blocks / ~1MB took >20s to first content;
+ * the snapshot fetch itself is ~1s), so only the most recent INITIAL_TURNS
+ * turns render on mount — the chat idiom: the operator cares about the newest
+ * exchange. "Show older" reveals earlier turns in OLDER_CHUNK increments.
+ */
+const INITIAL_TURNS = 50;
+const OLDER_CHUNK = 100;
+
 function ConversationThread({
   snapshot,
   className,
@@ -278,6 +288,8 @@ function ConversationThread({
   const turns = useMemo(() => snapshotBlocksToConversation(snapshot.blocks), [snapshot.blocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
+  // Computed over ALL turns (not the window): a windowed tool-result may answer
+  // a call that is currently outside the window.
   const callNameByToolUseId = useMemo(() => {
     const map = new Map<string, string>();
     for (const turn of turns) {
@@ -303,6 +315,29 @@ function ConversationThread({
     [turns]
   );
 
+  const [visibleCount, setVisibleCount] = useState(INITIAL_TURNS);
+
+  // New session in the same mounted component → window back to the tail.
+  useEffect(() => {
+    setVisibleCount(INITIAL_TURNS);
+  }, [snapshot.agentSessionId]);
+
+  const windowedTurns = useMemo(
+    () => visibleTurns.slice(Math.max(0, visibleTurns.length - visibleCount)),
+    [visibleTurns, visibleCount]
+  );
+  const hiddenCount = visibleTurns.length - windowedTurns.length;
+
+  // Land on the newest exchange when the window clipped older turns. Once, on
+  // mount only — expanding "Show older" must not yank the scroll position.
+  const clippedOnMountRef = useRef(visibleTurns.length > INITIAL_TURNS);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (clippedOnMountRef.current) {
+      endRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, []);
+
   if (visibleTurns.length === 0) {
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
@@ -313,9 +348,28 @@ function ConversationThread({
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
-      {visibleTurns.map((turn) => (
+      {hiddenCount > 0 && (
+        <div className="flex items-center justify-center gap-3 py-1">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((c) => c + OLDER_CHUNK)}
+            className="rounded border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            Show older ({hiddenCount} more)
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisibleCount(visibleTurns.length)}
+            className="text-xs text-muted-foreground/70 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+          >
+            Show all
+          </button>
+        </div>
+      )}
+      {windowedTurns.map((turn) => (
         <TurnView key={turn.blockId} turn={turn} callNameByToolUseId={callNameByToolUseId} />
       ))}
+      <div ref={endRef} aria-hidden />
     </div>
   );
 }
