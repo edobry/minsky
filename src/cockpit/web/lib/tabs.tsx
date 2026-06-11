@@ -29,7 +29,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { shortenId } from "./format";
 
-export type EntityTabKind = "task" | "session" | "agent";
+export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -53,7 +53,8 @@ const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
  * and sessions (`/session/:id`). PR/ask/memory kinds join as their detail
  * routes land (mt#2398 PR2 + later). Workspace sessions (`/agents/:id`,
  * kind "agent") joined via mt#1919 — distinct id-space from "session"
- * (harness agentSessionId vs Minsky workspace sessionId).
+ * (harness agentSessionId vs Minsky workspace sessionId). Asks (`/ask/:id`)
+ * and memories (`/memory/:id`) joined via mt#2410 (mt#2398's PR2).
  */
 export function matchEntityRoute(pathname: string): EntityTab | null {
   const session = pathname.match(/^\/session\/([^/]+)$/);
@@ -78,6 +79,28 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
     };
   }
 
+  const ask = pathname.match(/^\/ask\/([^/]+)$/);
+  if (ask?.[1]) {
+    const id = decodeURIComponent(ask[1]);
+    return {
+      kind: "ask",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
+    };
+  }
+
+  const memory = pathname.match(/^\/memory\/([^/]+)$/);
+  if (memory?.[1]) {
+    const id = decodeURIComponent(memory[1]);
+    return {
+      kind: "memory",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
+    };
+  }
+
   const task = pathname.match(/^\/tasks\/([^/]+)$/);
   if (task?.[1] && task[1] !== "graph") {
     const id = decodeURIComponent(task[1]);
@@ -91,7 +114,13 @@ interface TabsContextValue {
   tabs: EntityTab[];
   /** Path of the active tab, or null when the current route is not an entity route. */
   activePath: string | null;
-  closeTab: (path: string) => void;
+  /**
+   * Close a tab. When closing the tab you're currently on, focus moves to
+   * `opts.navigateTo` when given (e.g. a consumable entity settling back to
+   * its list — mt#2410's ask-resolution convention), else the last remaining
+   * tab, else the default landing.
+   */
+  closeTab: (path: string, opts?: { navigateTo?: string }) => void;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
@@ -110,7 +139,9 @@ function loadTabs(): EntityTab[] {
         typeof (t as EntityTab).label === "string" &&
         ((t as EntityTab).kind === "task" ||
           (t as EntityTab).kind === "session" ||
-          (t as EntityTab).kind === "agent")
+          (t as EntityTab).kind === "agent" ||
+          (t as EntityTab).kind === "ask" ||
+          (t as EntityTab).kind === "memory")
     );
   } catch {
     return [];
@@ -145,14 +176,15 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   const closeTab = useCallback(
-    (path: string) => {
+    (path: string, opts?: { navigateTo?: string }) => {
       setTabs((prev) => {
         const remaining = prev.filter((t) => t.path !== path);
-        // Closing the tab you're on: move focus to the last remaining tab,
-        // or the default landing when the working set is empty.
+        // Closing the tab you're on: move focus to the caller's destination,
+        // or the last remaining tab, or the default landing when the working
+        // set is empty.
         if (path === pathname) {
           const next = remaining[remaining.length - 1];
-          navigate(next ? next.path : "/");
+          navigate(opts?.navigateTo ?? (next ? next.path : "/"));
         }
         return remaining;
       });

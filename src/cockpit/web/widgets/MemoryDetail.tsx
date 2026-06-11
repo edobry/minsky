@@ -1,8 +1,13 @@
+/**
+ * MemoryDetail content (mt#2150; re-framed mt#2410).
+ *
+ * Originally a fixed slide-in drawer over MemoriesPage; mt#2410 retired the
+ * overlay in favor of the URL-addressable entity-tab pattern — MemoryPage
+ * (/memory/:id) hosts MemoryDetailBody, and lineage/similar navigation is
+ * URL navigation supplied by the host via `onNavigate`.
+ */
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
-import { X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
-import { Button } from "../components/ui/button";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
 import { cn } from "../lib/utils";
 import type { MemoryRecord, MemoryType } from "@minsky/domain/memory/types";
@@ -12,17 +17,11 @@ interface MemorySearchResult {
   score: number;
 }
 
-interface MemoriesDetailPayload {
+export interface MemoriesDetailPayload {
   record: MemoryRecord;
   lineage: MemoryRecord[];
   lineageTruncated: boolean;
   similar: MemorySearchResult[];
-}
-
-interface MemoryDetailProps {
-  memoryId: string | null;
-  onClose: () => void;
-  onNavigate?: (id: string) => void;
 }
 
 const TYPE_BADGE: Record<MemoryType, string> = {
@@ -54,7 +53,7 @@ function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function MemoryDetailContent({
+export function MemoryDetailContent({
   payload,
   onNavigate,
 }: {
@@ -71,9 +70,23 @@ function MemoryDetailContent({
           Metadata
         </h3>
         <dl className="space-y-0">
-          <MetaRow label="Type" value={<span className={cn("px-1.5 py-0.5 rounded text-xs capitalize", TYPE_BADGE[record.type])}>{record.type}</span>} />
+          <MetaRow
+            label="Type"
+            value={
+              <span
+                className={cn("px-1.5 py-0.5 rounded text-xs capitalize", TYPE_BADGE[record.type])}
+              >
+                {record.type}
+              </span>
+            }
+          />
           <MetaRow label="Scope" value={record.scope} />
-          {record.projectId && <MetaRow label="Project" value={<span className="font-mono">{record.projectId}</span>} />}
+          {record.projectId && (
+            <MetaRow
+              label="Project"
+              value={<span className="font-mono">{record.projectId}</span>}
+            />
+          )}
           <MetaRow label="Created" value={relativeTime(record.createdAt)} />
           <MetaRow label="Updated" value={relativeTime(record.updatedAt)} />
           {record.lastAccessedAt && (
@@ -83,7 +96,9 @@ function MemoryDetailContent({
           {record.sourceSessionId && (
             <MetaRow
               label="Source session"
-              value={<span className="font-mono text-[10px]">{record.sourceSessionId.slice(0, 8)}…</span>}
+              value={
+                <span className="font-mono text-[10px]">{record.sourceSessionId.slice(0, 8)}…</span>
+              }
             />
           )}
           {record.supersededBy && (
@@ -114,7 +129,10 @@ function MemoryDetailContent({
           </h3>
           <div className="flex flex-wrap gap-1">
             {record.tags.map((tag) => (
-              <span key={tag} className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px]">
+              <span
+                key={tag}
+                className="px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-[11px]"
+              >
                 {tag}
               </span>
             ))}
@@ -130,7 +148,10 @@ function MemoryDetailContent({
           </h3>
           <dl>
             {Object.entries(record.associations).map(([type, targets]) => (
-              <div key={type} className="flex items-start gap-2 py-1 border-b border-border/50 last:border-0 text-xs">
+              <div
+                key={type}
+                className="flex items-start gap-2 py-1 border-b border-border/50 last:border-0 text-xs"
+              >
                 <dt className="text-muted-foreground flex-shrink-0">{type}</dt>
                 <dd className="flex flex-wrap gap-1">
                   {targets.map((t) => (
@@ -171,7 +192,9 @@ function MemoryDetailContent({
                     onClick={() => onNavigate(rec.id)}
                     className={cn(
                       "truncate text-left",
-                      rec.id === record.id ? "font-semibold text-foreground" : "text-primary hover:underline"
+                      rec.id === record.id
+                        ? "font-semibold text-foreground"
+                        : "text-primary hover:underline"
                     )}
                   >
                     {rec.name}
@@ -181,7 +204,9 @@ function MemoryDetailContent({
                     {rec.name}
                   </span>
                 )}
-                <span className="text-muted-foreground flex-shrink-0">{relativeTime(rec.createdAt)}</span>
+                <span className="text-muted-foreground flex-shrink-0">
+                  {relativeTime(rec.createdAt)}
+                </span>
               </li>
             ))}
           </ol>
@@ -219,103 +244,40 @@ function MemoryDetailContent({
   );
 }
 
-export function MemoryDetail({ memoryId, onClose, onNavigate }: MemoryDetailProps) {
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+// ---------------------------------------------------------------------------
+// Self-fetching body (no overlay chrome) — hosted by MemoryPage (/memory/:id)
+// ---------------------------------------------------------------------------
 
+export function MemoryDetailBody({
+  memoryId,
+  onNavigate,
+}: {
+  memoryId: string;
+  onNavigate?: (id: string) => void;
+}) {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "memories-detail", memoryId],
-    queryFn: () => fetchWidgetData(`memories-detail?id=${encodeURIComponent(memoryId!)}`),
-    enabled: memoryId != null,
+    queryFn: () => fetchWidgetData(`memories-detail?id=${encodeURIComponent(memoryId)}`),
     staleTime: 30_000,
   });
 
-  // Close on Escape
-  useEffect(() => {
-    if (!memoryId) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [memoryId, onClose]);
-
-  // Focus close button when dialog opens
-  useEffect(() => {
-    if (memoryId) {
-      const id = setTimeout(() => closeButtonRef.current?.focus(), 50);
-      return () => clearTimeout(id);
-    }
-  }, [memoryId]);
-
-  if (!memoryId) return null;
-
+  if (query.isPending) {
+    return <p className="text-xs text-muted-foreground">Loading…</p>;
+  }
+  if (query.isError) {
+    return <p className="text-xs text-destructive">Failed to load: {query.error.message}</p>;
+  }
+  if (query.data.state !== "ok") {
+    return (
+      <p className="text-xs text-muted-foreground">
+        {query.data.state === "degraded" ? query.data.reason : "Memory detail unavailable."}
+      </p>
+    );
+  }
   return (
-    <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-        aria-hidden="true"
-        onClick={onClose}
-      />
-
-      {/* Panel */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Memory detail"
-        className={cn(
-          "fixed right-0 top-0 z-50 h-full w-full max-w-md",
-          "bg-background border-l border-border",
-          "flex flex-col"
-        )}
-      >
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border flex-shrink-0">
-          <div className="min-w-0">
-            {query.data?.state === "ok" ? (
-              <>
-                <p className="text-sm font-semibold truncate">
-                  {(query.data.payload as MemoriesDetailPayload).record.name}
-                </p>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">
-                  {(query.data.payload as MemoriesDetailPayload).record.description}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm font-semibold text-muted-foreground">Memory Detail</p>
-            )}
-          </div>
-          <Button
-            ref={closeButtonRef}
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            aria-label="Close memory detail"
-            className="h-7 w-7 flex-shrink-0 mt-0.5"
-          >
-            <X aria-hidden className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {query.isLoading && (
-            <p className="text-xs text-muted-foreground">Loading…</p>
-          )}
-          {query.isError && (
-            <p className="text-xs text-destructive">Failed to load: {query.error.message}</p>
-          )}
-          {query.data?.state === "degraded" && (
-            <p className="text-xs text-muted-foreground">{query.data.reason}</p>
-          )}
-          {query.data?.state === "ok" && (
-            <MemoryDetailContent
-              payload={query.data.payload as MemoriesDetailPayload}
-              onNavigate={onNavigate}
-            />
-          )}
-        </div>
-      </div>
-    </>
+    <MemoryDetailContent
+      payload={query.data.payload as MemoriesDetailPayload}
+      onNavigate={onNavigate}
+    />
   );
 }

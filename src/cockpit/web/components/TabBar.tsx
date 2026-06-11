@@ -13,7 +13,7 @@
  * Links and the close buttons are natively focusable and keyboard-operable.
  */
 import { Link } from "react-router-dom";
-import { X, Network, Bot, GitBranch } from "lucide-react";
+import { X, Network, Bot, GitBranch, CircleHelp, Brain } from "lucide-react";
 import { useTabs, type EntityTabKind } from "../lib/tabs";
 import { cn } from "../lib/utils";
 
@@ -21,6 +21,8 @@ const KIND_ICONS: Record<EntityTabKind, React.ComponentType<{ className?: string
   task: Network,
   session: Bot,
   agent: GitBranch,
+  ask: CircleHelp,
+  memory: Brain,
 };
 
 const FALLBACK_ICON: React.ComponentType<{ className?: string }> = Bot;
@@ -65,7 +67,7 @@ export function TabBar() {
             <Link
               to={tab.path}
               className="flex min-w-0 items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
-              aria-current={active ? "page" : undefined}
+              aria-current={active ? "location" : undefined}
               title={tab.entityId}
             >
               <Icon aria-hidden className="h-3.5 w-3.5 flex-shrink-0" />
