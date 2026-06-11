@@ -111,9 +111,7 @@ function MemorySearchBody({
       )}
 
       {!debouncedQuery && (
-        <p className="text-xs text-muted-foreground">
-          Type to search across all memory records.
-        </p>
+        <p className="text-xs text-muted-foreground">Type to search across all memory records.</p>
       )}
 
       {payload && debouncedQuery && !query.isLoading && (
@@ -189,7 +187,11 @@ function MemorySearchBody({
 // Main widget export (mt#2373)
 // ---------------------------------------------------------------------------
 
-export function MemorySearch({ onResultClick, variant = "card", title = "Search Memories" }: MemorySearchProps) {
+export function MemorySearch({
+  onResultClick,
+  variant = "card",
+  title = "Search Memories",
+}: MemorySearchProps) {
   const [inputValue, setInputValue] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
@@ -204,12 +206,12 @@ export function MemorySearch({ onResultClick, variant = "card", title = "Search 
 
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "memories-search", debouncedQuery],
+    // Params go through fetchWidgetData's params argument — embedding them in
+    // the id segment misses the widget route and returns the SPA fallback (mt#2443).
     queryFn: () =>
-      fetchWidgetData(
-        debouncedQuery.trim()
-          ? `memories-search?q=${encodeURIComponent(debouncedQuery.trim())}`
-          : "memories-search"
-      ),
+      debouncedQuery.trim()
+        ? fetchWidgetData("memories-search", { q: debouncedQuery.trim() })
+        : fetchWidgetData("memories-search"),
     staleTime: 20_000,
     enabled: true, // always enabled so empty state renders
   });

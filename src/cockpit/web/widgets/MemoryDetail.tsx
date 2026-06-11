@@ -257,7 +257,9 @@ export function MemoryDetailBody({
 }) {
   const query = useQuery<WidgetData, Error>({
     queryKey: ["widget", "memories-detail", memoryId],
-    queryFn: () => fetchWidgetData(`memories-detail?id=${encodeURIComponent(memoryId)}`),
+    // Params go through fetchWidgetData's params argument — embedding them in
+    // the id segment misses the widget route and returns the SPA fallback (mt#2443).
+    queryFn: () => fetchWidgetData("memories-detail", { id: memoryId }),
     staleTime: 30_000,
   });
 
