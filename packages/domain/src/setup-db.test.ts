@@ -75,6 +75,27 @@ describe("maskConnectionString", () => {
   test("masks user and password", () => {
     expect(maskConnectionString(GOOD)).toBe("postgresql://***:***@localhost:5432/postgres");
   });
+
+  test("masks when the username is empty (PR #1666)", () => {
+    expect(maskConnectionString("postgresql://:secret@host:5432/db")).toBe(
+      "postgresql://***:***@host:5432/db"
+    );
+  });
+
+  test("masks when the password is empty", () => {
+    expect(maskConnectionString("postgresql://user:@host/db")).toBe("postgresql://***:***@host/db");
+  });
+
+  test("leaves a credential-less URI unchanged", () => {
+    expect(maskConnectionString("postgresql://host:5432/db")).toBe("postgresql://host:5432/db");
+  });
+
+  test("masks an embedded connection string inside a longer error message", () => {
+    const msg = 'connection refused for "postgresql://admin:hunter2@db:5432/x" — retry';
+    expect(maskConnectionString(msg)).toBe(
+      'connection refused for "postgresql://***:***@db:5432/x" — retry'
+    );
+  });
 });
 
 describe("buildDockerPostgresOneLiner / dockerLocalConnectionString", () => {

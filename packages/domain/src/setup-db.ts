@@ -21,22 +21,18 @@
 import { getErrorMessage } from "./errors/index";
 import { createConfigWriter, type ConfigWriter } from "./configuration/config-writer";
 import { verifyPostgresConnectivity } from "./persistence/validation-operations";
+import { maskConnectionString } from "./persistence/connection-string";
 import {
   runPostgresSchemaMigrations,
   getPostgresMigrationsStatus,
 } from "./persistence/postgres-migration-operations";
 
+/** Re-exported so callers (adapter, tests) keep importing it from `@minsky/domain/setup-db`. */
+export { maskConnectionString };
+
 /** The config key paths the wizard writes (backend FIRST — the schema requires it). */
 export const PERSISTENCE_BACKEND_KEY = "persistence.backend";
 export const PERSISTENCE_CONNECTION_STRING_KEY = "persistence.postgres.connectionString";
-
-/**
- * Mask the user/password in a Postgres connection string for display.
- * Mirrors the masking used across persistence operations.
- */
-export function maskConnectionString(connectionString: string): string {
-  return connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
-}
 
 /**
  * Validate that a string is a usable Postgres connection URL.

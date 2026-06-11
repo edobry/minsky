@@ -12,6 +12,7 @@ import { getEffectivePersistenceConfig } from "../configuration/persistence-conf
 import type { PersistenceProvider } from "./types";
 import { getPostgresMigrationsStatus } from "./migration-operations";
 import { logPostgresNotice } from "./postgres-notice-handler";
+import { maskConnectionString } from "./connection-string";
 
 /**
  * Probe basic connectivity to a Postgres connection string by running a
@@ -41,7 +42,9 @@ export async function verifyPostgresConnectivity(
     await sql`SELECT 1 as ok`;
     return { ok: true };
   } catch (error) {
-    return { ok: false, error: getErrorMessage(error) };
+    // Mask any embedded credentials — postgres-js errors can include the
+    // connection string verbatim (PR #1666 review).
+    return { ok: false, error: maskConnectionString(getErrorMessage(error)) };
   } finally {
     try {
       await sql.end({ timeout: 5 });
