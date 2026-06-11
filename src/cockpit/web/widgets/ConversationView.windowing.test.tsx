@@ -22,6 +22,9 @@ function turnBlock(i: number, role: "user" | "assistant"): SessionContextSnapsho
     content: { role, content: `turn-${i} body` },
     timestamp: new Date(Date.UTC(2026, 5, 10, 12, 0, i)).toISOString(),
     turnIndex: i,
+    // The domain parser (snapshotBlockToConversationTurn) derives the role by
+    // branching on rawJsonlType === "user" | "assistant" — these ARE the
+    // representative raw line types for turn blocks, not a test shortcut.
     rawJsonlType: role,
   };
 }
@@ -74,6 +77,33 @@ describe("ConversationView tail-first windowing (mt#2433)", () => {
     fireEvent.click(screen.getByText("Show all"));
     expect(screen.getByText("turn-0 body")).toBeDefined();
     expect(screen.queryByText(/Show older/)).toBeNull();
+  });
+
+  test("Show all persists when the same session's transcript grows", () => {
+    // A refetch within the same agentSessionId adds turns; a fixed visible
+    // count would silently re-clip the oldest turns and resurface the control
+    // (PR #1667 R1 BLOCKING). showAll must track growth.
+    const { rerender } = render(<ConversationView snapshot={syntheticSnapshot(120)} />);
+    fireEvent.click(screen.getByText("Show all"));
+    expect(screen.getByText("turn-0 body")).toBeDefined();
+
+    rerender(<ConversationView snapshot={syntheticSnapshot(180)} />);
+    // Oldest turn still visible, newest growth visible, no control reappears.
+    expect(screen.getByText("turn-0 body")).toBeDefined();
+    expect(screen.getByText("turn-179 body")).toBeDefined();
+    expect(screen.queryByText(/Show older/)).toBeNull();
+  });
+
+  test("window resets to the tail when the session changes", () => {
+    const { rerender } = render(<ConversationView snapshot={syntheticSnapshot(120)} />);
+    fireEvent.click(screen.getByText("Show all"));
+    expect(screen.getByText("turn-0 body")).toBeDefined();
+
+    const other = { ...syntheticSnapshot(120), agentSessionId: "agent-test-windowing-2" };
+    rerender(<ConversationView snapshot={other} />);
+    // New session → back to the clipped tail window.
+    expect(screen.queryByText("turn-0 body")).toBeNull();
+    expect(screen.getByText("Show older (70 more)")).toBeDefined();
   });
 
   test("chunked expansion decrements the hidden count", () => {
