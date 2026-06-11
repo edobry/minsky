@@ -279,7 +279,40 @@ When the submission-failure circuit breaker (mt#2350) trips — a PR's review su
 
 The external sink is **disabled by default**. It fails open — a sink error never crashes the sweep, and never affects the circuit-breaker dedup (which is gated on the cockpit-Ask outcome).
 
-### Telegram (recommended)
+### Telegram (recommended) — Pulumi-native setup (mt#2419)
+
+The reviewer's env vars are owned by Pulumi (`infra/index.ts`); do NOT hand-edit them in the
+Railway dashboard (drift). The setup flow keeps the token out of chat, shell history, and the
+repo (it lives passphrase-encrypted in the gitignored `infra/Pulumi.prod.yaml`):
+
+1. **Create the bot:** message [@BotFather](https://t.me/BotFather), send `/newbot`, follow the
+   prompts, copy the token. Then **send your new bot any message** (required: Telegram only
+   exposes a chat id after the user has messaged the bot — there is no lookup API).
+2. **Store the token (masked prompt — value omitted on purpose):**
+
+   ```bash
+   pulumi -C infra config set --secret secrets:minsky-reviewer-telegram-bot-token
+   ```
+
+3. **Discover your chat id** (reads the token internally; prints only the id):
+
+   ```bash
+   bun scripts/reviewer-alerts/discover-chat-id.ts
+   ```
+
+4. **Declare the vars in `infra/index.ts`** (`defineVariables("reviewer", ...)`):
+   `ALERT_SINK_TYPE: plain("telegram")`, `TELEGRAM_CHAT_ID: plain("<discovered id>")`,
+   `TELEGRAM_BOT_TOKEN: sealed("minsky-reviewer-telegram-bot-token")` — then `pulumi up`
+   from `infra/`.
+5. **Verify** (sends one real message; PASS only on a 2xx from Telegram):
+
+   ```bash
+   bun scripts/reviewer-alerts/verify-send.ts <chat-id>
+   ```
+
+The Telegram sink posts via the Bot API `sendMessage` endpoint with a raw `fetch` — no SDK dependency. A future `MatrixAlertSink` (mt#1454) will drop in behind the same `AlertSink` interface.
+
+#### Fallback: manual env vars (non-Pulumi deployments only)
 
 ```bash
 ALERT_SINK_TYPE=telegram
@@ -287,13 +320,8 @@ TELEGRAM_BOT_TOKEN=<bot token from @BotFather>
 TELEGRAM_CHAT_ID=<your chat id>
 ```
 
-To set it up:
-
-1. Message [@BotFather](https://t.me/BotFather) on Telegram, send `/newbot`, and copy the bot token it gives you.
-2. Send any message to your new bot, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` and read `result[].message.chat.id` — that's your `TELEGRAM_CHAT_ID`.
-3. Set the three env vars above on the reviewer's Railway service.
-
-The Telegram sink posts via the Bot API `sendMessage` endpoint with a raw `fetch` — no SDK dependency. A future `MatrixAlertSink` (mt#1454) will drop in behind the same `AlertSink` interface.
+Only for deployments whose env is not IaC-managed — on the Minsky production reviewer these
+would be clobbered by the next `pulumi up`.
 
 ### Generic webhook
 
