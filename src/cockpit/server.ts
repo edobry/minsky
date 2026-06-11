@@ -824,6 +824,8 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
    * Returns: { tasks: { id, title, status }[] }
    * Uses the shared task service singleton (same bootstrap pattern as
    * workstreams.ts). Returns 503 when the task service is unavailable.
+   * Most-recently-updated first before the 500-cap (mt#2444): an unordered
+   * slice over a >500 backlog hid every recent task from the palette.
    */
   app.get("/api/tasks", async (_req, res) => {
     try {
@@ -835,12 +837,15 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
         return;
       }
       const { formatTaskIdForDisplay } = await import("@minsky/domain/tasks/task-id-utils");
+      const { sortTasksByRecency } = await import("./palette-tasks");
       const tasks = await taskService.listTasks({});
-      const taskList = tasks.slice(0, 500).map((t) => ({
-        id: formatTaskIdForDisplay(t.id),
-        title: t.title ?? "",
-        status: (t.status ?? "TODO").toUpperCase(),
-      }));
+      const taskList = sortTasksByRecency(tasks)
+        .slice(0, 500)
+        .map((t) => ({
+          id: formatTaskIdForDisplay(t.id),
+          title: t.title ?? "",
+          status: (t.status ?? "TODO").toUpperCase(),
+        }));
       res.json({ tasks: taskList });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -47,6 +47,47 @@ export function createSetupCommand(): Command {
   });
 
   cmd.addCommand(createSetupGithubAppCommand());
+  cmd.addCommand(createSetupDbCommand());
+
+  return cmd;
+}
+
+function createSetupDbCommand(): Command {
+  const cmd = new Command("db");
+  cmd.description(
+    "Configure Postgres persistence: capture a connection string, write config, run migrations, and verify connectivity (Docker / Supabase / bring-your-own)"
+  );
+
+  cmd.option(
+    "--connection-string <url>",
+    "Postgres connection string (required in non-interactive mode; otherwise captured via the wizard)"
+  );
+  cmd.option("--yes", "Skip the confirmation prompt before writing config", false);
+
+  cmd.action(async (options) => {
+    try {
+      const commandDef = sharedCommandRegistry.getCommand("setup.db");
+      if (!commandDef) {
+        console.error("Shared command 'setup.db' not found in registry");
+        process.exit(1);
+      }
+
+      const result = await commandDef.execute(
+        {
+          connectionString: options.connectionString,
+          yes: options.yes ?? false,
+        },
+        { interface: "cli" }
+      );
+
+      const typed = result as { success: boolean; message?: string };
+      if (typed.message) console.log(typed.message);
+      if (!typed.success) process.exit(1);
+    } catch (error: unknown) {
+      console.error(`Error: ${getErrorMessage(error)}`);
+      process.exit(1);
+    }
+  });
 
   return cmd;
 }

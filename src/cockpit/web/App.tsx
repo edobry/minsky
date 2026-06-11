@@ -54,6 +54,7 @@ const TaskDetailPage = lazy(() =>
   import("./pages/TaskDetailPage").then((m) => ({ default: m.TaskDetailPage }))
 );
 const AsksPage = lazy(() => import("./pages/AsksPage").then((m) => ({ default: m.AsksPage })));
+const AskPage = lazy(() => import("./pages/AskPage").then((m) => ({ default: m.AskPage })));
 const ActivityPage = lazy(() =>
   import("./pages/ActivityPage").then((m) => ({ default: m.ActivityPage }))
 );
@@ -62,6 +63,9 @@ const EmbeddingsPage = lazy(() =>
 );
 const MemoriesPage = lazy(() =>
   import("./pages/MemoriesPage").then((m) => ({ default: m.MemoriesPage }))
+);
+const MemoryPage = lazy(() =>
+  import("./pages/MemoryPage").then((m) => ({ default: m.MemoryPage }))
 );
 const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default: m.PlantPage })));
 const PlantGridPage = lazy(() =>
@@ -392,6 +396,15 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Ask entity route (mt#2410, mt#2398 PR2): URL-addressable ask tab. */}
+          <Route
+            path="/ask/:id"
+            element={
+              <ErrorBoundary id="ask-page">
+                <AskPage />
+              </ErrorBoundary>
+            }
+          />
           <Route
             path="/activity"
             element={
@@ -421,6 +434,15 @@ export function App() {
             element={
               <ErrorBoundary id="memories-page">
                 <MemoriesPage />
+              </ErrorBoundary>
+            }
+          />
+          {/* Memory entity route (mt#2410, mt#2398 PR2): URL-addressable memory tab. */}
+          <Route
+            path="/memory/:id"
+            element={
+              <ErrorBoundary id="memory-page">
+                <MemoryPage />
               </ErrorBoundary>
             }
           />
