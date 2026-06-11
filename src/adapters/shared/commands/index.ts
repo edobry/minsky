@@ -14,6 +14,7 @@ import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerSetupCommands } from "./setup";
 import { registerSetupGithubAppCommand } from "./setup-github-app";
+import { registerSetupDbCommand } from "./setup-db";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerPersistenceCommands } from "./persistence";
@@ -73,6 +74,9 @@ export async function registerAllSharedCommands(container?: AppContainerInterfac
 
   // Register `setup github-app` subcommand (mt#1087)
   registerSetupGithubAppCommand();
+
+  // Register `setup db` onboarding wizard (mt#2429)
+  registerSetupDbCommand();
 
   // Register config commands
   registerConfigCommands();
@@ -176,6 +180,7 @@ export {
   registerInitCommands,
   registerSetupCommands,
   registerSetupGithubAppCommand,
+  registerSetupDbCommand,
   registerConfigCommands,
   registerDebugCommands,
   registerPersistenceCommands,

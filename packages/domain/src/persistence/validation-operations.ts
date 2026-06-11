@@ -11,6 +11,49 @@ import { log } from "@minsky/shared/logger";
 import { getEffectivePersistenceConfig } from "../configuration/persistence-config";
 import type { PersistenceProvider } from "./types";
 import { getPostgresMigrationsStatus } from "./migration-operations";
+import { logPostgresNotice } from "./postgres-notice-handler";
+import { maskConnectionString } from "./connection-string";
+
+/**
+ * Probe basic connectivity to a Postgres connection string by running a
+ * trivial `SELECT 1`. Unlike {@link validatePostgresBackend} (which validates
+ * the *configured* backend via an initialized PersistenceProvider), this works
+ * against an EXPLICIT connection string and does not read global config — so
+ * the `setup db` onboarding wizard can verify a string the user just supplied
+ * BEFORE it is written to config (mt#2429).
+ *
+ * Never throws: connection/auth/timeout failures are returned as
+ * `{ ok: false, error }` with the password masked so the caller can render a
+ * clean, actionable message.
+ */
+export async function verifyPostgresConnectivity(
+  connectionString: string,
+  options: { connectTimeoutSeconds?: number } = {}
+): Promise<{ ok: boolean; error?: string }> {
+  const { connectTimeoutSeconds = 10 } = options;
+  const postgres = (await import("postgres")).default;
+  const sql = postgres(connectionString, {
+    prepare: false,
+    onnotice: logPostgresNotice,
+    max: 1,
+    connect_timeout: connectTimeoutSeconds,
+  });
+  try {
+    await sql`SELECT 1 as ok`;
+    return { ok: true };
+  } catch (error) {
+    // Mask any embedded credentials — postgres-js errors can include the
+    // connection string verbatim (PR #1666 review).
+    return { ok: false, error: maskConnectionString(getErrorMessage(error)) };
+  } finally {
+    try {
+      await sql.end({ timeout: 5 });
+    } catch {
+      // Best-effort cleanup; a failure to close the probe connection must not
+      // mask the connectivity result.
+    }
+  }
+}
 
 /**
  * Validate PostgreSQL backend
