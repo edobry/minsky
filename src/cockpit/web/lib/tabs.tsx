@@ -29,7 +29,7 @@ import {
 import { useLocation, useNavigate } from "react-router-dom";
 import { shortenId } from "./format";
 
-export type EntityTabKind = "task" | "session" | "agent";
+export type EntityTabKind = "task" | "session" | "agent" | "ask" | "memory";
 
 export interface EntityTab {
   kind: EntityTabKind;
@@ -53,7 +53,8 @@ const STORAGE_KEY = "cockpit.tabs.v1"; // gitleaks:allow
  * and sessions (`/session/:id`). PR/ask/memory kinds join as their detail
  * routes land (mt#2398 PR2 + later). Workspace sessions (`/agents/:id`,
  * kind "agent") joined via mt#1919 — distinct id-space from "session"
- * (harness agentSessionId vs Minsky workspace sessionId).
+ * (harness agentSessionId vs Minsky workspace sessionId). Asks (`/ask/:id`)
+ * and memories (`/memory/:id`) joined via mt#2410 (mt#2398's PR2).
  */
 export function matchEntityRoute(pathname: string): EntityTab | null {
   const session = pathname.match(/^\/session\/([^/]+)$/);
@@ -72,6 +73,28 @@ export function matchEntityRoute(pathname: string): EntityTab | null {
     const id = decodeURIComponent(agent[1]);
     return {
       kind: "agent",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
+    };
+  }
+
+  const ask = pathname.match(/^\/ask\/([^/]+)$/);
+  if (ask?.[1]) {
+    const id = decodeURIComponent(ask[1]);
+    return {
+      kind: "ask",
+      entityId: id,
+      path: pathname,
+      label: shortenId(id),
+    };
+  }
+
+  const memory = pathname.match(/^\/memory\/([^/]+)$/);
+  if (memory?.[1]) {
+    const id = decodeURIComponent(memory[1]);
+    return {
+      kind: "memory",
       entityId: id,
       path: pathname,
       label: shortenId(id),
@@ -110,7 +133,9 @@ function loadTabs(): EntityTab[] {
         typeof (t as EntityTab).label === "string" &&
         ((t as EntityTab).kind === "task" ||
           (t as EntityTab).kind === "session" ||
-          (t as EntityTab).kind === "agent")
+          (t as EntityTab).kind === "agent" ||
+          (t as EntityTab).kind === "ask" ||
+          (t as EntityTab).kind === "memory")
     );
   } catch {
     return [];

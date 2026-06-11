@@ -47,6 +47,16 @@ describe("TabBar entity kinds (mt#2440)", () => {
     expect(screen.getByText("mt#2440")).toBeDefined();
   });
 
+  test("ask-kind tab (/ask/:id) renders (mt#2410)", () => {
+    renderAt("/ask/0a1b2c3d-0000-0000-0000-000000000000");
+    expect(screen.getByText("0a1b2c3d…")).toBeDefined();
+  });
+
+  test("memory-kind tab (/memory/:id) renders (mt#2410)", () => {
+    renderAt("/memory/d4e5f6a7-0000-0000-0000-000000000000");
+    expect(screen.getByText("d4e5f6a7…")).toBeDefined();
+  });
+
   test("persisted agent-kind tab renders on an unrelated route (the mt#2440 crash shape)", () => {
     // The originating incident: an agent tab already in localStorage blanked
     // the shell on EVERY route, not just /agents/:id. loadTabs accepts the
@@ -78,5 +88,7 @@ describe("TabBar entity kinds (mt#2440)", () => {
     expect(resolveKindIcon("agent")).toBeDefined();
     expect(resolveKindIcon("task")).toBeDefined();
     expect(resolveKindIcon("session")).toBeDefined();
+    expect(resolveKindIcon("ask")).toBeDefined();
+    expect(resolveKindIcon("memory")).toBeDefined();
   });
 });

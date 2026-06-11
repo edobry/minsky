@@ -35,10 +35,26 @@ describe("matchEntityRoute", () => {
     expect(tab?.entityId).toBe("mt#1919");
   });
 
+  test("matches /ask/:id as kind ask (mt#2410)", () => {
+    const tab = matchEntityRoute("/ask/0a1b2c3d-0000-0000-0000-000000000000");
+    expect(tab?.kind).toBe("ask");
+    expect(tab?.entityId).toBe("0a1b2c3d-0000-0000-0000-000000000000");
+    expect(tab?.label).toBe("0a1b2c3d…");
+  });
+
+  test("matches /memory/:id as kind memory (mt#2410)", () => {
+    const tab = matchEntityRoute("/memory/d4e5f6a7-0000-0000-0000-000000000000");
+    expect(tab?.kind).toBe("memory");
+    expect(tab?.entityId).toBe("d4e5f6a7-0000-0000-0000-000000000000");
+    expect(tab?.label).toBe("d4e5f6a7…");
+  });
+
   test("list routes do not create tabs", () => {
     expect(matchEntityRoute("/agents")).toBeNull();
     expect(matchEntityRoute("/sessions")).toBeNull();
     expect(matchEntityRoute("/tasks")).toBeNull();
+    expect(matchEntityRoute("/asks")).toBeNull();
+    expect(matchEntityRoute("/memories")).toBeNull();
   });
 
   test("/tasks/graph literal sibling is excluded", () => {
