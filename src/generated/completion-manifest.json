@@ -6152,6 +6152,21 @@
               "takesValue": true
             }
           ]
+        },
+        {
+          "name": "db",
+          "description": "Configure Postgres persistence: capture a connection string, write config, run migrations, and verify connectivity (Docker / Supabase / bring-your-own)",
+          "options": [
+            {
+              "flags": ["--connection-string"],
+              "description": "Postgres connection string (required in non-interactive mode; otherwise captured via the wizard)",
+              "takesValue": true
+            },
+            {
+              "flags": ["--yes"],
+              "description": "Skip the confirmation prompt before writing config"
+            }
+          ]
         }
       ],
       "options": [
