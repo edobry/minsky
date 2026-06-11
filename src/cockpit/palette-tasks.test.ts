@@ -31,4 +31,21 @@ describe("sortTasksByRecency", () => {
     expect(sorted.map((t) => t.id)).toEqual(["stamped", "unstamped"]);
     expect(input.map((t) => t.id)).toEqual(["unstamped", "stamped"]);
   });
+
+  test("ISO-string and epoch-number stamps are coerced", () => {
+    const sorted = sortTasksByRecency([
+      { id: "iso-old", updatedAt: "2025-01-01T00:00:00Z" },
+      { id: "epoch-new", updatedAt: Date.parse("2026-06-10T00:00:00Z") },
+      { id: "date-mid", updatedAt: new Date("2026-01-01T00:00:00Z") },
+    ]);
+    expect(sorted.map((t) => t.id)).toEqual(["epoch-new", "date-mid", "iso-old"]);
+  });
+
+  test("unparseable stamps sort last like unstamped tasks", () => {
+    const sorted = sortTasksByRecency([
+      { id: "garbage", updatedAt: "not-a-date" },
+      { id: "valid", updatedAt: "2026-06-01T00:00:00Z" },
+    ]);
+    expect(sorted.map((t) => t.id)).toEqual(["valid", "garbage"]);
+  });
 });

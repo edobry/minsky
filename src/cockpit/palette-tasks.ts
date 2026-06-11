@@ -9,20 +9,23 @@
  */
 
 interface RecencyStamped {
-  updatedAt?: Date;
-  createdAt?: Date;
+  /** Date at the type level in the domain, but persistence layers can hand
+   *  back ISO strings or epoch numbers — the coercion below accepts all three. */
+  updatedAt?: Date | string | number;
+  createdAt?: Date | string | number;
 }
 
 function recencyMs(task: RecencyStamped): number {
   const stamp = task.updatedAt ?? task.createdAt;
-  if (!stamp) return 0;
+  if (stamp === undefined || stamp === null) return 0;
   const ms = stamp instanceof Date ? stamp.getTime() : new Date(stamp).getTime();
   return Number.isNaN(ms) ? 0 : ms;
 }
 
 /**
- * Most recently updated first (createdAt fallback; unstamped tasks last).
- * Pure — returns a new array.
+ * Most recently updated first (createdAt fallback; unstamped or unparseable
+ * stamps last). Equal timestamps keep their input order (Array.prototype.sort
+ * is stable). Pure — returns a new array.
  */
 export function sortTasksByRecency<T extends RecencyStamped>(tasks: T[]): T[] {
   return [...tasks].sort((a, b) => recencyMs(b) - recencyMs(a));
