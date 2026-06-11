@@ -26,7 +26,7 @@
  * @see packages/domain/src/transcripts/conversation-elements.ts — the shared parser
  * @see mt#2370 — the session-tab frame this will eventually render into
  */
-import { useMemo } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "../lib/utils";
 import {
@@ -116,17 +116,26 @@ function formatTime(iso: string): string {
 // ── Element renderers ──────────────────────────────────────────────────────────
 
 function ThinkingBlock({ thinking }: { thinking: string }) {
+  // Render the (potentially very large) body only while expanded — collapsed
+  // thinking blocks otherwise pay full serialization/reconciliation cost for
+  // text nobody is looking at (PR #1667 R1 non-blocking).
+  const [open, setOpen] = useState(false);
   return (
-    <details className="group rounded border border-border/60 bg-muted/20">
+    <details
+      className="group rounded border border-border/60 bg-muted/20"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
       <summary className="cursor-pointer select-none px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground">
         <span className="italic">thinking</span>
         <span className="ml-1 text-muted-foreground/60 group-open:hidden">
           ({thinking.length} chars — click to expand)
         </span>
       </summary>
-      <pre className="whitespace-pre-wrap break-words px-2 pb-2 pt-1 text-xs text-muted-foreground">
-        {thinking}
-      </pre>
+      {open && (
+        <pre className="whitespace-pre-wrap break-words px-2 pb-2 pt-1 text-xs text-muted-foreground">
+          {thinking}
+        </pre>
+      )}
     </details>
   );
 }
@@ -268,6 +277,16 @@ function TurnView({
 
 // ── Thread (pure, snapshot-in) ──────────────────────────────────────────────────
 
+/**
+ * Tail-first window (mt#2433): the measured cost on long sessions is the eager
+ * MOUNT of every formatted block (265 blocks / ~1MB took >20s to first content;
+ * the snapshot fetch itself is ~1s), so only the most recent INITIAL_TURNS
+ * turns render on mount — the chat idiom: the operator cares about the newest
+ * exchange. "Show older" reveals earlier turns in OLDER_CHUNK increments.
+ */
+const INITIAL_TURNS = 50;
+const OLDER_CHUNK = 100;
+
 function ConversationThread({
   snapshot,
   className,
@@ -278,6 +297,8 @@ function ConversationThread({
   const turns = useMemo(() => snapshotBlocksToConversation(snapshot.blocks), [snapshot.blocks]);
 
   // Map every tool_use id → tool name so a tool-result can name the call it answers.
+  // Computed over ALL turns (not the window): a windowed tool-result may answer
+  // a call that is currently outside the window.
   const callNameByToolUseId = useMemo(() => {
     const map = new Map<string, string>();
     for (const turn of turns) {
@@ -303,6 +324,47 @@ function ConversationThread({
     [turns]
   );
 
+  const [visibleCount, setVisibleCount] = useState(INITIAL_TURNS);
+  // Persistent "Show all" mode: once chosen it tracks transcript GROWTH too —
+  // a fixed count would silently re-clip the oldest turns (and resurface the
+  // control) when a refetch adds turns to the same session (PR #1667 R1).
+  const [showAll, setShowAll] = useState(false);
+
+  // One-shot gate for the initial scroll-to-newest. Declared before the
+  // session-change effect below, which re-arms it.
+  const didInitialScrollRef = useRef(false);
+
+  // New session in the same mounted component → window back to the tail.
+  useEffect(() => {
+    setVisibleCount(INITIAL_TURNS);
+    setShowAll(false);
+    // Each session load lands on the tail — including in-place session swaps
+    // (same mounted component, new agentSessionId), so the one-shot scroll
+    // gate re-arms here (PR #1667 R2 non-blocking).
+    didInitialScrollRef.current = false;
+  }, [snapshot.agentSessionId]);
+
+  const effectiveCount = showAll ? visibleTurns.length : visibleCount;
+  const windowedTurns = useMemo(
+    () => visibleTurns.slice(Math.max(0, visibleTurns.length - effectiveCount)),
+    [visibleTurns, effectiveCount]
+  );
+  const hiddenCount = visibleTurns.length - windowedTurns.length;
+
+  // Land on the newest exchange once, after the windowed items are actually in
+  // the DOM (layout effect keyed on the mounted count — an empty first commit
+  // must not consume the one-shot; PR #1667 R1). Expanding "Show older" later
+  // must not yank the scroll position, hence the one-shot flag.
+  const endRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (didInitialScrollRef.current) return;
+    if (windowedTurns.length === 0) return;
+    didInitialScrollRef.current = true;
+    if (hiddenCount > 0) {
+      endRef.current?.scrollIntoView({ block: "end" });
+    }
+  }, [windowedTurns.length, hiddenCount]);
+
   if (visibleTurns.length === 0) {
     return (
       <p className={cn("text-sm text-muted-foreground", className)}>
@@ -313,9 +375,28 @@ function ConversationThread({
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
-      {visibleTurns.map((turn) => (
+      {hiddenCount > 0 && !showAll && (
+        <div className="flex items-center justify-center gap-3 py-1">
+          <button
+            type="button"
+            onClick={() => setVisibleCount((c) => c + OLDER_CHUNK)}
+            className="rounded border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
+          >
+            Show older ({hiddenCount} more)
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAll(true)}
+            className="text-xs text-muted-foreground/70 underline-offset-2 transition-colors hover:text-foreground hover:underline"
+          >
+            Show all
+          </button>
+        </div>
+      )}
+      {windowedTurns.map((turn) => (
         <TurnView key={turn.blockId} turn={turn} callNameByToolUseId={callNameByToolUseId} />
       ))}
+      <div ref={endRef} aria-hidden />
     </div>
   );
 }
