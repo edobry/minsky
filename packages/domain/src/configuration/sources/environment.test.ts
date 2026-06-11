@@ -218,6 +218,178 @@ describe("environment configuration source — hook-only env vars (mt#1644)", ()
 });
 
 // ---------------------------------------------------------------------------
+// mt#2452: reviewer-service env vars (MINSKY_REVIEWER_APP_ID, etc.) must NOT
+// be coerced into the config object.
+//
+// Failure mode (before fix): with MINSKY_REVIEWER_APP_ID=123 set on the
+// Railway reviewer service, the auto-mapping fallback converted the var to the
+// path "reviewer.app.id", which set "reviewer.app" as a top-level sub-key of
+// the reviewer config slot. The reviewerConfigSchema is a z.strictObject
+// accepting only "webhookSecret" and "url"; encountering "app", "tier2",
+// "private", or "installation" triggered "Unrecognized keys" validation
+// failure and crashed bootDomainContainer(), leaving the reviewer service with
+// domainServicesEnabled: false.
+// ---------------------------------------------------------------------------
+
+describe("environment configuration source — reviewer-service env vars (mt#2452)", () => {
+  const REVIEWER_SERVICE_KEYS = [
+    "MINSKY_REVIEWER_APP_ID",
+    "MINSKY_REVIEWER_INSTALLATION_ID",
+    "MINSKY_REVIEWER_PRIVATE_KEY",
+    "MINSKY_REVIEWER_TIER2_ENABLED",
+  ];
+
+  // Stub value for the private key var (a real key would be multi-line PEM;
+  // the header is sufficient to exercise the auto-mapping skip path).
+  const STUB_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----";
+
+  let originalValues: Record<string, string | undefined>;
+
+  beforeEach(() => {
+    originalValues = {};
+    for (const key of REVIEWER_SERVICE_KEYS) {
+      originalValues[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of REVIEWER_SERVICE_KEYS) {
+      const value = originalValues[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
+  });
+
+  test("MINSKY_REVIEWER_APP_ID does NOT produce a reviewer.app config key", () => {
+    process.env.MINSKY_REVIEWER_APP_ID = "3470137";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    // The strict reviewerConfigSchema only accepts webhookSecret and url.
+    // If auto-mapping is NOT skipped, this would produce reviewer.app.id,
+    // which sets reviewer.app — an unrecognized key that triggers a zod
+    // strictObject validation failure at boot.
+    const reviewer = config.reviewer as Record<string, unknown> | undefined;
+    expect(reviewer?.["app"]).toBeUndefined();
+  });
+
+  test("MINSKY_REVIEWER_INSTALLATION_ID does NOT produce a reviewer.installation config key", () => {
+    process.env.MINSKY_REVIEWER_INSTALLATION_ID = "126244115";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    const reviewer = config.reviewer as Record<string, unknown> | undefined;
+    expect(reviewer?.["installation"]).toBeUndefined();
+  });
+
+  test("MINSKY_REVIEWER_PRIVATE_KEY does NOT produce a reviewer.private config key", () => {
+    process.env.MINSKY_REVIEWER_PRIVATE_KEY = STUB_PRIVATE_KEY;
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    const reviewer = config.reviewer as Record<string, unknown> | undefined;
+    expect(reviewer?.["private"]).toBeUndefined();
+  });
+
+  test("MINSKY_REVIEWER_TIER2_ENABLED does NOT produce a reviewer.tier2 config key", () => {
+    process.env.MINSKY_REVIEWER_TIER2_ENABLED = "true";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    const reviewer = config.reviewer as Record<string, unknown> | undefined;
+    expect(reviewer?.["tier2"]).toBeUndefined();
+  });
+
+  test("all four reviewer-service vars set together do not pollute the reviewer config slot", () => {
+    process.env.MINSKY_REVIEWER_APP_ID = "3470137";
+    process.env.MINSKY_REVIEWER_INSTALLATION_ID = "126244115";
+    process.env.MINSKY_REVIEWER_PRIVATE_KEY = STUB_PRIVATE_KEY;
+    process.env.MINSKY_REVIEWER_TIER2_ENABLED = "true";
+    const config = loadEnvironmentConfiguration() as Record<string, unknown>;
+    const reviewer = config.reviewer as Record<string, unknown> | undefined;
+    expect(reviewer?.["app"]).toBeUndefined();
+    expect(reviewer?.["installation"]).toBeUndefined();
+    expect(reviewer?.["private"]).toBeUndefined();
+    expect(reviewer?.["tier2"]).toBeUndefined();
+  });
+
+  test("getEnvironmentConfiguration() metadata excludes reviewer-service env vars", () => {
+    process.env.MINSKY_REVIEWER_APP_ID = "3470137";
+    process.env.MINSKY_REVIEWER_INSTALLATION_ID = "126244115";
+    process.env.MINSKY_REVIEWER_PRIVATE_KEY = STUB_PRIVATE_KEY;
+    process.env.MINSKY_REVIEWER_TIER2_ENABLED = "true";
+    const { metadata } = getEnvironmentConfiguration();
+    for (const key of REVIEWER_SERVICE_KEYS) {
+      expect(metadata.loadedVariables).not.toContain(key);
+      expect(metadata.mappings[key]).toBeUndefined();
+    }
+  });
+
+  test("MINSKY_REVIEWER_WEBHOOK_SECRET still maps to reviewer.webhookSecret (existing explicit mapping)", () => {
+    // This var is in environmentMappings (NOT in HOOK_ONLY_ENV_VARS), so it
+    // must continue to produce reviewer.webhookSecret — the strict schema
+    // accepts this key.
+    const originalWebhookSecret = process.env.MINSKY_REVIEWER_WEBHOOK_SECRET;
+    process.env.MINSKY_REVIEWER_WEBHOOK_SECRET = "test-secret";
+    try {
+      const config = loadEnvironmentConfiguration() as {
+        reviewer?: { webhookSecret?: string };
+      };
+      expect(config.reviewer?.webhookSecret).toBe("test-secret");
+    } finally {
+      if (originalWebhookSecret === undefined) {
+        delete process.env.MINSKY_REVIEWER_WEBHOOK_SECRET;
+      } else {
+        process.env.MINSKY_REVIEWER_WEBHOOK_SECRET = originalWebhookSecret;
+      }
+    }
+  });
+
+  test("MINSKY_REVIEWER_URL still maps to reviewer.url (existing explicit mapping)", () => {
+    // PR #1674 R1 (non-blocking): sibling of the webhookSecret test above —
+    // the other explicitly-mapped reviewer var must keep routing to its
+    // schema-accepted key.
+    const originalUrl = process.env.MINSKY_REVIEWER_URL;
+    process.env.MINSKY_REVIEWER_URL = "https://reviewer.example";
+    try {
+      const config = loadEnvironmentConfiguration() as {
+        reviewer?: { url?: string };
+      };
+      expect(config.reviewer?.url).toBe("https://reviewer.example");
+    } finally {
+      if (originalUrl === undefined) {
+        delete process.env.MINSKY_REVIEWER_URL;
+      } else {
+        process.env.MINSKY_REVIEWER_URL = originalUrl;
+      }
+    }
+  });
+
+  test("mapped reviewer vars appear in metadata.loadedVariables with correct mappings (positive observability)", () => {
+    // PR #1674 R1 (non-blocking): complement to the negative metadata test —
+    // explicitly-mapped reviewer vars must surface in the audit metadata.
+    const originalUrl = process.env.MINSKY_REVIEWER_URL;
+    const originalWebhookSecret = process.env.MINSKY_REVIEWER_WEBHOOK_SECRET;
+    process.env.MINSKY_REVIEWER_URL = "https://reviewer.example";
+    process.env.MINSKY_REVIEWER_WEBHOOK_SECRET = "test-secret";
+    try {
+      const { metadata } = getEnvironmentConfiguration();
+      expect(metadata.loadedVariables).toContain("MINSKY_REVIEWER_URL");
+      expect(metadata.mappings["MINSKY_REVIEWER_URL"]).toBe("reviewer.url");
+      expect(metadata.loadedVariables).toContain("MINSKY_REVIEWER_WEBHOOK_SECRET");
+      expect(metadata.mappings["MINSKY_REVIEWER_WEBHOOK_SECRET"]).toBe("reviewer.webhookSecret");
+    } finally {
+      if (originalUrl === undefined) {
+        delete process.env.MINSKY_REVIEWER_URL;
+      } else {
+        process.env.MINSKY_REVIEWER_URL = originalUrl;
+      }
+      if (originalWebhookSecret === undefined) {
+        delete process.env.MINSKY_REVIEWER_WEBHOOK_SECRET;
+      } else {
+        process.env.MINSKY_REVIEWER_WEBHOOK_SECRET = originalWebhookSecret;
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
 // mt#2414: MINSKY_PROJECT observability in metadata.loadedVariables
 //
 // MINSKY_PROJECT is hook-only (no dot-path config mapping — it would be

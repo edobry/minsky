@@ -238,6 +238,25 @@ export const HOOK_ONLY_ENV_VARS: ReadonlySet<string> = new Set([
   // dot-path parser skips it at boot — the auto-conversion would produce
   // "minsky.project" which is rejected as an unrecognised key.
   "MINSKY_PROJECT", // packages/domain/src/project/identity.ts (project identity override)
+  // mt#2452 — reviewer-service env vars consumed by services/reviewer/src/config.ts
+  // via direct process.env reads (NOT via the domain config loader). Without
+  // registration here, the auto-mapping fallback maps them to reviewer.* paths
+  // (e.g. MINSKY_REVIEWER_APP_ID → reviewer.app.id) that the strict
+  // reviewerConfigSchema (z.strictObject — only webhookSecret and url) rejects,
+  // crashing the domain container boot with "Unrecognized keys: app, tier2,
+  // private, installation" when services/reviewer runs bootDomainContainer().
+  //
+  // NOTE: MINSKY_REVIEWER_WEBHOOK_SECRET and MINSKY_REVIEWER_URL are NOT here —
+  // they have explicit entries in environmentMappings (reviewer.webhookSecret and
+  // reviewer.url respectively) so the auto-mapping skip fires on the
+  // `envVar in environmentMappings` check before reaching this set.
+  //
+  // Enumeration of all MINSKY_REVIEWER_* vars set on the Railway reviewer service
+  // (per infra/index.ts defineVariables("reviewer", ...)):
+  "MINSKY_REVIEWER_APP_ID", // services/reviewer/src/config.ts (GitHub App ID for reviewer identity)
+  "MINSKY_REVIEWER_INSTALLATION_ID", // services/reviewer/src/config.ts (GitHub App installation ID)
+  "MINSKY_REVIEWER_PRIVATE_KEY", // services/reviewer/src/config.ts (GitHub App private key — PEM)
+  "MINSKY_REVIEWER_TIER2_ENABLED", // services/reviewer/src/config.ts + tier-routing.ts (tier-2 feature flag)
 ]);
 
 /**
