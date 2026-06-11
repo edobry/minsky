@@ -27,6 +27,21 @@ export function getCredentialProvider(id: string): CredentialProvider | undefine
   return REGISTRY.get(id);
 }
 
+/**
+ * List providers AVAILABLE in this environment (mt#2419): providers with an
+ * `isAvailable` gate are omitted when it returns false (or throws — fail
+ * closed to hidden). Deployment-specific providers (telegram → Pulumi stack)
+ * thus never surface as broken UI in environments lacking their storage
+ * target. `getCredentialProvider` is intentionally ungated so an explicit
+ * `credentials add <id>` still works for diagnostics.
+ */
 export function listCredentialProviders(): readonly CredentialProvider[] {
-  return Array.from(REGISTRY.values());
+  return Array.from(REGISTRY.values()).filter((p) => {
+    if (!p.isAvailable) return true;
+    try {
+      return p.isAvailable();
+    } catch {
+      return false;
+    }
+  });
 }

@@ -104,6 +104,15 @@ describe("telegramProvider.test (getUpdates summary)", () => {
   });
 });
 
+describe("telegramProvider.isAvailable (environment gate)", () => {
+  it("is gated on Pulumi-project resolvability (boundary: deployment-specific provider)", () => {
+    // In this repo's checkout infra/Pulumi.yaml exists → available here;
+    // the structural assertion is that the gate is wired at all.
+    expect(typeof telegramProvider.isAvailable).toBe("function");
+    expect(typeof telegramProvider.isAvailable?.()).toBe("boolean");
+  });
+});
+
 describe("resolveInfraDir (hermetic — injected exists)", () => {
   it("finds infra/Pulumi.yaml walking up from a nested cwd", () => {
     const root = "/fake/repo";

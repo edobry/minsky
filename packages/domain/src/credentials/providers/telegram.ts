@@ -195,4 +195,8 @@ export const telegramProvider: CredentialProvider = {
   test: callGetUpdatesSummary,
   store: storeInPulumi,
   isConfigured: isConfiguredInPulumi,
+  // Deployment-specific provider (mt#2419): only surfaced where this
+  // deployment's Pulumi project (the storage target) is resolvable. Users
+  // without an infra/ stack never see it. Long-term home: mt#2442.
+  isAvailable: () => resolveInfraDir() !== null,
 };

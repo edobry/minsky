@@ -77,4 +77,16 @@ export interface CredentialProvider {
    * falls back to checking `configPath` in the user config file.
    */
   isConfigured?(): Promise<boolean>;
+
+  /**
+   * Optional environment gate (mt#2419). Providers whose storage target only
+   * exists in specific environments (e.g. the Telegram reviewer-alert
+   * provider, which persists into THIS deployment's Pulumi stack) return
+   * false when that environment is absent — and are omitted from provider
+   * listings (cockpit widget + CLI). Prevents deployment-specific providers
+   * from surfacing as broken UI for users without that environment. When
+   * absent, the provider is always available. See mt#2442 for the long-term
+   * product-grade secrets layer that retires this class of gating.
+   */
+  isAvailable?(): boolean;
 }
