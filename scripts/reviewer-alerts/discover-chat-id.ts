@@ -32,6 +32,19 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Pulumi env for the subprocess (PR #1672 R2): default the passphrase to ""
+ * (this stack's documented value — see docs/deploy-minsky-railway.md) so the
+ * script never hangs on an interactive passphrase prompt in non-TTY contexts.
+ * An explicit value in the caller's environment wins.
+ */
+function pulumiEnv(): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    PULUMI_CONFIG_PASSPHRASE: process.env["PULUMI_CONFIG_PASSPHRASE"] ?? "",
+  };
+}
+
 function readToken(infraDir: string): string {
   // stdin inherited so a Pulumi passphrase prompt works; stdout captured so
   // the decrypted token never reaches the terminal/transcript.
@@ -39,6 +52,7 @@ function readToken(infraDir: string): string {
     stdin: "inherit",
     stdout: "pipe",
     stderr: "pipe",
+    env: pulumiEnv(),
   });
   if (proc.exitCode !== 0) {
     fail(

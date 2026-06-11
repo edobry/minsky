@@ -45,12 +45,26 @@ const infraDir =
     ? resolve(String(process.argv[argIdx + 1]))
     : resolve(repoRoot, "infra");
 
+/**
+ * Pulumi env for the subprocess (PR #1672 R2): default the passphrase to ""
+ * (this stack's documented value — see docs/deploy-minsky-railway.md) so the
+ * script never hangs on an interactive passphrase prompt in non-TTY contexts.
+ * An explicit value in the caller's environment wins.
+ */
+function pulumiEnv(): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    PULUMI_CONFIG_PASSPHRASE: process.env["PULUMI_CONFIG_PASSPHRASE"] ?? "",
+  };
+}
+
 // stdin inherited so a Pulumi passphrase prompt works; stdout captured so the
 // decrypted token never reaches the terminal/transcript.
 const read = Bun.spawnSync(["pulumi", "-C", infraDir, "config", "get", SECRET_KEY], {
   stdin: "inherit",
   stdout: "pipe",
   stderr: "pipe",
+  env: pulumiEnv(),
 });
 if (read.exitCode !== 0) {
   fail(
