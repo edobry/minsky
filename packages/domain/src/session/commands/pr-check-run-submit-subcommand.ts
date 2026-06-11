@@ -28,6 +28,7 @@
  */
 
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
+import { getConfiguration } from "../../configuration/index";
 import type { SessionProviderInterface } from "../types";
 import { MinskyError, ResourceNotFoundError, ValidationError } from "../../errors/index";
 import { log } from "@minsky/shared/logger";
@@ -109,8 +110,27 @@ export interface SessionPrCheckRunSubmitResult {
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
-/** Default check run name — stable identifier for branch-protection config. */
+/**
+ * Default check run name — stable identifier for branch-protection config.
+ * Overridable per-call via `params.checkRunName` or project-wide via
+ * `reviewer.checkRunName` (← `MINSKY_REVIEWER_CHECK_RUN_NAME`, mt#2392) so
+ * external projects don't publish check runs under Minsky's reviewer
+ * namespace.
+ */
 export const DEFAULT_CHECK_RUN_NAME = "minsky-reviewer/findings";
+
+/** Resolve the check-run name: explicit param → config → Minsky default. */
+function resolveCheckRunName(explicit: string | undefined): string {
+  if (explicit && explicit.trim()) return explicit;
+  try {
+    const cfg = getConfiguration() as { reviewer?: { checkRunName?: string } };
+    const configured = cfg.reviewer?.checkRunName?.trim();
+    if (configured) return configured;
+  } catch {
+    // Config unavailable (e.g. test contexts) — fall through to the default.
+  }
+  return DEFAULT_CHECK_RUN_NAME;
+}
 
 // ── Implementation ────────────────────────────────────────────────────────
 
@@ -196,7 +216,7 @@ export async function sessionPrCheckRunSubmit(
   const levels: AnnotationLevel[] = annotations.map((a) => a.annotationLevel);
   const conclusion = deriveConclusion(levels);
 
-  const checkRunName = params.checkRunName ?? DEFAULT_CHECK_RUN_NAME;
+  const checkRunName = resolveCheckRunName(params.checkRunName);
 
   // ── Build summary text ─────────────────────────────────────────────
   const blockingCount = levels.filter((l) => l === "failure").length;

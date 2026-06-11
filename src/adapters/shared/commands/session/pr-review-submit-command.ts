@@ -22,8 +22,9 @@ export function createSessionPrReviewSubmitCommand(getDeps: LazySessionDeps): Co
     description:
       "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using " +
       "the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the " +
-      "implementer App (`minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the reviewer " +
-      "App (`minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is configured. " +
+      "implementer App (default `minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the " +
+      "reviewer App (default `minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is " +
+      "configured. " +
       "APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool " +
       "throws a typed MinskyError naming the missing config key rather than silently falling " +
       "back to implementer, because that would re-introduce GitHub's self-approval block on " +
