@@ -1,3 +1,17 @@
+/**
+ * CommandPalette — ⌘K entity search → open as tab (mt#2399, shell C).
+ *
+ * Search + jump, not a hierarchical menu (cockpit-design §Command palette):
+ * a transient cmdk overlay that searches across entities — tasks, workspace
+ * sessions, asks, memories — and static pages, and opens the chosen entity
+ * at its URL-addressable detail route, which the tab model (mt#2398) turns
+ * into an entity tab on visit. Nothing renders until the operator types (no
+ * recents-as-default; the former Recent group and its lib/recent-items
+ * substrate were retired by mt#2399).
+ *
+ * PRs join as a source when a PR detail surface exists — mt#2410's spec
+ * defers "/pr/:n" until then.
+ */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -8,10 +22,8 @@ import {
   CommandEmpty,
   CommandGroup,
   CommandItem,
-  CommandSeparator,
 } from "./ui/command";
 import { fetchWidgetData, type WidgetData } from "../lib/widget-client";
-import { getRecentItems, addRecentItem, type RecentItem } from "../lib/recent-items";
 
 // ---------------------------------------------------------------------------
 // Entity types for the palette
@@ -40,6 +52,13 @@ interface PaletteAsk {
   parentTaskId: string | null;
 }
 
+interface PaletteMemory {
+  type: "memory";
+  id: string;
+  name: string;
+  memoryType: string;
+}
+
 interface PalettePage {
   type: "page";
   path: string;
@@ -47,27 +66,40 @@ interface PalettePage {
   description: string;
 }
 
-type PaletteEntity = PaletteTask | PaletteSession | PaletteAsk | PalettePage;
+type PaletteEntity = PaletteTask | PaletteSession | PaletteAsk | PaletteMemory | PalettePage;
 
 // ---------------------------------------------------------------------------
-// Static pages — aligned with NavSheet.tsx route list.
-// The palette intentionally exposes finer granularity than NavSheet: where
-// NavSheet has a single "Tasks" entry (let the operator pick a tab on the
-// page), the palette has separate Task List + Task Graph entries so a
-// keyboard user can jump directly to either view.
+// Static pages — aligned with the rail's route list, plus finer granularity
+// (separate Task List + Task Graph entries) for direct keyboard jumps.
 // ---------------------------------------------------------------------------
 
 const PAGES: PalettePage[] = [
   { type: "page", path: "/", label: "Home", description: "Dashboard overview" },
-  { type: "page", path: "/agents", label: "Agents", description: "Sessions in flight" },
+  { type: "page", path: "/agents", label: "Agents", description: "Workspace sessions in flight" },
+  { type: "page", path: "/sessions", label: "Sessions", description: "Conversation transcripts" },
   { type: "page", path: "/context", label: "Context", description: "Session context inspector" },
-  { type: "page", path: "/workstreams", label: "Work Streams", description: "Active task workstreams" },
+  {
+    type: "page",
+    path: "/workstreams",
+    label: "Work Streams",
+    description: "Active task workstreams",
+  },
   { type: "page", path: "/tasks", label: "Task List", description: "Flat sortable task table" },
   { type: "page", path: "/tasks/graph", label: "Task Graph", description: "Dependency graph view" },
   { type: "page", path: "/asks", label: "Asks", description: "Pending principal-attention asks" },
   { type: "page", path: "/activity", label: "Activity", description: "System event log" },
-  { type: "page", path: "/embeddings", label: "Embeddings", description: "Provider health & index coverage" },
-  { type: "page", path: "/memories", label: "Memories", description: "Browse, search, and inspect memory records" },
+  {
+    type: "page",
+    path: "/embeddings",
+    label: "Embeddings",
+    description: "Provider health & index coverage",
+  },
+  {
+    type: "page",
+    path: "/memories",
+    label: "Memories",
+    description: "Browse, search, and inspect memory records",
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -126,6 +158,20 @@ function extractAsks(data: WidgetData | undefined): PaletteAsk[] {
   }));
 }
 
+function extractMemories(data: WidgetData | undefined): PaletteMemory[] {
+  if (!data || data.state !== "ok") return [];
+  const payload = data.payload as {
+    records?: { id: string; name: string; type: string }[];
+  };
+  if (!Array.isArray(payload?.records)) return [];
+  return payload.records.map((r) => ({
+    type: "memory" as const,
+    id: r.id,
+    name: r.name,
+    memoryType: r.type,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // Entity type badge — single-letter indicator per entity type
 // ---------------------------------------------------------------------------
@@ -134,6 +180,7 @@ const TYPE_BADGE_CONFIG: Record<string, { letter: string; className: string }> =
   task: { letter: "T", className: "bg-primary/20 text-primary" },
   session: { letter: "S", className: "bg-accent text-accent-foreground" },
   ask: { letter: "A", className: "bg-destructive/20 text-destructive" },
+  memory: { letter: "M", className: "bg-emerald-500/20 text-emerald-500" },
   page: { letter: "P", className: "bg-muted text-muted-foreground" },
 };
 
@@ -163,8 +210,8 @@ function StatusBadge({ status }: { status: string }) {
 
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const navigate = useNavigate();
-  const [recentItems, setRecentItems] = useState<RecentItem[]>([]);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
   // Global Cmd+K / Ctrl+K keyboard shortcut
@@ -182,19 +229,16 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
-  // Restore focus to previously-focused element when palette closes
+  // Restore focus to previously-focused element when palette closes; reset
+  // the query so reopening starts blank (nothing shown until typing).
   useEffect(() => {
-    if (!open && previouslyFocusedRef.current) {
-      const el = previouslyFocusedRef.current;
-      previouslyFocusedRef.current = null;
-      requestAnimationFrame(() => el.focus());
-    }
-  }, [open]);
-
-  // Load recent items when palette opens
-  useEffect(() => {
-    if (open) {
-      setRecentItems(getRecentItems());
+    if (!open) {
+      setQuery("");
+      if (previouslyFocusedRef.current) {
+        const el = previouslyFocusedRef.current;
+        previouslyFocusedRef.current = null;
+        requestAnimationFrame(() => el.focus());
+      }
     }
   }, [open]);
 
@@ -220,151 +264,157 @@ export function CommandPalette() {
     staleTime: 30_000,
   });
 
+  const memoriesQuery = useQuery<WidgetData, Error>({
+    queryKey: ["widget", "memories-list", "", "", true],
+    queryFn: () => fetchWidgetData("memories-list", { excludeSuperseded: "true" }),
+    enabled: open,
+    staleTime: 30_000,
+  });
+
   const tasks = tasksQuery.data ?? [];
   const sessions = extractSessions(agentsQuery.data);
   const asks = extractAsks(attentionQuery.data);
+  const memories = extractMemories(memoriesQuery.data);
+
+  const hasQuery = query.trim().length > 0;
 
   const handleSelect = useCallback(
     (entity: PaletteEntity) => {
+      // Entity selections land on the URL-addressable detail routes; the tab
+      // model (mt#2398) opens them as entity tabs on visit. mt#X ids encode
+      // their "#" as %23 via encodeURIComponent.
       let path: string;
-      let label: string;
-      let entityId: string;
-
       switch (entity.type) {
         case "task":
-          path = `/tasks?highlight=${encodeURIComponent(entity.id)}`;
-          label = `${entity.id}: ${entity.title}`;
-          entityId = entity.id;
+          path = `/tasks/${encodeURIComponent(entity.id)}`;
           break;
         case "session":
-          path = `/agents?highlight=${encodeURIComponent(entity.id)}`;
-          label = entity.taskTitle ?? entity.id;
-          entityId = entity.id;
+          path = `/agents/${encodeURIComponent(entity.id)}`;
           break;
         case "ask":
-          path = `/?ask=${encodeURIComponent(entity.id)}`;
-          label = entity.title;
-          entityId = entity.id;
+          path = `/ask/${encodeURIComponent(entity.id)}`;
+          break;
+        case "memory":
+          path = `/memory/${encodeURIComponent(entity.id)}`;
           break;
         case "page":
           path = entity.path;
-          label = entity.label;
-          entityId = entity.path;
           break;
       }
 
-      addRecentItem({ type: entity.type, id: entityId, label, path });
       setOpen(false);
       navigate(path);
     },
     [navigate]
   );
 
-  const handleRecentSelect = useCallback(
-    (item: RecentItem) => {
-      addRecentItem(item);
-      setOpen(false);
-      navigate(item.path);
-    },
-    [navigate]
-  );
-
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search tasks, sessions, asks, pages..." />
+      <CommandInput
+        placeholder="Search tasks, sessions, asks, memories, pages..."
+        value={query}
+        onValueChange={setQuery}
+      />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
-
-        {/* Recent items — shown first; cmdk filters them when user types */}
-        {recentItems.length > 0 && (
+        {/* Nothing until typing — search + jump, no recents-as-default. */}
+        {!hasQuery ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">Type to search…</div>
+        ) : (
           <>
-            <CommandGroup heading="Recent">
-              {recentItems.map((item) => (
+            <CommandEmpty>No results found.</CommandEmpty>
+
+            {/* Pages */}
+            <CommandGroup heading="Pages">
+              {PAGES.map((page) => (
                 <CommandItem
-                  key={`recent-${item.id}`}
-                  value={`recent ${item.label} ${item.id}`}
-                  onSelect={() => handleRecentSelect(item)}
+                  key={page.path}
+                  value={`page ${page.label} ${page.description}`}
+                  onSelect={() => handleSelect(page)}
                 >
-                  <TypeBadge type={item.type} />
-                  <span className="ml-2 truncate">{item.label}</span>
+                  <TypeBadge type="page" />
+                  <span className="ml-2">{page.label}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{page.description}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
-            <CommandSeparator />
+
+            {/* Tasks */}
+            {tasks.length > 0 && (
+              <CommandGroup heading="Tasks">
+                {tasks.map((task) => (
+                  <CommandItem
+                    key={task.id}
+                    value={`task ${task.id} ${task.title}`}
+                    onSelect={() => handleSelect(task)}
+                  >
+                    <TypeBadge type="task" />
+                    <span className="ml-2 font-mono text-xs flex-shrink-0">{task.id}</span>
+                    <span className="ml-2 truncate">{task.title}</span>
+                    <StatusBadge status={task.status} />
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {/* Sessions (workspace sessions — the /agents id-space) */}
+            {sessions.length > 0 && (
+              <CommandGroup heading="Sessions">
+                {sessions.map((session) => (
+                  <CommandItem
+                    key={session.id}
+                    value={`session ${session.id} ${session.taskId ?? ""} ${session.taskTitle ?? ""}`}
+                    onSelect={() => handleSelect(session)}
+                  >
+                    <TypeBadge type="session" />
+                    <span className="ml-2 truncate">{session.taskTitle ?? session.id}</span>
+                    {session.taskId && (
+                      <span className="ml-2 text-xs text-muted-foreground flex-shrink-0">
+                        {session.taskId}
+                      </span>
+                    )}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {/* Asks */}
+            {asks.length > 0 && (
+              <CommandGroup heading="Asks">
+                {asks.map((ask) => (
+                  <CommandItem
+                    key={ask.id}
+                    value={`ask ${ask.id} ${ask.title} ${ask.kind}`}
+                    onSelect={() => handleSelect(ask)}
+                  >
+                    <TypeBadge type="ask" />
+                    <span className="ml-2 truncate">{ask.title}</span>
+                    <span className="ml-auto text-xs text-muted-foreground flex-shrink-0">
+                      {ask.kind}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {/* Memories */}
+            {memories.length > 0 && (
+              <CommandGroup heading="Memories">
+                {memories.map((memory) => (
+                  <CommandItem
+                    key={memory.id}
+                    value={`memory ${memory.id} ${memory.name} ${memory.memoryType}`}
+                    onSelect={() => handleSelect(memory)}
+                  >
+                    <TypeBadge type="memory" />
+                    <span className="ml-2 truncate">{memory.name}</span>
+                    <span className="ml-auto text-xs text-muted-foreground flex-shrink-0">
+                      {memory.memoryType}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
           </>
-        )}
-
-        {/* Pages */}
-        <CommandGroup heading="Pages">
-          {PAGES.map((page) => (
-            <CommandItem
-              key={page.path}
-              value={`page ${page.label} ${page.description}`}
-              onSelect={() => handleSelect(page)}
-            >
-              <TypeBadge type="page" />
-              <span className="ml-2">{page.label}</span>
-              <span className="ml-2 text-xs text-muted-foreground">{page.description}</span>
-            </CommandItem>
-          ))}
-        </CommandGroup>
-
-        {/* Tasks */}
-        {tasks.length > 0 && (
-          <CommandGroup heading="Tasks">
-            {tasks.map((task) => (
-              <CommandItem
-                key={task.id}
-                value={`task ${task.id} ${task.title}`}
-                onSelect={() => handleSelect(task)}
-              >
-                <TypeBadge type="task" />
-                <span className="ml-2 font-mono text-xs flex-shrink-0">{task.id}</span>
-                <span className="ml-2 truncate">{task.title}</span>
-                <StatusBadge status={task.status} />
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-
-        {/* Sessions */}
-        {sessions.length > 0 && (
-          <CommandGroup heading="Sessions">
-            {sessions.map((session) => (
-              <CommandItem
-                key={session.id}
-                value={`session ${session.id} ${session.taskId ?? ""} ${session.taskTitle ?? ""}`}
-                onSelect={() => handleSelect(session)}
-              >
-                <TypeBadge type="session" />
-                <span className="ml-2 truncate">{session.taskTitle ?? session.id}</span>
-                {session.taskId && (
-                  <span className="ml-2 text-xs text-muted-foreground flex-shrink-0">
-                    {session.taskId}
-                  </span>
-                )}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        )}
-
-        {/* Asks */}
-        {asks.length > 0 && (
-          <CommandGroup heading="Asks">
-            {asks.map((ask) => (
-              <CommandItem
-                key={ask.id}
-                value={`ask ${ask.id} ${ask.title} ${ask.kind}`}
-                onSelect={() => handleSelect(ask)}
-              >
-                <TypeBadge type="ask" />
-                <span className="ml-2 truncate">{ask.title}</span>
-                <span className="ml-auto text-xs text-muted-foreground flex-shrink-0">
-                  {ask.kind}
-                </span>
-              </CommandItem>
-            ))}
-          </CommandGroup>
         )}
       </CommandList>
     </CommandDialog>
