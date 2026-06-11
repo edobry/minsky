@@ -10,6 +10,10 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { fetchWidgetData } from "./widget-client";
 
+// Safety assumption for the globalThis.fetch override: `bun test` executes
+// test files sequentially in one process, and afterEach restores the original
+// before any other file runs. If parallel file execution ever lands, switch
+// to a scoped mock API.
 const originalFetch = globalThis.fetch;
 
 function captureFetch(): { urls: string[] } {
@@ -44,7 +48,14 @@ describe("fetchWidgetData URL composition (mt#2443)", () => {
   test("an id embedding a query string is rejected at the boundary", async () => {
     captureFetch();
     await expect(fetchWidgetData("memories-list?excludeSuperseded=true")).rejects.toThrow(
-      /must not embed a query string/
+      /bare kebab-case widget id/
     );
+  });
+
+  test("other path-breaking characters are rejected too", async () => {
+    captureFetch();
+    for (const bad of ["memories/list", "memories#list", "memories%2Flist", "../memories"]) {
+      await expect(fetchWidgetData(bad)).rejects.toThrow(/bare kebab-case widget id/);
+    }
   });
 });
