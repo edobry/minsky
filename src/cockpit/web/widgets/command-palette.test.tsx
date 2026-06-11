@@ -77,10 +77,22 @@ describe("CommandPalette (mt#2399)", () => {
         );
       }
       if (url.startsWith("/api/widget/attention/data")) {
-        return new Response(JSON.stringify({ state: "ok", payload: { cohort: [] } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            state: "ok",
+            payload: {
+              cohort: [
+                {
+                  id: "55556666-0000-0000-0000-000000000000",
+                  title: "Palette fixture ask",
+                  kind: "direction.decide",
+                  parentTaskId: "mt#2320",
+                },
+              ],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
       }
       if (url.startsWith("/api/widget/memories-list/data")) {
         return new Response(
@@ -139,6 +151,25 @@ describe("CommandPalette (mt#2399)", () => {
     });
     // The visit opened a task entity tab.
     expect(screen.getByText("mt#2320")).toBeDefined();
+  });
+
+  test("selecting an ask lands on /ask/:id and opens its tab", async () => {
+    renderPalette();
+    openPalette();
+
+    const input = await screen.findByPlaceholderText(/Search tasks, sessions/);
+    fireEvent.change(input, { target: { value: "fixture ask" } });
+
+    const askItem = await screen.findByText("Palette fixture ask", undefined, { timeout: 3000 });
+    fireEvent.click(askItem);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location").textContent).toBe(
+        "/ask/55556666-0000-0000-0000-000000000000"
+      );
+    });
+    // The visit opened an ask entity tab (short-id label).
+    expect(screen.getByText("55556666…")).toBeDefined();
   });
 
   test("selecting a memory lands on /memory/:id", async () => {
