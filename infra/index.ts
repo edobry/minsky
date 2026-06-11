@@ -2,6 +2,10 @@ import * as pulumi from "@pulumi/pulumi";
 import * as railway from "@pulumi/railway";
 
 const secrets = new pulumi.Config("secrets");
+// Project-namespaced plain config (minsky-infra:*). Per-stack operator
+// settings live here (gitignored Pulumi.<stack>.yaml), not in this file.
+const stackConfig = new pulumi.Config();
+const telegramChatId = stackConfig.get("reviewer-telegram-chat-id");
 
 interface VarDef {
   value: string | pulumi.Output<string>;
@@ -93,12 +97,23 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
   MINSKY_SESSIONDB_POSTGRES_URL: sealed("minsky-sessiondb-postgres-url"),
   // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
-  // trips to the operator's Telegram after-hours. Token entered via the
-  // cockpit credentials widget (masked) into the Pulumi stack secret; chat id
-  // discovered via scripts/reviewer-alerts/discover-chat-id.ts (2026-06-11).
-  ALERT_SINK_TYPE: plain("telegram"),
-  TELEGRAM_CHAT_ID: plain("167346572"),
-  TELEGRAM_BOT_TOKEN: sealed("minsky-reviewer-telegram-bot-token"),
+  // trips to the operator's Telegram after-hours. PER-STACK opt-in (PR #1672
+  // R1): the chat id is an operator-specific identifier and the sink must not
+  // default on — both live in the stack config (gitignored Pulumi.<stack>.yaml),
+  // not in this shared file. Enable on a stack with:
+  //   pulumi config set reviewer-telegram-chat-id <id>     (plain; discover
+  //     via scripts/reviewer-alerts/discover-chat-id.ts)
+  //   pulumi config set --secret secrets:minsky-reviewer-telegram-bot-token
+  //     (masked; or via the cockpit credentials widget's Telegram provider)
+  // When the chat id is unset, no alert vars are declared and the sealed
+  // token is not required — stacks without the secret stay applyable.
+  ...(telegramChatId
+    ? {
+        ALERT_SINK_TYPE: plain("telegram"),
+        TELEGRAM_CHAT_ID: plain(telegramChatId),
+        TELEGRAM_BOT_TOKEN: sealed("minsky-reviewer-telegram-bot-token"),
+      }
+    : {}),
 });
 
 // ---------------------------------------------------------------------------

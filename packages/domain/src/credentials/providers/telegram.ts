@@ -34,7 +34,9 @@ export function resolveInfraDir(
   // Walk up a few levels so a cockpit server started from a subdirectory of
   // the repo still finds infra/. The Pulumi.yaml probe is the ground truth.
   let dir = resolve(cwd);
-  for (let i = 0; i < 4; i++) {
+  // 6 levels (PR #1672 R1 non-blocking): generous for servers started from
+  // nested subdirectories while still bounded.
+  for (let i = 0; i < 6; i++) {
     const candidate = join(dir, "infra");
     if (existsFn(join(candidate, "Pulumi.yaml"))) return candidate;
     const parent = resolve(dir, "..");
@@ -175,6 +177,34 @@ async function storeInPulumi(token: string): Promise<{ location: string }> {
   return { location: `pulumi stack config (${TELEGRAM_PULUMI_SECRET_KEY})` };
 }
 
+/**
+ * Read the stored token back from the Pulumi stack config (PR #1672 R1) so
+ * recheck/401-invalidation work for this provider-owned credential. The value
+ * is captured and returned in-process — never printed.
+ */
+async function readFromPulumi(): Promise<string | null> {
+  const infraDir = resolveInfraDir();
+  if (!infraDir) return null;
+  const proc = Bun.spawnSync(
+    ["pulumi", "-C", infraDir, "config", "get", TELEGRAM_PULUMI_SECRET_KEY],
+    { stdout: "pipe", stderr: "pipe", env: pulumiEnv() }
+  );
+  if (proc.exitCode !== 0) return null;
+  const token = proc.stdout.toString().trim();
+  return token || null;
+}
+
+/** Delete the token from the Pulumi stack config (PR #1672 R1). */
+async function removeFromPulumi(): Promise<{ removed: boolean }> {
+  const infraDir = resolveInfraDir();
+  if (!infraDir) return { removed: false };
+  const proc = Bun.spawnSync(
+    ["pulumi", "-C", infraDir, "config", "rm", TELEGRAM_PULUMI_SECRET_KEY],
+    { stdout: "pipe", stderr: "pipe", env: pulumiEnv() }
+  );
+  return { removed: proc.exitCode === 0 };
+}
+
 async function isConfiguredInPulumi(): Promise<boolean> {
   const infraDir = resolveInfraDir();
   if (!infraDir) return false;
@@ -201,6 +231,8 @@ export const telegramProvider: CredentialProvider = {
   validate: callGetMe,
   test: callGetUpdatesSummary,
   store: storeInPulumi,
+  read: readFromPulumi,
+  remove: removeFromPulumi,
   isConfigured: isConfiguredInPulumi,
   // Deployment-specific provider (mt#2419): only surfaced where this
   // deployment's Pulumi project (the storage target) is resolvable. Users

@@ -240,18 +240,25 @@ function hasNestedValue(obj: Record<string, unknown>, path: string): boolean {
   return current !== undefined && current !== null && current !== "";
 }
 
-/** Remove a credential — unset the config value AND its metadata entry. */
+/** Remove a credential — unset the stored value AND its metadata entry. */
 export async function removeCredential(providerId: string): Promise<{ removed: boolean }> {
   const provider = getCredentialProvider(providerId);
   if (!provider) {
     throw new Error(`Unknown credential provider: ${providerId}`);
   }
-  const writer = createConfigWriter({ createBackup: true, format: "yaml", validate: true });
-  const result = await writer.unsetConfigValue(provider.configPath);
+  let removed: boolean;
+  if (provider.remove) {
+    // Provider-owned storage (mt#2419, PR #1672 R1): delegate removal.
+    removed = (await provider.remove()).removed;
+  } else {
+    const writer = createConfigWriter({ createBackup: true, format: "yaml", validate: true });
+    const result = await writer.unsetConfigValue(provider.configPath);
+    removed = result.success;
+  }
   await removeMeta(provider.id);
   // Clear any pending invalidation — the credential no longer exists.
   await clearInvalidation(provider.id);
-  return { removed: result.success };
+  return { removed };
 }
 
 /** Outcome of `recheckCredential` — never includes the token. */
@@ -276,7 +283,11 @@ export async function recheckCredential(providerId: string): Promise<RecheckResu
   if (!provider) {
     throw new Error(`Unknown credential provider: ${providerId}`);
   }
-  const token = await readStoredToken(provider.configPath);
+  // Provider-owned storage (mt#2419, PR #1672 R1): read from the provider's
+  // store when it owns persistence; config.yaml is the default path.
+  const token = provider.read
+    ? await provider.read().catch(() => null)
+    : await readStoredToken(provider.configPath);
   if (!token) {
     return { provider: provider.id, configured: false };
   }

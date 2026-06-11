@@ -300,10 +300,16 @@ repo (it lives passphrase-encrypted in the gitignored `infra/Pulumi.prod.yaml`):
    bun scripts/reviewer-alerts/discover-chat-id.ts
    ```
 
-4. **Declare the vars in `infra/index.ts`** (`defineVariables("reviewer", ...)`):
-   `ALERT_SINK_TYPE: plain("telegram")`, `TELEGRAM_CHAT_ID: plain("<discovered id>")`,
-   `TELEGRAM_BOT_TOKEN: sealed("minsky-reviewer-telegram-bot-token")` — then `pulumi up`
-   from `infra/`.
+4. **Enable on the stack** (per-stack opt-in — the chat id and enablement live in the
+   gitignored `Pulumi.<stack>.yaml`, never in the shared IaC):
+
+   ```bash
+   pulumi -C infra config set reviewer-telegram-chat-id <discovered id>
+   ```
+
+   `infra/index.ts` declares `ALERT_SINK_TYPE` / `TELEGRAM_CHAT_ID` /
+   `TELEGRAM_BOT_TOKEN` only when that config value is present. Then `pulumi up` from `infra/`.
+
 5. **Verify** (sends one real message; PASS only on a 2xx from Telegram):
 
    ```bash

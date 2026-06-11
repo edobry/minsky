@@ -79,6 +79,22 @@ export interface CredentialProvider {
   isConfigured?(): Promise<boolean>;
 
   /**
+   * Optional provider-owned retrieval (mt#2419, PR #1672 R1): returns the
+   * stored secret from the provider-owned store (or null when absent) so the
+   * recheck flow works for credentials that don't live in config.yaml.
+   * Required in practice when `store` is implemented — without it the
+   * credential can never be rechecked or 401-invalidated.
+   */
+  read?(): Promise<string | null>;
+
+  /**
+   * Optional provider-owned removal (mt#2419, PR #1672 R1): deletes the
+   * secret from the provider-owned store. Counterpart of `store` for the
+   * removeCredential flow. Returns whether a value was removed.
+   */
+  remove?(): Promise<{ removed: boolean }>;
+
+  /**
    * Optional environment gate (mt#2419). Providers whose storage target only
    * exists in specific environments (e.g. the Telegram reviewer-alert
    * provider, which persists into THIS deployment's Pulumi stack) return
