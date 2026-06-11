@@ -24,6 +24,7 @@ import {
 } from "@minsky/domain/reviewer-watch";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
 import { resolveBotIdentities } from "@minsky/domain/configuration/bot-identity";
+import { REVIEWER_BOT_LOGIN } from "@minsky/domain/constants";
 import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client";
 
 // ---------------------------------------------------------------------------
@@ -37,13 +38,28 @@ const DEFAULT_INTERVAL_MS = 600_000;
 const DEFAULT_THRESHOLD = 1;
 
 /**
+ * Resolve the configured reviewer login defensively. `resolveBotIdentities()`
+ * already degrades to the constant when configuration is unavailable, but
+ * option resolution for a CLI command must stay robust even if that contract
+ * regresses — reviewer-watch worked with pure env/constant fallback before
+ * mt#2392 and must never fail earlier than it used to. Exported for tests.
+ */
+export function resolveConfiguredReviewerLogin(): string {
+  try {
+    return resolveBotIdentities().reviewerBotLogin;
+  } catch {
+    return REVIEWER_BOT_LOGIN;
+  }
+}
+
+/**
  * Resolve a `ReviewerWatchConfig` from explicit parameters, falling back to
  * environment variables, then to the configured reviewer-bot identity
  * (`reviewer.botLogin` ← `MINSKY_REVIEWER_BOT_LOGIN`, default
  * `minsky-reviewer[bot]` — mt#2392), then to hard-coded defaults. No I/O
- * beyond the in-memory configuration read.
+ * beyond the in-memory configuration read. Exported for tests.
  */
-function resolveWatchConfig(params: {
+export function resolveWatchConfig(params: {
   owner?: string;
   repo?: string;
   botLogin?: string;
@@ -54,7 +70,7 @@ function resolveWatchConfig(params: {
   const botLogin =
     params.botLogin ??
     process.env["MINSKY_REVIEWER_WATCH_BOT_LOGIN"] ??
-    resolveBotIdentities().reviewerBotLogin;
+    resolveConfiguredReviewerLogin();
   const threshold =
     params.threshold ??
     parseInt(process.env["MINSKY_REVIEWER_WATCH_THRESHOLD"] ?? `${DEFAULT_THRESHOLD}`, 10);
