@@ -340,6 +340,53 @@ describe("environment configuration source — reviewer-service env vars (mt#245
       }
     }
   });
+
+  test("MINSKY_REVIEWER_URL still maps to reviewer.url (existing explicit mapping)", () => {
+    // PR #1674 R1 (non-blocking): sibling of the webhookSecret test above —
+    // the other explicitly-mapped reviewer var must keep routing to its
+    // schema-accepted key.
+    const originalUrl = process.env.MINSKY_REVIEWER_URL;
+    process.env.MINSKY_REVIEWER_URL = "https://reviewer.example";
+    try {
+      const config = loadEnvironmentConfiguration() as {
+        reviewer?: { url?: string };
+      };
+      expect(config.reviewer?.url).toBe("https://reviewer.example");
+    } finally {
+      if (originalUrl === undefined) {
+        delete process.env.MINSKY_REVIEWER_URL;
+      } else {
+        process.env.MINSKY_REVIEWER_URL = originalUrl;
+      }
+    }
+  });
+
+  test("mapped reviewer vars appear in metadata.loadedVariables with correct mappings (positive observability)", () => {
+    // PR #1674 R1 (non-blocking): complement to the negative metadata test —
+    // explicitly-mapped reviewer vars must surface in the audit metadata.
+    const originalUrl = process.env.MINSKY_REVIEWER_URL;
+    const originalWebhookSecret = process.env.MINSKY_REVIEWER_WEBHOOK_SECRET;
+    process.env.MINSKY_REVIEWER_URL = "https://reviewer.example";
+    process.env.MINSKY_REVIEWER_WEBHOOK_SECRET = "test-secret";
+    try {
+      const { metadata } = getEnvironmentConfiguration();
+      expect(metadata.loadedVariables).toContain("MINSKY_REVIEWER_URL");
+      expect(metadata.mappings["MINSKY_REVIEWER_URL"]).toBe("reviewer.url");
+      expect(metadata.loadedVariables).toContain("MINSKY_REVIEWER_WEBHOOK_SECRET");
+      expect(metadata.mappings["MINSKY_REVIEWER_WEBHOOK_SECRET"]).toBe("reviewer.webhookSecret");
+    } finally {
+      if (originalUrl === undefined) {
+        delete process.env.MINSKY_REVIEWER_URL;
+      } else {
+        process.env.MINSKY_REVIEWER_URL = originalUrl;
+      }
+      if (originalWebhookSecret === undefined) {
+        delete process.env.MINSKY_REVIEWER_WEBHOOK_SECRET;
+      } else {
+        process.env.MINSKY_REVIEWER_WEBHOOK_SECRET = originalWebhookSecret;
+      }
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
