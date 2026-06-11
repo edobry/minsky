@@ -330,10 +330,18 @@ function ConversationThread({
   // control) when a refetch adds turns to the same session (PR #1667 R1).
   const [showAll, setShowAll] = useState(false);
 
+  // One-shot gate for the initial scroll-to-newest. Declared before the
+  // session-change effect below, which re-arms it.
+  const didInitialScrollRef = useRef(false);
+
   // New session in the same mounted component → window back to the tail.
   useEffect(() => {
     setVisibleCount(INITIAL_TURNS);
     setShowAll(false);
+    // Each session load lands on the tail — including in-place session swaps
+    // (same mounted component, new agentSessionId), so the one-shot scroll
+    // gate re-arms here (PR #1667 R2 non-blocking).
+    didInitialScrollRef.current = false;
   }, [snapshot.agentSessionId]);
 
   const effectiveCount = showAll ? visibleTurns.length : visibleCount;
@@ -347,7 +355,6 @@ function ConversationThread({
   // the DOM (layout effect keyed on the mounted count — an empty first commit
   // must not consume the one-shot; PR #1667 R1). Expanding "Show older" later
   // must not yank the scroll position, hence the one-shot flag.
-  const didInitialScrollRef = useRef(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (didInitialScrollRef.current) return;
