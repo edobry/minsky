@@ -114,7 +114,13 @@ interface TabsContextValue {
   tabs: EntityTab[];
   /** Path of the active tab, or null when the current route is not an entity route. */
   activePath: string | null;
-  closeTab: (path: string) => void;
+  /**
+   * Close a tab. When closing the tab you're currently on, focus moves to
+   * `opts.navigateTo` when given (e.g. a consumable entity settling back to
+   * its list — mt#2410's ask-resolution convention), else the last remaining
+   * tab, else the default landing.
+   */
+  closeTab: (path: string, opts?: { navigateTo?: string }) => void;
 }
 
 const TabsContext = createContext<TabsContextValue | null>(null);
@@ -170,14 +176,15 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   }, [pathname]);
 
   const closeTab = useCallback(
-    (path: string) => {
+    (path: string, opts?: { navigateTo?: string }) => {
       setTabs((prev) => {
         const remaining = prev.filter((t) => t.path !== path);
-        // Closing the tab you're on: move focus to the last remaining tab,
-        // or the default landing when the working set is empty.
+        // Closing the tab you're on: move focus to the caller's destination,
+        // or the last remaining tab, or the default landing when the working
+        // set is empty.
         if (path === pathname) {
           const next = remaining[remaining.length - 1];
-          navigate(next ? next.path : "/");
+          navigate(opts?.navigateTo ?? (next ? next.path : "/"));
         }
         return remaining;
       });

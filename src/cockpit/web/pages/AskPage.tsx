@@ -3,14 +3,22 @@
  *
  * URL-addressable ask detail in the entity-tab pattern (sibling of
  * /tasks/:id, /session/:id, /agents/:id). Retires AsksPage's local-state
- * full-page swap: the ask is addressed by URL, opens as a tab, and the Back
- * affordance (and every mutation settle) navigates to /asks.
+ * full-page swap: the ask is addressed by URL and opens as a tab.
+ *
+ * Settle convention (PR #1668 R1): asks are CONSUMABLE — resolving,
+ * deferring, or escalating removes the ask from the pending set, so the
+ * entity this tab addresses ceases to exist. On settle the page therefore
+ * closes its own tab and returns to /asks (via closeTab's navigateTo), in
+ * the same single navigation. This intentionally diverges from durable
+ * entities (task / memory / session), whose tabs persist across actions.
+ * The Back affordance is plain navigation — the ask was not consumed, so
+ * its tab stays in the working set like any other entity tab.
  *
  * Data: the same GET /api/asks list query the list page uses (shared query
  * key → cache hit on row click); the ask is found by id. A missing id —
  * resolved ask, expired deep link — renders a graceful empty state.
  */
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useLocation } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   AskDetail,
@@ -23,11 +31,14 @@ import {
 } from "../widgets/AskDetail";
 import { useState } from "react";
 import { shortenId } from "../lib/format";
+import { useTabs } from "../lib/tabs";
 
 export function AskPage() {
   const { id } = useParams<{ id: string }>();
   const askId = id ?? "";
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { closeTab } = useTabs();
   const queryClient = useQueryClient();
   const [resolving, setResolving] = useState(false);
 
@@ -40,11 +51,12 @@ export function AskPage() {
   const asks = query.data?.asks ?? [];
   const ask = asks.find((a) => a.id === askId) ?? null;
 
+  /** Consumable-entity settle: close this ask's tab, landing on /asks. */
   function settle() {
     setResolving(false);
     void queryClient.invalidateQueries({ queryKey: ["asks"] });
     void queryClient.invalidateQueries({ queryKey: ["attention"] });
-    navigate("/asks");
+    closeTab(pathname, { navigateTo: "/asks" });
   }
 
   const resolveMutation = useMutation({
