@@ -87,6 +87,14 @@ export const environmentMappings = {
   MINSKY_REVIEWER_WEBHOOK_SECRET: "reviewer.webhookSecret",
   MINSKY_REVIEWER_URL: "reviewer.url",
 
+  // Bot-identity de-hardcoding (mt#2392). The merge-gate waiver logic, the
+  // reviewer-watch detector, and the check-run submitter resolve bot identities
+  // from these config paths (falling back to Minsky's own App logins when
+  // unset) so external projects can run Minsky against their own bots.
+  MINSKY_REVIEWER_BOT_LOGIN: "reviewer.botLogin",
+  MINSKY_REVIEWER_CHECK_RUN_NAME: "reviewer.checkRunName",
+  MINSKY_GITHUB_BOT_IDENTITY_LOGIN: "github.botIdentityLogin",
+
   // MCP operator->service auth token (mt#2346). Promoted from HOOK_ONLY_ENV_VARS
   // to a real config path (its standing TODO). Consumed by `reviewer.retrigger`
   // to authenticate against the reviewer service's /retrigger endpoint without

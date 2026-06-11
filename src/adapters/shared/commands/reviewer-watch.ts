@@ -23,6 +23,7 @@ import {
   type ReviewerWatchCycleResult,
 } from "@minsky/domain/reviewer-watch";
 import { SystemOperatorNotify } from "@minsky/domain/notify/operator-notify";
+import { resolveBotIdentities } from "@minsky/domain/configuration/bot-identity";
 import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client";
 
 // ---------------------------------------------------------------------------
@@ -32,15 +33,15 @@ import { makeProductionMissedReviewClient } from "./reviewer-watch-github-client
 /** Default poll interval (ms). Mirrors the Railway sweeper's 10-minute cadence. */
 const DEFAULT_INTERVAL_MS = 600_000;
 
-/** Default reviewer-bot login. */
-const DEFAULT_BOT_LOGIN = "minsky-reviewer[bot]";
-
 /** Default alert threshold — alert on any missed review. */
 const DEFAULT_THRESHOLD = 1;
 
 /**
  * Resolve a `ReviewerWatchConfig` from explicit parameters, falling back to
- * environment variables, then to hard-coded defaults. Pure — no I/O.
+ * environment variables, then to the configured reviewer-bot identity
+ * (`reviewer.botLogin` ← `MINSKY_REVIEWER_BOT_LOGIN`, default
+ * `minsky-reviewer[bot]` — mt#2392), then to hard-coded defaults. No I/O
+ * beyond the in-memory configuration read.
  */
 function resolveWatchConfig(params: {
   owner?: string;
@@ -51,7 +52,9 @@ function resolveWatchConfig(params: {
   const owner = params.owner ?? process.env["MINSKY_REVIEWER_WATCH_OWNER"] ?? "edobry";
   const repo = params.repo ?? process.env["MINSKY_REVIEWER_WATCH_REPO"] ?? "minsky";
   const botLogin =
-    params.botLogin ?? process.env["MINSKY_REVIEWER_WATCH_BOT_LOGIN"] ?? DEFAULT_BOT_LOGIN;
+    params.botLogin ??
+    process.env["MINSKY_REVIEWER_WATCH_BOT_LOGIN"] ??
+    resolveBotIdentities().reviewerBotLogin;
   const threshold =
     params.threshold ??
     parseInt(process.env["MINSKY_REVIEWER_WATCH_THRESHOLD"] ?? `${DEFAULT_THRESHOLD}`, 10);
@@ -104,7 +107,7 @@ const reviewerWatchRunParams = {
   botLogin: {
     schema: z.string().min(1).optional(),
     description:
-      "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+      "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN, then the configured reviewer.botLogin, then 'minsky-reviewer[bot]')",
     required: false,
   },
   threshold: {

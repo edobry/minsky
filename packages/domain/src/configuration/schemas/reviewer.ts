@@ -41,6 +41,22 @@ export const reviewerConfigSchema = z
      * back to the hosted default.
      */
     url: baseSchemas.url.optional(),
+
+    /**
+     * GitHub login of the reviewer bot whose reviews satisfy the merge-gate
+     * waiver logic (mt#2392). Override via `MINSKY_REVIEWER_BOT_LOGIN`. When
+     * unset, falls back to Minsky's own reviewer identity
+     * (`REVIEWER_BOT_LOGIN` constant, `minsky-reviewer[bot]`). External
+     * projects running their own reviewer App set this to their bot's login.
+     */
+    botLogin: baseSchemas.optionalNonEmptyString,
+
+    /**
+     * Check-run name used by `session pr check-run submit` (mt#2392).
+     * Override via `MINSKY_REVIEWER_CHECK_RUN_NAME`. When unset, falls back
+     * to `DEFAULT_CHECK_RUN_NAME` (`minsky-reviewer/findings`).
+     */
+    checkRunName: baseSchemas.optionalNonEmptyString,
   })
   .optional();
 
