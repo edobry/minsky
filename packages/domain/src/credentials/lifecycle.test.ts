@@ -161,7 +161,12 @@ describe("listCredentials", () => {
 
     const listing = await listCredentials();
     const ids = listing.map((c) => c.provider).sort();
-    expect(ids).toEqual(["anthropic", "github", "supabase"]);
+    // Derive from the registry so this cannot go stale when providers are
+    // added (it had drifted: hardcoded 3 ids while the registry held 5 —
+    // already failing on main before mt#2419 added telegram).
+    const { KNOWN_PROVIDER_IDS } = await import("./providers");
+    expect(ids).toEqual([...KNOWN_PROVIDER_IDS].sort());
+    expect(ids).toContain("telegram");
 
     const supabaseEntry = listing.find((c) => c.provider === "supabase");
     expect(supabaseEntry?.configured).toBe(true);

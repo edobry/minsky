@@ -59,4 +59,22 @@ export interface CredentialProvider {
    * token has been invalidated.
    */
   test(token: string): Promise<CredentialCheckResult>;
+
+  /**
+   * Optional provider-owned persistence (mt#2419). When present,
+   * `addCredential` calls this INSTEAD of the default ConfigWriter path —
+   * for credentials whose source of truth is not `~/.config/minsky/config.yaml`
+   * (e.g. the Telegram reviewer-alert bot token, which lives in the Pulumi
+   * stack config because the DEPLOYED reviewer consumes it via IaC-managed
+   * env vars). Returns a display-only location descriptor — never the secret.
+   * Throws on persistence failure.
+   */
+  store?(token: string): Promise<{ location: string }>;
+
+  /**
+   * Optional companion to `store` for `listCredentials`: reports whether a
+   * value is present in the provider-owned store. When absent, the listing
+   * falls back to checking `configPath` in the user config file.
+   */
+  isConfigured?(): Promise<boolean>;
 }
