@@ -509,9 +509,11 @@ export async function runPostgresSchemaMigrations(
           `${pendingCount} pending`
       );
       log.cli("");
-      if (!status.metaExists) {
+      if (!status.metaExists || status.appliedCount === 0) {
         // Fresh-DB preview (mt#2439): the execute path bootstraps from the
-        // snapshot instead of replaying the tree (empty 0000 baseline).
+        // snapshot instead of replaying the tree (empty 0000 baseline). The
+        // gate mirrors the execute path exactly — absent meta table OR an
+        // empty ledger (left behind by a prior failed replay) both bootstrap.
         const { loadBootstrapSnapshot } = await import("./postgres-bootstrap");
         const snapshot = loadBootstrapSnapshot(migrationsFolder);
         if (snapshot) {

@@ -91,6 +91,12 @@ jobs:
             || { echo "::error::dist/storage/migrations/pg missing (build:copy-migrations regression)"; exit 1; }
           test -f dist/storage/migrations/pg/meta/_journal.json \
             || { echo "::error::dist/storage/migrations/pg/meta/_journal.json missing"; exit 1; }
+          # Fresh-DB bootstrap artifact (mt#2439): the cold-start path depends
+          # on the snapshot shipping next to the migrations in the bundle.
+          test -f dist/storage/migrations/pg/bootstrap/full-schema.sql \
+            || { echo "::error::dist/storage/migrations/pg/bootstrap/full-schema.sql missing (bootstrap snapshot not copied)"; exit 1; }
+          test -f dist/storage/migrations/pg/bootstrap/meta.json \
+            || { echo "::error::dist/storage/migrations/pg/bootstrap/meta.json missing"; exit 1; }
           echo "Migrations present:"
           ls dist/storage/migrations/pg/
 
