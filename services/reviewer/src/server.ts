@@ -21,7 +21,7 @@ import { log } from "./logger";
 import type { ReviewResult } from "./review-worker";
 import { runReview } from "./review-worker";
 import { loadSweeperConfig, startSweeper } from "./sweeper";
-import { buildAlertSink, loadAlertSinkConfig } from "./alert-sink";
+import { buildAlertSink, loadAlertSinkConfig, type AlertSink } from "./alert-sink";
 import { loadPrWatchSchedulerConfig, startPrWatchScheduler } from "./pr-watch-scheduler";
 import {
   loadAsksReconcileSchedulerConfig,
@@ -165,7 +165,11 @@ export function createApp(
   cfg: ReviewerConfig,
   runReviewFn: RunReviewFn = runReview,
   db?: ReviewerDb,
-  domainServices?: DomainServices
+  domainServices?: DomainServices,
+  // mt#2451: the external alert sink, shared with the sweeper (single instance
+  // built once at server start). When omitted (tests / standalone createApp),
+  // the /alert-test route builds one from env via loadAlertSinkConfig().
+  alertSink?: AlertSink | null
 ): {
   server: ReturnType<typeof Bun.serve>;
   gracefulShutdown: () => Promise<void>;
@@ -1117,6 +1121,68 @@ export function createApp(
         }
       }
 
+      // POST /alert-test — on-demand test send through the DEPLOYED alert sink
+      // (mt#2451). Proves the production env-config → sink → Telegram → operator
+      // path without waiting for a real circuit-breaker trip. Same bearer auth
+      // as /retrigger (cfg.mcpToken, from MINSKY_MCP_AUTH_TOKEN).
+      if (request.method === "POST" && url.pathname === "/alert-test") {
+        // Fail closed when the MCP auth token isn't configured (mirror /retrigger).
+        if (!cfg.mcpToken) {
+          log.error("alert_test.auth_not_configured", {
+            event: "alert_test.auth_not_configured",
+            message:
+              "POST /alert-test received but MINSKY_MCP_AUTH_TOKEN is unset on the reviewer " +
+              "service; alert-test auth is unavailable until it is configured.",
+          });
+          return new Response(JSON.stringify({ error: "alert-test auth not configured" }), {
+            status: 503,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        const authHeader = request.headers.get("authorization");
+        if (authHeader !== `Bearer ${cfg.mcpToken}`) {
+          return new Response(JSON.stringify({ error: "unauthorized" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        // Resolve the sink: prefer the shared instance passed from server start
+        // (the SAME instance the sweeper uses); otherwise build from env. The
+        // reported type comes from env config so it's accurate in production.
+        const sinkConfig = loadAlertSinkConfig();
+        const sink = alertSink !== undefined ? alertSink : buildAlertSink(sinkConfig);
+        if (!sink) {
+          return new Response(
+            JSON.stringify({
+              error: "no alert sink configured",
+              hint:
+                "Set ALERT_SINK_TYPE=telegram|webhook (and the corresponding " +
+                "TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID or ALERT_SINK_URL) on the reviewer service.",
+            }),
+            { status: 503, headers: { "content-type": "application/json" } }
+          );
+        }
+
+        // Sinks are fail-open: notify() catches internally and never throws, so
+        // a 200 here means the send path was invoked and accepted — confirm
+        // actual receipt on the operator's phone.
+        await sink.notify(
+          "info",
+          "Minsky reviewer alert test",
+          "Minsky reviewer alert test — triggered via /alert-test. " +
+            "If you received this, the deployed env-config → sink → operator alert path is healthy."
+        );
+        log.info("alert_test.sent", {
+          event: "alert_test.sent",
+          sinkType: sinkConfig.type,
+        });
+        return new Response(
+          JSON.stringify({ ok: true, sinkType: sinkConfig.type, deliveryAttempted: true }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        );
+      }
+
       if (request.method === "POST" && url.pathname === "/webhook") {
         const signature = request.headers.get("x-hub-signature-256");
         // R2 BLOCKING fix: previously fell back to the literal "unknown".
@@ -1329,7 +1395,12 @@ if (import.meta.main) {
     ).catch(() => {});
   }
 
-  const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices);
+  // mt#2451: build the external alert sink ONCE at server start and share the
+  // single instance with both createApp (the /alert-test route) and startSweeper.
+  // Null when ALERT_SINK_TYPE is unset/off; both consumers degrade gracefully.
+  const alertSink = buildAlertSink(loadAlertSinkConfig());
+
+  const { server, gracefulShutdown } = createApp(config, runReview, db, domainServices, alertSink);
 
   log.info("server_started", {
     event: "server_started",
@@ -1406,7 +1477,7 @@ if (import.meta.main) {
   // mt#2363 / mt#1596 Phase 1: the domain container is forwarded so a tripped
   // circuit breaker also surfaces as an operator-routed Ask on the cockpit
   // (direct domain imports, mt#2121 — no MCP-over-HTTP).
-  startSweeper(config, loadSweeperConfig(), db, domainServices?.container);
+  startSweeper(config, loadSweeperConfig(), db, domainServices?.container, alertSink);
 
   // Start the PR-watch scheduler (mt#1618 / mt#1899).
   // Uses domain imports (mt#2121) via the booted domain container — no MCP-over-HTTP.

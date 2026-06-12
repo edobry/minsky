@@ -734,7 +734,11 @@ export function startSweeper(
   config: ReviewerConfig,
   sweeperConfig: SweeperConfig,
   db?: ReviewerDb,
-  container?: AppContainerInterface
+  container?: AppContainerInterface,
+  // mt#2451: when the caller (server start) passes a pre-built sink, reuse that
+  // single instance (shared with the /alert-test route). When omitted (existing
+  // test callers), build one from env — preserving prior behavior.
+  providedAlertSink?: AlertSink | null
 ): ReturnType<typeof setInterval> | null {
   if (!sweeperConfig.enabled) {
     log.info("sweeper.disabled", {
@@ -802,10 +806,12 @@ export function startSweeper(
   // and the sweeper falls back to log-only behavior.
   const askEmitter = new DomainAskEmitter(makeContainerAskRepoProvider(container));
 
-  // mt#2364 / mt#1596 Phase 2: build the external off-cockpit alert sink from
-  // the reviewer's env config. Opt-in (ALERT_SINK_TYPE); null when unset/off,
-  // in which case the sweeper falls back to log + the Phase-1 cockpit Ask only.
-  const alertSink = buildAlertSink(loadAlertSinkConfig());
+  // mt#2364 / mt#1596 Phase 2: the external off-cockpit alert sink. Opt-in
+  // (ALERT_SINK_TYPE); null when unset/off, in which case the sweeper falls back
+  // to log + the Phase-1 cockpit Ask only. mt#2451: reuse the shared instance
+  // passed from server start; build from env only when not provided (test path).
+  const alertSink =
+    providedAlertSink !== undefined ? providedAlertSink : buildAlertSink(loadAlertSinkConfig());
 
   // Cache a deps promise so we build octokit + botLogin once and reuse across
   // sweep cycles. The db is forwarded so runSweep can use the inflight marker.
