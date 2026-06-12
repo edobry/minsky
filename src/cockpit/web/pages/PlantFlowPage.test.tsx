@@ -1,12 +1,14 @@
 /**
- * PlantFlowPage tests (mt#2389)
+ * PlantFlowPage tests (mt#2389, converged mt#2423)
  *
- * Verifies the node-link canvas board at /plant-flow:
+ * Verifies the node-link canvas board served at /plant:
  *   - Page container and header are present.
  *   - All VSM organ node panels are present (via data-testid on nodes).
- *   - READY node shows live /api/tasks count (same hook as PlantGridPage).
+ *   - READY node shows live /api/tasks count.
  *   - Loading state handled correctly.
  *   - Cross-links to the retired comparison routes are gone (mt#2423).
+ *   - Retired routes (/plant-flow, /plant-grid) redirect to /plant
+ *     (exercises App.tsx's exported plantRoutes wiring).
  *
  * NOTE on @xyflow/react:
  *   react-flow renders on a canvas using ResizeObserver + DOM measurement, which
@@ -18,10 +20,12 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { Suspense } from "react";
 import { render, screen, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Routes } from "react-router-dom";
 import { PlantFlowPage } from "./PlantFlowPage";
+import { plantRoutes } from "../App";
 
 // ---------------------------------------------------------------------------
 // Suppress known JSDOM/react-flow canvas compat errors
@@ -271,5 +275,49 @@ describe("PlantFlowPage", () => {
     mockTasksFetch([]);
     renderPlantFlow();
     expect(screen.getByText(/v1.*node-link canvas/i)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Retired-route redirects (mt#2423) — exercises App.tsx's plantRoutes wiring:
+// /plant renders the board; the retired comparison paths redirect to it.
+// ---------------------------------------------------------------------------
+
+describe("plant route convergence (App.tsx plantRoutes)", () => {
+  function renderPlantRoutesAt(initialPath: string) {
+    const queryClient = createTestQueryClient();
+    return render(
+      <MemoryRouter initialEntries={[initialPath]}>
+        <QueryClientProvider client={queryClient}>
+          <Suspense fallback={null}>
+            <Routes>{plantRoutes}</Routes>
+          </Suspense>
+        </QueryClientProvider>
+      </MemoryRouter>
+    );
+  }
+
+  test("/plant renders the node-link board", async () => {
+    mockTasksFetch([]);
+    renderPlantRoutesAt("/plant");
+    await waitFor(() => {
+      expect(screen.getByTestId("plant-flow-page")).toBeDefined();
+    });
+  });
+
+  test("/plant-flow redirects to the /plant board", async () => {
+    mockTasksFetch([]);
+    renderPlantRoutesAt("/plant-flow");
+    await waitFor(() => {
+      expect(screen.getByTestId("plant-flow-page")).toBeDefined();
+    });
+  });
+
+  test("/plant-grid redirects to the /plant board", async () => {
+    mockTasksFetch([]);
+    renderPlantRoutesAt("/plant-grid");
+    await waitFor(() => {
+      expect(screen.getByTestId("plant-flow-page")).toBeDefined();
+    });
   });
 });

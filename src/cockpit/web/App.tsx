@@ -71,6 +71,29 @@ const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
 );
 
+/**
+ * Plant board routes — the node-link whole-system view (ADR-020, converged
+ * mt#2423: the SVG schematic and panel-grid comparison routes are retired;
+ * old paths redirect for bookmark continuity).
+ *
+ * Exported as a Routes-children fragment so the redirect wiring is testable
+ * (react-router flattens fragments via createRoutesFromChildren).
+ */
+export const plantRoutes = (
+  <>
+    <Route
+      path="/plant"
+      element={
+        <ErrorBoundary id="plant-page">
+          <PlantFlowPage />
+        </ErrorBoundary>
+      }
+    />
+    <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
+    <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
+  </>
+);
+
 // ---------------------------------------------------------------------------
 // Widget renderer maps
 //
@@ -442,19 +465,7 @@ export function App() {
               </ErrorBoundary>
             }
           />
-          {/* Plant board — the node-link whole-system view (ADR-020, converged
-              mt#2423: the SVG schematic and panel-grid comparison routes are
-              retired; old paths redirect for bookmark continuity). */}
-          <Route
-            path="/plant"
-            element={
-              <ErrorBoundary id="plant-flow-page">
-                <PlantFlowPage />
-              </ErrorBoundary>
-            }
-          />
-          <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
-          <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
+          {plantRoutes}
         </Routes>
       </Suspense>
     </Layout>
