@@ -77,7 +77,20 @@ console.log(`\nTemp dir (simulating external project cwd): ${tempDir}`);
 function run(cmd: string, args: string[], cwd: string): { ok: boolean; output: string } {
   const result = spawnSync(cmd, args, {
     cwd,
-    env: { ...process.env, DATABASE_URL },
+    env: {
+      ...process.env,
+      DATABASE_URL,
+      // The bundled minsky reads its Postgres connection from the canonical
+      // config env var — NOT from DATABASE_URL (which is not in
+      // environmentMappings). Without this mapping the child silently falls
+      // back to the runner's Minsky config (locally: the dev DB; in CI: no
+      // config at all) and never touches the smoke database (mt#2439).
+      MINSKY_PERSISTENCE_POSTGRES_URL: DATABASE_URL,
+      // With no Minsky config file (the CI runner), persistence.backend has
+      // no default and config validation fails with `expected "postgres"`.
+      // Pin it explicitly so the smoke runs config-file-free.
+      MINSKY_PERSISTENCE_BACKEND: "postgres",
+    },
     stdio: "pipe",
     encoding: "utf8",
   });
