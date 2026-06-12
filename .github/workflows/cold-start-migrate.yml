@@ -52,6 +52,11 @@ jobs:
       PGHOST: localhost
       PGDATABASE: minsky_cold_start
       DATABASE_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_cold_start') }}
+      # minsky's config loader reads MINSKY_POSTGRES_URL (mapped to
+      # persistence.postgres.connectionString) — DATABASE_URL is only the smoke
+      # script's env-gate. Without this the migrate step fails with
+      # "PostgreSQL connection string not found" (mt#1428 / mt#2411).
+      MINSKY_POSTGRES_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_cold_start') }}
 
     steps:
       - uses: actions/checkout@v4

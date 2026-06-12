@@ -1,5 +1,6 @@
 import { execSync as defaultExecSync } from "child_process";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, ValidationError } from "../errors/index";
+import { isInsideGitWorkTree } from "../utils/git-exec";
 import { log } from "@minsky/shared/logger";
 import {
   createRepositoryBackend,
@@ -13,8 +14,15 @@ import type { SessionProviderInterface } from "./types";
  * Dependencies for repository backend detection, injectable for testing
  */
 export interface RepositoryBackendDetectionDeps {
-  execSync: (cmd: string, opts?: { cwd?: string; encoding?: string }) => string | Buffer;
+  execSync: (
+    cmd: string,
+    // `stdio: "pipe"` captures the child's stderr instead of inheriting it, so
+    // probe failures don't leak `fatal: not a git repository` to the user (mt#1428)
+    opts?: { cwd?: string; encoding?: string; stdio?: "pipe" }
+  ) => string | Buffer;
   getConfiguration?: () => object;
+  /** Work-tree probe for the no-spawn short-circuit (mt#1428); injectable for tests. */
+  isInsideGitWorkTree?: (dir: string) => boolean;
 }
 
 const defaultDeps: RepositoryBackendDetectionDeps = {
@@ -60,6 +68,7 @@ export function detectRepositoryBackendType(
       .execSync("git remote get-url origin", {
         cwd: workdir,
         encoding: "utf8",
+        stdio: "pipe",
       })
       .toString()
       .trim();
@@ -123,9 +132,19 @@ export async function resolveRepositoryAndBackend(
   }
 
   if (defaultBackend === "github") {
+    // No-spawn short-circuit: outside a git work tree the remote lookup is
+    // knowably doomed — skip the subprocess (which would leak `fatal: not a
+    // git repository` onto stderr) and fail with the actionable error (mt#1428).
+    if (!(deps.isInsideGitWorkTree ?? isInsideGitWorkTree)(cwd)) {
+      throw new ValidationError(
+        `This command needs a git repository with a GitHub remote, but the current ` +
+          `directory is not inside a git repository (cwd: ${cwd}). ` +
+          `Run it from a project directory, or pass an explicit repository.`
+      );
+    }
     try {
       const remoteUrl = deps
-        .execSync("git remote get-url origin", { cwd, encoding: "utf8" })
+        .execSync("git remote get-url origin", { cwd, encoding: "utf8", stdio: "pipe" })
         .toString()
         .trim();
       if (!remoteUrl.includes("github.com")) {
@@ -135,7 +154,7 @@ export async function resolveRepositoryAndBackend(
       }
       return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
     } catch (error) {
-      throw new Error(
+      throw new ValidationError(
         `Default repository backend is GitHub, but could not detect GitHub remote: ${getErrorMessage(error)}`
       );
     }
@@ -195,6 +214,7 @@ export async function createRepositoryBackendForSession(
       .execSync("git remote get-url origin", {
         cwd: workdir,
         encoding: "utf8",
+        stdio: "pipe",
       })
       .toString()
       .trim();
@@ -247,6 +267,7 @@ export function resolveRepositoryFromGitRemote(
       .execSync("git remote get-url origin", {
         cwd,
         encoding: "utf8",
+        stdio: "pipe",
       })
       .toString()
       .trim();

@@ -38,6 +38,11 @@ export class ModularTasksCommandManager {
           name: command.name,
           description: command.description,
           parameters: command.parameters,
+          // Pass through the per-command guard flags — omitting them here
+          // silently re-enables the project-setup guard for commands that
+          // opted out (mt#1428) and drops staleness-gating for mutating ones.
+          requiresSetup: command.requiresSetup,
+          mutating: command.mutating,
           execute: (params, ctx) => command.execute(params, ctx),
         });
       }

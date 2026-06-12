@@ -11,6 +11,7 @@ import { join } from "path";
 import { log } from "@minsky/shared/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { getErrorMessage } from "../errors/index";
+import { isInsideGitWorkTree } from "../utils/git-exec";
 import { getConfiguration } from "../configuration/index";
 import { processCwd } from "@minsky/shared/process";
 
@@ -27,10 +28,18 @@ function extractGitHubRepoFromRemote(
   workspacePath: string
 ): { owner: string; repo: string } | null {
   try {
+    // No-spawn short-circuit: outside a git work tree the remote lookup is
+    // knowably doomed — skip the subprocess (which would leak `fatal: not a
+    // git repository` onto stderr on every CLI command) (mt#1428).
+    if (!isInsideGitWorkTree(workspacePath)) {
+      return null;
+    }
+
     // Get the origin remote URL
     const remoteUrl = execSync("git remote get-url origin", {
       cwd: workspacePath,
       encoding: "utf8",
+      stdio: "pipe",
     })
       .toString()
       .trim();
@@ -56,6 +65,7 @@ function extractGitHubRepoFromRemote(
         const upstreamUrl = execSync("git remote get-url origin", {
           cwd: remoteUrl,
           encoding: "utf8",
+          stdio: "pipe",
         })
           .toString()
           .trim();

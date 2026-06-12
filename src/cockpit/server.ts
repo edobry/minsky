@@ -33,15 +33,24 @@ import {
 import { log } from "@minsky/shared/logger";
 import { execSync } from "child_process";
 
+// Lazy + memoized: this module loads during CLI command registration (e.g. on
+// `--help`), so a module-level spawn would run `git rev-parse` — and leak
+// `fatal: not a git repository` from non-repo cwds — on commands that never
+// touch the cockpit (mt#1428). `stdio: "pipe"` keeps the child's stderr out of
+// the parent's output either way.
+let gitCommit: string | undefined;
 function getGitCommit(): string {
-  try {
-    return String(execSync("git rev-parse --short HEAD", { encoding: "utf-8" })).trim();
-  } catch {
-    return "unknown";
+  if (gitCommit === undefined) {
+    try {
+      gitCommit = String(
+        execSync("git rev-parse --short HEAD", { encoding: "utf-8", stdio: "pipe" })
+      ).trim();
+    } catch {
+      gitCommit = "unknown";
+    }
   }
+  return gitCommit;
 }
-
-const GIT_COMMIT = getGitCommit();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -504,7 +513,7 @@ export function createCockpitServer(opts: CockpitServerOptions = {}): express.Ex
     } catch {
       // fallback: unknown
     }
-    res.json({ status: "ok", version, commit: GIT_COMMIT, uptimeSec });
+    res.json({ status: "ok", version, commit: getGitCommit(), uptimeSec });
   });
 
   /** GET /api/widgets — metadata for every registered widget */
