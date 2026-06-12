@@ -42,7 +42,7 @@ directory resolves to an ingested transcript's cwd, it links to the conversation
 | `/agents/:id`  | Session detail | Workspace-session entity tab — liveness, linked task, recent commits, PR state, conversation link (mt#1919)                |
 | `/session/:id` | Session        | Session entity tab — readable conversation view of the transcript (mt#2374; supersedes the interim `/conversation` host)   |
 | `/context`     | Context        | Agent context inspector                                                                                                    |
-| `/workstreams` | Workstreams    | Active work streams                                                                                                        |
+| `/workstreams` | Workstreams    | Active work streams; `?altitude=` selects the slice (see Widget parameterization)                                          |
 | `/tasks`       | Tasks          | List + graph subpages (`/tasks/graph`, `/tasks/:id`)                                                                       |
 | `/asks`        | Asks           | Interactive ask management                                                                                                 |
 | `/activity`    | Activity       | Event stream                                                                                                               |
@@ -71,17 +71,43 @@ The model separates two concerns the old `enabled` flag conflated:
 Any future cockpit configuration (e.g. polling intervals) lives under a `cockpit` tree in
 the main Minsky config (`~/.config/minsky/config.yaml`), not a separate file.
 
+### Widget parameterization (slice/altitude)
+
+Widgets are slice-parameterizable (mt#2385, Constraint-2 of the mt#2373 widget-contract
+refactor): the data endpoint forwards URL query params into the widget's
+`fetch({ id, query })` call (`WidgetContext.query`), so the SAME widget can return
+different subsets/aggregations of its state space per request. On the frontend, params are
+passed via `fetchWidgetData(id, params)` and carried in the TanStack Query key, so two
+instances at different params cache independently — an instance is `(widgetId, params)`
+materialized at the render site. A registry-level `WidgetInstance` abstraction is
+deliberately deferred until the lens engine (mt#2372) needs declarative instance lists.
+
+**Workstreams is the reference case.** `GET /api/widget/workstreams/data?altitude=<slice>`
+selects one of three semantic slices (unknown/absent values fall back to `full`; the
+applied slice is echoed in the payload as `altitude`):
+
+| Altitude     | Slice                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `full`       | Default — the complete card view (parents + all children)                                                           |
+| `rollup`     | Outcome rollup: card headers + counts only, no child rows                                                           |
+| `actionable` | Actionable-now: children narrowed to IN-PROGRESS / IN-REVIEW / READY / BLOCKED; workstreams without one are dropped |
+
+The `/workstreams` page reads `?altitude=` from the URL and renders a
+Full / Rollup / Actionable toggle. Slice names are **semantic, not persona-named** —
+lenses (user-definable modes that compose and parameterize widgets) are owned by mt#2372
+and must not be hardcoded into widget vocabularies.
+
 ### Widget catalog by route
 
-| Widget ID                                                                                      | Page                              | Surface                                                                                                                                               |
-| ---------------------------------------------------------------------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                               | Home System-Status card grid                                                                                                                          |
-| `task-graph`, `task-list`, `workstreams`                                                       | `/` (promoted to dedicated pages) | Card on home + page route                                                                                                                             |
-| `memories-health`                                                                              | `/memories`                       | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card) |
-| `memories-stats`                                                                               | `/memories`                       | Stats panel: totals by type, recent count, top accessed, superseded count                                                                             |
-| `memories-list`                                                                                | `/memories`                       | Browseable record table with type + scope filters                                                                                                     |
-| `memories-search`                                                                              | `/memories`                       | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
-| `memories-detail`                                                                              | `/memories` (modal)               | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
+| Widget ID                                                                                      | Page                | Surface                                                                                                                                               |
+| ---------------------------------------------------------------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents`, `attention`, `basic-health`, `context-inspector`, `credentials`, `embeddings-health` | `/`                 | Home System-Status card grid                                                                                                                          |
+| `task-graph`, `task-list`, `workstreams`                                                       | Dedicated pages     | Page route only (excluded from the home grid); `workstreams` self-fetches with an `altitude` param (mt#2385)                                          |
+| `memories-health`                                                                              | `/memories`         | Page-level health indicator (sourced from `EmbeddingsHealthTracker.getInstance().getSummary()` — same data as the home-page `embeddings-health` card) |
+| `memories-stats`                                                                               | `/memories`         | Stats panel: totals by type, recent count, top accessed, superseded count                                                                             |
+| `memories-list`                                                                                | `/memories`         | Browseable record table with type + scope filters                                                                                                     |
+| `memories-search`                                                                              | `/memories`         | Search bar consuming `memory_search`; surfaces `degraded` flag when embeddings provider is down                                                       |
+| `memories-detail`                                                                              | `/memories` (modal) | Detail view: full content, associations, metadata, superseded-by chain, similar records                                                               |
 
 ## Operator dev loop
 

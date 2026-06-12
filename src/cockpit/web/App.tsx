@@ -116,26 +116,34 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 // Widgets whose data App fetches at the app level and distributes via props:
 //   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
 //   - promoted prop-driven page widgets whose routes receive data via props
-//     (WorkstreamsPage, TasksLayout) rather than self-fetching.
+//     (TasksLayout) rather than self-fetching.
 // All other widgets — self-fetching home cards (attention, credentials, ...) and
 // self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
 // the registry-gated /api/widget/:id/data endpoint and must NOT be polled
 // app-wide. This keeps app-level background load bounded to a small fixed set,
 // independent of how many widgets the registry contains (mt#2294).
+// Workstreams migrated off this list to a param-aware self-fetching query
+// (mt#2385 slice/altitude parameterization — see lib/use-workstreams-data.ts).
 //
 // Drift guard: the explicit page-widget entries below MUST also be in
 // PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
-// via props — see workstreamsData / taskGraphData below). A dev-time assertion
+// via props — see taskGraphData below). A dev-time assertion
 // enforces this so adding a self-fetching page widget here (which would start
 // needless app-wide polling) fails fast rather than silently regressing load.
-const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["workstreams", "task-graph"] as const;
+const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["task-graph"] as const;
 const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
   ...Object.keys(PROP_DRIVEN_RENDERERS),
   ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
 ]);
 
-// IDs of widgets that have dedicated page routes — App still polls their data
-// so page routes receive it without a separate fetch setup.
+// IDs of widgets that have dedicated page routes — excluded from the home grid
+// (see homeWidgets below). Their data strategy varies: only the ones ALSO in
+// APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are app-level-polled and
+// prop-driven; the rest (agents, context-inspector, task-list, workstreams)
+// self-fetch on their own pages. Workstreams self-fetches via a param-aware
+// query hook (use-workstreams-data.ts) — do NOT re-add it to the app-level
+// prop list: that would resurrect param-less app-wide polling and break the
+// altitude-keyed caching (mt#2385).
 const PAGE_ROUTE_WIDGET_IDS = new Set([
   "agents",
   "context-inspector",
@@ -144,9 +152,18 @@ const PAGE_ROUTE_WIDGET_IDS = new Set([
   "task-list",
 ]);
 
-// Drift guard (mt#2294): every app-level page-prop widget must be a real page
-// route. If one isn't, it has no prop consumer and would only add needless
-// app-wide polling — fail fast in dev rather than silently regress load.
+// Page widgets that own their data via self-fetching queries — these must
+// NEVER appear in APP_LEVEL_PAGE_PROP_WIDGET_IDS. Workstreams in particular
+// is param-aware (altitude-keyed query cache, mt#2385); app-level param-less
+// polling would duplicate its fetches and bypass the keyed cache.
+const SELF_FETCHING_PAGE_WIDGET_IDS = ["agents", "context-inspector", "task-list", "workstreams"] as const;
+
+// Drift guards (mt#2294, mt#2385) — fail fast in dev rather than silently
+// regress load or caching:
+//  1. Every app-level page-prop widget must be a real page route; otherwise it
+//     has no prop consumer and app-wide polling runs for nothing.
+//  2. No self-fetching page widget may be app-level-polled; that would
+//     reintroduce param-less app-wide polling alongside its own queries.
 if (process.env.NODE_ENV !== "production") {
   for (const id of APP_LEVEL_PAGE_PROP_WIDGET_IDS) {
     if (!PAGE_ROUTE_WIDGET_IDS.has(id)) {
@@ -154,6 +171,13 @@ if (process.env.NODE_ENV !== "production") {
         `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is not a page route ` +
           `(missing from PAGE_ROUTE_WIDGET_IDS) — app-level polling would run for a ` +
           `widget with no prop consumer. Fix the set (mt#2294).`
+      );
+    }
+    if ((SELF_FETCHING_PAGE_WIDGET_IDS as readonly string[]).includes(id)) {
+      throw new Error(
+        `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is a self-fetching ` +
+          `page widget — app-level polling would duplicate its fetches and bypass ` +
+          `its query-keyed cache. Remove it from the app-level prop list (mt#2385).`
       );
     }
   }
@@ -320,7 +344,6 @@ export function App() {
   // ---------------------------------------------------------------------------
   // Data accessors for promoted page routes
   // ---------------------------------------------------------------------------
-  const workstreamsData = widgets.find((w) => w.meta.id === "workstreams")?.data ?? null;
   const taskGraphData = widgets.find((w) => w.meta.id === "task-graph")?.data ?? null;
 
   // Home page only receives the non-promoted, renderable widgets
@@ -390,7 +413,7 @@ export function App() {
             path="/workstreams"
             element={
               <ErrorBoundary id="workstreams-page">
-                <WorkstreamsPage data={workstreamsData} />
+                <WorkstreamsPage />
               </ErrorBoundary>
             }
           />
