@@ -11,9 +11,10 @@
 # format() expression so no literal URL is embedded. The credentials are
 # test-only ephemeral values scoped to the job's ephemeral postgres container.
 # Gitleaks matches the format-string template as a false positive.
-.github/workflows/cold-start-migrate.yml:database-url-credentials:54
+# (Line shifted 54→58 by the mt#2439 bootstrap-step additions.)
+.github/workflows/cold-start-migrate.yml:database-url-credentials:58
 
 # mt#1428: same workflow, same format() construct — MINSKY_POSTGRES_URL is the
 # config-loader-visible copy of the same test-only ephemeral DSN (the loader
 # does not read DATABASE_URL). Step-scoped on the smoke step.
-.github/workflows/cold-start-migrate.yml:database-url-credentials:104
+.github/workflows/cold-start-migrate.yml:database-url-credentials:114
