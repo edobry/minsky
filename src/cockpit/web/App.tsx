@@ -117,8 +117,14 @@ const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
   ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
 ]);
 
-// IDs of widgets that have dedicated page routes — App still polls their data
-// so page routes receive it without a separate fetch setup.
+// IDs of widgets that have dedicated page routes — excluded from the home grid
+// (see homeWidgets below). Their data strategy varies: only the ones ALSO in
+// APP_LEVEL_PAGE_PROP_WIDGET_IDS (task-graph) are app-level-polled and
+// prop-driven; the rest (agents, context-inspector, task-list, workstreams)
+// self-fetch on their own pages. Workstreams self-fetches via a param-aware
+// query hook (use-workstreams-data.ts) — do NOT re-add it to the app-level
+// prop list: that would resurrect param-less app-wide polling and break the
+// altitude-keyed caching (mt#2385).
 const PAGE_ROUTE_WIDGET_IDS = new Set([
   "agents",
   "context-inspector",
@@ -127,9 +133,18 @@ const PAGE_ROUTE_WIDGET_IDS = new Set([
   "task-list",
 ]);
 
-// Drift guard (mt#2294): every app-level page-prop widget must be a real page
-// route. If one isn't, it has no prop consumer and would only add needless
-// app-wide polling — fail fast in dev rather than silently regress load.
+// Page widgets that own their data via self-fetching queries — these must
+// NEVER appear in APP_LEVEL_PAGE_PROP_WIDGET_IDS. Workstreams in particular
+// is param-aware (altitude-keyed query cache, mt#2385); app-level param-less
+// polling would duplicate its fetches and bypass the keyed cache.
+const SELF_FETCHING_PAGE_WIDGET_IDS = ["agents", "context-inspector", "task-list", "workstreams"] as const;
+
+// Drift guards (mt#2294, mt#2385) — fail fast in dev rather than silently
+// regress load or caching:
+//  1. Every app-level page-prop widget must be a real page route; otherwise it
+//     has no prop consumer and app-wide polling runs for nothing.
+//  2. No self-fetching page widget may be app-level-polled; that would
+//     reintroduce param-less app-wide polling alongside its own queries.
 if (process.env.NODE_ENV !== "production") {
   for (const id of APP_LEVEL_PAGE_PROP_WIDGET_IDS) {
     if (!PAGE_ROUTE_WIDGET_IDS.has(id)) {
@@ -137,6 +152,13 @@ if (process.env.NODE_ENV !== "production") {
         `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is not a page route ` +
           `(missing from PAGE_ROUTE_WIDGET_IDS) — app-level polling would run for a ` +
           `widget with no prop consumer. Fix the set (mt#2294).`
+      );
+    }
+    if ((SELF_FETCHING_PAGE_WIDGET_IDS as readonly string[]).includes(id)) {
+      throw new Error(
+        `APP_LEVEL_PAGE_PROP_WIDGET_IDS contains "${id}" which is a self-fetching ` +
+          `page widget — app-level polling would duplicate its fetches and bypass ` +
+          `its query-keyed cache. Remove it from the app-level prop list (mt#2385).`
       );
     }
   }
