@@ -19,8 +19,45 @@
  */
 
 import { TsyringeContainer } from "./container";
-import type { AppContainerInterface } from "./types";
+import type { AppContainerInterface, AppServices } from "./types";
 import { NoopClientCapabilityRegistry } from "../client-capabilities";
+
+/**
+ * Resolve repository-backend config for container boot, marking detection
+ * failures boot-deferrable.
+ *
+ * Detection is environment-dependent: with no `repository.backend` in config
+ * it falls back to shelling out to `git remote get-url origin`, which cannot
+ * succeed in a deployed headless container (no git binary, and /app is a
+ * Docker COPY tree with no .git). That is a missing-resource condition, not a
+ * wiring bug — mark it `bootDeferrable` so initialize() registers the
+ * throws-on-use placeholder and entry points that never touch the repository
+ * backend (e.g. the reviewer service) still boot. See mt#2460.
+ *
+ * The `detect` parameter is a test seam; production callers use the default.
+ */
+export async function resolveRepositoryBackendForBoot(
+  detect?: () => Promise<AppServices["repositoryBackend"]>
+): Promise<AppServices["repositoryBackend"]> {
+  const detectFn =
+    detect ??
+    (async () => {
+      const { getRepositoryBackendFromConfig } = await import(
+        "../session/repository-backend-detection"
+      );
+      return getRepositoryBackendFromConfig();
+    });
+  try {
+    return await detectFn();
+  } catch (err) {
+    const { getErrorMessage } = await import("../errors/index");
+    const wrapped = new Error(
+      `Repository backend unavailable: detection failed at boot. ${getErrorMessage(err)}`
+    ) as Error & { bootDeferrable: boolean };
+    wrapped.bootDeferrable = true;
+    throw wrapped;
+  }
+}
 
 /**
  * Create a container with all domain service factories registered.
@@ -140,12 +177,7 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
     return createWorkspaceUtils(c.get("sessionProvider"));
   });
 
-  container.register("repositoryBackend", async () => {
-    const { getRepositoryBackendFromConfig } = await import(
-      "../session/repository-backend-detection"
-    );
-    return getRepositoryBackendFromConfig();
-  });
+  container.register("repositoryBackend", () => resolveRepositoryBackendForBoot());
 
   // Default ClientCapabilityRegistry is the no-op implementation. Entry
   // points that attach an MCP host (e.g., the MCP server) override this
