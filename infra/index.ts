@@ -95,7 +95,14 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
-  MINSKY_SESSIONDB_POSTGRES_URL: sealed("minsky-sessiondb-postgres-url"),
+  // Canonical persistence config (mt#2463): the domain container reads
+  // MINSKY_PERSISTENCE_POSTGRES_URL; without it the container boots in
+  // DB-unavailable mode and every pr-watch scheduler cycle throws. Replaces
+  // the deprecated MINSKY_SESSIONDB_POSTGRES_URL (sessiondb retired in
+  // mt#1610) — the reviewer's own DB client prefers the canonical name and
+  // both secrets resolve to the same prod database.
+  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
   // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
   // trips to the operator's Telegram after-hours. PER-STACK opt-in (PR #1672
   // R1): the chat id is an operator-specific identifier and the sink must not
