@@ -62,6 +62,7 @@
     "secrets:scan": "gitleaks detect --source . --verbose",
     "db:generate:pg": "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
     "db:generate:reviewer": "cd services/reviewer && bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
+    "db:generate:bootstrap-snapshot": "bun scripts/generate-bootstrap-snapshot.ts",
     "db:migrate": "bun src/cli.ts persistence migrate --dry-run",
     "db:migrate:apply": "bun src/cli.ts persistence migrate --execute",
     "cockpit:build": "vite build"

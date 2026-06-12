@@ -31,7 +31,11 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # pgvector-enabled image (mt#2439): the schema uses the `vector` type
+        # and the bootstrap snapshot runs CREATE EXTENSION IF NOT EXISTS vector,
+        # which requires the extension to be installable — vanilla postgres:16
+        # does not ship pgvector.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: minsky_test
           POSTGRES_PASSWORD: minsky_test
@@ -87,6 +91,12 @@ jobs:
             || { echo "::error::dist/storage/migrations/pg missing (build:copy-migrations regression)"; exit 1; }
           test -f dist/storage/migrations/pg/meta/_journal.json \
             || { echo "::error::dist/storage/migrations/pg/meta/_journal.json missing"; exit 1; }
+          # Fresh-DB bootstrap artifact (mt#2439): the cold-start path depends
+          # on the snapshot shipping next to the migrations in the bundle.
+          test -f dist/storage/migrations/pg/bootstrap/full-schema.sql \
+            || { echo "::error::dist/storage/migrations/pg/bootstrap/full-schema.sql missing (bootstrap snapshot not copied)"; exit 1; }
+          test -f dist/storage/migrations/pg/bootstrap/meta.json \
+            || { echo "::error::dist/storage/migrations/pg/bootstrap/meta.json missing"; exit 1; }
           echo "Migrations present:"
           ls dist/storage/migrations/pg/
 
