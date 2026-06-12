@@ -197,15 +197,31 @@ every 10 minutes via a scheduled GitHub Action:
   for cockpit) returns non-200 or times out (10s threshold). Catches the
   runtime-crash-after-green-build class (mt#2345).
 
-**Monitored services:**
+**Service discovery (mt#1302):**
 
-| Service      | Health URL                                                         |
-| ------------ | ------------------------------------------------------------------ |
-| `minsky-mcp` | `https://minsky-mcp-production.up.railway.app/health`              |
-| `reviewer`   | `https://minsky-reviewer-webhook-production.up.railway.app/health` |
-| `cockpit`    | `https://cockpit-preview-production.up.railway.app/api/health`     |
-| `site`       | `https://minsky-site-production.up.railway.app/health`             |
-| `minsky-ops` | not yet provisioned — skipped gracefully                           |
+The monitor discovers services at runtime by enumerating `services/*/deploy.config.ts`
+and importing each config file. The service list, Railway `serviceId`s, and health URLs
+are all read from those config files — nothing is hardcoded in the monitor script.
+
+- **A service is skipped when its `railway.serviceId` is empty** (the standard
+  "not yet provisioned" convention). This is exclusion by data, not by name.
+- **Health URLs** are declared in the `healthUrl` field of each `DeploymentConfig`
+  (see `packages/shared/src/deployment/config.ts`). To add or change a health URL,
+  update the service's `deploy.config.ts` — no changes to the monitor script are needed.
+
+To add a new service to the monitor: create `services/<name>/deploy.config.ts` with a
+non-empty `railway.serviceId` and set the `healthUrl` field. The monitor picks it up
+automatically on the next run.
+
+**Current monitored services** (from `services/*/deploy.config.ts`):
+
+| Service      | `railway.serviceId` (provisioned?) | `healthUrl`                                                        |
+| ------------ | ---------------------------------- | ------------------------------------------------------------------ |
+| `minsky-mcp` | yes                                | `https://minsky-mcp-production.up.railway.app/health`              |
+| `reviewer`   | yes                                | `https://minsky-reviewer-webhook-production.up.railway.app/health` |
+| `cockpit`    | yes                                | `https://cockpit-preview-production.up.railway.app/api/health`     |
+| `site`       | yes                                | `https://minsky-site-production.up.railway.app/health`             |
+| `minsky-ops` | no (empty serviceId) — skipped     | `null` — no health check                                           |
 
 **Alerts:**
 

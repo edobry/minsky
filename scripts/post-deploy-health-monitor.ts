@@ -14,6 +14,21 @@
  *                  (best-effort; wrapped in try/catch so its failure NEVER
  *                  suppresses the primary path).
  *
+ * SERVICE DISCOVERY (mt#1302 R1 fix):
+ *   Services are discovered at runtime by enumerating services/<svc>/deploy.config.ts
+ *   (glob: services/[star]/deploy.config.ts) and importing each one via Bun's
+ *   native .ts dynamic import. The service list, serviceIds, and healthUrls are
+ *   all read from those config files — NEVER hardcoded in this script. Adding or
+ *   removing a service requires only updating its deploy.config.ts; this script
+ *   needs no changes.
+ *
+ *   A service is SKIPPED when its railway.serviceId is empty (the standard
+ *   "not yet provisioned" convention — e.g., minsky-ops). This is exclusion by
+ *   data, not by name-based special-casing.
+ *
+ *   Source of truth for healthUrl: services/<svc>/deploy.config.ts (healthUrl
+ *   field on the DeploymentConfig). See packages/shared/src/deployment/config.ts.
+ *
  * USAGE (in GitHub Actions):
  *   RAILWAY_TOKEN=... GITHUB_TOKEN=... GITHUB_REPO=edobry/minsky bun scripts/post-deploy-health-monitor.ts
  *
@@ -37,8 +52,12 @@
  * See .github/workflows/post-deploy-health-monitor.yml for the host.
  */
 
+import { readdirSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
+
 // ---------------------------------------------------------------------------
-// Service definitions
+// Service definitions — discovered at runtime from deploy.config.ts files
 // ---------------------------------------------------------------------------
 
 interface ServiceDef {
@@ -50,35 +69,61 @@ interface ServiceDef {
   healthUrl: string | null;
 }
 
-const SERVICES: ServiceDef[] = [
-  {
-    name: "minsky-mcp",
-    serviceId: "a7c5195f-55de-472a-87e4-34e921a15171",
-    healthUrl: "https://minsky-mcp-production.up.railway.app/health",
-  },
-  {
-    name: "reviewer",
-    serviceId: "3913e8a4-81ab-465a-aad8-b76b5e3f66ed",
-    healthUrl: "https://minsky-reviewer-webhook-production.up.railway.app/health",
-  },
-  {
-    name: "cockpit",
-    serviceId: "83273eef-b451-42af-b3e4-7e1c42b8bb50",
-    // Cockpit exposes /api/health (not /health) — verified via cockpit-preview.yml
-    healthUrl: "https://cockpit-preview-production.up.railway.app/api/health",
-  },
-  {
-    name: "site",
-    serviceId: "bb4d7cb4-e929-4ab6-83e2-d19cd34f6805",
-    healthUrl: "https://minsky-site-production.up.railway.app/health",
-  },
-  // minsky-ops: serviceId is empty (not yet provisioned) — skipped gracefully.
-  {
-    name: "minsky-ops",
-    serviceId: "",
-    healthUrl: null,
-  },
-];
+/**
+ * Discover all deployed services by walking services/<svc>/deploy.config.ts
+ * (glob: services/[star]/deploy.config.ts) and importing each one (Bun supports
+ * direct .ts dynamic imports). The service list, serviceIds, and healthUrls are
+ * read from the config files — not hardcoded here.
+ *
+ * This is the runtime realisation of the spec/PR/docs claim that the monitor runs
+ * "for each service with a provisioned deploy.config.ts serviceId". A service with
+ * an empty serviceId is excluded by data (not by name), matching the convention
+ * in services/minsky-ops/deploy.config.ts.
+ *
+ * Source of truth for health URLs: the `healthUrl` field of each DeploymentConfig.
+ * See packages/shared/src/deployment/config.ts.
+ */
+async function discoverServices(repoRoot: string): Promise<ServiceDef[]> {
+  const servicesDir = join(repoRoot, "services");
+
+  let serviceNames: string[];
+  try {
+    serviceNames = readdirSync(servicesDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch (err) {
+    throw new Error(`Failed to enumerate services directory at ${servicesDir}: ${err}`);
+  }
+
+  const discovered: ServiceDef[] = [];
+
+  for (const name of serviceNames) {
+    const configPath = join(servicesDir, name, "deploy.config.ts");
+
+    let mod: { default?: unknown };
+    try {
+      mod = (await import(configPath)) as { default?: unknown };
+    } catch {
+      // No deploy.config.ts for this directory — skip silently.
+      continue;
+    }
+
+    const cfg = mod.default;
+    if (!cfg || typeof cfg !== "object" || !("platform" in cfg) || !("railway" in cfg)) {
+      console.warn(`[discovery] ${name}/deploy.config.ts has unexpected shape — skipping`);
+      continue;
+    }
+
+    const railway = (cfg as { railway: Record<string, unknown> }).railway;
+    const serviceId = typeof railway["serviceId"] === "string" ? railway["serviceId"] : "";
+    const healthUrl =
+      "healthUrl" in cfg ? ((cfg as { healthUrl?: string | null }).healthUrl ?? null) : null;
+
+    discovered.push({ name, serviceId, healthUrl });
+  }
+
+  return discovered;
+}
 
 // ---------------------------------------------------------------------------
 // Railway API
@@ -259,23 +304,67 @@ function issueTitle(serviceName: string, failureClass: "deploy-failed" | "health
 /**
  * Find an existing open issue by title in the repo.
  * Returns null when none found.
+ *
+ * Strategy (mt#1302 R1 fix — label-search fallback):
+ *   1. Primary: label-filtered /search/issues with exact title match. This is
+ *      the fast path and works when the label was applied successfully.
+ *   2. Fallback: list open issues via GET /repos/{owner}/{repo}/issues?state=open
+ *      and match by exact title. This catches the case where the monitor label
+ *      wasn't created/applied (e.g. label creation failed) OR when the search
+ *      index is lagging (GitHub's search index can be seconds to minutes behind
+ *      real state, which can produce duplicate issues during outage bursts).
+ *
+ * Title-exact matching is applied in both paths — label-search can return
+ * fuzzy title matches, and list pagination returns all open issues.
  */
 async function findOpenIssue(
   repo: string,
   title: string,
   token: string
 ): Promise<GitHubIssue | null> {
-  // Search for open issues with the monitor label and matching title.
-  const encoded = encodeURIComponent(
-    `repo:${repo} is:open is:issue label:${MONITOR_LABEL} in:title "${title}"`
-  );
-  const results = await githubRequest<{ items: GitHubIssue[] }>(
-    "GET",
-    `/search/issues?q=${encoded}&per_page=5`,
-    token
-  );
-  // Exact-match the title in case search is fuzzy.
-  return results.items.find((i) => i.title === title) ?? null;
+  // --- Primary path: label-filtered search ---
+  try {
+    const encoded = encodeURIComponent(
+      `repo:${repo} is:open is:issue label:${MONITOR_LABEL} in:title "${title}"`
+    );
+    const results = await githubRequest<{ items: GitHubIssue[] }>(
+      "GET",
+      `/search/issues?q=${encoded}&per_page=5`,
+      token
+    );
+    // Exact-match the title in case search is fuzzy.
+    const found = results.items.find((i) => i.title === title) ?? null;
+    if (found) return found;
+  } catch (err) {
+    // Log but fall through to the list-based fallback.
+    console.warn(`[github] label-search for "${title}" failed (falling back to list): ${err}`);
+  }
+
+  // --- Fallback: list open issues and match by exact title ---
+  // This handles: label not created/applied, search index lag, rate-limit on search.
+  // Paginate up to 3 pages (300 issues) — enough for any realistic open-issue count.
+  const MAX_FALLBACK_PAGES = 3;
+  for (let page = 1; page <= MAX_FALLBACK_PAGES; page++) {
+    let issues: GitHubIssue[];
+    try {
+      issues = await githubRequest<GitHubIssue[]>(
+        "GET",
+        `/repos/${repo}/issues?state=open&per_page=100&page=${page}`,
+        token
+      );
+    } catch (err) {
+      console.warn(`[github] fallback issue list (page ${page}) failed: ${err}`);
+      break;
+    }
+
+    const found = issues.find((i) => i.title === title) ?? null;
+    if (found) return found;
+
+    // GitHub returns fewer than per_page items on the last page.
+    if (issues.length < 100) break;
+  }
+
+  return null;
 }
 
 async function ensureLabelsExist(repo: string, token: string): Promise<void> {
@@ -593,16 +682,28 @@ async function main(): Promise<void> {
     );
   }
 
+  // Discover services dynamically from services/*/deploy.config.ts.
+  // The script lives in <repo>/scripts/; go up one level for the repo root.
+  // import.meta.dir is set by Bun when running a .ts file directly.
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  let services: ServiceDef[];
+  try {
+    services = await discoverServices(repoRoot);
+  } catch (err) {
+    console.error(`FATAL: service discovery failed: ${err}`);
+    process.exit(1);
+  }
+
   console.log(`=== post-deploy-health-monitor (mt#1302) ===`);
   console.log(`Repo: ${githubRepo}`);
   console.log(`Dry run: ${dryRun}`);
   console.log(`Railway token: ${railwayToken ? "present" : "absent"}`);
   console.log(`MCP auth token: ${mcpAuthToken ? "present" : "absent"}`);
-  console.log(`Checking ${SERVICES.length} services...\n`);
+  console.log(`Discovered ${services.length} services (from services/*/deploy.config.ts)...\n`);
 
   let totalAlerts = 0;
 
-  for (const svc of SERVICES) {
+  for (const svc of services) {
     console.log(`--- [${svc.name}] ---`);
 
     let result: CheckResult;

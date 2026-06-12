@@ -53,7 +53,10 @@ on:
         description: "Dry run (log findings but do not open/update issues)"
         required: false
         default: "false"
-        type: boolean
+        type: choice
+        options:
+          - "false"
+          - "true"
 
 jobs:
   monitor:
@@ -73,8 +76,12 @@ jobs:
         with:
           bun-version: "1.2.21"
 
-      # No bun install — the monitor script uses only Node/Bun built-ins and
-      # fetch (available in Bun without install). This keeps cold-start fast.
+      # bun install is required because the monitor script dynamically imports
+      # services/*/deploy.config.ts files, which in turn import
+      # @minsky/shared/deployment-config. Bun needs the workspace symlinks
+      # established by bun install to resolve that import.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
       - name: Run post-deploy health monitor
         env:
@@ -82,5 +89,8 @@ jobs:
           MINSKY_MCP_AUTH_TOKEN: ${{ secrets.MINSKY_MCP_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPO: ${{ github.repository }}
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          # Use event-name guard so 'inputs' is never accessed on schedule events
+          # (where github.event.inputs is undefined). On workflow_dispatch the user
+          # value is used; on schedule it falls back to 'false'.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: bun scripts/post-deploy-health-monitor.ts

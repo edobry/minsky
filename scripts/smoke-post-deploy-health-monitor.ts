@@ -11,6 +11,11 @@
  *   - Env-gated: skips gracefully when required secrets are absent
  *   - Exit-coded: 0 = pass, 1 = fail, 2 = skipped (missing env)
  *
+ * SERVICE DISCOVERY (mt#1302 R1 fix):
+ *   Health targets are discovered at runtime from services/<svc>/deploy.config.ts
+ *   (glob: services/[star]/deploy.config.ts), matching the production monitor.
+ *   No health URLs are hardcoded here.
+ *
  * USAGE:
  *   # Full run (with Railway token):
  *   RAILWAY_TOKEN=... bun scripts/smoke-post-deploy-health-monitor.ts
@@ -24,15 +29,20 @@
  *   SMOKE_VERBOSE     — "true" to show full response bodies.
  *
  * WHAT IS CHECKED:
- *   Phase 1: /health probe reachability — each service with a healthUrl must
- *            respond (any HTTP status). We assert we got a connection, not a 200,
- *            because the service may be legitimately down during smoke-test.
+ *   Phase 1: /health probe reachability — each service with a healthUrl (from
+ *            deploy.config.ts) must respond (any HTTP status). We assert we
+ *            got a connection, not a 200, because the service may be
+ *            legitimately down during smoke-test.
  *   Phase 2: Railway API reachability — if RAILWAY_TOKEN is set, verify that
  *            the GraphQL endpoint returns at least one deployment for a known
- *            service (minsky-mcp) without a transport error.
+ *            service (minsky-mcp, from deploy.config.ts) without a transport error.
  *   Phase 3: GitHub issue de-dup logic (unit-level, no network) — verify that
  *            issueTitle() returns stable, unique strings per service+class combo.
  */
+
+import { readdirSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 
 const HEALTH_TIMEOUT_MS = 10_000;
 const RAILWAY_TIMEOUT_MS = 15_000;
@@ -65,43 +75,87 @@ function skip(name: string, detail: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Service discovery (mirrors production monitor)
+// ---------------------------------------------------------------------------
+
+interface DiscoveredService {
+  name: string;
+  serviceId: string;
+  healthUrl: string | null;
+}
+
+/**
+ * Discover services from services/<svc>/deploy.config.ts files
+ * (glob: services/[star]/deploy.config.ts), matching the production monitor's
+ * discovery logic. Health targets and serviceIds are read from the config
+ * files — not hardcoded here. This ensures the smoke test probes the same
+ * service list as the production monitor.
+ */
+async function discoverServices(repoRoot: string): Promise<DiscoveredService[]> {
+  const servicesDir = join(repoRoot, "services");
+
+  let serviceNames: string[];
+  try {
+    serviceNames = readdirSync(servicesDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch (err) {
+    throw new Error(`Failed to enumerate services directory at ${servicesDir}: ${err}`);
+  }
+
+  const discovered: DiscoveredService[] = [];
+
+  for (const name of serviceNames) {
+    const configPath = join(servicesDir, name, "deploy.config.ts");
+
+    let mod: { default?: unknown };
+    try {
+      mod = (await import(configPath)) as { default?: unknown };
+    } catch {
+      continue;
+    }
+
+    const cfg = mod.default;
+    if (!cfg || typeof cfg !== "object" || !("platform" in cfg) || !("railway" in cfg)) {
+      continue;
+    }
+
+    const railway = (cfg as { railway: Record<string, unknown> }).railway;
+    const serviceId = typeof railway["serviceId"] === "string" ? railway["serviceId"] : "";
+    const healthUrl =
+      "healthUrl" in cfg ? ((cfg as { healthUrl?: string | null }).healthUrl ?? null) : null;
+
+    discovered.push({ name, serviceId, healthUrl });
+  }
+
+  return discovered;
+}
+
+// ---------------------------------------------------------------------------
 // Phase 1: /health probe reachability
 // ---------------------------------------------------------------------------
 
-interface HealthTarget {
-  name: string;
-  url: string;
-}
-
-const HEALTH_TARGETS: HealthTarget[] = [
-  {
-    name: "minsky-mcp",
-    url: "https://minsky-mcp-production.up.railway.app/health",
-  },
-  {
-    name: "reviewer",
-    url: "https://minsky-reviewer-webhook-production.up.railway.app/health",
-  },
-  {
-    name: "cockpit",
-    url: "https://cockpit-preview-production.up.railway.app/api/health",
-  },
-  {
-    name: "site",
-    url: "https://minsky-site-production.up.railway.app/health",
-  },
-];
-
-async function runHealthPhase(): Promise<void> {
+async function runHealthPhase(services: DiscoveredService[]): Promise<void> {
   console.log("\nPhase 1: /health probe reachability");
   console.log("-".repeat(50));
 
-  for (const target of HEALTH_TARGETS) {
+  const healthTargets = services.filter(
+    (s): s is DiscoveredService & { healthUrl: string } =>
+      s.healthUrl !== null && s.serviceId !== ""
+  );
+
+  if (healthTargets.length === 0) {
+    skip("health-reachable", "No services with healthUrl found in deploy.config.ts files");
+    return;
+  }
+
+  for (const target of healthTargets) {
+    const url = target.healthUrl;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), HEALTH_TIMEOUT_MS);
 
     try {
-      const res = await fetch(target.url, { signal: controller.signal });
+      const res = await fetch(url, { signal: controller.signal });
       const bodyText = await res.text().catch(() => "");
       if (verbose) {
         // eslint-disable-next-line custom/no-unsafe-string-truncation -- HTTP health response bodies are ASCII (JSON, plain text status)
@@ -129,7 +183,7 @@ async function runHealthPhase(): Promise<void> {
 // Phase 2: Railway API reachability
 // ---------------------------------------------------------------------------
 
-async function runRailwayPhase(): Promise<void> {
+async function runRailwayPhase(services: DiscoveredService[]): Promise<void> {
   console.log("\nPhase 2: Railway API reachability");
   console.log("-".repeat(50));
 
@@ -142,8 +196,14 @@ async function runRailwayPhase(): Promise<void> {
     return;
   }
 
-  // Use minsky-mcp's serviceId as the test subject.
-  const testServiceId = "a7c5195f-55de-472a-87e4-34e921a15171";
+  // Use minsky-mcp's serviceId as the test subject — read from deploy.config.ts.
+  const minskyMcp = services.find((s) => s.name === "minsky-mcp");
+  if (!minskyMcp || !minskyMcp.serviceId) {
+    skip("railway-api", "minsky-mcp service not found or has no serviceId in deploy.config.ts");
+    return;
+  }
+
+  const testServiceId = minskyMcp.serviceId;
   const query = `
     query ($serviceId: String!) {
       service(id: $serviceId) {
@@ -230,17 +290,18 @@ function issueTitle(serviceName: string, failureClass: "deploy-failed" | "health
   return `[P0] ${serviceName}: ${classLabel}`;
 }
 
-function runDeduplicationPhase(): void {
+function runDeduplicationPhase(services: DiscoveredService[]): void {
   console.log("\nPhase 3: issue-title de-duplication logic");
   console.log("-".repeat(50));
 
-  const services = ["minsky-mcp", "reviewer", "cockpit", "site"];
+  // Use discovered service names (excluding skipped ones with empty serviceId).
+  const activeServices = services.filter((s) => s.serviceId !== "").map((s) => s.name);
   const classes = ["deploy-failed", "health-down"] as const;
 
   const titles = new Set<string>();
   let allUnique = true;
 
-  for (const svc of services) {
+  for (const svc of activeServices) {
     for (const cls of classes) {
       const title = issueTitle(svc, cls);
       if (titles.has(title)) {
@@ -256,7 +317,7 @@ function runDeduplicationPhase(): void {
     pass("dedup-uniqueness", `All ${titles.size} title combinations are unique`);
   }
 
-  // Verify stable format.
+  // Verify stable format using a known service name.
   const expected = "[P0] minsky-mcp: Deploy FAILED/CRASHED";
   const actual = issueTitle("minsky-mcp", "deploy-failed");
   if (actual === expected) {
@@ -275,9 +336,20 @@ async function main(): Promise<void> {
   console.log(`Railway token: ${railwayToken ? "present" : "absent (deploy checks skipped)"}`);
   console.log(`Verbose: ${verbose}`);
 
-  await runHealthPhase();
-  await runRailwayPhase();
-  runDeduplicationPhase();
+  // Discover services from deploy.config.ts files (mirrors production monitor).
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  let services: DiscoveredService[];
+  try {
+    services = await discoverServices(repoRoot);
+    console.log(`Discovered ${services.length} services from services/*/deploy.config.ts`);
+  } catch (err) {
+    console.error(`FATAL: service discovery failed: ${err}`);
+    process.exit(1);
+  }
+
+  await runHealthPhase(services);
+  await runRailwayPhase(services);
+  runDeduplicationPhase(services);
 
   // Summary.
   const passing = results.filter((r) => r.status === "pass").length;
