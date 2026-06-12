@@ -348,6 +348,29 @@ ALERT_SINK_TYPE=telegram TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
 
 Sends one test message through the configured sink (SKIPs gracefully when no sink is configured).
 
+### Verify the DEPLOYED path (`POST /alert-test`, mt#2451)
+
+`smoke-alert-sink.ts` above proves the sink works from **your laptop's** env. To prove the
+**deployed** path — the service's own env config → its sink instance → Telegram → your phone —
+without waiting for a real circuit-breaker trip, hit the authenticated `/alert-test` endpoint.
+It calls the SAME sink instance the sweeper uses:
+
+```bash
+curl -X POST https://<service>/alert-test \
+  -H "authorization: Bearer $MINSKY_MCP_AUTH_TOKEN"
+```
+
+Auth is the MCP auth token (`MINSKY_MCP_AUTH_TOKEN`), same as `/retrigger`. Responses:
+
+- **200** `{ ok: true, sinkType, deliveryAttempted: true }` — the send path was invoked and
+  accepted. Sinks are fail-open (`notify` never throws), so a 200 means "accepted by the sink
+  path"; **confirm actual receipt on your phone**.
+- **401** — missing or wrong bearer token.
+- **503** `{ error: "alert-test auth not configured" }` — `MINSKY_MCP_AUTH_TOKEN` is unset on
+  the service.
+- **503** `{ error: "no alert sink configured", hint }` — `ALERT_SINK_TYPE` is unset/off (the
+  hint names the env vars to set).
+
 ## Self-hosting
 
 The service is deliberately stateless. Any deployment target that supports Node.js webhooks works (Railway, Fly, Vercel Functions, Render). Railway is the documented default because webhooks are first-class and the AI-SaaS template matches the shape closely.
