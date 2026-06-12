@@ -47,6 +47,14 @@ export const minskyMcpService = new railway.Service("minsky-mcp", {
   projectId: minskyMcpProject,
   name: "minsky-mcp",
   sourceImage: "ghcr.io/edobry/minsky:latest",
+  // Config-as-code build block declaring builder + dockerfilePath + watchPatterns
+  // (mt#2461). minsky-mcp deploys via GHCR image source, so Railway's
+  // watchPatterns are not the active deploy-trigger mechanism here — the
+  // deploy-minsky-mcp.yml GitHub Actions workflow is. This file is the canonical
+  // declaration of the build closure and matches the workflow's `paths:` filter so
+  // the two contracts stay in sync (memory 6516cd8d: must declare builder +
+  // dockerfilePath + watchPatterns together — never a partial build block).
+  configPath: "services/minsky-mcp/railway.json",
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
@@ -95,7 +103,14 @@ defineVariables("reviewer", reviewerEnv, reviewerServiceId, {
   REVIEWER_COMPOSITION_CONVERGENCE_ENABLED: plain("true"),
   MINSKY_MCP_URL: plain("https://minsky-mcp-production.up.railway.app/mcp"),
   MINSKY_MCP_AUTH_TOKEN: sealed("minsky-mcp-auth-token"),
-  MINSKY_SESSIONDB_POSTGRES_URL: sealed("minsky-sessiondb-postgres-url"),
+  // Canonical persistence config (mt#2463): the domain container reads
+  // MINSKY_PERSISTENCE_POSTGRES_URL; without it the container boots in
+  // DB-unavailable mode and every pr-watch scheduler cycle throws. Replaces
+  // the deprecated MINSKY_SESSIONDB_POSTGRES_URL (sessiondb retired in
+  // mt#1610) — the reviewer's own DB client prefers the canonical name and
+  // both secrets resolve to the same prod database.
+  MINSKY_PERSISTENCE_BACKEND: plain("postgres"),
+  MINSKY_PERSISTENCE_POSTGRES_URL: sealed("minsky-persistence-postgres-url"),
   // Reviewer external alert sink (mt#2364 / mt#2419): pushes circuit-breaker
   // trips to the operator's Telegram after-hours. PER-STACK opt-in (PR #1672
   // R1): the chat id is an operator-specific identifier and the sink must not
