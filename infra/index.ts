@@ -168,10 +168,16 @@ export const cockpitService = new railway.Service("cockpit", {
   name: "cockpit-preview",
   sourceRepo: "edobry/minsky",
   sourceRepoBranch: "main",
-  // Build context is the repo root; the Dockerfile lives at
+  // Build context is the repo root ("/"); the Dockerfile lives at
   // services/cockpit/Dockerfile (see services/cockpit/deploy.config.ts for
-  // the build wiring).
-  rootDirectory: "",
+  // the build wiring). mt#2449: this was `""` (empty string), which the Railway
+  // provider rejects at plan time (`root_directory` must be >= 1 char) — it
+  // errored EVERY full `pulumi preview`/`up`. "/" is the live Railway value
+  // (the service was provisioned with it and builds from repo root), so setting
+  // it here is a clean no-op (no cockpit diff, no redeploy) AND length-valid.
+  // Do NOT use "" (length-0 error) — contrast services/site, which sets a real
+  // non-root rootDirectory ("services/site").
+  rootDirectory: "/",
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 

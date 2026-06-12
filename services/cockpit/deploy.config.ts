@@ -25,7 +25,11 @@ export default defineDeployment({
     source: {
       repo: "edobry/minsky",
       branch: "main",
-      rootDirectory: "",
+      // "/" (repo root), matching infra/index.ts and the live Railway value
+      // (mt#2449). This field is the drift-detection baseline; "" diverged from
+      // the live "/" and would false-positive drift. Repo-root services use "/"
+      // here (cf. services/minsky-ops); services/site uses its subdir.
+      rootDirectory: "/",
     },
     build: {
       builder: "RAILPACK",
