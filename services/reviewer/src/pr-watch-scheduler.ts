@@ -193,7 +193,10 @@ async function runPrWatchDomain(container: AppContainerInterface): Promise<PrWat
     };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error("pr_watch_scheduler.domain_call_error", {
+    // Error text goes in the log MESSAGE, not only attributes: Railway's log
+    // surface displays and searches message text only, so attribute-only
+    // errors are invisible there (mt#2463).
+    log.error(`pr_watch_scheduler.domain_call_error: ${message}`, {
       event: "pr_watch_scheduler.domain_call_error",
       error: message,
     });
