@@ -47,14 +47,16 @@ export const minskyMcpService = new railway.Service("minsky-mcp", {
   projectId: minskyMcpProject,
   name: "minsky-mcp",
   sourceImage: "ghcr.io/edobry/minsky:latest",
-  // Config-as-code build block declaring builder + dockerfilePath + watchPatterns
-  // (mt#2461). minsky-mcp deploys via GHCR image source, so Railway's
-  // watchPatterns are not the active deploy-trigger mechanism here — the
-  // deploy-minsky-mcp.yml GitHub Actions workflow is. This file is the canonical
-  // declaration of the build closure and matches the workflow's `paths:` filter so
-  // the two contracts stay in sync (memory 6516cd8d: must declare builder +
-  // dockerfilePath + watchPatterns together — never a partial build block).
-  configPath: "services/minsky-mcp/railway.json",
+  // minsky-mcp deploys from a GHCR image (sourceImage above), NOT from a
+  // repo+Dockerfile, so Railway config-as-code (`config_path` / railway.json) is
+  // INCOMPATIBLE here: Railway rejects `config_path` when `source_image` is set
+  // ("Invalid Attribute Combination"), which blocks `pulumi up` (mt#2472).
+  // Deploy-scoping for this image-based service lives entirely in
+  // `.github/workflows/deploy-minsky-mcp.yml` `paths:` — the workflow builds +
+  // pushes the GHCR image only on changes within the build closure; that is the
+  // single source of truth. (mt#2461 added a config_path here by analogy to the
+  // reviewer service — which IS repo+Dockerfile-source and so CAN use config-as-code
+  // — and broke the prod stack; mt#2472 removed it.)
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
