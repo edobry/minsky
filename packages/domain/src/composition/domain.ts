@@ -21,10 +21,9 @@
 import { TsyringeContainer } from "./container";
 import type { AppContainerInterface } from "./types";
 import { NoopClientCapabilityRegistry } from "../client-capabilities";
-import type { SessionDeps } from "../session/session-service";
-
-/** The repository-backend value object resolved by lazy detection. */
-type RepositoryBackendInfo = Awaited<ReturnType<SessionDeps["getRepositoryBackend"]>>;
+// Type-only import — erased at runtime, so the detection module still loads
+// lazily (only when the resolver below first runs).
+import type { RepositoryBackendInfo } from "../session/repository-backend-detection";
 
 /**
  * Build a lazy, memoizing repository-backend resolver.

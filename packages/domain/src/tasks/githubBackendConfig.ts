@@ -82,15 +82,14 @@ function extractGitHubRepoFromRemote(
           };
         }
       } catch (error) {
-        // Fallback: extract from path if it looks like a repo name
-        const pathMatch = remoteUrl.match(/\/([^/]+)$/);
-        if (pathMatch && (pathMatch[1] || "") === "minsky") {
-          // Hardcoded fallback for known repository
-          return {
-            owner: "edobry",
-            repo: "minsky",
-          };
-        }
+        // Upstream lookup failed — there is no trustworthy owner/repo to
+        // derive. Return null rather than guessing: a wrong guess would
+        // silently bind the GitHub tasks backend to someone else's repo.
+        // (A hardcoded edobry/minsky fallback lived here until mt#1428.)
+        log.debug("Failed to resolve upstream remote for local-path origin", {
+          remoteUrl,
+          error: getErrorMessage(error),
+        });
       }
     }
 

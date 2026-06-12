@@ -296,6 +296,17 @@ export function resolveRepositoryFromGitRemote(
 }
 
 /**
+ * The repository-backend value object produced by config/remote detection.
+ * Named so consumers (e.g. the composition root's lazy resolver, mt#1428)
+ * reference a stable contract instead of deriving it structurally.
+ */
+export interface RepositoryBackendInfo {
+  repoUrl: string;
+  backendType: RepositoryBackendType;
+  github?: { owner: string; repo: string };
+}
+
+/**
  * Read repository backend configuration from project config (written by `minsky init`).
  *
  * Falls back to `resolveRepositoryAndBackend()` detection behavior if `repository.backend`
@@ -303,11 +314,7 @@ export function resolveRepositoryFromGitRemote(
  */
 export async function getRepositoryBackendFromConfig(
   deps: RepositoryBackendDetectionDeps = defaultDeps
-): Promise<{
-  repoUrl: string;
-  backendType: RepositoryBackendType;
-  github?: { owner: string; repo: string };
-}> {
+): Promise<RepositoryBackendInfo> {
   try {
     let getConfiguration: () => object;
     if (deps.getConfiguration) {

@@ -5,8 +5,8 @@
  * Verifies that repo-orthogonal minsky commands work from a directory that is
  * NOT a git repository, without spawning `git remote get-url origin` noise:
  *
- *   1. `minsky --version`     → exit 0, no `fatal: not a git repository` lines
- *   2. `minsky config list`   → exit 0, no `fatal:` lines
+ *   1. `minsky --version`     → exit 0, no leaked git stderr
+ *   2. `minsky config list`   → exit 0, no leaked git stderr
  *
  * Regression gate for the eager repository-backend detection bug: the CLI used
  * to run git-remote detection at container boot for EVERY command, crashing
@@ -33,6 +33,14 @@ console.log(`Temp dir (non-git cwd): ${tempDir}`);
 
 let failed = false;
 
+/**
+ * Patterns of leaked git-subprocess stderr. Broader than the originating
+ * incident's `fatal: not a git repository` line: any `fatal:`/`error:`-
+ * prefixed line or "not a git repository" phrasing is a leak — git's own
+ * message text varies by subcommand and version.
+ */
+const GIT_LEAK_PATTERNS = [/^fatal: /m, /^error: /m, /not a git repository/i];
+
 function check(label: string, args: string[]): void {
   const result = spawnSync("bun", [cliPath, ...args], {
     cwd: tempDir,
@@ -48,13 +56,14 @@ function check(label: string, args: string[]): void {
     failed = true;
     return;
   }
-  if (/fatal: not a git repository/.test(output)) {
-    console.error(`FAIL: ${label} leaked 'fatal: not a git repository' to its output`);
+  const leak = GIT_LEAK_PATTERNS.find((p) => p.test(output));
+  if (leak) {
+    console.error(`FAIL: ${label} leaked git subprocess stderr (matched ${leak})`);
     console.error(safeTruncate(output, 2000, "head"));
     failed = true;
     return;
   }
-  console.log(`PASS: ${label} (exit 0, no fatal lines)`);
+  console.log(`PASS: ${label} (exit 0, no leaked git stderr)`);
 }
 
 check("minsky --version from non-git dir", ["--version"]);
