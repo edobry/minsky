@@ -47,6 +47,14 @@ export const minskyMcpService = new railway.Service("minsky-mcp", {
   projectId: minskyMcpProject,
   name: "minsky-mcp",
   sourceImage: "ghcr.io/edobry/minsky:latest",
+  // Config-as-code build block declaring builder + dockerfilePath + watchPatterns
+  // (mt#2461). minsky-mcp deploys via GHCR image source, so Railway's
+  // watchPatterns are not the active deploy-trigger mechanism here — the
+  // deploy-minsky-mcp.yml GitHub Actions workflow is. This file is the canonical
+  // declaration of the build closure and matches the workflow's `paths:` filter so
+  // the two contracts stay in sync (memory 6516cd8d: must declare builder +
+  // dockerfilePath + watchPatterns together — never a partial build block).
+  configPath: "services/minsky-mcp/railway.json",
   regions: [{ region: "us-west2", numReplicas: 1 }],
 });
 
