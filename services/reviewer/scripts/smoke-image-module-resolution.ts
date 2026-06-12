@@ -61,6 +61,7 @@ interface EntryResult {
   entry: string;
   ok: boolean;
   stderr: string;
+  stdout: string;
 }
 
 try {
@@ -89,7 +90,7 @@ try {
       ],
       { cwd: stage, encoding: "utf8", timeout: 120_000 }
     );
-    return { entry, ok: proc.status === 0, stderr: proc.stderr ?? "" };
+    return { entry, ok: proc.status === 0, stderr: proc.stderr ?? "", stdout: proc.stdout ?? "" };
   });
 
   const failures = results.filter((r) => !r.ok);
@@ -108,9 +109,11 @@ try {
 
   if (failures.length > 0) {
     for (const f of failures) {
-      console.error(`\n--- ${f.entry} ---\n${f.stderr}`);
+      console.error(`\n--- ${f.entry} ---\n${f.stderr}${f.stdout}`);
     }
-    process.exit(1);
+    // Set exitCode rather than calling process.exit() so the finally block
+    // below still runs and the temp dir is cleaned up on failure.
+    process.exitCode = 1;
   }
 } finally {
   rmSync(stage, { recursive: true, force: true });
