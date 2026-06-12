@@ -31,7 +31,11 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # pgvector-enabled image (mt#2439): the schema uses the `vector` type
+        # and the bootstrap snapshot runs CREATE EXTENSION IF NOT EXISTS vector,
+        # which requires the extension to be installable — vanilla postgres:16
+        # does not ship pgvector.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: minsky_test
           POSTGRES_PASSWORD: minsky_test

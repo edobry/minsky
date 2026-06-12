@@ -2519,7 +2519,7 @@
                 },
                 {
                   "flags": ["--accept-stale-reviewer-silence"],
-                  "description": "Operator-override waiver: allow merge when minsky-reviewer[bot] is absent (webhook-miss class). All five constraints must hold: (1) PR author must be minsky-ai[bot] -- waiver never applies to human-authored PRs; (2) at least one COMMENTED review from the same identity as the PR author must exist; (3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); (4) no review from minsky-reviewer[bot] may exist -- waiver is inapplicable when the reviewer bot has already acted; (5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. Emits an audit log entry at INFO level when the waiver is applied. Default: false."
+                  "description": "Operator-override waiver: allow merge when the reviewer bot (reviewer.botLogin, default minsky-reviewer[bot]) is absent (webhook-miss class). All five constraints must hold: (1) PR author must be the configured bot identity (github.botIdentityLogin, default minsky-ai[bot]) -- waiver never applies to human-authored PRs; (2) at least one COMMENTED review from the same identity as the PR author must exist; (3) no non-DISMISSED CHANGES_REQUESTED review may exist (DISMISSED reviews are excluded from this check); (4) no review from the configured reviewer bot may exist -- waiver is inapplicable when the reviewer bot has already acted; (5) no other merge blockers (draft PR, merge conflicts, PR not open) may be active -- the waiver only bypasses the approval gate, not other mergeability requirements. Emits an audit log entry at INFO level when the waiver is applied. Default: false."
                 },
                 {
                   "flags": ["--force-bypass"],
@@ -2647,7 +2647,7 @@
                   "subcommands": [
                     {
                       "name": "review-submit",
-                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the implementer App (`minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the reviewer App (`minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is configured. APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool throws a typed MinskyError naming the missing config key rather than silently falling back to implementer, because that would re-introduce GitHub's self-approval block on bot-authored PRs. The optional `identity` parameter can override the default mapping explicitly. See ADR-006 for the architectural decision record.",
+                      "description": "Submit a GitHub PR review (APPROVE / COMMENT / REQUEST_CHANGES) through Minsky using the configured bot identity (mt#1510). Identity routing: COMMENT defaults to the implementer App (default `minsky-ai[bot]`); APPROVE and REQUEST_CHANGES default to the reviewer App (default `minsky-reviewer[bot]`) when `github.reviewer.serviceAccount` is configured. APPROVE / REQUEST_CHANGES require the reviewer App to be present in config — the tool throws a typed MinskyError naming the missing config key rather than silently falling back to implementer, because that would re-introduce GitHub's self-approval block on bot-authored PRs. The optional `identity` parameter can override the default mapping explicitly. See ADR-006 for the architectural decision record.",
                       "options": [
                         {
                           "flags": ["--session-id"],
@@ -4621,7 +4621,7 @@
                     },
                     {
                       "flags": ["--bot-login"],
-                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN, then the configured reviewer.botLogin, then 'minsky-reviewer[bot]')",
                       "takesValue": true
                     },
                     {
@@ -4647,7 +4647,7 @@
                     },
                     {
                       "flags": ["--bot-login"],
-                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN or 'minsky-reviewer[bot]')",
+                      "description": "Reviewer-bot login to detect (default: $MINSKY_REVIEWER_WATCH_BOT_LOGIN, then the configured reviewer.botLogin, then 'minsky-reviewer[bot]')",
                       "takesValue": true
                     },
                     {

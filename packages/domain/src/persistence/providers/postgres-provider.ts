@@ -420,6 +420,37 @@ export class PostgresPersistenceProvider
 
     try {
       log.info(`Running migrations from ${migrationsFolder}`);
+
+      // Fresh-DB bootstrap (mt#2439): a database with an absent-or-empty
+      // drizzle ledger cannot replay the migration tree — `0000` is an empty
+      // baseline that assumes the pre-baseline schema exists, so `0001` fails
+      // on a fresh database. Bootstrap from the committed full-schema snapshot
+      // first; migrate() below then applies only entries newer than the
+      // snapshot. Non-empty databases never enter this branch.
+      if (this.sql) {
+        const { bootstrapFreshPostgres, isMigrationLedgerEmpty } = await import(
+          "../postgres-bootstrap"
+        );
+        if (await isMigrationLedgerEmpty(this.sql)) {
+          const { readFileSync } = await import("fs");
+          const { join } = await import("path");
+          const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
+            encoding: "utf8",
+          }) as string;
+          const bootstrap = await bootstrapFreshPostgres(
+            this.sql,
+            migrationsFolder,
+            JSON.parse(journalRaw)
+          );
+          if (bootstrap) {
+            log.info(
+              `Bootstrapped fresh database through ${bootstrap.throughTag} ` +
+                `(${bootstrap.stampedCount} journal entries stamped)`
+            );
+          }
+        }
+      }
+
       await migrate(this.db, { migrationsFolder });
       log.info("Migrations completed successfully");
     } catch (error) {

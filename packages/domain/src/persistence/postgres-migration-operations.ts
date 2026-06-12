@@ -509,6 +509,18 @@ export async function runPostgresSchemaMigrations(
           `${pendingCount} pending`
       );
       log.cli("");
+      if (!status.metaExists) {
+        // Fresh-DB preview (mt#2439): the execute path bootstraps from the
+        // snapshot instead of replaying the tree (empty 0000 baseline).
+        const { loadBootstrapSnapshot } = await import("./postgres-bootstrap");
+        const snapshot = loadBootstrapSnapshot(migrationsFolder);
+        if (snapshot) {
+          log.cli(
+            `Fresh database: --execute will bootstrap from the full-schema snapshot ` +
+              `(through ${snapshot.meta.throughTag}), then apply newer migrations incrementally.`
+          );
+        }
+      }
       if (pendingCount > 0) {
         log.cli("(use --execute to apply)");
       } else {
@@ -628,6 +640,34 @@ export async function runPostgresSchemaMigrations(
       log.cli("");
     }
 
+    // ── Fresh-DB bootstrap (mt#2439) ────────────────────────────────────────
+    // The migration tree starts at an empty baseline (0000) that assumes the
+    // pre-baseline schema already exists, so a truly empty database cannot be
+    // bootstrapped by replaying the tree. When the drizzle ledger is absent OR
+    // empty (drizzle creates the ledger table outside its apply transaction,
+    // so a previously failed replay leaves an empty ledger), apply the
+    // committed full-schema snapshot and stamp the covered journal entries as
+    // applied; migrate() below then applies only entries NEWER than the
+    // snapshot. Non-empty (already-migrated) databases never enter this branch.
+    if (!metaExists || appliedCount === 0) {
+      const { bootstrapFreshPostgres } = await import("./postgres-bootstrap");
+      const bootstrap = await bootstrapFreshPostgres(sql, migrationsFolder, journal);
+      if (bootstrap) {
+        appliedCount = bootstrap.stampedCount;
+        log.cli(
+          `Bootstrapped fresh database through ${bootstrap.throughTag} ` +
+            `(${bootstrap.statementCount} statement(s), ${bootstrap.stampedCount} journal ` +
+            `entrie(s) stamped). ${Math.max(
+              journal.entries.length - bootstrap.stampedCount,
+              0
+            )} newer migration(s) pending.`
+        );
+        log.cli("");
+      }
+      // bootstrap === null → no snapshot artifact (older bundle); fall through
+      // to the plain migrate path, which preserves pre-mt#2439 behavior.
+    }
+
     // ── Unmerged-migration guard (mt#2277) ─────────────────────────────────
     // When targeting a shared production database, refuse to apply any pending
     // migration whose .sql file is not committed AND present on origin/main.
@@ -720,16 +760,29 @@ export async function runPostgresSchemaMigrationsForBackend(
   const { drizzle } = await import("drizzle-orm/postgres-js");
   const { migrate } = await import("drizzle-orm/postgres-js/migrator");
   const postgres = (await import("postgres")).default;
+  const { readFileSync } = await import("fs");
   const sql = postgres(connectionString, {
     prepare: false,
     onnotice: logPostgresNotice,
     max: 10,
   });
   try {
+    const migrationsFolder = resolvePgMigrationsFolder();
+
+    // Fresh-DB bootstrap (mt#2439) — same gate as runPostgresSchemaMigrations:
+    // a database with an absent-or-empty drizzle ledger cannot replay the tree
+    // (empty 0000 baseline); bootstrap from the snapshot first, then migrate()
+    // applies only newer entries.
+    const { bootstrapFreshPostgres, isMigrationLedgerEmpty } = await import("./postgres-bootstrap");
+    if (await isMigrationLedgerEmpty(sql)) {
+      const journalRaw = readFileSync(join(migrationsFolder, "meta", "_journal.json"), {
+        encoding: "utf8",
+      }) as string;
+      await bootstrapFreshPostgres(sql, migrationsFolder, JSON.parse(journalRaw) as Journal);
+    }
+
     const db = drizzle(sql, { logger: false });
-    await migrate(db, {
-      migrationsFolder: resolvePgMigrationsFolder(),
-    });
+    await migrate(db, { migrationsFolder });
   } finally {
     await sql.end();
   }
