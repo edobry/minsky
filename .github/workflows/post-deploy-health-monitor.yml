@@ -1,0 +1,86 @@
+name: Post-Deploy Health Monitor
+
+# mt#1302 — Automated external post-deploy outcome+health verification across
+# all deployed services. Runs on a cron cadence so outages are detected within
+# minutes rather than discovered by accident.
+#
+# Architecture notes (per spec § Scope expansion 2026-06-10):
+#
+# HOST: This workflow runs on GitHub Actions — EXTERNAL to all Railway services.
+# A monitor that detects "is service X up?" cannot run inside X, nor can it
+# alert through infra that may itself be the thing that's down (dependency
+# cycle). GitHub stays up when Railway/Minsky is down.
+#
+# PRIMARY ALERT: open/update a GitHub P0 issue per service+failure-class.
+# De-duped so a sustained outage updates ONE issue, not N. GitHub is the
+# always-available substrate regardless of Minsky infra health.
+#
+# SECONDARY ALERT (best-effort): when minsky-mcp is up, also POST an
+# asks_create coordination.notify over hosted MCP so it surfaces on the
+# cockpit AsksPage. Wrapped in try/catch — its failure MUST NOT suppress
+# the primary GitHub-issue path.
+#
+# PER-SERVICE CHECKS:
+#   (a) Latest Railway deploy terminal status — alert on FAILED/CRASHED.
+#       Catches the mt#1991 build-failure class (bun install --frozen-lockfile).
+#   (b) GET <service>/health returns 200 — alert on non-200/timeout.
+#       Catches the mt#2345 runtime-crash-after-green-build class.
+# Both checks are required: deploy-status alone misses (b); /health alone
+# misses build failures.
+#
+# minsky-ops is skipped gracefully (empty serviceId in deploy.config.ts).
+#
+# SECRETS REQUIRED (set as repository secrets):
+#   RAILWAY_TOKEN            — Railway API token with read access to all services
+#   MINSKY_MCP_AUTH_TOKEN    — Bearer token for the hosted minsky-mcp (secondary path only)
+#   GITHUB_TOKEN             — auto-provided by GitHub Actions
+#
+# CROSS-REFERENCES:
+#   mt#1991 — workspace-COPY Dockerfile guard (upstream prevention)
+#   mt#2345 — reviewer Railway deploy watchPatterns (companion detection)
+#   mt#1280 — original outage that motivates this task
+#   scripts/smoke-post-deploy-health-monitor.ts — verification artifact
+
+on:
+  schedule:
+    # Every 10 minutes. Low-frequency is correct: the mt#2365 data shows
+    # <1% steady-state failure rate across services. A high-frequency
+    # dedicated poller is over-engineered for this failure class.
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (log findings but do not open/update issues)"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  monitor:
+    name: monitor
+    runs-on: ubuntu-latest
+    # Give the script enough time to probe all services and write issues.
+    timeout-minutes: 5
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.2.21"
+
+      # No bun install — the monitor script uses only Node/Bun built-ins and
+      # fetch (available in Bun without install). This keeps cold-start fast.
+
+      - name: Run post-deploy health monitor
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          MINSKY_MCP_AUTH_TOKEN: ${{ secrets.MINSKY_MCP_AUTH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: bun scripts/post-deploy-health-monitor.ts
