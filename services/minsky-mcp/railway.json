@@ -1,0 +1,25 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile",
+    "watchPatterns": [
+      "Dockerfile",
+      ".dockerignore",
+      "package.json",
+      "bun.lock",
+      "tsconfig.json",
+      "packages/shared/package.json",
+      "packages/shared/tsconfig.json",
+      "packages/shared/src/**",
+      "packages/domain/package.json",
+      "packages/domain/tsconfig.json",
+      "packages/domain/src/**",
+      "services/reviewer/package.json",
+      "services/site/package.json",
+      "services/cockpit/package.json",
+      ".minsky/config.yaml",
+      "src/**"
+    ]
+  }
+}
