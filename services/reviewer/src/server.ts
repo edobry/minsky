@@ -1164,15 +1164,33 @@ export function createApp(
           );
         }
 
-        // Sinks are fail-open: notify() catches internally and never throws, so
-        // a 200 here means the send path was invoked and accepted — confirm
-        // actual receipt on the operator's phone.
-        await sink.notify(
-          "info",
-          "Minsky reviewer alert test",
-          "Minsky reviewer alert test — triggered via /alert-test. " +
-            "If you received this, the deployed env-config → sink → operator alert path is healthy."
-        );
+        // Sinks are CONTRACTED fail-open: notify() catches internally and
+        // resolves (a delivery failure does NOT throw — it's swallowed, so a
+        // 200 below means "accepted by the sink path; confirm receipt on the
+        // phone"). A throw here is a contract violation (a buggy/future sink).
+        // Defense-in-depth for a confidence probe: never let that 500 the
+        // route. Log it (the reviewer logger redacts secrets) and return a 503
+        // with a GENERIC body — do not echo the raw error to the caller, which
+        // could carry credentials (mt#2463 redaction lesson).
+        try {
+          await sink.notify(
+            "info",
+            "Minsky reviewer alert test",
+            "Minsky reviewer alert test — triggered via /alert-test. " +
+              "If you received this, the deployed env-config → sink → operator alert path is healthy."
+          );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error("alert_test.sink_error", {
+            event: "alert_test.sink_error",
+            sinkType: sinkConfig.type,
+            error: message,
+          });
+          return new Response(
+            JSON.stringify({ error: "alert sink threw during send", sinkType: sinkConfig.type }),
+            { status: 503, headers: { "content-type": "application/json" } }
+          );
+        }
         log.info("alert_test.sent", {
           event: "alert_test.sent",
           sinkType: sinkConfig.type,

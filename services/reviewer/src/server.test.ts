@@ -616,7 +616,12 @@ describe("/alert-test (mt#2451)", () => {
     }
   });
 
-  test("authed + sink configured → 200 and sends an info-severity message through the SAME sink instance", async () => {
+  test("authed + sink configured → 200 and sends an info-severity message through the PROVIDED sink instance", async () => {
+    // Injecting the sink exercises the same code path server-main uses: it
+    // builds one sink at start and passes that single instance to createApp.
+    // Asserting on `fake.calls` proves the route used the PROVIDED instance
+    // (not a freshly-built one). The undefined→build-fresh fallback is a
+    // separate path, only hit when no instance is passed (e.g. minimal tests).
     const fake = makeFakeSink();
     const { server } = createApp(CONFIG_WITH_MCP_TOKEN, noopRunReview, undefined, undefined, fake);
     try {
@@ -629,6 +634,34 @@ describe("/alert-test (mt#2451)", () => {
       expect(fake.calls.length).toBe(1);
       expect(fake.calls[0]?.severity).toBe("info");
       expect(fake.calls[0]?.title).toContain("alert test");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("a throwing sink yields 503 (never 500) and does not echo the raw error", async () => {
+    // AlertSink is contracted fail-open; a throw is a contract violation. The
+    // probe must stay resilient (no 500) and must not leak the error body,
+    // which could carry credentials (mt#2463 redaction lesson).
+    const secretLeak = "boom postgres://user:pw@host/db";
+    const throwingSink: AlertSink = {
+      async notify() {
+        throw new Error(secretLeak);
+      },
+    };
+    const { server } = createApp(
+      CONFIG_WITH_MCP_TOKEN,
+      noopRunReview,
+      undefined,
+      undefined,
+      throwingSink
+    );
+    try {
+      const res = await postAlertTest(`http://localhost:${server.port}`, `Bearer ${MCP_TOKEN}`);
+      expect(res.status).toBe(503);
+      const raw = await res.text();
+      expect(raw).toContain("alert sink threw");
+      expect(raw).not.toContain("pw@host");
     } finally {
       server.stop(true);
     }
