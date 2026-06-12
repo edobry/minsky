@@ -20,6 +20,9 @@ export function createSessionListCommand(getDeps: LazySessionDeps): CommandDefin
     category: CommandCategory.SESSION,
     name: "list",
     description: "List all sessions",
+    // Served entirely from the central session DB — works from any directory,
+    // no project init required (mt#1428).
+    requiresSetup: false,
     parameters: sessionListCommandParams,
     execute: withErrorLogging("session.list", async (params: Record<string, unknown>) => {
       const { SessionService } = await import("@minsky/domain/session/session-service");

@@ -5,12 +5,34 @@
  * for the specific scenarios identified in Task 223.
  */
 
+import { existsSync } from "fs";
+import { dirname, join } from "path";
 import { execAsync } from "@minsky/shared/exec";
 import {
   createGitTimeoutErrorMessage,
   createMergeConflictErrorMessage,
 } from "../errors/enhanced-error-templates";
 import { MinskyError, getErrorMessage } from "../errors/index";
+
+/**
+ * Check whether `startDir` is inside a git work tree by walking up the
+ * directory tree looking for a `.git` entry (directory for normal checkouts,
+ * file for worktrees/submodules — both count).
+ *
+ * Pure filesystem check — no subprocess. Exists so callers can avoid spawning
+ * `git remote get-url origin` (which leaks `fatal: not a git repository` to
+ * the parent's stderr and costs a process) when the answer is knowably "no"
+ * (mt#1428).
+ */
+export function isInsideGitWorkTree(startDir: string): boolean {
+  let dir = startDir;
+  for (;;) {
+    if (existsSync(join(dir, ".git"))) return true;
+    const parent = dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+}
 
 /**
  * Enhanced git execution options

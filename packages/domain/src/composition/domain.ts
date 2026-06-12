@@ -19,67 +19,34 @@
  */
 
 import { TsyringeContainer } from "./container";
-import type { AppContainerInterface, AppServices } from "./types";
+import type { AppContainerInterface } from "./types";
 import { NoopClientCapabilityRegistry } from "../client-capabilities";
+// Type-only import — erased at runtime, so the detection module still loads
+// lazily (only when the resolver below first runs).
+import type { RepositoryBackendInfo } from "../session/repository-backend-detection";
 
 /**
- * Build the deferred-failure placeholder for `repositoryBackend` when
- * detection fails at boot.
+ * Build a lazy, memoizing repository-backend resolver.
  *
- * `repositoryBackend` is a plain VALUE OBJECT (`repoUrl`, `backendType`, …),
- * not a method-bearing service, so the container's generic placeholder —
- * which returns callable stubs on property reads and only throws when one is
- * CALLED — would let `placeholder.repoUrl` silently yield a function instead
- * of a string. This placeholder instead throws on data-field reads so the
- * deferred failure surfaces deterministically at first use. Inspection stays
- * benign: symbols, `then` (so `await` works), and `constructor` return
- * undefined; `toString`/`valueOf`/`toJSON` return a safe stringifier.
- */
-function makeDeferredRepositoryBackendPlaceholder(
-  message: string
-): AppServices["repositoryBackend"] {
-  return new Proxy(
-    {},
-    {
-      get(_target, prop) {
-        if (typeof prop === "symbol" || prop === "then" || prop === "constructor") {
-          return undefined;
-        }
-        if (prop === "toString" || prop === "valueOf" || prop === "toJSON") {
-          return () => `[unavailable repositoryBackend: ${message}]`;
-        }
-        throw new Error(
-          `Service "repositoryBackend" is unavailable: repository-backend detection ` +
-            `failed at boot. ${message}`
-        );
-      },
-      set(_target, prop) {
-        throw new Error(
-          `Service "repositoryBackend" is unavailable: cannot write "${String(prop)}" — ` +
-            `repository-backend detection failed at boot. ${message}`
-        );
-      },
-    }
-  ) as AppServices["repositoryBackend"];
-}
-
-/**
- * Resolve repository-backend config for container boot, deferring detection
- * failures to first use.
+ * Repository-backend detection is environment-dependent: with no
+ * `repository.backend` in config it falls back to shelling out to
+ * `git remote get-url origin` in `process.cwd()`. Running that EAGERLY at
+ * container boot made every CLI command — including repo-orthogonal ones like
+ * `config get` and `persistence migrate` — spawn git and crash (pre-mt#2460)
+ * or leak `fatal: not a git repository` noise (post-mt#2460) when invoked
+ * outside a git checkout, and broke deployed headless containers with no git
+ * binary. Detection therefore runs ONLY when a consumer first calls
+ * `getRepositoryBackend()` (mt#1428; supersedes mt#2460's boot-time
+ * deferred-failure placeholder, which laziness makes unreachable).
  *
- * Detection is environment-dependent: with no `repository.backend` in config
- * it falls back to shelling out to `git remote get-url origin`, which cannot
- * succeed in a deployed headless container (no git binary, and /app is a
- * Docker COPY tree with no .git). That is a missing-resource condition, not a
- * wiring bug — return a throws-on-read placeholder (same boot-tolerance
- * posture as the persistence factory above) so entry points that never touch
- * the repository backend (e.g. the reviewer service) still boot. See mt#2460.
+ * Successful detection is memoized; failures are NOT cached, so a transient
+ * failure in a long-lived process (MCP server) can recover on a later call.
  *
  * The `detect` parameter is a test seam; production callers use the default.
  */
-export async function resolveRepositoryBackendForBoot(
-  detect?: () => Promise<AppServices["repositoryBackend"]>
-): Promise<AppServices["repositoryBackend"]> {
+export function makeLazyRepositoryBackendResolver(
+  detect?: () => Promise<RepositoryBackendInfo>
+): () => Promise<RepositoryBackendInfo> {
   const detectFn =
     detect ??
     (async () => {
@@ -88,18 +55,14 @@ export async function resolveRepositoryBackendForBoot(
       );
       return getRepositoryBackendFromConfig();
     });
-  try {
-    return await detectFn();
-  } catch (err) {
-    const { getErrorMessage } = await import("../errors/index");
-    const { log } = await import("@minsky/shared/logger");
-    const reason = getErrorMessage(err);
-    log.warn(
-      "Repository-backend detection failed — booting without a repository " +
-        `backend. Operations that need it will fail on first use. Reason: ${reason}`
-    );
-    return makeDeferredRepositoryBackendPlaceholder(reason);
-  }
+  let resolved: Promise<RepositoryBackendInfo> | undefined;
+  return () => {
+    resolved ??= detectFn().catch((err) => {
+      resolved = undefined;
+      throw err;
+    });
+    return resolved;
+  };
 }
 
 /**
@@ -220,8 +183,6 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
     return createWorkspaceUtils(c.get("sessionProvider"));
   });
 
-  container.register("repositoryBackend", () => resolveRepositoryBackendForBoot());
-
   // Default ClientCapabilityRegistry is the no-op implementation. Entry
   // points that attach an MCP host (e.g., the MCP server) override this
   // with a per-connection-aware registry after container creation.
@@ -242,7 +203,9 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
         const result = await getCurrentSession(repoPath, execAsync, sessionProvider);
         return result ?? null;
       },
-      getRepositoryBackend: async () => c.get("repositoryBackend"),
+      // Lazy: git-remote detection runs on first call, not at container boot
+      // (mt#1428). Commands that never need a repo backend never spawn git.
+      getRepositoryBackend: makeLazyRepositoryBackendResolver(),
     };
   });
 
