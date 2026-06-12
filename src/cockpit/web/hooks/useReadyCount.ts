@@ -1,8 +1,8 @@
 /**
  * useReadyCount — shared hook for the READY task count.
  *
- * Lifted from PlantPage.tsx (mt#2388) so both PlantPage and PlantGridPage can
- * reuse the same TanStack Query key without importing from a page module.
+ * Lifted from the (retired, mt#2423) SVG PlantPage so plant-board variants
+ * could share it; now consumed by PlantFlowPage (the /plant board).
  *
  * Query key: ["plant-board", "ready-count"]
  * staleTime: 30s, refetchInterval: 60s (breath-clock cadence).

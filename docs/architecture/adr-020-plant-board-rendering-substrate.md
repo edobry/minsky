@@ -2,7 +2,13 @@
 
 ## Status
 
-Proposed
+Accepted (2026-06-12 — substrate convergence, mt#2423). The operator compared all
+three routes live and picked the node-link board. The SVG schematic and CSS
+panel-grid comparison routes are retired (sources in git history); `/plant` now
+serves the node-link board, and the old paths redirect. The operator's
+acceptance carries one caveat: the node-link board must regain the SVG board's
+instrument-style metric representations (S2 valves, vessel tanks, memory
+reservoir, seam line, scan sweep, legend) — tracked as mt#2466.
 
 ## Context
 
@@ -154,9 +160,10 @@ coherent and readable, not cluttered. Data-ink ratio (Tufte) applies at the node
 
 ### Routes
 
-- `/plant` — SVG schematic (mt#2376 line). **Unchanged; no modifications in this ADR.**
-- `/plant-grid` — CSS panel grid (mt#2388). **Unchanged; cross-link to `/plant-flow` added.**
-- `/plant-flow` — Node-link canvas **(this ADR)**. New in this change.
+- `/plant` — **the node-link canvas board (this ADR)** — canonical since the
+  mt#2423 convergence.
+- `/plant-grid`, `/plant-flow` — retired comparison routes; both redirect to
+  `/plant`. Pre-retirement sources recoverable from git history.
 
 ## Cross-references
 
@@ -165,6 +172,8 @@ coherent and readable, not cluttered. Data-ink ratio (Tufte) applies at the node
 - **mt#2376 / mt#2380 / mt#2383 / mt#2387** — SVG-schematic implementation line.
 - **mt#2388** — CSS panel-grid implementation.
 - **mt#2389** — This ADR and the `/plant-flow` prototype (implementation task).
+- **mt#2423** — Substrate convergence (this ADR's acceptance; route retirement).
+- **mt#2466** — Instrument-parity port (the acceptance caveat's tracking task).
 - **Memory `82c7a58e-3917-4cf3-8b7c-9a488c28e846`** — Thread-the-needle research
   (Tufte, ISA-101 HMI, Shneiderman, react-flow).
 - **`docs/brand-system.md`** — Token palette (VSM organ colors, typography, motion budget).
