@@ -17,6 +17,7 @@ import { MinskyError } from "../errors/index";
 import { log } from "@minsky/shared/logger";
 import { handleOctokitError } from "./github-error-handler";
 import { type GitHubContext, createOctokit } from "./github-pr-operations";
+import { inflateRawSync } from "node:zlib";
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -305,16 +306,15 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
 /**
  * Extract text content from a ZIP Uint8Array.
  *
- * Parses ZIP local file headers (signature 0x04034b50) and extracts stored
- * (method 0) entries as UTF-8 text. DEFLATE-compressed entries (method 8)
- * are noted but returned as a placeholder since synchronous inflation
- * requires a native module not available in the current type environment.
+ * Parses ZIP local file headers (signature 0x04034b50) and extracts entries as
+ * UTF-8 text: STORED (method 0) directly, and DEFLATE (method 8) via
+ * `node:zlib` `inflateRawSync` (ZIP method 8 is raw DEFLATE; Bun implements
+ * Node's zlib, so no extra dependency is needed). GitHub Actions log ZIPs use
+ * DEFLATE, so that is the common path.
  *
- * GitHub Actions log ZIPs that use DEFLATE: the caller receives a
- * base64 fallback (see viewWorkflowRunLogs) and the consumer can decode
- * the ZIP with a full ZIP library if needed.
- *
- * NOTE: For full DEFLATE support, add the `fflate` or `unzipper` npm package.
+ * If a DEFLATE entry fails to inflate, its raw bytes are returned as a base64
+ * placeholder so content is never silently lost. Other compression methods keep
+ * a placeholder. (mt#2343)
  */
 function extractZipText(bytes: Uint8Array): string {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -353,13 +353,18 @@ function extractZipText(bytes: Uint8Array): string {
       // STORED — no compression
       entryText = decoder.decode(compressedData);
     } else if (compressionMethod === 8) {
-      // DEFLATE — native decompression not available without a ZIP library.
-      // Return raw bytes as base64 for this entry so the content isn't lost.
-      // Use uint8ArrayToBase64 (Buffer-based) rather than btoa(String.fromCharCode(...))
-      // — the spread-based form throws RangeError for buffers > ~65k bytes, and
-      // GitHub Actions log entries routinely exceed that.
-      const base64 = uint8ArrayToBase64(compressedData);
-      entryText = `[DEFLATE-compressed — decode: base64 then inflate-raw]\n${base64}`;
+      // DEFLATE — ZIP method 8 is raw DEFLATE; decompress synchronously via
+      // node:zlib (implemented by Bun, no extra dependency). Fall back to the
+      // base64 placeholder only if inflation throws, so a malformed entry never
+      // silently loses content (mt#2343).
+      try {
+        entryText = decoder.decode(inflateRawSync(compressedData));
+      } catch (err) {
+        const base64 = uint8ArrayToBase64(compressedData);
+        entryText = `[DEFLATE entry could not be inflated (${
+          err instanceof Error ? err.message : String(err)
+        }) — decode: base64 then inflate-raw]\n${base64}`;
+      }
     } else {
       entryText = `[unsupported compression method ${compressionMethod}]`;
     }
