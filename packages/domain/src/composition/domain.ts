@@ -53,6 +53,12 @@ function makeDeferredRepositoryBackendPlaceholder(
             `failed at boot. ${message}`
         );
       },
+      set(_target, prop) {
+        throw new Error(
+          `Service "repositoryBackend" is unavailable: cannot write "${String(prop)}" — ` +
+            `repository-backend detection failed at boot. ${message}`
+        );
+      },
     }
   ) as AppServices["repositoryBackend"];
 }

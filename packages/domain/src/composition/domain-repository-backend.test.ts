@@ -59,6 +59,14 @@ describe("resolveRepositoryBackendForBoot (mt#2460)", () => {
     expect(() => placeholder.backendType).toThrow(/unavailable/);
   });
 
+  test("placeholder field WRITES throw — no silent mutation masking the deferred state", async () => {
+    const placeholder = await resolveRepositoryBackendForBoot(failingDetect);
+
+    expect(() => {
+      (placeholder as { repoUrl: string }).repoUrl = "https://example.com/x.git";
+    }).toThrow(/unavailable/);
+  });
+
   test("placeholder inspection is benign: stringification and symbol/constructor reads do not throw", async () => {
     const placeholder = await resolveRepositoryBackendForBoot(failingDetect);
 
