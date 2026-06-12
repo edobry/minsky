@@ -19,8 +19,88 @@
  */
 
 import { TsyringeContainer } from "./container";
-import type { AppContainerInterface } from "./types";
+import type { AppContainerInterface, AppServices } from "./types";
 import { NoopClientCapabilityRegistry } from "../client-capabilities";
+
+/**
+ * Build the deferred-failure placeholder for `repositoryBackend` when
+ * detection fails at boot.
+ *
+ * `repositoryBackend` is a plain VALUE OBJECT (`repoUrl`, `backendType`, …),
+ * not a method-bearing service, so the container's generic placeholder —
+ * which returns callable stubs on property reads and only throws when one is
+ * CALLED — would let `placeholder.repoUrl` silently yield a function instead
+ * of a string. This placeholder instead throws on data-field reads so the
+ * deferred failure surfaces deterministically at first use. Inspection stays
+ * benign: symbols, `then` (so `await` works), and `constructor` return
+ * undefined; `toString`/`valueOf`/`toJSON` return a safe stringifier.
+ */
+function makeDeferredRepositoryBackendPlaceholder(
+  message: string
+): AppServices["repositoryBackend"] {
+  return new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (typeof prop === "symbol" || prop === "then" || prop === "constructor") {
+          return undefined;
+        }
+        if (prop === "toString" || prop === "valueOf" || prop === "toJSON") {
+          return () => `[unavailable repositoryBackend: ${message}]`;
+        }
+        throw new Error(
+          `Service "repositoryBackend" is unavailable: repository-backend detection ` +
+            `failed at boot. ${message}`
+        );
+      },
+      set(_target, prop) {
+        throw new Error(
+          `Service "repositoryBackend" is unavailable: cannot write "${String(prop)}" — ` +
+            `repository-backend detection failed at boot. ${message}`
+        );
+      },
+    }
+  ) as AppServices["repositoryBackend"];
+}
+
+/**
+ * Resolve repository-backend config for container boot, deferring detection
+ * failures to first use.
+ *
+ * Detection is environment-dependent: with no `repository.backend` in config
+ * it falls back to shelling out to `git remote get-url origin`, which cannot
+ * succeed in a deployed headless container (no git binary, and /app is a
+ * Docker COPY tree with no .git). That is a missing-resource condition, not a
+ * wiring bug — return a throws-on-read placeholder (same boot-tolerance
+ * posture as the persistence factory above) so entry points that never touch
+ * the repository backend (e.g. the reviewer service) still boot. See mt#2460.
+ *
+ * The `detect` parameter is a test seam; production callers use the default.
+ */
+export async function resolveRepositoryBackendForBoot(
+  detect?: () => Promise<AppServices["repositoryBackend"]>
+): Promise<AppServices["repositoryBackend"]> {
+  const detectFn =
+    detect ??
+    (async () => {
+      const { getRepositoryBackendFromConfig } = await import(
+        "../session/repository-backend-detection"
+      );
+      return getRepositoryBackendFromConfig();
+    });
+  try {
+    return await detectFn();
+  } catch (err) {
+    const { getErrorMessage } = await import("../errors/index");
+    const { log } = await import("@minsky/shared/logger");
+    const reason = getErrorMessage(err);
+    log.warn(
+      "Repository-backend detection failed — booting without a repository " +
+        `backend. Operations that need it will fail on first use. Reason: ${reason}`
+    );
+    return makeDeferredRepositoryBackendPlaceholder(reason);
+  }
+}
 
 /**
  * Create a container with all domain service factories registered.
@@ -140,12 +220,7 @@ export async function createDomainContainer(): Promise<AppContainerInterface> {
     return createWorkspaceUtils(c.get("sessionProvider"));
   });
 
-  container.register("repositoryBackend", async () => {
-    const { getRepositoryBackendFromConfig } = await import(
-      "../session/repository-backend-detection"
-    );
-    return getRepositoryBackendFromConfig();
-  });
+  container.register("repositoryBackend", () => resolveRepositoryBackendForBoot());
 
   // Default ClientCapabilityRegistry is the no-op implementation. Entry
   // points that attach an MCP host (e.g., the MCP server) override this
