@@ -52,11 +52,6 @@ jobs:
       PGHOST: localhost
       PGDATABASE: minsky_cold_start
       DATABASE_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_cold_start') }}
-      # minsky's config loader reads MINSKY_POSTGRES_URL (mapped to
-      # persistence.postgres.connectionString) — DATABASE_URL is only the smoke
-      # script's env-gate. Without this the migrate step fails with
-      # "PostgreSQL connection string not found" (mt#1428 / mt#2411).
-      MINSKY_POSTGRES_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_cold_start') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -96,6 +91,17 @@ jobs:
           ls dist/storage/migrations/pg/
 
       - name: Run cold-start migration smoke (from temp dir)
+        env:
+          # minsky's config loader reads MINSKY_POSTGRES_URL (mapped to
+          # persistence.postgres.connectionString) plus the required
+          # persistence.backend discriminator — DATABASE_URL above is only the
+          # smoke script's env-gate. Without these the migrate step fails with
+          # "PostgreSQL connection string not found" (mt#1428 / mt#2411).
+          # Step-scoped (not job-level): config validation runs during the
+          # build step too, and a connectionString without further required
+          # keys would fail it there.
+          MINSKY_PERSISTENCE_BACKEND: postgres
+          MINSKY_POSTGRES_URL: ${{ format('postgres://{0}:{1}@{2}:5432/{3}', 'minsky_test', 'minsky_test', 'localhost', 'minsky_cold_start') }}
         run: |
           # The smoke script changes to a temp directory internally so minsky
           # is called from outside the repo root — this is the core regression
