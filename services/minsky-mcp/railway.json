@@ -5,9 +5,9 @@
     "dockerfilePath": "Dockerfile",
     "watchPatterns": [
       "Dockerfile",
+      ".dockerignore",
       "package.json",
       "bun.lock",
-      "bunfig.toml",
       "tsconfig.json",
       "packages/shared/package.json",
       "packages/shared/tsconfig.json",

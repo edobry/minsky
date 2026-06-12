@@ -31,9 +31,9 @@ on:
     branches: [main]
     paths:
       - "Dockerfile"
+      - ".dockerignore"
       - "package.json"
       - "bun.lock"
-      - "bunfig.toml"
       - "tsconfig.json"
       - "packages/shared/package.json"
       - "packages/shared/tsconfig.json"
@@ -51,9 +51,9 @@ on:
     branches: [main]
     paths:
       - "Dockerfile"
+      - ".dockerignore"
       - "package.json"
       - "bun.lock"
-      - "bunfig.toml"
       - "tsconfig.json"
       - "packages/shared/package.json"
       - "packages/shared/tsconfig.json"
