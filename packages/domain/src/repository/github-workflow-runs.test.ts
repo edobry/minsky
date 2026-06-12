@@ -50,6 +50,9 @@ function octokitReturningZip(zip: Uint8Array) {
   };
 }
 
+/** Marker emitted by extractZipText's DEFLATE-inflate fallback (corrupt or over-cap). */
+const DEFLATE_FALLBACK_MARKER = "DEFLATE entry could not be inflated";
+
 function rawRun(overrides: Partial<Record<string, unknown>> = {}): Record<string, unknown> {
   return {
     id: 26132756066,
@@ -300,6 +303,24 @@ describe("viewWorkflowRunLogs", () => {
       26132756066,
       oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
     );
-    expect(result).toContain("DEFLATE entry could not be inflated");
+    expect(result).toContain(DEFLATE_FALLBACK_MARKER);
+  });
+
+  test("caps decompression (zip-bomb guard): >64MB expansion aborts to base64 fallback (mt#2343 R1)", async () => {
+    // A tiny DEFLATE stream that expands past MAX_DECOMPRESSED_ENTRY_BYTES (64MB):
+    // 64MB+1 zero bytes compress to a few KB. The cap must abort inflation
+    // (ERR_BUFFER_TOO_LARGE) and fall back to base64 rather than allocating it.
+    const bombSource = new Uint8Array(64 * 1024 * 1024 + 1); // zeros
+    const compressed = new Uint8Array(deflateRawSync(Buffer.from(bombSource.buffer)));
+    expect(compressed.length).toBeLessThan(1024 * 1024); // sanity: tiny compressed payload
+    const zip = buildSingleEntryZip("0_bomb.txt", compressed, 8);
+    const oct = octokitReturningZip(zip);
+    const result = await viewWorkflowRunLogs(
+      TEST_GH,
+      26132756066,
+      oct as unknown as Parameters<typeof viewWorkflowRunLogs>[2]
+    );
+    // Aborted into the fallback — not 64MB of decoded text.
+    expect(result).toContain(DEFLATE_FALLBACK_MARKER);
   });
 });
