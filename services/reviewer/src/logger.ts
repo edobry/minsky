@@ -81,15 +81,28 @@ const BEARER_RE = /Bearer\s+\S+/gi;
 // the multi-line body without needing the /s flag. Lazy quantifier (*?) so
 // adjacent PEM blocks don't get coalesced into one match.
 const PEM_BLOCK_RE = /-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g;
+// Credentials embedded in URLs (postgres://user:pass@host, redis://, https://, // gitleaks:allow
+// any scheme). DB client errors can echo full DSNs (mt#2463 R1) — mask the
+// userinfo, keep scheme + host so the log line stays diagnostic.
+const URL_CREDENTIALS_RE = /([a-z][a-z0-9+.-]*:\/\/)([^/\s:@]+):([^/\s@]+)@/gi;
+// libpq-style key/value conninfo strings ("host=x password=y") and generic
+// password=... fragments that DB drivers include in error messages.
+const PASSWORD_KV_RE = /\bpassword=[^\s&]+/gi;
 
 /**
  * Redact sensitive values from a string before it is logged.
  *
  * - "Bearer <token>" → "Bearer ***"
  * - Full PEM blocks (BEGIN through END) → "[REDACTED PEM]"
+ * - URL userinfo credentials ("scheme://user:pass@") → "scheme://***:***@"
+ * - "password=<value>" fragments → "password=***"
  */
 export function redactString(value: string): string {
-  return value.replace(BEARER_RE, "Bearer ***").replace(PEM_BLOCK_RE, "[REDACTED PEM]");
+  return value
+    .replace(BEARER_RE, "Bearer ***")
+    .replace(PEM_BLOCK_RE, "[REDACTED PEM]")
+    .replace(URL_CREDENTIALS_RE, "$1***:***@")
+    .replace(PASSWORD_KV_RE, "password=***");
 }
 
 /**
