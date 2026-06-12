@@ -23,16 +23,51 @@ import type { AppContainerInterface, AppServices } from "./types";
 import { NoopClientCapabilityRegistry } from "../client-capabilities";
 
 /**
- * Resolve repository-backend config for container boot, marking detection
- * failures boot-deferrable.
+ * Build the deferred-failure placeholder for `repositoryBackend` when
+ * detection fails at boot.
+ *
+ * `repositoryBackend` is a plain VALUE OBJECT (`repoUrl`, `backendType`, …),
+ * not a method-bearing service, so the container's generic placeholder —
+ * which returns callable stubs on property reads and only throws when one is
+ * CALLED — would let `placeholder.repoUrl` silently yield a function instead
+ * of a string. This placeholder instead throws on data-field reads so the
+ * deferred failure surfaces deterministically at first use. Inspection stays
+ * benign: symbols, `then` (so `await` works), and `constructor` return
+ * undefined; `toString`/`valueOf`/`toJSON` return a safe stringifier.
+ */
+function makeDeferredRepositoryBackendPlaceholder(
+  message: string
+): AppServices["repositoryBackend"] {
+  return new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (typeof prop === "symbol" || prop === "then" || prop === "constructor") {
+          return undefined;
+        }
+        if (prop === "toString" || prop === "valueOf" || prop === "toJSON") {
+          return () => `[unavailable repositoryBackend: ${message}]`;
+        }
+        throw new Error(
+          `Service "repositoryBackend" is unavailable: repository-backend detection ` +
+            `failed at boot. ${message}`
+        );
+      },
+    }
+  ) as AppServices["repositoryBackend"];
+}
+
+/**
+ * Resolve repository-backend config for container boot, deferring detection
+ * failures to first use.
  *
  * Detection is environment-dependent: with no `repository.backend` in config
  * it falls back to shelling out to `git remote get-url origin`, which cannot
  * succeed in a deployed headless container (no git binary, and /app is a
  * Docker COPY tree with no .git). That is a missing-resource condition, not a
- * wiring bug — mark it `bootDeferrable` so initialize() registers the
- * throws-on-use placeholder and entry points that never touch the repository
- * backend (e.g. the reviewer service) still boot. See mt#2460.
+ * wiring bug — return a throws-on-read placeholder (same boot-tolerance
+ * posture as the persistence factory above) so entry points that never touch
+ * the repository backend (e.g. the reviewer service) still boot. See mt#2460.
  *
  * The `detect` parameter is a test seam; production callers use the default.
  */
@@ -51,11 +86,13 @@ export async function resolveRepositoryBackendForBoot(
     return await detectFn();
   } catch (err) {
     const { getErrorMessage } = await import("../errors/index");
-    const wrapped = new Error(
-      `Repository backend unavailable: detection failed at boot. ${getErrorMessage(err)}`
-    ) as Error & { bootDeferrable: boolean };
-    wrapped.bootDeferrable = true;
-    throw wrapped;
+    const { log } = await import("@minsky/shared/logger");
+    const reason = getErrorMessage(err);
+    log.warn(
+      "Repository-backend detection failed — booting without a repository " +
+        `backend. Operations that need it will fail on first use. Reason: ${reason}`
+    );
+    return makeDeferredRepositoryBackendPlaceholder(reason);
   }
 }
 
