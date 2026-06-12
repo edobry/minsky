@@ -6,7 +6,7 @@
  *   - All VSM organ node panels are present (via data-testid on nodes).
  *   - READY node shows live /api/tasks count (same hook as PlantGridPage).
  *   - Loading state handled correctly.
- *   - Cross-links to /plant and /plant-grid are present.
+ *   - Cross-links to the retired comparison routes are gone (mt#2423).
  *
  * NOTE on @xyflow/react:
  *   react-flow renders on a canvas using ResizeObserver + DOM measurement, which
@@ -126,7 +126,7 @@ describe("PlantFlowPage", () => {
   test("renders the plant-flow header with correct title", () => {
     mockTasksFetch([]);
     renderPlantFlow();
-    expect(screen.getByText(/MINSKY.*PLANT FLOW/i)).toBeDefined();
+    expect(screen.getByText(/MINSKY.*PLANT/i)).toBeDefined();
   });
 
   test("renders the flow canvas container", () => {
@@ -256,20 +256,13 @@ describe("PlantFlowPage", () => {
     });
   });
 
-  // ---- Cross-links ----
+  // ---- Cross-links (retired routes, mt#2423) ----
 
-  test("renders cross-link to SVG schematic (/plant)", () => {
+  test("renders no cross-links to the retired schematic/grid routes", () => {
     mockTasksFetch([]);
     renderPlantFlow();
-    const link = screen.getByRole("link", { name: /schematic/i });
-    expect(link).toBeDefined();
-  });
-
-  test("renders cross-link to panel-grid (/plant-grid)", () => {
-    mockTasksFetch([]);
-    renderPlantFlow();
-    const link = screen.getByRole("link", { name: /grid/i });
-    expect(link).toBeDefined();
+    expect(screen.queryByRole("link", { name: /schematic/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /grid/i })).toBeNull();
   });
 
   // ---- Version / subtitle ----

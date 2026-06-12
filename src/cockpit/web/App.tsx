@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense, type ComponentType } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -66,10 +66,6 @@ const MemoriesPage = lazy(() =>
 );
 const MemoryPage = lazy(() =>
   import("./pages/MemoryPage").then((m) => ({ default: m.MemoryPage }))
-);
-const PlantPage = lazy(() => import("./pages/PlantPage").then((m) => ({ default: m.PlantPage })));
-const PlantGridPage = lazy(() =>
-  import("./pages/PlantGridPage").then((m) => ({ default: m.PlantGridPage }))
 );
 const PlantFlowPage = lazy(() =>
   import("./pages/PlantFlowPage").then((m) => ({ default: m.PlantFlowPage }))
@@ -446,30 +442,19 @@ export function App() {
               </ErrorBoundary>
             }
           />
+          {/* Plant board — the node-link whole-system view (ADR-020, converged
+              mt#2423: the SVG schematic and panel-grid comparison routes are
+              retired; old paths redirect for bookmark continuity). */}
           <Route
             path="/plant"
-            element={
-              <ErrorBoundary id="plant-page">
-                <PlantPage />
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/plant-grid"
-            element={
-              <ErrorBoundary id="plant-grid-page">
-                <PlantGridPage />
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/plant-flow"
             element={
               <ErrorBoundary id="plant-flow-page">
                 <PlantFlowPage />
               </ErrorBoundary>
             }
           />
+          <Route path="/plant-grid" element={<Navigate to="/plant" replace />} />
+          <Route path="/plant-flow" element={<Navigate to="/plant" replace />} />
         </Routes>
       </Suspense>
     </Layout>

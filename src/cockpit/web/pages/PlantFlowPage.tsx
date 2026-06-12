@@ -1,13 +1,15 @@
 /**
- * PlantFlowPage — the "/plant-flow" route (mt#2389).
+ * PlantFlowPage — the "/plant" route: the cockpit's whole-system plant board.
  *
- * A node-link canvas rearchitecture of the VSM-organ plant board, built as a
- * THIRD parallel route alongside /plant (SVG schematic) and /plant-grid (CSS grid)
- * for side-by-side comparison (ADR-020).
+ * A node-link canvas rendering of the VSM-organ plant (ADR-020, Accepted).
+ * Originally built as a third parallel route alongside the SVG schematic and
+ * CSS panel-grid prototypes; the substrate convergence (mt#2423) picked this
+ * board and retired the other two (their sources live in git history —
+ * instrument-parity port tracked in mt#2466).
  *
  * Design rationale (from ADR-020, memory 82c7a58e):
- *   - SVG /plant: native flow + relational legibility BUT fixed-aspect letterbox ceiling.
- *   - CSS /plant-grid: responsive fill + density BUT loses continuous-flow substrate.
+ *   - SVG schematic: native flow + relational legibility BUT fixed-aspect letterbox ceiling.
+ *   - CSS panel grid: responsive fill + density BUT loses continuous-flow substrate.
  *   - Node-link canvas (@xyflow/react): threads both needles — HTML node panels
  *     (density + reuse) wired by animated SVG edges (flow + relational legibility),
  *     on a pan/zoom canvas (responsive fill + spatial stability).
@@ -35,7 +37,6 @@
  */
 
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
 import {
   ReactFlow,
   type Node,
@@ -1227,28 +1228,13 @@ export function PlantFlowPage() {
       {/* Header */}
       <header className="flex items-baseline gap-4 px-[18px] py-[10px] border-b border-border flex-none">
         <h1 className="text-sm font-mono font-semibold tracking-[0.04em] m-0">
-          MINSKY · PLANT FLOW
+          MINSKY · PLANT
         </h1>
         <span className="text-[11px] font-mono text-muted-foreground">
           v1 · node-link canvas · READY tank live · pan/zoom · animated edges (v2 preview)
         </span>
         <span className="ml-auto flex items-center gap-3 text-[11px] font-mono">
           <span className="text-liveness-healthy">● system nominal</span>
-          {/* Cross-links to the other plant board routes */}
-          <Link
-            to="/plant"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Switch to SVG schematic layout"
-          >
-            ▢ schematic
-          </Link>
-          <Link
-            to="/plant-grid"
-            className="text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="Switch to panel-grid layout"
-          >
-            ⊞ grid
-          </Link>
         </span>
       </header>
 
