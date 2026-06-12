@@ -97,19 +97,21 @@ const PROP_DRIVEN_RENDERERS: Record<string, ComponentType<{ data: WidgetData }>>
 // Widgets whose data App fetches at the app level and distributes via props:
 //   - home-grid prop-driven cards (PROP_DRIVEN_RENDERERS), and
 //   - promoted prop-driven page widgets whose routes receive data via props
-//     (WorkstreamsPage, TasksLayout) rather than self-fetching.
+//     (TasksLayout) rather than self-fetching.
 // All other widgets — self-fetching home cards (attention, credentials, ...) and
 // self-fetching page widgets (AgentsPage, MemoriesPage, ...) — own their data via
 // the registry-gated /api/widget/:id/data endpoint and must NOT be polled
 // app-wide. This keeps app-level background load bounded to a small fixed set,
 // independent of how many widgets the registry contains (mt#2294).
+// Workstreams migrated off this list to a param-aware self-fetching query
+// (mt#2385 slice/altitude parameterization — see lib/use-workstreams-data.ts).
 //
 // Drift guard: the explicit page-widget entries below MUST also be in
 // PAGE_ROUTE_WIDGET_IDS (they are prop-driven page routes whose data is plumbed
-// via props — see workstreamsData / taskGraphData below). A dev-time assertion
+// via props — see taskGraphData below). A dev-time assertion
 // enforces this so adding a self-fetching page widget here (which would start
 // needless app-wide polling) fails fast rather than silently regressing load.
-const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["workstreams", "task-graph"] as const;
+const APP_LEVEL_PAGE_PROP_WIDGET_IDS = ["task-graph"] as const;
 const APP_LEVEL_PROP_WIDGET_IDS = new Set<string>([
   ...Object.keys(PROP_DRIVEN_RENDERERS),
   ...APP_LEVEL_PAGE_PROP_WIDGET_IDS,
@@ -301,7 +303,6 @@ export function App() {
   // ---------------------------------------------------------------------------
   // Data accessors for promoted page routes
   // ---------------------------------------------------------------------------
-  const workstreamsData = widgets.find((w) => w.meta.id === "workstreams")?.data ?? null;
   const taskGraphData = widgets.find((w) => w.meta.id === "task-graph")?.data ?? null;
 
   // Home page only receives the non-promoted, renderable widgets
@@ -371,7 +372,7 @@ export function App() {
             path="/workstreams"
             element={
               <ErrorBoundary id="workstreams-page">
-                <WorkstreamsPage data={workstreamsData} />
+                <WorkstreamsPage />
               </ErrorBoundary>
             }
           />
