@@ -252,7 +252,14 @@ export class PreCommitHook {
       try {
         const result = await execAsync(lintJsonCommand, {
           cwd: this.projectRoot,
-          timeout: 30000, // 30 second timeout
+          // Full-repo eslint wall time has grown to ~29s (measured 2026-06-13,
+          // mt#1859 session) — the former 30s timeout fired on any loaded run,
+          // blocking every commit with a bare "Command failed". 120s gives
+          // repo-growth headroom; a hung eslint still gets killed.
+          timeout: 120000,
+          // The --format json payload is ~850KB and grows with file count;
+          // the 1MB exec default truncate-kills the process at the boundary.
+          maxBuffer: 64 * 1024 * 1024,
         });
         stdout = result.stdout.toString();
         stderr = result.stderr.toString();
