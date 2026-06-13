@@ -73,6 +73,16 @@ describe("detectCodeMechanismAssertion", () => {
     expect(result.matched).toBe(true);
     expect(result.claims.map((c) => c.symbol)).toContain("unreadHelper");
   });
+
+  test("backticked file path does NOT yield its extension as a claim symbol (R1)", () => {
+    // `exec.ts` must not produce "ts"/"json" as a symbol (the removed
+    // last-segment fallback). The full token may appear; the extension must not.
+    const text = "The `exec.ts` module returns a config object.";
+    const result = detectCodeMechanismAssertion(text, "");
+    const syms = result.claims.map((c) => c.symbol);
+    expect(syms).not.toContain("ts");
+    expect(syms).not.toContain("json");
+  });
 });
 
 describe("buildVerificationCorpus", () => {
@@ -101,6 +111,35 @@ describe("buildVerificationCorpus", () => {
     expect(corpus).toContain("exec.ts"); // read-class input path
     expect(corpus).toContain("executeCommand"); // tool_result file content
     expect(corpus).not.toContain("secretMessageSymbol"); // non-read input excluded
+  });
+
+  test("Bash tool input is NOT collected (Bash is not read-class) (R1)", () => {
+    const turn: TranscriptLine[] = [
+      {
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", name: "Bash", input: { command: "echo unrelatedSymbol" } }],
+        },
+      },
+    ];
+    // Bash input string must not enter the corpus → an unread-symbol claim still fires.
+    expect(buildVerificationCorpus(turn)).not.toContain("unrelatedSymbol");
+  });
+
+  test("assistant-echoed tool_result block is NOT counted as backing (R1)", () => {
+    const turn: TranscriptLine[] = [
+      {
+        // assistant-role line carrying a tool_result-typed block (echo / malformed)
+        type: "assistant",
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_result", content: "executeCommand clamps maxBuffer" }],
+        },
+      },
+    ];
+    // Role-gating: tool_result content is only authentic on USER-role lines.
+    expect(buildVerificationCorpus(turn)).toBe("");
   });
 
   test("empty turn → empty corpus", () => {

@@ -82,6 +82,13 @@ const CALIBRATION_LOG = ".minsky/code-mechanism-assertion-calibration.jsonl";
  * Verbs/phrases asserting a code symbol's runtime behavior. Each is matched in
  * the assistant prose; a symbol-shaped token must sit within
  * SYMBOL_PROXIMITY_CHARS of the match for the pair to count as a claim.
+ *
+ * The last two patterns (`the <N><unit> default…` and `<noun> is/of/=`) are the
+ * highest FP risk: "the default is fine" near an identifier is not a behavioral
+ * assertion (PR #1697 R2). They are kept because they catch the R9 canonical
+ * phrasing ("the 1MB default maxBuffer"); the SYMBOL_PROXIMITY_CHARS guard plus
+ * the calibration-first rollout (INJECTION_ENABLED=false, FP measured via
+ * mt#2483) are what keep this acceptable until graduation.
  */
 export const PREDICATE_PATTERNS: RegExp[] = [
   /\b(clamps?|caps?|limits?)\b/i,
@@ -141,8 +148,14 @@ function isPlausibleSymbol(tok: string): boolean {
 
 /**
  * Collect distinct symbol-shaped tokens within `window` of `anchorIndex`.
- * Backticks are stripped; a backticked dotted path yields its last segment too
- * so `exec.ts` and `ts` are both checkable, and `a.b.c` yields `c`.
+ *
+ * Backticks are stripped to yield the full token. The dotted-path last-segment
+ * fallback was removed (PR #1697 R1): for a file path like `exec.ts` it produced
+ * the extension `ts`/`json` as a "symbol", which both inflated claims and
+ * spuriously marked claims backed when the extension happened to appear in the
+ * corpus. Meaningful sub-identifiers inside a dotted token (e.g. `maxBuffer` in
+ * `cfg.maxBuffer`) are still captured independently by CAMEL_CASE_RE/SNAKE_CASE_RE
+ * scanning the slice, so no real symbol is lost.
  */
 function symbolsNear(text: string, anchorIndex: number, window: number): string[] {
   const start = Math.max(0, anchorIndex - window);
@@ -153,8 +166,6 @@ function symbolsNear(text: string, anchorIndex: number, window: number): string[
   for (const m of slice.matchAll(BACKTICK_SYMBOL_RE)) {
     const raw = m[1] ?? "";
     if (isPlausibleSymbol(raw)) found.add(raw);
-    const lastSeg = raw.split(/[./\\]/).pop() ?? "";
-    if (lastSeg !== raw && isPlausibleSymbol(lastSeg)) found.add(lastSeg);
   }
   for (const m of slice.matchAll(CAMEL_CASE_RE)) {
     if (isPlausibleSymbol(m[0])) found.add(m[0]);
@@ -190,9 +201,16 @@ export function elideBlocksAndQuotes(text: string): string {
 // Same-turn verification corpus (tool inputs + tool_result content)
 // ---------------------------------------------------------------------------
 
-/** Read-class tool names whose input paths/patterns count as inspection. */
-const READ_CLASS_TOOL_RE =
-  /(^|_)(Read|Grep|Glob|Bash|read_file|grep_search|repo_search|repo_read_file|session_read_file|list_directory|search)$/i;
+/**
+ * Read-class tool names whose input paths/patterns count as inspection. Scoped
+ * to exactly the spec's normative list (PR #1697 R1): Read / Grep / Glob /
+ * session_read_file / repo_read_file / session_grep_search / repo_search. `Bash`,
+ * `list_directory`, and a generic `search` suffix were removed — they would mark
+ * a claim "backed" off an unrelated shell command or directory listing (silent
+ * false negative). Bash-based inspection (grep/cat) still backs a claim via its
+ * tool_result CONTENT, which is collected for all read-class results below.
+ */
+const READ_CLASS_TOOL_RE = /(?:^|_)(?:Read|Grep|Glob)$|(?:read_file|grep_search|repo_search)$/i;
 
 function collectStrings(value: unknown, out: string[]): void {
   if (typeof value === "string") {
@@ -216,25 +234,28 @@ export function buildVerificationCorpus(turnLines: TranscriptLine[]): string {
   const parts: string[] = [];
 
   for (const line of turnLines) {
+    const role = line.message?.role ?? line.type;
     const content = line.message?.content;
 
-    // Assistant-line tool_use blocks: capture INPUT of read-class tools.
     if (Array.isArray(content)) {
       for (const block of content as Array<Record<string, unknown>>) {
-        if (block["type"] === "tool_use") {
+        // Read-class tool INPUT — authentic tool_use lives on ASSISTANT lines.
+        if (role === "assistant" && block["type"] === "tool_use") {
           const name = (block["name"] as string) ?? "";
           if (READ_CLASS_TOOL_RE.test(name)) {
             collectStrings(block["input"], parts);
           }
         }
-        // User-role tool_result blocks: capture ALL result content.
-        if (block["type"] === "tool_result") {
+        // tool_result CONTENT — authentic tool outputs live on USER-role lines
+        // (Claude Code records tool_result as user role). Role-gating prevents an
+        // assistant-echoed tool_result block from counting as backing (PR #1697 R1).
+        if (role === "user" && block["type"] === "tool_result") {
           collectStrings(block["content"], parts);
         }
       }
     }
 
-    // Top-level tool_use line shape (defensive).
+    // Top-level tool_use line shape (defensive; assistant-side inspection).
     if (line.type === "tool_use") {
       const name = line.name ?? line.tool_name ?? "";
       if (READ_CLASS_TOOL_RE.test(name)) {
